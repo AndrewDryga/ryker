@@ -63,6 +63,7 @@ defmodule Ryker.Work.SessionChangeset do
     workspace_task = Map.fetch!(options, :workspace_task)
     repository_context = Map.get(options, :repository_context)
     repository_source = Map.get(options, :repository_source)
+    environment_ref = Map.get(options, :environment_ref)
     emisar = Map.get(options, :emisar)
 
     %Session{}
@@ -78,6 +79,7 @@ defmodule Ryker.Work.SessionChangeset do
         repository_ref: repository_ref,
         repository_context: repository_context,
         repository_source: repository_source,
+        environment_ref: environment_ref,
         emisar_connection_ref: emisar && emisar.connection_ref,
         emisar_account_ref: emisar && emisar.account_ref,
         emisar_rpc_url: emisar && emisar.rpc_url,
@@ -95,6 +97,7 @@ defmodule Ryker.Work.SessionChangeset do
         :repository_ref,
         :repository_context,
         :repository_source,
+        :environment_ref,
         :emisar_connection_ref,
         :emisar_account_ref,
         :emisar_rpc_url,
@@ -116,6 +119,7 @@ defmodule Ryker.Work.SessionChangeset do
     |> validate_format(:authority_digest, ~r/\A[0-9a-f]{64}\z/)
     |> validate_length(:repository_ref, min: 1, max: 1_024)
     |> validate_length(:external_ref, min: 1, max: 1_024)
+    |> validate_format(:environment_ref, ~r/\A[a-z0-9][a-z0-9-]{0,63}\z/)
     |> validate_repository_context()
     |> validate_repository_source()
     |> validate_emisar_pin()
@@ -127,6 +131,7 @@ defmodule Ryker.Work.SessionChangeset do
     |> check_constraint(:repository_context, name: :episode_work_session_repository_context_valid)
     |> check_constraint(:repository_source, name: :episode_work_session_repository_source_valid)
     |> check_constraint(:emisar_connection_ref, name: :episode_work_session_emisar_pin_valid)
+    |> check_constraint(:environment_ref, name: :episode_work_session_environment_valid)
   end
 
   defp validate_emisar_pin(changeset) do

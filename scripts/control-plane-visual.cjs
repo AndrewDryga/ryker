@@ -25,10 +25,11 @@ const routes = filtersOnly ? [['activity-root', '/'], ['episodes', '/activity?st
   ['memory', '/memory'], ['decisions', '/decisions'], ['findings', '/findings'],
   ['calibration', '/calibration'], ['configuration', '/configuration'],
   ['channels', '/channels'], ['repositories', '/repositories'], ['workspaces', '/workspaces'],
-  ['settings', '/settings'], ['settings-slack', '/settings/slack'],
-  ['settings-github', '/settings/github'], ['settings-emisar', '/settings/emisar'],
-  ['settings-webhooks', '/settings/webhooks'], ['settings-retention', '/settings/retention'],
-  ['settings-token-rates', '/settings/token-rates'], ['settings-system', '/settings/system'],
+  ['setup', '/setup'], ['integrations', '/integrations'], ['integrations-slack', '/integrations/slack'],
+  ['integrations-github', '/integrations/github'], ['integrations-emisar', '/integrations/emisar'],
+  ['integrations-webhooks', '/integrations/webhooks'], ['settings-models', '/settings/models'],
+  ['settings-retention', '/settings/retention'], ['settings-prices', '/settings/prices'],
+  ['settings-advanced', '/settings/advanced'],
   ['journeys', '/manual-tests'], ['card-lab', '/card-lab'],
   ['card-lab-state', '/card-lab/task-card/working'], ['missing-episode', '/timeline/missing']
 ];
@@ -37,10 +38,10 @@ const removedPages = ['decisions', 'calibration', 'configuration', 'journeys', '
 const sharedPageGutterPages = new Set([
   'activity-root', 'activity', 'incident-rooms', 'failures', 'usage', 'schedules',
   'subscriptions', 'rules', 'preferences', 'guidance', 'instructions', 'memory',
-  'findings', 'channels', 'repositories', 'workspaces', 'settings',
-  'settings-slack', 'settings-github', 'settings-emisar',
-  'settings-webhooks', 'settings-retention',
-  'settings-token-rates', 'settings-system'
+  'findings', 'channels', 'repositories', 'workspaces', 'setup', 'integrations',
+  'integrations-slack', 'integrations-github', 'integrations-emisar',
+  'integrations-webhooks', 'settings-models', 'settings-retention',
+  'settings-prices', 'settings-advanced'
 ]);
 
 async function connected(page) {
@@ -146,7 +147,7 @@ async function checkSettingsPage(page, name) {
   const title = (await page.locator('main h1').first().textContent()).trim();
   assert.equal(await page.getByRole('heading', {name: title, exact: true}).count(), 1, `${name}: the page title renders once`);
 
-  if (name === 'settings-emisar' && await page.getByText('Not connected', {exact: true}).count()) {
+  if (name === 'integrations-emisar' && await page.getByText('Not connected', {exact: true}).count()) {
     const form = page.locator('form[phx-submit="connect-emisar"]');
     assert.equal(await form.count(), 1, 'The first Emisar connection form is visible');
     assert.equal(await form.locator('xpath=ancestor::details').count(), 0, 'The first Emisar connection is not hidden in a disclosure');
@@ -242,7 +243,7 @@ async function discover(page) {
             if (sharedPageGutterPages.has(name)) await checkSharedPageGutter(page, width);
             await checkSharedFilterControls(page, width);
             await checkKeyboardFocus(page);
-            if (name.startsWith('settings')) await checkSettingsPage(page, name);
+            if (/^(setup|integrations|settings)/.test(name)) await checkSettingsPage(page, name);
             if (name === 'activity-root' || name === 'activity') await checkFilterToolbar(page, width);
             assert.equal(await page.locator('a[href^="/card-lab"], a[href="/manual-tests"]').count(), 0, 'Retired testing pages must not return to navigation');
             assert.equal(await page.locator('.nav-caption', {hasText: 'Testing'}).count(), 0, 'The Testing navigation group was removed');

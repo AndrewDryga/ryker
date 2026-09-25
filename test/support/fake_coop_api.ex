@@ -32,6 +32,8 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         fail_first_turn: Keyword.get(options, :fail_first_turn, false),
         fail_first_turn_response: Keyword.get(options, :fail_first_turn_response, false),
         first_turn_state: Keyword.get(options, :first_turn_state, "failed"),
+        # Every submitted turn ends in this terminal state, not only the first.
+        every_turn_state: Keyword.get(options, :every_turn_state),
         failed_turn_key: nil,
         lost_turn_response_key: nil,
         fail_first_validation: Keyword.get(options, :fail_first_validation, false),
@@ -155,8 +157,15 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         |> Map.put(:submitted_prompt, prompt)
         |> Map.put(:turn_keys, state.turn_keys ++ [key])
 
-      if state.fail_first_turn and is_nil(state.failed_turn_key) do
-        failed = decorate_turn(failed_turn(session_id, state.first_turn_state), state)
+      terminal_state =
+        cond do
+          state.every_turn_state != nil -> state.every_turn_state
+          state.fail_first_turn and is_nil(state.failed_turn_key) -> state.first_turn_state
+          true -> nil
+        end
+
+      if terminal_state do
+        failed = decorate_turn(failed_turn(session_id, terminal_state), state)
 
         operation =
           succeeded_operation("SubmitTurn", "turn", failed["id"])

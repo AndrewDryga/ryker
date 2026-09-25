@@ -17,7 +17,17 @@ defmodule Ryker.Retention.Executor do
   def run(%{lease_ref: lease_ref, session: %Session{} = session}, options)
       when is_binary(lease_ref) do
     with {:ok, settings} <- settings(options) do
-      execute(session.cleanup_status, session, lease_ref, settings)
+      case execute(session.cleanup_status, session, lease_ref, settings) do
+        # The first call after a placement's lease ends retires that placement
+        # and says so; the next one goes back to the worker holding the session.
+        {:error, {:coop_session_replacement_required, _session_id, _generation}} ->
+          session.cleanup_status
+          |> execute(session, lease_ref, settings)
+          |> unreachable(session, lease_ref)
+
+        result ->
+          unreachable(result, session, lease_ref)
+      end
     end
   rescue
     error -> {:error, {:retention_executor_exception, Exception.message(error)}}
@@ -26,6 +36,35 @@ defmodule Ryker.Retention.Executor do
   end
 
   def run(_claim, _options), do: {:error, {:invalid_retention_executor, :claim}}
+
+  # Placement sends cleanup to the worker holding the session whatever that
+  # worker runs now, so it refuses only when the worker is away (waited for as
+  # an outage) or was removed from Ryker (the cleanup ends with a receipt that
+  # names it). Blocking here left two cleanups for a person on 2026-09-23 with
+  # a retry that could never work. A session the worker's own Coop no longer
+  # knows has nothing left to close or remove.
+  defp unreachable(
+         {:error, {:coop_session_replacement_required, _session_id, _generation}},
+         session,
+         lease_ref
+       ) do
+    with {:ok, settled} <- Custody.settle_worker_removed(session.id, lease_ref) do
+      {:ok, %{phase: :discarded, session: settled}}
+    end
+  end
+
+  defp unreachable(
+         {:error, {:coop_error, 404, "session_not_found", _detail}},
+         session,
+         lease_ref
+       ) do
+    with {:ok, settled} <-
+           Custody.settle_remote_absent(session.id, lease_ref, session.coop_session_id) do
+      {:ok, %{phase: :discarded, session: settled}}
+    end
+  end
+
+  defp unreachable(result, _session, _lease_ref), do: result
 
   defp execute(:close_pending, %Session{coop_session_id: nil} = session, lease_ref, _settings) do
     with {:ok, settled} <- Custody.settle_absent(session.id, lease_ref) do

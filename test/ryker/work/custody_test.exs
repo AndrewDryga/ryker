@@ -85,6 +85,45 @@ defmodule Ryker.Work.CustodyTest do
     assert claim.session.repository_ref == "infrastructure"
   end
 
+  test "a model change moves an episode onto its policy's current digest when authority is unchanged" do
+    # Choosing another model in Settings changes a policy's digest but not its
+    # authority. The session stayed pinned to the old digest, no worker
+    # advertised it any more, and the conversation's next turn blocked as "no
+    # eligible worker with available capacity".
+    command = create_kernel_episode!("model-moved")
+    old = String.duplicate("a", 64)
+    new = String.duplicate("b", 64)
+
+    assert {:ok, pinned} =
+             Custody.pin_episode(command.episode_id, "ryker-chat", old, @authority_digest, nil)
+
+    binding!("ryker-chat", new, @authority_digest)
+    assert Custody.current_policy_digest(pinned) == new
+
+    # No worker has created this session yet, so it takes the current digest.
+    assert {:ok, claim} = Custody.claim_next("worker:model-moved", 60)
+    assert claim.session.id == pinned.id
+    assert claim.session.policy == "ryker-chat"
+    assert claim.session.policy_digest == new
+    assert claim.session.authority_digest == @authority_digest
+  end
+
+  test "a policy whose authority changed keeps an episode on its pinned digest" do
+    # Only a model change is followed. Different tools or repository access
+    # would change what the running work may do, so the pin stands.
+    command = create_kernel_episode!("authority-moved")
+    old = String.duplicate("a", 64)
+
+    assert {:ok, pinned} =
+             Custody.pin_episode(command.episode_id, "ryker-chat", old, @authority_digest, nil)
+
+    binding!("ryker-chat", String.duplicate("b", 64), String.duplicate("c", 64))
+    assert Custody.current_policy_digest(pinned) == old
+
+    assert {:ok, claim} = Custody.claim_next("worker:authority-moved", 60)
+    assert claim.session.policy_digest == old
+  end
+
   test "a frozen turn context and Coop session survive lease expiry" do
     create_episode!("crash-recovery")
     assert {:ok, first} = Custody.claim_next("worker:a", 30)
@@ -1003,6 +1042,9 @@ defmodule Ryker.Work.CustodyTest do
            ) == {:error, :work_turn_already_bound}
   end
 
+  # A replacement generation is the same custody, never a new resolution: it
+  # keeps the environment the work started in (and with it the Emisar pin and
+  # the mounted repositories) even if the environment changed since.
   test "session rotation preserves the pinned writable workspace task" do
     command = create_kernel_episode!("workspace-task-rotation")
 
@@ -1030,11 +1072,14 @@ defmodule Ryker.Work.CustodyTest do
                  String.duplicate("a", 64),
                  "ryker",
                  repository_context,
-                 workspace_task
+                 workspace_task,
+                 nil,
+                 "platform"
                )
              end)
 
     assert pinned.workspace_task == workspace_task
+    assert pinned.environment_ref == "platform"
     assert {:ok, claim} = Custody.claim_next("worker:workspace-task-rotation", 60)
 
     assert {:ok, bound_session} =
@@ -1058,6 +1103,7 @@ defmodule Ryker.Work.CustodyTest do
     assert replacement.generation == 2
     assert replacement.repository_ref == "ryker"
     assert replacement.repository_context == repository_context
+    assert replacement.environment_ref == "platform"
     assert replacement.workspace_task == workspace_task
   end
 
@@ -1582,6 +1628,29 @@ defmodule Ryker.Work.CustodyTest do
     })
   end
 
+  defp binding!(policy_name, policy_digest, authority_digest) do
+    {:ok, snapshot} =
+      case Ryker.Settings.fetch() do
+        {:ok, snapshot} -> {:ok, snapshot}
+        {:error, :settings_not_initialized} -> Ryker.Settings.initialize("control-plane:local")
+      end
+
+    {:ok, _snapshot} =
+      Ryker.Settings.put_policy_binding(
+        %{
+          authority_digest: authority_digest,
+          policy_digest: policy_digest,
+          policy_name: policy_name,
+          purpose: :conversational,
+          scope_kind: :installation,
+          scope_ref: "",
+          verified_by: :import
+        },
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
+  end
+
   defp create_episode!(suffix, turn_ref \\ nil) do
     command = create_kernel_episode!(suffix, turn_ref)
 
@@ -1616,7 +1685,7 @@ defmodule Ryker.Work.CustodyTest do
                  "required" => ["message"],
                  "type" => "object"
                },
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     submission

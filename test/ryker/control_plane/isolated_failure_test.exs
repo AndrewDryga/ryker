@@ -39,7 +39,7 @@ defmodule Ryker.ControlPlane.IsolatedFailureTest do
 
     assert html =~ "Intake"
     assert html =~ "Standing rules"
-    assert html =~ "Input queue"
+    assert html =~ ~s(class="case-event-content input-queue")
     assert html =~ "Investigate tool"
   end
 
@@ -56,7 +56,7 @@ defmodule Ryker.ControlPlane.IsolatedFailureTest do
 
     assert html =~ "Participation"
     assert html =~ "Standing rules"
-    assert html =~ "Input queue"
+    assert html =~ ~s(class="case-event-content input-queue")
   end
 
   test "a malformed delivery document does not erase the rest of the timeline" do

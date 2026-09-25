@@ -503,7 +503,7 @@ defmodule Ryker.Work.Validator do
 
     result =
       case final.delivery do
-        :reply -> Result.new(:reply, Final.document(final), nil, continuation)
+        :reply -> Result.new(:reply, Final.delivery_document(final), nil, continuation)
         :none -> Result.new(:none, nil, final.decision_reason, continuation)
       end
 
@@ -851,7 +851,7 @@ defmodule Ryker.Work.Validator do
 
   defp final_violation(:fields),
     do:
-      "The top-level object must contain exactly decision_reason, delivery, message, and outcome; remove unknown fields and add missing fields."
+      "The top-level object must contain exactly decision_reason, delivery, message, outcome, and title; remove unknown fields and add missing fields."
 
   defp final_violation(:delivery),
     do: "delivery must be exactly reply or none."
@@ -886,6 +886,10 @@ defmodule Ryker.Work.Validator do
   defp final_violation(:state_requires_visible_reply),
     do:
       "An input-waiting outcome requires delivery reply so the user can answer. Event waiting may use delivery none with its durable wait record."
+
+  defp final_violation(:title),
+    do:
+      "title must be null to keep the episode's current title, or one line of nonblank text naming the episode's work in at most 80 Unicode characters."
 
   defp final_violation(:waiting_state_requires_record),
     do:

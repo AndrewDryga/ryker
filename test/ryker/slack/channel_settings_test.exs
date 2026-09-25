@@ -3,6 +3,7 @@ defmodule Ryker.Slack.ChannelSettingsTest do
 
   import Ecto.Query
 
+  alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Repo
   alias Ryker.Settings
 
@@ -19,8 +20,7 @@ defmodule Ryker.Slack.ChannelSettingsTest do
   @operator "slack:user:U123"
 
   setup do
-    {:ok, _} = Settings.initialize("control-plane:local")
-    {:ok, _} = Settings.put_repository(%{ref: "infrastructure"}, 1, "control-plane:local")
+    ChannelEnvironments.environment!("infrastructure")
 
     {:ok, saved} =
       Settings.save_slack(
@@ -29,10 +29,9 @@ defmodule Ryker.Slack.ChannelSettingsTest do
           workspace_ref: @workspace,
           bot_ref: "A0123456789",
           bot_user_ref: "U0123456789",
-          default_repository_ref: "infrastructure",
           operators: ["U123"]
         },
-        2,
+        Settings.fetch!().installation.revision,
         "control-plane:local"
       )
 
@@ -149,7 +148,7 @@ defmodule Ryker.Slack.ChannelSettingsTest do
       invite_user_group_refs: [],
       invite_user_refs: [],
       participation: participation,
-      repository_ref: "infrastructure",
+      environment_ref: "infrastructure",
       revision: 1,
       saved_at: @now,
       workspace_ref: @workspace

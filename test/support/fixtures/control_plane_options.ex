@@ -157,26 +157,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             slack: %{state: :not_connected}
           }
         end,
-        admission: fn
-          "ingress-input:one" ->
-            {:ok,
-             %{
-               action: :rearm,
-               attempt_count: 3,
-               detail: "stored diagnostic sha256:admission",
-               destination: "github:github-main:repository:99 / github:github-main:pull:42",
-               episode_ref: nil,
-               kind: "admission",
-               ref: "ingress-input:one",
-               source: "github:github-main · github-delivery-one",
-               status: :blocked,
-               summary: "operation_uncertain",
-               updated_at: ~U[2026-08-28 11:59:00Z]
-             }}
-
-          _ref ->
-            :not_found
-        end,
         configuration: fn -> [%{key: "runtime", value: "configured"}] end,
         operator_configuration: fn ->
           %{
@@ -199,13 +179,17 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
               membership: :joined,
               participation: :mentions,
               private: false,
-              repository_ref: "ryker",
+              environment_ref: "production",
+              environment_name: "Production",
+              environment_source: :channel,
               workspace_ref: "T123"
             }
           ]
         end,
+        # An incident room's channel has a page of its own: the room is what
+        # mentions it, so the room page's channel link always opens.
         channel: fn
-          "T123", "C456", params ->
+          "T123", channel, params when channel in ["C456", "CINCIDENT"] ->
             send(parent, {:channel_params, params})
 
             {:ok,
@@ -213,9 +197,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                params: %{},
                scope: %Ryker.ControlPlane.ChannelScope{
                  workspace_ref: "T123",
-                 channel_ref: "C456",
+                 channel_ref: channel,
                  canonical_workspace_ref: "slack:T123",
-                 conversation_ref: "slack:T123:C456",
+                 conversation_ref: "slack:T123:" <> channel,
                  repository_ref: "ryker"
                },
                channel: %{
@@ -236,13 +220,21 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                    invite_user_group_refs: [],
                    invite_user_refs: [],
                    participation: :mentions,
-                   repository_ref: "ryker",
+                   environment_ref: "production",
                    revision: 2,
                    saved_at: ~U[2026-08-28 12:00:00Z]
                  },
                  incident_room: nil,
-                 repository: %{ref: "ryker", source: :configuration}
+                 environment: %{
+                   emisar: "Production approvals",
+                   name: "Production",
+                   ref: "production",
+                   repositories: [%{ref: "ryker", name: "acme/ryker"}],
+                   source: :channel,
+                   writable: "ryker"
+                 }
                },
+               environments: [%{ref: "production", name: "Production"}],
                episodes: %{
                  key: "episode_page",
                  items: [
@@ -259,22 +251,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  page: 1,
                  pages: 1
                },
-               participation: [
-                 %{
-                   revision: 2,
-                   scope: :channel,
-                   setting: :proactive,
-                   updated_at: ~U[2026-08-28 12:00:00Z],
-                   value: true
-                 },
-                 %{
-                   revision: 2,
-                   scope: :installation,
-                   setting: :shadow,
-                   updated_at: ~U[2026-08-28 12:00:00Z],
-                   value: false
-                 }
-               ],
+               participation: %{source: :channel, value: :mentions},
                schedules: %{
                  key: "schedule_page",
                  items: [
@@ -316,7 +293,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  pages: 1
                },
                continuity: %{drafts: 0, handover_failures: 0},
-               rollups: %{key: "rollup_page", items: [], total: 0, page: 1, pages: 1},
                knowledge: %{key: "knowledge_page", items: [], total: 0, page: 1, pages: 1},
                rules: %{key: "rule_page", items: [], total: 0, page: 1, pages: 1},
                preferences: %{key: "preference_page", items: [], total: 0, page: 1, pages: 1},
@@ -336,48 +312,10 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  link: "/activity?mode=all&usage_channel=slack%3AT123%3AC456&usage_window=7d",
                  usage_path: "/usage?mode=all&window=7d"
                },
-               learning: %{
-                 key: "learning_page",
-                 items: [],
-                 total: 0,
-                 page: 1,
-                 pages: 1,
-                 counts: %{
-                   queued: 0,
-                   running: 0,
-                   applied: 0,
-                   no_change: 0,
-                   deferred: 0,
-                   superseded: 0
-                 },
-                 waiting_inputs: 0,
-                 enabled: true
-               }
+               learning: %{enabled: true, needs_attention: 0, waiting: 0}
              }}
 
           _workspace, _channel, _params ->
-            :not_found
-        end,
-        delivery: fn
-          "delivery:one" ->
-            {:ok,
-             %{
-               detail: "stored diagnostic sha256:delivery",
-               kind: :message,
-               ref: "delivery:one",
-               status: :blocked,
-               summary: "provider_unavailable",
-               updated_at: ~U[2026-08-28 12:00:00Z]
-             }}
-
-          _ref ->
-            :not_found
-        end,
-        emisar: fn
-          "approval:one" ->
-            {:ok, %{action: :rearm, kind: "emisar", status: :blocked}}
-
-          _ref ->
             :not_found
         end,
         episode: fn
@@ -469,86 +407,13 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           _ref, _params ->
             :not_found
         end,
-        failures: fn _params ->
-          {:ok,
-           [
-             %{
-               action: :rearm,
-               attempt_count: 3,
-               detail: "stored diagnostic sha256:delivery",
-               destination: "slack:T123:C456 / 1787832000.001",
-               episode_ref: "episode:one",
-               kind: "delivery",
-               ref: "delivery:one",
-               source: nil,
-               status: :blocked,
-               summary: "provider_unavailable",
-               updated_at: ~U[2026-08-28 12:00:00Z]
-             },
-             %{
-               action: :rearm,
-               attempt_count: 3,
-               detail: "stored diagnostic sha256:admission",
-               destination: "github:github-main:repository:99 / github:github-main:pull:42",
-               episode_ref: nil,
-               kind: "admission",
-               ref: "ingress-input:one",
-               source: "github:github-main · github-delivery-one",
-               status: :blocked,
-               summary: "operation_uncertain",
-               updated_at: ~U[2026-08-28 11:59:00Z]
-             },
-             %{
-               action: nil,
-               attempt_count: 1,
-               detail: "stored diagnostic sha256:publication",
-               destination: "ryker / symbolicator-deploy",
-               episode_ref: "episode:one",
-               kind: "publication",
-               ref: "publication:one",
-               source: nil,
-               status: :blocked,
-               summary: "publication_repository_not_configured",
-               updated_at: ~U[2026-08-28 11:58:00Z]
-             },
-             %{
-               action: :retry,
-               kind: "work",
-               ref: "episode:blocked",
-               status: :blocked,
-               summary: "work_execution_blocked",
-               updated_at: ~U[2026-08-28 11:58:00Z]
-             },
-             %{
-               action: :rearm,
-               kind: "emisar",
-               ref: "approval:one",
-               status: :blocked,
-               summary: "emisar_unavailable",
-               updated_at: ~U[2026-08-28 11:57:00Z]
-             },
-             %{
-               action: :rearm,
-               kind: "slack_interaction",
-               ref: "interaction:one",
-               status: :blocked,
-               summary: "slack_unavailable",
-               updated_at: ~U[2026-08-28 11:56:00Z]
-             },
-             %{
-               action: :rearm,
-               kind: "slack_incident",
-               ref: "incident-room:one",
-               status: :blocked,
-               summary: "incident_audience_member_invalid",
-               updated_at: ~U[2026-08-28 11:55:00Z]
-             }
-           ]}
-        end,
+        failure: &failure_row/2,
+        failures: fn _params -> {:ok, failure_rows()} end,
         findings: fn _params -> %{items: [], total: 0, page: 1, pages: 1} end,
         incidents: fn _params ->
           [
             %{
+              channel_name: "inc-latency",
               channel_ref: "CINCIDENT",
               channel_state: :active,
               episode_ref: "episode:incident",
@@ -557,6 +422,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
               publication_status: nil,
               ref: "incident:one",
               repository_ref: "ryker",
+              requested_at: ~U[2026-08-28 11:55:00Z],
               status: :ready,
               title: "Investigate latency",
               updated_at: ~U[2026-08-28 12:00:00Z],
@@ -588,6 +454,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                },
                records: [],
                room: %{
+                 channel_name: "inc-latency",
                  channel_ref: "CINCIDENT",
                  channel_state: :active,
                  episode_ref: "episode:incident",
@@ -907,6 +774,61 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           _ ->
             :not_found
         end,
+        learned: fn params ->
+          %{
+            counts: %{context: 0, knowledge: 1},
+            kind: "knowledge",
+            q: params["q"] || "",
+            page: 1,
+            pages: 1,
+            total: 1,
+            related_to: nil,
+            source_parent: nil,
+            selected: nil,
+            rebuild: nil,
+            history: [],
+            history_page: 1,
+            history_pages: 1,
+            learning: nil,
+            items: [
+              %{
+                id: "018f3ef7-1f62-7ee0-a83c-0c12f21d83aa",
+                title: "Deploy window",
+                conversation: "#infra",
+                conversation_path: "/activity?conversation=slack%3AT123%3AC456",
+                workspace: nil,
+                at: ~U[2026-08-28 12:00:00Z],
+                changed_at: ~U[2026-08-28 12:00:00Z],
+                source_at: ~U[2026-08-28 11:00:00Z],
+                repository: "ryker",
+                text: "Deploys happen after 15:00 UTC on weekdays.",
+                groups: [],
+                source: nil,
+                available: true,
+                source_count: 0,
+                source_path: nil,
+                version: 1,
+                request_path: nil,
+                expires_at: nil
+              }
+            ]
+          }
+        end,
+        learning: fn _params ->
+          %{
+            state: :on,
+            enabled: true,
+            worker_running: true,
+            counts: %{queued: 0, running: 0, applied: 0, no_change: 0, deferred: 0, superseded: 0},
+            waiting_inputs: 2,
+            oldest_waiting_at: ~U[2026-08-28 12:00:00Z],
+            attention: %{items: [], page: 1, pages: 1, total: 0},
+            recent: %{items: [], page: 1, pages: 1, total: 0, outcome: ""},
+            handover_failures: %{total: 0, items: [], page: 1, pages: 1},
+            selected: nil,
+            receipt: nil
+          }
+        end,
         memory: fn _params ->
           %{
             behaviors: [
@@ -997,6 +919,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             %{
               channels: 1,
               configured: %{contributor_policy: "ryker-write"},
+              environments: ["Production"],
               freshness: %{
                 fetched_at: "2026-08-28T11:59:00Z",
                 recorded_at: ~U[2026-08-28 12:00:00Z],
@@ -1028,12 +951,20 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             %{
               authority: :read_only,
               destination_conversation_ref: "slack:T123:C456",
+              destination_thread_ref: nil,
               destination_transport: "slack",
+              expires_at: nil,
+              expires_local: nil,
               failures: 0,
+              next_local: ~N[2026-08-29 09:00:00],
               next_occurrence_at: ~U[2026-08-29 09:00:00Z],
+              now_local: ~N[2026-08-28 12:00:00],
+              once_local: nil,
+              recurrence: %{"kind" => "daily", "time" => "09:00:00"},
               ref: "schedule:one",
               repository: "ryker",
               status: :active,
+              task: "Check current health.",
               timezone: "UTC",
               title: "Daily health",
               updated_at: ~U[2026-08-28 12:00:00Z]
@@ -1051,11 +982,12 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
               matcher_digest: String.duplicate("m", 64),
               poll_after: ~U[2026-08-29 11:55:00Z],
               ref: "event-subscription:one",
-              title: "Matching GitHub update",
-              condition: "Next matching GitHub update",
+              title: "A matching GitHub update",
+              condition: nil,
               episode_title: "Review the deployment",
               episode_href: "/timeline/episode%3Aone",
-              context_label: "GitHub",
+              place: nil,
+              repository: "ryker",
               source_label: "GitHub",
               target_url: nil,
               resolution_kind: nil,
@@ -1073,11 +1005,23 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
              %{
                occurrences: [
                  %{
+                   accepted_at: nil,
+                   delivered_at: ~U[2026-08-28 09:05:30Z],
+                   due_local: ~N[2026-08-28 09:00:00],
                    episode_ref: "episode:one",
+                   episode_state: :complete,
+                   failure_cause: nil,
+                   failure_code: nil,
+                   failure_detail: nil,
+                   finished_at: ~U[2026-08-28 09:05:24Z],
                    missed_reason: nil,
                    ref: "occurrence:one",
                    scheduled_for: ~U[2026-08-28 09:00:00Z],
-                   status: :dispatched
+                   started_at: ~U[2026-08-28 09:05:05Z],
+                   status: :dispatched,
+                   trigger: :scheduled,
+                   turn_status: :settled,
+                   work_attempt_count: 2
                  }
                ],
                schedule: %{
@@ -1087,14 +1031,22 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  destination_thread_ref: "1787832000.001000",
                  destination_transport: "slack",
                  expires_at: nil,
+                 expires_local: nil,
                  failure_count: 0,
                  last_error: nil,
+                 next_local: ~N[2026-08-29 09:00:00],
                  next_occurrence_at: ~U[2026-08-29 09:00:00Z],
-                 recurrence: "daily at 09:00:00",
+                 now_local: ~N[2026-08-28 12:00:00],
+                 once_local: nil,
+                 recurrence: %{"kind" => "daily", "time" => "09:00:00"},
                  ref: "schedule:one",
                  repository: "ryker",
                  revision: 1,
                  source_episode_ref: "episode:one",
+                 source_request: %{
+                   href: "/timeline/episode%3Aone",
+                   title: "Set up a daily health check"
+                 },
                  status: :active,
                  task: "Check current health.",
                  timezone: "UTC",
@@ -1150,37 +1102,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             },
             window: "24h"
           }
-        end,
-        slack_interaction: fn
-          "interaction:one" ->
-            {:ok, %{action: :rearm, kind: "slack_interaction", status: :blocked}}
-
-          _ref ->
-            :not_found
-        end,
-        slack_incident: fn
-          "incident-room:one" ->
-            {:ok, %{action: :rearm, kind: "slack_incident", status: :blocked}}
-
-          _ref ->
-            :not_found
-        end,
-        work: fn
-          "episode:blocked" ->
-            {:ok,
-             %{
-               action: :retry,
-               kind: "work",
-               status: :blocked,
-               work_recovery: %{
-                 kind: :execution,
-                 fingerprint: String.duplicate("a", 64),
-                 retry_effect: "Starts a fresh logical turn."
-               }
-             }}
-
-          _ref ->
-            :not_found
         end,
         workspace: fn
           "workspace:blocked" ->
@@ -1309,5 +1230,127 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         end
       }
     }
+  end
+
+  defp failure_row(kind, ref) do
+    case Enum.find(failure_rows(), &(&1.kind == kind and &1.ref == ref)) do
+      nil -> :not_found
+      row -> {:ok, row}
+    end
+  end
+
+  # The recorded failures: one of every recoverable kind and one publication,
+  # which has no confirmed recovery. The list and a single failure's page read
+  # the same rows, as the real projection does.
+  defp failure_rows do
+    [
+      %{
+        action: :rearm,
+        attempt_count: 3,
+        delivery_kind: :message,
+        detail: "stored diagnostic sha256:delivery",
+        destination: "slack:T123:C456 / 1787832000.001",
+        episode_ref: "episode:one",
+        kind: "delivery",
+        ref: "delivery:one",
+        source: "message delivery",
+        status: :blocked,
+        summary: "provider_unavailable",
+        updated_at: ~U[2026-08-28 12:00:00Z]
+      },
+      %{
+        action: :rearm,
+        attempt_count: 3,
+        detail: "stored diagnostic sha256:admission",
+        destination: "github:github-main:repository:99 / github:github-main:pull:42",
+        episode_ref: nil,
+        kind: "admission",
+        ref: "ingress-input:one",
+        source: "github:github-main · github-delivery-one",
+        status: :blocked,
+        summary: "operation_uncertain",
+        updated_at: ~U[2026-08-28 11:59:00Z]
+      },
+      %{
+        action: nil,
+        attempt_count: 1,
+        detail: "stored diagnostic sha256:publication",
+        destination: "ryker / symbolicator-deploy",
+        episode_ref: "episode:one",
+        kind: "publication",
+        ref: "publication:one",
+        source: nil,
+        status: :blocked,
+        summary: "publication_repository_not_configured",
+        updated_at: ~U[2026-08-28 11:58:00Z]
+      },
+      %{
+        action: :retry,
+        attempt_count: 1,
+        episode_ref: "episode:blocked",
+        kind: "work",
+        ref: "episode:blocked",
+        status: :blocked,
+        summary: "work_execution_blocked",
+        updated_at: ~U[2026-08-28 11:58:00Z],
+        work_recovery: %{
+          action: :retry,
+          action_label: "Retry work",
+          cause: "The worker did not take or finish one of this task's commands in time.",
+          delivery: "This response has not been sent.",
+          explained: true,
+          fingerprint: String.duplicate("a", 64),
+          headline: "The task stopped before it could finish",
+          kind: :execution,
+          model_output: nil,
+          next_step: "Check that the worker is connected and polling, then retry this task.",
+          not_started: false,
+          resume: nil,
+          retry_effect: "Starts a fresh logical turn.",
+          setup_href: nil,
+          workspace: "Workspace recovery has not been confirmed."
+        }
+      },
+      %{
+        action: :rearm,
+        kind: "emisar",
+        ref: "approval:one",
+        status: :blocked,
+        summary: "emisar_unavailable",
+        updated_at: ~U[2026-08-28 11:57:00Z]
+      },
+      %{
+        action: :rearm,
+        kind: "slack_interaction",
+        ref: "interaction:one",
+        status: :blocked,
+        summary: "slack_unavailable",
+        updated_at: ~U[2026-08-28 11:56:00Z]
+      },
+      %{
+        action: :rearm,
+        kind: "slack_incident",
+        ref: "incident-room:one",
+        status: :blocked,
+        summary: "incident_audience_member_invalid",
+        updated_at: ~U[2026-08-28 11:55:00Z]
+      },
+      %{
+        action: :rearm,
+        attempt_count: 1,
+        cleanup_phase: :plan_pending,
+        closed_at: ~U[2026-08-28 11:40:00Z],
+        discarded_at: nil,
+        episode_ref: "episode:one",
+        execution_kind: :work,
+        kind: "retention",
+        ref: "workspace:blocked",
+        request_state: :complete,
+        source: "ryker",
+        status: :blocked,
+        summary: "coop_protocol_error",
+        updated_at: ~U[2026-08-28 11:54:00Z]
+      }
+    ]
   end
 end

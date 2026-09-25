@@ -19,7 +19,7 @@ defmodule Ryker.Emisar.Approval do
     field(:runner_ref, :string)
     field(:approval_url, :string)
     field(:expires_at, :utc_datetime_usec)
-    field(:status, Ecto.Enum, values: [:monitoring, :resumed, :blocked])
+    field(:status, Ecto.Enum, values: [:monitoring, :resumed, :blocked, :closed])
     field(:remote_status, :string)
     field(:run_url, :string)
     field(:remote_error, :string)
@@ -27,6 +27,9 @@ defmodule Ryker.Emisar.Approval do
     field(:last_observed_at, :utc_datetime_usec)
     field(:terminal_at, :utc_datetime_usec)
     field(:resumed_at, :utc_datetime_usec)
+    # Set together with status :closed: the task no longer waits for it.
+    field(:closed_at, :utc_datetime_usec)
+    field(:closed_reason, :string)
     field(:failure_count, :integer, default: 0)
     field(:last_error, :string)
     field(:next_attempt_at, :utc_datetime_usec)

@@ -698,6 +698,46 @@ defmodule Ryker.Work.CancellationTest do
     assert claim.session.id == session.id
   end
 
+  # A task parked for an archived incident room before its first run is
+  # blocked by Ryker alone, with nothing ever sent to a worker. Closing it was
+  # refused as a conflicting stop: "Close request" failed on it, and when the
+  # room's channel was then deleted its investigation stayed parked for good.
+  test "a request parked before its first run can be closed" do
+    id = Ecto.UUID.generate()
+    pause_ref = "slack-incident-room:archived:CPARKED"
+
+    command =
+      EpisodeFixtures.admit_input(%{
+        episode_id: id,
+        episode_key: "work-parked-close:#{id}",
+        native_input_id: "source:parked-close:#{id}",
+        occurred_at: @now,
+        turn_ref: "turn:parked-close:#{id}"
+      })
+
+    assert {:ok, transition} = Episodes.apply(command)
+    assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, %{status: :settled, turn: parked}} =
+             Custody.pause_destination(id, transition.episode.key, pause_ref)
+
+    assert {:ok, closed} =
+             Custody.request_cancel(
+               id,
+               transition.episode.key,
+               command.turn_ref,
+               "control:close-parked:#{id}",
+               "Closed as no longer needed."
+             )
+
+    assert closed.status == :settled
+    assert closed.episode.state == :cancelled
+    assert closed.turn.id == parked.id
+    assert closed.turn.status == :superseded
+    assert closed.turn.cancellation_intent["action"] == "cancel"
+    assert Custody.claim_next("worker:closed-parked", 60, :work) == {:ok, nil}
+  end
+
   test "a destination pause revokes a bound turn and resumes after remote stop proof" do
     work = bound_turn!("destination-pause-bound")
     pause_ref = "slack-incident-room:archived:CBOUND"
@@ -758,7 +798,7 @@ defmodule Ryker.Work.CancellationTest do
                %{"request" => suffix},
                "Handle the request.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =
@@ -793,7 +833,7 @@ defmodule Ryker.Work.CancellationTest do
                %{"request" => suffix},
                "Handle the corrected request.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =

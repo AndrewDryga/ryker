@@ -12,6 +12,7 @@ defmodule Ryker.Publication.Executor do
   alias Ryker.Work.Session
 
   @review_states ~w(open exhausted)
+  @closed_session_states ~w(closed discarded)
 
   @spec run(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(%{lease_ref: lease_ref, publication: publication, session: _session} = claim, options)
@@ -33,7 +34,8 @@ defmodule Ryker.Publication.Executor do
     publication = claim.publication
     session = claim.session
 
-    with {:ok, remote} <-
+    with :ok <- review_session_open(session),
+         {:ok, remote} <-
            leased_call(claim, settings, fn ->
              settings.api.get_session(settings.client, session.coop_session_id)
            end),
@@ -109,27 +111,53 @@ defmodule Ryker.Publication.Executor do
 
   defp store_publish_result({:error, _reason} = error, _claim, _settings), do: error
 
+  # Ryker records the close itself when it cleans a session up, and a closed
+  # Coop session never reopens: asking the worker about it again would only
+  # spend a command to learn what is already on record here.
+  defp review_session_open(%Session{discarded_at: %DateTime{}}),
+    do: {:error, {:publication_review_session_closed, "discarded"}}
+
+  defp review_session_open(%Session{closed_at: %DateTime{}}),
+    do: {:error, {:publication_review_session_closed, "closed"}}
+
+  defp review_session_open(_session), do: :ok
+
+  # A closed or discarded session is an answer, not a protocol error: the
+  # review can never run there, and the dispatcher ends the publication on it.
   defp exact_review_session(
          %{
-           "external_ref" => external_ref,
-           "id" => id,
-           "policy" => policy,
-           "policy_digest" => digest,
+           "external_ref" => _external_ref,
+           "id" => _id,
+           "policy" => _policy,
+           "policy_digest" => _digest,
            "revision" => revision,
            "state" => state
          } = remote,
          session
-       )
-       when map_size(remote) >= 6 and is_integer(revision) and revision > 0 and
-              state in @review_states do
-    if id == session.coop_session_id and external_ref == Session.coop_task_ref(session) and
-         policy == session.policy and digest == session.policy_digest,
-       do: {:ok, revision},
-       else: {:error, {:publication_coop_identity_mismatch, :session}}
+       ) do
+    cond do
+      not same_review_session?(remote, session) ->
+        {:error, {:publication_coop_identity_mismatch, :session}}
+
+      state in @closed_session_states ->
+        {:error, {:publication_review_session_closed, state}}
+
+      state in @review_states and is_integer(revision) and revision > 0 ->
+        {:ok, revision}
+
+      true ->
+        {:error, {:publication_coop_protocol_error, :session}}
+    end
   end
 
   defp exact_review_session(_remote, _session),
     do: {:error, {:publication_coop_protocol_error, :session}}
+
+  defp same_review_session?(remote, session) do
+    remote["id"] == session.coop_session_id and
+      remote["external_ref"] == Session.coop_task_ref(session) and
+      remote["policy"] == session.policy and remote["policy_digest"] == session.policy_digest
+  end
 
   defp exact_review_response(
          %{

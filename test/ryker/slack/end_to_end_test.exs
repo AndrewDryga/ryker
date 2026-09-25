@@ -194,10 +194,11 @@ defmodule Ryker.Slack.EndToEndTest do
 
     candidate_ref =
       "candidate:" <>
-        Ryker.CanonicalJSON.digest([
-          "ingress-admission-candidate",
-          admitted.result.episode.id
-        ])
+        binary_part(
+          Ryker.CanonicalJSON.digest(["ingress-admission-candidate", admitted.result.episode.id]),
+          0,
+          12
+        )
 
     {:ok, followup_admission} =
       FakeCoopAPI.start_link([followup_decision(candidate_ref)])

@@ -10,6 +10,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.GitHub.{Auth, Binding, Router}
+  alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.{Dispatcher, FollowupDispatcher, LifecycleEvent, Publication}
   alias Ryker.Repo
 
@@ -218,6 +219,8 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert task_session.policy == "ryker-contributor"
     assert task_session.policy_digest == @write_policy_digest
     assert task_session.repository_ref == "ryker"
+    # The task keeps the environment of the conversation it was confirmed in.
+    assert task_session.environment_ref == "production"
 
     assert task_session.workspace_task == %{
              "authority_limits" => ["Only change parser-owned files."],
@@ -725,11 +728,28 @@ defmodule Ryker.Slack.TaskEndToEndTest do
         operators: MapSet.new(["U123"]),
         approve_task_publication: &WorkControls.approve_publication/1,
         records: Records,
-        repositories: %{
-          "ryker" => %{
+        # The channel works in the production environment, which changes ryker.
+        conversation_environment: fn "T123", "C456" -> "production" end,
+        environments: %{
+          "production" => %{
             contributor_policy: %{
               digest: @write_policy_digest,
-              name: "ryker-contributor"
+              environment_ref: "production",
+              name: "ryker-contributor",
+              repository_context: %{
+                "context_ref" => "production",
+                "parallel_goal_limit" => 3,
+                "primary_repository" => "ryker",
+                "read_only_repositories" => []
+              },
+              repository_ref: "ryker"
+            },
+            work_profile: %WorkProfile{
+              environment_ref: "production",
+              parallel_goal_limit: 3,
+              policy: "conversation-read-only",
+              policy_digest: @read_policy_digest,
+              repository_ref: "ryker"
             }
           }
         }

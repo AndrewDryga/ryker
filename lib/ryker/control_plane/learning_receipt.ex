@@ -40,14 +40,12 @@ defmodule Ryker.ControlPlane.LearningReceipt do
     end
   end
 
+  @doc "Where one topic update shows how it was learned, when its attempt is known."
   def path(revision) do
     if reference(revision.source_result_ref) do
-      "/memory?" <>
-        URI.encode_query(%{
-          "kind" => "knowledge",
-          "item" => revision.knowledge_id,
-          "update" => revision.version
-        }) <> "#learning-receipt"
+      "/memory/learned?" <>
+        URI.encode_query(%{"item" => revision.knowledge_id, "update" => revision.version}) <>
+        "#learning-receipt"
     end
   end
 
@@ -73,7 +71,7 @@ defmodule Ryker.ControlPlane.LearningReceipt do
       status: run.status,
       outcome: outcome(run.status, result),
       at: run.applied_at || run.inserted_at,
-      error: LearningActivity.error(run.error_code),
+      error: LearningActivity.attempt_error(run),
       expired: expired,
       input_count: length(run.inputs),
       reason: result["reason"],
@@ -190,22 +188,23 @@ defmodule Ryker.ControlPlane.LearningReceipt do
     ~H"""
     <section class="learning-receipt" id="learning-receipt" aria-label="Learning receipt">
       <div class="learning-receipt-heading">
-        <p class="ui-eyebrow">LEARNING WITHOUT REPLYING</p>
         <h2>
           {if @receipt.version,
             do: "How update #{@receipt.version} was learned",
             else: "Learning attempt #{@receipt.attempt_number}"}
         </h2>
         <div class="learning-receipt-meta">
-          <span>{@receipt.input_count} messages</span>
+          <span>{if @receipt.input_count == 1,
+            do: "1 message",
+            else: "#{@receipt.input_count} messages"}</span>
           <.execution_target target={@receipt.target} compact />
         </div>
       </div>
       <p :if={!@receipt.version}>{@receipt.outcome}</p>
       <p>No reply was sent by this learning pass.</p>
-      <p :if={@receipt.error} class="memory-unavailable">{@receipt.error}</p>
+      <p :if={@receipt.error} class="memory-note">{@receipt.error}</p>
       <p :if={@receipt.reason} class="learning-reason">{@receipt.reason}</p>
-      <p :if={@receipt.expired} class="memory-unavailable">
+      <p :if={@receipt.expired} class="memory-note">
         The saved request and response expired under the conversation memory retention policy.
         The update identity and outcome remain; no old content is reconstructed.
       </p>

@@ -5,7 +5,7 @@ defmodule Ryker.Settings.Slack do
   alias Ryker.Settings.Validation
 
   @primary_key {:id, :string, autogenerate: false}
-  @fields ~w(enabled workspace_ref workspace_url workspace_name bot_ref bot_user_ref bot_name default_repository_ref channel_prefix incident_private default_participation operators)a
+  @fields ~w(enabled workspace_ref workspace_url workspace_name bot_ref bot_user_ref bot_name channel_prefix incident_private default_participation operators)a
 
   schema "slack_settings" do
     field(:enabled, :boolean, default: false)
@@ -15,7 +15,6 @@ defmodule Ryker.Settings.Slack do
     field(:bot_ref, :string)
     field(:bot_user_ref, :string)
     field(:bot_name, :string)
-    field(:default_repository_ref, :string)
     field(:channel_prefix, :string, default: "ems")
     field(:incident_private, :boolean, default: true)
 
@@ -29,9 +28,7 @@ defmodule Ryker.Settings.Slack do
 
   def fields, do: @fields
 
-  def changeset(current, attributes, snapshot) do
-    repositories = Enum.map(snapshot.repositories, & &1.ref)
-
+  def changeset(current, attributes, _snapshot) do
     current
     |> cast(attributes, @fields)
     |> validate_required([:enabled, :channel_prefix, :incident_private, :default_participation])
@@ -46,7 +43,6 @@ defmodule Ryker.Settings.Slack do
     |> validate_format(:bot_user_ref, Validation.slack_id_pattern())
     |> validate_length(:bot_name, min: 1, max: 256)
     |> validate_format(:channel_prefix, ~r/\A[a-z0-9_-]{1,20}\z/)
-    |> Validation.validate_known(:default_repository_ref, repositories, :unknown_repository)
     |> Validation.validate_slack_ids(:operators)
     |> validate_length(:operators, max: 256)
     |> validate_enabled()

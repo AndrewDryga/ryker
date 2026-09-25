@@ -2,7 +2,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   @moduledoc "A readable model call, with the retained evidence available inline."
   use Phoenix.Component
 
+  alias Ryker.ControlPlane.CallRun
   alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.ExecutionTarget
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.RequestPage
 
@@ -13,11 +15,13 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     assigns =
       assigns
       |> assign(:headline, headline(request))
+      |> assign(:attempt, attempt_label(request))
       |> assign(:explanation, explanation(request))
-      |> assign(:timing, request.timing)
       |> assign(:decision, decision_facts(request))
-      |> assign(:candidate_outcomes, candidate_outcomes(request))
       |> assign(:result?, request.phase == :result)
+      |> assign(:run, if(request.phase == :result, do: request[:run]))
+      |> assign(:retried_after, if(request.phase == :result, do: request[:retried_after]))
+      |> assign(:reason_from_model?, reason_from_model?(request))
       |> assign(:archived_response, archived)
       |> assign(
         :response,
@@ -26,6 +30,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         )
       )
       |> assign(:record_links, request[:record_links] || %{})
+      |> assign(:model_reason, model_reason(request))
       |> assign(:contract_section, Enum.find(request.sections, &(&1.id == "contract")))
       |> assign(:applied, applied_context(request))
       |> assign(
@@ -43,14 +48,26 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
     ~H"""
     <div class="episode-request">
-      <Components.card_heading title={@headline} meta_layout={:stack_on_narrow}>
+      <Components.card_heading title={@headline}>
+        <:detail :if={@attempt}>{@attempt}</:detail>
         <:description :if={!@result? && @explanation}>{@explanation}</:description>
-        <:meta>
-          <div class="request-model"><Components.execution_target target={@request.target} /></div>
-        </:meta>
+        <:meta :if={@run && @run.total_ms}>took {CallRun.duration(@run.total_ms)}</:meta>
       </Components.card_heading>
+      <p :if={@retried_after} class="request-retry">
+        Retried after attempt {@retried_after.generation} failed: {lower_first(
+          sentence(@retried_after.summary)
+        )} <a href={@retried_after.href}>See attempt {@retried_after.generation} ↑</a>
+      </p>
+      <section :if={!@result?} class="request-model-section" aria-label="Model">
+        <h4>Model</h4>
+        <Components.execution_target target={@request.target} />
+        <p :if={@model_reason} class="request-model-reason">
+          {@model_reason.text}
+          <.link :if={@model_reason.settings?} navigate="/settings/models">Settings</.link>
+        </p>
+      </section>
       <p :if={@result? && @explanation} class="request-rationale">
-        {@explanation}
+        <small :if={@reason_from_model?}>Model’s reason</small>{@explanation}
       </p>
       <section
         :if={@applied != []}
@@ -73,27 +90,21 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           <dd>
             <a :if={fact[:href]} href={fact.href}>{fact.value}</a>
             <Components.identifier :if={fact[:identifier]} value={fact.value} label={fact.label} />
-            <span :if={!fact[:href] && !fact[:identifier]}>{fact.value}</span>
+            <span :if={fact[:value] && !fact[:href] && !fact[:identifier]}>{fact.value}</span>
+            <span :if={fact[:note]} class="request-decision-note"> · {fact.note}</span>
+            <ul :if={fact[:outcomes] not in [nil, []]} class="routing-candidate-outcomes">
+              <li :for={outcome <- fact.outcomes} data-selected={to_string(outcome.selected)}>
+                <span class="considered-verdict">{outcome.status}</span>
+                <a href={outcome.href} title="Where the briefing offered it">
+                  {outcome.title} <span aria-hidden="true">↑</span>
+                </a>
+              </li>
+            </ul>
           </dd>
         </div>
       </dl>
-      <Components.disclosure
-        :if={@candidate_outcomes != []}
-        id={"#{@request.id}-candidate-outcomes"}
-        label="Candidate outcomes"
-        class="routing-candidate-outcomes"
-      >
-        <ul>
-          <li :for={outcome <- @candidate_outcomes}>
-            <a href={outcome.href}>{outcome.title}</a><span> · {outcome.status}</span>
-          </li>
-        </ul>
-      </Components.disclosure>
-      <dl :if={@timing != []} class="request-timing">
-        <div :for={metric <- @timing} :if={metric.value != "Not recorded"}>
-          <dt>{timing_label(metric.label)}</dt><dd>{metric.value}</dd>
-        </div>
-      </dl>
+      <.call_run :if={@run} run={@run} />
+      <p :for={wait <- @request[:waits] || []} class="request-wait">{wait_text(wait)}</p>
       <div
         :if={!@result? && (@input_sections != [] || @contract_section)}
         class="prompt-assembly"
@@ -142,6 +153,12 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@response["message"]))}
         </Components.message_block>
         <p :if={is_binary(@response["decision_reason"])}>{@response["decision_reason"]}</p>
+        <dl :if={is_binary(@response["title"])} class="request-decision response-title">
+          <div>
+            <dt>Episode title</dt>
+            <dd><span>{@response["title"]}</span></dd>
+          </div>
+        </dl>
         <div :if={response_records(@response) != []} class="response-records">
           <h4>Supporting records</h4>
           <p>These records were created during the work and selected to support this response.</p>
@@ -174,6 +191,50 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     """
   end
 
+  attr(:run, :map, required: true)
+
+  # What the call cost and where its time went, as recorded when it ended: a
+  # short two-column table a reader scans top to bottom.
+  defp call_run(assigns) do
+    ~H"""
+    <dl class="call-run" aria-label="How this call ran">
+      <div :if={@run.target}>
+        <dt>Model</dt>
+        <dd>{model_words(@run.target)}</dd>
+      </div>
+      <div :if={@run.tokens}>
+        <dt>Tokens</dt>
+        <dd>{@run.tokens}</dd>
+      </div>
+      <div :if={@run.cost}>
+        <dt>Cost</dt>
+        <dd title={cost_title(@run.cost)}>{@run.cost}</dd>
+      </div>
+      <div :if={@run.checks}>
+        <dt>Checks</dt>
+        <dd>{String.capitalize(@run.checks)}</dd>
+      </div>
+      <div :for={segment <- @run.segments}>
+        <dt>{segment.label}</dt>
+        <dd>{CallRun.duration(segment.ms)}</dd>
+      </div>
+    </dl>
+    """
+  end
+
+  defp model_words(target) do
+    case ExecutionTarget.parts(target) do
+      %{model: model, effort: effort} when is_binary(effort) -> "#{model} · #{effort} reasoning"
+      %{model: model} -> model
+      nil -> target
+    end
+  end
+
+  defp cost_title("≈" <> _rest),
+    do: "Estimated from the model's price per token; the provider did not report a cost."
+
+  defp cost_title(_cost), do: "Reported by the provider."
+
   defp unavailable_assembly?(%{id: "instructions", artifact: artifact}),
     do: artifact.state != :retained
 
@@ -186,10 +247,12 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     do: Enum.filter(sections, &(&1.id == "candidate"))
 
   defp result_evidence(%{source_kind: :admission, sections: sections} = request) do
+    # How the search chose the earlier work belongs to the briefing that
+    # shows that work; the result keeps the model's exact response.
     ids =
       if decision_artifact_needed?(request),
-        do: ~w(routing response candidate),
-        else: ~w(routing response)
+        do: ~w(response candidate),
+        else: ~w(response)
 
     Enum.filter(sections, &(&1.id in ids))
   end
@@ -197,14 +260,12 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp result_evidence(_request), do: []
 
   # The committed decision and timings are already readable above this point.
-  # These peer disclosures retain only the records that explain how routing
-  # selected its context and the exact model response that proposed the result.
+  # These peer disclosures retain the exact model response that proposed it.
   defp artifact_disclosure(assigns) do
     assigns =
       assigns
       |> assign(:label, evidence_label(assigns.section, assigns.source_kind))
       |> assign(:meta, artifact_meta(assigns.section.artifact))
-      |> assign(:selection_facts, selection_facts(assigns.section))
 
     ~H"""
     <Components.disclosure
@@ -214,24 +275,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       class={["routing-evidence-item", "artifact-#{@section.id}"]}
     >
       <:meta :if={@meta}>{@meta}</:meta>
-      <dl :if={@selection_facts} class="selection-evidence-facts">
-        <div :for={fact <- @selection_facts}>
-          <dt>{fact.label}</dt><dd>{fact.value}</dd>
-        </div>
-      </dl>
-      <Components.disclosure
-        :if={@selection_facts}
-        id={@id <> "-technical"}
-        label="Technical record"
-        class="selection-evidence-technical"
-      >
+      <Components.copy_block :if={@section.artifact.state == :retained} label="Copy JSON">
         <pre class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
-      </Components.disclosure>
-      <pre
-        :if={@section.artifact.state == :retained && !@selection_facts}
-        class="model-document-text"
-        tabindex="0"
-      >{@section.artifact.text}</pre>
+      </Components.copy_block>
       <p :if={@section.artifact.state != :retained} class="artifact-unavailable">
         {@meta || "This record was not retained."}
       </p>
@@ -239,7 +285,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     """
   end
 
-  defp evidence_label(%{id: "routing"}, _kind), do: "Selection evidence"
   defp evidence_label(%{id: "response"}, _kind), do: "Raw routing response"
   defp evidence_label(%{id: "candidate"}, :work), do: "Raw model response"
   defp evidence_label(section, _kind), do: section.title
@@ -274,99 +319,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     end
   end
 
-  defp selection_facts(%{id: "routing", artifact: artifact}) do
-    case artifact_document(artifact) do
-      %{} = evidence -> routing_facts(evidence)
-      _ -> nil
-    end
-  end
-
-  defp selection_facts(_section), do: nil
-
-  defp routing_facts(evidence) do
-    receipt = if is_map(evidence["routing_receipt"]), do: evidence["routing_receipt"], else: %{}
-
-    manifest =
-      if is_map(evidence["context_manifest"]), do: evidence["context_manifest"], else: %{}
-
-    [
-      routing_candidate_fact(receipt),
-      routing_omission_fact(receipt),
-      routing_scope_fact(receipt),
-      routing_lanes_fact(receipt),
-      routing_context_fact(manifest)
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> case do
-      [] -> nil
-      facts -> facts
-    end
-  end
-
-  defp routing_candidate_fact(%{"offered" => offered, "examined" => examined})
-       when is_integer(offered) and is_integer(examined),
-       do: %{label: "Candidates", value: "#{offered} of #{examined} supplied"}
-
-  defp routing_candidate_fact(_receipt), do: nil
-
-  defp routing_omission_fact(%{"omitted" => omitted} = receipt)
-       when is_integer(omitted) and omitted > 0 do
-    reason = receipt["cutoff_reason"] |> readable_code()
-    value = "#{omitted} omitted" <> if(reason, do: " · #{reason}", else: "")
-    %{label: "Why some were excluded", value: value}
-  end
-
-  defp routing_omission_fact(_receipt), do: nil
-
-  defp routing_scope_fact(%{"scope" => scope} = receipt) when is_binary(scope) do
-    conversations = receipt["eligible_conversations"]
-
-    value =
-      readable_code(scope) <>
-        if(is_integer(conversations), do: " · #{conversations} eligible conversations", else: "")
-
-    %{label: "Search scope", value: value}
-  end
-
-  defp routing_scope_fact(_receipt), do: nil
-
-  defp routing_lanes_fact(%{"lanes" => lanes}) when is_map(lanes) and map_size(lanes) > 0 do
-    value =
-      lanes
-      |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.map_join(" · ", fn {lane, facts} ->
-        returned = if is_map(facts), do: facts["returned"]
-        saturated = is_map(facts) && facts["saturated"] == true
-
-        readable_code(lane) <>
-          if(is_integer(returned), do: " #{returned}", else: "") <>
-          if(saturated, do: " (limit reached)", else: "")
-      end)
-
-    %{label: "Search lanes", value: value}
-  end
-
-  defp routing_lanes_fact(_receipt), do: nil
-
-  defp routing_context_fact(%{"included" => included, "requested" => requested})
-       when is_integer(included) and is_integer(requested),
-       do: %{
-         label: "Conversation context",
-         value: "#{included} of #{requested} earlier messages included"
-       }
-
-  defp routing_context_fact(_manifest), do: nil
-
-  defp artifact_document(%{state: :retained, truncated: false, text: text})
-       when is_binary(text) do
-    case Jason.decode(text) do
-      {:ok, %{} = document} -> document
-      _ -> nil
-    end
-  end
-
-  defp artifact_document(_artifact), do: nil
-
   defp readable_code(value) when is_binary(value) and value != "" do
     value |> String.replace("_", " ") |> String.capitalize()
   end
@@ -378,7 +330,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp artifact_text(assigns) do
     ~H"""
     <section class={"timeline-artifact artifact-#{@section.id}"}>
-      <pre :if={@section.artifact.state == :retained}>{@section.artifact.text}</pre>
+      <Components.copy_block :if={@section.artifact.state == :retained}>
+        <pre>{@section.artifact.text}</pre>
+      </Components.copy_block>
       <p :if={@section.artifact.state != :retained}>{availability(@section.artifact)}</p>
     </section>
     """
@@ -397,13 +351,13 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           %{
             title: "Preferences used",
             manage: "preferences",
-            href: "/preferences",
+            href: "/instructions?show=preferences#saved",
             entries: preference_entries(context["preferences"])
           },
           %{
             title: "Guidance recalled",
             manage: "guidance",
-            href: "/guidance",
+            href: "/instructions?show=guidance#saved",
             entries: context_entries(context["guidance"], "subject", "summary")
           },
           %{
@@ -458,18 +412,96 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp preference_entries(_), do: []
 
+  # Why the call ran on its model, in terms of what the call was for. Ryker
+  # does not pick a model per call: the purpose selects a Coop policy, and the
+  # policy's worker decides the model. The bundled worker's model for each kind
+  # of work is chosen in Settings, so the card links there.
+  defp model_reason(%{model_choice: %{settings: true} = choice}),
+    do: %{text: "#{purpose(choice) || "This call"} uses the model set for it in", settings?: true}
+
+  defp model_reason(%{model_choice: choice}) do
+    case purpose(choice) do
+      nil ->
+        nil
+
+      purpose ->
+        %{text: "#{purpose} runs under a Coop policy set to this model", settings?: false}
+    end
+  end
+
+  defp model_reason(_request), do: nil
+
+  # Ryker's wait for the worker ran out while the call kept running; it picked
+  # the same call back up. Part of this call, not a separate retry.
+  defp wait_text(%{paused_at: %DateTime{} = paused, resumed_at: %DateTime{} = resumed}) do
+    gap = DateTime.diff(resumed, paused, :millisecond)
+
+    "Ryker's wait for the worker ran out at #{Calendar.strftime(paused, "%H:%M:%S")} while the " <>
+      "call kept running, and it resumed waiting #{seconds(gap)} later."
+  end
+
+  defp wait_text(%{paused_at: %DateTime{} = paused}),
+    do:
+      "Ryker's wait for the worker ran out at #{Calendar.strftime(paused, "%H:%M:%S")} while the call kept running."
+
+  defp seconds(ms) when ms < 1_000, do: "#{ms} ms"
+  defp seconds(ms), do: "#{Float.round(ms / 1_000, 1)} s"
+
+  defp failure_explanation(%{summary: summary}, _response) when is_binary(summary),
+    do: sentence(summary)
+
+  defp failure_explanation(_failure, %{"error_code" => code}) when is_binary(code),
+    do: "The model call failed: #{String.replace(code, "_", " ")}."
+
+  defp failure_explanation(_failure, _response), do: "The model call failed."
+
+  defp sentence(text), do: if(String.ends_with?(text, "."), do: text, else: text <> ".")
+
+  # Routing that ran more than once names each attempt, so a retried input's
+  # cards read as the separate calls they were.
+  defp attempt_label(%{source_kind: :admission, generation: generation, generations: generations})
+       when is_integer(generation) and is_integer(generations) and generations > 1,
+       do: "Attempt #{generation}"
+
+  defp attempt_label(_request), do: nil
+
+  # What a work call is for, in the words of the work it was routed as.
+  defp work_purpose(:conversational), do: "Use an AI model to answer in the conversation."
+  defp work_purpose(:standard), do: "Use an AI model to investigate and respond."
+  defp work_purpose(:deep), do: "Use an AI model for a deeper investigation."
+  defp work_purpose(:contributor), do: "Use an AI model to make changes in a repository."
+  defp work_purpose(:incident), do: "Use an AI model to work on the incident."
+
+  defp work_purpose(purpose) when purpose in [:schedule, :schedule_read_only, :schedule_governed],
+    do: "Use an AI model to run a scheduled task."
+
+  defp work_purpose(_purpose), do: nil
+
+  defp purpose(%{purpose: nil}), do: nil
+
+  defp purpose(%{purpose: purpose, scope_kind: :repository, scope_ref: repository}),
+    do: "#{purpose_name(purpose)} in #{repository}"
+
+  defp purpose(%{purpose: purpose}), do: purpose_name(purpose)
+
+  defp purpose_name(:admission), do: "Routing"
+  defp purpose_name(:conversational), do: "Conversational work"
+  defp purpose_name(:standard), do: "Standard work"
+  defp purpose_name(:deep), do: "Deep work"
+  defp purpose_name(:contributor), do: "Contributor work"
+  defp purpose_name(:schedule), do: "Scheduled work"
+  defp purpose_name(:schedule_read_only), do: "Read-only scheduled work"
+  defp purpose_name(:schedule_governed), do: "Governed scheduled work"
+  defp purpose_name(:incident), do: "Incident work"
+  defp purpose_name(:learning), do: "Learning"
+
   defp headline(%{phase: :submission, source_kind: :admission}), do: "Routing briefing"
-  defp headline(%{phase: :submission}), do: "Model briefing"
+  defp headline(%{phase: :submission}), do: "Work briefing"
 
   defp headline(%{source_kind: :admission} = request) do
-    case document(request, "candidate") do
-      %{"action" => "reply", "work_class" => "conversational"} -> "Conversational reply"
-      %{"action" => "reply"} -> "Reply requested"
-      %{"action" => "ignore"} -> "No reply needed"
-      %{"action" => "react"} -> "Reaction selected"
-      %{"action" => "start_episode"} -> "New work requested"
-      %{"action" => "continue_episode"} -> "Continue existing work"
-      _ -> "Routing result"
+    case {document(request, "candidate"), document(request, "response")} do
+      {nil, %{"state" => "failed"}} -> "Routing failed"
+      {candidate, _response} -> admission_headline(candidate)
     end
   end
 
@@ -482,6 +514,18 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     end
   end
 
+  defp admission_headline(candidate) do
+    case candidate do
+      %{"action" => "reply", "work_class" => "conversational"} -> "Conversational reply"
+      %{"action" => "reply"} -> "Reply requested"
+      %{"action" => "ignore"} -> "No reply needed"
+      %{"action" => "react"} -> "Reaction selected"
+      %{"action" => "start_episode"} -> "New work requested"
+      %{"action" => "continue_episode"} -> "Continue existing work"
+      _ -> "Routing result"
+    end
+  end
+
   # The routing card showed a paragraph of reasoning and two timings, while the
   # record behind it held the decision itself. These are the parts a person
   # reads to know what happened: what it chose to do, whether it joined existing
@@ -490,9 +534,12 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     case document(request, "candidate") do
       %{"action" => action} = candidate ->
         [
-          %{label: "Decision", value: decision_label(action)},
-          (request[:candidate_links] || %{})[candidate["episode_ref"]] || relation_fact(candidate),
-          work_fact(candidate),
+          %{
+            label: "Decision",
+            value: decision_label(action),
+            note: work_meaning(candidate["work_class"])
+          },
+          earlier_work_fact(request, candidate),
           source_fact(candidate),
           reaction_fact(candidate)
         ]
@@ -503,11 +550,58 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     end
   end
 
-  defp decision_facts(%{source_kind: :work, execution_mode: mode})
-       when mode in [:live, :shadow],
-       do: [%{label: "Run mode", value: run_mode(mode)}]
+  # A live run is the normal case and says nothing; an evaluation run is the
+  # one a reader must not mistake for a delivered answer.
+  defp decision_facts(%{source_kind: :work, execution_mode: :shadow}),
+    do: [%{label: "Run", value: "Evaluation", note: "checked, but never delivered"}]
 
   defp decision_facts(_request), do: []
+
+  # The earlier work the briefing offered, each with what the decision did
+  # with it. With nothing offered, how the message relates to earlier work.
+  defp earlier_work_fact(request, candidate) do
+    case candidate_outcomes(request) do
+      [] -> unoffered_work_fact(candidate)
+      outcomes -> offered_work_fact(candidate, outcomes)
+    end
+  end
+
+  defp unoffered_work_fact(candidate) do
+    with %{label: "Earlier work"} = fact <- relation_fact(candidate) do
+      if candidate["relation"] == "unrelated",
+        do: Map.put(fact, :note, "no earlier work matched"),
+        else: fact
+    end
+  end
+
+  defp offered_work_fact(candidate, outcomes) do
+    %{
+      label: "Earlier work",
+      value:
+        if(Enum.any?(outcomes, & &1.selected),
+          do: nil,
+          else: relation_label(candidate["relation"] || "unrelated")
+        ),
+      outcomes: outcomes
+    }
+  end
+
+  defp work_meaning("conversational"), do: "a quick answer, no investigation"
+  defp work_meaning("standard"), do: "an investigation with tools"
+  defp work_meaning("deep"), do: "a deeper investigation"
+  # A kind this viewer does not know is still the decision it recorded.
+  defp work_meaning(work_class) when is_binary(work_class),
+    do: String.replace(work_class, "_", " ")
+
+  defp work_meaning(_work_class), do: nil
+
+  defp reason_from_model?(%{source_kind: :admission, phase: :result} = request),
+    do: is_binary((document(request, "candidate") || %{})["reason"])
+
+  defp reason_from_model?(_request), do: false
+
+  defp lower_first(<<first::utf8, rest::binary>>), do: String.downcase(<<first::utf8>>) <> rest
+  defp lower_first(text), do: text
 
   defp candidate_outcomes(%{source_kind: :admission, phase: :result} = request) do
     case document(request, "candidate") do
@@ -529,10 +623,14 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
                 relation,
                 result["action"]
               ),
-            selected: ref == selected_ref
+            selected: ref == selected_ref,
+            continuable: "same_work" in candidate.allowed_relations
           }
         end)
-        |> Enum.sort_by(fn outcome -> {not outcome.selected, outcome.title} end)
+        # The briefing's own order: what could be continued, then background.
+        |> Enum.sort_by(fn outcome ->
+          {not outcome.selected, not outcome.continuable, outcome.title}
+        end)
 
       _ ->
         []
@@ -541,23 +639,14 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp candidate_outcomes(_request), do: []
 
-  defp candidate_outcome(ref, _allowed, ref, "same_work", _action),
-    do: "Selected for continuation"
-
-  defp candidate_outcome(ref, _allowed, ref, _relation, "continue_episode"),
-    do: "Selected for continuation"
-
-  defp candidate_outcome(ref, _allowed, ref, "history_only", _action),
-    do: "Selected as background"
-
+  defp candidate_outcome(ref, _allowed, ref, "same_work", _action), do: "Continued"
+  defp candidate_outcome(ref, _allowed, ref, _relation, "continue_episode"), do: "Continued"
+  defp candidate_outcome(ref, _allowed, ref, "history_only", _action), do: "Used as background"
   defp candidate_outcome(ref, _allowed, ref, _relation, _action), do: "Selected"
 
   defp candidate_outcome(_ref, allowed, _selected_ref, _relation, _action) do
-    if "same_work" in allowed, do: "Not selected for continuation", else: "Background only"
+    if "same_work" in allowed, do: "Not continued", else: "Background only"
   end
-
-  defp run_mode(:live), do: "Live"
-  defp run_mode(:shadow), do: "Evaluation"
 
   defp decision_label("start_episode"), do: "Start new work"
   defp decision_label("continue_episode"), do: "Continue existing work"
@@ -582,11 +671,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp relation_label("history_only"), do: "Background context"
   defp relation_label(relation), do: readable_code(relation)
 
-  defp work_fact(%{"work_class" => class}) when is_binary(class),
-    do: %{label: "Work", value: String.replace(class, "_", " ")}
-
-  defp work_fact(_candidate), do: nil
-
   defp source_fact(%{"repository_source" => %{"kind" => kind, "name" => name}})
        when is_binary(kind) and is_binary(name),
        do: %{label: "Source", value: "#{kind} #{name}"}
@@ -599,7 +683,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp reaction_fact(_candidate), do: nil
 
   defp explanation(%{phase: :submission, source_kind: :admission}),
-    do: "Classify this message and choose how to respond."
+    do: "Use an AI model to classify this message and choose how to respond."
 
   defp explanation(%{phase: :submission} = request) do
     case document(request, "context") do
@@ -607,14 +691,22 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         "Continue with the new messages and the saved conversation context."
 
       _ ->
-        nil
+        work_purpose(request[:model_choice][:purpose])
     end
   end
 
+  # A failed call says what failed as it was known when it failed; what an
+  # operator did afterwards is its own later card.
   defp explanation(%{source_kind: :admission} = request) do
-    case document(request, "candidate") do
-      %{"reason" => reason} when is_binary(reason) -> reason
-      _ -> nil
+    case {document(request, "candidate"), document(request, "response")} do
+      {%{"reason" => reason}, _response} when is_binary(reason) ->
+        reason
+
+      {nil, %{"state" => "failed"} = response} ->
+        failure_explanation(request[:failure], response)
+
+      _ ->
+        nil
     end
   end
 
@@ -661,8 +753,4 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp availability(%{state: :not_recorded}), do: "Not recorded"
   defp availability(%{truncated: true}), do: "Partial display"
   defp availability(_), do: nil
-  defp timing_label("Coop queue"), do: "Queue"
-  defp timing_label("Agent execution"), do: "Model execution"
-  defp timing_label("Host processing"), do: "Processing"
-  defp timing_label(label), do: label
 end

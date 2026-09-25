@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
     ConversationMemory,
     CSRF,
     InspectionRedactor,
-    MemoryPage,
+    LearnedPage,
     RelearnPanel,
     Router,
     SlackMarkdown,
@@ -82,7 +82,8 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
     }
 
     html =
-      MemoryPage.render(%{
+      LearnedPage.render(%{
+        __changed__: nil,
         view: Map.put(view, :rebuild, preview),
         csrf_secret: String.duplicate("s", 32)
       })
@@ -202,10 +203,9 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
     toolbar =
       LazyHTML.query(document, "details.knowledge-rebuild form.filter-toolbar[method=get]")
 
-    assert LazyHTML.attribute(toolbar, "action") == ["/memory#relearn"]
+    assert LazyHTML.attribute(toolbar, "action") == ["/memory/learned#relearn"]
 
-    assert LazyHTML.query(toolbar, "input[type=hidden][name=kind]") |> LazyHTML.attribute("value") ==
-             ["knowledge"]
+    assert LazyHTML.query(toolbar, "input[type=hidden]") |> LazyHTML.attribute("name") == ["item"]
 
     assert LazyHTML.query(toolbar, "input[type=hidden][name=item]") |> LazyHTML.attribute("value") ==
              [preview.topic_id]
@@ -317,6 +317,10 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
 
     assert Plug.Conn.get_resp_header(first, "location") ==
              Plug.Conn.get_resp_header(repeated, "location")
+
+    # The request opens where its progress and attempts are: the Learning page.
+    assert [location] = Plug.Conn.get_resp_header(first, "location")
+    assert location =~ ~r"\A/memory/learning\?batch=[0-9a-f-]{36}\z"
 
     assert Repo.aggregate(Action, :count) == 1
     assert Repo.aggregate(Batch, :count) == 2

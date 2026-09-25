@@ -2195,7 +2195,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
         invite_user_group_refs: [],
         invite_user_refs: [],
         participation: :mentions,
-        repository_ref: "ryker",
         revision: 1,
         saved_at: now,
         updated_at: now,

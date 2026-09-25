@@ -78,7 +78,7 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   defp welcome_paragraphs(settings, bot_user_ref, notice) do
     [
       @greeting,
-      repository_access(settings),
+      environment_access(settings),
       "*#{heading("How to work with me")}*\n" <>
         conversation_sentence(settings, bot_user_ref) <>
         "\n\n" <> alert_sentence(settings),
@@ -101,31 +101,61 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
     |> compact_lines()
   end
 
-  defp repository_access(%{"repositories" => []}),
+  # The channel's environment decides what its work may use: the repo work
+  # changes, the ones it only reads, and Emisar. No environment means none of
+  # them, which is never the same as the default.
+  defp environment_access(%{"environment" => nil, "environment_count" => 0}),
     do:
       "I don't have access to any repos, so please connect one (or more) if you want me to work on coding tasks."
 
-  defp repository_access(%{"repositories" => [repository]} = settings),
+  defp environment_access(%{"environment" => nil} = settings),
     do:
-      "I have access to 1 repository: #{repository_link(repository)}." <>
-        default_repository_sentence(settings)
+      "This channel doesn't use an environment, so I'll answer here without any repos or Emisar. Choose one with *#{configure_label(settings)}* if you want me to work on code here."
 
-  defp repository_access(%{"repositories" => repositories} = settings) do
-    links = Enum.map(repositories, &repository_link/1)
+  defp environment_access(%{"environment" => %{"ready" => false, "ref" => ref}}),
+    do:
+      "This channel uses the `#{escape(ref)}` environment, but it can't run work right now, so I'll answer without any repos or Emisar until it can."
 
-    "I have access to #{length(repositories)} repositories: #{join_names(links)}." <>
-      default_repository_sentence(settings)
+  defp environment_access(%{
+         "environment" => %{"emisar" => emisar, "name" => name, "repositories" => []}
+       }) do
+    emisar = if emisar, do: ", but I can use Emisar", else: ""
+
+    "I work in the *#{escape(name)}* environment here. It has no repos, so I won't work on coding tasks in this channel#{emisar}."
   end
 
-  defp default_repository_sentence(%{"default_repository" => nil}), do: ""
+  defp environment_access(%{
+         "environment" => %{
+           "emisar" => emisar,
+           "name" => name,
+           "repositories" => [writable | read_only]
+         }
+       }) do
+    reads =
+      if read_only == [],
+        do: [],
+        else: ["read #{read_only |> Enum.map(&repository_link/1) |> join_names()}"]
 
-  defp default_repository_sentence(settings),
-    do:
-      " I'll use #{repository_link(default_repository(settings))} for coding tasks when you don't name one."
+    emisar = if emisar, do: ["use Emisar"], else: []
+    uses = join_clauses(["make changes in #{repository_link(writable)}"] ++ reads ++ emisar)
 
-  # Validation holds the default to one of the connected repositories.
-  defp default_repository(%{"default_repository" => ref, "repositories" => repositories}),
-    do: Enum.find(repositories, &(&1["ref"] == ref))
+    "I work in the *#{escape(name)}* environment here: I can #{uses}."
+  end
+
+  defp join_clauses([clause]), do: clause
+  defp join_clauses([first, second]), do: "#{first} and #{second}"
+
+  defp join_clauses(clauses) do
+    {others, [last]} = Enum.split(clauses, -1)
+    Enum.join(others, ", ") <> ", and " <> last
+  end
+
+  # The control that opens the setup Q&A, named as the welcome shows it.
+  defp configure_label(%{"participation" => %{"source" => "incident_room"}}),
+    do: "Configure channel"
+
+  defp configure_label(%{"participation" => %{"value" => "shadow"}}), do: "Configure channel"
+  defp configure_label(_settings), do: "Customize"
 
   defp conversation_sentence(%{"observation" => %{"on" => true}}, bot_user_ref),
     do:
@@ -211,8 +241,8 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
     [
       {"Conversations", participation_summary(settings)},
       {"Alerts", alert_summary(settings)},
+      {"Environment", environment_fact(settings)},
       {"Repositories", repositories_fact(settings)},
-      {"Default repository", default_repository_fact(settings)},
       {"Incident invitations", {:markup, String.capitalize(audience_phrase(settings))}},
       {"Observation mode", observation_fact(settings)}
     ]
@@ -232,11 +262,24 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   defp alert_summary(%{"alert_policy" => "automatic"}),
     do: "Create an incident room automatically"
 
-  defp repositories_fact(%{"repositories" => []}), do: "None connected"
-  defp repositories_fact(%{"repositories" => repositories}), do: repositories
+  defp environment_fact(%{"environment" => nil}), do: "No environment"
 
-  defp default_repository_fact(%{"default_repository" => nil}), do: "None"
-  defp default_repository_fact(settings), do: default_repository(settings)
+  defp environment_fact(%{"environment" => %{"ready" => false, "ref" => ref}}),
+    do: "#{ref} (can't run work right now)"
+
+  defp environment_fact(%{"environment" => %{"emisar" => true, "name" => name}}),
+    do: "#{name}, with Emisar"
+
+  defp environment_fact(%{"environment" => %{"name" => name}}), do: name
+
+  # The repo work changes comes first; the rest are only read.
+  defp repositories_fact(%{"environment" => %{"repositories" => [writable | read_only]}}),
+    do: [
+      {:repository, writable, "changes"}
+      | Enum.map(read_only, &{:repository, &1, "read only"})
+    ]
+
+  defp repositories_fact(_settings), do: "None"
 
   defp observation_fact(%{"observation" => %{"on" => true, "source" => "incident_room"}}),
     do: "On (incident room)"
@@ -277,10 +320,18 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
           "defaults; nobody has customized this channel yet"
 
         %{"customized_by" => actor_ref} ->
-          "saved by #{mention(actor_ref)}"
+          customized_by(actor_ref)
       end
 
     [context("Effective settings · #{origin}")]
+  end
+
+  # A Slack member is named; a change made on the channel page on the web has
+  # no Slack member to mention, so it says where it was made instead.
+  defp customized_by(actor_ref) do
+    if slack_reference?(actor_ref),
+      do: "saved by #{mention(actor_ref)}",
+      else: "changed in Ryker's settings"
   end
 
   defp settings_controls(_audience, nil, _revision), do: []
@@ -313,23 +364,26 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
            "alert_policy" => alert_policy,
            "configuration_ref" => configuration_ref,
            "customized_by" => customized_by,
-           "default_repository" => default_repository,
+           "environment" => environment,
+           "environment_count" => environment_count,
            "invitations" => invitations,
            "observation" => observation,
            "participation" => participation,
-           "repositories" => repositories,
            "revision" => revision
          } = settings
        )
        when map_size(settings) == 9 do
     valid =
-      alert_policy in ~w(reply offer automatic) and
-        settings_participation?(participation) and
-        settings_observation?(observation) and
-        settings_invitations?(invitations) and
-        settings_repositories?(repositories, default_repository) and
-        (is_nil(customized_by) or slack_reference?(customized_by)) and
+      Enum.all?([
+        alert_policy in ~w(reply offer automatic),
+        settings_participation?(participation),
+        settings_observation?(observation),
+        settings_invitations?(invitations),
+        settings_environment?(environment),
+        is_integer(environment_count) and environment_count >= 0,
+        is_nil(customized_by) or bounded_text(customized_by, 256) == :ok,
         optional_configuration_identity(configuration_ref, revision) == :ok
+      ])
 
     if valid, do: :ok, else: {:error, :invalid_channel_settings}
   end
@@ -354,14 +408,24 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
 
   defp settings_invitations?(_invitations), do: false
 
-  defp settings_repositories?(repositories, default_repository)
-       when is_list(repositories) and length(repositories) <= 32 do
-    Enum.all?(repositories, &repository?/1) and
-      (is_nil(default_repository) or
-         Enum.any?(repositories, &(&1["ref"] == default_repository)))
+  defp settings_environment?(nil), do: true
+
+  defp settings_environment?(
+         %{
+           "emisar" => emisar,
+           "name" => name,
+           "ready" => ready,
+           "ref" => ref,
+           "repositories" => repositories
+         } = environment
+       )
+       when map_size(environment) == 5 and is_boolean(emisar) and is_boolean(ready) and
+              is_list(repositories) and length(repositories) <= 33 do
+    text?(name) and String.length(name) <= 80 and bounded_text(ref, 64) == :ok and
+      Enum.all?(repositories, &repository?/1)
   end
 
-  defp settings_repositories?(_repositories, _default_repository), do: false
+  defp settings_environment?(_environment), do: false
 
   defp optional_configuration_identity(nil, nil), do: :ok
 

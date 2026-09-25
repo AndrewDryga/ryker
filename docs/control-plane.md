@@ -24,7 +24,7 @@ There are no compatibility aliases for earlier paths.
 
 | Surface | Route | What it holds |
 | --- | --- | --- |
-| **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. One toolbar holds search, the work mode and a chip per filter; "+ Filter" picks a field, then a value, which applies at once. `/` is the application root and renders the same list. |
+| **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. It leads with the active, waiting and blocked counts, each opening its view. One toolbar row holds search, the work mode, a chip per filter, the All · Needs you · In progress · Finished views and the total; "+ Filter" picks a field, then a value, which applies at once. Each request is one row that opens its timeline. A worker problem and the scheduled runs coming up follow the list as sections. `/` is the application root and renders the same list. |
 | **Timeline** | `/timeline/:ref` | One request's chronological case file, titled by its subject. It includes each model request's retained briefing, response checks and technical identity in place. `:ref` is a durable episode key or `ingress-input:<id>` for an input with no episode yet. |
 
 Live invalidation domains follow the first path segment, so `activity` and
@@ -164,12 +164,18 @@ work is not a failure, a session that never bound a remote one had no remote
 workspace to delete, and blocked cleanup states that the delivered answer is
 unaffected.
 
-The **Incident rooms** page at `/incident-rooms` tracks Slack incident rooms from
-setup through closure, with channel status and linked investigation work. Each
-room opens at `/incident-rooms/:ref`. The list includes requested and blocked
-rooms before a Slack channel exists; it is not a directory of local Lab incidents.
-Room status and search filters remain in the URL, and committed lifecycle changes
-refresh the list and detail views.
+The **Incident rooms** page at `/incident-rooms` lists the Slack channels Ryker
+opens to work on an incident: one row per room with its state in words (Setting
+up, Open, Needs attention, Closed), its channel, repository, when it opened and a
+link to its investigation. A room is opened only from Ryker's incident offer in
+Slack, so the page says how to ask for one instead of offering a create button.
+Each room opens at `/incident-rooms/:ref`: Ryker's latest progress, the room's
+facts, what the investigation recorded (in the words its timeline cards use), any
+code change it proposed, and the channel's history, with references in one closed
+Details disclosure. The list includes requested and blocked rooms before a Slack
+channel exists; it is not a directory of local Lab incidents. Room status and
+search filters remain in the URL, and committed lifecycle changes refresh the list
+and detail views.
 
 The **Waits** page at `/subscriptions` shows each wait's saved target,
 matching condition and source request. Relative times refresh with the page;
@@ -181,12 +187,44 @@ updates first within each status. Search filters their readable labels;
 exact subscription references search all history within that status. Opening,
 filtering and refreshing this page never changes a wait.
 
+## Environments
+
+An **environment** is where Ryker works: the repositories work in it may use, in
+order, and at most one Emisar account. Work changes the first repository and only
+reads the others. Slack channels and webhook sources choose an environment; Chat
+and every conversation without its own choice use the default one. Adding a
+repository puts it in the default environment and creates "Default" when there
+is none, so a new installation needs no extra step. There are no repository
+groups and no approval routes.
+
+`/environments` lists each environment as one row, the default first: its name
+(which opens its editor), a Default tag, what it is for, how many repositories it
+has and which one takes the changes, its Emisar account, and how many channels and
+webhook sources use it. Edit opens the editor in place (`?edit=<ref>`, or
+`?edit=new` for Add an environment): name, description, the added repositories as
+an ordered list with move up and down (the first takes the changes, the others are
+read only), the Emisar account and Use as default. Use as default moves the
+default in one save. Remove asks first, and a removal the settings refuse says who
+still uses the environment: "Staging is used by 3 channels and 1 webhook source.
+Change them first."
+
+A channel's page chooses its environment in place: a select of the environments
+and "No environment", saved as the channel's own setting, beside the code and
+Emisar account that choice gives the channel's work. Rules, guidance and memory
+scoped to a repository reach a channel through the repository its environment
+changes. The Repositories page says which environments each repository is in, and
+the Emisar page says which environments use each account and counts, with a link
+here, the environments that have none.
+
 ## Global and channel instructions
 
-`/instructions` has one installation-wide Global instructions field. Each available
-Slack channel has its own Channel instructions editor directly on
-`/channels/:workspace/:channel`, with a read-only preview of the inherited global
-text. The channel list shows “Global only” or “Global + channel” without excerpts.
+`/instructions` has one installation-wide field, "For every conversation". Below it
+the page lists every channel that adds instructions of its own (its name, its words
+and an Edit link to that channel's editor), then the preferences and guidance people
+confirmed in conversations. Each available Slack channel has its own editor directly
+on `/channels/:workspace/:channel`, with a read-only preview of the inherited global
+text. The channel list says which channels have their own instructions, without
+excerpts.
 
 Save changes explicitly; Cancel discards the draft. Each field accepts 2,000 Unicode
 characters and 8 KiB of UTF-8, preserving line breaks and Markdown. Clear and save
@@ -331,41 +369,103 @@ through the query string, which is what makes each Usage breakdown openable.
 Every debugging question in this repository's history is answered on this page.
 Today they are answered by running sqlite against a production database.
 
-### 3. Failures — "what is broken and can I retry it?"
+### 3. Failures — "what stopped, does it matter, and will retrying help?"
 
-`Failed work: 100` is a number the App Home cannot open.
+Work Ryker could not finish on its own, at `/failures`. On 2026-09-24 the page
+showed "Working-copy cleanup stopped" over a big "Resume cleanup" button, and
+nobody could tell what the button did, whether it would work, or why Ryker
+could not do it itself. Every row and page now answers those questions.
 
-- Grouped by cause, because a hundred failures are rarely a hundred problems
-- Retryable vs superseded, attempts, last error
-- Confirmed recovery for each typed custody owner: blocked admission reconciles
-  its frozen context and operation identities; blocked Work retains its stopped
-  turn and transfers to a fresh logical turn; delivery retries its exact accepted
-  intent; Slack repaint and incident-room provisioning reuse their durable
-  targets; Emisar resumes read-only monitoring of the same governed request
-- Semantic publication review is not listed as an infrastructure failure and
-  cannot be bypassed with a generic retry button
-- Link to the episode that failed
+- Rows are grouped by impact: **Affects people** (someone is missing a reply,
+  an update or a result) before **Housekeeping** (cleanup nobody waits on).
+  The counts lead with how many affect people, how many are housekeeping, how
+  many should work if retried, and how long the oldest has waited
+- A row names what stopped in plain words, says with a dot and a word whether
+  a retry should work (Retry should work · Needs you · Fix needed first ·
+  Retry won't help · Retrying on its own), says who is affected and why Ryker
+  stopped, and says under its facts what its button does before it is pressed
+- A retry that cannot work yet is never a row's button: the row says what has
+  to change first and links to where to change it (Slack itself, an
+  integration's page, the code-editing setup, the workers' storage lines)
+- Whether a retry should work is read cheaply when the page renders: whether
+  the worker that holds a session reports and still runs the session's exact
+  policy version (saving a finished result needs it; cleanup and stops go to
+  that worker whatever version it runs), whether Ryker is back in the Slack
+  channel, whether Slack's or Emisar's credential was saved again after the
+  failure, whether any worker reports, whether the repository can publish now
+- A failure's own page has What happened, What it affects, What Ryker tried
+  (its automatic retries and why it stopped on its own), What you can do (each
+  option with what it does and whether it should work, including what happens
+  if nobody acts) and a closed Technical details with the saved code, Slack's
+  own error word from a closed list, references and a digest of the stored
+  diagnostic, never the diagnostic itself
+- Confirmation pages repeat the same sentence: what the step does, then
+  whether it should work. `FailureExplanation` owns the words for all three
+- Confirmed recovery for each typed custody owner: blocked admission picks up
+  its frozen run or decides afresh; blocked Work transfers to a fresh logical
+  turn, or finishes saving a completed result without running the model;
+  delivery retries its exact accepted intent; Slack repaint and incident-room
+  setup continue from their durable targets; Emisar resumes read-only
+  monitoring of the same governed request; cleanup resumes its exact blocked
+  phase
+- Publications have no generic retry: they retry on their own about once a
+  minute, so the page names the cause and the fix, and the task card owns
+  Retry, Review latest state and Discard. A publication whose worker session
+  closed for good is discarded by Ryker itself with that reason and is not
+  listed, and a publication whose phase later succeeds leaves the list
+- A message whose reading run was stopped is not listed: Ryker reads it
+  again with a fresh run on its own. Only one whose runs kept stopping
+  through the whole retry budget is listed, and its retry starts one more
+  fresh run
+- An incident room whose channel is deleted closes itself and its
+  investigation, and neither is listed. While Ryker is closing it, its task
+  never reads as waiting for the room to come back. A reply it still owed the
+  room is posted in the alert thread the room was opened from instead: while
+  Ryker moves it, its row says so and offers no retry, and one Slack refuses
+  there for good is listed as a reply for that thread, whose retry posts it
+  there
+- A stop (Stop, closing a request, or a new message replacing a run) that its
+  worker has not confirmed after eight attempts is listed with no retry of its
+  own, because Ryker is still retrying: the row names the worker holding the
+  run and, when it is not reporting, links to where to bring it back. It leaves
+  the list once the stop finishes, including when that worker is removed
+- Link to the request each failure belongs to
+- Newest first, a hundred to a page; older failures are the next page and are
+  never cut without a word. Every kind is read newest first
+- An Emisar approval a task waits for is listed while its account's approval
+  monitoring is off or Ryker has no usable token for it, with the fix on the
+  Emisar page and no retry; it leaves the list once the account is fixed.
+  Replacing the token watches again every approval Emisar stopped for refusing
+  the old one. A watch whose task was closed is closed by the monitor with its
+  reason and kept as history, never listed
 
 **Source:** ingress, episode Work, delivery, Slack interaction/incident, Emisar,
-and retention custody tables.
+publication and retention custody tables, with fleet workers and placements,
+Slack channel membership and credential metadata for whether a retry should
+work.
 
-### 3a. Workspaces — "what is still held, and why?"
+### 3a. Working copies — "what is still held, and why?"
 
-Every Coop fork still on disk, with the janitor's refusal verbatim. The
-blocked rows are the operator's queue: automatic cleanup has already declined
-each one for a stated reason — a dirty tree, unpublished commits, a Coop
-conflict — and will never look again without a person acting.
+Every repository checkout a task worked in, at `/working-copies`, with what
+cleanup does next in plain words. The rows that need a person are the ones
+automatic cleanup has already declined for a stated reason (uncommitted
+changes, commits that were never merged, a worker that stopped answering) and
+will never look at again without someone acting. Background learning sessions
+hold no checkout; `/memory/learning` lists them.
 
-- Split into "waiting on you" (blocked) and "queued for automatic cleanup"
-  (the janitor's own schedule), with reclaimed workspaces counted but not shown
-- Rearm restores only the exact cleanup phase captured when automation
-  blocked. It keeps the frozen Coop session identity, clears the bounded retry
-  state, and records the operator action atomically
-- Explicit discard is offered only for a clean workspace retained because it
-  has unpublished, unmerged commits. It requests a fresh exact Coop plan with
-  unmerged acceptance; dirty work remains retained and has no discard button
-- Publication remains a task/publication workflow, not a workspace-cleanup
-  shortcut. The Workspaces page never invents a publish or generic rerun action
+- One storage line per worker comes first: kept and disposable space against
+  the limit, when it was measured, and whether the worker still takes new
+  copies. A worker that reported nothing is unknown, never zero
+- "Ready for cleanup" lists what the janitor will do next, oldest first;
+  removed copies wait in a closed "Removed copies (N)" disclosure
+- Resume cleanup restores only the exact cleanup phase captured when
+  automation blocked. It keeps the frozen Coop session identity, clears the
+  bounded retry state, and records the operator action atomically
+- Discard unmerged is offered only for a clean copy kept because it has
+  unpublished, unmerged commits. It requests a fresh exact Coop plan with
+  unmerged acceptance; uncommitted work stays kept and has no discard button
+- Publication remains a task/publication workflow, not a cleanup shortcut.
+  The Working copies page never invents a publish or generic rerun action
 - A row with no provably safe transition says why and has no dead control
 
 **Source:** `coop_cleanup`, joined to `incidents`, `channel_memories` and
@@ -420,7 +520,7 @@ episode.
 ### 7. Settings — "how is it set up, and what is that costing me?"
 
 - Editors for the product decisions: Slack, GitHub and Emisar connections,
-  repositories, repository contexts, GitHub repository bindings, execution
+  repositories, environments, GitHub repository bindings, execution
   policies, work placement, publication identity, the weekly report, learning,
   retention horizons and optional token rates. Each section saves explicitly at
   the revision it was read at, keeps its draft when a save is refused, and shows
@@ -434,9 +534,10 @@ episode.
 - Which deployment credentials are configured, missing or unusable — presence
   only, never values
 - Effective assembled configuration, read-only, below the editors
-- Channels: participation mode, proactive, shadow, repository binding, alert
-  policy — proactive and shadow are the only two a slash command still sets, and
-  the rest are set by the channel setup conversation in that channel
+- Channels: participation mode, proactive, shadow, environment, alert
+  policy — proactive and shadow are the only two a slash command still sets; the
+  environment is also chosen on the channel's page, and the rest are set by the
+  channel setup conversation in that channel
 - Preferences and standing rules with scope and expiry
 - Schedules, with next occurrence and catch-up policy
 - Prompt budget: static instruction size against the Coop turn cap, per prompt
@@ -463,6 +564,10 @@ Tokens, over a selectable window (24h, 7d, 30d, everything), broken down by:
   including schema and semantic repairs.
 - Cache hit rate: cached input over all input read
 - A daily trend, inline SVG rendered server-side
+
+The page leads with its totals as counts, then the daily trend and where the
+time went, then one table per breakdown: one header row, every column named
+once ("Fresh in", "Cached in") and figures right-aligned.
 
 Every row links into an episode list filtered to it. A breakdown that cannot be
 opened says which model costs the most and gives no route to a single turn of
@@ -623,16 +728,19 @@ replacement, not the older dashboard or the intended final design above.
 | Incident rooms list and detail | Live, with bounded search, Slack-room lifecycle, linked source and investigation episodes, typed evidence records, and sanitized publication state |
 | Schedules list and detail | Live, with bounded search, confirmed run-now, direct-conversation replacement, recurrence and authority, destination, trigger kind, child execution state and timing, attempts, sanitized failures, and dispatched or missed occurrence history |
 | Waits | Live, with active-first bounded search, readable target/condition/request, relative timing and exact UTC timestamps, accurate event/timer resolution, and collapsed technical details without raw source payloads |
-| Channels list and detail | Live, with bounded search across durable Slack configuration, membership, incident ownership, conversation summaries, schedules, overrides, and recent episodes |
-| Repositories and topology | Live, with configured policy names, durable channel, schedule, session, and publication counts, serving Coop worker revisions, and the latest frozen freshness receipt |
+| Environments | Live: each environment with its repositories in order, the one that takes the changes, its Emisar account and how many channels and webhook sources use it, the default first; an editor in place with ordered repositories, Emisar account and Use as default; Use as default and Remove, which asks first and names who still uses the environment when it is refused |
+| Channels list and detail | Live: the channels Ryker is in (In use/All, search by name or environment) and how it takes part in each, in plain words, with the environment its work runs in; one page per channel with how Ryker takes part and its environment chosen in place, beside the code and Emisar account that environment gives it, its own instructions, what applies there (rules, saved instructions, facts) and where each comes from, what Ryker learned, schedules, recent work and usage, each list paged on its own |
+| Repositories | Live: each repository as Ready, Setting up or Needs attention with its one next step, which environments it is in, where it is used and the last code Ryker used, Retry setup for a stopped setup, access, permissions, GitHub events, RYKER.md and worker revisions in a closed Details, and adding repositories from the connected GitHub App, each joining the default environment |
 | Failures | Live, with typed confirmed recovery for admission, Work, delivery, Slack repaint/incident, Emisar monitoring, and retention custody |
-| Workspaces | Live, with audited cleanup rearm and explicit safe discard |
+| Working copies | Live, with worker storage, audited cleanup rearm and explicit safe discard |
 | Usage | Filtered execution ledger, cost and timing, plus work-class/model comparisons and retained response corrections |
-| Findings | Live, read-only |
-| Standing rules | Live, with active/paused/expired counts, searchable scope/status filters, paginated confirmed instructions, original conversation, expiry, recent matches, and confirmed pause/resume/delete |
-| Preferences and Guidance | Separate live libraries with visible scope, effective expiry, full guidance, provenance, history filters, and confirmed lifecycle controls |
-| Memory | Operational mappings and stale/duplicate reviews, with confirmed keep/merge/edit/forget; rules, guidance, preferences, and schedules have their own pages |
-| Settings | Live editors for every product decision, each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; below them an allowlist of effective runtime values, MCP/host/tool grant names, and repository-topology linkage. Secrets, endpoints, callbacks, and raw policy documents are omitted, and credentials appear only as configured, missing or unusable |
+| Findings | Live, read-only: each saved conclusion with its state in words (Not explained yet, Explained, Expected, Out of scope), why it holds, its evidence in a closed disclosure and a link into the investigation, paged |
+| Rules | Live, with search and Current/Past views, paginated confirmed rules in plain words (when a rule acts, who can set it off, repository, expiry, usage), event conditions in a closed disclosure, original conversation, recent matches, and confirmed pause/resume/delete |
+| Instructions | Live global editor, the channels that add their own instructions, and the preferences and guidance confirmed in conversations (All/Preferences/Guidance and Current/Past views, where each applies, expiry, usage) with confirmed pause/resume/delete |
+| Memory | Three pages beside Findings. Facts: what people asked Ryker to remember, where each applies and how often it was used, with confirmed forget and a Needs review section (keep, merge, edit, forget) for stale or repeated facts. Learned: topics and conversation summaries with their source messages, update history, how each update was learned, and relearning for a topic whose sources are gone. Learning: whether background learning runs here, what waits, batches that need attention with one more start, recent passes by outcome, handovers that were not saved, and learning worker sessions, with the on/off switch opposite the title |
+| Setup | Live onboarding at `/setup`: the six required steps as an ordered list with one open step (why it matters, what it needs, about how long, one action), the Slack-side steps checked off when Ryker notices them, the channel's environment chosen on the channel's page (done once a joined channel has one; adding a repository creates the Default environment, so there is no step for that), Emisar as the one recommended step with its own panel that never blocks ready, and a calm ready state; the sidebar keeps a way back while required steps are open |
+| Integrations | Live: an overview of Slack, GitHub, Emisar and webhooks, each with its state in words, what it gives Ryker, what is connected and one action, and a page per integration to connect, repair, manage or disconnect it (disconnects and removals ask first); each Emisar account says which environments use it, and the environments without one are counted with a link to Environments |
+| Settings | Models, Data retention, Model prices and Advanced: live editors for every product decision, each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; under Advanced an allowlist of effective runtime values, MCP/host/tool grant names, and repository-topology linkage. Secrets, endpoints, callbacks, and raw policy documents are omitted, and credentials appear only as configured, missing or unusable |
 
 Every administrative action is a POST behind a native two-step confirm and
 writes its store transition and audit row in the same act, attributed to

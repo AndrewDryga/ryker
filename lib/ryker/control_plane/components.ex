@@ -26,7 +26,13 @@ defmodule Ryker.ControlPlane.Components do
     arrow_up: "M12 19V5 M6 11l6-6 6 6",
     arrow_down: "M12 5v14 M18 13l-6 6-6-6",
     copy: "M9 9h10v10H9z M5 5h10v4 M5 5v10h4",
-    chevron: "m9 5 7 7-7 7"
+    chevron: "m9 5 7 7-7 7",
+    hash: "M5 9h14 M5 15h14 M10 3 8 21 M16 3l-2 18",
+    repository:
+      "M6 3v12 M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M18 9a9 9 0 0 1-9 9",
+    bolt: "M13 2 4 14h7l-1 8 9-12h-7l1-8Z",
+    pen: "M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z M13.5 6.5l3 3",
+    plug: "M9 2v6 M15 2v6 M6 8h12v4a6 6 0 0 1-12 0V8Z M12 18v4"
   }
 
   attr(:name, :atom, required: true)
@@ -95,6 +101,39 @@ defmodule Ryker.ControlPlane.Components do
       </button>
     </span>
     """
+  end
+
+  attr(:label, :string, default: "Copy")
+  slot(:inner_block, required: true)
+
+  @doc """
+  A block of exact text with a copy button in its top-right corner. The button
+  copies what the block shows, so a large JSON document is one click away.
+  """
+  def copy_block(assigns) do
+    ~H"""
+    <div class="copy-block">
+      <button
+        type="button"
+        class="copy-block-button"
+        data-copy-block
+        aria-label={@label}
+        title={@label}
+      >
+        <.icon name={:copy} class="copy-block-idle" />
+        <.icon name={:check} class="copy-block-done" />
+        <span class="sr-only" data-copy-status aria-live="polite"></span>
+      </button>
+      {render_slot(@inner_block)}
+    </div>
+    """
+  end
+
+  @doc "`copy_block/1` for renderers that build HTML as iodata."
+  def copy_block_html(body, label \\ "Copy") do
+    %{__changed__: nil, label: label, inner_block: html_slot(:inner_block, body)}
+    |> copy_block()
+    |> Safe.to_iodata()
   end
 
   def compact_identifier(value, maximum \\ 27)
@@ -173,25 +212,30 @@ defmodule Ryker.ControlPlane.Components do
   slot(:footer, doc: "Supporting details and controls, never the message itself")
   slot(:inner_block, required: true)
 
-  @doc "A self-contained message: context, sender and time above its body; details below it."
+  @doc """
+  One message, drawn as a message wherever it appears: an optional title, then
+  the sender's name and time, the words in a bubble, and details below.
+  """
   def message_block(assigns) do
+    assigns = assign(assigns, :author, message_author(assigns.sender))
+
     ~H"""
-    <article class={["ui-message", @class]} {@rest}>
-      <header :if={@title || @sender || @context || @meta != []} class="ui-message-header">
-        <div class="ui-message-identity">
-          <h3 :if={@title} class="ui-message-title">{@title}</h3>
-          <div :if={@sender || @context} class="ui-message-sender">
-            <strong :if={@sender}>{@sender}</strong>
-            <span :if={@context} class="ui-message-context">{@context}</span>
-          </div>
-        </div>
-        <div :if={@meta != []} class="ui-message-meta">{render_slot(@meta)}</div>
+    <article class={["ui-message", @class]} data-author={@author} {@rest}>
+      <h3 :if={@title} class="ui-message-title">{@title}</h3>
+      <header :if={@sender || @context || @meta != []} class="ui-message-header">
+        <strong :if={@sender}>{@sender}</strong>
+        <span :if={@context} class="ui-message-context">{@context}</span>
+        <span :if={@meta != []} class="ui-message-meta">{render_slot(@meta)}</span>
       </header>
       <div class="ui-message-body markdown-preview">{render_slot(@inner_block)}</div>
       <footer :if={@footer != []} class="ui-message-footer">{render_slot(@footer)}</footer>
     </article>
     """
   end
+
+  defp message_author(nil), do: nil
+  defp message_author("Ryker"), do: "ryker"
+  defp message_author(_sender), do: "person"
 
   @doc "The same message block for sanitized iodata views; body and slots must already be escaped."
   def message_block_html(sender, body, options \\ []) do
@@ -357,52 +401,6 @@ defmodule Ryker.ControlPlane.Components do
     """
   end
 
-  attr(:rows, :list, required: true)
-
-  slot :col, required: true do
-    attr(:label, :string, required: true)
-
-    attr(:class, :string,
-      doc: "row-number or row-action when header and cells share an alignment"
-    )
-  end
-
-  @doc """
-  A comparison table whose every cell names its column, so a narrow screen
-  can stack a row into label/value pairs without hiding the row's identity
-  (its first column). Unframed: a header row, row lines, no panel.
-  """
-  def table(assigns) do
-    ~H"""
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th :for={col <- @col} scope="col" {class_attribute(col[:class])}>{col.label}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr :for={row <- @rows}>
-          <td
-            :for={{col, index} <- Enum.with_index(@col)}
-            data-label={col.label}
-            {class_attribute(cell_class(index, col[:class]))}
-          >
-            <div class="cell-value">{render_slot(col, row)}</div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    """
-  end
-
-  defp cell_class(0, nil), do: "row-identity"
-  defp cell_class(0, class), do: "row-identity " <> class
-  defp cell_class(_index, class), do: class
-
-  # An unclassed cell carries no class attribute at all, like the string pages' tables.
-  defp class_attribute(nil), do: []
-  defp class_attribute(class), do: [class: class]
-
   attr(:label, :string, default: "Completed")
 
   @doc """
@@ -463,119 +461,6 @@ defmodule Ryker.ControlPlane.Components do
       </div>
       <p :if={@description} class="page-description">{@description}</p>
     </header>
-    """
-  end
-
-  attr(:label, :string, required: true)
-  attr(:facts, :list, default: [])
-  attr(:message, :string, default: nil)
-  attr(:secondary, :list, default: [])
-  attr(:related, :map, default: nil)
-
-  @doc """
-  A compact row of page-level facts beneath a page heading.
-
-  Facts stay unboxed and number-first. A related destination remains visible
-  when the row wraps, and the optional area breakdown names only meaningful
-  nonzero groups supplied by the caller.
-  """
-  def page_summary(assigns) do
-    ~H"""
-    <section class="page-summary" aria-label={@label}>
-      <div class="page-summary-main">
-        <dl class="page-summary-facts">
-          <div
-            :for={fact <- @facts}
-            class={[
-              "page-summary-fact",
-              fact[:tone] in [:attention, "attention"] && "page-summary-fact-attention"
-            ]}
-          >
-            <dt>
-              <a :if={fact[:href]} href={fact.href}>{fact.label}</a>
-              <span :if={!fact[:href]}>{fact.label}</span>
-            </dt>
-            <dd data-active-count={fact[:active_count] && true}>{fact.value}</dd>
-          </div>
-        </dl>
-        <p :if={@message} class="page-summary-message">{@message}</p>
-        <a :if={@related} class="page-summary-link" href={@related.href}>{@related.label}</a>
-      </div>
-      <div :if={length(@secondary) > 0} class="page-summary-secondary">
-        <span>By area</span>
-        <dl>
-          <div :for={fact <- @secondary}>
-            <dt>{fact.label}</dt>
-            <dd>{fact.value}</dd>
-          </div>
-        </dl>
-      </div>
-    </section>
-    """
-  end
-
-  attr(:label, :string, required: true)
-  attr(:count, :integer, required: true)
-  attr(:one, :string, default: "item")
-  attr(:many, :string, default: "items")
-  attr(:class, :any, default: nil)
-  slot(:navigation)
-  slot(:filters, required: true)
-  slot(:inner_block, required: true)
-
-  @doc """
-  The shared frame for searchable collections.
-
-  Navigation is optional because it is only useful when a collection has real
-  alternate views. The toolbar, count, content and empty state keep the same
-  hierarchy whether the rows are rendered by a LiveView or a static page.
-  """
-  def collection_shell(assigns) do
-    assigns =
-      assigns
-      |> assign_new(:class, fn -> nil end)
-      |> assign_new(:navigation, fn -> [] end)
-
-    ~H"""
-    <section class={["collection-shell", @class]} aria-label={@label}>
-      <header :if={@navigation != []} class="collection-shell-header">
-        <div class="collection-shell-navigation">{render_slot(@navigation)}</div>
-        <p class={["collection-total", @count > 0 && "result-count"]}>
-          {@count} {if @count == 1, do: @one, else: @many}
-        </p>
-      </header>
-      <div class="collection-shell-filter-row">
-        <div class="collection-shell-filters">{render_slot(@filters)}</div>
-        <p
-          :if={@navigation == []}
-          class={["collection-total", @count > 0 && "result-count"]}
-        >
-          {@count} {if @count == 1, do: @one, else: @many}
-        </p>
-      </div>
-      <div class="collection-shell-content">{render_slot(@inner_block)}</div>
-    </section>
-    """
-  end
-
-  attr(:id, :string, required: true)
-  attr(:label, :string, required: true, doc: "Specific, e.g. \"How to add and manage rules\"")
-  attr(:class, :any, default: nil)
-  slot(:inner_block, required: true)
-
-  @doc """
-  Longer help that expands below the description, never in a side column.
-
-  It starts closed. The id lets the reading-state hook keep it open across a
-  live refresh. Scope or authority warnings that a reader must not miss do
-  not belong in here; they stay visible in the description or the content.
-  """
-  def page_help(assigns) do
-    ~H"""
-    <details class={["page-help", @class]} id={@id}>
-      <summary>{@label}</summary>
-      <div class="page-help-body">{render_slot(@inner_block)}</div>
-    </details>
     """
   end
 
@@ -786,24 +671,6 @@ defmodule Ryker.ControlPlane.Components do
     """
   end
 
-  attr(:kind, :atom, values: [:empty, :no_match, :unavailable, :actionable], default: :empty)
-  attr(:title, :string, required: true)
-  attr(:description, :string, required: true)
-  slot(:action)
-
-  @doc "One explicit empty/no-match/unavailable surface shared by directory pages."
-  def empty_state(assigns) do
-    assigns = assign_new(assigns, :action, fn -> [] end)
-
-    ~H"""
-    <section class={["empty-state", "empty-state-#{@kind}"]}>
-      <h2>{@title}</h2>
-      <p>{@description}</p>
-      <div :if={@action != []} class="empty-state-action">{render_slot(@action)}</div>
-    </section>
-    """
-  end
-
   defp assign_filter_controls(assigns) do
     {primary, optional} =
       case assigns.selects do
@@ -867,21 +734,6 @@ defmodule Ryker.ControlPlane.Components do
       "" -> path
       encoded -> path <> "?" <> encoded
     end
-  end
-
-  attr(:count, :integer, required: true)
-  attr(:one, :string, required: true, doc: "Noun for exactly one, e.g. \"rule\"")
-  attr(:many, :string, required: true, doc: "Noun for any other count, e.g. \"rules\"")
-
-  @doc """
-  The quiet count of what the list below actually holds after filtering —
-  never a separate statistics area, and never a count computed over a wider
-  set than the one on the page.
-  """
-  def result_count(assigns) do
-    ~H"""
-    <p :if={@count > 0} class="result-count">{@count} {if @count == 1, do: @one, else: @many}</p>
-    """
   end
 
   # States arrive as the strings the projections cast and as the atoms the

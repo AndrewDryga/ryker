@@ -112,7 +112,10 @@ defmodule Ryker.ControlPlane.RouteMapTest do
     assert {:ok, view, _html} = live(conn(), "/timeline/ingress-input%3A#{entry.id}")
     assert has_element?(view, ".back-to-activity", "Activity")
     assert has_element?(view, "#execution-timeline")
-    assert has_element?(view, ".episode-request", "Routing briefing")
+    # Nothing has been routed yet, so the page shows the queue, not a briefing
+    # for a call that has not happened.
+    assert has_element?(view, ".input-queue")
+    refute has_element?(view, ".episode-request", "Routing briefing")
     refute has_element?(view, ".model-inspector")
   end
 

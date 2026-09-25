@@ -72,6 +72,11 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @retired_ledger_version 20_260_913_000_200
   @token_rates_version 20_260_920_001_300
   @admission_cleanup_repair_version 20_260_921_000_300
+  @publication_discard_reason_version 20_260_925_000_100
+  @emisar_closure_version 20_260_925_000_700
+  @search_stems_version 20_260_925_000_800
+  @environments_version 20_260_925_001_000
+  @environment_setup_step_version 20_260_925_001_100
   @integration_versions [
     20_260_919_000_100,
     20_260_919_000_200,
@@ -92,7 +97,14 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     20_260_920_001_500,
     20_260_921_000_100,
     20_260_921_000_200,
-    @admission_cleanup_repair_version
+    @admission_cleanup_repair_version,
+    20_260_923_000_100,
+    20_260_923_000_200,
+    @publication_discard_reason_version,
+    @emisar_closure_version,
+    @search_stems_version,
+    @environments_version,
+    @environment_setup_step_version
   ]
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
@@ -231,6 +243,236 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  "SELECT cleanup_status, cleanup_receipt IS NOT NULL FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
                  [settled_id]
                )
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  # Why Ryker ended a publication itself is the only record of it: a rollback
+  # that dropped the column would turn it into a discard nobody made.
+  test "a publication Ryker discarded keeps its reason through a refused rollback" do
+    repo = start_migration_repo!()
+    prefix = "publication_discard_reason_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @publication_discard_reason_version,
+        prefix: prefix,
+        log: false
+      )
+
+      {_record_id, publication_id} = insert_stale_head_recovery_rows!(repo, prefix, ids)
+
+      SQL.query!(
+        repo,
+        """
+        UPDATE #{prefix}.episode_publications
+        SET status = 'discarded', discarded_reason = 'review_session_closed'
+        WHERE id = $1::text::uuid
+        """,
+        [publication_id]
+      )
+
+      assert_raise Postgrex.Error, ~r/publication discard reasons have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert column_exists?(repo, prefix, "episode_publications", "discarded_reason")
+
+      SQL.query!(
+        repo,
+        "UPDATE #{prefix}.episode_publications SET discarded_reason = NULL WHERE id = $1::text::uuid",
+        [publication_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@publication_discard_reason_version]
+
+      refute column_exists?(repo, prefix, "episode_publications", "discarded_reason")
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  # Environments replaced repository groups, Emisar routes and the per-channel
+  # repository on 2026-09-25, when the live installation held none of them. A
+  # webhook source has no environment it could move into, so the upgrade
+  # refuses one rather than deleting it; a channel keeps every other choice and
+  # answers without an environment. Rolling back would throw away environments,
+  # the channels that select one and the environment each session ran in, so
+  # the step refuses while any of that exists.
+  test "environments replace groups and routes, and roll back only while nothing uses one" do
+    repo = start_migration_repo!()
+    prefix = "environments_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @search_stems_version,
+        prefix: prefix,
+        log: false
+      )
+
+      configuration_id = insert_default_channel_configuration!(repo, prefix)
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.webhook_source_settings (
+          name, adapter_kind, auth_kind, secret_name, destination_transport,
+          destination_conversation_ref, context_ref, inserted_at, updated_at
+        ) VALUES (
+          'alerts', 'universal', 'bearer', 'alerts', 'slack', 'slack:T1:C1', 'ryker',
+          clock_timestamp(), clock_timestamp()
+        )
+        """,
+        []
+      )
+
+      assert_raise Postgrex.Error, ~r/webhook sources must be removed/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :up,
+          to: @environments_version,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      assert table_exists?(repo, prefix, "repository_context_settings")
+      SQL.query!(repo, "DELETE FROM #{prefix}.webhook_source_settings", [])
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @environments_version,
+               prefix: prefix,
+               log: false
+             ) == [@environments_version]
+
+      for table <- ~w(repository_context_settings emisar_connection_bindings),
+          do: refute(table_exists?(repo, prefix, table))
+
+      refute column_exists?(repo, prefix, "github_binding_settings", "repository_context_ref")
+      refute column_exists?(repo, prefix, "slack_settings", "default_repository_ref")
+      refute column_exists?(repo, prefix, "webhook_source_settings", "context_ref")
+
+      for table <- ~w(episode_work_sessions slack_incident_rooms episode_schedules),
+          do: assert(column_nullable?(repo, prefix, table, "environment_ref"))
+
+      assert %{rows: [[nil]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT environment_ref FROM #{prefix}.slack_channel_configurations WHERE id = $1::text::uuid",
+                 [configuration_id]
+               )
+
+      assert "environment_settings" in triggers(repo, prefix, "ryker_control_plane_changed")
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.environment_settings (ref, display_name, is_default, inserted_at, updated_at)
+        VALUES ('production', 'Production', TRUE, clock_timestamp(), clock_timestamp())
+        """,
+        []
+      )
+
+      assert_raise Postgrex.Error, ~r/environment_settings_default_index/, fn ->
+        SQL.query!(
+          repo,
+          """
+          INSERT INTO #{prefix}.environment_settings (ref, display_name, is_default, inserted_at, updated_at)
+          VALUES ('staging', 'Staging', TRUE, clock_timestamp(), clock_timestamp())
+          """,
+          []
+        )
+      end
+
+      SQL.query!(repo, "DELETE FROM #{prefix}.slack_channel_configurations", [])
+
+      assert_raise Postgrex.Error, ~r/environments have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert table_exists?(repo, prefix, "environment_settings")
+      SQL.query!(repo, "DELETE FROM #{prefix}.environment_settings", [])
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@environments_version]
+
+      refute table_exists?(repo, prefix, "environment_settings")
+      assert table_exists?(repo, prefix, "repository_context_settings")
+      assert column_exists?(repo, prefix, "slack_channel_configurations", "repository_ref")
+      refute column_nullable?(repo, prefix, "slack_channel_configurations", "repository_ref")
+      assert column_exists?(repo, prefix, "webhook_source_settings", "context_ref")
+      refute column_exists?(repo, prefix, "episode_work_sessions", "environment_ref")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+               [@environments_version, @environment_setup_step_version]
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  # The channel setup Q&A asks for an environment where it asked for a
+  # repository. A Q&A still open across the change offered repositories no
+  # channel can select, so it ends the way an unanswered one does; finished
+  # ones and every saved setting stay. Rolling back does the same the other way.
+  test "the setup step names the environment, and a Q&A open across the change expires" do
+    repo = start_migration_repo!()
+    prefix = "setup_step_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @environments_version,
+        prefix: prefix,
+        log: false
+      )
+
+      open = insert_setup_session!(repo, prefix, "repository", "asking")
+      finished = insert_setup_session!(repo, prefix, "repository", "cancelled")
+      answered = insert_setup_session!(repo, prefix, "confirm", "confirming")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @environment_setup_step_version,
+               prefix: prefix,
+               log: false
+             ) == [@environment_setup_step_version]
+
+      assert setup_session(repo, prefix, open) == ["environment", "expired"]
+      assert setup_session(repo, prefix, finished) == ["environment", "cancelled"]
+      assert setup_session(repo, prefix, answered) == ["confirm", "expired"]
+
+      assert_raise Postgrex.Error, ~r/slack_configuration_session_valid/, fn ->
+        insert_setup_session!(repo, prefix, "repository", "asking")
+      end
+
+      reopened = insert_setup_session!(repo, prefix, "environment", "asking")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@environment_setup_step_version]
+
+      assert setup_session(repo, prefix, reopened) == ["repository", "expired"]
+      assert setup_session(repo, prefix, finished) == ["repository", "cancelled"]
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+               [@environment_setup_step_version]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -3039,7 +3281,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
             - 'selected_input_refs' - 'selection_ledger' - 'source_envelope'
             - 'engagement_receipt' - 'delivery_target' - 'repository_source'
             - 'emisar_connection_ref' - 'emisar_account_ref' - 'emisar_rpc_url'
-            - 'cutover_item_id' AS value
+            - 'cutover_item_id' - 'discarded_reason' - 'environment_ref' AS value
           FROM #{prefix}.#{table} row ORDER BY 1
           """,
           []
@@ -3254,6 +3496,93 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
              prefix: prefix,
              log: false
            ) == Enum.reverse(@workspace_versions)
+  end
+
+  # A closed approval watch records when Ryker stopped watching it and why.
+  # Rolling the status back would turn it into a blocked watch again, under a
+  # retry that is always refused, so the rollback refuses while one exists.
+  test "closed approval watches refuse a rollback that would reopen them" do
+    repo = start_migration_repo!()
+    # A counter restarts with each run, and a run killed mid-test leaves its
+    # schema behind; a random name cannot collide with one.
+    prefix = "emisar_closure_#{String.replace(Ecto.UUID.generate(), "-", "")}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @candidate_responses_version,
+        prefix: prefix,
+        log: false
+      )
+
+      {record_id, _publication_id} = insert_stale_head_recovery_rows!(repo, prefix, ids)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @emisar_closure_version,
+        prefix: prefix,
+        log: false
+      )
+
+      approval_id = insert_presented_review!(repo, prefix, ids, record_id)
+      approvals = "#{prefix}.episode_emisar_approvals"
+
+      SQL.query!(
+        repo,
+        "UPDATE #{approvals} SET status = 'closed', closed_at = clock_timestamp(), closed_reason = 'wait_ended' WHERE id = $1::text::uuid",
+        [approval_id]
+      )
+
+      # A closed watch always says why, and only a closed one says it.
+      assert_raise Postgrex.Error, ~r/episode_emisar_approval_closure_valid/, fn ->
+        SQL.query!(
+          repo,
+          "UPDATE #{approvals} SET closed_reason = NULL WHERE id = $1::text::uuid",
+          [approval_id]
+        )
+      end
+
+      assert_raise Postgrex.Error, ~r/closed Emisar approvals have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down,
+          to: @emisar_closure_version,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      assert column_exists?(repo, prefix, "episode_emisar_approvals", "closed_reason")
+
+      SQL.query!(
+        repo,
+        "UPDATE #{approvals} SET status = 'blocked', closed_at = NULL, closed_reason = NULL WHERE id = $1::text::uuid",
+        [approval_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               to: @emisar_closure_version,
+               prefix: prefix,
+               log: false
+             ) == [@emisar_closure_version]
+
+      refute column_exists?(repo, prefix, "episode_emisar_approvals", "closed_reason")
+
+      assert_raise Postgrex.Error, ~r/episode_emisar_approval_identity_valid/, fn ->
+        SQL.query!(
+          repo,
+          "UPDATE #{approvals} SET status = 'closed' WHERE id = $1::text::uuid",
+          [approval_id]
+        )
+      end
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
   end
 
   defp start_migration_repo! do
@@ -3491,6 +3820,38 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     )
 
     id
+  end
+
+  # Structural fixture: one setup Q&A at the given step and status.
+  defp insert_setup_session!(repo, prefix, step, status) do
+    id = Ecto.UUID.generate()
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.slack_configuration_sessions (
+        id, workspace_ref, channel_ref, membership_generation, start_event_ref,
+        start_fingerprint, step, status, draft, revision, expires_at, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, 'T123', $2, 1, $3, repeat('a', 64), $4, $5, '{}', 1,
+        clock_timestamp() + interval '30 minutes', clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [id, "C-#{id}", "event:#{id}", step, status]
+    )
+
+    id
+  end
+
+  defp setup_session(repo, prefix, id) do
+    %{rows: [row]} =
+      SQL.query!(
+        repo,
+        "SELECT step, status FROM #{prefix}.slack_configuration_sessions WHERE id = $1::text::uuid",
+        [id]
+      )
+
+    row
   end
 
   defp insert_default_channel_configuration!(repo, prefix) do

@@ -286,7 +286,7 @@ defmodule Ryker.ControlPlane.UsagePage do
 
   # Learning spends on batches of conversation inputs, never on an episode.
   defp kind_link("learning", label, _params, _snapshot),
-    do: ["<a title=\"Learning\" href=\"/memory#learning-activity\">", e(label), "</a>"]
+    do: ["<a title=\"Learning\" href=\"/memory/learning\">", e(label), "</a>"]
 
   defp kind_link(_kind, label, params, snapshot), do: entity_link(label, params, snapshot)
 

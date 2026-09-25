@@ -4,12 +4,10 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   alias Ryker.CanonicalJSON
 
   alias Ryker.ControlPlane.{
-    ConversationMemory,
     CSRF,
-    HTML,
     LearningActivity,
+    LearningPage,
     LearningReceipt,
-    Projection,
     Router
   }
 
@@ -54,16 +52,29 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     inputs!()
     view = LearningActivity.project(%{})
     refute view.enabled
+    assert view.state == :off
     assert view.waiting_inputs == 2
     assert view.oldest_waiting_at
     assert view.counts.no_change == 0
-    html = HTML.memory(Projection.memory(), String.duplicate("s", 32)) |> IO.iodata_to_binary()
-    assert html =~ "Learning is disabled"
+    html = render(%{})
+    assert html =~ "Learning is off"
     assert html =~ "2 messages waiting"
-    assert html =~ "Current knowledge"
-    assert html =~ "Conversation context"
-    refute html =~ "Source excerpts"
+    assert html =~ "learns nothing from them until learning is on"
+    refute html =~ "Knowledge updated"
     refute html =~ "A new source can rebuild this topic"
+  end
+
+  test "learning turned on in settings but unable to run says so instead of reading as off" do
+    # The saved choice and the runtime disagree when learning has no worker or
+    # model yet; "Learning is off" beside a switch that reads "on" misleads.
+    Application.delete_env(:ryker, :learning)
+    assert {:ok, %{learning: %{enabled: true}}} = Ryker.Settings.initialize("control-plane:local")
+    assert LearningActivity.project(%{}).state == :cannot_start
+    assert render(%{}) =~ "Learning can’t start"
+
+    Application.put_env(:ryker, :learning, %{policy: @settings.policy})
+    assert LearningActivity.project(%{}).state == :not_running
+    assert render(%{}) =~ "Learning is not running here"
   end
 
   @tag :learning_count_labels
@@ -75,12 +86,10 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert {:ok, run} = Batches.prepare(claim)
     assert {:ok, _} = Batches.begin_execution(claim, run.id)
 
-    html =
-      HTML.memory(Projection.memory(%{"batch" => claim.batch.id}), String.duplicate("s", 32))
-      |> IO.iodata_to_binary()
+    html = render(%{"batch" => claim.batch.id})
 
-    assert html =~ "1 message · 1 model start ·"
-    assert html =~ "1 message · 1 of 3 approved model starts used"
+    assert html =~ "1 message"
+    assert html =~ "1 of 3 model starts used"
     refute html =~ "1 messages"
     refute html =~ "1 model starts"
   end
@@ -94,8 +103,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     Application.put_env(:ryker, :learning, %{configuration | policy: "available-account"})
     params = %{"batch" => claim.batch.id}
 
-    html =
-      HTML.memory(Projection.memory(params), String.duplicate("s", 32)) |> IO.iodata_to_binary()
+    html = render(params)
 
     assert html =~ "current learning policy"
     assert html =~ "available-account"
@@ -133,24 +141,19 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
 
     assert {:ok, _} = Batches.finish(claim, :no_change, nil)
 
-    view = ConversationMemory.project(%{"batch" => claim.batch.id, "attempt" => run.id})
-    assert view.learning_activity.counts.no_change == 1
-    assert view.learning_activity.selected.id == claim.batch.id
-    assert view.learning_activity.selected.attempts |> Enum.map(& &1.id) == [run.id]
-    assert view.learning.id == run.id
-    assert view.learning.status == :rejected
-    assert view.learning.error =~ "did not match"
-    assert Enum.find(view.learning.sections, &(&1.id == "prompt")).artifact.text
+    view = LearningActivity.project(%{"batch" => claim.batch.id, "attempt" => run.id})
+    assert view.counts.no_change == 1
+    assert view.selected.id == claim.batch.id
+    assert view.selected.attempts |> Enum.map(& &1.id) == [run.id]
+    assert view.receipt.id == run.id
+    assert view.receipt.status == :rejected
+    assert view.receipt.error =~ "did not match"
+    assert Enum.find(view.receipt.sections, &(&1.id == "prompt")).artifact.text
 
-    assert ConversationMemory.project(%{"batch" => Ecto.UUID.generate(), "attempt" => run.id}).learning ==
+    assert LearningActivity.project(%{"batch" => Ecto.UUID.generate(), "attempt" => run.id}).receipt ==
              nil
 
-    html =
-      HTML.memory(
-        Projection.memory(%{"batch" => claim.batch.id, "attempt" => run.id}),
-        String.duplicate("s", 32)
-      )
-      |> IO.iodata_to_binary()
+    html = render(%{"batch" => claim.batch.id, "attempt" => run.id})
 
     assert html =~ "No change needed"
     assert html =~ "Learning attempt 1"
@@ -386,6 +389,78 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     {claim, response}
   end
 
+  test "an attempt closed without its worker session says nothing was sent to the model" do
+    # Seven attempts on the Compose install read "The model execution may still
+    # be running" for days about a model they had never sent anything. Once the
+    # attempt has stop proof that nothing was submitted, the page says that.
+    inputs!()
+    assert {:ok, claim} = Batches.claim("inspection-test", @settings)
+    assert {:ok, run} = Batches.prepare(claim)
+    assert {:ok, _} = Batches.begin_execution(claim, run.id)
+
+    Repo.update!(
+      Ecto.Changeset.change(run,
+        status: :rejected,
+        error_code: "learning_remote_unresolved",
+        remote_stopped_at: DateTime.utc_now(),
+        stop_receipt: %{
+          "kind" => "never_submitted",
+          "reason" => "coop_session_replacement_required",
+          "session" => "unaddressable",
+          "session_id" => nil
+        }
+      )
+    )
+
+    assert {:ok, _} = Batches.release(claim, :learning_session_unconfirmed, 0)
+    params = %{"batch" => claim.batch.id}
+    assert [attempt] = LearningActivity.project(params).selected.attempts
+    assert attempt.error =~ "nothing was sent to the model"
+    assert LearningReceipt.project_attempt(claim.batch.id, run.id, []).error == attempt.error
+    html = render(Map.put(params, "attempt", run.id))
+    assert html =~ "The worker session could not be confirmed"
+    refute html =~ "has not confirmed that this attempt stopped"
+  end
+
+  test "learning held for a policy whose sessions are not isolated says so and what to change" do
+    # A held policy leaves every conversation's messages waiting. The page has
+    # to say why and what to change, or it reads as learning simply being slow.
+    inputs!()
+    assert {:ok, claim} = Batches.claim("inspection-test", @settings)
+    assert {:ok, run} = Batches.prepare(claim)
+    assert {:ok, _} = Batches.begin_execution(claim, run.id)
+    assert LearningActivity.project(%{}).state != :paused
+
+    Repo.update!(
+      Ecto.Changeset.change(run,
+        status: :rejected,
+        error_code: "learning_session_not_isolated",
+        remote_stopped_at: DateTime.utc_now(),
+        stop_receipt: %{"kind" => "never_submitted", "session_id" => "remote_recorded"}
+      )
+    )
+
+    start_supervised!(%{
+      id: :learning_runtime,
+      start: {Agent, :start_link, [fn -> :running end, [name: Ryker.Learning.Runtime]]}
+    })
+
+    assert LearningActivity.project(%{}).state == :paused
+    html = render(%{})
+    assert html =~ "Learning is paused"
+    assert html =~ "project_env: false and project_mcp: false"
+
+    # A different configured policy is a new digest: nothing holds it.
+    configuration = Application.fetch_env!(:ryker, :learning)
+
+    Application.put_env(:ryker, :learning, %{
+      configuration
+      | policy_digest: String.duplicate("c", 64)
+    })
+
+    assert LearningActivity.project(%{}).state == :on
+  end
+
   test "a failed conversation handover remains visible without marking a delivered response failed" do
     # Source-capacity failures intentionally preserve an accepted response. The
     # operator must see the missing handover instead of assuming learning succeeded.
@@ -437,14 +512,21 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert view.handover_failures.total == 1
     assert [failure] = view.handover_failures.items
     assert failure.turn_id == claim.turn.id
-    assert failure.response_status == "Response sent"
+    assert failure.response_status == "Reply sent"
     assert failure.explanation =~ "source history exceeded"
     assert failure.request_path =~ "attempt=#{claim.turn.id}"
-    html = HTML.memory(Projection.memory(), String.duplicate("s", 32)) |> IO.iodata_to_binary()
-    assert html =~ "Conversation context not saved"
-    assert html =~ "Response sent"
-    assert html =~ "This does not change the response or its delivery status"
+    html = render(%{})
+    assert html =~ "Context not saved"
+    assert html =~ "Reply sent"
+    assert html =~ "The replies themselves were not affected"
     assert Repo.get!(Turn, claim.turn.id) == before
+  end
+
+  defp render(params) do
+    params
+    |> LearningActivity.project()
+    |> LearningPage.html([], String.duplicate("s", 32))
+    |> IO.iodata_to_binary()
   end
 
   defp inputs! do

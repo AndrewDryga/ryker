@@ -28,7 +28,7 @@ defmodule Ryker.State.Schedules do
   }
 
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{Custody, Turn}
+  alias Ryker.Work.{Custody, Session, Turn}
 
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
@@ -230,7 +230,7 @@ defmodule Ryker.State.Schedules do
           %{schedule: schedule, status: :duplicate}
 
         nil when record.status == :open ->
-          create_schedule(record, source_episode, attributes)
+          create_schedule(record, source_episode, source_turn, attributes)
 
         nil ->
           Repo.rollback(:schedule_offer_stale)
@@ -240,7 +240,7 @@ defmodule Ryker.State.Schedules do
     end
   end
 
-  defp create_schedule(record, source_episode, attributes) do
+  defp create_schedule(record, source_episode, source_turn, attributes) do
     payload = record.payload
 
     with {:ok, recurrence} <-
@@ -253,7 +253,14 @@ defmodule Ryker.State.Schedules do
            ScheduleRecurrence.next_after(recurrence, payload["timezone"], attributes.occurred_at),
          :ok <- next_occurrence(next_occurrence_at, payload["expires_at"], attributes.occurred_at),
          {:ok, schedule} <-
-           insert_schedule(record, source_episode, attributes, recurrence, next_occurrence_at),
+           insert_schedule(
+             record,
+             source_episode,
+             source_environment(source_turn),
+             attributes,
+             recurrence,
+             next_occurrence_at
+           ),
          {:ok, _record} <-
            record
            |> RecordChangeset.confirm_resource(%{
@@ -269,7 +276,22 @@ defmodule Ryker.State.Schedules do
     end
   end
 
-  defp insert_schedule(record, source_episode, attributes, recurrence, next_occurrence_at) do
+  # The work that offered the schedule ran in its conversation's environment;
+  # the schedule keeps running there.
+  defp source_environment(%Turn{session_id: session_id}) do
+    Repo.one(
+      from(session in Session, where: session.id == ^session_id, select: session.environment_ref)
+    )
+  end
+
+  defp insert_schedule(
+         record,
+         source_episode,
+         environment_ref,
+         attributes,
+         recurrence,
+         next_occurrence_at
+       ) do
     payload = record.payload
 
     with {:ok, expires_at} <- optional_datetime(payload["expires_at"]) do
@@ -283,6 +305,7 @@ defmodule Ryker.State.Schedules do
         destination_conversation_ref: source_episode.destination_conversation_ref,
         destination_thread_ref: source_episode.destination_thread_ref,
         destination_transport: source_episode.destination_transport,
+        environment_ref: environment_ref,
         expires_at: expires_at,
         id: id,
         next_occurrence_at: next_occurrence_at,
@@ -457,7 +480,11 @@ defmodule Ryker.State.Schedules do
              transition.episode.id,
              policy.name,
              policy.digest,
-             schedule.repository
+             nil,
+             schedule.repository,
+             nil,
+             nil,
+             schedule.environment_ref
            ),
          {:ok, occurrence} <-
            insert_occurrence(%{

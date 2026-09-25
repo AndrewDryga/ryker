@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.LearningReceiptTest do
   use Ryker.DataCase, async: false
-  alias Ryker.ControlPlane.{ConversationMemory, HTML, InspectionRedactor, Projection}
+  alias Ryker.ControlPlane.{ConversationMemory, InspectionRedactor, LearnedPage, Projection}
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Repo
   alias Ryker.State.{KnowledgeRevision, Learning}
@@ -48,8 +48,7 @@ defmodule Ryker.ControlPlane.LearningReceiptTest do
     assert [%{learning_path: path}] = view.history
     assert path =~ "update=1"
 
-    html =
-      HTML.memory(Projection.memory(params(revision)), "test-secret") |> IO.iodata_to_binary()
+    html = render(params(revision))
 
     doc = LazyHTML.from_document(html)
     assert doc |> LazyHTML.query(".learning-receipt details[open]") |> LazyHTML.to_tree() == []
@@ -106,8 +105,7 @@ defmodule Ryker.ControlPlane.LearningReceiptTest do
     assert view.learning.expired
     assert view.learning.sections == []
 
-    html =
-      HTML.memory(Projection.memory(params(revision)), "test-secret") |> IO.iodata_to_binary()
+    html = render(params(revision))
 
     assert html =~ "learning-receipt"
 
@@ -129,15 +127,16 @@ defmodule Ryker.ControlPlane.LearningReceiptTest do
       )
     )
 
-    html =
-      HTML.memory(Projection.memory(params(revision)), "test-secret") |> IO.iodata_to_binary()
+    html = render(params(revision))
 
     for secret <- ~w(receipt-private-password receipt-private-token receipt-private-bearer),
         do: refute(html =~ secret)
   end
 
-  defp params(revision),
-    do: %{"kind" => "knowledge", "item" => revision.knowledge_id, "update" => "1"}
+  defp params(revision), do: %{"item" => revision.knowledge_id, "update" => "1"}
+
+  defp render(params),
+    do: params |> Projection.learned() |> LearnedPage.html("test-secret") |> IO.iodata_to_binary()
 
   defp learned! do
     entries = Fixtures.inputs!()

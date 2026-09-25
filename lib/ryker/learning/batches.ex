@@ -143,6 +143,48 @@ defmodule Ryker.Learning.Batches do
 
   def authorize(claim), do: Repo.transaction(fn -> owned!(claim) end)
 
+  @doc """
+  Pin a new attempt to the learning policy configured now. A worker places only
+  sessions whose policy digest it still advertises, so an attempt pinned to a
+  replaced digest could never start and would only spend the batch's starts.
+  An outstanding attempt still reconciles under its own policy, and spent
+  starts stay spent.
+  """
+  def adopt_policy(claim, %{policy: policy, policy_digest: digest}) do
+    with_lease(claim, fn ->
+      batch = owned!(claim)
+
+      if batch.policy == policy and batch.policy_digest == digest do
+        {:ok, %{claim | batch: batch}}
+      else
+        # An attempt prepared under the old policy never started; it never will.
+        Repo.update_all(
+          from(r in LearningRun,
+            where: r.batch_id == ^batch.id and r.status == :prepared and is_nil(r.started_at)
+          ),
+          set: [status: :stale, error_code: "learning_policy_changed", updated_at: Repo.now!()]
+        )
+
+        {:ok, %{claim | batch: save(batch, policy: policy, policy_digest: digest)}}
+      end
+    end)
+  end
+
+  @doc """
+  Whether the worker already gave a session of this learning policy more than
+  an isolated read-only scratch. The policy digest fixes that authority, so
+  every further session of it would be refused the same way.
+  """
+  def policy_refused?(%{policy: policy, policy_digest: digest}) do
+    Repo.exists?(
+      from(r in LearningRun,
+        where:
+          r.policy == ^policy and r.policy_digest == ^digest and
+            r.error_code == "learning_session_not_isolated"
+      )
+    )
+  end
+
   @doc "Prepare under the same absolute batch budget, including audited extra starts."
   def prepare(claim) do
     # Commit source retirement independently of a later preparation/budget

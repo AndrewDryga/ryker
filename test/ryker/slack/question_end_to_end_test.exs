@@ -751,7 +751,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
   defp candidate_ref(episode_id) do
     "candidate:" <>
-      Ryker.CanonicalJSON.digest(["ingress-admission-candidate", episode_id])
+      binary_part(Ryker.CanonicalJSON.digest(["ingress-admission-candidate", episode_id]), 0, 12)
   end
 
   defp slack_timestamp(datetime) do

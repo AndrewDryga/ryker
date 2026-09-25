@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.Repo
   alias Ryker.State.Behaviors
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work.{FailureCause, Session, Turn}
 
   @doc """
   Getting ready, per input and in the approved order: one Participation card,
@@ -82,6 +82,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     runs = queue_runs(transitions)
     tail_index = length(runs) - 1
 
+    # The queue hands the input to routing and takes it back on every retry,
+    # so each run is filed under routing, in time order with the attempts.
     runs
     |> Enum.with_index()
     |> Enum.map(fn {run, index} ->
@@ -103,16 +105,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp normalize_save_time(transition, _inserted_at), do: transition
 
   defp queue_step(input, queue, id) do
-    step(id, :ready, queue.started_at, %{
+    step(id, :routing, queue.started_at, %{
       actor: "Ryker",
       owner: {:input, input.id},
       input_id: input.id,
       queue: queue,
       details: [],
-      stage: "Input queue",
+      stage: "Queue",
       state: nil,
       summary: nil,
-      title: "Input queue",
+      title: "Queue",
       tone: queue.tone
     })
   end
@@ -131,34 +133,73 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     end
   end
 
+  # A run ends when routing takes the input or automatic retries stop. An
+  # operator's retry is a later moment and opens a run of its own.
   defp queue_run_sealed?(run),
-    do: List.last(run).kind in [:claimed, :reclaimed, :superseded]
+    do: List.last(run).kind in [:blocked, :claimed, :reclaimed, :superseded]
 
   defp queue_run(input, run, index, tail?, now, previous) do
     first = hd(run)
     last = List.last(run)
     current = tail? and input.status == :pending and last.kind not in [:claimed, :reclaimed]
 
+    qualifier = queue_qualifier(first, index, previous)
+
     events =
-      Enum.map(run, &queue_event(&1, input)) ++ current_queue_event(input, last, current, now)
+      (Enum.map(run, &queue_event(&1, input)) ++ current_queue_event(input, last, current, now))
+      |> recovery_link(last, tail? and input.status == :blocked, input)
+      |> reattached(qualifier)
 
     ended_at = if current, do: nil, else: last.occurred_at
 
     %{
       kind: queue_kind(last.kind, current),
-      qualifier: queue_qualifier(first, index, previous),
+      qualifier: qualifier,
       current: current,
       events: events,
       started_at: first.occurred_at,
       ended_at: ended_at,
       duration_ms: nonnegative_diff(ended_at, first.occurred_at),
-      tone: queue_tone(last.kind),
-      recovery_href:
-        if(last.kind == :blocked,
-          do: "/failures/admission/#{segment("ingress-input:#{input.id}")}"
-        )
+      tone: queue_tone(last.kind)
     }
   end
+
+  # While the input is still stopped, its last step links to the existing
+  # recovery; once rearmed there is no way back to offer.
+  defp recovery_link(events, %{kind: :blocked}, true, input) do
+    List.update_at(
+      events,
+      -1,
+      &%{
+        &1
+        | href: "/failures/admission/#{segment("ingress-input:#{input.id}")}",
+          link_label: "View recovery"
+      }
+    )
+  end
+
+  defp recovery_link(events, _last, _blocked?, _input), do: events
+
+  # A wait that ran out while the worker was still answering is not a failure:
+  # the same call kept running and routing picked it back up.
+  defp reattached(events, "Reattached to attempt " <> _attempt) do
+    Enum.map(events, fn
+      %{kind: :retry_scheduled} = event ->
+        %{
+          event
+          | label: "Waiting paused",
+            reason: "The worker had not answered yet; the call kept running there."
+        }
+
+      %{kind: kind} = event when kind in [:claimed, :reclaimed] ->
+        %{event | label: "Resumed", reason: "A routing worker resumed waiting for the same call."}
+
+      event ->
+        event
+    end)
+  end
+
+  defp reattached(events, _qualifier), do: events
 
   defp queue_qualifier(_first, 0, _previous), do: nil
 
@@ -219,7 +260,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   defp queue_event(%{kind: :retry_scheduled} = transition, _input) do
     reason =
-      "Eligible to retry at #{timestamp_precise(transition.eligible_at)}." <>
+      "Eligible to retry at #{retry_time(transition.eligible_at)}." <>
         error_reason(transition.error_code)
 
     queue_event(transition, "Retry scheduled", reason)
@@ -229,8 +270,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     queue_event(
       transition,
       "Automatic retries stopped",
-      "Routing stopped after #{transition.attempt} attempts." <>
-        error_reason(transition.error_code)
+      "Routing stopped after #{transition.attempt} #{if transition.attempt == 1, do: "attempt", else: "attempts"}." <>
+        stop_reason(transition)
     )
   end
 
@@ -248,6 +289,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   defp queue_event(transition, label, reason, options \\ []) do
     %{
+      kind: transition.kind,
       label: label,
       at: transition.occurred_at,
       reason: reason,
@@ -264,12 +306,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
         do: "Waiting until the retained retry time.",
         else: "Ready for the next routing worker."
 
-    [%{label: "Current", at: nil, reason: reason, href: nil, link_label: nil}]
+    [%{kind: :current, label: "Current", at: nil, reason: reason, href: nil, link_label: nil}]
   end
 
   defp current_queue_event(_input, _last, true, _now) do
     [
       %{
+        kind: :current,
         label: "Current",
         at: nil,
         reason: "Waiting for a routing worker to pick it up.",
@@ -285,6 +328,19 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   defp queue_blocker_text(%InputCustodyTransition{}), do: "Earlier input"
 
+  # A reader plans around the second a retry becomes eligible, not its microsecond.
+  defp retry_time(%DateTime{} = at), do: "#{at.day} #{Calendar.strftime(at, "%b, %H:%M:%S UTC")}"
+  defp retry_time(value), do: timestamp_precise(value)
+
+  # Why retrying stopped, in the words the failure explains itself with when
+  # the saved detail names a cause; otherwise the recorded code.
+  defp stop_reason(transition) do
+    case FailureCause.explain(transition.detail) do
+      %{cause: cause} -> " " <> cause
+      nil -> error_reason(transition.error_code)
+    end
+  end
+
   defp error_reason(nil), do: ""
   defp error_reason(code), do: " Reason: #{error_label(code)}."
 
@@ -297,6 +353,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       current: current,
       events: [
         %{
+          kind: :not_recorded,
           label: "Queue history unavailable",
           at: input.inserted_at,
           reason: "Detailed queue transitions were not recorded for this older input.",
@@ -307,8 +364,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       started_at: input.inserted_at,
       ended_at: nil,
       duration_ms: nil,
-      tone: nil,
-      recovery_href: nil
+      tone: nil
     }
   end
 
@@ -511,7 +567,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
           revision: entry["revision"],
           scope_ref: entry["scope_ref"],
           verdict: entry["verdict"],
-          reason: InspectionRedactor.artifact(entry["reason"] || "", max_bytes: 400).text
+          reason: InspectionRedactor.artifact(entry["reason"] || "", max_bytes: 400).text,
+          criteria: entry["criteria"],
+          evidence: entry["evidence"]
         }
       end)
       |> Enum.sort_by(&{&1.verdict != "matched", &1.title})
@@ -530,7 +588,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     do: "Standing-rule history was not recorded for this message."
 
   defp rule_summary(%{rule_count: 0}),
-    do: "No standing rules"
+    do: "No standing rules."
 
   defp rule_summary(%{rule_count: total, matched_count: matched}),
     do: "#{total} #{if(total == 1, do: "rule", else: "rules")} · #{matched} matched"
@@ -578,7 +636,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     session_cards =
       if turns == [] do
         Enum.map(work_sessions, fn session ->
-          setup = selected_setup(session, Map.get(placements, session.id))
+          setup = selected_setup(session)
 
           step("setup-#{session.id}", :ready, session.inserted_at, %{
             actor: "Ryker",
@@ -618,10 +676,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # live lease without a bound session is preparation in progress at the one
   # step the rows record. Anything else is "selected", with its outcome
   # unrecorded rather than guessed from today's worker health.
+  # Two facts a reader can use: whether the model started fresh or kept the
+  # earlier round, and what code it could see. The worker and its execution
+  # policy are the same on every card of a one-worker install, so they are
+  # named only when setup failed and they are part of the explanation.
   defp work_setup(turn, ordinal, session, earlier_turns, placement, now) do
     session_state = session_state(session, earlier_turns)
-    workspace = setup_workspace(turn)
-    worker = setup_worker(session, placement)
     outcome = setup_outcome(turn, session, now)
 
     Map.merge(outcome, %{
@@ -629,12 +689,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       rows:
         compact_details([
           {"Session", session_state.detail},
-          {"Worker", worker},
-          {"Execution policy", session && session.policy},
-          {"Workspace", workspace.face},
+          {"Code", setup_code(turn, session)},
           {"Current step", outcome.current_step}
         ]),
-      details: setup_details(turn, session, session_state, worker, workspace),
       diagnostics: setup_diagnostics(outcome.kind, turn, session, placement)
     })
   end
@@ -671,14 +728,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     }
   end
 
-  defp setup_details(turn, session, _session_state, _worker, workspace) do
-    compact_details([
-      {"Repository access", workspace.access},
-      {"Ryker tools", if(is_binary(turn.state_tools_endpoint), do: "Bound to this work turn")},
-      {"Bound task", session && setup_task(session.workspace_task)}
-    ])
-  end
-
   defp setup_diagnostics(kind, _turn, _session, _placement) when kind != :blocked, do: []
 
   defp setup_diagnostics(:blocked, turn, nil, _placement),
@@ -690,16 +739,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   defp setup_diagnostics(:blocked, turn, session, placement) do
     compact_details([
+      {"Worker", setup_worker(session, placement)},
+      {"Execution policy", session.policy},
       {"Turn ID", turn.turn_ref, identifier: true},
       {"Session ID", session.id, identifier: true},
       {"Remote session", session.coop_session_id, identifier: true},
       {"Remote turn", turn.coop_turn_id, identifier: true},
-      {"Worker", placement && placement.worker_id, identifier: true},
       {"Work claims", turn.work_attempt_count}
     ])
   end
 
-  defp selected_setup(session, placement) do
+  defp selected_setup(session) do
     %{
       kind: :selected,
       label: "Setup selected",
@@ -710,13 +760,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       current_step: nil,
       rows:
         compact_details([
-          {"Session", "Not created"},
-          {"Execution policy", session.policy}
-        ]),
-      details:
-        compact_details([
-          {"Worker", setup_worker(session, placement)},
-          {"Repository", session.repository_ref}
+          {"Session", "Not created yet"},
+          {"Code", setup_code(nil, session)}
         ]),
       diagnostics: []
     }
@@ -731,17 +776,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp session_state(session, earlier_turns) do
     cond do
       earlier_turns != [] ->
-        %{
-          detail: "Reused from previous work round · Generation #{session.generation}"
-        }
+        %{detail: "Continued · the model still has what it saw in the previous round"}
 
       session.generation > 1 or session.create_generation > 1 ->
-        %{
-          detail: "Replaced · Generation #{session.generation} · Reason not recorded"
-        }
+        %{detail: "New, replacing an earlier session · the reason was not recorded"}
 
       true ->
-        %{detail: "New · Generation #{session.generation}"}
+        %{detail: "New · the model starts with only this briefing"}
     end
   end
 
@@ -759,22 +800,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   # The repository-backed task this session was pinned for, when there is one.
   # A pinned task is a binding, not proof of a Coop task timeline.
-  defp setup_task(%{} = task) do
-    title =
-      if is_binary(task["title"]),
-        do: InspectionRedactor.artifact(task["title"], max_bytes: 200).text
-
-    repository =
-      case task do
-        %{"repository" => repository} when is_binary(repository) -> repository
-        %{"primary" => %{"name" => name}} when is_binary(name) -> name
-        _task -> nil
-      end
-
-    [title, repository] |> Enum.reject(&is_nil/1) |> Enum.join(" · ") |> present()
-  end
-
-  defp setup_task(_task), do: nil
 
   defp setup_worker(_session, %Placement{worker_id: worker}) when is_binary(worker), do: worker
   defp setup_worker(%Session{coop_session_id: id}, nil) when is_binary(id), do: "Local Coop"
@@ -784,28 +809,33 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp preparing_step(_session, %Turn{submission: nil}), do: "Preparing the briefing"
   defp preparing_step(_session, _turn), do: "Submitting the frozen briefing"
 
-  defp setup_workspace(%Turn{operational_pruned_at: pruned, submission: submission})
-       when not is_nil(pruned) or not is_map(submission),
-       do: %{face: nil, access: nil}
+  # A session without a repository still gets Coop's empty scratch workspace,
+  # named "primary"; that is not code the reader would recognise.
+  defp setup_code(_turn, %Session{repository_ref: nil}), do: "No repository"
 
-  defp setup_workspace(%Turn{submission: submission}) do
+  defp setup_code(%Turn{operational_pruned_at: nil, submission: %{} = submission}, session) do
     case get_in(submission, ["context", "workspace"]) do
       %{"primary" => %{} = primary} = workspace ->
         companions = workspace |> Map.get("companions", []) |> Enum.filter(&is_map/1)
-        count = 1 + length(companions)
-
-        %{
-          face: "Prepared · #{plural(count, "repository", "repositories")}",
-          access: Enum.map_join([primary | companions], " · ", &repository_access/1)
-        }
+        Enum.map_join([primary | companions], ", ", &repository_access(&1, session))
 
       _absent ->
-        %{face: nil, access: nil}
+        session.repository_ref
     end
   end
 
-  defp repository_access(%{"name" => name, "read_only" => true}), do: "#{name} read-only"
-  defp repository_access(%{"name" => name, "read_only" => false}), do: "#{name} writable"
-  defp repository_access(%{"name" => name}), do: "#{name} access not recorded"
-  defp repository_access(_repository), do: "unnamed repository"
+  defp setup_code(_turn, %Session{repository_ref: repository}), do: repository
+  defp setup_code(_turn, _session), do: nil
+
+  defp repository_access(%{"name" => "primary"} = primary, session),
+    do: repository_access(%{primary | "name" => session.repository_ref}, session)
+
+  defp repository_access(%{"name" => name, "read_only" => true}, _session),
+    do: "#{name} · read only"
+
+  defp repository_access(%{"name" => name, "read_only" => false}, _session),
+    do: "#{name} · can change it"
+
+  defp repository_access(%{"name" => name}, _session), do: name
+  defp repository_access(_repository, _session), do: "unnamed repository"
 end

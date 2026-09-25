@@ -11,7 +11,7 @@ function fixture({confirm = () => false} = {}) {
     removeEventListener: event => handlers.delete(event)
   }
   const window = {
-    location: {href: "http://localhost/configuration"},
+    location: {href: "http://localhost/integrations/slack"},
     confirm,
     addEventListener: (event, fn) => handlers.set(event, fn),
     removeEventListener: event => handlers.delete(event)
@@ -56,7 +56,7 @@ test("an accepted confirmation, an in-page anchor and a new tab are not blocked"
   f.handlers.get("click")(accepted)
   assert.equal(accepted.defaultPrevented, false)
 
-  const anchor = f.event({href: "http://localhost/configuration#settings-slack"})
+  const anchor = f.event({href: "http://localhost/integrations/slack#new-channels"})
   f.handlers.get("click")(anchor)
   assert.equal(anchor.defaultPrevented, false)
 

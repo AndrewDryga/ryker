@@ -1,8 +1,9 @@
 defmodule Ryker.Slack.RendererTest do
   use ExUnit.Case, async: true
 
+  alias Ryker.ControlPlane.WorkRecovery
   alias Ryker.Slack.{Interaction, Renderer}
-  alias Ryker.Work.TaskStages
+  alias Ryker.Work.{TaskStages, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -167,20 +168,41 @@ defmodule Ryker.Slack.RendererTest do
     end
   end
 
-  # The repository step checked that its choices were a list and never what
+  # The choice step once checked that its choices were a list and never what
   # was in it, so one malformed choice raised inside the renderer instead of
   # refusing the setup card.
-  test "a setup step with a malformed repository choice is refused, not a crash" do
+  test "a setup step with a malformed environment choice is refused, not a crash" do
     document =
       setup_document(Ecto.UUID.generate())
-      |> put_in(["channel_setup", "step"], "repository")
+      |> put_in(["channel_setup", "step"], "environment")
 
-    for choices <- [[nil], ["ryker", 42], [" "]] do
-      malformed = put_in(document, ["channel_setup", "draft", "repository_options"], choices)
-      assert Renderer.render(malformed) == {:error, {:invalid_slack_render, :channel_setup}}
+    valid = %{"emisar" => false, "name" => "Staging", "ref" => "staging", "repositories" => []}
+
+    for choices <- [
+          [nil],
+          ["staging"],
+          [Map.delete(valid, "emisar")],
+          [%{valid | "name" => " "}],
+          [%{valid | "emisar" => "yes"}],
+          [%{valid | "repositories" => [42]}],
+          [Map.put(valid, "url", "https://example.invalid")]
+        ] do
+      malformed = put_in(document, ["channel_setup", "draft", "environment_options"], choices)
+
+      assert Renderer.render(malformed) == {:error, {:invalid_slack_render, :channel_setup}},
+             inspect(choices)
     end
 
     assert {:ok, _rendered} = Renderer.render(document)
+
+    # With no environments yet, the step still asks, and offers No environment.
+    empty = put_in(document, ["channel_setup", "draft", "environment_options"], [])
+    assert {:ok, %{"blocks" => [explanation, controls]}} = Renderer.render(empty)
+    assert explanation["text"]["text"] =~ "*No environment* — I'll still answer here"
+
+    assert Enum.map(controls["elements"], &{&1["action_id"], &1["text"]["text"]}) == [
+             {"ryker_setup_environment_none", "No environment"}
+           ]
   end
 
   test "renders host-authorized typed mentions into native Slack controls" do
@@ -214,9 +236,10 @@ defmodule Ryker.Slack.RendererTest do
              Renderer.render(welcome_document(configuration_ref, settings_document()))
 
     text = Jason.encode!(rendered)
-    assert text =~ "I have access to 2 repositories"
-    assert text =~ "<https://github.com/acme/backend|backend>"
-    assert text =~ "I'll use `infrastructure` for coding tasks when you don't name one"
+
+    assert text =~
+             "I work in the *Production* environment here: I can make changes in <https://github.com/acme/backend|backend> and read `infrastructure`."
+
     assert text =~ "I'll reply when you mention <@UBOT>"
     assert text =~ "When an alert is posted here, I'll investigate proactively in its thread"
     refute text =~ "handled separately"
@@ -255,8 +278,8 @@ defmodule Ryker.Slack.RendererTest do
       settings_document()
       |> put_in(["participation"], %{"source" => "channel", "value" => "shadow"})
       |> put_in(["observation"], %{"on" => true, "source" => "channel"})
-      |> put_in(["repositories"], [])
-      |> put_in(["default_repository"], nil)
+      |> put_in(["environment"], nil)
+      |> put_in(["environment_count"], 0)
 
     assert {:ok, rendered} = Renderer.render(welcome_document(configuration_ref, observing))
     text = Jason.encode!(rendered)
@@ -275,6 +298,57 @@ defmodule Ryker.Slack.RendererTest do
              )
            ) ==
              {:error, {:invalid_slack_render, :channel_welcome}}
+  end
+
+  # The welcome says which environment the channel works in and what that
+  # lets work there use, in plain words. No environment is a state of its own,
+  # never the same as having none to choose from, and never the default.
+  test "the welcome says what the channel's environment lets work there use" do
+    configuration_ref = Ecto.UUID.generate()
+
+    welcome = fn environment, count ->
+      settings =
+        settings_document()
+        |> put_in(["environment"], environment)
+        |> put_in(["environment_count"], count)
+
+      assert {:ok, rendered} = Renderer.render(welcome_document(configuration_ref, settings))
+      Jason.encode!(rendered)
+    end
+
+    production = settings_document()["environment"]
+
+    assert welcome.(%{production | "emisar" => true}, 2) =~
+             "I can make changes in <https://github.com/acme/backend|backend>, read `infrastructure`, and use Emisar."
+
+    single = %{production | "repositories" => [hd(production["repositories"])]}
+
+    assert welcome.(single, 2) =~
+             "I work in the *Production* environment here: I can make changes in <https://github.com/acme/backend|backend>."
+
+    ops = %{production | "emisar" => true, "name" => "Ops", "repositories" => []}
+
+    assert welcome.(ops, 2) =~
+             "I work in the *Ops* environment here. It has no repos, so I won't work on coding tasks in this channel, but I can use Emisar."
+
+    assert welcome.(nil, 2) =~
+             "This channel doesn't use an environment, so I'll answer here without any repos or Emisar. Choose one with *Customize* if you want me to work on code here."
+
+    unavailable = %{
+      "emisar" => false,
+      "name" => "production",
+      "ready" => false,
+      "ref" => "production",
+      "repositories" => []
+    }
+
+    assert welcome.(unavailable, 1) =~
+             "This channel uses the `production` environment, but it can't run work right now, so I'll answer without any repos or Emisar until it can."
+
+    # Environment names are an operator's text and never become markup.
+    forged = welcome.(%{production | "name" => "<!channel> *prod*"}, 2)
+    refute forged =~ "<!channel>"
+    assert forged =~ "&lt;!channel&gt;"
   end
 
   test "settings on request share the welcome's projection in both audiences" do
@@ -298,8 +372,8 @@ defmodule Ryker.Slack.RendererTest do
       assert Enum.map(facts["fields"], & &1["text"]) == [
                "*Conversations*\nReply when mentioned",
                "*Alerts*\nInvestigate in the existing thread",
-               "*Repositories*\n<https://github.com/acme/backend|backend>\n`infrastructure`",
-               "*Default repository*\n`infrastructure`",
+               "*Environment*\nProduction",
+               "*Repositories*\n<https://github.com/acme/backend|backend> — changes\n`infrastructure` — read only",
                "*Incident invitations*\nNo one automatically — you can add people yourself",
                "*Observation mode*\nOff"
              ]
@@ -430,12 +504,30 @@ defmodule Ryker.Slack.RendererTest do
              {"ryker_setup_audience_none", "Nobody automatically"}
            ]
 
+    environment =
+      setup_document(session_ref)
+      |> put_in(["channel_setup", "step"], "environment")
+
+    assert {:ok, rendered} = Renderer.render(environment)
+    [explanation, actions] = rendered["blocks"]
+
+    assert explanation["text"]["text"] =~
+             "*Production* — I'll make changes in `ryker`, read `docs`, and use Emisar."
+
+    assert explanation["text"]["text"] =~
+             "*No environment* — I'll still answer here, but without any repos or Emisar."
+
+    assert Enum.map(actions["elements"], &{&1["action_id"], &1["text"]["text"]}) == [
+             {"ryker_setup_environment_0", "Production"},
+             {"ryker_setup_environment_none", "No environment"}
+           ]
+
     confirm =
       setup_document(session_ref)
       |> put_in(["channel_setup", "status"], "confirming")
       |> put_in(["channel_setup", "step"], "confirm")
       |> put_in(["channel_setup", "draft", "participation"], "proactive")
-      |> put_in(["channel_setup", "draft", "repository_ref"], "ryker")
+      |> put_in(["channel_setup", "draft", "environment_ref"], "production")
       |> put_in(["channel_setup", "draft", "alert_policy"], "offer")
       |> put_in(["channel_setup", "draft", "invite_user_refs"], ["U123"])
 
@@ -445,7 +537,20 @@ defmodule Ryker.Slack.RendererTest do
     assert summary["text"]["text"] =~
              "• I'll join conversations when I think you could use my help."
 
-    assert summary["text"]["text"] =~ "• I'll use *ryker* for coding tasks"
+    assert summary["text"]["text"] =~ "• I'll work in the *Production* environment."
+
+    # An unanswered environment is not an answer of No environment.
+    unanswered =
+      update_in(confirm, ["channel_setup", "draft"], &Map.delete(&1, "environment_ref"))
+
+    assert Renderer.render(unanswered) == {:error, {:invalid_slack_render, :channel_setup}}
+
+    none = put_in(confirm, ["channel_setup", "draft", "environment_ref"], nil)
+    assert {:ok, %{"blocks" => [none_summary | _controls]}} = Renderer.render(none)
+
+    assert none_summary["text"]["text"] =~
+             "• I won't use an environment, so I'll answer without any repos or Emisar."
+
     assert summary["text"]["text"] =~ "I'll invite <@U123>."
 
     assert summary["text"]["text"] =~
@@ -918,6 +1023,64 @@ defmodule Ryker.Slack.RendererTest do
            )
 
     refute Jason.encode!(rendered) =~ "View diff"
+  end
+
+  # The button read "Resume task" and its dialog promised "Continue from the
+  # stopped run, in the same session and working copy. Nothing already done is
+  # repeated." Pressing it starts a new run in which the model works on the task
+  # again from the start, which is what the Failures page already said for the
+  # same step. A person who trusted the dialog lost work the stopped run had not
+  # saved; the two surfaces must describe the one action in the same words.
+  test "the Slack control that restarts a stopped task says it runs the task again, in the Failures page's words" do
+    fingerprint = String.duplicate("a", 64)
+
+    task = %{
+      "action_needed" => "The operator stopped the current run.",
+      "confirmed_at" => "2026-08-28T12:00:00.000000Z",
+      "confirmed_by" => "slack:user:U123",
+      "controls" => ["resume", "close", "timeline", "evidence", "handoff"],
+      "episode_state" => "working",
+      "publication" => nil,
+      "repository" => "ryker",
+      "resume_ref" => "task-card:abc123|" <> fingerprint,
+      "session_generation" => 1,
+      "stages" => task_stages(),
+      "status" => "action_required",
+      "summary" => "The run was stopped before it finished.",
+      "task_ref" => "task-card:abc123",
+      "title" => "Fix parser retries",
+      "ui_revision" => 4,
+      "updated_at" => "2026-08-28T12:01:00.000000Z",
+      "work_state" => "blocked"
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+
+    button =
+      rendered["blocks"]
+      |> Enum.flat_map(&Map.get(&1, "elements", []))
+      |> Enum.find(&(&1["action_id"] == "ryker_resume_work"))
+
+    # The same stopped turn, as the Failures page and the request page read it.
+    stopped = %Turn{
+      cancellation_intent: %{"action" => "block", "reason" => "operator stopped the run"},
+      id: Ecto.UUID.generate(),
+      last_error_code: "work_execution_blocked",
+      last_error_detail: "The operator stopped the current run.",
+      status: :blocked
+    }
+
+    failures = WorkRecovery.project(stopped, :ok, true, nil)
+
+    assert button["text"]["text"] == failures.action_label
+    assert button["confirm"]["text"]["text"] == failures.retry_effect
+    assert button["confirm"]["title"]["text"] == "Run this task again?"
+    assert button["value"] == task["resume_ref"]
+
+    dialog = Jason.encode!(button)
+    refute dialog =~ "Nothing already done is repeated"
+    refute dialog =~ "same session"
+    refute dialog =~ "Resume"
   end
 
   test "renders incident controls from the host projection and rejects invented controls" do
@@ -2456,10 +2619,18 @@ defmodule Ryker.Slack.RendererTest do
     documents = [
       base,
       base
-      |> put_in(["channel_setup", "step"], "repository")
+      |> put_in(["channel_setup", "step"], "environment")
       |> put_in(
-        ["channel_setup", "draft", "repository_options"],
-        Enum.map(1..7, &"repository-#{&1}")
+        ["channel_setup", "draft", "environment_options"],
+        Enum.map(
+          1..7,
+          &%{
+            "emisar" => false,
+            "name" => "Environment #{&1}",
+            "ref" => "environment-#{&1}",
+            "repositories" => []
+          }
+        )
       ),
       put_in(base, ["channel_setup", "step"], "alerts"),
       put_in(base, ["channel_setup", "step"], "audience"),
@@ -2467,13 +2638,13 @@ defmodule Ryker.Slack.RendererTest do
       |> put_in(["channel_setup", "status"], "confirming")
       |> put_in(["channel_setup", "step"], "confirm")
       |> put_in(["channel_setup", "draft", "participation"], "proactive")
-      |> put_in(["channel_setup", "draft", "repository_ref"], "ryker")
+      |> put_in(["channel_setup", "draft", "environment_ref"], "production")
       |> put_in(["channel_setup", "draft", "alert_policy"], "offer")
       |> put_in(["channel_setup", "draft", "invite_user_refs"], ["U123"]),
       base
       |> put_in(["channel_setup", "status"], "saved")
       |> put_in(["channel_setup", "draft", "participation"], "mentions")
-      |> put_in(["channel_setup", "draft", "repository_ref"], "ryker")
+      |> put_in(["channel_setup", "draft", "environment_ref"], "production")
       |> put_in(["channel_setup", "draft", "alert_policy"], "reply"),
       put_in(base, ["channel_setup", "status"], "cancelled"),
       put_in(base, ["channel_setup", "status"], "expired")
@@ -2485,8 +2656,9 @@ defmodule Ryker.Slack.RendererTest do
       assert is_binary(text) and text != ""
     end)
 
-    repository = Enum.at(documents, 1)
-    assert {:ok, rendered} = Renderer.render(repository)
+    # Seven environments and No environment wrap into rows of five buttons.
+    environments = Enum.at(documents, 1)
+    assert {:ok, rendered} = Renderer.render(environments)
     assert length(Enum.filter(rendered["blocks"], &(&1["type"] == "actions"))) == 2
   end
 
@@ -2568,8 +2740,15 @@ defmodule Ryker.Slack.RendererTest do
       )
 
     settings =
-      put_in(settings_document(), ["repositories"], [%{"ref" => "<!here>", "url" => nil}])
-      |> put_in(["default_repository"], nil)
+      put_in(settings_document(), ["environment"], %{
+        "emisar" => false,
+        "name" => "<!here>",
+        "ready" => true,
+        "ref" => "production",
+        "repositories" => [
+          %{"ref" => "<!here>", "url" => "https://github.com/acme/backend"}
+        ]
+      })
 
     documents = [
       %{"task_card" => task},
@@ -2901,14 +3080,20 @@ defmodule Ryker.Slack.RendererTest do
       "alert_policy" => "offer",
       "configuration_ref" => "9a51fa43-977f-4b27-93f6-0c2ad3652ddc",
       "customized_by" => nil,
-      "default_repository" => "blitz-infra",
+      "environment" => %{
+        "emisar" => false,
+        "name" => "Blitz",
+        "ready" => true,
+        "ref" => "blitz",
+        "repositories" => [
+          %{"ref" => "blitz-infra", "url" => nil},
+          %{"ref" => "blitz-app-svelte", "url" => nil}
+        ]
+      },
+      "environment_count" => 1,
       "invitations" => %{"user_group_refs" => [], "user_refs" => ["U456"]},
       "observation" => %{"on" => false, "source" => "channel"},
       "participation" => %{"source" => "installation", "value" => "mentions"},
-      "repositories" => [
-        %{"ref" => "blitz-infra", "url" => nil},
-        %{"ref" => "blitz-app-svelte", "url" => nil}
-      ],
       "revision" => 2
     }
   end
@@ -3033,12 +3218,17 @@ defmodule Ryker.Slack.RendererTest do
         "bot_user_ref" => "UBOT",
         "draft" => %{
           "alert_policy" => nil,
-          "default_repository" => "ryker",
+          "environment_options" => [
+            %{
+              "emisar" => true,
+              "name" => "Production",
+              "ref" => "production",
+              "repositories" => ["ryker", "docs"]
+            }
+          ],
           "invite_user_group_refs" => [],
           "invite_user_refs" => [],
-          "participation" => nil,
-          "repository_options" => ["ryker"],
-          "repository_ref" => nil
+          "participation" => nil
         },
         "expires_at" => "2026-08-28T12:30:00.000000Z",
         "revision" => 1,
@@ -3054,14 +3244,20 @@ defmodule Ryker.Slack.RendererTest do
       "alert_policy" => "reply",
       "configuration_ref" => Ecto.UUID.generate(),
       "customized_by" => nil,
-      "default_repository" => "infrastructure",
+      "environment" => %{
+        "emisar" => false,
+        "name" => "Production",
+        "ready" => true,
+        "ref" => "production",
+        "repositories" => [
+          %{"ref" => "backend", "url" => "https://github.com/acme/backend"},
+          %{"ref" => "infrastructure", "url" => nil}
+        ]
+      },
+      "environment_count" => 2,
       "invitations" => %{"user_group_refs" => [], "user_refs" => []},
       "observation" => %{"on" => false, "source" => "installation"},
       "participation" => %{"source" => "installation", "value" => "mentions"},
-      "repositories" => [
-        %{"ref" => "backend", "url" => "https://github.com/acme/backend"},
-        %{"ref" => "infrastructure", "url" => nil}
-      ],
       "revision" => 3
     }
   end

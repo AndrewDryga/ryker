@@ -59,6 +59,92 @@ defmodule Ryker.Admission.CandidateSearchTest do
     assert result.receipt["cutoff_reason"] =~ "non-local"
   end
 
+  test "the search record keeps the words, links and places it searched with" do
+    # The receipt kept only counts, so the timeline could say "Nothing found"
+    # but never what was looked for or where.
+    result =
+      search!(
+        channel_ref: "CALERTS",
+        thread_ref: "1789000000.000200",
+        text:
+          "Is pgsql-prod-01 still unreachable? See https://grafana.example.com/d/abc?orgId=1 for the stalled replication."
+      )
+
+    receipt = result.receipt
+    assert "pgsql-prod-01" in receipt["words"]
+    assert "unreachable" in receipt["words"]
+    refute "the" in receipt["words"]
+    assert Enum.any?(receipt["identifiers"], &String.contains?(&1, "grafana.example.com"))
+    assert receipt["in_thread"] == true
+    assert {:ok, _at, 0} = DateTime.from_iso8601(receipt["history_since"])
+    assert length(receipt["conversation_refs"]) == receipt["eligible_conversations"]
+
+    # A greeting says nothing to search by, so no past work is matched on it.
+    plain = search!(channel_ref: "CALERTS", text: "hello there")
+    assert plain.receipt["identifiers"] == []
+    assert plain.receipt["words"] == []
+  end
+
+  test "a past request is found by another form of the words it used" do
+    # The search matched exact spellings: "probe failing" never found "probes
+    # failed", so the request that had already worked on this was not offered.
+    match =
+      episode!("routing:word-forms",
+        channel_ref: "CDEVOPS",
+        text: "Readiness probes failed on the payments service during the rollout"
+      )
+
+    for index <- 1..30 do
+      episode!("routing:word-forms-noise-#{index}",
+        channel_ref: "CALERTS",
+        text: "Routine deploy #{index} finished for the marketing website",
+        updated_at: DateTime.add(@now, -index, :second)
+      )
+    end
+
+    result = search!(channel_ref: "CALERTS", text: "Why is the payment probe failing again?")
+
+    assert match.id in Enum.map(result.selected, & &1.episode.id)
+    assert result.receipt["words"] == ~w(payment probe failing)
+  end
+
+  test "work whose title names the subject ranks above work that only mentions it" do
+    # A request's title is the one line that says what it is about; the search
+    # read only the transcript, so a request about the subject ranked with any
+    # request that happened to mention it in passing.
+    passing =
+      episode!("routing:mentioned",
+        channel_ref: "CDEVOPS",
+        text:
+          "Checkout latency is up. Someone asked whether Redis memory matters; memory looks flat.",
+        updated_at: DateTime.add(@now, -60, :second)
+      )
+
+    titled =
+      episode!("routing:titled",
+        channel_ref: "CDEVOPS",
+        text: "Cache node alarms again on cache-01",
+        updated_at: DateTime.add(@now, -7_200, :second)
+      )
+
+    Repo.update_all(
+      from(digest in Ryker.Episodes.RoutingDigest, where: digest.episode_id == ^titled.id),
+      set: [
+        title: "Redis memory pressure on cache-01",
+        title_turn_id: Ecto.UUID.generate(),
+        title_updated_at: @now
+      ]
+    )
+
+    result = search!(channel_ref: "CALERTS", text: "Redis memory pressure again")
+    offered = Enum.map(result.selected, & &1.episode.id)
+
+    assert titled.id in offered and passing.id in offered
+
+    assert Enum.find_index(offered, &(&1 == titled.id)) <
+             Enum.find_index(offered, &(&1 == passing.id))
+  end
+
   test "one saturated lane does not hide the best evidence another lane found" do
     match =
       episode!("routing:lane-evidence",

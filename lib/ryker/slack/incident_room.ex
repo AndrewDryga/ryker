@@ -29,6 +29,9 @@ defmodule Ryker.Slack.IncidentRoom do
     field(:policy_digest, :string)
     field(:repository_ref, :string)
     field(:repository_context, Ryker.CanonicalJSON.Type)
+    # The environment of the conversation the room was opened from; the room's
+    # investigation runs in it. Not a foreign key: history outlives settings.
+    field(:environment_ref, :string)
     field(:title, :string)
     field(:prompt, :string)
     field(:channel_name, :string)

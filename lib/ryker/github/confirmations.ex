@@ -262,6 +262,7 @@ defmodule Ryker.GitHub.Confirmations do
        when is_binary(name) and is_binary(digest) do
     if Regex.match?(@reference, name) and Regex.match?(@digest, digest) do
       %{name: name, digest: digest}
+      |> maybe_put(:environment_ref, Map.get(source, :environment_ref))
       |> maybe_put(:repository_ref, Map.get(source, :repository_ref))
       |> maybe_put(:repository_context, Map.get(source, :repository_context))
     else

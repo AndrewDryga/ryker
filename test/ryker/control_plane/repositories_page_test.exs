@@ -1,34 +1,61 @@
 defmodule Ryker.ControlPlane.RepositoriesPageTest do
   @moduledoc """
-  The Repositories list inside the shared Configuration shell: one toolbar, a
-  quiet count and one comparison table, with access, revision receipt and
-  worker evidence kept as details on demand under each row.
+  The Repositories list: one search box over Kit rows that say whether each
+  repository is ready, still being set up, or needs a person and what to do,
+  with the exact support facts in one closed Details disclosure per row.
   """
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.{HTML, Pages}
+  alias Phoenix.HTML.Safe
+  alias Ryker.ControlPlane.{Pages, RepositoriesPage}
+
+  @now ~U[2026-08-28 14:00:00Z]
 
   @repository %{
-    channels: 1,
-    configured: %{contributor_policy: "ryker-write"},
+    channels: 2,
+    environments: ["Production", "Staging"],
+    configured: %{
+      action_grants: ["merge_pull_request"],
+      contributor_policy: "ryker-write",
+      github_access: :available,
+      github_health: %{
+        duplicate_count: 0,
+        failed: 0,
+        last_event_at: ~U[2026-08-28 13:00:00Z],
+        pending: 0
+      },
+      github_permissions:
+        Map.new(
+          ~w(metadata contents pull_requests checks actions deployments issues),
+          &{&1, "write"}
+        ),
+      github_repository: "acme/checkout-api",
+      knowledge_pull_request_url: nil,
+      knowledge_source_commit: String.duplicate("b", 40),
+      knowledge_status: :accepted,
+      onboarding_error: nil,
+      onboarding_state: :ready,
+      ref: "acme-checkout-api",
+      updated_at: ~U[2026-08-28 13:56:00Z]
+    },
     freshness: %{
-      fetched_at: "2026-08-28T11:59:00Z",
-      recorded_at: ~U[2026-08-28 12:00:00Z],
+      fetched_at: "2026-08-28T12:00:00Z",
+      recorded_at: ~U[2026-08-28 12:01:00Z],
       remote_identity: "origin",
       requested_revision: "refs/heads/main",
-      resolved_revision: String.duplicate("a", 40),
+      resolved_revision: "3f9a1c2e" <> String.duplicate("a", 32),
       stale_base_revision: nil,
       stale_base_status: "current",
       version: 2,
       workspace_base_revision: String.duplicate("a", 40)
     },
-    publications: 0,
-    ref: "ryker",
+    publications: 1,
+    ref: "acme-checkout-api",
     schedules: 1,
-    sessions: 2,
+    sessions: 14,
     workers: [
       %{
-        last_seen_at: ~U[2026-08-28 12:00:00Z],
+        last_seen_at: ~U[2026-08-28 13:59:00Z],
         revision: "commit:abc123",
         state: :eligible,
         worker_ref: "coop-worker-one"
@@ -36,137 +63,225 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     ]
   }
 
-  test "the repositories page is one toolbar, one quiet count and one comparison table in that order" do
-    # Before 2026-09-13 each repository was a 14px-radius card with its own h2,
-    # a row of bold counts and two disclosures, under a "Where Ryker can
-    # work" intro heading that repeated the shell's title. Five repositories
-    # meant five headings and no way to compare them.
-    document = render([@repository, %{@repository | ref: "emisar", sessions: 0}])
+  test "repositories are a search over Kit rows, never a comparison table" do
+    # Before 2026-09-24 this was a six-column table of counts with the access
+    # policy and a frozen freshness receipt in "details" rows under each one.
+    document = render([@repository, %{@repository | ref: "emisar", configured: nil}])
 
     assert outline(document, "div.repositories-page > *") == [
-             "form.filter-toolbar",
-             "p.result-count",
-             "table.data-table"
+             "div.kit-toolbar",
+             "div.entity-list"
            ]
 
-    assert LazyHTML.query(document, "p.result-count") |> LazyHTML.text() == "2 repositories"
-
-    assert Enum.empty?(
-             LazyHTML.query(document, "h1, h2, .page-description, .repository-card, .table-wrap")
-           )
-
-    assert LazyHTML.query(document, "div.repositories-page > table.data-table > thead th")
-           |> LazyHTML.text() ==
-             "RepositoryWork sessionsChannelsSchedulesPR workflowsCode revision"
-
-    assert Enum.count(
-             LazyHTML.query(
-               document,
-               "div.repositories-page > table.data-table > tbody > tr:not(.row-details)"
-             )
-           ) ==
-             2
-
-    assert Enum.count(
-             LazyHTML.query(
-               document,
-               "div.repositories-page > table.data-table > tbody > tr.row-details"
-             )
-           ) == 2
+    assert Enum.count(LazyHTML.query(document, "article.entity-row[role=listitem]")) == 2
+    assert Enum.empty?(LazyHTML.query(document, "table, h1, h2, .result-count"))
   end
 
-  test "a repository row compares its counts and last revision, with access and worker evidence on demand" do
-    document = render([@repository])
+  test "a ready repository names itself as owner/repo and says where it is used" do
+    row = render([@repository]) |> LazyHTML.query("article.entity-row")
 
-    row =
+    assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~ "acme/checkout-api"
+    assert state(row) == {"Ready", ["on"]}
+    assert Enum.empty?(LazyHTML.query(row, "p.entity-text, .entity-actions"))
+
+    assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
+             "In Production, Staging · used in 2 channels and 1 schedule · 14 tasks · code from 3f9a1c2e, fetched 2 h ago"
+
+    assert LazyHTML.query(row, "p.entity-meta strong") |> LazyHTML.text() == "3f9a1c2e"
+  end
+
+  test "each repository says which environments it is in, or that it is in none" do
+    # Channels choose an environment, not a repository, so a repository in no
+    # environment is code no channel's work can reach. The row says so rather
+    # than leaving the person to find out from a channel that cannot read it.
+    alone = %{@repository | environments: [], channels: 0, schedules: 0}
+    row = render([alone]) |> LazyHTML.query("article.entity-row")
+
+    assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
+             "In no environment yet · 14 tasks · code from 3f9a1c2e, fetched 2 h ago"
+  end
+
+  test "a repository still being set up says which step it is on and since when" do
+    setting_up = put_in(@repository, [:configured, :onboarding_state], :scanning)
+    row = render([setting_up]) |> LazyHTML.query("article.entity-row")
+
+    assert state(row) == {"Setting up", ["busy"]}
+
+    assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
+             "Reading the repository · since 4 min ago"
+  end
+
+  test "a repository that needs a person says what is wrong and what to do, one sentence each" do
+    removed = put_in(@repository, [:configured, :github_access], :removed)
+    row = render([removed]) |> LazyHTML.query("article.entity-row")
+    assert state(row) == {"Needs attention", ["warn"]}
+
+    assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() ==
+             "GitHub access was removed. Give the Ryker GitHub App access to this repository again, then retry."
+
+    # Retrying while access is gone could only fail, so it is not offered.
+    assert Enum.empty?(LazyHTML.query(row, "button[phx-click=retry-github-onboarding]"))
+
+    document =
+      @repository
+      |> put_in([:configured, :github_permissions], %{"metadata" => "read"})
+      |> render()
+
+    text = document |> LazyHTML.query("p.entity-text") |> LazyHTML.text()
+    assert text =~ "missing permission for contents, pull requests, checks"
+    assert state(LazyHTML.query(document, "article.entity-row")) == {"Needs attention", ["warn"]}
+  end
+
+  test "a blocked setup offers Retry setup on its row, bound to that repository" do
+    blocked =
+      @repository
+      |> put_in([:configured, :onboarding_state], :blocked)
+      |> put_in([:configured, :onboarding_error], "Cloning failed: repository is empty.")
+
+    row = render([blocked]) |> LazyHTML.query("article.entity-row")
+    assert state(row) == {"Needs attention", ["warn"]}
+
+    assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() ==
+             "Setup stopped: Cloning failed: repository is empty. Fix the cause, then retry setup."
+
+    retry =
       LazyHTML.query(
-        document,
-        "div.repositories-page > table.data-table > tbody > tr:not(.row-details)"
+        row,
+        ".entity-actions button.ui-button.secondary[phx-click=retry-github-onboarding][phx-value-repository=acme-checkout-api]"
       )
 
-    identity = LazyHTML.query(row, "td.row-identity")
-    assert LazyHTML.query(identity, "strong") |> LazyHTML.text() == "ryker"
+    assert LazyHTML.text(retry) == "Retry setup"
+  end
 
-    assert LazyHTML.query(identity, "a[href='/activity?repository=ryker']") |> LazyHTML.text() =~
-             "View requests"
+  test "the support facts wait in one closed Details disclosure per row" do
+    details = render([@repository]) |> LazyHTML.query("article.entity-row details:not([open])")
+    assert Enum.count(details) == 1
+    assert LazyHTML.query(details, "summary") |> LazyHTML.text() == "Details"
 
-    for {label, value} <- [
-          {"Work sessions", "2"},
-          {"Channels", "1"},
-          {"Schedules", "1"},
-          {"PR workflows", "0"}
-        ] do
-      assert LazyHTML.query(row, "td[data-label='#{label}']") |> LazyHTML.text() == value, label
-    end
-
-    revision = LazyHTML.query(row, "td[data-label='Code revision']")
-    assert LazyHTML.query(revision, "code") |> LazyHTML.text() == "aaaaaaaa"
-
-    assert LazyHTML.query(revision, "code") |> LazyHTML.attribute("title") == [
-             String.duplicate("a", 40)
-           ]
-
-    assert LazyHTML.query(revision, ".row-secondary") |> LazyHTML.text() =~ "28 Aug, 11:59 UTC"
-
-    details = LazyHTML.query(document, "tbody tr.row-details td[colspan='6'] details:not([open])")
-
-    assert LazyHTML.query(details, "summary") |> LazyHTML.text() ==
-             "Access and code revisionWorker connections"
-
-    text = LazyHTML.text(details)
-    assert text =~ "contributor ryker-write"
-    assert text =~ "not a live Git check"
-    assert text =~ "refs/heads/main"
-    assert text =~ "coop-worker-one"
+    text = details |> LazyHTML.text() |> squeeze()
+    assert text =~ "acme/checkout-api · access available"
+    assert text =~ "Accepted, written from commit bbbbbbbbbbbb"
+    assert text =~ "Everything Ryker needs"
+    assert text =~ "merge pull request"
+    assert text =~ "Up to date"
+    assert text =~ "tasks use ryker-write"
+    assert text =~ "from refs/heads/main"
+    assert text =~ "not a live check"
+    assert text =~ "coop-worker-one: ready"
     assert text =~ "commit:abc123"
-    assert LazyHTML.query(details, "a[href='/settings/system']") |> Enum.count() == 2
+    assert text =~ "1 pull request opened by Ryker"
 
-    # The worker table inside the details stacks on a phone like every other.
-    assert LazyHTML.query(details, "table.data-table td[data-label='Worker']") |> LazyHTML.text() ==
-             "coop-worker-one"
+    assert LazyHTML.query(details, "a[href='/activity?repository=acme-checkout-api']")
+           |> Enum.count() == 1
   end
 
-  test "a repository without a revision receipt or fleet worker says so instead of inventing either" do
-    document = render([%{@repository | configured: nil, freshness: nil, workers: []}])
-    row = LazyHTML.query(document, "tbody tr:not(.row-details)")
+  test "a repository Ryker only saw in past work is not ready, and invents no receipt or worker" do
+    observed = %{@repository | configured: nil, freshness: nil, workers: [], sessions: 0}
+    row = render([observed]) |> LazyHTML.query("article.entity-row")
 
-    assert LazyHTML.query(row, "td[data-label='Code revision']") |> LazyHTML.text() ==
-             "No revision recorded yet"
-
-    details = LazyHTML.query(document, "tbody tr.row-details")
-    assert LazyHTML.text(details) =~ "observed only"
-    assert LazyHTML.text(details) =~ "No frozen freshness-v2 receipt"
-    assert LazyHTML.text(details) =~ "No fleet worker is reporting this repository here"
+    assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~ "acme-checkout-api"
+    assert state(row) == {"Not added", ["off"]}
+    text = row |> LazyHTML.query("details") |> LazyHTML.text() |> squeeze()
+    assert text =~ "None yet. It appears after Ryker's first task in this repository."
+    assert text =~ "No worker reports this repository right now."
   end
 
-  test "an empty repositories list tells a filtered miss from an installation with none" do
-    filtered = render([], %{"q" => "absent"})
-    assert LazyHTML.query(filtered, "p.empty-state") |> LazyHTML.text() =~ "No repositories match"
-    assert Enum.empty?(LazyHTML.query(filtered, "p.result-count, table"))
-
+  test "an empty list says how to add one, and a search miss says so" do
     bare = render([])
 
-    assert LazyHTML.query(bare, "p.empty-state") |> LazyHTML.text() =~
-             "No configured or observed repositories"
+    assert LazyHTML.query(bare, ".entity-empty-title") |> LazyHTML.text() ==
+             "No repositories yet."
+
+    assert LazyHTML.query(bare, "form.filter-toolbar input[type=search][disabled]")
+           |> Enum.count() == 1
+
+    miss = render([], %{"q" => "absent"})
+
+    assert LazyHTML.query(miss, ".entity-empty-title") |> LazyHTML.text() ==
+             "No repositories match “absent”."
   end
 
-  test "the route keeps the shell's title and description" do
+  test "without a working GitHub App the page offers no Add repositories action" do
+    # The header action and the import panel both led to "Repair the GitHub
+    # connection first", beside the status line that already said so.
     page =
-      Pages.page(["repositories"], %{"q" => "resp"}, %{
-        projection: %{repositories: fn _params -> [@repository] end}
+      Pages.page(["repositories"], %{}, %{
+        projection: %{
+          repositories: fn _params -> [] end,
+          settings: fn -> {:ok, %{github_connection: :invalid}} end
+        }
       })
 
+    refute Map.has_key?(page, :action)
+
+    assert LazyHTML.from_fragment(page.body)
+           |> LazyHTML.query(".entity-empty")
+           |> LazyHTML.text() =~ "Once GitHub is connected"
+  end
+
+  test "with GitHub working, the route carries the search and offers Add repositories as the page's one action" do
+    parent = self()
+
+    page =
+      Pages.page(["repositories"], %{"q" => " checkout "}, %{
+        projection: %{
+          repositories: fn params ->
+            send(parent, {:repositories, params})
+            [@repository]
+          end,
+          settings: fn -> {:ok, %{github_connection: :ready}} end
+        }
+      })
+
+    assert_received {:repositories, %{"q" => "checkout"}}
     assert page.title == "Repositories"
-    assert page.description =~ "Connected repositories"
+    assert page.description == "Code Ryker can read and work in."
 
     assert LazyHTML.from_fragment(page.body)
            |> LazyHTML.query("form.filter-toolbar input[name=q]")
-           |> LazyHTML.attribute("value") == ["resp"]
+           |> LazyHTML.attribute("value") == ["checkout"]
+
+    action = LazyHTML.from_fragment(page.action)
+
+    assert LazyHTML.query(action, "a.ui-button.primary[href='#add-repositories']")
+           |> LazyHTML.text() == "Add repositories"
+
+    refute page.body =~ "Publishing settings"
+  end
+
+  test "the GitHub line says whether GitHub is connected and where to change it" do
+    for {settings, words, link} <- [
+          {{:ok, %{github_connection: :ready, snapshot: %{github: %{app_slug: "ryker-acme"}}}},
+           "GitHub is connected as the ryker-acme app.", "Manage"},
+          {{:ok, %{github_connection: :invalid}}, "GitHub needs repair.",
+           "Repair GitHub connection"},
+          {{:ok, %{github_connection: :missing}}, "GitHub is not connected.", "Connect GitHub"},
+          {{:error, :settings_not_initialized}, "GitHub is not connected.", "Connect GitHub"}
+        ] do
+      line =
+        %{__changed__: nil, settings: settings}
+        |> RepositoriesPage.github_status()
+        |> Safe.to_iodata()
+        |> IO.iodata_to_binary()
+        |> LazyHTML.from_fragment()
+
+      assert line |> LazyHTML.query("p") |> LazyHTML.text() |> squeeze() =~ words
+      assert LazyHTML.query(line, "a[href='/integrations/github']") |> LazyHTML.text() =~ link
+    end
+  end
+
+  defp state(row) do
+    state = LazyHTML.query(row, ".entity-side .state-word")
+    {LazyHTML.text(state), LazyHTML.attribute(state, "data-tone")}
   end
 
   defp render(items, params \\ %{}) do
-    items |> HTML.repositories(params) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+    %{items: List.wrap(items), view: RepositoriesPage.view(params), now: @now}
+    |> RepositoriesPage.html()
+    |> LazyHTML.from_fragment()
   end
+
+  defp squeeze(text), do: text |> String.replace(~r/\s+/, " ") |> String.trim()
 
   # "tag.first-class" for each matched element, in document order.
   defp outline(document, selector) do

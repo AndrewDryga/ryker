@@ -1308,6 +1308,43 @@ defmodule Ryker.Publication.CustodyTest do
     assert still_discarded.recovery_generation == discarded.recovery_generation
   end
 
+  # Ryker ends a publication whose worker session closed, because that review
+  # can never run. Nobody decided against publishing the task, so the task's
+  # next completed turn, in a new session, must still get its checks; a
+  # discard that nothing can re-arm would leave every later candidate unreviewed.
+  test "a corrected candidate re-arms a publication Ryker ended for a closed session" do
+    %{claim: claim} = task_episode!("session-closed")
+    %{claim: first} = corrected_candidate!(claim, "session-closed", "one")
+    publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+    assert publication.status == :review_pending
+
+    assert {:ok, review_claim} = PublicationCustody.claim_next("publication:session-closed", 60)
+    assert review_claim.publication.id == publication.id
+
+    assert {:ok, ended} =
+             PublicationCustody.discard_unreviewable(
+               publication.ref,
+               review_claim.lease_ref,
+               :review_session_closed
+             )
+
+    assert ended.status == :discarded
+    assert ended.discarded_reason == :review_session_closed
+    assert ended.recovery_generation == publication.recovery_generation + 1
+
+    correction = corrected_candidate!(first, "session-closed", "two")
+
+    assert [rearmed] =
+             Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
+
+    assert rearmed.id == publication.id
+    assert rearmed.status == :review_pending
+    assert rearmed.discarded_reason == nil
+    assert rearmed.review_generation == ended.review_generation + 1
+    assert rearmed.recovery_generation == ended.recovery_generation + 1
+    assert rearmed.session_id == correction.claim.session.id
+  end
+
   # The pull request lives in the publication's own repository, which is not
   # always the session's: an operator-requested publication takes it from the
   # episode's repository-write goal. Re-arming across that boundary would hand
@@ -1921,7 +1958,7 @@ defmodule Ryker.Publication.CustodyTest do
                %{"input" => claim.episode.key},
                "Implement the frozen request.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, frozen} =

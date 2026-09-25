@@ -55,19 +55,25 @@ defmodule Ryker.Slack.ChannelConfigurationChangeset do
     :actor_ref,
     :alert_policy,
     :channel_ref,
+    :environment_ref,
     :id,
     :invite_user_group_refs,
     :invite_user_refs,
     :participation,
-    :repository_ref,
     :revision,
     :saved_at,
     :welcome_message_ref,
     :workspace_ref
   ]
   # A configuration with no participation inherits the installation default;
-  # an absent actor is a configuration nobody was asked to make.
-  @configuration_optional_fields [:actor_ref, :participation, :welcome_message_ref]
+  # one with no environment runs outside any; an absent actor is a
+  # configuration nobody was asked to make.
+  @configuration_optional_fields [
+    :actor_ref,
+    :environment_ref,
+    :participation,
+    :welcome_message_ref
+  ]
   @action_fields [
     :action,
     :actor_ref,
@@ -138,6 +144,7 @@ defmodule Ryker.Slack.ChannelConfigurationChangeset do
     |> cast(attributes, @configuration_fields)
     |> validate_required(@configuration_fields -- @configuration_optional_fields)
     |> unique_constraint(:channel_ref)
+    |> environment_constraint()
     |> check_constraint(:participation, name: :slack_channel_configuration_valid)
   end
 
@@ -147,7 +154,15 @@ defmodule Ryker.Slack.ChannelConfigurationChangeset do
     configuration
     |> cast(attributes, fields)
     |> validate_required(fields -- @configuration_optional_fields)
+    |> environment_constraint()
     |> check_constraint(:participation, name: :slack_channel_configuration_valid)
+  end
+
+  # An environment removed after it was offered is refused by its foreign key.
+  defp environment_constraint(changeset) do
+    foreign_key_constraint(changeset, :environment_ref,
+      name: :slack_channel_configurations_environment_ref_fkey
+    )
   end
 
   def action(attributes) do

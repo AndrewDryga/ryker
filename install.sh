@@ -116,7 +116,7 @@ done
 control_port=$(sed -n 's/^RYKER_CONTROL_PORT=//p' "$env_file" | tail -n 1)
 control_port=${control_port:-4321}
 origin="http://127.0.0.1:$control_port"
-setup_url="$origin/settings"
+setup_url="$origin/setup"
 
 attempt=0
 while [ "$attempt" -lt 60 ]; do

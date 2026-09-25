@@ -6,11 +6,14 @@ defmodule Ryker.Work.Executor.Cancellation do
   froze but never confirmed, so a lost response cannot leave an unowned
   remote resource behind. It then cancels a live remote turn under the
   persisted cancel key, closes the session unless the intent transfers it,
-  and records a receipt naming the remote state it proved.
+  and records a receipt naming the remote state it proved. When the worker
+  holding the run was removed from Ryker, no remote state can ever be proved,
+  and the receipt names that removal instead.
   """
 
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.{Custody, StateBinding}
+  alias Ryker.Work.Custody.Cancellation, as: CancellationCustody
   alias Ryker.Work.Executor.{Remote, Turns}
 
   @terminal_turn_states Remote.terminal_turn_states()
@@ -19,9 +22,52 @@ defmodule Ryker.Work.Executor.Cancellation do
   def execute_cancellation(claim, settings) do
     key = WorkCancellation.operation_key(claim.turn.id, claim.turn.cancel_generation)
 
-    with {:ok, claim} <- reconcile_cancellation_session(claim, settings),
-         {:ok, claim, remote_turn} <- reconcile_cancellation_turn(claim, settings) do
-      continue_cancellation(remote_turn, claim, key, settings)
+    result =
+      with {:ok, claim} <- reconcile_cancellation_session(claim, settings),
+           {:ok, claim, remote_turn} <- reconcile_cancellation_turn(claim, settings) do
+        continue_cancellation(remote_turn, claim, key, settings)
+      end
+
+    case result do
+      {:error, _reason} = error -> settle_removed_worker(claim, error)
+      success -> success
+    end
+  end
+
+  # A run whose worker was removed from Ryker can never answer, so every
+  # attempt to reach it failed the same way and was deferred without end: the
+  # task read "stopping" forever and held its request, or the next message,
+  # behind it. The removal itself is the proof (see
+  # WorkCancellation.worker_removed_receipt/3), and custody checks it again.
+  defp settle_removed_worker(claim, error) do
+    case CancellationCustody.removed_worker(claim.session.id) do
+      {:ok, worker_id} ->
+        with {:ok, receipt} <-
+               WorkCancellation.worker_removed_receipt(
+                 claim.session.coop_session_id,
+                 claim.turn.coop_turn_id,
+                 worker_id
+               ),
+             {:ok, settled} <-
+               Custody.settle_cancellation(
+                 claim.episode.id,
+                 claim.episode.key,
+                 claim.turn.turn_ref,
+                 claim.lease_ref,
+                 receipt
+               ) do
+          {:ok,
+           %{
+             episode: settled.episode,
+             remote_session_id: claim.session.coop_session_id,
+             remote_turn_id: claim.turn.coop_turn_id,
+             status: cancellation_status(claim.turn.cancellation_intent),
+             turn: settled.turn
+           }}
+        end
+
+      :none ->
+        error
     end
   end
 

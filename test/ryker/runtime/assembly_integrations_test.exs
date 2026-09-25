@@ -148,6 +148,13 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
       )
 
     {:ok, saved} =
+      Settings.put_environment(
+        %{ref: "ryker", display_name: "Ryker", repositories: ["ryker"]},
+        saved.installation.revision,
+        @actor
+      )
+
+    {:ok, saved} =
       Settings.put_webhook_source(
         source("alerts", :hmac_sha256, "alerts"),
         saved.installation.revision,
@@ -173,7 +180,7 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
       destination_transport: "control_plane",
       destination_conversation_ref: @lab_conversation,
       destination_thread_ref: @lab_conversation,
-      context_ref: "ryker"
+      environment_ref: "ryker"
     }
   end
 

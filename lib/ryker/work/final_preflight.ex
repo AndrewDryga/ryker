@@ -5,9 +5,13 @@ defmodule Ryker.Work.FinalPreflight do
   alias Ryker.Delivery.PlatformActionCustody
   alias Ryker.State.Records
 
+  # A missing title and a null one both keep the episode's name, so they are
+  # the same candidate: a model that preflights without the key and returns the
+  # schema's explicit null is not sent back to preflight again.
   @spec candidate_sha256(map()) :: String.t()
   def candidate_sha256(candidate) when is_map(candidate) do
     candidate
+    |> Map.put_new("title", nil)
     |> normalize_output_artifact_refs()
     |> CanonicalJSON.digest()
   end

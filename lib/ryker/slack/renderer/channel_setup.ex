@@ -10,9 +10,10 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   alias Ryker.Slack.Renderer.ChannelCards
 
   @setup_statuses ~w(asking confirming saved cancelled expired)
-  @setup_steps ~w(participation repository alerts audience confirm)
-  # Repository choices wrap into rows of this many buttons.
-  @repository_buttons_per_row 5
+  @setup_steps ~w(participation environment alerts audience confirm)
+  # Environment choices wrap into rows of this many buttons.
+  @environment_buttons_per_row 5
+  @maximum_environment_options 200
 
   @spec render(map()) :: {:ok, map()} | {:error, term()}
   def render(
@@ -85,14 +86,14 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
 
   defp setup_blocks(
          "asking",
-         "repository",
-         %{"repository_options" => repositories},
+         "environment",
+         %{"environment_options" => environments},
          session_ref,
          _presentation
        )
-       when is_list(repositories) and length(repositories) in 1..32 do
-    if Enum.all?(repositories, &text?/1),
-      do: repository_step(repositories, session_ref),
+       when is_list(environments) and length(environments) <= @maximum_environment_options do
+    if Enum.all?(environments, &environment_option?/1),
+      do: environment_step(environments, session_ref),
       else: {:error, {:invalid_slack_render, :channel_setup}}
   end
 
@@ -180,33 +181,75 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   defp setup_blocks(_status, _step, _draft, _session_ref, _presentation),
     do: {:error, {:invalid_slack_render, :channel_setup}}
 
-  defp repository_step(repositories, session_ref) do
+  # Each environment says what work in this channel could use there before it
+  # is chosen; No environment is always offered, even when there are none.
+  defp environment_step(environments, session_ref) do
     buttons =
-      repositories
+      environments
       |> Enum.with_index()
-      |> Enum.map(fn {repository, index} ->
+      |> Enum.map(fn {environment, index} ->
         setup_button(
-          "ryker_setup_repository_#{index}",
-          truncate(repository, maximum_button_characters()),
+          "ryker_setup_environment_#{index}",
+          truncate(environment["name"], maximum_button_characters()),
           session_ref,
           nil
         )
       end)
+      |> Kernel.++([
+        setup_button("ryker_setup_environment_none", "No environment", session_ref, nil)
+      ])
 
-    text = "Which repo should I use for coding tasks when you don't name one?"
+    text = "Which environment should I work in here?"
 
     explanation =
       [
-        "*#{heading("2 · Repositories")}*",
+        "*#{heading("2 · Environment")}*",
         text,
-        "",
-        Enum.map_join(repositories, "   ", &"*#{escape(&1)}*"),
-        "",
-        "You can still ask me to work in any other connected repo. This only sets the default; it doesn't give me access to anything new."
-      ]
+        ""
+      ] ++
+        Enum.flat_map(environments, fn environment ->
+          ["*#{escape(environment["name"])}* — #{environment_sentence(environment)}", ""]
+        end) ++
+        [
+          "*No environment* — I'll still answer here, but without any repos or Emisar.",
+          "",
+          "Environments are set up in Ryker's settings. Choosing one only decides which one this channel uses; it doesn't change what's in it."
+        ]
 
     {:ok, [section(Enum.join(explanation, "\n"))] ++ setup_action_groups(session_ref, buttons),
      text}
+  end
+
+  defp environment_sentence(%{"repositories" => [], "emisar" => true}),
+    do: "I'll use Emisar, but there are no repos in it to work on."
+
+  defp environment_sentence(%{"repositories" => []}),
+    do: "It has no repos or Emisar, so I'll answer without them."
+
+  defp environment_sentence(%{"repositories" => [writable | read_only], "emisar" => emisar}) do
+    reads =
+      if read_only == [], do: [], else: ["read #{read_only |> Enum.map(&code/1) |> names()}"]
+
+    emisar = if emisar, do: ["use Emisar"], else: []
+
+    "I'll #{clauses(["make changes in #{code(writable)}"] ++ reads ++ emisar)}."
+  end
+
+  defp code(ref), do: "`#{escape(ref)}`"
+
+  defp names([name]), do: name
+
+  defp names(names) do
+    {others, [last]} = Enum.split(names, -1)
+    Enum.join(others, ", ") <> " and " <> last
+  end
+
+  defp clauses([clause]), do: clause
+  defp clauses([first, second]), do: "#{first} and #{second}"
+
+  defp clauses(clauses) do
+    {others, [last]} = Enum.split(clauses, -1)
+    Enum.join(others, ", ") <> ", and " <> last
   end
 
   defp setup_confirmation(draft, session_ref, presentation) do
@@ -218,7 +261,7 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
         text,
         "• " <> draft_participation_sentence(draft["participation"], presentation.bot_user_ref),
         "• " <> draft_alert_sentence(draft["alert_policy"]),
-        "• I'll use *#{escape(draft["repository_ref"])}* for coding tasks when you don't name a repo.",
+        "• " <> draft_environment_sentence(draft),
         "• If I create an incident room, I'll invite #{draft_audience_phrase(draft)}.",
         "",
         "*Save settings* — I'll start using these choices and update my welcome message to match.",
@@ -259,6 +302,14 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   defp draft_alert_sentence("automatic"),
     do: "When an alert needs investigation, I'll create an incident room automatically."
 
+  defp draft_environment_sentence(%{"environment_ref" => nil}),
+    do: "I won't use an environment, so I'll answer without any repos or Emisar."
+
+  defp draft_environment_sentence(%{"environment_ref" => ref, "environment_options" => options}) do
+    %{"name" => name} = Enum.find(options, &(&1["ref"] == ref))
+    "I'll work in the *#{escape(name)}* environment."
+  end
+
   defp draft_audience_phrase(draft) do
     ChannelCards.audience_phrase(%{
       "invitations" => %{
@@ -271,14 +322,32 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   defp setup_draft?(draft) do
     draft["participation"] in ~w(mentions proactive shadow) and
       draft["alert_policy"] in ~w(reply offer automatic) and
-      is_binary(draft["repository_ref"]) and draft["repository_ref"] != "" and
+      chosen_environment?(draft) and
       is_list(draft["invite_user_refs"]) and is_list(draft["invite_user_group_refs"]) and
       Enum.all?(draft["invite_user_refs"] ++ draft["invite_user_group_refs"], &slack_reference?/1)
   end
 
+  # Answered, as one of the environments offered or as No environment (nil).
+  defp chosen_environment?(%{"environment_ref" => nil}), do: true
+
+  defp chosen_environment?(%{"environment_ref" => ref, "environment_options" => options})
+       when is_binary(ref) and is_list(options),
+       do: Enum.any?(options, &(environment_option?(&1) and &1["ref"] == ref))
+
+  defp chosen_environment?(_draft), do: false
+
+  defp environment_option?(
+         %{"emisar" => emisar, "name" => name, "ref" => ref, "repositories" => repositories} =
+           option
+       )
+       when map_size(option) == 4 and is_boolean(emisar) and is_list(repositories),
+       do: text?(name) and text?(ref) and Enum.all?(repositories, &text?/1)
+
+  defp environment_option?(_option), do: false
+
   defp setup_action_groups(session_ref, buttons) do
     buttons
-    |> Enum.chunk_every(@repository_buttons_per_row)
+    |> Enum.chunk_every(@environment_buttons_per_row)
     |> Enum.with_index()
     |> Enum.map(fn {group, index} -> actions("setup:#{session_ref}:#{index}", group) end)
   end

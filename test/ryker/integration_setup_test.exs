@@ -1,8 +1,15 @@
 defmodule Ryker.IntegrationSetupTest do
   use Ryker.DataCase, async: false
 
-  alias Ryker.{Credentials, IntegrationSetup, Settings}
+  import Ecto.Query
+
+  alias Ryker.ControlPlane.Integrations
+  alias Ryker.{Credentials, Episodes, IntegrationSetup, Settings}
+  alias Ryker.Emisar.Connections
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.GitHub.{Access, Binding}
+  alias Ryker.Settings.Environment
+  alias Ryker.Work.Custody
 
   @actor "control-plane:local"
   @scopes ~w(
@@ -221,6 +228,48 @@ defmodule Ryker.IntegrationSetupTest do
              ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci approve merge)
   end
 
+  # Importing used to create a one-repository group per repository and route
+  # nothing to it, so every channel had to be pointed at each group by hand.
+  # An imported repository now joins the default environment, which Chat and
+  # every conversation without its own setting use: it is usable at once, and
+  # the first repository stays the one work changes.
+  test "importing a repository puts it in the default environment" do
+    connect_github!()
+    assert {:ok, [repository]} = IntegrationSetup.github_repositories(requester: Requester)
+
+    assert {:ok, %{added: ["acme/widget"]}} =
+             IntegrationSetup.import_github_repositories([repository], requester: Requester)
+
+    assert [%Environment{ref: "default", display_name: "Default", is_default: true} = default] =
+             Settings.fetch!().environments
+
+    assert Environment.repository_refs(default) == ["acme-widget"]
+
+    assert {:ok, %{added: ["acme/gadget"]}} =
+             IntegrationSetup.import_github_repositories([github_repository("acme/gadget", 502)])
+
+    assert [default] = Settings.fetch!().environments
+    assert Environment.repository_refs(default) == ["acme-widget", "acme-gadget"]
+
+    # An operator's own default takes later imports.
+    {:ok, _snapshot} =
+      Settings.put_environment(
+        %{ref: "production", display_name: "Production", is_default: true},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    assert {:ok, %{added: ["acme/tool"]}} =
+             IntegrationSetup.import_github_repositories([github_repository("acme/tool", 503)])
+
+    assert %Environment{ref: "production"} = production = Environment.default(Settings.fetch!())
+    assert Environment.repository_refs(production) == ["acme-tool"]
+
+    assert Settings.fetch!().environments
+           |> Enum.find(&(&1.ref == "default"))
+           |> Environment.repository_refs() == ["acme-widget", "acme-gadget"]
+  end
+
   test "installation events refresh permissions and auto-add with verified identities" do
     key = :public_key.generate_key({:rsa, 2_048, 65_537})
     pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
@@ -310,6 +359,13 @@ defmodule Ryker.IntegrationSetupTest do
 
     added = Enum.find(Settings.fetch!().github_bindings, &(&1.repository_id == 502))
     assert added.ryker_actor_id == 4_321
+
+    # A repository the App was just given joins the default environment, as an
+    # imported one does.
+    assert Settings.fetch!() |> Environment.default() |> Environment.repository_refs() == [
+             "acme-widget",
+             "acme-new-repository"
+           ]
   end
 
   test "Emisar and webhook credentials are verified without entering durable settings" do
@@ -334,13 +390,6 @@ defmodule Ryker.IntegrationSetupTest do
 
     refute inspect(Settings.fetch!()) =~ token
 
-    refute Enum.find(
-             Settings.fetch!().emisar_connections,
-             &(&1.ref == "production")
-           ).monitoring_enabled
-
-    assert {:ok, _snapshot} = IntegrationSetup.enable_emisar_monitoring("production")
-
     assert Enum.find(
              Settings.fetch!().emisar_connections,
              &(&1.ref == "production")
@@ -349,6 +398,13 @@ defmodule Ryker.IntegrationSetupTest do
     assert {:ok, _snapshot} = IntegrationSetup.disable_emisar_monitoring("production")
 
     refute Enum.find(
+             Settings.fetch!().emisar_connections,
+             &(&1.ref == "production")
+           ).monitoring_enabled
+
+    assert {:ok, _snapshot} = IntegrationSetup.enable_emisar_monitoring("production")
+
+    assert Enum.find(
              Settings.fetch!().emisar_connections,
              &(&1.ref == "production")
            ).monitoring_enabled
@@ -383,6 +439,7 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert {:ok, _snapshot} = IntegrationSetup.delete_emisar("production")
     assert Credentials.status(:emisar, "production").status == :missing
+    assert Enum.all?(Settings.fetch!().environments, &is_nil(&1.emisar_connection_ref))
 
     assert {:ok, %{name: "alerts", secret: generated}} =
              IntegrationSetup.create_webhook_credential("alerts")
@@ -414,5 +471,187 @@ defmodule Ryker.IntegrationSetupTest do
     [connection] = Settings.fetch!().emisar_connections
     assert connection.display_name == "Acme production"
     assert connection.ref =~ ~r/\Aaccount-[a-f0-9]{16}\z/
+  end
+
+  # Connecting an account once saved it with approval monitoring off and no
+  # route, so a fresh connection did nothing until someone found two more
+  # switches. The first account now serves every environment that has none,
+  # and a default environment is made for Chat when there is none, so work
+  # that starts right after connecting can record an approval Ryker watches.
+  test "the first Emisar account serves every environment without one" do
+    put_payments!()
+
+    assert {:ok, %{ref: ref, status: :connected, environments: environments}} =
+             IntegrationSetup.connect_emisar(
+               %{
+                 "rpc_url" => "https://emisar.example/api/mcp/rpc",
+                 "token" => "emisar-token-that-is-long-enough"
+               },
+               requester: Requester
+             )
+
+    assert environments == ["default", "payments"]
+    snapshot = Settings.fetch!()
+    assert [%{monitoring_enabled: true, enabled_for_new_work: true}] = snapshot.emisar_connections
+    assert %Environment{ref: "default"} = Environment.default(snapshot)
+
+    for environment <- ["payments", "default"] do
+      assert {:ok, %{connection_ref: ^ref}} = Connections.resolve(snapshot, environment)
+    end
+
+    assert pin_work!("channel", "payments").emisar_connection_ref == ref
+    assert pin_work!("chat", "default").emisar_connection_ref == ref
+
+    # The setup and integrations pages read the same settings.
+    assert %{status: :ready, state: {:on, "Connected"}} =
+             Integrations.emisar(%{snapshot: snapshot})
+  end
+
+  test "connecting another account never takes over an environment that has one" do
+    put_payments!()
+
+    assert {:ok, %{ref: first}} =
+             IntegrationSetup.connect_emisar(
+               %{
+                 "rpc_url" => "https://emisar.example/api/mcp/rpc",
+                 "token" => "emisar-token-that-is-long-enough"
+               },
+               requester: Requester
+             )
+
+    {:ok, _snapshot} =
+      Settings.put_environment(
+        %{ref: "staging", display_name: "Staging"},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    assert {:ok, %{ref: second, environments: []}} =
+             IntegrationSetup.connect_emisar(
+               %{
+                 "rpc_url" => "https://emisar.example/api/mcp/rpc",
+                 "token" => "other-emisar-token-long-enough"
+               },
+               requester: OtherAccountRequester
+             )
+
+    assert second != first
+    snapshot = Settings.fetch!()
+
+    assert Map.new(snapshot.environments, &{&1.ref, &1.emisar_connection_ref}) == %{
+             "default" => first,
+             "payments" => first,
+             "staging" => nil
+           }
+
+    assert Enum.find(snapshot.emisar_connections, &(&1.ref == second)).monitoring_enabled
+  end
+
+  # "Remove account" takes the account off the environments that use it. It is
+  # refused, before anything changes, while a task session or an approval
+  # still names the account.
+  test "removing an account takes it off its environments, and never an account work still names" do
+    put_payments!()
+
+    assert {:ok, %{ref: ref}} =
+             IntegrationSetup.connect_emisar(
+               %{
+                 "rpc_url" => "https://emisar.example/api/mcp/rpc",
+                 "token" => "emisar-token-that-is-long-enough"
+               },
+               requester: Requester
+             )
+
+    assert pin_work!("pinned", "payments").emisar_connection_ref == ref
+
+    assert {:error, {:invalid_settings, [ref: {:referenced, %{sessions: 1}}]}} =
+             IntegrationSetup.delete_emisar(ref)
+
+    assert Enum.all?(Settings.fetch!().environments, &(&1.emisar_connection_ref == ref))
+    assert Credentials.status(:emisar, ref).status == :configured
+
+    Repo.update_all(
+      from(session in Ryker.Work.Session, where: session.emisar_connection_ref == ^ref),
+      set: [cleanup_status: :discarded, discarded_at: DateTime.utc_now()]
+    )
+
+    assert {:ok, snapshot} = IntegrationSetup.delete_emisar(ref)
+    assert snapshot.emisar_connections == []
+    assert Enum.all?(snapshot.environments, &is_nil(&1.emisar_connection_ref))
+    assert Credentials.status(:emisar, ref).status == :missing
+  end
+
+  defp put_payments! do
+    snapshot = Settings.fetch!()
+
+    {:ok, snapshot} =
+      Settings.put_repository(
+        %{ref: "payments", display_name: "acme/payments"},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, snapshot} =
+      Settings.put_environment(
+        %{ref: "payments", display_name: "Payments", repositories: ["payments"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    snapshot
+  end
+
+  defp connect_github! do
+    key = :public_key.generate_key({:rsa, 2_048, 65_537})
+    pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
+
+    assert {:ok, _result} =
+             IntegrationSetup.connect_github(
+               %{
+                 "api_url" => "https://api.github.com",
+                 "app_id" => "1234",
+                 "private_key" => pem
+               },
+               requester: Requester
+             )
+  end
+
+  defp github_repository(full_name, repository_id) do
+    %{
+      default_branch: "main",
+      full_name: full_name,
+      installation_id: 41,
+      permissions: %{"contents" => "write", "pull_requests" => "write"},
+      repository_id: repository_id
+    }
+  end
+
+  defp pin_work!(key, environment_ref) do
+    episode_id = Ecto.UUID.generate()
+
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode_id,
+                 episode_key: "integration-setup:#{key}",
+                 native_input_id: "source:integration-setup:#{key}",
+                 payload: %{"text" => "Restart the payments worker."},
+                 turn_ref: "turn:integration-setup:#{key}"
+               })
+             )
+
+    assert {:ok, session} =
+             Custody.pin_episode(
+               episode_id,
+               "test-policy",
+               String.duplicate("d", 64),
+               nil,
+               nil,
+               nil,
+               nil,
+               environment_ref
+             )
+
+    session
   end
 end

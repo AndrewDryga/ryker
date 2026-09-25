@@ -8,6 +8,8 @@ defmodule Ryker.Emisar.ApprovalChangeset do
   @fields [
     :action_id,
     :approval_url,
+    :closed_at,
+    :closed_reason,
     :connection_ref,
     :episode_id,
     :expires_at,
@@ -85,9 +87,11 @@ defmodule Ryker.Emisar.ApprovalChangeset do
     |> validate_length(:review_digest, is: 64)
     |> validate_length(:last_error, min: 1, max: 4_096)
     |> validate_number(:failure_count, greater_than_or_equal_to: 0)
-    |> validate_inclusion(:status, [:monitoring, :resumed, :blocked])
+    |> validate_inclusion(:status, [:monitoring, :resumed, :blocked, :closed])
     |> validate_inclusion(:remote_status, RunState.statuses())
+    |> validate_inclusion(:closed_reason, ["wait_ended"])
     |> check_constraint(:status, name: :episode_emisar_approval_identity_valid)
+    |> check_constraint(:status, name: :episode_emisar_approval_closure_valid)
     |> check_constraint(:lease_ref, name: :episode_emisar_approval_lease_valid)
     |> check_constraint(:review_digest, name: :episode_emisar_approval_review_valid)
   end

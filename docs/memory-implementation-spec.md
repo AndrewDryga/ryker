@@ -220,9 +220,12 @@ remote turn lacks stop proof. A still-running remote operation requires custody 
 not permission to launch a duplicate.
 
 An explicit operator retry or rebuild reselection adopts the currently configured trusted
-learning policy and digest for the next attempt. Ordinary worker recovery still uses the batch's
-pinned policy. Record both former and selected policies in the operator audit, preserve every old
-LearningRun unchanged, and never resume an old-policy attempt as the new judgment. Reject a new
+learning policy and digest for the next attempt, and so does every new attempt a batch prepares
+on its own: a worker places only sessions whose digest it still advertises, so an attempt pinned
+to a replaced digest could never start. An outstanding attempt always reconciles under its own
+pinned policy, and spent starts stay spent. Record both former and selected policies in the
+operator audit, preserve every old LearningRun unchanged, and never resume an old-policy attempt
+as the new judgment. Reject a new
 grant when learning is disabled or misconfigured. Repeating an already accepted action returns
 its original receipt even if configuration changes again; it grants no further start. Retry UI
 explains this current-policy selection. Account recovery is not permission to reset execution budgets.
@@ -234,6 +237,11 @@ dedicated empty scratch repository with `repository_read_only=true`, `project_en
 remove product capabilities and writable repository authority, not the provider's tool vocabulary.
 Check those public authority fields and absence of companion repositories before submitting
 any source text. Qualification must inspect the actual isolated execution and cleanup.
+Identity alone binds a session to its run, so cleanup can close a session that fails this check;
+the attempt then stops on never-submitted proof. A policy digest fixes that authority, so new
+attempts under a refused digest wait, spending no start, until the configured policy changes; the
+Learning page says learning is paused and what to change. The Compose distribution writes
+`project_env: false` and `project_mcp: false` into its `ryker-learning` policy.
 Reject any returned `responder_binding_digest`: the learner intentionally creates an unbound
 session and must not receive Ryker state/action tools through an unexpected binding.
 
@@ -270,6 +278,11 @@ After the rapid reconciliation budget is spent, retry only reconciliation once p
 whole writable scope fenced while any older turn lacks stop proof, even when new inputs arrive.
 Recover the original batch and membership after connectivity returns; never give its remaining
 budget to a fresh set of inputs.
+An attempt that never froze a submission revision has no turn to wait for: the revision is
+frozen before any turn is sent and cannot be frozen after a stop. When its worker session can
+never be addressed again (its placement ended before it was bound, or its identity is not the
+run's), the attempt stops on that local proof and the batch continues with a fresh session on its
+remaining starts. An unreachable worker is not such proof; that attempt keeps reconciling.
 
 A model's `defer` is a terminal no-change judgment with its explanation, not a conversation pause.
 New evidence must still be eligible. Only execution/capacity failures pause new starts temporarily.

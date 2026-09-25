@@ -38,7 +38,7 @@ wait_ready() {
        headers=$(curl --fail --silent --dump-header - --output /dev/null "$origin/readyz" 2>/dev/null); then
       running=$(printf '%s\n' "$headers" | awk 'BEGIN{IGNORECASE=1} /^x-ryker-version:/ {gsub("\r", "", $2); print $2; exit}')
       if [ "$running" = "$expected" ]; then
-        echo "Ryker is ready: $origin/settings"
+        echo "Ryker is ready: $origin/setup"
         return 0
       fi
     fi

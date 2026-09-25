@@ -5,7 +5,20 @@ defmodule Ryker.ControlPlane.RouterTest do
   import Plug.Test
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{CSRF, EpisodePage, HTML, LabControls, LabPage, Pages, Router}
+  alias Ryker.ControlPlane.{
+    CSRF,
+    EpisodePage,
+    FailureExplanation,
+    FailuresPage,
+    HTML,
+    LabControls,
+    LabPage,
+    Pages,
+    Router,
+    UsagePage,
+    WorkingCopiesPage
+  }
+
   alias Ryker.Fixtures.ControlPlaneOptions
 
   @secret ControlPlaneOptions.secret()
@@ -152,7 +165,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert conn.resp_body =~
              ~r/<a [^>]*class="app-brand"[^>]*aria-label="Ryker"|<a [^>]*aria-label="Ryker"[^>]*class="app-brand"/
 
-    assert conn.resp_body =~ "<title>Forget checkout-api memory? · Ryker</title>"
+    assert conn.resp_body =~ "<title>Forget checkout-api? · Ryker</title>"
     refute conn.resp_body =~ "https://"
     refute conn.resp_body =~ "<script"
 
@@ -766,7 +779,10 @@ defmodule Ryker.ControlPlane.RouterTest do
   test "memory mutations require a local two-step confirmation and exact CSRF token" do
     confirm = request(:get, "/actions/memory/memory%3Aone/forget")
     assert confirm.status == 200
-    assert confirm.resp_body =~ "Forget checkout-api memory?"
+    assert confirm.resp_body =~ "Forget checkout-api?"
+    assert confirm.resp_body =~ "Ryker stops using this fact and erases what it saved."
+    refute confirm.resp_body =~ "redacted"
+    assert confirm.resp_body =~ ~s(href="/memory")
     [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirm.resp_body)
 
     refused =
@@ -792,10 +808,21 @@ defmodule Ryker.ControlPlane.RouterTest do
   end
 
   test "memory reviews support confirmed keep merge forget and an explicit edit form" do
-    for action <- ["keep", "merge", "forget"] do
+    # Each confirmation says what the action does in plain words; until
+    # 2026-09-24 all three read "applies … through the audited memory-review
+    # lifecycle".
+    for {action, title, effect} <- [
+          {"keep", "Keep these facts separate?",
+           "keeps checkout-api, payments-api as separate facts"},
+          {"merge", "Merge these facts?", "forgets the other copies"},
+          {"forget", "Forget checkout-api, payments-api?", "erases what it saved"}
+        ] do
       path = "/actions/memory-review/memory-review%3Aone/#{action}"
       confirm = request(:get, path)
       assert confirm.status == 200
+      assert confirm.resp_body =~ title
+      assert confirm.resp_body =~ effect
+      refute confirm.resp_body =~ "lifecycle"
       [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirm.resp_body)
       accepted = request(:post, path, URI.encode_query(%{"_token" => token}))
       assert accepted.status == 303
@@ -806,7 +833,9 @@ defmodule Ryker.ControlPlane.RouterTest do
     edit_path = "/actions/memory-review/memory-review%3Atwo/edit"
     edit = request(:get, edit_path)
     assert edit.status == 200
-    assert edit.resp_body =~ "Edit reviewed memory"
+    assert edit.resp_body =~ "<title>Edit this fact · Ryker</title>"
+    assert edit.resp_body =~ "What to remember"
+    assert edit.resp_body =~ ~s(href="/memory#review")
     [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, edit.resp_body)
 
     accepted =
@@ -824,12 +853,59 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     assert_received {:memory_review, "memory-review:two", :edit,
                      %{"subject" => "primary_codebase", "value" => "ryker-elixir"}}
+
+    assert get_resp_header(accepted, "location") == ["/memory"]
+  end
+
+  test "resuming a learning session's cleanup returns to the Learning page, where it is listed" do
+    # Learning worker sessions moved from Working copies to Learning on
+    # 2026-09-24; landing on a page that no longer lists the session would
+    # hide whether the cleanup resumed.
+    options =
+      options()
+      |> put_in([:projection, :workspace], fn
+        "learning:one" ->
+          {:ok,
+           %{action: :rearm, status: :blocked, execution_kind: :learning, ref: "learning:one"}}
+
+        _other ->
+          :not_found
+      end)
+      |> put_in([:projection, :failure], fn
+        "retention", "learning:one" ->
+          {:ok,
+           %{
+             action: :rearm,
+             cleanup_phase: :close_pending,
+             execution_kind: :learning,
+             kind: "retention",
+             ref: "learning:one",
+             status: :blocked,
+             summary: "coop_protocol_error"
+           }}
+
+        _kind, _ref ->
+          :not_found
+      end)
+
+    path = "/actions/retention/learning%3Aone/rearm"
+    confirm = request_with_options(:get, path, nil, options)
+    assert confirm.status == 200
+    assert confirm.resp_body =~ ~s(href="/memory/learning")
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirm.resp_body)
+
+    accepted =
+      request_with_options(:post, path, URI.encode_query(%{"_token" => token}), options)
+
+    assert accepted.status == 303
+    assert get_resp_header(accepted, "location") == ["/memory/learning"]
+    assert_received {:rearmed_retention, "learning:one"}
   end
 
   test "a blocked delivery can be rearmed only from its exact confirmed intent" do
     confirm = request(:get, "/actions/delivery/delivery%3Aone/rearm")
     assert confirm.status == 200
-    assert confirm.resp_body =~ "Retry this delivery?"
+    assert confirm.resp_body =~ "Post this reply again?"
     assert confirm.resp_body =~ "href=\"/failures\""
     document = LazyHTML.from_document(confirm.resp_body)
     assert LazyHTML.query(document, "h2") |> LazyHTML.to_tree() == []
@@ -860,7 +936,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     # An old recovery tab must never turn a save-only action into fresh model work.
     path = "/actions/work/episode%3Ablocked/retry"
     initial = options()
-    {:ok, row} = initial.projection.work.("episode:blocked")
+    {:ok, row} = initial.projection.failure.("work", "episode:blocked")
 
     recovery = %{
       kind: :completion,
@@ -869,7 +945,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     }
 
     initial =
-      put_in(initial, [:projection, :work], fn _ ->
+      put_in(initial, [:projection, :failure], fn "work", _ref ->
         {:ok, Map.put(row, :work_recovery, recovery)}
       end)
 
@@ -879,7 +955,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     changed = %{recovery | kind: :execution, fingerprint: String.duplicate("b", 64)}
 
     current =
-      put_in(initial, [:projection, :work], fn _ ->
+      put_in(initial, [:projection, :failure], fn "work", _ref ->
         {:ok, Map.put(row, :work_recovery, changed)}
       end)
 
@@ -894,7 +970,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     # from the repository with the saved working copy left behind.
     path = "/actions/work/episode%3Ablocked/retry"
     initial = options()
-    {:ok, row} = initial.projection.work.("episode:blocked")
+    {:ok, row} = initial.projection.failure.("work", "episode:blocked")
 
     recovery = %{
       fingerprint: String.duplicate("a", 64),
@@ -904,34 +980,35 @@ defmodule Ryker.ControlPlane.RouterTest do
     }
 
     resumable =
-      put_in(initial, [:projection, :work], fn _ ->
+      put_in(initial, [:projection, :failure], fn "work", _ref ->
         {:ok, Map.put(row, :work_recovery, recovery)}
       end)
 
     confirmation = request_with_options(:get, path, nil, resumable)
     assert confirmation.status == 200
-    assert confirmation.resp_body =~ "Resume this work in another workspace?"
+    assert confirmation.resp_body =~ "Continue this task on another worker?"
     assert confirmation.resp_body =~ "Restores the saved working copy of ryker"
 
     plain =
-      put_in(initial, [:projection, :work], fn _ ->
+      put_in(initial, [:projection, :failure], fn "work", _ref ->
         {:ok, Map.put(row, :work_recovery, %{recovery | resume: nil})}
       end)
 
-    assert request_with_options(:get, path, nil, plain).resp_body =~ "Retry this blocked work?"
+    assert request_with_options(:get, path, nil, plain).resp_body =~ "Run this task again?"
   end
 
   test "each recoverable blocked custody has a typed confirmed action" do
     for {kind, ref, action, title, received} <- [
-          {"admission", "ingress-input:one", "rearm", "Retry routing this message?",
+          {"admission", "ingress-input:one", "rearm", "Read this message again?",
            {:rearmed_admission, "ingress-input:one"}},
-          {"work", "episode:blocked", "retry", "Retry this blocked work?",
+          {"work", "episode:blocked", "retry", "Run this task again?",
            {:retried_work, "episode:blocked"}},
-          {"emisar", "approval:one", "rearm", "Resume approval checks?",
+          {"emisar", "approval:one", "rearm", "Start watching this approval again?",
            {:rearmed_emisar, "approval:one"}},
-          {"slack_interaction", "interaction:one", "rearm", "Refresh this Slack message?",
+          {"slack_interaction", "interaction:one", "rearm", "Update this Slack message again?",
            {:rearmed_slack_interaction, "interaction:one"}},
-          {"slack_incident", "incident-room:one", "rearm", "Resume incident room setup?",
+          {"slack_incident", "incident-room:one", "rearm",
+           "Continue setting up this incident room?",
            {:rearmed_slack_incident, "incident-room:one"}}
         ] do
       encoded_ref = URI.encode(ref, &URI.char_unreserved?/1)
@@ -949,10 +1026,91 @@ defmodule Ryker.ControlPlane.RouterTest do
     end
   end
 
-  test "retention recovery is confirmed from the exact current workspace state" do
+  # Andrew pressed nothing on 2026-09-24 because nothing told him what
+  # "Resume cleanup" did or whether it would work. The confirmation is the
+  # last thing read before pressing, so it says both, in the words the
+  # Failures page and the failure's own page use.
+  test "a confirmation says what the step does and whether it should work, in the page's words" do
+    {:ok, rows} = options().projection.failures.(%{})
+
+    for %{action: action} = row <- rows, action in [:rearm, :retry] do
+      explanation = FailureExplanation.explain(row)
+
+      retry =
+        Enum.find(
+          explanation.options,
+          &(is_binary(&1[:path]) and String.starts_with?(&1.path, "/actions/#{row.kind}/"))
+        )
+
+      confirmation = request(:get, retry.path)
+      assert confirmation.status == 200, retry.path
+
+      body =
+        confirmation.resp_body
+        |> LazyHTML.from_document()
+        |> LazyHTML.query("section.confirm p")
+        |> LazyHTML.text()
+
+      assert body =~ retry.effect, row.kind
+      assert body =~ retry.note, row.kind
+    end
+  end
+
+  # A routing session's cleanup was listed on Failures with a button whose
+  # confirmation read the Working copies projection, which never lists
+  # routing or chat sessions: the button answered "Not found". Those cleanups
+  # return to Failures, the one page that lists them.
+  test "a cleanup the Failures page offers can be confirmed even when no other page lists it" do
+    unlisted = %{
+      action: :rearm,
+      cleanup_phase: :close_pending,
+      kind: "retention",
+      status: :blocked,
+      summary: "coop_protocol_error"
+    }
+
+    options =
+      options()
+      |> put_in([:projection, :failure], fn
+        "retention", "admission:one" ->
+          {:ok, Map.merge(unlisted, %{ref: "admission:one", execution_kind: :admission})}
+
+        "retention", "chat:one" ->
+          {:ok,
+           Map.merge(unlisted, %{ref: "chat:one", execution_kind: :work, source: "no repository"})}
+
+        _kind, _ref ->
+          :not_found
+      end)
+      |> put_in([:projection, :workspace], fn
+        "chat:one" ->
+          {:ok, %{action: :rearm, execution_kind: :work, repository: nil, status: :blocked}}
+
+        _ref ->
+          :not_found
+      end)
+
+    for ref <- ["admission:one", "chat:one"] do
+      path = "/actions/retention/#{URI.encode(ref, &URI.char_unreserved?/1)}/rearm"
+      confirmation = request_with_options(:get, path, nil, options)
+      assert confirmation.status == 200, ref
+      assert confirmation.resp_body =~ ~s(href="/failures"), ref
+      [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
+
+      accepted =
+        request_with_options(:post, path, URI.encode_query(%{"_token" => token}), options)
+
+      assert accepted.status == 303
+      assert get_resp_header(accepted, "location") == ["/failures"]
+      assert_received {:rearmed_retention, ^ref}
+    end
+  end
+
+  test "retention recovery is confirmed from the exact current working copy state" do
     rearm = request(:get, "/actions/retention/workspace%3Ablocked/rearm")
     assert rearm.status == 200
-    assert rearm.resp_body =~ "Resume workspace cleanup?"
+    assert rearm.resp_body =~ "Try cleaning up this working copy again?"
+    assert rearm.resp_body =~ "for this working copy only"
     [_, rearm_token] = Regex.run(~r/name="_token" value="([^"]+)"/, rearm.resp_body)
 
     accepted_rearm =
@@ -963,13 +1121,13 @@ defmodule Ryker.ControlPlane.RouterTest do
       )
 
     assert accepted_rearm.status == 303
-    assert get_resp_header(accepted_rearm, "location") == ["/workspaces"]
+    assert get_resp_header(accepted_rearm, "location") == ["/working-copies"]
     assert_received {:rearmed_retention, "workspace:blocked"}
 
     discard = request(:get, "/actions/retention/workspace%3Aunmerged/discard")
     assert discard.status == 200
-    assert discard.resp_body =~ "Discard this unmerged workspace?"
-    assert discard.resp_body =~ "fresh exact Coop discard plan"
+    assert discard.resp_body =~ "Discard the unmerged commits in this working copy?"
+    assert discard.resp_body =~ "Uncommitted changes are still kept."
     [_, discard_token] = Regex.run(~r/name="_token" value="([^"]+)"/, discard.resp_body)
 
     accepted_discard =
@@ -1090,12 +1248,18 @@ defmodule Ryker.ControlPlane.RouterTest do
   end
 
   test "behavior and schedule changes require their own current typed confirmation" do
+    # A schedule change returns to the schedule it changed, so the new state
+    # and the run it started are the next thing on screen; a deleted schedule
+    # returns to the list, because its page offers nothing more to do.
     for {kind, ref, action, expected, return_path} <- [
           {"behavior", "behavior:one", "disabled", {:behavior_status, :disabled}, "/rules"},
           {"behavior", "behavior:one", "deleted", {:behavior_status, :deleted}, "/rules"},
-          {"schedule", "schedule:one", "active", {:schedule_status, :active}, "/schedules"},
+          {"schedule", "schedule:one", "paused", {:schedule_status, :paused},
+           "/schedules/schedule%3Aone"},
+          {"schedule", "schedule:one", "active", {:schedule_status, :active},
+           "/schedules/schedule%3Aone"},
           {"schedule", "schedule:one", "deleted", {:schedule_status, :deleted}, "/schedules"},
-          {"schedule", "schedule:one", "run-now", :schedule_run_now, "/schedules"}
+          {"schedule", "schedule:one", "run-now", :schedule_run_now, "/schedules/schedule%3Aone"}
         ] do
       path = "/actions/#{kind}/#{URI.encode(ref, &URI.char_unreserved?/1)}/#{action}"
       confirmation = request(:get, path)
@@ -1111,6 +1275,26 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert request(:get, "/actions/behavior/missing/active").status == 404
     assert request(:get, "/actions/schedule/missing/paused").status == 404
     assert request(:get, "/actions/unknown/ref/delete").status == 404
+  end
+
+  test "a schedule confirmation says what the change will do, never the raw lifecycle action" do
+    # Until 2026-09-24 Pause asked "Change Daily health?" over "The schedule
+    # lifecycle will change to paused.": the action's own enum, and nothing
+    # about what would stop, what would keep running, or what stays kept.
+    for {action, title, effect} <- [
+          {"paused", "Pause Daily health?", "Ryker stops starting new runs until you resume it."},
+          {"active", "Resume Daily health?", "Ryker runs it again on its regular schedule."},
+          {"deleted", "Delete Daily health?", "Its past runs stay listed."},
+          {"run-now", "Run Daily health now?", "The regular schedule does not change."}
+        ] do
+      body = request(:get, "/actions/schedule/schedule%3Aone/#{action}").resp_body
+      document = LazyHTML.from_document(body)
+
+      assert LazyHTML.query(document, "main h1") |> LazyHTML.text() == title
+      assert LazyHTML.query(document, "section.confirm p") |> LazyHTML.text() =~ effect
+      refute body =~ "lifecycle"
+      refute body =~ "change to #{action}"
+    end
   end
 
   test "a lifecycle action against a stale, foreign or unknown target is refused before it runs" do
@@ -1187,38 +1371,97 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert_received {{:behavior_status, :disabled}, "behavior:one"}
   end
 
-  test "schedule lifecycle controls stay discoverable after leaving Memory" do
-    # Moving schedules to their own page must not remove the only pause,
-    # resume and delete controls from the console.
+  test "a confirmed change to a saved preference or guidance returns to the list it is on" do
+    # /preferences and /guidance were removed on 2026-09-24, when both moved
+    # under "Saved from conversations" on /instructions. A return path still
+    # aimed at the old pages would land every Pause, Resume and Delete, and
+    # every Cancel, on a page that no longer exists.
+    for {kind, name} <- [
+          {:preference, "Pause Reply length: Concise?"},
+          {:guidance, "Pause Review style?"}
+        ] do
+      options = options()
+
+      options = %{
+        options
+        | projection:
+            Map.put(options.projection, :behavior, fn
+              "behavior:saved" ->
+                {:ok,
+                 %{
+                   kind: kind,
+                   ref: "behavior:saved",
+                   status: "active",
+                   payload: %{
+                     "key" => "response_detail",
+                     "value" => "concise",
+                     "subject" => "Review style"
+                   }
+                 }}
+
+              _ ->
+                :not_found
+            end)
+      }
+
+      path = "/actions/behavior/behavior%3Asaved/disabled"
+      confirmation = request_with_options(:get, path, nil, options)
+      assert confirmation.status == 200
+      assert confirmation.resp_body =~ name
+      assert confirmation.resp_body =~ ~s(href="/instructions#saved")
+      [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
+
+      accepted =
+        request_with_options(:post, path, URI.encode_query(%{"_token" => token}), options)
+
+      assert accepted.status == 303
+      assert get_resp_header(accepted, "location") == ["/instructions#saved"]
+      assert_received {{:behavior_status, :disabled}, "behavior:saved"}
+    end
+  end
+
+  test "a schedule's page offers run, pause or resume, and delete only while it can still change" do
+    # Moving schedules to their own page must not remove the only run, pause,
+    # resume and delete controls from the console. They sit opposite the
+    # title, Delete behind the "⋯" menu; history that can no longer change
+    # offers none.
     {:ok, detail} = options().projection.schedule.("schedule:one")
 
     for {status, label, action} <- [{:active, "Pause", "paused"}, {:paused, "Resume", "active"}] do
-      html =
-        HTML.schedule(%{
-          detail
-          | schedule: %{detail.schedule | status: status}
-        })
-        |> IO.iodata_to_binary()
+      page = schedule_page(detail, status)
+      actions = LazyHTML.from_fragment(page.action)
 
-      document = LazyHTML.from_fragment(html)
-
-      assert document
+      assert actions
              |> LazyHTML.query("form[action='/actions/schedule/schedule%3Aone/#{action}'] button")
              |> LazyHTML.text() == label
 
-      assert html =~ "/actions/schedule/schedule%3Aone/deleted"
+      assert actions
+             |> LazyHTML.query("form[action='/actions/schedule/schedule%3Aone/run-now'] button")
+             |> LazyHTML.text() == "Run now"
+
+      menu = LazyHTML.query(actions, "details.schedule-menu")
+      assert LazyHTML.query(menu, "summary .sr-only") |> LazyHTML.text() =~ "Daily health"
+
+      assert menu
+             |> LazyHTML.query("form[action='/actions/schedule/schedule%3Aone/deleted'] button")
+             |> LazyHTML.text() == "Delete"
     end
+
+    completed = schedule_page(detail, :completed)
+    assert completed.action =~ "/actions/schedule/schedule%3Aone/run-now"
+    refute completed.action =~ "/deleted"
 
     for status <- [:deleted, :expired] do
-      html =
-        HTML.schedule(%{
-          detail
-          | schedule: %{detail.schedule | status: status}
-        })
-        |> IO.iodata_to_binary()
-
-      refute html =~ "/actions/schedule/"
+      page = schedule_page(detail, status)
+      refute Map.has_key?(page, :action)
+      refute page.body =~ "/actions/schedule/"
     end
+  end
+
+  defp schedule_page(detail, status) do
+    snapshot = %{detail | schedule: %{detail.schedule | status: status}}
+    options = put_in(options(), [:projection, :schedule], fn _ref -> {:ok, snapshot} end)
+    Pages.page(["schedules", "schedule%3Aone"], %{}, options)
   end
 
   test "malformed, stale, and unsupported mutations fail closed" do
@@ -1396,7 +1639,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       window: "24h"
     }
 
-    html = snapshot |> HTML.usage() |> IO.iodata_to_binary()
+    html = snapshot |> UsagePage.render() |> IO.iodata_to_binary()
     assert html =~ "github:channel/with spaces"
     assert html =~ "claude:opus/high@work"
     assert html =~ "No repository"
@@ -1410,7 +1653,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert html =~ "<strong>1,000</strong>"
 
     # Changing the date previously silently reset a shadow audit to live traffic.
-    shadow = snapshot |> Map.put(:mode, "shadow") |> HTML.usage() |> IO.iodata_to_binary()
+    shadow = snapshot |> Map.put(:mode, "shadow") |> UsagePage.render() |> IO.iodata_to_binary()
     assert shadow =~ "mode=shadow&amp;window=7d"
     refute shadow =~ "<h2>Measurement coverage"
     assert shadow =~ "Where the time went"
@@ -1423,10 +1666,13 @@ defmodule Ryker.ControlPlane.RouterTest do
     {metrics_at, _} = :binary.match(shadow, "class=\"usage-summary\"")
     assert scope_at < metrics_at
 
-    assert HTML.failures([]) =~ "Nothing needs attention"
+    assert [] |> FailuresPage.list() |> IO.iodata_to_binary() =~ "Nothing needs you."
 
-    assert HTML.workspaces([], %{budget: %{}, preview: [], workers: []}) |> IO.iodata_to_binary() =~
-             "No repository working copies right now"
+    assert WorkingCopiesPage.html(%{
+             rows: [],
+             storage: %{budget: %{}, preview: [], workers: []},
+             now: nil
+           }) =~ "No working copies right now."
 
     assert HTML.not_found("Unknown") |> IO.iodata_to_binary() =~ "This unknown does not exist"
   end

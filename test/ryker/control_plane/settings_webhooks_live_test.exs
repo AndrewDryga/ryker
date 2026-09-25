@@ -43,11 +43,15 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
 
     assert has_element?(
              view,
-             "#settings-webhooks > button.settings-editor-add",
-             "+ Add webhook source"
+             "#settings-webhooks button.settings-editor-add",
+             "Add webhook source"
            )
 
-    assert has_element?(view, "button", "+ Add signing credential")
+    assert has_element?(
+             view,
+             "button[phx-click=show-webhook-credential-form]",
+             "Add signing credential"
+           )
 
     open_source_editor(view)
 
@@ -64,6 +68,28 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
              )
 
     assert Settings.fetch!().webhook_sources == []
+  end
+
+  test "a webhook source chooses the environment its work runs in" do
+    # A source named a repository context by ref until 2026-09-25. Work from
+    # a source runs in an environment now, chosen by the name people know it
+    # by, and the source's row says where its work runs.
+    installation!()
+    {:ok, view, _html} = open()
+    open_source_editor(view)
+
+    assert has_element?(
+             view,
+             "select#settings-webhooks-environment_ref option[value=production]",
+             "Production"
+           )
+
+    refute has_element?(view, "#settings-webhooks-form [name=context_ref]")
+
+    view |> form("#settings-webhooks-form", source_params()) |> render_submit()
+
+    assert [%{name: "alerts", environment_ref: "production"}] = Settings.fetch!().webhook_sources
+    assert has_element?(view, "#settings-webhooks .entity-meta", "Runs in Production")
   end
 
   test "a custom mapping is saved as bounded paths and its required fields are named" do
@@ -211,6 +237,92 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
            )
   end
 
+  test "every webhook source shows the address its sender posts to" do
+    # The receiving address was never shown, so a sender could only be pointed
+    # at Ryker by someone who already knew the route shape.
+    installation!()
+    {:ok, view, _html} = open()
+    open_source_editor(view)
+
+    assert has_element?(
+             view,
+             "#settings-webhooks .settings-help",
+             "Senders post to http://127.0.0.1:4320/v1/hooks/<source name>."
+           )
+
+    view |> form("#settings-webhooks-form", source_params()) |> render_submit()
+
+    assert has_element?(
+             view,
+             "#settings-webhooks .settings-address code",
+             "http://127.0.0.1:4320/v1/hooks/alerts"
+           )
+
+    assert has_element?(
+             view,
+             "#settings-webhooks .settings-address button[data-copy-value='http://127.0.0.1:4320/v1/hooks/alerts']"
+           )
+
+    assert has_element?(view, "#settings-webhooks .entity-row .state-word[data-tone=on]", "On")
+  end
+
+  test "a signing credential a source uses is not deleted, and the refusal names the source" do
+    # Deleting a credential in use answered "Connection could not be verified",
+    # in the success tone, about a connection nobody had tried to verify.
+    installation!()
+    {:ok, view, _html} = open()
+    open_source_editor(view)
+    view |> form("#settings-webhooks-form", source_params()) |> render_submit()
+
+    assert has_element?(view, "[aria-label='Signing credentials'] .entity-meta", "Used by alerts")
+    refute has_element?(view, "button[phx-value-action=delete-webhook-credential]")
+
+    render_click(view, "confirm-settings-action", %{
+      "action" => "delete-webhook-credential",
+      "ref" => @registered
+    })
+
+    render_click(view, "delete-webhook-credential", %{"name" => @registered})
+
+    assert has_element?(view, ".form-feedback-error", "#{@registered} is in use by alerts.")
+    refute has_element?(view, ".form-feedback-success")
+    assert {:ok, _secret} = Credentials.fetch(:webhook, @registered)
+  end
+
+  test "an unused signing credential is deleted only after the question is answered" do
+    installation!()
+    {:ok, view, _html} = open()
+
+    view
+    |> element("button[phx-value-action=delete-webhook-credential]", "Delete")
+    |> render_click()
+
+    assert has_element?(view, ".settings-confirm", "Delete #{@registered}?")
+    assert has_element?(view, ".settings-confirm", "can no longer deliver events")
+    assert {:ok, _secret} = Credentials.fetch(:webhook, @registered)
+
+    view |> element(".settings-confirm button", "Delete credential") |> render_click()
+
+    assert {:error, :credential_missing} = Credentials.fetch(:webhook, @registered)
+    assert has_element?(view, ".form-feedback-success", "#{@registered} was deleted.")
+  end
+
+  test "a refused signing credential is said in the error tone, not as a success" do
+    # Every refusal on the connection pages rendered with the success tone.
+    installation!()
+    {:ok, view, _html} = open()
+    view |> element("button[phx-click=show-webhook-credential-form]") |> render_click()
+
+    view
+    |> form("form[phx-submit=create-webhook-credential]", %{
+      "credential" => %{"name" => "Bad Name", "secret" => ""}
+    })
+    |> render_submit()
+
+    assert has_element?(view, ".form-feedback-error[role=alert]", "That name cannot be used.")
+    refute has_element?(view, ".form-feedback-success")
+  end
+
   test "an installation with no webhook credentials says how to create one" do
     assert {:ok, :ok} = Credentials.delete(:webhook, @registered, @actor)
     installation!()
@@ -221,10 +333,10 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     refute has_element?(view, "#settings-webhooks-secret_name option[value='#{@registered}']")
   end
 
-  defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/settings/webhooks")
+  defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/integrations/webhooks")
 
   defp open_source_editor(view) do
-    view |> element("#settings-webhooks > button.settings-editor-add") |> render_click()
+    view |> element("#settings-webhooks button.settings-editor-add") |> render_click()
   end
 
   defp choose_custom_json(view) do
@@ -245,7 +357,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
         "secret_name" => @registered,
         "destination_transport" => "slack",
         "destination_conversation_ref" => "slack:T0123456789:C0123456789",
-        "context_ref" => "emisar",
+        "environment_ref" => "production",
         "group_by_labels" => ""
       },
       overrides
@@ -257,6 +369,13 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
 
     {:ok, snapshot} =
       Settings.put_repository(%{ref: "emisar", base_branch: "main"}, revision, @actor)
+
+    {:ok, snapshot} =
+      Settings.put_environment(
+        %{ref: "production", display_name: "Production", repositories: ["emisar"]},
+        snapshot.installation.revision,
+        @actor
+      )
 
     snapshot
   end

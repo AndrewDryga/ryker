@@ -16,6 +16,7 @@ defmodule Ryker.Publication.Changeset do
     :destination_conversation_ref,
     :destination_thread_ref,
     :destination_transport,
+    :discarded_reason,
     :episode_id,
     :expected_remote_head_sha,
     :id,
@@ -107,5 +108,6 @@ defmodule Ryker.Publication.Changeset do
     |> check_constraint(:status, name: :episode_publication_publish_valid)
     |> check_constraint(:status, name: :episode_publication_lease_valid)
     |> check_constraint(:status, name: :episode_publication_remote_identity_valid)
+    |> check_constraint(:discarded_reason, name: :episode_publication_discarded_reason_valid)
   end
 end

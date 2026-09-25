@@ -14,6 +14,7 @@ defmodule Ryker.Work.Custody.Sessions do
   alias Ryker.Emisar.Connections, as: EmisarConnections
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
+  alias Ryker.Settings.PolicyBinding
   alias Ryker.Work.Custody.Turns
 
   alias Ryker.Work.{
@@ -94,6 +95,44 @@ defmodule Ryker.Work.Custody.Sessions do
         repository_context,
         repository_source
       ) do
+    pin_episode(
+      episode_id,
+      policy,
+      policy_digest,
+      authority_digest,
+      repository_ref,
+      repository_context,
+      repository_source,
+      nil
+    )
+  end
+
+  @doc """
+  Pins an episode's first session with the environment it runs in.
+
+  The session records the environment; the Emisar account is resolved from
+  that environment once, here, and every later generation copies the pin.
+  """
+  @spec pin_episode(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t() | nil,
+          String.t() | nil,
+          map() | nil,
+          map() | nil,
+          String.t() | nil
+        ) :: {:ok, Session.t()} | {:error, term()}
+  def pin_episode(
+        episode_id,
+        policy,
+        policy_digest,
+        authority_digest,
+        repository_ref,
+        repository_context,
+        repository_source,
+        environment_ref
+      ) do
     Repo.transaction(fn ->
       case pin_episode_in_transaction(
              episode_id,
@@ -102,7 +141,8 @@ defmodule Ryker.Work.Custody.Sessions do
              authority_digest,
              repository_ref,
              repository_context,
-             repository_source
+             repository_source,
+             environment_ref
            ) do
         {:ok, session} -> session
         {:error, reason} -> Repo.rollback(reason)
@@ -196,6 +236,38 @@ defmodule Ryker.Work.Custody.Sessions do
         repository_context,
         repository_source
       ) do
+    pin_episode_in_transaction(
+      episode_id,
+      policy,
+      policy_digest,
+      authority_digest,
+      repository_ref,
+      repository_context,
+      repository_source,
+      nil
+    )
+  end
+
+  @spec pin_episode_in_transaction(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t() | nil,
+          String.t() | nil,
+          map() | nil,
+          map() | nil,
+          String.t() | nil
+        ) :: {:ok, Session.t()} | {:error, term()}
+  def pin_episode_in_transaction(
+        episode_id,
+        policy,
+        policy_digest,
+        authority_digest,
+        repository_ref,
+        repository_context,
+        repository_source,
+        environment_ref
+      ) do
     with :ok <- transaction_open(),
          {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(policy, :policy),
@@ -203,17 +275,18 @@ defmodule Ryker.Work.Custody.Sessions do
          :ok <- optional_sha256(authority_digest, :authority_digest),
          :ok <- optional_reference(repository_ref, :repository_ref),
          :ok <- repository_context(repository_context, repository_ref),
-         {:ok, repository_source} <- repository_source(repository_source, repository_ref) do
+         {:ok, repository_source} <- repository_source(repository_source, repository_ref),
+         :ok <- environment_ref(environment_ref) do
       {:ok,
-       pin_episode_locked(
-         episode_id,
-         policy,
-         policy_digest,
-         authority_digest,
-         repository_ref,
-         repository_context,
-         repository_source
-       )}
+       pin_episode_locked(episode_id, %{
+         authority_digest: authority_digest,
+         environment_ref: environment_ref,
+         policy: policy,
+         policy_digest: policy_digest,
+         repository_context: repository_context,
+         repository_ref: repository_ref,
+         repository_source: repository_source
+       })}
     end
   end
 
@@ -289,6 +362,39 @@ defmodule Ryker.Work.Custody.Sessions do
         workspace_task,
         repository_source
       ) do
+    pin_task_episode_in_transaction(
+      episode_id,
+      policy,
+      policy_digest,
+      repository_ref,
+      repository_context,
+      workspace_task,
+      repository_source,
+      nil
+    )
+  end
+
+  @doc false
+  @spec pin_task_episode_in_transaction(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t(),
+          map() | nil,
+          map(),
+          map() | nil,
+          String.t() | nil
+        ) :: {:ok, Session.t()} | {:error, term()}
+  def pin_task_episode_in_transaction(
+        episode_id,
+        policy,
+        policy_digest,
+        repository_ref,
+        repository_context,
+        workspace_task,
+        repository_source,
+        environment_ref
+      ) do
     with {:ok, session} <-
            pin_episode_in_transaction(
              episode_id,
@@ -297,7 +403,8 @@ defmodule Ryker.Work.Custody.Sessions do
              nil,
              repository_ref,
              repository_context,
-             repository_source
+             repository_source,
+             environment_ref
            ) do
       case session.workspace_task do
         nil ->
@@ -423,33 +530,15 @@ defmodule Ryker.Work.Custody.Sessions do
     end
   end
 
-  defp pin_episode_locked(
-         episode_id,
-         policy,
-         policy_digest,
-         authority_digest,
-         repository_ref,
-         repository_context,
-         repository_source
-       ) do
+  defp pin_episode_locked(episode_id, authority) do
     case Repo.one(
            from(episode in Episode,
              where: episode.id == ^episode_id,
              lock: "FOR UPDATE"
            )
          ) do
-      nil ->
-        Repo.rollback(:episode_not_found)
-
-      %Episode{} = episode ->
-        pin_session_locked(episode, %{
-          authority_digest: authority_digest,
-          policy: policy,
-          policy_digest: policy_digest,
-          repository_context: repository_context,
-          repository_ref: repository_ref,
-          repository_source: repository_source
-        })
+      nil -> Repo.rollback(:episode_not_found)
+      %Episode{} = episode -> pin_session_locked(episode, authority)
     end
   end
 
@@ -457,7 +546,7 @@ defmodule Ryker.Work.Custody.Sessions do
     case latest_session(episode.id) do
       nil ->
         session_id = Ecto.UUID.generate()
-        emisar = emisar_pin(authority.repository_ref, authority.repository_context)
+        emisar = emisar_pin(authority.environment_ref)
 
         session_id
         |> SessionChangeset.insert_with_authority(
@@ -469,6 +558,7 @@ defmodule Ryker.Work.Custody.Sessions do
           session_external_ref(episode.id, 1),
           %{
             authority_digest: authority.authority_digest,
+            environment_ref: authority.environment_ref,
             repository_context: authority.repository_context,
             repository_source: authority.repository_source,
             emisar: emisar,
@@ -574,6 +664,7 @@ defmodule Ryker.Work.Custody.Sessions do
       nil ->
         with {:ok, session} <- current_session(episode),
              {:ok, session} <- isolate_transferred_owner(episode, session),
+             session = follow_policy(session),
              {:ok, turn} <- insert_turn(episode, session) do
           {:ok, session, turn}
         end
@@ -581,7 +672,7 @@ defmodule Ryker.Work.Custody.Sessions do
       %Turn{} = identity ->
         with {:ok, session} <- lock_session(episode.id, identity.session_id),
              {:ok, turn} <- lock_turn(episode.id, episode.owner_ref) do
-          {:ok, session, turn}
+          {:ok, follow_policy(session), turn}
         end
     end
   end
@@ -602,6 +693,47 @@ defmodule Ryker.Work.Custody.Sessions do
         end
     end
   end
+
+  @doc """
+  The digest a session's policy runs under now.
+
+  Choosing another model in Settings changes a policy's digest but not its
+  authority, and a session pinned to the old digest could no longer be placed
+  on any worker. A session keeps its policy and authority and follows the
+  digest when only the model changed; a changed authority keeps the pin.
+  """
+  @spec current_policy_digest(Session.t()) :: String.t()
+  def current_policy_digest(
+        %Session{policy: policy, policy_digest: pinned, authority_digest: authority} = _session
+      )
+      when is_binary(policy) and is_binary(authority) do
+    from(binding in PolicyBinding,
+      where: binding.policy_name == ^policy,
+      distinct: true,
+      select: {binding.policy_digest, binding.authority_digest}
+    )
+    |> Repo.all()
+    |> case do
+      [{current, ^authority}] -> current
+      _none_or_changed -> pinned
+    end
+  end
+
+  def current_policy_digest(%Session{policy_digest: pinned}), do: pinned
+
+  # A session no worker has created yet takes the current digest in place; a
+  # created one moves to a new generation instead (see the executor).
+  defp follow_policy(%Session{coop_session_id: nil, cleanup_status: :active} = session) do
+    case current_policy_digest(session) do
+      digest when digest == session.policy_digest ->
+        session
+
+      digest ->
+        session |> Ecto.Changeset.change(%{policy_digest: digest}) |> Repo.update!()
+    end
+  end
+
+  defp follow_policy(session), do: session
 
   @doc false
   def insert_turn(episode, session) do
@@ -669,8 +801,9 @@ defmodule Ryker.Work.Custody.Sessions do
   def session_authority(%Session{} = session) do
     %{
       authority_digest: session.authority_digest,
+      environment_ref: session.environment_ref,
       policy: session.policy,
-      policy_digest: session.policy_digest,
+      policy_digest: current_policy_digest(session),
       repository_context: session.repository_context,
       repository_ref: session.repository_ref,
       repository_source: session.repository_source,
@@ -697,6 +830,7 @@ defmodule Ryker.Work.Custody.Sessions do
       session_external_ref(episode_id, generation),
       %{
         authority_digest: authority.authority_digest,
+        environment_ref: authority.environment_ref,
         repository_context: authority.repository_context,
         repository_source: authority.repository_source,
         emisar: present_emisar(authority.emisar),
@@ -707,9 +841,13 @@ defmodule Ryker.Work.Custody.Sessions do
     |> persistence_result(:work_session)
   end
 
-  defp emisar_pin(repository_ref, repository_context) do
+  # The account belongs to the environment the session runs in; work outside
+  # an environment, or in one without an open account, pins none.
+  defp emisar_pin(nil), do: nil
+
+  defp emisar_pin(environment_ref) do
     with {:ok, settings} <- Ryker.Settings.fetch(),
-         {:ok, pin} <- EmisarConnections.resolve(settings, repository_ref, repository_context) do
+         {:ok, pin} <- EmisarConnections.resolve(settings, environment_ref) do
       pin
     else
       _unconfigured -> nil
@@ -844,6 +982,14 @@ defmodule Ryker.Work.Custody.Sessions do
 
   defp session_external_ref(episode_id, generation),
     do: "ryker-work:#{episode_id}:session:#{generation}"
+
+  defp environment_ref(nil), do: :ok
+
+  defp environment_ref(value) do
+    if is_binary(value) and Regex.match?(~r/\A[a-z0-9][a-z0-9-]{0,63}\z/, value),
+      do: :ok,
+      else: {:error, {:invalid_work_custody, :environment_ref}}
+  end
 
   defp repository_context(value, repository_ref) do
     case RepositoryContext.restore(value, repository_ref) do

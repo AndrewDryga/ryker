@@ -118,8 +118,8 @@ defmodule Ryker.ControlPlane.FindingsProjection do
                 path: finding_record_path(path, item.id, visible_records),
                 label:
                   if(MapSet.member?(visible_records, item.id),
-                    do: "View recorded evidence",
-                    else: "Open source investigation"
+                    do: "Show on the timeline",
+                    else: "Open investigation"
                   )
               }
           end

@@ -4,13 +4,14 @@ defmodule Ryker.Admission.RoutingContractTest do
   import Ecto.Query
 
   alias Ryker.Admission
-  alias Ryker.Admission.{Context, Decision, Prompt}
+  alias Ryker.Admission.{Candidate, Context, Decision, Prompt}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Origin, Origins}
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
   alias Ryker.Slack.Input, as: SlackInput
+  alias Ryker.Work.{Custody, Turn}
 
   @moduletag isolation: "REPEATABLE READ"
 
@@ -47,7 +48,7 @@ defmodule Ryker.Admission.RoutingContractTest do
     assert candidate, "the matching incident in another channel was not offered"
     assert :same_work in candidate.allowed_relations
     refute candidate.same_thread
-    assert candidate.digest["objective"] =~ "pgsql-prod-01"
+    assert candidate.first_input_preview["text"] =~ "pgsql-prod-01"
     assert candidate.match["direct_references"] >= 0
     assert candidate.match["topic_fit"] > 0.0
 
@@ -161,8 +162,14 @@ defmodule Ryker.Admission.RoutingContractTest do
 
     request = Prompt.build(context)
 
-    assert request["context"]["conversation_context"]["current"]["content"]["text"] ==
-             "A new question"
+    # The frozen bundle keeps the current message; the router reads it once, as
+    # the input itself, not again inside the conversation.
+    assert request["context"]["input"]["content"]["text"] == "A new question"
+    refute Map.has_key?(request["context"]["conversation_context"], "current")
+
+    assert Enum.map(request["context"]["conversation_context"]["messages"], & &1["text"]) == [
+             "Earlier channel message"
+           ]
 
     assert request["context"]["context_manifest"]["cutoff"]
     refute Map.has_key?(request["context"], "routing_receipt")
@@ -174,6 +181,110 @@ defmodule Ryker.Admission.RoutingContractTest do
 
     assert Context.for_model(restored) == Context.for_model(context)
     assert restored.routing_receipt == context.routing_receipt
+  end
+
+  test "a follow-up routed late can still continue work that finished just before it arrived" do
+    # Continuation was judged at routing time. A message sent five minutes after
+    # a reply but routed an hour later (a provider outage, then a retry) found
+    # that work 65 minutes idle, past the 30-minute window, and could only link
+    # it as background.
+    finished_at = DateTime.add(@now, -60 * 60, :second)
+    thread = "#{DateTime.to_unix(DateTime.add(finished_at, -600, :second))}.000100"
+
+    work =
+      episode!("routing:late-follow-up",
+        channel_ref: "CDEVOPS",
+        text: "Checkout returns 502 on every request",
+        thread_ref: thread
+      )
+
+    # Finished: no owner and no inputs left, as the kernel leaves completed work.
+    Repo.update_all(from(episode in Ryker.Episodes.Episode, where: episode.id == ^work.id),
+      set: [
+        state: :complete,
+        owner_kind: nil,
+        owner_ref: nil,
+        active_input_refs: [],
+        queued_input_refs: [],
+        queued_input_order_keys: [],
+        updated_at: finished_at
+      ]
+    )
+
+    entry =
+      record!(
+        channel_ref: "CDEVOPS",
+        actor: %{kind: :user, ref: "UALICE"},
+        text: "And is the rollback done?",
+        thread_ref: thread,
+        ts: "#{DateTime.to_unix(DateTime.add(finished_at, 5 * 60, :second))}.000100"
+      )
+
+    {:ok, context} = context!(entry)
+    candidate = Enum.find(context.candidates, &(&1.episode.id == work.id))
+
+    assert candidate, "the work in this thread was not offered"
+    assert :same_work in candidate.allowed_relations
+    assert candidate.idle_minutes == 5
+  end
+
+  test "a candidate carries what that work last replied" do
+    # Routing chose between earlier work it knew only by its opening message and
+    # the state "complete"; recorded reasons show same-thread follow-ups routed
+    # as unrelated because nothing said what the earlier work had answered.
+    incident =
+      episode!("routing:outcome",
+        channel_ref: "CDEVOPS",
+        text: "Checkout returns 502 on every request"
+      )
+
+    {:ok, _session} =
+      Custody.pin_episode(incident.id, "routing-outcome", String.duplicate("a", 64))
+
+    {:ok, claim} = Custody.claim_next("routing-outcome:#{incident.id}", 60, :work)
+
+    # An accepted, delivered answer as custody leaves it.
+    Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id),
+      set: [
+        candidate: "{}",
+        candidate_sha256: String.duplicate("c", 64),
+        candidate_attempt: 1,
+        validation_intent: %{"result" => nil, "verdict" => "accept", "violations" => []},
+        validation_intent_fingerprint: String.duplicate("f", 64),
+        validation_receipt: "validation-receipt",
+        result_ref: "result:#{claim.turn.id}",
+        continuation: %{"kind" => "complete"},
+        accepted_at: @now,
+        delivery_ref: "delivery:#{claim.turn.id}",
+        delivery_fingerprint: String.duplicate("d", 64),
+        external_receipt: %{"message_ref" => "1789000150.000100"},
+        external_receipt_fingerprint: String.duplicate("e", 64),
+        delivered_at: @now,
+        delivery_document: %{
+          "delivery" => "reply",
+          "message" => "Checkout is back.\r\nThe deploy was rolled back."
+        }
+      ]
+    )
+
+    entry =
+      record!(
+        channel_ref: "CDEVOPS",
+        text: "Is checkout 502 back again?",
+        ts: "1789000200.000100"
+      )
+
+    {:ok, context} = context!(entry)
+    candidate = Enum.find(context.candidates, &(&1.episode.id == incident.id))
+    assert candidate, "the earlier checkout work was not offered"
+
+    assert Candidate.for_model(candidate)["outcome"] ==
+             "Replied: Checkout is back. The deploy was rolled back."
+
+    # The host applies the continuation window to each candidate's allowed
+    # relations; the router is not sent the window or the routing time.
+    refute Map.has_key?(Context.for_model(context), "continuation_window_minutes")
+    refute Map.has_key?(Context.for_model(context), "now")
   end
 
   defp episodes_by_id(context) do

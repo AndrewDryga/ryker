@@ -31,12 +31,7 @@ defmodule Ryker.CoopFleet.Bridge do
          {:ok, placement} <-
            ControlPlane.place_session(
              session.id,
-             %{
-               capability_names: settings.capability_names,
-               capability_versions: settings.capability_versions,
-               repository_ref: session.repository_ref,
-               workspace_ref: settings.workspace_ref
-             },
+             requirements(session, settings),
              settings.lease_seconds
            ),
          {:ok, command} <-
@@ -47,6 +42,23 @@ defmodule Ryker.CoopFleet.Bridge do
 
   def execute(_session, _kind, _payload, _idempotency_key, _options),
     do: {:error, {:invalid_coop_worker_bridge, :session}}
+
+  @doc "Whether a worker would take this session's placement now, without taking a slot."
+  @spec accepts?(Session.t(), keyword()) :: boolean()
+  def accepts?(%Session{} = session, options) do
+    case settings(options) do
+      {:ok, settings} -> ControlPlane.worker_available?(session, requirements(session, settings))
+      {:error, _reason} -> false
+    end
+  end
+
+  defp requirements(session, settings),
+    do: %{
+      capability_names: settings.capability_names,
+      capability_versions: settings.capability_versions,
+      repository_ref: session.repository_ref,
+      workspace_ref: settings.workspace_ref
+    }
 
   @spec await_command(Ecto.UUID.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def await_command(command_id, options) do

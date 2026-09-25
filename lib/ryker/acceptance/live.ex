@@ -152,7 +152,8 @@ defmodule Ryker.Acceptance.Live do
          execution_mode: execution_mode,
          operations: operations,
          operator_ref: operator_ref,
-         repository_ref: slack.default_repository,
+         environment_ref: slack.default_environment,
+         repository_ref: environment_repository(slack),
          run_id: run_id,
          timeout_ms: timeout_ms,
          workspace_ref: slack.identity.workspace_ref
@@ -176,16 +177,24 @@ defmodule Ryker.Acceptance.Live do
 
   defp slack(%{
          slack:
-           %{default_repository: repository, identity: identity, operators: operators} = slack
+           %{default_environment: environment, identity: identity, operators: operators} = slack
        })
-       when is_binary(repository) and is_map(identity) and is_list(operators) do
-    with :ok <- reference(repository, :repository_ref),
+       when is_binary(environment) and is_map(identity) and is_list(operators) do
+    with :ok <- reference(environment, :environment_ref),
          :ok <- identity(identity) do
       {:ok, slack}
     end
   end
 
   defp slack(_configuration), do: {:error, :live_acceptance_slack_not_configured}
+
+  # The repository the default environment changes, when it has one.
+  defp environment_repository(slack) do
+    case get_in(slack, [:environments, slack.default_environment]) do
+      %{work_profile: %{repository_ref: repository_ref}} -> repository_ref
+      _none -> nil
+    end
+  end
 
   defp identity(%{bot_user_ref: bot_user_ref, workspace_ref: workspace_ref}) do
     with :ok <- reference(bot_user_ref, :bot_user_ref),
@@ -275,7 +284,7 @@ defmodule Ryker.Acceptance.Live do
 
   defp execute_input(settings, root_message_ref, kind, previous_turn_ids) do
     event_ref = "#{settings.run_id}:#{kind}"
-    prompt = prompt(kind, settings.repository_ref)
+    prompt = prompt(kind, settings.environment_ref, settings.repository_ref)
     sequence = if(kind == :first, do: 1, else: 2)
 
     with {:ok, occurred_at} <- utc_now(settings.operations.now),
@@ -293,16 +302,20 @@ defmodule Ryker.Acceptance.Live do
          do: wait_for_result(settings, event_ref, previous_turn_ids)
   end
 
-  defp prompt(:first, repository_ref) do
+  defp prompt(:first, environment_ref, repository_ref) do
     "Reply in one concise sentence. State that this live acceptance run is active, " <>
-      "identify the configured repository #{repository_ref}, and create no incident, task, " <>
-      "memory, schedule, publication, or governed action."
+      "identify the environment #{environment_ref} you work in" <>
+      repository_words(repository_ref) <>
+      ", and create no incident, task, memory, schedule, publication, or governed action."
   end
 
-  defp prompt(:followup, _repository_ref) do
-    "In one concise sentence, name the repository you identified in your previous reply. " <>
+  defp prompt(:followup, _environment_ref, _repository_ref) do
+    "In one concise sentence, name the environment you identified in your previous reply. " <>
       "Use the same conversation and create no new state."
   end
+
+  defp repository_words(nil), do: " (it has no repository)"
+  defp repository_words(repository_ref), do: " and its repository #{repository_ref}"
 
   defp envelope(settings, root_message_ref, event_ref, prompt, occurred_at, sequence) do
     message_ref = slack_timestamp(occurred_at, sequence)

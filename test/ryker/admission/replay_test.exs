@@ -10,11 +10,11 @@ defmodule Ryker.Admission.ReplayTest do
   import Ecto.Query
 
   alias Ryker.Admission
-  alias Ryker.Admission.{Context, Decision, Executor, Prompt}
+  alias Ryker.Admission.{Candidate, Context, Decision, Executor, Prompt}
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
-  alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Ingress.{Inbox, Input, MessageText}
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
@@ -55,11 +55,7 @@ defmodule Ryker.Admission.ReplayTest do
          ] do
         # The 256-byte preview hid the harvested Grafana start identity while the
         # prompt told the model to compare it. Routing success alone missed that loss.
-        source =
-          fixture["seed"]["input"]
-          |> Map.take(~w(actor content event_kind))
-          |> CanonicalJSON.encode!()
-
+        source = seed_text(fixture)
         assert byte_size(source) <= 4_096
         request = Prompt.build(context)
         offered = Enum.find(context.candidates, &(&1.episode.id == seed.id))
@@ -67,8 +63,8 @@ defmodule Ryker.Admission.ReplayTest do
         candidate =
           Enum.find(request["context"]["candidates"], &(&1["episode_ref"] == offered.ref))
 
-        assert candidate["first_input"]["content_preview"] == source
-        refute candidate["first_input"]["truncated"]
+        assert candidate["first_message"]["text"] == source
+        refute candidate["first_message"]["truncated"]
         assert byte_size(CanonicalJSON.encode!(request)) <= 65_536
       end
 
@@ -122,22 +118,26 @@ defmodule Ryker.Admission.ReplayTest do
 
         assert {:ok, execution} = Executor.run(Inbox.ref(entry), options)
         submitted = FakeAPI.state(fake).submitted_prompt
-        assert submitted == CanonicalJSON.encode!(Prompt.build(context))
+        # The instructions lead the text so they can be a cached prefix.
+        assert submitted == Prompt.render(Prompt.build(context))
+        assert String.starts_with?(submitted, ~s({"instructions":))
         assert execution.result.entry.admission_context == Context.snapshot(context)
         assert Jason.decode!(submitted)["context"] == Context.for_model(context)
 
-        source =
-          fixture["seed"]["input"]
-          |> Map.take(~w(actor content event_kind))
-          |> CanonicalJSON.encode!()
+        source = seed_text(fixture)
 
-        assert [%{"first_input" => %{"content_preview" => ^source, "truncated" => false}}] =
+        assert [%{"first_message" => %{"text" => ^source} = first}] =
                  Jason.decode!(submitted)["context"]["candidates"]
+
+        refute Map.has_key?(first, "truncated")
 
         assert actual(execution.result, seed) == fixture["expected"]
       end
     end
   end
+
+  defp seed_text(fixture),
+    do: fixture["seed"]["input"]["content"] |> MessageText.from() |> Candidate.model_text()
 
   defp seed_episode(nil), do: nil
 

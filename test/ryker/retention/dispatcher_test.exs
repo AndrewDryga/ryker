@@ -259,7 +259,12 @@ defmodule Ryker.Retention.DispatcherTest do
       # one attempt because the only worker stopped polling for ninety seconds.
       {:coop_worker_command_timeout, "3b0c6f7e-8f1e-4d53-9c1f-2f4f0d7f9a11"},
       {:coop_error, 429, "rate_limited", "later"},
-      {:coop_error, 503, "unavailable", "later"}
+      {:coop_error, 503, "unavailable", "later"},
+      # A worker handing its session over for up to a lease, or away from Ryker
+      # altogether, is waited for; both used to block cleanup for a person.
+      {:coop_session_replacement_pending, "5e0fdbcd-1e9f-4815-9b1f-feead902cdc9", 1,
+       ~U[2026-09-25 10:00:00.000000Z]},
+      {:retention_worker_unavailable, "ryker-compose"}
     ]
 
     for {reason, index} <- Enum.with_index(transient_reasons, 1) do

@@ -15,6 +15,7 @@ defmodule Ryker.Settings.Edit do
     :report,
     :learning,
     :repositories,
+    :environments,
     :policies,
     :webhooks,
     :pricing,

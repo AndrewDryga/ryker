@@ -19,6 +19,40 @@ defmodule Ryker.Settings.DomainsTest do
              Enum.sort(["codex:gpt-5.6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna"])
   end
 
+  test "each kind of work has its own model, and only one the worker can run is saved",
+       %{snapshot: snapshot} do
+    # A model is written into the bundled policies for its kind of work. A
+    # malformed one would stop that lane at the worker's next reload, so it
+    # never reaches disk.
+    assert snapshot.work.routing_model == "codex:gpt-5.6-sol/medium@default"
+    assert snapshot.work.conversation_model == "codex:gpt-5.6-terra/medium@default"
+    assert snapshot.work.deep_model == "codex:gpt-5.6-sol/xhigh@default"
+
+    for target <- [
+          "",
+          "gpt-5.6-sol",
+          "claude:opus/high@default",
+          "codex:gpt-5.6-sol/max@default",
+          "codex:gpt-5.6-sol@default",
+          "codex:gpt-5.6-sol/medium@default\n"
+        ] do
+      result = Settings.save_work(%{deep_model: target}, snapshot.installation.revision, @actor)
+      refute match?({:ok, %{work: %{deep_model: ^target}}}, result), inspect(target)
+    end
+
+    assert Settings.fetch!().work.deep_model == "codex:gpt-5.6-sol/xhigh@default"
+
+    assert {:ok, saved} =
+             Settings.save_work(
+               %{deep_model: "codex:gpt-5.6-terra/high@default"},
+               snapshot.installation.revision,
+               @actor
+             )
+
+    assert saved.work.deep_model == "codex:gpt-5.6-terra/high@default"
+    assert saved.work.standard_model == "codex:gpt-5.6-sol/medium@default"
+  end
+
   test "a new installation learns by default", %{snapshot: snapshot} do
     assert snapshot.learning.enabled
   end
@@ -37,16 +71,21 @@ defmodule Ryker.Settings.DomainsTest do
     assert [%{ref: "ryker", base_branch: "main"}] = saved.repositories
 
     assert {:ok, saved} =
-             Settings.put_repository_context(
-               %{ref: "platform", primary_repository_ref: "ryker", parallel_goal_limit: 2},
+             Settings.put_environment(
+               %{
+                 ref: "platform",
+                 display_name: "Platform",
+                 repositories: ["ryker"],
+                 parallel_goal_limit: 2
+               },
                2,
                @actor
              )
 
     assert saved.installation.revision == 3
-    assert [%{ref: "platform", read_only_repository_refs: []}] = saved.contexts
+    assert [%{ref: "platform", parallel_goal_limit: 2}] = saved.environments
 
-    # A stale revision from before the context existed cannot overwrite it.
+    # A stale revision from before the environment existed cannot overwrite it.
     assert {:error, {:settings_conflict, winner}} =
              Settings.put_repository(%{ref: "ryker", base_branch: "develop"}, 2, @actor)
 
@@ -54,8 +93,8 @@ defmodule Ryker.Settings.DomainsTest do
     assert Repo.aggregate(Edit, :count) == 3
 
     assert Enum.map(Repo.all(Edit), & &1.domain) |> Enum.sort() == [
+             :environments,
              :installation,
-             :repositories,
              :repositories
            ]
   end
@@ -79,7 +118,7 @@ defmodule Ryker.Settings.DomainsTest do
     assert Repo.aggregate(Edit, :count) == 2
   end
 
-  test "enabling Slack requires its detected identity while repository choice stays optional" do
+  test "enabling Slack requires its detected identity" do
     assert {:error, {:invalid_settings, errors}} =
              Settings.save_slack(%{enabled: true}, 1, @actor)
 
@@ -87,8 +126,9 @@ defmodule Ryker.Settings.DomainsTest do
     assert {:bot_ref, :required_to_enable} in errors
     assert {:bot_user_ref, :required_to_enable} in errors
 
-    assert {:error, {:invalid_settings, [{:default_repository_ref, :unknown_repository}]}} =
-             Settings.save_slack(%{default_repository_ref: "missing"}, 1, @actor)
+    # Which repository a channel works in is its environment's choice now.
+    assert {:error, {:invalid_settings, [{:default_repository_ref, :unknown}]}} =
+             Settings.save_slack(%{default_repository_ref: "ryker"}, 1, @actor)
 
     {:ok, _} = Settings.put_repository(%{ref: "ryker"}, 1, @actor)
 
@@ -99,7 +139,6 @@ defmodule Ryker.Settings.DomainsTest do
                  workspace_ref: "T0123456789",
                  bot_ref: "A0123456789",
                  bot_user_ref: "U0123456789",
-                 default_repository_ref: "ryker",
                  operators: ["U1111111111"]
                },
                2,
@@ -118,12 +157,8 @@ defmodule Ryker.Settings.DomainsTest do
     {:ok, _} = Settings.put_repository(%{ref: "coop"}, 2, @actor)
 
     {:ok, saved} =
-      Settings.put_repository_context(
-        %{
-          ref: "platform",
-          primary_repository_ref: "ryker",
-          read_only_repository_refs: ["coop"]
-        },
+      Settings.put_environment(
+        %{ref: "platform", display_name: "Platform", repositories: ["ryker", "coop"]},
         3,
         @actor
       )
@@ -136,8 +171,8 @@ defmodule Ryker.Settings.DomainsTest do
 
     assert {:ok, ^saved} = Settings.fetch()
 
-    {:ok, saved} = Settings.delete_repository_context("platform", 4, @actor)
-    assert saved.contexts == []
+    {:ok, saved} = Settings.delete_environment("platform", 4, @actor)
+    assert saved.environments == []
     assert {:ok, saved} = Settings.delete_repository("coop", 5, @actor)
     assert Enum.map(saved.repositories, & &1.ref) == ["ryker"]
   end
@@ -188,7 +223,7 @@ defmodule Ryker.Settings.DomainsTest do
   end
 
   test "custom webhook mappings need exact typed fields and presets take no mapping" do
-    {:ok, _} = Settings.put_repository(%{ref: "ryker"}, 1, @actor)
+    {:ok, _} = Settings.put_environment(%{ref: "ryker", display_name: "Ryker"}, 1, @actor)
 
     source = %{
       name: "alerts",
@@ -197,7 +232,7 @@ defmodule Ryker.Settings.DomainsTest do
       secret_name: "alerts",
       destination_transport: "slack",
       destination_conversation_ref: "slack:T0123456789:C1111111111",
-      context_ref: "ryker",
+      environment_ref: "ryker",
       mapping: %{"event_id" => "id", "status" => "state", "title" => "summary"}
     }
 
@@ -221,8 +256,8 @@ defmodule Ryker.Settings.DomainsTest do
                @actor
              )
 
-    assert {:error, {:invalid_settings, [{:context_ref, :unknown_context}]}} =
-             Settings.put_webhook_source(%{source | context_ref: "missing"}, 3, @actor)
+    assert {:error, {:invalid_settings, [{:environment_ref, :unknown_environment}]}} =
+             Settings.put_webhook_source(%{source | environment_ref: "missing"}, 3, @actor)
 
     assert {:error, {:invalid_settings, [{:secret_name, :format}]}} =
              Settings.put_webhook_source(%{source | secret_name: "UPPERCASE"}, 3, @actor)
@@ -295,7 +330,6 @@ defmodule Ryker.Settings.DomainsTest do
           workspace_ref: "T0123456789",
           bot_ref: "A0123456789",
           bot_user_ref: "U0123456789",
-          default_repository_ref: "ryker",
           operators: ["U1111111111"]
         },
         &1,
@@ -336,6 +370,11 @@ defmodule Ryker.Settings.DomainsTest do
         &1,
         @actor
       ),
+      &Settings.put_environment(
+        %{ref: "production", display_name: "Production", repositories: ["ryker"]},
+        &1,
+        @actor
+      ),
       &Settings.put_webhook_source(
         %{
           name: "alerts",
@@ -345,7 +384,7 @@ defmodule Ryker.Settings.DomainsTest do
           destination_transport: "slack",
           destination_conversation_ref: "slack:T0123456789:C0123456789",
           destination_thread_ref: "slack:T0123456789:C0123456789",
-          context_ref: "ryker"
+          environment_ref: "production"
         },
         &1,
         @actor

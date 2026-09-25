@@ -3,6 +3,7 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
 
   import ExUnit.CaptureLog
 
+  alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Repo
 
   alias Ryker.Slack.{
@@ -62,6 +63,11 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
     def reconcile_absent(_workspace_ref, _channels, _snapshot_started_at), do: {:ok, 0}
   end
 
+  setup do
+    ChannelEnvironments.environment!("infrastructure")
+    :ok
+  end
+
   # A periodic sweep runs every five minutes against every joined channel; it
   # may post a welcome only for a membership it repaired itself, never for one
   # that was already joined, or every configured channel gets a hello per sweep.
@@ -87,8 +93,10 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
     assert Repo.one!(ChannelMembership).private == false
     assert Repo.aggregate(ConfigurationSession, :count) == 0
 
-    assert %ChannelConfiguration{welcome_message_ref: "1.000001"} =
-             Repo.one!(ChannelConfiguration)
+    assert %ChannelConfiguration{
+             environment_ref: "infrastructure",
+             welcome_message_ref: "1.000001"
+           } = Repo.one!(ChannelConfiguration)
 
     assert Agent.get(agent, & &1.posts) == 1
 
@@ -117,8 +125,10 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
          end}
       )
 
+    # An installation with no environments yet still onboards its channels.
     options =
-      options(agent)
+      agent
+      |> options(%{default_environment: nil, environments: []})
       |> Map.put(:managed_channel?, fn "T9E23FDA39DE5", channel_ref ->
         channel_ref == "CINCIDENT"
       end)
@@ -127,6 +137,7 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
              {:ok, %{channels: 2, left: 0, prompted: 1}}
 
     assert Repo.get_by!(ChannelMembership, channel_ref: "C456").status == :joined
+    assert Repo.get_by!(ChannelConfiguration, channel_ref: "C456").environment_ref == nil
     refute Repo.get_by(ChannelMembership, channel_ref: "CINCIDENT")
     assert Agent.get(agent, & &1.posts) == 1
   end
@@ -240,7 +251,16 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
     assert Repo.get!(ChannelConfiguration, configuration.id).revision == 1
   end
 
-  defp options(agent) do
+  defp options(agent, catalog \\ nil) do
+    catalog =
+      catalog ||
+        %{
+          default_environment: "infrastructure",
+          environments: [
+            %{emisar: false, name: "Infrastructure", ref: "infrastructure", repositories: []}
+          ]
+        }
+
     %{
       api: API,
       client: agent,
@@ -249,10 +269,7 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
       setup_options: %{
         api: API,
         bot_user_ref: "UBOT",
-        catalog: %{
-          default_repository: "infrastructure",
-          repository_refs: ["infrastructure"]
-        },
+        catalog: catalog,
         client: agent,
         configurations: ChannelConfigurations,
         directory: nil,

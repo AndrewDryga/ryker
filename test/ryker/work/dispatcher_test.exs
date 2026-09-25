@@ -314,7 +314,7 @@ defmodule Ryker.Work.DispatcherTest do
                  "required" => ["message"],
                  "type" => "object"
                },
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =

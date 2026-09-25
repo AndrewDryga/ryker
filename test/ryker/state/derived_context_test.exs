@@ -435,7 +435,7 @@ defmodule Ryker.State.DerivedContextTest do
         %{},
         "Host-contract source-custody fixture.",
         Final.json_schema(),
-        "work-final-live-v2"
+        "work-final-live-v3"
       )
 
     {:ok, turn} =

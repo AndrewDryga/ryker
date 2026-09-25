@@ -18,8 +18,9 @@ defmodule Ryker.Settings do
 
   alias Ryker.Settings.{
     Edit,
-    EmisarBinding,
     EmisarConnection,
+    Environment,
+    EnvironmentRepository,
     GitHub,
     GitHubBinding,
     Installation,
@@ -29,7 +30,6 @@ defmodule Ryker.Settings do
     Publication,
     Report,
     Repository,
-    RepositoryContext,
     Retention,
     RetentionImpact,
     Slack,
@@ -60,11 +60,10 @@ defmodule Ryker.Settings do
           github: GitHub.t(),
           publication: Publication.t(),
           emisar_connections: [EmisarConnection.t()],
-          emisar_bindings: [EmisarBinding.t()],
           report: Report.t(),
           learning: Learning.t(),
           repositories: [Repository.t()],
-          contexts: [RepositoryContext.t()],
+          environments: [Environment.t()],
           github_bindings: [GitHubBinding.t()],
           policy_bindings: [PolicyBinding.t()],
           webhook_sources: [WebhookSource.t()],
@@ -333,11 +332,29 @@ defmodule Ryker.Settings do
   def delete_repository(ref, expected_revision, actor_ref),
     do: delete_item(:repositories, Repository, :ref, ref, expected_revision, actor_ref)
 
-  def put_repository_context(attributes, expected_revision, actor_ref),
-    do: put_item(:repositories, RepositoryContext, :ref, attributes, expected_revision, actor_ref)
+  @doc """
+  Creates or edits one environment.
 
-  def delete_repository_context(ref, expected_revision, actor_ref),
-    do: delete_item(:repositories, RepositoryContext, :ref, ref, expected_revision, actor_ref)
+  `repositories` is the ordered list of repository refs: work changes the
+  first and reads the others. Making an environment the default takes the
+  default from whichever environment had it, in the same revision.
+  """
+  def put_environment(attributes, expected_revision, actor_ref) do
+    with :ok <- authorize(actor_ref),
+         {:ok, attributes} <- Validation.attributes(attributes, Environment.fields()) do
+      save(:environments, expected_revision, actor_ref, fn snapshot ->
+        current = Environment.find(snapshot, :ref, Map.get(attributes, :ref))
+
+        changeset =
+          Environment.changeset(current || Environment.new(snapshot), attributes, snapshot)
+
+        write_environment(current, changeset)
+      end)
+    end
+  end
+
+  def delete_environment(ref, expected_revision, actor_ref),
+    do: delete_item(:environments, Environment, :ref, ref, expected_revision, actor_ref)
 
   def put_emisar_connection(attributes, expected_revision, actor_ref),
     do:
@@ -364,12 +381,6 @@ defmodule Ryker.Settings do
       {:ok, snapshot}
     end
   end
-
-  def put_emisar_binding(attributes, expected_revision, actor_ref),
-    do: put_item(:emisar, EmisarBinding, :id, attributes, expected_revision, actor_ref)
-
-  def delete_emisar_binding(id, expected_revision, actor_ref),
-    do: delete_item(:emisar, EmisarBinding, :id, id, expected_revision, actor_ref)
 
   def put_github_binding(attributes, expected_revision, actor_ref),
     do: put_item(:github, GitHubBinding, :name, attributes, expected_revision, actor_ref)
@@ -403,6 +414,69 @@ defmodule Ryker.Settings do
         changeset = schema.changeset(current || schema.new(snapshot), attributes, snapshot)
         write_changeset(current, changeset)
       end)
+    end
+  end
+
+  defp write_environment(current, changeset) do
+    cond do
+      not changeset.valid? ->
+        Repo.rollback({:invalid_settings, Validation.errors(changeset)})
+
+      current && changeset.changes == %{} ->
+        :unchanged
+
+      true ->
+        now = DateTime.utc_now()
+        ref = Ecto.Changeset.get_field(changeset, :ref)
+
+        # The partial unique index allows one default, so the previous one
+        # yields before this row claims it.
+        if Ecto.Changeset.get_change(changeset, :is_default) == true do
+          Repo.update_all(
+            from(environment in Environment,
+              where: environment.is_default and environment.ref != ^ref
+            ),
+            set: [is_default: false, updated_at: now]
+          )
+        end
+
+        changeset = Ecto.Changeset.force_change(changeset, :updated_at, now)
+
+        environment =
+          if current,
+            do: Repo.update!(changeset),
+            else: changeset |> Ecto.Changeset.force_change(:inserted_at, now) |> Repo.insert!()
+
+        repository_refs = replace_environment_repositories!(current, changeset)
+
+        {:changed,
+         environment
+         |> Map.take(Environment.fields() -- [:repositories])
+         |> Map.put(:repositories, repository_refs)
+         |> stringify()}
+    end
+  end
+
+  defp replace_environment_repositories!(current, changeset) do
+    ref = Ecto.Changeset.get_field(changeset, :ref)
+
+    case Ecto.Changeset.fetch_change(changeset, :repository_refs) do
+      {:ok, refs} ->
+        Repo.delete_all(from(row in EnvironmentRepository, where: row.environment_ref == ^ref))
+
+        Repo.insert_all(
+          EnvironmentRepository,
+          refs
+          |> Enum.with_index()
+          |> Enum.map(fn {repository_ref, position} ->
+            %{environment_ref: ref, repository_ref: repository_ref, position: position}
+          end)
+        )
+
+        refs
+
+      :error ->
+        if current, do: Environment.repository_refs(current), else: []
     end
   end
 
@@ -554,13 +628,11 @@ defmodule Ryker.Settings do
       github: Repo.get!(GitHub, host_ref),
       publication: Repo.get!(Publication, host_ref),
       emisar_connections: Repo.all(from(c in EmisarConnection, order_by: c.ref)),
-      emisar_bindings:
-        Repo.all(from(b in EmisarBinding, order_by: [b.scope_kind, b.scope_ref, b.purpose])),
       report: Repo.get!(Report, host_ref),
       learning: Repo.get!(Learning, host_ref),
       work: Repo.get!(Work, host_ref),
       repositories: Repo.all(from(r in Repository, order_by: r.ref)),
-      contexts: Repo.all(from(c in RepositoryContext, order_by: c.ref)),
+      environments: Repo.all(from(e in Environment, order_by: e.ref, preload: :repositories)),
       github_bindings: Repo.all(from(b in GitHubBinding, order_by: b.name)),
       policy_bindings:
         Repo.all(from(p in PolicyBinding, order_by: [p.scope_kind, p.scope_ref, p.purpose])),

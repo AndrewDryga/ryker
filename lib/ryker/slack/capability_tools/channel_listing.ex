@@ -5,7 +5,7 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
   """
 
   alias Ryker.Slack.CapabilityTools.Resources
-  alias Ryker.Slack.SourceRef
+  alias Ryker.Slack.{ChannelConfiguration, SourceRef}
 
   @doc "The listed page reduced to what this turn may see, with its configuration facts."
   @spec filter_conversations(term(), String.t(), String.t(), map(), (String.t(), String.t() ->
@@ -126,7 +126,7 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
       not external,
       not private or channel_ref == current_channel_ref,
       not filters.configured_only or not is_nil(configured),
-      query_match?(filters.query, text ++ [repository_ref(configured)])
+      query_match?(filters.query, text ++ [environment_ref(configured)])
     ])
   end
 
@@ -136,7 +136,7 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
     {:ok,
      %{
        "configured" => not is_nil(attributes.configured),
-       "configured_repository_ref" => repository_ref(attributes.configured),
+       "configured_environment_ref" => environment_ref(attributes.configured),
        "conversation_ref" => "slack:#{attributes.workspace_ref}:#{attributes.channel_ref}",
        "is_archived" => attributes.archived,
        "kind" => if(attributes.private, do: "private_channel", else: "public_channel"),
@@ -210,10 +210,12 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
 
   def hydrate_resources(_listed, true, _options), do: {:error, :slack_protocol_error}
 
-  defp repository_ref(%{repository_ref: repository_ref}) when is_binary(repository_ref),
-    do: repository_ref
+  # A configured channel selects an environment, or none.
+  defp environment_ref(%ChannelConfiguration{environment_ref: environment_ref})
+       when is_binary(environment_ref),
+       do: environment_ref
 
-  defp repository_ref(_configuration), do: nil
+  defp environment_ref(_configuration), do: nil
 
   defp query_match?(nil, _values), do: true
 

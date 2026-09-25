@@ -52,10 +52,12 @@ defmodule Ryker.Admission.WorkerTest do
   test "keeps running after an input enters durable blocked custody" do
     entry = record_input!("Ev-worker-blocked")
 
+    # A failed run blocks its input for a person at once; a stopped one is read
+    # again by a fresh run instead, so it does not reach blocked custody here.
     {:ok, fake} =
       FakeCoopAPI.start_link([decision("reply")],
         fail_first_turn: true,
-        first_turn_state: "interrupted"
+        first_turn_state: "failed"
       )
 
     worker = start_supervised!({Worker, worker_options(fake, "worker:blocked")})

@@ -18,31 +18,34 @@ defmodule Ryker.ControlPlane.SettingsSections do
     Publication,
     Report,
     Repository,
-    RepositoryContext,
     Slack,
     WebhookSource,
     Work
   }
 
+  alias Ryker.ControlPlane.ExecutionTarget
   alias Ryker.Webhooks.Presets
 
   @day 86_400
+  @longest_days 3_650
+  @efforts ~w(low medium high xhigh)
+  # The words a person picks between, each with what Ryker will then do.
   @participation [
-    {"mentions", "Only when mentioned"},
-    {"proactive", "Join relevant conversations"},
-    {"shadow", "Observe silently"}
+    {"mentions", "Only when mentioned", "Ryker replies when someone writes @Ryker."},
+    {"proactive", "Join relevant conversations", "Ryker also replies when it can clearly help."},
+    {"shadow", "Watch quietly", "Ryker reads and learns, but never replies."}
   ]
   @purposes [
-    {"admission", "Admission (installation)"},
-    {"learning", "Learning (installation)"},
-    {"incident", "Incident rooms (installation)"},
-    {"schedule_read_only", "Scheduled read-only (installation)"},
-    {"schedule_governed", "Scheduled governed operation (installation)"},
-    {"conversational", "Conversational"},
+    {"admission", "Routing incoming messages"},
+    {"learning", "Learning"},
+    {"incident", "Incident rooms"},
+    {"schedule_read_only", "Scheduled read-only work"},
+    {"schedule_governed", "Scheduled approved operations"},
+    {"conversational", "Conversation"},
     {"standard", "Standard work"},
     {"deep", "Deep work"},
-    {"contributor", "Contributor (writes)"},
-    {"schedule", "Schedule (repository)"}
+    {"contributor", "Contributor work"},
+    {"schedule", "Scheduled work"}
   ]
   @auth_kinds [
     {"hmac_sha256", "Signed request (HMAC SHA-256)"},
@@ -55,10 +58,29 @@ defmodule Ryker.ControlPlane.SettingsSections do
   ]
   @mapping_fields ~w(event_id status title severity summary source_url starts_at ends_at incident_id item_id labels annotations revision)
   @lifecycle_fields ~w(environments kinds repositories targets)
+  @subfield_labels %{
+    "event_id" => "Event ID",
+    "status" => "Status",
+    "title" => "Title",
+    "severity" => "Severity",
+    "summary" => "Summary",
+    "source_url" => "Link",
+    "starts_at" => "Started at",
+    "ends_at" => "Ended at",
+    "incident_id" => "Incident ID",
+    "item_id" => "Item ID",
+    "labels" => "Labels",
+    "annotations" => "Annotations",
+    "revision" => "Revision",
+    "environments" => "Environments",
+    "kinds" => "Kinds",
+    "repositories" => "Repositories",
+    "targets" => "Targets"
+  }
   @scope_kinds [
-    {"installation", "This installation"},
+    {"installation", "Everywhere"},
     {"repository", "One repository"},
-    {"context", "One repository context"}
+    {"environment", "One environment"}
   ]
   @weekdays [
     {"1", "Monday"},
@@ -71,48 +93,43 @@ defmodule Ryker.ControlPlane.SettingsSections do
   ]
 
   @sections [
+    # Whether Slack is on at all is the connection itself (Connect and
+    # Disconnect on the Slack page), not a checkbox in this form.
     %{
       key: :slack,
       domain: :slack,
       kind: :singleton,
       schema: Slack,
       title: "Slack",
-      description: "Choose how Ryker participates after the verified Slack connection is ready.",
+      description: "How Ryker takes part in channels and the rooms it opens for incidents.",
+      groups: %{
+        "New channels" => %{
+          id: "new-channels",
+          lede:
+            "Used in every channel that has not made its own choice. " <>
+              "You can change each channel on its own page."
+        },
+        "Incident rooms" => %{lede: "Channels Ryker creates for an incident."}
+      },
       fields: [
         %{
-          name: :enabled,
-          kind: :boolean,
-          label: "Use this Slack connection",
-          group: "Connection"
-        },
-        %{
-          name: :default_repository_ref,
-          kind: :select,
-          label: "Default repository",
-          options: :repositories,
-          group: "Channel defaults",
-          help: "Used by channels that have not chosen their own repository context."
-        },
-        %{
           name: :default_participation,
-          kind: :select,
-          label: "Default participation",
+          kind: :choice,
+          label: "When to reply",
           options: @participation,
-          group: "Channel defaults",
-          help:
-            "Applies to every channel that has not chosen for itself. " <>
-              "Channels with their own choice keep it."
+          group: "New channels"
         },
         %{
           name: :channel_prefix,
           kind: :text,
-          label: "Incident channel prefix",
-          group: "Incident rooms"
+          label: "Name starts with",
+          group: "Incident rooms",
+          help: "Lowercase letters, numbers, dashes and underscores."
         },
         %{
           name: :incident_private,
           kind: :boolean,
-          label: "Create incident channels private",
+          label: "Make incident rooms private",
           group: "Incident rooms"
         }
       ]
@@ -134,18 +151,22 @@ defmodule Ryker.ControlPlane.SettingsSections do
       domain: :publication,
       kind: :singleton,
       schema: Publication,
-      title: "Publication",
+      title: "Pull requests",
       description:
-        "Identity used for published branches and commits. Changing the branch prefix does " <>
-          "not move branches that already exist; their pull requests keep their namespace.",
+        "Whether Ryker opens pull requests for code it changes, and how they are signed.",
       fields: [
         %{
           name: :enabled,
           kind: :boolean,
-          label: "Publish pull requests",
-          help: "Requires a connected GitHub App."
+          label: "Let Ryker open pull requests",
+          help: "Ryker pushes a branch and opens a pull request when its work changes code."
         },
-        %{name: :branch_prefix, kind: :text, label: "Branch prefix"},
+        %{
+          name: :branch_prefix,
+          kind: :text,
+          label: "Branch names start with",
+          help: "Branches that already exist keep their names."
+        },
         %{name: :commit_name, kind: :text, label: "Commit author name"},
         %{name: :commit_email, kind: :text, label: "Commit author email"}
       ]
@@ -217,34 +238,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
       ]
     },
     %{
-      key: :contexts,
-      domain: :repositories,
-      kind: :collection,
-      schema: RepositoryContext,
-      item_key: :ref,
-      title: "Repository contexts",
-      description:
-        "A context is one primary repository plus read-only companions, referenced by Slack, " <>
-          "GitHub, webhooks and direct conversations. Its goal limit may lower, never raise, the host maximum.",
-      fields: [
-        %{name: :ref, kind: :text, label: "Reference", identity: true},
-        %{name: :display_name, kind: :text, label: "Display name"},
-        %{
-          name: :primary_repository_ref,
-          kind: :select,
-          label: "Primary repository",
-          options: :repositories
-        },
-        %{
-          name: :read_only_repository_refs,
-          kind: :list,
-          label: "Read-only companions",
-          help: "Mounted for reading only. The primary cannot also be a companion."
-        },
-        %{name: :parallel_goal_limit, kind: :integer, label: "Parallel goals"}
-      ]
-    },
-    %{
       key: :github_bindings,
       domain: :github,
       kind: :collection,
@@ -259,14 +252,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
         %{name: :repository_ref, kind: :select, label: "Repository", options: :repositories},
         %{name: :installation_id, kind: :integer, label: "Installation ID"},
         %{name: :repository_id, kind: :integer, label: "Repository ID"},
-        %{name: :ryker_actor_id, kind: :integer, label: "Ryker actor ID"},
-        %{
-          name: :repository_context_ref,
-          kind: :select,
-          label: "Context",
-          options: :contexts,
-          help: "Optional. Must be a context whose primary is this repository."
-        }
+        %{name: :ryker_actor_id, kind: :integer, label: "Ryker actor ID"}
       ]
     },
     %{
@@ -275,30 +261,43 @@ defmodule Ryker.ControlPlane.SettingsSections do
       kind: :collection,
       schema: PolicyBinding,
       item_key: :id,
+      item_label: "execution policy",
       row_status: {Ryker.Settings.WorkerPolicies, :binding_status},
       title: "Execution policies",
       description:
-        "Advanced only: choose which reviewed worker policy runs each kind of work. " <>
-          "The bundled worker supplies these automatically.",
+        "Which reviewed worker policy runs each kind of work. " <>
+          "The bundled worker supplies these for you.",
+      empty: {
+        "No execution policies",
+        "The bundled worker supplies these automatically. Add one only for a separately managed worker fleet."
+      },
       fields: [
-        %{name: :purpose, kind: :select, label: "Purpose", options: @purposes},
-        %{name: :scope_kind, kind: :select, label: "Scope", options: @scope_kinds},
+        %{
+          name: :purpose,
+          kind: :select,
+          label: "Kind of work",
+          options: @purposes,
+          help:
+            "Routing, learning, incident rooms and scheduled read-only or approved work apply " <>
+              "everywhere; the others apply to one repository or environment."
+        },
+        %{name: :scope_kind, kind: :select, label: "Applies to", options: @scope_kinds},
         %{
           name: :scope_ref,
           kind: :select,
-          label: "Scope reference",
+          label: "Repository or environment",
           options: :scopes,
           blank: "",
-          help: "Leave unset for an installation-wide purpose."
+          help: "Leave empty when the policy applies everywhere."
         },
         %{
           name: :policy_name,
           kind: :select,
           label: "Worker policy",
           options: :advertised_policies,
-          help: "Only policies an enrolled, unrevoked worker advertises can be selected."
+          help: "Only policies a connected worker offers can be chosen."
         },
-        %{name: :policy_digest, kind: :evidence, label: "Pinned digest"}
+        %{name: :policy_digest, kind: :evidence, label: "Pinned version"}
       ]
     },
     %{
@@ -307,11 +306,23 @@ defmodule Ryker.ControlPlane.SettingsSections do
       kind: :collection,
       schema: WebhookSource,
       item_key: :name,
+      item_label: "webhook source",
       title: "Webhook sources",
       description:
-        "Choose what events to accept, how to verify them, and where Ryker should send the work.",
+        "Each source is one sender, such as a Grafana contact point, with its own address.",
+      empty: {
+        "No webhook sources yet",
+        "Add a source for each system that should send events to Ryker."
+      },
       fields: [
-        %{name: :name, kind: :text, label: "Source name", identity: true, group: "Source"},
+        %{
+          name: :name,
+          kind: :text,
+          label: "Source name",
+          identity: true,
+          group: "Source",
+          help: "The end of this source's address. It cannot change later."
+        },
         %{name: :enabled, kind: :boolean, label: "Accept events", group: "Source"},
         %{
           name: :adapter_kind,
@@ -319,50 +330,58 @@ defmodule Ryker.ControlPlane.SettingsSections do
           label: "Payload shape",
           group: "Source",
           options: :webhook_presets,
-          help: "A preset fills in the shape and grouping; it never chooses the destination."
+          help: "A preset reads the sender's own format. It never chooses where work goes."
         },
         %{
           name: :auth_kind,
           kind: :select,
-          label: "Authentication",
+          label: "How senders prove who they are",
           options: @auth_kinds,
           group: "Verification"
         },
         %{
           name: :secret_name,
           kind: :select,
-          label: "Credential",
+          label: "Signing credential",
           group: "Verification",
           options: :webhook_secrets,
-          help: "A verified signing credential saved by Ryker. Its value is never shown again."
+          help: "One of the credentials above. Its secret is never shown again."
         },
         %{
           name: :destination_transport,
           kind: :select,
-          label: "Destination",
+          label: "Send work to",
           options: @transports,
-          group: "Send work to"
+          group: "Where work goes"
         },
         %{
           name: :destination_conversation_ref,
           kind: :text,
           label: "Conversation",
-          group: "Send work to"
+          group: "Where work goes",
+          placeholder: "slack:T0123456789:C0123456789",
+          help: "For Slack: slack, the workspace ID and the channel ID, joined by colons."
         },
-        %{name: :destination_thread_ref, kind: :text, label: "Thread", group: "Send work to"},
         %{
-          name: :context_ref,
+          name: :destination_thread_ref,
+          kind: :text,
+          label: "Thread (optional)",
+          group: "Where work goes"
+        },
+        %{
+          name: :environment_ref,
           kind: :select,
-          label: "Repository context",
-          options: :scopes,
-          group: "Send work to"
+          label: "Environment",
+          options: :environments,
+          group: "Where work goes",
+          help: "Work from this source runs in this environment."
         },
         %{
           name: :group_by_labels,
           kind: :list,
-          label: "Correlate by labels",
-          group: "Send work to",
-          help: "Events sharing these label values are treated as the same ongoing situation."
+          label: "Group by labels",
+          group: "Where work goes",
+          help: "Events with the same values for these labels count as one ongoing situation."
         },
         %{
           name: :mapping,
@@ -378,8 +397,92 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :lifecycle,
           label: "Deployment filters",
           help:
-            "Optional. Restricts which deployment or Terraform events this source may report, " <>
+            "Optional. Limits which deployment or Terraform events this source may report, " <>
               "to repositories that already have reviewed policies."
+        }
+      ]
+    },
+    %{
+      key: :model,
+      domain: :work,
+      kind: :singleton,
+      schema: Work,
+      title: "Models",
+      description:
+        "The model and reasoning effort for each kind of work. " <>
+          "A saved change reaches new work within seconds.",
+      fields: [
+        %{
+          name: :routing_model,
+          kind: :select,
+          label: "Routing",
+          group: "Routing and replies",
+          help: "Decides how Ryker handles each incoming message.",
+          options: :bundled_models,
+          required: true
+        },
+        %{
+          name: :conversation_model,
+          kind: :select,
+          label: "Conversation",
+          group: "Routing and replies",
+          help: "Replies to questions and chat.",
+          options: :bundled_models,
+          required: true
+        },
+        %{
+          name: :standard_model,
+          kind: :select,
+          label: "Standard work",
+          group: "Work",
+          help: "Investigations and tool-backed work.",
+          options: :bundled_models,
+          required: true
+        },
+        %{
+          name: :deep_model,
+          kind: :select,
+          label: "Deep work",
+          group: "Work",
+          help: "Harder, ambiguous or high-stakes work.",
+          options: :bundled_models,
+          required: true
+        },
+        %{
+          name: :contributor_model,
+          kind: :select,
+          label: "Contributor work",
+          group: "Work",
+          help: "Work that writes to a repository.",
+          options: :bundled_models,
+          required: true
+        },
+        %{
+          name: :schedule_model,
+          kind: :select,
+          label: "Scheduled work",
+          group: "Other work",
+          help: "Runs started by a schedule.",
+          options: :bundled_models,
+          required: true
+        },
+        %{
+          name: :incident_model,
+          kind: :select,
+          label: "Incident rooms",
+          group: "Other work",
+          help: "Work in incident rooms.",
+          options: :bundled_models,
+          required: true
+        },
+        %{
+          name: :learning_model,
+          kind: :select,
+          label: "Learning",
+          group: "Other work",
+          help: "Background learning from conversations.",
+          options: :bundled_models,
+          required: true
         }
       ]
     },
@@ -390,35 +493,60 @@ defmodule Ryker.ControlPlane.SettingsSections do
       schema: Work,
       title: "Work placement",
       description:
-        "Choose a separately managed worker workspace. The bundled worker does not need changes here.",
+        "Only for a separately managed worker fleet. The bundled worker needs no changes here.",
       fields: [
         %{
           name: :workspace_ref,
           kind: :select,
           label: "Worker workspace",
-          options: :workspaces
+          options: :workspaces,
+          help: "The workspace whose workers run Ryker's work."
         }
       ]
     },
+    # Listed in the order the limits must keep: each of the first four at
+    # least as long as the one above it. Conversation memory only has to
+    # outlast the first.
     %{
       key: :retention,
       domain: :retention,
       kind: :retention,
-      title: "Retention",
-      description:
-        "How long this installation keeps each kind of data. Horizons must stay ordered: " <>
-          "operational data cannot outlive closed work, which cannot outlive episode history, " <>
-          "which cannot outlive the audit trail. Global facts you confirmed are exempt.",
+      title: "Data retention",
+      description: "How many days Ryker keeps each kind of data before deleting it.",
+      help:
+        "Each limit must be at least as long as the one above it, and conversation memory at " <>
+          "least as long as prompts, replies and tool activity. Facts you confirmed are kept regardless.",
       fields: [
         %{
           name: :operational_data_seconds,
           kind: :days,
-          label: "Prompts, replies and tool activity"
+          label: "Prompts, replies and tool activity",
+          help: "The full text of messages Ryker received and of each model and tool call."
         },
-        %{name: :conversation_memory_seconds, kind: :days, label: "Conversation memory"},
-        %{name: :closed_work_seconds, kind: :days, label: "Closed work sessions"},
-        %{name: :episode_history_seconds, kind: :days, label: "Episode history"},
-        %{name: :audit_data_seconds, kind: :days, label: "Audit receipts"}
+        %{
+          name: :closed_work_seconds,
+          kind: :days,
+          label: "Finished work",
+          help: "Closed incident rooms, task cards and finished work sessions."
+        },
+        %{
+          name: :episode_history_seconds,
+          kind: :days,
+          label: "Request history",
+          help: "The step-by-step record of each finished request."
+        },
+        %{
+          name: :audit_data_seconds,
+          kind: :days,
+          label: "Audit trail",
+          help: "Records of changes to settings, instructions and channels."
+        },
+        %{
+          name: :conversation_memory_seconds,
+          kind: :days,
+          label: "Conversation memory",
+          help: "What Ryker remembers about each conversation."
+        }
       ]
     },
     %{
@@ -427,41 +555,55 @@ defmodule Ryker.ControlPlane.SettingsSections do
       kind: :collection,
       schema: PricingRate,
       item_key: :id,
-      title: "Token rates",
-      description:
-        "Fallback USD estimates per million tokens. Ryker uses them only when the provider does not report cost.",
+      item_label: "price",
+      title: "Prices",
+      description: "Ryker uses these to estimate cost when the provider does not report it.",
+      empty: {"No prices yet", "Add a price so Ryker can estimate what each model costs."},
       fields: [
-        %{name: :execution_target, kind: :text, label: "Execution target", group: "Model"},
+        %{
+          name: :execution_target,
+          kind: :text,
+          label: "Model",
+          placeholder: "codex:gpt-5.6-sol",
+          help: "The provider and model, joined by a colon."
+        },
         %{
           name: :input_usd_per_million,
           kind: :decimal,
           label: "Input",
-          group: "USD per million tokens"
+          group: "US dollars per million tokens"
         },
         %{
           name: :cached_input_usd_per_million,
           kind: :decimal,
           label: "Cached input",
-          group: "USD per million tokens"
+          group: "US dollars per million tokens"
         },
         %{
           name: :output_usd_per_million,
           kind: :decimal,
           label: "Output",
-          group: "USD per million tokens"
+          group: "US dollars per million tokens"
         },
         %{
           name: :reasoning_usd_per_million,
           kind: :decimal,
           label: "Reasoning",
-          group: "USD per million tokens"
+          group: "US dollars per million tokens"
         },
-        %{name: :effective_from, kind: :date, label: "Effective from", group: "Source"},
+        %{
+          name: :effective_from,
+          kind: :date,
+          label: "Effective from",
+          group: "Source",
+          help: "Used for usage on and after this day."
+        },
         %{
           name: :provenance,
           kind: :text,
-          label: "Where this rate came from",
-          group: "Source"
+          label: "Where this price came from",
+          group: "Source",
+          placeholder: "Provider price list"
         }
       ]
     }
@@ -476,6 +618,20 @@ defmodule Ryker.ControlPlane.SettingsSections do
     |> Enum.chunk_by(&Map.get(&1, :group))
     |> Enum.map(fn fields -> {Map.get(hd(fields), :group), fields} end)
   end
+
+  @doc """
+  What a group of fields says about itself when the form is a page of its
+  own sections: an optional anchor other pages link to and one sentence.
+  """
+  @spec group_details(map(), String.t() | nil) :: map()
+  def group_details(section, group), do: Map.get(Map.get(section, :groups, %{}), group, %{})
+
+  @doc "The words a composite control shows for one of its parts."
+  @spec subfield_label(String.t()) :: String.t()
+  def subfield_label(subfield), do: Map.get(@subfield_labels, subfield, subfield)
+
+  @doc "The longest limit, in days, any kind of data can be kept."
+  def longest_days, do: @longest_days
 
   @spec fetch(atom() | String.t()) :: {:ok, map()} | :error
   def fetch(key) when is_atom(key) do
@@ -497,20 +653,26 @@ defmodule Ryker.ControlPlane.SettingsSections do
   def options(%{options: :repositories}, view),
     do: Enum.map(view.snapshot.repositories, &{&1.ref, display_name(&1)})
 
-  def options(%{options: :contexts}, view),
-    do: Enum.map(view.snapshot.contexts, &{&1.ref, display_name(&1)})
+  def options(%{options: :environments}, view),
+    do: Enum.map(view.snapshot.environments, &{&1.ref, &1.display_name})
 
   def options(%{options: :scopes}, view) do
     Enum.map(view.snapshot.repositories, &{&1.ref, "Repository " <> display_name(&1)}) ++
-      Enum.map(view.snapshot.contexts, &{&1.ref, "Context " <> display_name(&1)})
+      Enum.map(view.snapshot.environments, &{&1.ref, "Environment " <> &1.display_name})
   end
 
-  def options(%{options: :advertised_policies}, view),
-    do:
-      Enum.map(
-        view.workers.policies,
-        &{&1.name, "#{&1.name} · #{String.slice(&1.digest, 0, 12)}"}
-      )
+  # A policy is chosen by name; its pinned version is copied from the worker
+  # that offers it. Two versions of one name are an ambiguity the write path
+  # refuses, so the option says so instead of showing digests.
+  def options(%{options: :advertised_policies}, view) do
+    view.workers.policies
+    |> Enum.group_by(& &1.name)
+    |> Enum.sort_by(fn {name, _advertisements} -> name end)
+    |> Enum.map(fn
+      {name, [_one]} -> {name, name}
+      {name, _several} -> {name, name <> " · workers offer different versions"}
+    end)
+  end
 
   def options(%{options: :webhook_presets}, _view),
     do: Enum.map(Presets.all(), &{Atom.to_string(&1.adapter_kind), &1.title})
@@ -524,10 +686,54 @@ defmodule Ryker.ControlPlane.SettingsSections do
     do:
       Enum.map(
         view.workers.workspaces,
-        &{&1.ref, "#{&1.ref} · #{&1.eligible}/#{&1.workers} eligible"}
+        &{&1.ref, "#{&1.ref} · #{&1.eligible} of #{&1.workers} #{workers(&1.workers)} ready"}
       )
 
+  # Every priced Codex model at each effort the bundled worker can run, on the
+  # saved model's profile. A saved model outside that list stays selectable.
+  # Every option runs through Codex on the same profile, so a label names only
+  # the model and its effort.
+  def options(%{options: :bundled_models, name: name}, view) do
+    current = Map.fetch!(view.snapshot.work, name)
+    profile = (ExecutionTarget.parts(current) || %{})[:profile] || "default"
+
+    priced =
+      for %{execution_target: "codex:" <> _ = model} <- view.snapshot.pricing_rates,
+          effort <- @efforts,
+          uniq: true,
+          do: "#{model}/#{effort}@#{profile}"
+
+    Enum.map(Enum.uniq([current | priced]), &{&1, model_label(&1)})
+  end
+
   def options(%{options: options}, _view) when is_list(options), do: options
+
+  defp workers(1), do: "worker"
+  defp workers(_count), do: "workers"
+
+  @doc "The words for a saved model, as its option in the select reads."
+  @spec model_label(String.t()) :: String.t()
+  def model_label(target) do
+    case ExecutionTarget.present(target) do
+      %{model: model, meta: meta} when is_binary(meta) ->
+        model <> " · " <> (meta |> String.split(" · ") |> hd())
+
+      %{compact: compact} ->
+        compact
+    end
+  end
+
+  @doc "Whether a token rate prices this model, so its cost can be estimated."
+  @spec priced?(String.t(), map()) :: boolean()
+  def priced?(target, view) do
+    case ExecutionTarget.parts(target) do
+      %{provider: provider, model: model} ->
+        Enum.any?(view.snapshot.pricing_rates, &(&1.execution_target == "#{provider}:#{model}"))
+
+      nil ->
+        false
+    end
+  end
 
   @doc "The saved values of one section (or one collection row) as form strings."
   @spec draft(map(), map(), term()) :: %{String.t() => String.t()}
@@ -557,7 +763,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
   @spec items(map(), map()) :: [struct()]
   def items(%{key: :pricing}, view), do: view.snapshot.pricing_rates
   def items(%{key: :repositories}, view), do: view.snapshot.repositories
-  def items(%{key: :contexts}, view), do: view.snapshot.contexts
   def items(%{key: :github_bindings}, view), do: view.snapshot.github_bindings
   def items(%{key: :policies}, view), do: view.snapshot.policy_bindings
   def items(%{key: :webhooks}, view), do: view.snapshot.webhook_sources
@@ -650,10 +855,11 @@ defmodule Ryker.ControlPlane.SettingsSections do
     {:ok, value |> String.split([",", " ", "\n", "\t"], trim: true) |> Enum.map(&String.trim/1)}
   end
 
-  defp cast_field(%{kind: kind}, "") when kind in [:text, :select], do: {:ok, nil}
+  defp cast_field(%{kind: kind}, "") when kind in [:text, :select, :choice], do: {:ok, nil}
 
-  defp cast_field(%{kind: kind}, value) when kind in [:text, :select] and is_binary(value),
-    do: {:ok, value}
+  defp cast_field(%{kind: kind}, value)
+       when kind in [:text, :select, :choice] and is_binary(value),
+       do: {:ok, value}
 
   defp cast_field(%{kind: kind}, "") when kind in [:integer, :days, :decimal, :date],
     do: {:ok, nil}
@@ -724,6 +930,17 @@ defmodule Ryker.ControlPlane.SettingsSections do
   def row_value(%{kind: :lifecycle}, scope),
     do: @lifecycle_fields |> Enum.map_join(" · ", &Enum.join(Map.get(scope, &1, []), ","))
 
+  # A fixed choice reads as the words the form offered, not the stored value.
+  def row_value(%{kind: kind, options: options} = field, value)
+      when kind in [:select, :choice] and is_list(options) do
+    stored = form_value(field, value)
+
+    case Enum.find(options, &(elem(&1, 0) == stored)) do
+      nil -> stored
+      option -> elem(option, 1)
+    end
+  end
+
   def row_value(field, value), do: form_value(field, value)
 
   @doc "A saved value rendered for its control."
@@ -745,6 +962,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
   def form_value(%{kind: :decimal}, %Decimal{} = value), do: Decimal.to_string(value, :normal)
   def form_value(_field, value), do: to_string(value)
 
-  defp display_name(%{ref: ref, display_name: nil}), do: ref
-  defp display_name(%{ref: ref, display_name: name}), do: "#{name} (#{ref})"
+  defp display_name(%{ref: ref, display_name: name}) when name in [nil, ""], do: ref
+  defp display_name(%{display_name: name}), do: name
 end

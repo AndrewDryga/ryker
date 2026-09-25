@@ -49,7 +49,7 @@ defmodule Ryker.Admission do
     Records
   }
 
-  alias Ryker.Work.Custody
+  alias Ryker.Work.{Custody, Turn}
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
@@ -134,6 +134,7 @@ defmodule Ryker.Admission do
           ),
         built_at: settings.now,
         candidates: candidates,
+        continuation_window: settings.continuation_window,
         conversation_context: captured.bundle,
         context_manifest: captured.manifest,
         conversation_episode_count: conversation_episode_count(input, entry.execution_mode),
@@ -296,6 +297,16 @@ defmodule Ryker.Admission do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  # Whether a message follows up on finished work is a question about when the
+  # person sent it, not when routing got to it: a delayed or retried routing
+  # must not turn a quick follow-up into background-only work. A clock ahead
+  # of the host's never places the message in the future.
+  defp arrival(%DateTime{} = occurred_at, now) do
+    if DateTime.compare(occurred_at, now) == :lt, do: occurred_at, else: now
+  end
+
+  defp arrival(_occurred_at, now), do: now
 
   defp validate_options(options) when is_list(options) do
     now = Keyword.get(options, :now)
@@ -938,7 +949,8 @@ defmodule Ryker.Admission do
            authority_digest,
            repository_ref,
            repository_context,
-           decision.repository_source
+           decision.repository_source,
+           Map.get(work_policy, :environment_ref)
          ) do
       {:ok, _session} -> :ok
       {:error, _reason} = error -> error
@@ -980,7 +992,10 @@ defmodule Ryker.Admission do
         now: settings.now
       })
 
-    endpoints = input_event_endpoints(Enum.map(selected, & &1.episode.id))
+    episode_ids = Enum.map(selected, & &1.episode.id)
+    endpoints = input_event_endpoints(episode_ids)
+    outcomes = candidate_outcomes(episode_ids)
+    arrived = arrival(input.occurred_at, settings.now)
 
     candidates =
       Enum.map(selected, fn ranked ->
@@ -989,20 +1004,67 @@ defmodule Ryker.Admission do
             Candidate.allowed_relations(ranked.episode, %{
               continuation_window: settings.continuation_window,
               input_repository: entry.repository_ref,
-              now: settings.now,
+              now: arrived,
               pinned_repository: ranked.repository_ref,
               source_owner: ranked.source_owner
             }),
-          digest: RoutingDigests.document(ranked.digest, settings.now),
+          digest: RoutingDigests.document(ranked.digest),
           endpoints: Map.get(endpoints, ranked.episode.id, %{}),
           episode: ranked.episode,
+          idle_minutes: max(div(DateTime.diff(arrived, ranked.episode.updated_at), 60), 0),
           match: Ranking.document(ranked),
+          outcome: Map.get(outcomes, ranked.episode.id),
           same_thread: ranked.features.same_thread,
           source_owner: ranked.source_owner
         })
       end)
 
     {:ok, candidates, receipt}
+  end
+
+  # What each candidate last said or decided: routing chose between earlier
+  # work it knew only by its opening message and the state "complete".
+  @outcome_characters 240
+
+  defp candidate_outcomes([]), do: %{}
+
+  defp candidate_outcomes(episode_ids) do
+    Repo.all(
+      from(turn in Turn,
+        where: turn.episode_id in ^episode_ids,
+        where: not is_nil(turn.accepted_at) and is_nil(turn.operational_pruned_at),
+        distinct: turn.episode_id,
+        order_by: [asc: turn.episode_id, desc: turn.accepted_at, desc: turn.id],
+        select:
+          {turn.episode_id, turn.delivery_document, turn.delivered_at, turn.validation_intent}
+      )
+    )
+    |> Enum.flat_map(fn {episode_id, delivery, delivered_at, intent} ->
+      case outcome(delivery, delivered_at, intent) do
+        nil -> []
+        outcome -> [{episode_id, outcome}]
+      end
+    end)
+    |> Map.new()
+  end
+
+  defp outcome(%{"message" => message}, delivered_at, _intent) when is_binary(message) do
+    prefix = if delivered_at, do: "Replied: ", else: "Reply accepted, not yet delivered: "
+    prefix <> outcome_text(message)
+  end
+
+  defp outcome(_delivery, _delivered_at, %{"result" => %{"decision_reason" => reason}})
+       when is_binary(reason),
+       do: "No reply: " <> outcome_text(reason)
+
+  defp outcome(_delivery, _delivered_at, _intent), do: nil
+
+  defp outcome_text(text) do
+    line = text |> Candidate.model_text() |> String.replace(~r/\s+/, " ")
+
+    if String.length(line) > @outcome_characters,
+      do: String.slice(line, 0, @outcome_characters - 1) <> "…",
+      else: line
   end
 
   defp conversation_episode_count(input, execution_mode) do

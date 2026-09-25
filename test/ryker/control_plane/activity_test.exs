@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{Activity, ActivityPage, HTML, Projection, SlackNames}
+  alias Ryker.ControlPlane.{Activity, ActivityPage, Projection, SlackNames, UsagePage}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Ingress.Inbox
@@ -50,6 +50,26 @@ defmodule Ryker.ControlPlane.ActivityTest do
 
     {:ok, _} = Inbox.record(input)
     assert %{items: [%{title: "@emisar is #test healthy?"}]} = Activity.list(%{})
+  end
+
+  test "an episode reads as the name Work gave it" do
+    # Rows showed each episode's first message; a named episode shows its name.
+    {:ok, %{episode: episode}} = Episodes.apply(Fixtures.admit_input())
+
+    {1, _} =
+      Repo.update_all(
+        from(digest in Ryker.Episodes.RoutingDigest, where: digest.episode_id == ^episode.id),
+        set: [
+          title: "Investigate checkout 502s",
+          title_turn_id: Ecto.UUID.generate(),
+          title_updated_at: DateTime.utc_now()
+        ]
+      )
+
+    assert Activity.request_titles([episode.key])[episode.key].title ==
+             "Investigate checkout 502s"
+
+    assert Enum.any?(Activity.list(%{}).items, &(&1.title == "Investigate checkout 502s"))
   end
 
   test "attachment-only Slack notifications keep readable searchable request titles" do
@@ -292,7 +312,10 @@ defmodule Ryker.ControlPlane.ActivityTest do
   test "activity uses human fallback labels and never passes secrets or shadow traffic as live" do
     {:ok, %{episode: episode}} = Episodes.apply(Fixtures.admit_input())
     assert %{items: [item]} = Activity.list(%{})
-    assert item.title == "Slack conversation · source content unavailable"
+    # Where it came from is the row's own fact; the title said it twice for a
+    # direct conversation ("Direct conversation conversation · ...").
+    assert item.title == "Message text no longer available"
+    assert item.source == "Slack"
     refute item.title =~ episode.key
 
     Repo.update_all(from(e in Ryker.Episodes.Episode, where: e.id == ^episode.id),
@@ -324,7 +347,10 @@ defmodule Ryker.ControlPlane.ActivityTest do
       }
 
       html =
-        snapshot |> Map.put(:models, snapshot.targets) |> HTML.usage() |> IO.iodata_to_binary()
+        snapshot
+        |> Map.put(:models, snapshot.targets)
+        |> UsagePage.render()
+        |> IO.iodata_to_binary()
 
       links =
         html

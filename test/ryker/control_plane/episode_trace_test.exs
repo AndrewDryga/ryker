@@ -100,7 +100,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     refute history =~ "Completed"
     assert Repo.get!(Episode, parent.id).state == :complete
     refute html =~ "Run again"
-    refute html =~ "Model briefing"
+    refute html =~ "Work briefing"
     refute html =~ "Open recovery"
     refute html =~ "lacks Docker"
     assert LazyHTML.query(document, ".episode-metrics") |> Enum.empty?()
@@ -457,6 +457,31 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
     assert {:ok, detail} = Projection.episode(episode.key)
     assert detail.trace.case_file.title == "@emisar is checkout healthy?"
+  end
+
+  # Every episode page was headed by its first message, which rarely says
+  # what the work became. Once a Work answer names the episode, that is the
+  # heading; until then the first message still is.
+  test "the page is headed by the name Work gave the episode once it has one" do
+    {_entry, episode} = admitted_input!()
+    assert {:ok, before} = Projection.episode(episode.key)
+    refute before.trace.case_file.title == "Investigate checkout health"
+
+    {1, _} =
+      Repo.update_all(
+        from(digest in Ryker.Episodes.RoutingDigest, where: digest.episode_id == ^episode.id),
+        set: [
+          title: "Investigate checkout health",
+          title_turn_id: Ecto.UUID.generate(),
+          title_updated_at: DateTime.utc_now()
+        ]
+      )
+
+    assert {:ok, detail} = Projection.episode(episode.key)
+    assert detail.trace.case_file.title == "Investigate checkout health"
+    # The label above the heading no longer claims it is the initial request.
+    assert detail.trace.case_file.title_kind == :episode
+    assert before.trace.case_file.title_kind == :request
   end
 
   test "arbitrary source metadata cannot hide valid message text or crash its preview" do

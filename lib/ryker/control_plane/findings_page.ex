@@ -1,63 +1,74 @@
 defmodule Ryker.ControlPlane.FindingsPage do
-  @moduledoc false
+  @moduledoc """
+  Findings (`/memory/findings`): the conclusions Ryker saved in its
+  investigations, newest first, each with why it holds, the evidence behind
+  it, and the way into the investigation that reached it. Ryker writes these
+  itself; the page only reads them.
+  """
   use Phoenix.Component
 
-  import Ryker.ControlPlane.Components,
-    only: [pager: 1, result_count: 1, timestamp: 1]
+  import Ryker.ControlPlane.Components, only: [pager: 1]
 
-  alias Ryker.ControlPlane.{ConfigurationGuide, SlackMarkdown}
+  alias Phoenix.HTML.Safe
+  alias Ryker.ControlPlane.{Kit, MemoryFormat}
 
-  # Saved investigation conclusions inside the shared shell: the closed help,
-  # the quiet count, then the entries with their evidence links. The shell
-  # renders the title and description; there is no filter here to invent.
+  @doc "The query keys the Findings page reads."
+  def query_keys, do: ["page"]
+
+  @doc "The Findings body for a `FindingsProjection` page."
+  @spec html(map()) :: iodata()
+  def html(view), do: %{__changed__: nil, view: view} |> render() |> Safe.to_iodata()
+
   def render(assigns) do
     ~H"""
-    <div class="findings-view" role="region" aria-label="Investigation findings">
-      <ConfigurationGuide.render page={:findings} />
-      <.result_count count={@view.total} one="finding" many="findings" />
-      <p :if={@view.total == 0} class="empty-state">
-        No findings yet. A conversation note or an alert alone is not an investigation conclusion.
-      </p>
-      <div class="memory-cards">
-        <article :for={item <- @view.items} class="memory-card finding-card" id={"finding-#{item.id}"}>
-          <header>
-            <h2>{classification(item.classification)}</h2>
-            <time datetime={DateTime.to_iso8601(item.at)}>{timestamp(item.at)}</time>
-          </header>
-          <div class="markdown-preview finding-conclusion">
-            {Phoenix.HTML.raw(SlackMarkdown.preview(item.what))}
-          </div>
-          <div :if={item.reason} class="finding-reason">
-            <h3>Why</h3><div class="markdown-preview">
-              {Phoenix.HTML.raw(SlackMarkdown.preview(item.reason))}
-            </div>
-          </div>
-          <p :if={item.scope} class="memory-source">Scope: {item.scope}</p>
-          <section :if={item.evidence != []} class="finding-evidence">
-            <h3>Supporting evidence</h3>
-            <div :for={evidence <- item.evidence}>
-              <div class="markdown-preview">
-                {Phoenix.HTML.raw(SlackMarkdown.preview(evidence.text))}
-              </div>
-              <a :if={evidence.path} href={evidence.path}>{evidence.label} →</a>
-            </div>
-          </section>
-          <footer><a href={item.path}>Open investigation →</a></footer>
-        </article>
-      </div>
+    <div class="memory-view memory-findings">
+      <Kit.entity_list :if={@view.items != []} label="Findings">
+        <Kit.entity_row
+          :for={item <- @view.items}
+          id={"finding-" <> item.id}
+          icon={:search}
+          name={MemoryFormat.inline(item.what)}
+          state={state(item.classification)}
+          text={MemoryFormat.inline(item.reason)}
+          meta={[
+            item.scope,
+            MemoryFormat.time(item.at),
+            MemoryFormat.link("Open investigation", item.path)
+          ]}
+        >
+          <:details :if={item.evidence != []}>
+            <details class="memory-details memory-evidence">
+              <summary>
+                {MemoryFormat.count(length(item.evidence), "piece of evidence", "pieces of evidence")}
+              </summary>
+              <ul>
+                <li :for={evidence <- item.evidence}>
+                  <span>{MemoryFormat.inline(evidence.text)}</span>
+                  <a :if={evidence.path} href={evidence.path}>{evidence.label}</a>
+                </li>
+              </ul>
+            </details>
+          </:details>
+        </Kit.entity_row>
+      </Kit.entity_list>
+      <Kit.empty
+        :if={@view.items == []}
+        title="No findings yet"
+        text="When Ryker investigates a problem, it saves what it concluded here, with the evidence behind it."
+      />
       <.pager
         page={@view.page}
         pages={@view.pages}
-        path={&"/findings?page=#{&1}"}
+        path={&"/memory/findings?page=#{&1}"}
         label="Finding pages"
       />
     </div>
     """
   end
 
-  defp classification("unexplained"), do: "Not explained yet"
-  defp classification("explained"), do: "Explained by evidence"
-  defp classification("expected"), do: "Expected behavior"
-  defp classification("out_of_scope"), do: "Outside this investigation"
-  defp classification(_), do: "Finding recorded"
+  defp state("unexplained"), do: {:warn, "Not explained yet"}
+  defp state("explained"), do: {:on, "Explained"}
+  defp state("expected"), do: {:off, "Expected"}
+  defp state("out_of_scope"), do: {:off, "Out of scope"}
+  defp state(_classification), do: nil
 end

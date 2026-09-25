@@ -5,18 +5,24 @@ defmodule Ryker.Work.Final do
   Human prose stays in `message`. Durable questions, waits, evidence, memory,
   tasks, and artifacts are referenced by their host-issued record IDs rather
   than copied into a large result envelope.
+
+  `title` names the episode in one line, or is null to keep its current name.
+  The schema requires the property so strict providers always answer it; the
+  parser also accepts a recorded answer without it, which keeps the name.
   """
 
   @deliveries [:reply, :none]
   @states [:complete, :waiting_for_input, :waiting_for_event]
   @fields ~w(decision_reason delivery message outcome)
+  @title_length 80
+  @title_pattern "^[^\\n\\r\\x00]*[^\\s\\x00][^\\n\\r\\x00]*$"
   @outcome_fields ~w(artifact_refs record_refs state)
   @nonblank_pattern "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
   @reference_pattern "^[A-Za-z0-9_.:-]{1,256}$"
   @reference_regex ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
   @enforce_keys [:artifact_refs, :decision_reason, :delivery, :message, :record_refs, :state]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [title: nil, titled?: false]
 
   @type t :: %__MODULE__{
           artifact_refs: [String.t()],
@@ -24,16 +30,19 @@ defmodule Ryker.Work.Final do
           delivery: :reply | :none,
           message: String.t() | nil,
           record_refs: [String.t()],
-          state: :complete | :waiting_for_input | :waiting_for_event
+          state: :complete | :waiting_for_input | :waiting_for_event,
+          title: String.t() | nil,
+          titled?: boolean()
         }
 
   @spec parse(map()) :: {:ok, t()} | {:error, term()}
   def parse(%{} = document) do
-    with :ok <- exact_fields(document, @fields, :fields),
+    with :ok <- exact_fields(Map.delete(document, "title"), @fields, :fields),
          {:ok, delivery} <- enum(document["delivery"], @deliveries, :delivery),
          :ok <- delivery_shape(delivery, document["message"], document["decision_reason"]),
          {:ok, outcome} <- outcome(document["outcome"]),
-         :ok <- state_delivery(delivery, outcome) do
+         :ok <- state_delivery(delivery, outcome),
+         :ok <- title(document["title"]) do
       {:ok,
        %__MODULE__{
          artifact_refs: outcome.artifact_refs,
@@ -41,15 +50,29 @@ defmodule Ryker.Work.Final do
          delivery: delivery,
          message: document["message"],
          record_refs: outcome.record_refs,
-         state: outcome.state
+         state: outcome.state,
+         title: document["title"],
+         titled?: Map.has_key?(document, "title")
        }}
     end
   end
 
   def parse(_document), do: {:error, {:invalid_work_final, :type}}
 
+  # The exact candidate back, title included only when it was answered: the
+  # final preflight compares digests of this document and the returned answer.
   @spec document(t()) :: map()
   def document(%__MODULE__{} = final) do
+    document = delivery_document(final)
+    if final.titled?, do: Map.put(document, "title", final.title), else: document
+  end
+
+  @doc """
+  What delivery sends: the message and its outcome. The title names the
+  episode and is saved with the accepted answer; it is never delivered.
+  """
+  @spec delivery_document(t()) :: map()
+  def delivery_document(%__MODULE__{} = final) do
     %{
       "decision_reason" => final.decision_reason,
       "delivery" => Atom.to_string(final.delivery),
@@ -103,9 +126,10 @@ defmodule Ryker.Work.Final do
           },
           "required" => @outcome_fields,
           "type" => "object"
-        }
+        },
+        "title" => title_schema()
       },
-      "required" => @fields,
+      "required" => @fields ++ ["title"],
       "title" => "Ryker episode result",
       "type" => "object"
     }
@@ -128,12 +152,34 @@ defmodule Ryker.Work.Final do
           },
           "required" => @outcome_fields,
           "type" => "object"
-        }
+        },
+        "title" => title_schema()
       },
-      "required" => @fields,
+      "required" => @fields ++ ["title"],
       "title" => "Ryker observe-only evaluation result",
       "type" => "object"
     }
+  end
+
+  defp title_schema,
+    do: %{
+      "anyOf" => [
+        %{
+          "maxLength" => @title_length,
+          "minLength" => 1,
+          "pattern" => @title_pattern,
+          "type" => "string"
+        },
+        %{"type" => "null"}
+      ]
+    }
+
+  defp title(nil), do: :ok
+
+  defp title(value) do
+    if bounded_text?(value, @title_length) and not String.contains?(value, ["\n", "\r"]),
+      do: :ok,
+      else: {:error, {:invalid_work_final, :title}}
   end
 
   defp outcome(%{} = value) do

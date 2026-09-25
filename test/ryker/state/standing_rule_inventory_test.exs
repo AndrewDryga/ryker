@@ -65,6 +65,54 @@ defmodule Ryker.State.StandingRuleInventoryTest do
     assert Enum.all?(inventory.entries, &is_integer(&1["revision"]))
   end
 
+  test "a verdict keeps what the rule looked for and what the message showed" do
+    # The inventory said "matched" or "did not match" and nothing else, so an
+    # operator could not tell whether the sender, the trigger or the channel
+    # decided it. Each condition's result is frozen with the verdict.
+    offers = offer_source!("evidence")
+    plan = rule!(offers, "plan", trigger: "terraform_plan")
+    deploy = rule!(offers, "deploy", trigger: "deployment")
+    people = rule!(offers, "people", trigger: "terraform_plan", source_filter: "human")
+    paused = rule!(offers, "paused", trigger: "terraform_plan", status: :disabled)
+
+    assert {:ok, inventory} =
+             Behaviors.record_rule_inventory(terraform_input(:app), "input:evidence")
+
+    entries = Map.new(inventory.entries, &{&1["ref"], &1})
+
+    assert entries[plan.ref]["verdict"] == "matched"
+
+    assert entries[plan.ref]["criteria"] == %{
+             "source_filter" => "app",
+             "trigger" => "terraform_plan"
+           }
+
+    assert entries[plan.ref]["evidence"] == %{
+             "event_class" => nil,
+             "sender" => "app",
+             "sender_matches" => true,
+             "trigger_matches" => true,
+             "trigger_text" => "Terraform plan"
+           }
+
+    assert entries[deploy.ref]["verdict"] == "not_matched"
+    assert entries[deploy.ref]["evidence"]["sender_matches"]
+    refute entries[deploy.ref]["evidence"]["trigger_matches"]
+    assert entries[deploy.ref]["evidence"]["trigger_text"] == nil
+
+    # The sender decided this one, and the reason says so in plain words.
+    assert entries[people.ref]["verdict"] == "not_matched"
+    refute entries[people.ref]["evidence"]["sender_matches"]
+    assert entries[people.ref]["evidence"]["trigger_matches"]
+
+    assert entries[people.ref]["reason"] ==
+             "This message came from an app; this rule only applies to messages from people."
+
+    # A rule whose trigger was never checked has criteria but no evidence.
+    assert entries[paused.ref]["criteria"]["trigger"] == "terraform_plan"
+    assert entries[paused.ref]["evidence"] == nil
+  end
+
   test "recording the inventory changes nothing about which rules fire" do
     offers = offer_source!("scheduling")
     matched = rule!(offers, "fires", trigger: "terraform_plan")

@@ -15,8 +15,6 @@ defmodule Ryker.ControlPlane.ChannelContext do
     BehaviorPage,
     ChannelScope,
     ConversationMemory,
-    InspectionRedactor,
-    LearningActivity,
     PagedRelation
   }
 
@@ -28,15 +26,12 @@ defmodule Ryker.ControlPlane.ChannelContext do
   alias Ryker.State.{
     Behavior,
     ConversationKnowledge,
-    ConversationRollup,
     ConversationSummary,
     ConversationSummaryDraft,
     MemoryEntry
   }
 
   alias Ryker.Work.Turn
-
-  @batch_states ~w(queued running applied no_change deferred superseded)a
 
   @doc """
   Standing rules that target exactly this conversation and are current.
@@ -76,7 +71,10 @@ defmodule Ryker.ControlPlane.ChannelContext do
     %{relation | items: items}
   end
 
-  @doc "Active preferences effective here through exact, configured-repository or workspace scope."
+  @doc """
+  Active preferences effective here through exact, repository or workspace
+  scope; the repository is the one the channel's environment changes.
+  """
   @spec preferences(ChannelScope.t(), map()) :: PagedRelation.t()
   def preferences(scope, params) do
     relation =
@@ -87,7 +85,14 @@ defmodule Ryker.ControlPlane.ChannelContext do
     items =
       Enum.map(relation.items, fn behavior ->
         payload = safe_payload(behavior)
-        Map.merge(confirmed(behavior, payload), %{key: payload["key"], value: payload["value"]})
+
+        behavior
+        |> confirmed(payload)
+        |> Map.merge(%{
+          key: payload["key"],
+          value: payload["value"],
+          library_path: saved_instructions()
+        })
       end)
 
     %{relation | items: items}
@@ -121,7 +126,8 @@ defmodule Ryker.ControlPlane.ChannelContext do
           title: BehaviorPage.subject(%{kind: :guidance, payload: payload}),
           summary: payload["summary"],
           text: payload["text"],
-          visibility: payload["visibility"]
+          visibility: payload["visibility"],
+          library_path: saved_instructions()
         })
       end)
 
@@ -193,8 +199,9 @@ defmodule Ryker.ControlPlane.ChannelContext do
     )
   end
 
-  # Exact conversation, the configured repository when there is one, or the
-  # workspace. Operator scope needs an actor context the page does not have.
+  # Exact conversation, the repository the channel's environment changes
+  # when there is one, or the workspace. Operator scope needs an actor
+  # context the page does not have.
   defp scoped(%ChannelScope{repository_ref: repository} = scope) when is_binary(repository) do
     dynamic(
       [row],
@@ -229,6 +236,10 @@ defmodule Ryker.ControlPlane.ChannelContext do
   end
 
   defp safe_payload(behavior), do: BehaviorLibrary.sanitize(%{payload: behavior.payload}).payload
+
+  # Preferences and guidance are listed, and paged, under one section of the
+  # Instructions page; the section is the address that always exists.
+  defp saved_instructions, do: "/instructions#saved"
 
   defp confirmed(behavior, payload) do
     %{
@@ -319,43 +330,6 @@ defmodule Ryker.ControlPlane.ChannelContext do
     )
   end
 
-  @doc "Unexpired compacted continuity scoped to exactly this conversation."
-  @spec rollups(ChannelScope.t(), map()) :: PagedRelation.t()
-  def rollups(scope, params) do
-    relation =
-      from(rollup in ConversationRollup,
-        where:
-          rollup.workspace_ref == ^scope.canonical_workspace_ref and
-            rollup.scope_kind == :conversation and
-            rollup.scope_ref == ^scope.conversation_ref and
-            rollup.expires_at > fragment("clock_timestamp()"),
-        select: %{
-          expires_at: rollup.expires_at,
-          last_recalled_at: rollup.last_recalled_at,
-          period_end: rollup.period_end,
-          period_start: rollup.period_start,
-          recall_count: rollup.recall_count,
-          ref: rollup.ref,
-          repository_ref: rollup.repository_ref,
-          source_count: rollup.source_count,
-          state: rollup.state,
-          updated_at: rollup.updated_at
-        }
-      )
-      |> read("rollup_page", [desc: :period_end, desc: :id], params)
-
-    secrets = InspectionRedactor.configured_secrets()
-
-    items =
-      Enum.map(relation.items, fn rollup ->
-        rollup
-        |> Map.delete(:state)
-        |> Map.merge(ConversationMemory.continuity_state(rollup.state, secrets))
-      end)
-
-    %{relation | items: items}
-  end
-
   @doc "Learned knowledge scoped to exactly this conversation, with its recall availability."
   @spec knowledge(ChannelScope.t(), map()) :: PagedRelation.t()
   def knowledge(scope, params) do
@@ -384,7 +358,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
           source_at: item.latest_source_at,
           expires_at: presented.expires_at,
           request_path: presented.request_path,
-          path: "/memory?" <> URI.encode_query(%{"kind" => "knowledge", "item" => item.id})
+          path: ConversationMemory.topic_path(item.id)
         }
       end)
 
@@ -392,38 +366,31 @@ defmodule Ryker.ControlPlane.ChannelContext do
   end
 
   @doc """
-  Learning batches for exactly this conversation, with the queue health beside them.
-
-  Runs and attempts stay behind each batch on the learning inspection.
+  How learning from this conversation stands: messages still waiting to be
+  learned from and batches that need a person. Counts only; the batches
+  themselves are on the Learning page.
   """
-  @spec learning(ChannelScope.t(), map()) :: map()
-  def learning(scope, params) do
-    batches =
-      from(batch in Batch,
-        where: batch.transport == "slack" and batch.conversation_ref == ^scope.conversation_ref
+  @spec learning_status(ChannelScope.t()) :: %{
+          enabled: boolean(),
+          needs_attention: non_neg_integer(),
+          waiting: non_neg_integer()
+        }
+  def learning_status(scope) do
+    needs_attention =
+      Repo.aggregate(
+        from(batch in Batch,
+          where:
+            batch.transport == "slack" and batch.conversation_ref == ^scope.conversation_ref and
+              batch.status == :deferred
+        ),
+        :count
       )
 
-    relation = read(batches, "learning_page", [desc: :inserted_at, desc: :id], params)
-
-    counts =
-      Map.new(@batch_states, &{&1, 0})
-      |> Map.merge(
-        Map.new(
-          Repo.all(
-            from(batch in batches,
-              group_by: batch.status,
-              select: {batch.status, count(batch.id)}
-            )
-          )
-        )
-      )
-
-    Map.merge(relation, %{
-      items: Enum.map(relation.items, &LearningActivity.batch/1),
-      counts: counts,
-      waiting_inputs: waiting_inputs(scope),
-      enabled: not is_nil(Application.get_env(:ryker, :learning))
-    })
+    %{
+      enabled: not is_nil(Application.get_env(:ryker, :learning)),
+      needs_attention: needs_attention,
+      waiting: waiting_inputs(scope)
+    }
   end
 
   # Retained messages from this conversation that no settled batch has learned

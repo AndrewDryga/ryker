@@ -107,7 +107,12 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
 
     actions =
       Actions.callbacks(profile(), %{
-        "ryker" => %{name: "ryker-contributor", digest: @digest}
+        "production" => %{
+          name: "ryker-contributor",
+          digest: @digest,
+          environment_ref: "production",
+          repository_ref: "ryker"
+        }
       })
 
     assert {:ok, confirmation} =
@@ -133,7 +138,12 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
 
     actions =
       Actions.callbacks(profile(), %{
-        "ryker" => %{name: "ryker-contributor", digest: @digest}
+        "production" => %{
+          name: "ryker-contributor",
+          digest: @digest,
+          environment_ref: "production",
+          repository_ref: "ryker"
+        }
       })
 
     assert {:ok, confirmation} =

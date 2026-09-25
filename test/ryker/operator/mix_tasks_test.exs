@@ -251,7 +251,6 @@ defmodule Ryker.Operator.MixTasksTest do
                 workspace_ref: "T123",
                 bot_ref: "A123",
                 bot_user_ref: "U999",
-                default_repository_ref: "ryker",
                 operators: [operator]
               },
               saved.installation.revision,

@@ -1,12 +1,38 @@
 defmodule Ryker.Episodes.RoutingDigestsTest do
   use Ryker.DataCase, async: true
 
+  import Ecto.Query
+
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, RoutingDigests}
   alias Ryker.Ingress.Input
   alias Ryker.Slack.Input, as: SlackInput
 
   @now ~U[2026-09-11 08:00:00.000000Z]
+
+  test "a link is searched as a link, never cut into words" do
+    # 2026-09-24: the first search card to show its words listed a Kubernetes
+    # docs link cut at 80 characters, plus its tail "bes/" as a word of its own.
+    text =
+      "Why would a Kubernetes readiness probe keep failing after a deploy? See " <>
+        "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+    words = RoutingDigests.search_words(text)
+    assert words == ~w(kubernetes readiness probe failing deploy)
+    refute Enum.any?(words, &String.contains?(&1, "/"))
+    assert RoutingDigests.search_terms(text) == Enum.map_join(words, " | ", &"'#{&1}'")
+  end
+
+  test "words that say nothing about the subject are not searched" do
+    # Andrew, 2026-09-25, reading that card: "why do we search by 'see'?"
+    # Every "see", "please" or "keep" matched unrelated past work as strongly
+    # as the words that named the problem, and crowded it out of the list.
+    assert RoutingDigests.search_words(
+             "Hey, can you please check why checkout keeps timing out since the deploy? Thanks!"
+           ) == ~w(checkout timing deploy)
+
+    assert RoutingDigests.search_words("hello there, thanks!") == []
+  end
 
   test "the digest keeps the material middle input that misleading endpoints would hide" do
     # Candidate previews only ever showed the first and latest inputs, so the
@@ -59,17 +85,39 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
     assert DateTime.compare(second.covered_through_at, first.covered_through_at) == :gt
   end
 
-  test "a digest reports coverage rather than pretending to be current" do
-    episode = admit!("digest:stale", "Database is unavailable")
+  test "routing reads the work's own name and size from its digest, not its messages again" do
+    # The digest's objective was the first message verbatim in 48 of 49 routed
+    # candidates, beside a first-message preview that said the same thing.
+    episode = admit!("digest:facts", "Database is unavailable")
+    admit_more!(episode, "Replica recovered", channel_ref: "CALERTS")
+
+    assert RoutingDigests.document(RoutingDigests.fetch(episode.id)) == %{
+             "conversations" => 2,
+             "message_count" => 2,
+             "title" => nil
+           }
+  end
+
+  # Candidates were known to routing only by their first and latest messages.
+  # The name Work gave the episode travels with its digest, and a new message
+  # never erases it.
+  test "routing reads the episode's own title beside its source text, and new input keeps it" do
+    episode = admit!("digest:title", "Something is off with checkout")
+    assert RoutingDigests.document(RoutingDigests.fetch(episode.id))["title"] == nil
+
+    turn_id = Ecto.UUID.generate()
+
+    Repo.update_all(
+      from(digest in Ryker.Episodes.RoutingDigest, where: digest.episode_id == ^episode.id),
+      set: [title: "Investigate checkout 502s", title_turn_id: turn_id, title_updated_at: @now]
+    )
+
+    admit_more!(episode, "It is back to normal now")
     digest = RoutingDigests.fetch(episode.id)
-    document = RoutingDigests.document(digest, DateTime.add(@now, 3 * 24 * 60 * 60, :second))
 
-    assert document["covered_through"] == DateTime.to_iso8601(digest.covered_through_at)
-    assert document["freshness"] == "stale"
-    assert document["input_count"] == 1
-
-    fresh = RoutingDigests.document(digest, DateTime.add(@now, 60, :second))
-    assert fresh["freshness"] == "current"
+    assert RoutingDigests.document(digest)["title"] == "Investigate checkout 502s"
+    assert digest.objective =~ "Something is off with checkout"
+    assert digest.title_turn_id == turn_id
   end
 
   defp admit!(key, text, options \\ []) do

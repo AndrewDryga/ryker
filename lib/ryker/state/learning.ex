@@ -393,6 +393,54 @@ defmodule Ryker.State.Learning do
     end)
   end
 
+  @doc """
+  Stop an attempt whose worker session can never be addressed again, on local
+  proof alone: the submission revision is frozen before any turn is sent and
+  cannot be frozen after this stop, so an attempt without one has no model
+  turn. Whatever session the worker kept belongs to cleanup.
+  """
+  def record_unaddressable_stop(id, reason, claim) when is_binary(reason) do
+    owned_transaction(id, claim, fn run ->
+      unless run.status in [:stale, :rejected] and is_nil(run.submit_revision) and
+               is_nil(run.coop_turn_id),
+             do: Repo.rollback(:learning_absence_unconfirmed)
+
+      session = Repo.get_by(Session, execution_kind: :learning, learning_run_id: id)
+
+      store_stop(run, %{
+        "kind" => "never_submitted",
+        "reason" => reason,
+        "session" => "unaddressable",
+        "session_id" => session && session.coop_session_id
+      })
+    end)
+  end
+
+  @doc """
+  Stop an attempt whose turn may have reached the model once no turn of it can
+  still be running, whatever its worker last said. A turn is sent only inside
+  the attempt's execution window and no Coop turn outlives a day, so the
+  caller passes both; the database clock decides. Whatever session the worker
+  kept belongs to cleanup.
+  """
+  def record_expired_stop(id, closed_after_seconds, claim)
+      when is_integer(closed_after_seconds) and closed_after_seconds > 0 do
+    owned_transaction(id, claim, fn run ->
+      unless run.status in [:stale, :rejected] and not is_nil(run.started_at) and
+               DateTime.diff(Repo.now!(), run.started_at) >= closed_after_seconds,
+             do: Repo.rollback(:learning_remote_unresolved)
+
+      session = Repo.get_by(Session, execution_kind: :learning, learning_run_id: id)
+
+      store_stop(run, %{
+        "kind" => "attempt_expired",
+        "closed_after_seconds" => closed_after_seconds,
+        "session_id" => session && session.coop_session_id,
+        "turn_id" => run.coop_turn_id
+      })
+    end)
+  end
+
   def operation_key(%LearningRun{id: id}, phase) when phase in [:create, :submit, :cancel],
     do: "ryker:learning:#{phase}:#{id}"
 

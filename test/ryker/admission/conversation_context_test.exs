@@ -5,14 +5,20 @@ defmodule Ryker.Admission.ConversationContextTest do
 
   alias Ryker.Admission.{ConversationContext, ConversationSummaries}
   alias Ryker.CanonicalJSON
+  alias Ryker.Episodes
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.State.ConversationSummary
+  alias Ryker.Work.{Custody, Turn}
 
   @workspace "TROUTE"
-  @channel "CDEVOPS"
+  # This module's own channel: its Ryker replies admit episodes, and async
+  # modules that share a conversation take its admission lock in opposite
+  # orders and deadlock under load.
+  @channel "CCONVERSATIONCONTEXT"
   @now ~U[2026-09-11 12:00:00.000000Z]
 
   test "a thread reply receives its root and the twenty messages that precede it in that thread" do
@@ -90,6 +96,54 @@ defmodule Ryker.Admission.ConversationContextTest do
 
     %{bundle: bundle} = ConversationContext.capture(current)
     assert Enum.map(bundle["messages"], & &1["content"]["text"]) == [ignored.content["text"]]
+  end
+
+  test "Ryker's own delivered replies sit between the messages they answered" do
+    # Routing and Work saw what people said but never what Ryker had answered, so
+    # "add the word confirmed after the reply above" was decided without the reply.
+    record!("What is the deploy status?", ts: "1789000020.000100")
+    reply!("The deploy is healthy.", ts: "1789000021.000100")
+    record!("And the database?", ts: "1789000022.000100")
+    current = record!("Add the word confirmed after your last reply", ts: "1789000023.000100")
+    # Sent after the message being decided: never part of its context.
+    reply!("Arrived while deciding.", ts: "1789000024.000100")
+
+    %{bundle: bundle, manifest: manifest} = ConversationContext.capture(current)
+
+    assert Enum.map(bundle["messages"], &{&1["actor_ref"] == "ryker", &1["content"]["text"]}) == [
+             {false, "What is the deploy status?"},
+             {true, "The deploy is healthy."},
+             {false, "And the database?"}
+           ]
+
+    assert manifest["included"] == 3
+  end
+
+  test "Ryker's replies follow the thread scope and are not repeated by a provider read" do
+    root = record!("Database is unavailable", ts: "1789000030.000100")
+
+    reply!("Looking at the primary now.",
+      ts: "1789000031.000100",
+      thread_ref: root.source_item_ref
+    )
+
+    reply!("A reply in another thread.", ts: "1789000032.000100", thread_ref: "1789000001.000100")
+
+    current =
+      record!("Any update?", ts: "1789000033.000100", thread_ref: root.source_item_ref)
+
+    # Slack's own history returns Ryker's post under its bot identity; the
+    # delivered reply is the same message and keeps Ryker's name.
+    reader =
+      {Ryker.Admission.ConversationContextTest.FakeReader,
+       [%{"ts" => "1789000031.000100", "text" => "Looking at the primary now.", "bot_id" => "B1"}]}
+
+    %{bundle: bundle} = ConversationContext.capture(current, reader: reader)
+
+    assert Enum.map(bundle["messages"], &{&1["actor_ref"] == "ryker", &1["content"]["text"]}) == [
+             {false, "Database is unavailable"},
+             {true, "Looking at the primary now."}
+           ]
   end
 
   test "the root is kept even when it is older than the twenty-message window" do
@@ -219,6 +273,48 @@ defmodule Ryker.Admission.ConversationContextTest do
 
     {:ok, %{entry: entry}} = Inbox.record(input)
     entry
+  end
+
+  # A reply Ryker delivered into this Slack conversation. Only the turn's
+  # delivered receipt matters to context capture.
+  defp reply!(text, options) do
+    ts = Keyword.fetch!(options, :ts)
+    thread_ref = Keyword.get(options, :thread_ref)
+    conversation_ref = "slack:#{@workspace}:#{@channel}"
+    episode_id = Ecto.UUID.generate()
+
+    {:ok, _transition} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          destination: %{
+            conversation_ref: conversation_ref,
+            thread_ref: thread_ref || ts,
+            transport: "slack"
+          },
+          episode_id: episode_id,
+          episode_key: "reply-context:#{episode_id}",
+          native_input_id: "reply-context:#{episode_id}",
+          occurred_at: slack_time(ts),
+          turn_ref: "turn:reply-context:#{episode_id}"
+        })
+      )
+
+    {:ok, _session} = Custody.pin_episode(episode_id, "reply-context", String.duplicate("a", 64))
+    {:ok, claim} = Custody.claim_next("reply-context:#{episode_id}", 60, :work)
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id),
+      set: [
+        delivery_document: %{"delivery" => "reply", "message" => text},
+        external_receipt: %{
+          "conversation_ref" => conversation_ref,
+          "delivery_ref" => "delivery:#{episode_id}",
+          "message_ref" => ts,
+          "thread_ref" => thread_ref,
+          "transport" => "slack"
+        },
+        delivered_at: slack_time(ts)
+      ]
+    )
   end
 
   defp summary!(entry, thread_ref, source_message_ref, updated_at) do

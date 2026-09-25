@@ -28,6 +28,7 @@ defmodule Ryker.Emisar.EndToEndTest do
   @now ~U[2026-08-29 12:00:00.000000Z]
   @policy_digest String.duplicate("a", 64)
   @connection_ref "production"
+  @environment_ref "production"
 
   setup do
     {:ok, snapshot} = Settings.initialize("control-plane:local")
@@ -49,12 +50,11 @@ defmodule Ryker.Emisar.EndToEndTest do
       )
 
     {:ok, _snapshot} =
-      Settings.put_emisar_binding(
+      Settings.put_environment(
         %{
-          scope_kind: :installation_purpose,
-          scope_ref: "standard",
-          purpose: :standard,
-          connection_ref: @connection_ref
+          ref: @environment_ref,
+          display_name: "Production",
+          emisar_connection_ref: @connection_ref
         },
         snapshot.installation.revision,
         "control-plane:local"
@@ -443,7 +443,18 @@ defmodule Ryker.Emisar.EndToEndTest do
       })
 
     assert {:ok, _transition} = Episodes.apply(command)
-    assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", @policy_digest)
+
+    assert {:ok, _session} =
+             Custody.pin_episode(
+               id,
+               "work-read-only",
+               @policy_digest,
+               nil,
+               nil,
+               nil,
+               nil,
+               @environment_ref
+             )
 
     Episode
     |> Repo.get!(id)

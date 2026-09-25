@@ -1,5 +1,10 @@
 defmodule Ryker.ControlPlane.ConversationMemory do
-  @moduledoc "Searchable, source-linked operator view of learned conversation context."
+  @moduledoc """
+  The Learned page's read model: searchable, source-linked topics and
+  conversation summaries, one topic's update history and how each update was
+  learned, the source messages behind a record, and the relearning picker
+  for a topic whose sources are gone.
+  """
   import Ecto.Query
 
   alias Ryker.ControlPlane.{
@@ -30,6 +35,10 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   @page_size 30
   @history_size 50
   @expired_text "Saved text expired under the conversation memory retention policy."
+  @query_keys ~w(kind q page item update history_page related_to rebuild_q rebuild_page)
+
+  @doc "The query keys the Learned page reads."
+  def query_keys, do: @query_keys
 
   def project(params) do
     sources = from(source in ConversationObservation, where: not is_nil(source.note))
@@ -68,7 +77,6 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     available_ids = if kind == "knowledge", do: available_ids(items), else: MapSet.new()
     source_counts = source_counts(knowledge_ids)
     history = history(selected, kind, secrets, params)
-    learning_activity = LearningActivity.project(params)
 
     %{
       counts: counts,
@@ -84,8 +92,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       history: history.items,
       history_page: history.page,
       history_pages: history.pages,
-      learning_activity: learning_activity,
-      learning: learning_receipt(learning_activity.selected, kind, selected, params, secrets),
+      learning: learning_receipt(kind, selected, params, secrets),
       items:
         Enum.map(items, fn row ->
           rendered = item(row, episodes, secrets)
@@ -121,8 +128,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   end
 
   @doc """
-  Presents learned rows the way `/memory` does: sanitized state, safe titles,
-  source links and retention, never a raw payload or dependency list.
+  Presents learned rows the way `/memory/learned` does: sanitized state, safe
+  titles, source links and retention, never a raw payload or dependency list.
   """
   @spec present([struct()]) :: [map()]
   def present(rows) when is_list(rows) do
@@ -184,14 +191,12 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp rebuild(_, _, _, _), do: nil
 
-  # A selected learning attempt outranks the selected topic's own receipt.
-  defp learning_receipt(%{id: batch_id}, _kind, _selected, params, secrets),
-    do: LearningReceipt.project_attempt(batch_id, params["attempt"], secrets)
-
-  defp learning_receipt(nil, "knowledge", selected, params, secrets),
+  # How one update of the open topic was learned; the Learning page owns the
+  # receipts of attempts that belong to a batch.
+  defp learning_receipt("knowledge", selected, params, secrets) when is_binary(selected),
     do: LearningReceipt.project(selected, params["update"], secrets)
 
-  defp learning_receipt(nil, _kind, _selected, _params, _secrets), do: nil
+  defp learning_receipt(_kind, _selected, _params, _secrets), do: nil
 
   # The operator can inspect withdrawn history, but its recall label must apply
   # the same inherited-source visibility and retention fences as model recall.
@@ -225,12 +230,14 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp source_parent("knowledge:" <> id, secrets) do
     with id when is_binary(id) <- selected_id(id),
          %ConversationKnowledge{} = knowledge <- Repo.get(ConversationKnowledge, id) do
+      title = knowledge_title(knowledge, secrets)
+
       %{
-        back_label: "Knowledge",
-        back_path: "/memory?" <> URI.encode_query(%{"item" => id, "kind" => "knowledge"}),
+        back_label: title,
+        back_path: topic_path(id),
         ref: "knowledge:#{id}",
         source_ids: source_ids(knowledge.source_dependencies),
-        title: knowledge_title(knowledge, secrets)
+        title: title
       }
     else
       _ -> nil
@@ -241,8 +248,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     with id when is_binary(id) <- selected_id(id),
          %ConversationSummary{} = summary <- Repo.get(ConversationSummary, id) do
       %{
-        back_label: "Conversation context",
-        back_path: "/memory?kind=context#memory-#{id}",
+        back_label: "Conversation summaries",
+        back_path: "/memory/learned?kind=context#summary-#{id}",
         ref: "context:#{id}",
         source_ids: source_ids(summary.source_dependencies),
         title: continuity_state(summary.state, secrets).title
@@ -267,11 +274,14 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     end
   end
 
+  @doc "Where one learned topic opens: its full text, history and sources."
+  def topic_path(id), do: "/memory/learned?" <> URI.encode_query(%{"item" => id})
+
   defp source_path(_kind, _id, 0), do: nil
 
   defp source_path(kind, id, _count),
     do:
-      "/memory?" <>
+      "/memory/learned?" <>
         URI.encode_query(%{"kind" => "sources", "related_to" => "#{kind}:#{id}"})
 
   defp selected_kind(value, _) when value in ["knowledge", "context"], do: value

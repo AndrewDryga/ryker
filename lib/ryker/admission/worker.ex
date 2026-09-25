@@ -66,6 +66,10 @@ defmodule Ryker.Admission.Worker do
         Logger.warning("admission input #{input_ref} blocked: #{inspect(reason)}")
         0
 
+      {:ok, {:closed, input_ref, reason}} ->
+        Logger.info("admission input #{input_ref} closed unread: #{inspect(reason)}")
+        0
+
       {:error, reason} ->
         Logger.error("admission dispatcher failed: #{inspect(reason)}")
         idle_delay

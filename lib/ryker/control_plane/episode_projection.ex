@@ -99,6 +99,12 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
              # joined on.
              id: episode.id,
              transport: episode.destination_transport,
+             conversation_link:
+               Activity.conversation_link(
+                 episode.destination_transport,
+                 episode.destination_conversation_ref,
+                 episode.execution_mode
+               ),
              next_action: trace.next_action,
              ref: episode.key,
              state: episode.state,

@@ -18,11 +18,12 @@ infrastructure product Ryker works through; it is named in the manifest only in 
    schema does not expose an icon field, so this is a separate one-time setting.
 4. Under **App-Level Tokens**, generate a token with `connections:write`.
 5. Install the app to the workspace and copy its bot token.
-6. Open **Settings → Connections → Slack** in Ryker and paste both tokens once. Ryker verifies
+6. Open **Integrations → Slack** in Ryker and paste both tokens once. Ryker verifies
    them, discovers the workspace, app and bot identities, and stores the tokens encrypted. Do not
    type those IDs yourself.
-7. Invite `@Ryker` to the channels where it should work. Ryker detects those invitations; select
-   each channel's repository and participation settings in the guided setup.
+7. Invite `@Ryker` to the channels where it should work. Ryker detects those invitations and
+   starts each channel in the default environment (or none, when no environment is the default);
+   choose a channel's environment and participation in the guided setup or on its page in Ryker.
 
 When updating an existing app, apply the new manifest. On an app created before 2026-09-13 this
 renames the app and bot from `Emisar` to `Ryker`, the slash command from `/responder` to `/ryker`
@@ -81,8 +82,9 @@ retired verb answers with the one line naming which.
 
 Inviting `@Ryker` to a channel first offers safe mention-only and proactive defaults plus a
 **Customize** path. Customize starts a four-question setup conversation. A configured operator chooses
-mention-only, proactive, or shadow participation; a configured repository; app-alert escalation;
-and the incident audience. Answers may be replies in the setup thread or top-level messages from
+mention-only, proactive, or shadow participation; the channel's environment, or No environment,
+which answers without any repos or Emisar and is never the default; app-alert escalation; and the
+incident audience. Answers may be replies in the setup thread or top-level messages from
 the setup initiator while the 30-minute session is active. The final card shows the normalized
 typed configuration and safety boundary. No setting changes until an operator selects **Save
 configuration**. Slack user mentions are membership-checked, user groups are resolved through
@@ -144,18 +146,28 @@ An explicit repository-change request can return a concise **Start task** confir
 Confirmation by any active full workspace member starts an engineering task in the source Slack
 thread and creates an isolated writable Coop fork; the rest of the shared channel remains read-only.
 Active full members can collaborate there, edit, test, and commit repository files under Coop
-contributor policy and review the changes. The contributor session omits shared operational MCP and
-environment credentials. The confirmation itself grants the draft pull request for that repository,
+contributor policy and review the changes. The task runs in its conversation's environment, under
+that environment's contributor policy, and must name one of the environment's repositories; a
+conversation with no environment has none a task could change. The contributor session omits
+shared operational MCP and environment credentials. The confirmation itself grants the draft pull
+request for that repository,
 so Ryker opens it from the exact reviewed candidate without a further click; stopping or
 closing the task and discarding retained work stay operator decisions. The task cannot merge,
 deploy, sign, or mutate infrastructure. Replies in that thread continue the same task without an
 `@mention`.
 
 The public and private channel archive, unarchive, and deletion subscriptions keep incident-room
-lifecycle state durable. Ryker blocks an open incident when its room is archived or deleted,
-preserves the channel identity, Coop session, fork, and audit history, and stops attempting Slack
-delivery. Unarchiving restores the room. A periodic `conversations.info` check repairs missed archive
-events; `channel_not_found` is recorded as unavailable rather than treated as proof of deletion.
+lifecycle state durable. Ryker pauses an open incident when its room is archived, preserves the
+channel identity, Coop session, fork, and audit history, and stops attempting Slack delivery.
+Unarchiving restores the room. Slack deletes a channel for good, so a deleted room's investigation
+is closed the way **Close request** closes it (a run still working stops first, on its worker's
+answer), one fixed note goes to the alert thread the room was opened from (*The incident room
+#name was deleted. Reply here to pick it up.*), and the room is closed with that reason, which
+frees its place in the open-room limit and keeps its history. A reply the investigation finished
+but had not yet posted in the room is posted, unchanged, in that alert thread ahead of the note;
+one Slack refuses there for good stays owed on the Failures page for a retry, and the room still
+closes; once that retry posts it, the investigation closes as well. A periodic `conversations.info` check repairs missed archive events; `channel_not_found`
+is recorded as unavailable rather than treated as proof of deletion.
 
 ## Production profile
 

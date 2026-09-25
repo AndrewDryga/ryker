@@ -255,13 +255,15 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     assert disabled =~ "background-color:var(--ryker-disabled-bg)"
     assert disabled =~ "color:var(--ryker-disabled-text)"
 
-    # Live and static directories share one framed hierarchy instead of each
-    # page inventing its own toolbar, border and empty-state spacing.
-    assert workspace =~ ".collection-shell {"
-    assert workspace =~ ".collection-shell-filter-row {"
-    assert workspace =~ ".collection-shell-content > .empty-state {"
-    refute workspace =~ ".activity-inbox {"
-    refute workspace =~ ".inbox-toolbar {"
+    # Live and static lists share one toolbar row instead of each page
+    # inventing its own wrapper, border and spacing; the framed collection
+    # shell and the per-page toolbars it once lived beside are gone.
+    assert workspace =~ ".kit-toolbar {"
+    assert workspace =~ ".kit-toolbar > .filter-toolbar {"
+
+    for retired <-
+          ~w(.collection-shell .activity-inbox .inbox-toolbar .manage-filters .memory-tools .behavior-toolbar .schedule-toolbar),
+        do: refute(workspace =~ retired <> " {", retired)
   end
 
   test "the selected conversation is a quiet row rather than a bordered control" do
@@ -316,14 +318,18 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
 
   test "motion stays opt-in under prefers-reduced-motion" do
     # No ambient animation and nothing that moves unless the operator's system
-    # allows it: every transition or animation must sit inside a
-    # no-preference media block.
+    # allows it: every transition, animation and keyframe block must sit inside
+    # a no-preference media block. A loading indicator is the one motion the
+    # timeline uses, and it only exists inside that guard.
     for {name, css} <- [
           {"ryker-tokens.css", tokens_css()},
           {"workspace.css", workspace_css()},
           {"control-plane.css", control_plane_css()}
         ] do
-      refute css =~ "@keyframes", "#{name} declares an animation"
+      for line <- String.split(css, "\n"), line =~ "@keyframes" do
+        assert line =~ ~r/prefers-reduced-motion:no-preference.*@keyframes/,
+               "#{name} declares an unguarded animation: #{String.slice(line, 0, 80)}"
+      end
 
       for line <- String.split(css, "\n"),
           [prefix | _] = Regex.split(~r/\b(transition|animation)\b/, line, parts: 2),

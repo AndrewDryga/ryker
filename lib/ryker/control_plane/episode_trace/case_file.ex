@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   alias Ryker.ControlPlane.{CurrentInputs, InspectionRedactor, ProviderMessage, SlackMarkdown}
   alias Ryker.ControlPlane.SlackNames
   alias Ryker.ControlPlane.SourceText
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.{Episode, RoutingDigests}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.State.Record
@@ -48,8 +48,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
     task_session = task_session(current_turn, sessions)
 
+    # The name Work gave the episode says what it became; a task's own title
+    # and the first message are what is left before any turn has named it.
+    {title_kind, title} =
+      cond do
+        title = episode_title(episode_id) -> {:episode, title}
+        title = task_title(task_session) -> {:task, title}
+        true -> {:request, input_title(first)}
+      end
+
     %{
-      title: task_title(task_session) || input_title(first),
+      title: title,
+      title_kind: title_kind,
       expired_at: Enum.find_value(messages, & &1.expired_at),
       messages: messages,
       repository: case_repository(task_session, first),
@@ -66,6 +76,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     do: Enum.find(sessions, &(&1.id == id and is_map(&1.workspace_task)))
 
   defp task_session(_, _), do: nil
+
+  defp episode_title(episode_id) do
+    case RoutingDigests.titles([episode_id]) do
+      %{^episode_id => title} -> InspectionRedactor.artifact(title, max_bytes: 240).text
+      _untitled -> nil
+    end
+  end
 
   defp task_title(%Session{workspace_task: %{"title" => title}}) when is_binary(title),
     do: InspectionRedactor.artifact(title, max_bytes: 240).text

@@ -341,6 +341,15 @@ defmodule Ryker.Work.TurnChangeset do
     |> work_constraints()
   end
 
+  # The same accepted reply, rearmed for the place it now goes: its content
+  # and delivery reference never change, only where it is posted.
+  @spec redirect_delivery(Turn.t(), map()) :: Ecto.Changeset.t()
+  def redirect_delivery(%Turn{} = turn, target) do
+    turn
+    |> retry_delivery()
+    |> put_change(:delivery_target, target)
+  end
+
   @spec block_completion(Turn.t(), map(), String.t(), String.t()) :: Ecto.Changeset.t()
   def block_completion(%Turn{} = turn, receipt, code, detail) do
     turn

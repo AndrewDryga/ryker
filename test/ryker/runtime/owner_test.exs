@@ -151,7 +151,7 @@ defmodule Ryker.Runtime.OwnerTest do
           secret_name: "unregistered",
           destination_transport: "control_plane",
           destination_conversation_ref: "control-plane:lab:missing",
-          context_ref: "ryker"
+          environment_ref: "ryker"
         },
         saved.installation.revision,
         @actor
@@ -194,7 +194,6 @@ defmodule Ryker.Runtime.OwnerTest do
         %{
           bot_ref: "A0123456789",
           bot_user_ref: "U0123456789",
-          default_repository_ref: "ryker",
           enabled: true,
           operators: ["U1111111111"],
           workspace_ref: "T0123456789"
@@ -304,7 +303,11 @@ defmodule Ryker.Runtime.OwnerTest do
         @actor
       )
 
-    {:ok, saved}
+    Settings.put_environment(
+      %{ref: "ryker", display_name: "Ryker", repositories: ["ryker"]},
+      saved.installation.revision,
+      @actor
+    )
   end
 
   defp bootstrap do

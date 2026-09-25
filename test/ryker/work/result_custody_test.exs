@@ -1,7 +1,10 @@
 defmodule Ryker.Work.ResultCustodyTest do
   use Ryker.DataCase, async: true
 
+  import Ecto.Query
+
   alias Ryker.Episodes
+  alias Ryker.Episodes.{RoutingDigest, RoutingDigests}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.State.{EventSubscription, Records}
 
@@ -11,6 +14,7 @@ defmodule Ryker.Work.ResultCustodyTest do
     Result,
     Submission,
     SubmissionBuilder,
+    Turn,
     ValidationIntent
   }
 
@@ -286,6 +290,118 @@ defmodule Ryker.Work.ResultCustodyTest do
 
     assert {:ok, delivery} = Custody.claim_next("worker:resumed-delivery", 60, :delivery)
     assert delivery.turn.id == work.turn.id
+  end
+
+  # A reply accepted for an incident room Slack then deleted could only wait
+  # for a channel that never comes back, and the kernel rightly closes no
+  # request under an accepted reply: the answer reached nobody and the request
+  # stayed open for good. Ryker moves it to where people still read, with its
+  # words and delivery reference, once, and never under an attempt in flight.
+  test "a reply owed to a deleted destination moves once and never mid-attempt" do
+    work = bound_turn!("moved-reply")
+    stage_candidate!(work)
+    result = result!(:reply, %{"message" => "Preserve this accepted answer."})
+    assert {:ok, accepted} = accept!(work, result)
+    gone = accepted.turn.delivery_target["conversation_ref"]
+
+    alert = %{
+      "conversation_ref" => "slack:TBLITZ:CALERTS",
+      "thread_ref" => "1787932800.000100",
+      "transport" => "slack"
+    }
+
+    redirect = fn -> Custody.redirect_delivery(work.episode.id, work.episode.key, gone, alert) end
+
+    # An attempt in flight finishes under its own lease.
+    assert {:ok, attempt} = Custody.claim_next("worker:moved-reply", 60, :delivery)
+    assert {:ok, %{status: :pending}} = redirect.()
+    assert Repo.get!(Turn, accepted.turn.id).delivery_target == accepted.turn.delivery_target
+
+    assert {:ok, _blocked} =
+             Custody.block_delivery(
+               work.episode.id,
+               work.turn.turn_ref,
+               attempt.lease_ref,
+               "slack_api_error",
+               ~s({:slack_api_error, "channel_not_found"})
+             )
+
+    assert {:ok, moved} = redirect.()
+    assert moved.status == :pending
+    assert moved.turn.status == :delivery_pending
+    assert moved.turn.delivery_target == alert
+    assert moved.turn.delivery_document == accepted.turn.delivery_document
+    assert moved.turn.delivery_ref == accepted.turn.delivery_ref
+
+    # Asked again, nothing moves twice.
+    assert {:ok, again} = redirect.()
+    assert again.status == :pending
+    assert again.turn.delivery_retry_generation == moved.turn.delivery_retry_generation
+
+    # Refused for good at its new place, it stays owed there for a person.
+    assert {:ok, second} = Custody.claim_next("worker:moved-reply-alert", 60, :delivery)
+
+    assert {:ok, _blocked} =
+             Custody.block_delivery(
+               work.episode.id,
+               work.turn.turn_ref,
+               second.lease_ref,
+               "slack_api_error",
+               ~s({:slack_api_error, "not_in_channel"})
+             )
+
+    assert {:ok, refused} = redirect.()
+    assert refused.status == :refused
+    assert refused.turn.status == :blocked
+    assert refused.turn.delivery_target == alert
+
+    # A retry settles it only where it now goes.
+    assert {:ok, _rearmed} =
+             Custody.retry_delivery(
+               work.episode.id,
+               work.turn.turn_ref,
+               accepted.turn.delivery_ref
+             )
+
+    assert {:ok, third} = Custody.claim_next("worker:moved-reply-retry", 60, :delivery)
+
+    assert {:error, :work_delivery_destination_mismatch} =
+             Custody.confirm_delivery(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               third.lease_ref,
+               receipt(work, "1787932810.000100")
+             )
+
+    assert {:ok, at_alert} =
+             DeliveryReceipt.new(
+               accepted.turn.delivery_ref,
+               "slack",
+               alert["conversation_ref"],
+               alert["thread_ref"],
+               "1787932810.000100"
+             )
+
+    assert {:ok, delivered} =
+             Custody.confirm_delivery(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               third.lease_ref,
+               at_alert
+             )
+
+    assert delivered.episode.state == :complete
+
+    # Nothing is owed any more.
+    assert {:ok, %{status: :settled}} = redirect.()
+
+    # A move names a complete place other than the one that is gone.
+    for target <- [%{alert | "conversation_ref" => gone}, Map.delete(alert, "thread_ref")] do
+      assert Custody.redirect_delivery(work.episode.id, work.episode.key, gone, target) ==
+               {:error, {:invalid_work_custody, :target}}
+    end
   end
 
   test "new input cannot erase an accepted reply and continues in the same episode session" do
@@ -615,6 +731,40 @@ defmodule Ryker.Work.ResultCustodyTest do
     refute settled.turn.external_receipt["delivery_ref"] == first_receipt["delivery_ref"]
   end
 
+  # Episodes had no name, so lists and routing candidates showed the first
+  # message, which rarely says what the work became. The accepted answer names
+  # the episode; an answer that only keeps the name never erases it.
+  test "an accepted answer names its episode" do
+    work = bound_turn!("titled", final_candidate("Investigate checkout 502s"))
+    stage_candidate!(work)
+
+    assert RoutingDigests.titles([work.episode.id]) == %{}
+    assert {:ok, _accepted} = accept!(work, result!(:reply, %{"message" => "Done."}))
+
+    assert RoutingDigests.titles([work.episode.id]) ==
+             %{work.episode.id => "Investigate checkout 502s"}
+
+    assert Repo.get_by!(RoutingDigest, episode_id: work.episode.id).title_turn_id == work.turn.id
+  end
+
+  test "an accepted answer with a null title keeps the episode's name" do
+    kept = bound_turn!("titled-kept", final_candidate(nil))
+    stage_candidate!(kept)
+    named_at = DateTime.add(DateTime.utc_now(), -60, :second)
+
+    Repo.update_all(
+      from(digest in RoutingDigest, where: digest.episode_id == ^kept.episode.id),
+      set: [
+        title: "Existing name",
+        title_turn_id: Ecto.UUID.generate(),
+        title_updated_at: named_at
+      ]
+    )
+
+    assert {:ok, _accepted} = accept!(kept, result!(:reply, %{"message" => "Done."}))
+    assert RoutingDigests.titles([kept.episode.id]) == %{kept.episode.id => "Existing name"}
+  end
+
   test "a candidate mismatch rolls the episode transition back" do
     work = bound_turn!("atomic-rollback")
     stage_candidate!(work)
@@ -640,7 +790,10 @@ defmodule Ryker.Work.ResultCustodyTest do
     assert Enum.map(Episodes.list_events(work.episode.key), & &1.kind) == [:input_admitted]
   end
 
-  defp bound_turn!(suffix) do
+  defp bound_turn!(
+         suffix,
+         candidate \\ ~s({"delivery":"reply","message":"Investigation complete."})
+       ) do
     command = create_episode!(suffix)
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 120)
     assert claim.episode.key == command.episode_key
@@ -674,8 +827,6 @@ defmodule Ryker.Work.ResultCustodyTest do
                claim.turn.submit_generation,
                "coop-turn:#{suffix}"
              )
-
-    candidate = ~s({"delivery":"reply","message":"Investigation complete."})
 
     %{
       candidate: candidate,
@@ -778,7 +929,7 @@ defmodule Ryker.Work.ResultCustodyTest do
                  "required" => ["message"],
                  "type" => "object"
                },
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     submission
@@ -803,4 +954,14 @@ defmodule Ryker.Work.ResultCustodyTest do
   end
 
   defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+
+  defp final_candidate(title) do
+    Jason.encode!(%{
+      "decision_reason" => nil,
+      "delivery" => "reply",
+      "message" => "Done.",
+      "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"},
+      "title" => title
+    })
+  end
 end

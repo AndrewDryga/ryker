@@ -3,8 +3,14 @@ defmodule Ryker.Slack.Runtime do
   Builds one trusted Slack Socket Mode gateway.
 
   Tokens and policy bindings are prepared by host configuration. Slack payloads
-  can supply content and opaque platform IDs, but cannot select repositories,
-  Coop policy digests, operators, or delivery authority.
+  can supply content and opaque platform IDs, but cannot select environments,
+  repositories, Coop policy digests, operators, or delivery authority.
+
+  A conversation's work runs in the environment its channel selects, or
+  outside any environment (`fallback_work_profile`) when the channel selects
+  none. Only a conversation with no setting of its own, such as a direct
+  message, runs in `default_environment`. An incident room keeps the
+  environment of the conversation it was opened from.
   """
 
   alias Ryker.Artifacts
@@ -13,6 +19,7 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.{Custody, Followups}
+  alias Ryker.Settings.Environment
 
   alias Ryker.Slack.{
     ActionTokens,
@@ -22,6 +29,7 @@ defmodule Ryker.Slack.Runtime do
     AppHomeEditor,
     AppHomeProjection,
     AttachmentIngestor,
+    ChannelConfiguration,
     ChannelConfigurations,
     ChannelSettings,
     ChannelSetup,
@@ -64,7 +72,8 @@ defmodule Ryker.Slack.Runtime do
     :app_http,
     :bot_client,
     :channel_prefix,
-    :default_repository,
+    :default_environment,
+    :environments,
     :fallback_work_profile,
     :handshake_timeout_ms,
     :identity,
@@ -77,7 +86,6 @@ defmodule Ryker.Slack.Runtime do
     :operators,
     :receive_timeout_ms,
     :reconnect_ms,
-    :repositories,
     :schedule_policies,
     :task_card_interval_ms,
     :task_card_reconcile_ms,
@@ -87,11 +95,11 @@ defmodule Ryker.Slack.Runtime do
   @required_fields [
     :app_http,
     :bot_client,
-    :default_repository,
+    :default_environment,
+    :environments,
     :identity,
     :incident_policy,
-    :operators,
-    :repositories
+    :operators
   ]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
@@ -139,11 +147,11 @@ defmodule Ryker.Slack.Runtime do
     configuration = normalize_configuration!(configuration)
     app_http = Map.fetch!(configuration, :app_http)
     bot_client = Map.fetch!(configuration, :bot_client)
-    default_repository = Map.fetch!(configuration, :default_repository)
+    default_environment = Map.fetch!(configuration, :default_environment)
     fallback_work_profile = optional_work_profile(Map.get(configuration, :fallback_work_profile))
     identity = Map.fetch!(configuration, :identity)
     incident_policy = Map.fetch!(configuration, :incident_policy)
-    repositories = Map.fetch!(configuration, :repositories)
+    environments = Map.fetch!(configuration, :environments)
     operators = configuration |> Map.fetch!(:operators) |> references!(:operators)
 
     default_participation =
@@ -172,8 +180,8 @@ defmodule Ryker.Slack.Runtime do
 
     validate_identity!(identity)
     incident_policy = policy!(incident_policy, :incident_policy)
-    repositories = repositories!(repositories)
-    default_repository = default_repository!(default_repository, repositories)
+    environments = environments!(environments)
+    default_environment = default_environment!(default_environment, environments)
     file_client = file_client!(bot_client)
     schedule_policy_resolver = schedule_policy_resolver(configuration)
 
@@ -276,9 +284,8 @@ defmodule Ryker.Slack.Runtime do
     end
 
     catalog = %{
-      default_repository: default_repository,
-      repository_refs: repositories |> Map.keys() |> Enum.sort(),
-      repository_urls: repository_urls(repositories)
+      default_environment: default_environment,
+      environments: environment_choices(environments)
     }
 
     setup_options = %{
@@ -383,7 +390,8 @@ defmodule Ryker.Slack.Runtime do
         records: Records,
         request_incident_room: request_incident_room,
         request_publication_review: &Custody.request_review/1,
-        repositories: repositories,
+        conversation_environment: &conversation_environment(default_environment, &1, &2),
+        environments: environments,
         show_work_record: &WorkControls.show_record(&1, work_record_options),
         resume_work: &WorkControls.resume/1,
         stop_work: &WorkControls.stop/1
@@ -392,7 +400,7 @@ defmodule Ryker.Slack.Runtime do
       setup_allowed: setup_allowed(),
       setup_handler: ChannelSetup,
       setup_options: setup_options,
-      work_profile: work_profile(default_repository, repositories, fallback_work_profile)
+      work_profile: work_profile(default_environment, environments, fallback_work_profile)
     }
 
     gateway =
@@ -536,41 +544,89 @@ defmodule Ryker.Slack.Runtime do
     end
   end
 
-  defp work_profile(default_repository, repositories, fallback) do
+  defp work_profile(default_environment, environments, fallback) do
     fn workspace_ref, conversation_ref ->
       channel_ref = conversation_ref |> String.split(":", parts: 3) |> List.last()
 
       case IncidentRooms.channel_profile(workspace_ref, channel_ref) do
-        {:ok, profile} ->
+        {:ok, room} ->
           work_profile =
-            %{
-              policy: profile.policy,
-              policy_digest: profile.policy_digest,
-              repository_ref: profile.repository_ref
-            }
-            |> maybe_put_repository_context(profile.repository_context)
+            Map.merge(
+              %{
+                policy: room.policy,
+                policy_digest: room.policy_digest,
+                repository_ref: room.repository_ref
+              },
+              room_placement(room, environments)
+            )
 
           {:ok, work_profile}
 
         :not_found ->
-          repository_ref = configured_repository(workspace_ref, channel_ref, default_repository)
-          configured_work_profile(repositories, repository_ref, fallback)
+          workspace_ref
+          |> channel_environment(channel_ref, default_environment)
+          |> environment_work_profile(environments, fallback)
       end
     end
   end
 
-  defp configured_work_profile(repositories, repository_ref, fallback) do
-    case Map.fetch(repositories, repository_ref) do
-      {:ok, repository} -> {:ok, Map.fetch!(repository, :work_profile)}
-      :error when not is_nil(fallback) -> {:ok, fallback}
-      :error -> {:error, :work_profile_unavailable}
+  # A room works in the environment of the conversation it was opened from and
+  # mounts what that conversation mounted, as frozen when the room was
+  # requested. A room of an environment without repositories has nothing
+  # frozen to mount, so its goal limit is the environment's while it can run
+  # work; otherwise the room's new conversations run outside any environment.
+  defp room_placement(%{environment_ref: nil}, _environments), do: %{}
+
+  defp room_placement(
+         %{
+           environment_ref: environment_ref,
+           repository_context: %{
+             "parallel_goal_limit" => parallel_goal_limit,
+             "read_only_repositories" => read_only
+           }
+         },
+         _environments
+       ),
+       do: %{
+         environment_ref: environment_ref,
+         parallel_goal_limit: parallel_goal_limit,
+         read_only_repository_refs: read_only
+       }
+
+  defp room_placement(%{environment_ref: environment_ref}, environments) do
+    case Map.get(environments, environment_ref) do
+      %{work_profile: %WorkProfile{parallel_goal_limit: limit}} ->
+        %{environment_ref: environment_ref, parallel_goal_limit: limit}
+
+      nil ->
+        %{}
     end
   end
 
-  defp configured_repository(workspace_ref, channel_ref, default_repository) do
+  # An environment that cannot run work right now leaves the channel's work
+  # outside any environment until it can, the same as choosing none.
+  defp environment_work_profile(environment_ref, environments, fallback) do
+    case environment_ref && Map.get(environments, environment_ref) do
+      %{work_profile: profile} -> {:ok, profile}
+      nil when not is_nil(fallback) -> {:ok, fallback}
+      nil -> {:error, :work_profile_unavailable}
+    end
+  end
+
+  # The environment a conversation's work runs in: an incident room's own, a
+  # configured channel's choice (nil is No environment, never the default), or
+  # the default for a conversation with no setting of its own.
+  defp conversation_environment(default_environment, workspace_ref, channel_ref) do
+    case IncidentRooms.channel_profile(workspace_ref, channel_ref) do
+      {:ok, room} -> room.environment_ref
+      :not_found -> channel_environment(workspace_ref, channel_ref, default_environment)
+    end
+  end
+
+  defp channel_environment(workspace_ref, channel_ref, default_environment) do
     case ChannelConfigurations.configuration(workspace_ref, channel_ref) do
-      %{repository_ref: repository_ref} when is_binary(repository_ref) -> repository_ref
-      _unconfigured -> default_repository
+      %ChannelConfiguration{environment_ref: environment_ref} -> environment_ref
+      nil -> default_environment
     end
   end
 
@@ -693,38 +749,53 @@ defmodule Ryker.Slack.Runtime do
   defp bounded_integer!(_value, field, _range),
     do: raise(ArgumentError, "Slack #{field} is out of range")
 
-  defp repositories!(repositories) when is_map(repositories) do
-    Map.new(repositories, fn
-      {name, %{contributor_policy: policy} = attributes} when is_binary(name) and name != "" ->
-        contributor_policy = policy!(policy, :contributor_policy)
+  # Every environment that can run work, keyed by ref, exactly as the host
+  # assembled it: its display name, the policy a confirmed task runs under (nil
+  # when it has no repository to change), its writable repository's GitHub
+  # name, and the Work profile its conversations run on.
+  defp environments!(environments) when is_map(environments) do
+    Map.new(environments, fn
+      {ref,
+       %{
+         contributor_policy: policy,
+         display_name: display_name,
+         github_repository: github_repository,
+         work_profile: work_profile
+       } = environment}
+      when map_size(environment) == 4 and is_binary(ref) ->
+        unless Regex.match?(Environment.ref_pattern(), ref) and display_name?(display_name),
+          do: raise(ArgumentError, "Slack environments must name each environment")
 
-        work_profile =
-          Map.get(attributes, :work_profile, %{
-            policy: contributor_policy.name,
-            policy_digest: contributor_policy.digest,
-            repository_ref: name
-          })
-
-        case WorkProfile.prepare(work_profile) do
-          {:ok, profile} ->
-            {name,
-             %{
-               contributor_policy: contributor_policy,
-               github_repository: github_repository!(Map.get(attributes, :github_repository)),
-               work_profile: profile
-             }}
-
-          {:error, _reason} ->
-            raise ArgumentError, "Slack repositories must contain a valid Work profile"
-        end
+        {ref,
+         %{
+           contributor_policy: policy && policy!(policy, :contributor_policy),
+           display_name: display_name,
+           github_repository: github_repository!(github_repository),
+           work_profile: environment_profile!(work_profile, ref)
+         }}
 
       _invalid ->
-        raise ArgumentError, "Slack repositories must map names to contributor policies"
+        raise ArgumentError, "Slack environments must map refs to assembled environments"
     end)
   end
 
-  defp repositories!(_repositories) do
-    raise ArgumentError, "Slack repositories must be a map"
+  defp environments!(_environments) do
+    raise ArgumentError, "Slack environments must be a map"
+  end
+
+  defp display_name?(value),
+    do:
+      is_binary(value) and String.valid?(value) and String.trim(value) != "" and
+        String.length(value) <= 80
+
+  defp environment_profile!(work_profile, ref) do
+    case WorkProfile.prepare(work_profile) do
+      {:ok, %WorkProfile{environment_ref: ^ref} = profile} ->
+        profile
+
+      _invalid ->
+        raise ArgumentError, "Slack environments must carry their own valid Work profile"
+    end
   end
 
   defp github_repository!(nil), do: nil
@@ -732,26 +803,53 @@ defmodule Ryker.Slack.Runtime do
   defp github_repository!(value) do
     if is_binary(value) and Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, value),
       do: value,
-      else: raise(ArgumentError, "Slack repositories must name GitHub repositories as owner/name")
+      else: raise(ArgumentError, "Slack environments must name GitHub repositories as owner/name")
   end
 
-  defp repository_urls(repositories) do
-    repositories
-    |> Enum.flat_map(fn
-      {name, %{github_repository: full_name}} when is_binary(full_name) ->
-        [{name, "https://github.com/#{full_name}"}]
+  # What a channel may select, and what work there may use: the repository
+  # it changes first, the ones it reads, and whether it has Emisar. Only the
+  # changed repository's GitHub page is known here, so only it is linked.
+  defp environment_choices(environments) do
+    Enum.map(environments, fn {ref, environment} ->
+      profile = environment.work_profile
 
-      _repository ->
-        []
+      url =
+        environment.github_repository &&
+          "https://github.com/#{environment.github_repository}"
+
+      repositories =
+        case profile.repository_ref do
+          nil ->
+            []
+
+          writable ->
+            [
+              %{ref: writable, url: url}
+              | Enum.map(profile.read_only_repository_refs, &%{ref: &1, url: nil})
+            ]
+        end
+
+      %{
+        emisar: not is_nil(profile.emisar_connection_ref),
+        name: environment.display_name,
+        ref: ref,
+        repositories: repositories
+      }
     end)
-    |> Map.new()
   end
 
-  defp default_repository!(repository, repositories) do
+  # The default may not be able to run work yet (its policies unverified); a
+  # channel joined meanwhile is still set to it and works in it once it can.
+  defp default_environment!(environment_ref, _environments) do
     cond do
-      is_nil(repository) -> nil
-      is_binary(repository) and Map.has_key?(repositories, repository) -> repository
-      true -> raise ArgumentError, "Slack default_repository must name a configured repository"
+      is_nil(environment_ref) ->
+        nil
+
+      is_binary(environment_ref) and Regex.match?(Environment.ref_pattern(), environment_ref) ->
+        environment_ref
+
+      true ->
+        raise ArgumentError, "Slack default_environment must be an environment ref"
     end
   end
 
@@ -801,18 +899,19 @@ defmodule Ryker.Slack.Runtime do
     raise ArgumentError, "Slack #{field} must be a map"
   end
 
+  # A task policy keeps where it runs: the environment, the repository it
+  # changes and the repositories mounted beside it.
   defp maybe_put_policy_placement(policy, %{repository_ref: repository_ref} = source) do
     policy
     |> Map.put(:repository_ref, repository_ref)
-    |> maybe_put_repository_context(Map.get(source, :repository_context))
+    |> maybe_put(:environment_ref, Map.get(source, :environment_ref))
+    |> maybe_put(:repository_context, Map.get(source, :repository_context))
   end
 
   defp maybe_put_policy_placement(policy, _source), do: policy
 
-  defp maybe_put_repository_context(policy, nil), do: policy
-
-  defp maybe_put_repository_context(policy, context),
-    do: Map.put(policy, :repository_context, context)
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp slack_ref?(value) do
     is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value) and byte_size(value) <= 256

@@ -148,6 +148,7 @@ defmodule Ryker.Publication.Custody do
               published_at: nil,
               published_delivery_receipt: nil,
               published_delivery_receipt_fingerprint: nil,
+              discarded_reason: nil,
               recovery_generation: publication.recovery_generation + 1,
               review_request_ref: attributes.request_ref,
               review_requested_at: attributes.occurred_at,
@@ -180,6 +181,21 @@ defmodule Ryker.Publication.Custody do
          repository
        )
        when status in [:reviewed, :blocked],
+       do: true
+
+  # Ryker ended this one because its worker session closed, not because anyone
+  # decided against publishing. A later completed turn runs in a new session,
+  # so its candidate can be reviewed; without this the task's publication
+  # stayed discarded and every later candidate went unreviewed.
+  defp rearmable?(
+         %Publication{
+           status: :discarded,
+           discarded_reason: :review_session_closed,
+           approval_ref: nil,
+           repository: repository
+         },
+         repository
+       ),
        do: true
 
   defp rearmable?(_publication, _repository), do: false
@@ -330,6 +346,39 @@ defmodule Ryker.Publication.Custody do
         defer_locked(publication_ref, lease_ref, retry_seconds, code, detail)
       end)
       |> transaction_result()
+    end
+  end
+
+  @doc """
+  Ends a review whose worker session closed for good.
+
+  The change exists only in the session that made it, and a closed Coop
+  session never reopens, so no retry can run this review. The publication is
+  discarded with that reason instead of being deferred to ask the same session
+  again. Its request, attempts and review generations stay as history, and the
+  recovery generation advances so a stale operator action cannot act on it.
+  """
+  @spec discard_unreviewable(String.t(), String.t(), :review_session_closed) ::
+          {:ok, Publication.t()} | {:error, term()}
+  def discard_unreviewable(publication_ref, lease_ref, :review_session_closed = reason) do
+    with :ok <- reference(publication_ref, :publication_ref),
+         :ok <- reference(lease_ref, :lease_ref) do
+      Repo.transaction(fn -> discard_unreviewable_locked(publication_ref, lease_ref, reason) end)
+      |> transaction_result()
+    end
+  end
+
+  defp discard_unreviewable_locked(publication_ref, lease_ref, reason) do
+    with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
+         :ok <- status(publication, :review_pending) do
+      attributes =
+        publication.recovery_generation
+        |> discard_attributes()
+        |> Map.put(:discarded_reason, reason)
+
+      update!(publication, attributes, now)
+    else
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 
@@ -625,6 +674,9 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
+  # A phase that completes clears the failure an earlier attempt recorded. The
+  # stale code used to ride along into every later phase, so a publication that
+  # had recovered on its own stayed on the Failures page as broken.
   defp persist_review(publication, prepared, patch, now) do
     update!(
       publication,
@@ -633,6 +685,8 @@ defmodule Ryker.Publication.Custody do
         review_fingerprint: Review.fingerprint(prepared),
         review_patch: patch,
         reviewed_at: now,
+        last_error_code: nil,
+        last_error_detail: nil,
         lease_expires_at: nil,
         lease_owner: nil,
         lease_ref: nil,
@@ -683,6 +737,8 @@ defmodule Ryker.Publication.Custody do
         commit_sha: receipt["commit_sha"],
         expected_remote_head_sha: nil,
         github_repository: github_repository!(receipt["pull_request_url"]),
+        last_error_code: nil,
+        last_error_detail: nil,
         publication_receipt: receipt,
         publication_receipt_fingerprint: Receipt.fingerprint(receipt),
         pull_request_number: receipt["pull_request_number"],
@@ -967,6 +1023,8 @@ defmodule Ryker.Publication.Custody do
 
   defp confirm_phase_delivery(%Publication{status: :review_ready} = publication, receipt, fp, now) do
     delivered = %{
+      last_error_code: nil,
+      last_error_detail: nil,
       lease_expires_at: nil,
       lease_owner: nil,
       lease_ref: nil,
@@ -992,6 +1050,8 @@ defmodule Ryker.Publication.Custody do
       update!(
         publication,
         %{
+          last_error_code: nil,
+          last_error_detail: nil,
           lease_expires_at: nil,
           lease_owner: nil,
           lease_ref: nil,

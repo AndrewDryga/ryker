@@ -12,27 +12,41 @@ defmodule Ryker.ControlPlane.Pages do
   alias Phoenix.HTML.Safe
 
   alias Ryker.ControlPlane.{
-    BehaviorLibrary,
     BehaviorPage,
     ChannelDetail,
     ChannelPage,
+    ChannelsPage,
     ConfigurationGuide,
+    FactsPage,
+    FailureExplanation,
+    FailureProjection,
+    FailuresPage,
+    FindingsPage,
     HTML,
+    IncidentRoomsPage,
+    LearnedPage,
+    LearningPage,
     PathRef,
-    SlackNames
+    RepositoriesPage,
+    SchedulesPage,
+    SlackNames,
+    SubscriptionsPage,
+    UsagePage,
+    WorkingCopiesPage
   }
 
   @type page :: %{
-          status: 200 | 404 | 503,
-          title: String.t(),
-          description: String.t() | nil,
-          body: binary()
+          required(:status) => 200 | 404 | 503,
+          required(:title) => String.t(),
+          required(:description) => String.t() | nil,
+          required(:body) => binary(),
+          optional(:action) => binary()
         }
 
   # Every kind the failures page can list, because it links each row it lists
   # and a kind missing here answers 404 to its own link. Publications were
   # listed and unreachable in production for exactly that reason.
-  @failure_kinds ~w(admission delivery emisar publication retention slack_incident slack_interaction work)
+  @failure_kinds ~w(admission delivery emisar publication retention slack_incident slack_interaction stopping work)
 
   @doc """
   The page at `segments`, the request path split as the browser sent it, for
@@ -47,15 +61,19 @@ defmodule Ryker.ControlPlane.Pages do
 
     ok(
       "Incident rooms",
-      "Track Slack incident rooms from setup through closure, with channel status and linked investigation work.",
-      HTML.incidents(snapshot, params)
+      IncidentRoomsPage.description(),
+      IncidentRoomsPage.list(snapshot, params)
     )
   end
 
   def page(["incident-rooms", incident_ref], _params, options) do
     with {:ok, incident_ref} <- PathRef.decode(incident_ref),
          {:ok, snapshot} <- options.projection.incident.(incident_ref) do
-      ok(snapshot.room.title, HTML.incident(snapshot))
+      ok(
+        snapshot.room.title,
+        IncidentRoomsPage.summary(snapshot.room),
+        IncidentRoomsPage.detail(snapshot)
+      )
     else
       {:error, :path_ref} -> not_found("Incident room")
       :not_found -> not_found("Incident room")
@@ -64,19 +82,21 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   def page(["schedules"], params, options) do
-    snapshot = options.projection.schedules.(Map.take(params, ["q", "status"]))
-
-    ok(
-      "Schedules",
-      ConfigurationGuide.description(:schedules),
-      HTML.schedules(snapshot, params)
-    )
+    params = SchedulesPage.params(params)
+    items = options.projection.schedules.(params)
+    ok("Schedules", SchedulesPage.description(), SchedulesPage.list(items, params))
   end
 
+  # A schedule that can still change keeps its controls opposite the title.
   def page(["schedules", schedule_ref], _params, options) do
     with {:ok, schedule_ref} <- PathRef.decode(schedule_ref),
          {:ok, snapshot} <- options.projection.schedule.(schedule_ref) do
-      ok(snapshot.schedule.title, HTML.schedule(snapshot))
+      page = ok(snapshot.schedule.title, SchedulesPage.detail(snapshot))
+
+      case SchedulesPage.actions(snapshot.schedule) do
+        nil -> page
+        action -> Map.put(page, :action, action)
+      end
     else
       {:error, :path_ref} -> not_found("Schedule")
       :not_found -> not_found("Schedule")
@@ -84,23 +104,24 @@ defmodule Ryker.ControlPlane.Pages do
     end
   end
 
-  def page(["subscriptions"], params, options) do
-    snapshot = options.projection.subscriptions.(Map.take(params, ["q", "status"]))
-
-    ok(
-      "Waits",
-      ConfigurationGuide.description(:subscriptions),
-      HTML.subscriptions(snapshot, params)
-    )
+  def page(["follow-ups"], params, options) do
+    params = SubscriptionsPage.params(params)
+    items = options.projection.subscriptions.(params)
+    ok("Follow-ups", SubscriptionsPage.description(), SubscriptionsPage.list(items, params))
   end
 
   def page(["channels"], params, options) do
-    snapshot = options.projection.channels.(Map.take(params, ["q"]))
+    view = ChannelsPage.view(params)
+    items = options.projection.channels.(ChannelsPage.query(view))
 
-    ok(
-      "Channels",
-      "Slack channels Ryker knows about: configuration, membership, repository and recorded work.",
-      HTML.channels(snapshot, params)
+    "Channels"
+    |> ok(
+      "Slack channels Ryker is in, and how it takes part in each one.",
+      ChannelsPage.html(%{items: items, view: view, now: nil})
+    )
+    |> Map.put(
+      :action,
+      ~s(<a class="ui-button secondary" href="/integrations/slack#new-channels">Defaults</a>)
     )
   end
 
@@ -117,8 +138,10 @@ defmodule Ryker.ControlPlane.Pages do
         SlackNames.name(workspace_ref, channel_ref),
         ChannelPage.description(snapshot),
         [
-          Safe.to_iodata(ChannelPage.lead(%{__changed__: nil, view: snapshot})),
-          Safe.to_iodata(ChannelPage.render(%{__changed__: nil, view: snapshot}))
+          Safe.to_iodata(
+            ChannelPage.lead(%{__changed__: nil, view: snapshot, now: nil, editor: false})
+          ),
+          Safe.to_iodata(ChannelPage.render(%{__changed__: nil, view: snapshot, now: nil}))
         ]
       )
     else
@@ -129,52 +152,108 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   def page(["repositories"], params, options) do
-    snapshot = options.projection.repositories.(Map.take(params, ["q"]))
+    view = RepositoriesPage.view(params)
+    items = options.projection.repositories.(%{"q" => view.q})
+    # Adding repositories needs a working GitHub App; until then the status
+    # line above the list is the one way forward, not a second prompt.
+    connected = match?({:ok, %{github_connection: :ready}}, settings(options))
 
-    ok(
-      "Repositories",
-      "Connected repositories, the work they receive, and the code revision last used.",
-      HTML.repositories(snapshot, params)
-    )
+    page =
+      ok(
+        "Repositories",
+        "Code Ryker can read and work in.",
+        RepositoriesPage.html(%{items: items, view: view, now: nil, connected: connected})
+      )
+
+    if connected,
+      do:
+        Map.put(
+          page,
+          :action,
+          ~s(<a class="ui-button primary" href="#add-repositories">Add repositories</a>)
+        ),
+      else: page
   end
 
   def page(["memory"], params, options) do
+    params = Map.take(params, FactsPage.query_keys())
+
     ok(
-      "Memory",
+      "Facts",
       ConfigurationGuide.description(:memory),
-      HTML.memory(options.projection.memory.(params), options.csrf_secret)
+      FactsPage.html(options.projection.memory.(params), params)
     )
   end
 
-  def page([page], params, options) when page in ~w(rules preferences guidance) do
-    kind = BehaviorLibrary.kind(page)
-    snapshot = options.projection.behaviors.(kind, params)
+  def page(["memory", "learned"], params, options) do
+    view = options.projection.learned.(Map.take(params, LearnedPage.query_keys()))
 
     ok(
-      BehaviorPage.title(kind),
-      BehaviorPage.description(kind),
-      Safe.to_iodata(BehaviorPage.render(%{__changed__: nil, view: snapshot}))
+      "Learned",
+      ConfigurationGuide.description(:learned),
+      LearnedPage.html(view, Map.get(options, :csrf_secret))
+    )
+  end
+
+  # Background learning keeps its worker sessions in the same custody as
+  # working copies; this page shows only its own.
+  def page(["memory", "learning"], params, options) do
+    activity = options.projection.learning.(Map.take(params, LearningPage.query_keys()))
+
+    ok(
+      "Learning",
+      ConfigurationGuide.description(:learning),
+      LearningPage.html(
+        activity,
+        options.projection.workspaces.(%{}),
+        Map.get(options, :csrf_secret)
+      )
+    )
+  end
+
+  def page(["rules"], params, options) do
+    snapshot =
+      options.projection.behaviors.(
+        :standing_assignment,
+        Map.take(params, ["q", "status", "page"])
+      )
+
+    ok(
+      "Rules",
+      ConfigurationGuide.description(:rules),
+      Safe.to_iodata(BehaviorPage.rules(%{__changed__: nil, view: snapshot}))
     )
   end
 
   def page(["usage"], params, options) do
     snapshot = options.projection.usage.(Map.take(params, ["window", "mode", "page"]))
-    ok("Usage & cost", HTML.usage(snapshot))
+    ok("Usage & cost", UsagePage.render(snapshot))
   end
 
+  # A hundred failures a page, newest first; older ones are the next page,
+  # never cut without a word.
   def page(["failures"], params, options) do
-    case options.projection.failures.(params) do
-      {:ok, rows} -> ok("Failures", "Work that stopped and needs attention.", HTML.failures(rows))
+    page = FailureProjection.page_number(params)
+
+    with {:ok, rows} <- options.projection.failures.(params),
+         {:ok, older} <- older_failures(rows, page, params, options) do
+      ok("Failures", FailuresPage.description(), [
+        FailuresPage.list(rows),
+        FailuresPage.pager(page, older)
+      ])
+    else
       {:error, _reason} -> unavailable("Failures")
     end
   end
 
+  # One failure is read by its kind and reference, not found in the bounded
+  # list, and titled by what stopped rather than a generic "Recovery".
   def page(["failures", kind, resource_ref], _params, options) do
     with true <- kind in @failure_kinds,
          {:ok, resource_ref} <- PathRef.decode(resource_ref),
-         {:ok, failures} <- options.projection.failures.(%{}),
-         %{} = row <- Enum.find(failures, &(&1.kind == kind and &1.ref == resource_ref)) do
-      ok("Recovery", HTML.failure(row))
+         {:ok, row} <- options.projection.failure.(kind, resource_ref) do
+      explanation = FailureExplanation.explain(row)
+      ok(explanation.title, explanation.lede, FailuresPage.detail(row))
     else
       {:error, :path_ref} -> not_found("Failure")
       {:error, _reason} -> unavailable("Failure")
@@ -182,26 +261,50 @@ defmodule Ryker.ControlPlane.Pages do
     end
   end
 
-  def page(["workspaces"], params, options) do
+  def page(["working-copies"], params, options) do
     ok(
-      "Workspaces",
-      "Repository checkouts used by tasks, not Slack workspaces: what each one holds, what cleanup will do next, and the storage workers report.",
-      HTML.workspaces(
-        options.projection.workspaces.(params),
-        options.projection.workspace_storage.()
-      )
+      "Working copies",
+      "Copies of repositories Ryker checks out while it works, and how it cleans them up.",
+      WorkingCopiesPage.html(%{
+        rows: options.projection.workspaces.(params),
+        storage: options.projection.workspace_storage.(),
+        now: nil
+      })
     )
   end
 
-  def page(["findings"], params, options) do
+  def page(["memory", "findings"], params, options) do
     ok(
       "Findings",
       ConfigurationGuide.description(:findings),
-      HTML.findings(options.projection.findings.(params))
+      FindingsPage.html(options.projection.findings.(Map.take(params, FindingsPage.query_keys())))
     )
   end
 
   def page(_segments, _params, _options), do: not_found("Page")
+
+  defp settings(%{projection: %{settings: settings}}), do: settings.()
+  defp settings(_options), do: {:error, :unavailable}
+
+  # Only a full page can have older failures behind it, and asking for the
+  # next page is how to know without counting every kind. The deepest page
+  # says the rest exist rather than linking past what the list reads.
+  defp older_failures(rows, page, params, options) do
+    cond do
+      length(rows) < FailureProjection.page_size() ->
+        {:ok, :none}
+
+      page == FailureProjection.maximum_page() ->
+        {:ok, :unlisted}
+
+      true ->
+        case options.projection.failures.(Map.put(params, "page", Integer.to_string(page + 1))) do
+          {:ok, []} -> {:ok, :none}
+          {:ok, _older} -> {:ok, :next_page}
+          {:error, _reason} = error -> error
+        end
+    end
+  end
 
   defp ok(title, body), do: ok(title, nil, body)
 

@@ -35,6 +35,13 @@ defmodule Ryker.Work.FailureCause do
           next_step: "Correct the condition the worker named, then retry this task."
         }
 
+      String.contains?(detail, "Failed to refresh token") ->
+        %{
+          cause:
+            "The model provider rejected the worker's sign-in, so the call never reached the model.",
+          next_step: "Sign the worker in to its model account again, then retry."
+        }
+
       String.contains?(detail, "coop_worker_capacity_unavailable") ->
         %{
           cause:

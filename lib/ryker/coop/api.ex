@@ -44,6 +44,14 @@ defmodule Ryker.Coop.API do
             ) :: {:ok, map()} | {:error, term()}
 
   @optional_callbacks capabilities: 1, capabilities: 2
+
+  @doc """
+  Whether some worker would take this new session now, asked without taking a
+  slot. Optional: a transport to one fixed daemon has no placement to ask
+  about, and its callers go ahead.
+  """
+  @callback accepts_session?(client :: term(), session :: term()) :: boolean()
+  @optional_callbacks accepts_session?: 2
   @callback get_session(client :: term(), session_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
   # Optional: a worker whose daemon predates the inspection export does not serve

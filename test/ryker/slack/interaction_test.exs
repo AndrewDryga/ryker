@@ -339,7 +339,7 @@ defmodule Ryker.Slack.InteractionTest do
       envelope()
       |> put_in(
         ["payload", "actions", Access.at(0), "action_id"],
-        "ryker_setup_repository_12"
+        "ryker_setup_environment_12"
       )
       |> put_in(["payload", "actions", Access.at(0), "value"], session_ref)
 
@@ -347,11 +347,22 @@ defmodule Ryker.Slack.InteractionTest do
     assert interaction.action_value == session_ref
     assert Interaction.setup_action?(interaction.action_id)
 
-    crossed = put_in(setup, ["payload", "actions", Access.at(0), "value"], "backend")
+    none =
+      put_in(
+        setup,
+        ["payload", "actions", Access.at(0), "action_id"],
+        "ryker_setup_environment_none"
+      )
+
+    assert {:ok, %{action_id: "ryker_setup_environment_none"}} =
+             Interaction.from_socket(none, "T123", @now)
+
+    crossed = put_in(setup, ["payload", "actions", Access.at(0), "value"], "production")
     assert Interaction.from_socket(crossed, "T123", @now) == :ignore
 
+    # The step asked for a repository before channels selected environments.
     for retired <-
-          ~w(ryker_setup_safe_defaults ryker_setup_be_proactive ryker_setup_customize) do
+          ~w(ryker_setup_safe_defaults ryker_setup_be_proactive ryker_setup_customize ryker_setup_repository_0) do
       assert setup
              |> put_in(["payload", "actions", Access.at(0), "action_id"], retired)
              |> Interaction.from_socket("T123", @now) == :ignore

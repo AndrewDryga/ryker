@@ -50,6 +50,11 @@ defmodule Ryker.Emisar.ApprovalWorker do
       {:ok, :idle} ->
         :ok
 
+      {:ok, {:closed, request_ids}} ->
+        Logger.info(
+          "Emisar approvals closed because no task waits for them: #{Enum.join(request_ids, ", ")}"
+        )
+
       {:ok, {:monitoring, _request_id, _status}} ->
         :ok
 

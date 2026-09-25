@@ -1,9 +1,9 @@
 defmodule Ryker.ControlPlane.UsagePageTest do
   use Ryker.DataCase, async: false
-  alias Ryker.ControlPlane.{HTML, Projection}
+  alias Ryker.ControlPlane.{Projection, UsagePage}
 
   test "usage shows all work by default without an execution ledger or generic methodology" do
-    html = Projection.usage(%{}) |> HTML.usage() |> IO.iodata_to_binary()
+    html = Projection.usage(%{}) |> UsagePage.render() |> IO.iodata_to_binary()
 
     for label <- [
           "Episodes",
@@ -57,7 +57,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
         average_provider_ms: 78_000
       })
 
-    html = %{snapshot | models: [model]} |> HTML.usage() |> IO.iodata_to_binary()
+    html = %{snapshot | models: [model]} |> UsagePage.render() |> IO.iodata_to_binary()
     assert html =~ "gpt-5.6-sol/high"
     assert html =~ "Avg. model time: 1m 18s"
     refute html =~ "High effort"
@@ -112,7 +112,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     document =
       %{snapshot | totals: totals, models: models}
-      |> HTML.usage()
+      |> UsagePage.render()
       |> IO.iodata_to_binary()
       |> LazyHTML.from_document()
 
@@ -140,7 +140,10 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     snapshot = Projection.usage(%{})
     totals = %{snapshot.totals | attempts: 4}
     model = Map.merge(totals, %{model: nil, effort: nil, provider: "unrecorded"})
-    html = %{snapshot | totals: totals, models: [model]} |> HTML.usage() |> IO.iodata_to_binary()
+
+    html =
+      %{snapshot | totals: totals, models: [model]} |> UsagePage.render() |> IO.iodata_to_binary()
+
     document = LazyHTML.from_document(html)
     refute html =~ "Unknown model"
     assert LazyHTML.query(document, "#usage-models tbody tr") |> LazyHTML.to_tree() == []
@@ -174,7 +177,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
             })
           ]
       }
-      |> HTML.usage()
+      |> UsagePage.render()
       |> IO.iodata_to_binary()
 
     assert html =~ "Model performance by work type"
@@ -200,7 +203,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     html =
       %{snapshot | profiles: profiles, kinds: [Map.put(row, :work_kind, "unclassified")]}
-      |> HTML.usage()
+      |> UsagePage.render()
       |> IO.iodata_to_binary()
 
     document = LazyHTML.from_document(html)
@@ -226,7 +229,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
         workspace: "emisar"
       })
 
-    html = %{snapshot | users: [person]} |> HTML.usage() |> IO.iodata_to_binary()
+    html = %{snapshot | users: [person]} |> UsagePage.render() |> IO.iodata_to_binary()
     document = LazyHTML.from_document(html)
     headers = document |> LazyHTML.query("#usage-users th") |> LazyHTML.to_tree()
 
@@ -251,7 +254,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
       for {source, actor} <- [{"slack", "U123"}, {"github", "andrew"}, {"webhook", "deploys"}],
           do: Map.merge(row, %{source: source, actor: actor, workspace: "T123"})
 
-    html = %{snapshot | users: users} |> HTML.usage() |> IO.iodata_to_binary()
+    html = %{snapshot | users: users} |> UsagePage.render() |> IO.iodata_to_binary()
     document = LazyHTML.from_document(html)
     assert LazyHTML.query(document, "#usage-users h2") |> LazyHTML.text() == "By user"
     refute html =~ "By person"
@@ -280,7 +283,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
         estimated_cost_usd: Decimal.new("0.25")
       })
 
-    html = %{snapshot | profiles: [row]} |> HTML.usage() |> IO.iodata_to_binary()
+    html = %{snapshot | profiles: [row]} |> UsagePage.render() |> IO.iodata_to_binary()
     assert html =~ "&lt;script&gt;profile&lt;/script&gt;"
     refute html =~ "<script>profile</script>"
     assert html =~ "$1.25"
@@ -303,7 +306,9 @@ defmodule Ryker.ControlPlane.UsagePageTest do
         timed: 1
       })
 
-    html = %{snapshot | profiles: [row], totals: totals} |> HTML.usage() |> IO.iodata_to_binary()
+    html =
+      %{snapshot | profiles: [row], totals: totals} |> UsagePage.render() |> IO.iodata_to_binary()
+
     assert html =~ "— tokens"
     assert html =~ "— of tokens"
     assert html =~ "Not measured"
@@ -347,7 +352,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     html =
       %{snapshot | totals: row, kinds: kinds, users: users}
-      |> HTML.usage()
+      |> UsagePage.render()
       |> IO.iodata_to_binary()
 
     for label <- [
@@ -406,7 +411,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     html =
       %{snapshot | totals: row, kinds: kinds, performance: performance}
-      |> HTML.usage()
+      |> UsagePage.render()
       |> IO.iodata_to_binary()
 
     assert html =~ "Learning"
@@ -414,9 +419,9 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     document = LazyHTML.from_document(html)
 
     assert LazyHTML.query(document, "#usage-work-types a") |> LazyHTML.attribute("href") ==
-             ["/memory#learning-activity"]
+             ["/memory/learning"]
 
     assert LazyHTML.query(document, "#model-performance tbody a") |> LazyHTML.attribute("href") ==
-             ["/memory#learning-activity"]
+             ["/memory/learning"]
   end
 end

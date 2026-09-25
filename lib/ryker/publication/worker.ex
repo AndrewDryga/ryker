@@ -49,6 +49,7 @@ defmodule Ryker.Publication.Worker do
       {:ok, :idle} -> :ok
       {:ok, {:executed, _result}} -> :ok
       {:ok, {:deferred, reason}} -> Logger.warning("publication deferred: #{inspect(reason)}")
+      {:ok, {:discarded, reason}} -> Logger.info("publication discarded: #{inspect(reason)}")
       {:error, reason} -> Logger.error("publication dispatcher failed: #{inspect(reason)}")
     end
   end

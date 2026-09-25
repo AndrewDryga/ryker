@@ -390,6 +390,12 @@ defmodule Ryker.ControlPlane.RequestPage do
         >
           {@document["decision_reason"]}
         </p>
+        <dl :if={@document && is_binary(@document["title"])} class="request-decision response-title">
+          <div>
+            <dt>Episode title</dt>
+            <dd><span>{@document["title"]}</span></dd>
+          </div>
+        </dl>
         <.disclosure
           id={"#{@prefix}-response-#{@attempt}-raw"}
           label="Raw response"
@@ -397,7 +403,9 @@ defmodule Ryker.ControlPlane.RequestPage do
           class="candidate-response-raw"
         >
           <:meta>{@response_meta}</:meta>
-          <pre class="model-document-text" tabindex="0">{@response.text}</pre>
+          <.copy_block label="Copy JSON">
+            <pre class="model-document-text" tabindex="0">{@response.text}</pre>
+          </.copy_block>
         </.disclosure>
       </div>
     </section>

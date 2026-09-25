@@ -32,10 +32,12 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.GitHub.CapabilityTools, as: GitHubCapabilityTools
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.{Git, GitCommand, GitHubPublisher}
+  alias Ryker.Settings.Environment
   alias Ryker.Slack.ActionTokens
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
   alias Ryker.Slack.Client, as: SlackClient
   alias Ryker.Slack.Target, as: SlackTarget
+  alias Ryker.Work.RepositoryContext
 
   # Every runtime the owner starts, in dependency order, with the module that
   # validates its configuration here and runs it there. One list, so a runtime
@@ -99,21 +101,22 @@ defmodule Ryker.Runtime.Assembly do
   defp assemble(bootstrap, settings) do
     policies = index_policies(settings.policy_bindings)
     repositories = repositories(settings, policies)
-    contexts = repository_contexts(settings, repositories, policies)
+    outside = outside_profile(policies)
+    environments = environments(settings, repositories, policies, outside)
+    chat = chat_profile(settings, environments, outside)
     work = work(settings)
     admission = admission(settings, policies, work)
-    chat = installation_work_profile(policies)
     learning = learning(settings, policies, work)
     schedules = schedules(settings, repositories, policies)
     gateway = worker_gateway(bootstrap)
-    github = github(bootstrap, settings, repositories, contexts)
-    slack = slack(bootstrap, settings, contexts, schedules, policies, chat)
-    control_plane = control_plane(bootstrap, settings, contexts, work, schedules, chat)
+    github = github(bootstrap, settings, repositories, environments)
+    slack = slack(bootstrap, settings, environments, schedules, policies, outside)
+    control_plane = control_plane(bootstrap, settings, environments, work, schedules, chat)
     adapters = adapters(slack, github, control_plane)
     delivery = delivery(settings, adapters)
     publication = publication(bootstrap, settings, work, repositories, github, adapters)
     emisar = emisar(bootstrap, settings, adapters, slack, github)
-    webhooks = webhooks(bootstrap, settings, adapters, repositories, contexts)
+    webhooks = webhooks(bootstrap, settings, adapters, repositories, environments)
     retention = retention(settings, work, learning)
 
     state_tools =
@@ -128,7 +131,7 @@ defmodule Ryker.Runtime.Assembly do
 
     %{
       execution_mode: Defaults.execution(),
-      fleet_profiles: fleet_profiles(repositories, admission, chat)
+      fleet_profiles: fleet_profiles(repositories, environments, admission, outside)
     }
     |> put_optional(:work, work)
     |> put_optional(:admission, admission)
@@ -163,8 +166,10 @@ defmodule Ryker.Runtime.Assembly do
 
   defp installation_policy(policies, purpose), do: policy(policies, purpose, :installation, "")
 
-  # Repositories and contexts --------------------------------------------------
+  # Repositories and environments ---------------------------------------------
 
+  # A repository is usable when reviewed bindings name at least its
+  # conversation and contributor policies; its other classes fall back to them.
   defp repositories(settings, policies) do
     bindings = Map.new(settings.github_bindings, &{&1.repository_ref, &1})
 
@@ -198,88 +203,218 @@ defmodule Ryker.Runtime.Assembly do
     |> Map.new()
   end
 
-  defp repository_contexts(settings, repositories, policies) do
-    direct =
-      Map.new(repositories, fn {ref, repository} ->
-        {ref,
-         %{
-           contributor_policy: repository.contributor_policy,
-           github_repository: repository.github_repository,
-           work_profile: repository_work_profile(ref, repository)
-         }}
-      end)
+  # Every environment that can run work, by ref. Work in one changes its first
+  # repository and reads the others; an environment without repositories runs
+  # on the installation's own policy and mounts nothing. An environment whose
+  # writable repository is not usable, or which lacks the policies it needs,
+  # runs nothing and is left out.
+  defp environments(settings, repositories, policies, outside) do
+    settings.environments
+    |> Enum.flat_map(fn environment ->
+      case environment_entry(environment, repositories, policies, outside) do
+        nil -> []
+        entry -> [{environment.ref, entry}]
+      end
+    end)
+    |> Map.new()
+  end
 
-    sets =
-      settings.contexts
-      |> Enum.flat_map(fn context ->
-        conversation = policy(policies, :conversational, :context, context.ref)
-        contributor = policy(policies, :contributor, :context, context.ref)
-        primary = Map.get(repositories, context.primary_repository_ref)
+  defp environment_entry(environment, repositories, policies, outside) do
+    case Environment.repository_refs(environment) do
+      [] ->
+        outside && workspace_free_entry(environment, outside)
 
-        if conversation && contributor && primary do
-          standard = policy(policies, :standard, :context, context.ref) || conversation
-          deep = policy(policies, :deep, :context, context.ref) || standard
-
-          document =
-            context
-            |> context_document()
-            |> WorkProfile.repository_context_document()
-
-          [
-            {context.ref,
-             %{
-               contributor_policy:
-                 contributor
-                 |> Map.put(:repository_ref, context.primary_repository_ref)
-                 |> Map.put(:repository_context, document),
-               github_repository: primary.github_repository,
-               work_profile: %{
-                 class_policies: %{
-                   conversational: class_policy(conversation),
-                   deep: class_policy(deep),
-                   standard: class_policy(standard)
-                 },
-                 authority_digest: Map.get(conversation, :authority_digest),
-                 policy: conversation.name,
-                 policy_digest: conversation.digest,
-                 repository_context: context_document(context),
-                 repository_ref: context.primary_repository_ref
-               }
-             }}
-          ]
-        else
-          []
+      [writable | read_only] ->
+        with %{} = repository <- Map.get(repositories, writable),
+             %{} = classes <- environment_policies(environment, read_only, repository, policies) do
+          repository_entry(environment, writable, read_only, repository, classes)
         end
-      end)
-      |> Map.new()
-
-    Map.merge(direct, sets)
+    end
   end
 
-  defp context_document(context) do
+  # An environment's own reviewed bindings decide its policies: Coop mounts the
+  # read-only repositories only for a policy that declares them. One with a
+  # single repository and no bindings of its own runs on that repository's.
+  defp environment_policies(environment, read_only, repository, policies) do
+    conversation = policy(policies, :conversational, :environment, environment.ref)
+    contributor = policy(policies, :contributor, :environment, environment.ref)
+
+    cond do
+      conversation && contributor ->
+        standard = policy(policies, :standard, :environment, environment.ref) || conversation
+        deep = policy(policies, :deep, :environment, environment.ref) || standard
+
+        %{contributor: contributor, conversation: conversation, deep: deep, standard: standard}
+
+      read_only == [] ->
+        %{
+          contributor: repository.contributor_policy,
+          conversation: repository.conversation_policy,
+          deep: repository.deep_policy,
+          standard: repository.standard_policy
+        }
+
+      true ->
+        nil
+    end
+  end
+
+  defp repository_entry(environment, writable, read_only, repository, classes) do
+    context =
+      RepositoryContext.document(%{
+        context_ref: environment.ref,
+        parallel_goal_limit: environment.parallel_goal_limit,
+        primary_repository: writable,
+        read_only_repositories: read_only
+      })
+
     %{
-      context_ref: context.ref,
-      parallel_goal_limit: context.parallel_goal_limit,
-      primary_repository: context.primary_repository_ref,
-      read_only_repositories: context.read_only_repository_refs
+      contributor_policy:
+        Map.merge(classes.contributor, %{
+          environment_ref: environment.ref,
+          repository_context: context,
+          repository_ref: writable
+        }),
+      display_name: environment.display_name,
+      github_repository: repository.github_repository,
+      work_profile:
+        classes.conversation
+        |> class_profile(classes.standard, classes.deep)
+        |> Map.merge(%{
+          emisar_connection_ref: environment.emisar_connection_ref,
+          environment_ref: environment.ref,
+          parallel_goal_limit: environment.parallel_goal_limit,
+          read_only_repository_refs: read_only,
+          repository_ref: writable
+        })
     }
   end
 
-  defp repository_work_profile(ref, repository) do
+  defp workspace_free_entry(environment, outside) do
     %{
+      contributor_policy: nil,
+      display_name: environment.display_name,
+      github_repository: nil,
+      work_profile:
+        Map.merge(outside, %{
+          emisar_connection_ref: environment.emisar_connection_ref,
+          environment_ref: environment.ref,
+          parallel_goal_limit: environment.parallel_goal_limit
+        })
+    }
+  end
+
+  # A repository run on its own, outside any environment: GitHub events for a
+  # repository no usable environment contains, and tasks that change it.
+  defp repository_alone(ref, repository) do
+    %{
+      contributor_policy: Map.put(repository.contributor_policy, :repository_ref, ref),
+      display_name: ref,
+      github_repository: repository.github_repository,
+      work_profile:
+        repository.conversation_policy
+        |> class_profile(repository.standard_policy, repository.deep_policy)
+        |> Map.put(:repository_ref, ref)
+    }
+  end
+
+  defp class_profile(conversation, standard, deep) do
+    %{
+      authority_digest: Map.get(conversation, :authority_digest),
       class_policies: %{
-        conversational: class_policy(repository.conversation_policy),
-        deep: class_policy(repository.deep_policy),
-        standard: class_policy(repository.standard_policy)
+        conversational: class_policy(conversation),
+        deep: class_policy(deep),
+        standard: class_policy(standard)
       },
-      authority_digest: Map.get(repository.conversation_policy, :authority_digest),
-      policy: repository.conversation_policy.name,
-      policy_digest: repository.conversation_policy.digest,
-      repository_ref: ref
+      policy: conversation.name,
+      policy_digest: conversation.digest
     }
   end
 
-  defp fleet_profiles(repositories, admission, chat) do
+  # Work outside any environment: the installation's own conversation policy,
+  # no repository, no Emisar account.
+  defp outside_profile(policies) do
+    case installation_policy(policies, :conversational) do
+      nil ->
+        nil
+
+      policy ->
+        class = class_policy(policy)
+
+        %{
+          authority_digest: Map.get(policy, :authority_digest),
+          class_policies: %{conversational: class, deep: class, standard: class},
+          policy: policy.name,
+          policy_digest: policy.digest,
+          repository_ref: nil
+        }
+    end
+  end
+
+  # Chat runs in the default environment, and outside any when none is chosen
+  # or the chosen one cannot run work.
+  defp chat_profile(settings, environments, outside) do
+    case default_environment(settings, environments) do
+      nil -> outside
+      ref -> Map.fetch!(environments, ref).work_profile
+    end
+  end
+
+  defp default_environment(settings, environments) do
+    case Environment.default(settings) do
+      %Environment{ref: ref} when is_map_key(environments, ref) -> ref
+      _none_or_unusable -> nil
+    end
+  end
+
+  defp saved_default_environment(settings) do
+    case Environment.default(settings) do
+      %Environment{ref: ref} -> ref
+      nil -> nil
+    end
+  end
+
+  # GitHub events for a repository run in the environment
+  # `Environment.for_repository/2` names among those that can run work, else
+  # on the repository alone.
+  defp github_entry(repository_ref, settings, repositories, environments) do
+    usable = Enum.filter(settings.environments, &Map.has_key?(environments, &1.ref))
+
+    case Environment.for_repository(usable, repository_ref) do
+      %Environment{ref: ref} ->
+        Map.fetch!(environments, ref)
+
+      nil ->
+        case Map.fetch(repositories, repository_ref) do
+          {:ok, repository} -> repository_alone(repository_ref, repository)
+          :error -> nil
+        end
+    end
+  end
+
+  # A confirmed task changes the repository it names, so it runs where that
+  # repository is writable: the first environment (by ref) whose writable
+  # repository it is, else on the repository alone.
+  defp task_entries(settings, repositories, environments) do
+    Map.new(repositories, fn {ref, repository} ->
+      writable_in =
+        settings.environments
+        |> Enum.sort_by(& &1.ref)
+        |> Enum.find(fn environment ->
+          Map.has_key?(environments, environment.ref) and
+            Environment.writable_repository(environment) == ref
+        end)
+
+      entry =
+        if writable_in,
+          do: Map.fetch!(environments, writable_in.ref),
+          else: repository_alone(ref, repository)
+
+      {ref, entry}
+    end)
+  end
+
+  defp fleet_profiles(repositories, environments, admission, outside) do
     repository_profiles =
       Enum.flat_map(repositories, fn {ref, repository} ->
         [
@@ -288,12 +423,25 @@ defmodule Ryker.Runtime.Assembly do
         ]
       end)
 
+    environment_profiles =
+      Enum.flat_map(environments, fn
+        {ref, %{contributor_policy: %{} = contributor, work_profile: profile}} ->
+          [
+            {{"environment_read_only", ref},
+             Map.take(profile, [:authority_digest, :policy, :policy_digest, :repository_ref])},
+            {{"environment_write", ref}, profile_entry(contributor, contributor.repository_ref)}
+          ]
+
+        {_ref, _workspace_free} ->
+          []
+      end)
+
     base =
       []
       |> maybe_profile("admission", admission)
-      |> maybe_profile("conversation", chat)
+      |> maybe_profile("conversation", outside)
 
-    Map.new(base ++ repository_profiles)
+    Map.new(base ++ repository_profiles ++ environment_profiles)
   end
 
   defp maybe_profile(profiles, _kind, nil), do: profiles
@@ -445,16 +593,16 @@ defmodule Ryker.Runtime.Assembly do
     |> Map.put(:checkpoint_secrets, credential_redaction_values())
   end
 
-  defp github(_bootstrap, %{github: %{enabled: false}}, _repositories, _contexts), do: nil
+  defp github(_bootstrap, %{github: %{enabled: false}}, _repositories, _environments), do: nil
 
   # Credentials do not enable an integration and must not silently rebind one.
   # A connection saved for one app with the deployment holding another's key is
   # a mismatch an operator has to resolve, not a component that quietly does
   # not start.
-  defp github(bootstrap, settings, repositories, contexts),
-    do: github_runtime(bootstrap, settings, repositories, contexts)
+  defp github(bootstrap, settings, repositories, environments),
+    do: github_runtime(bootstrap, settings, repositories, environments)
 
-  defp github_runtime(bootstrap, settings, _repositories, contexts) do
+  defp github_runtime(bootstrap, settings, repositories, environments) do
     app_id = settings.github.app_id
 
     defaults = Defaults.fetch!(:github)
@@ -466,20 +614,21 @@ defmodule Ryker.Runtime.Assembly do
 
     prepared =
       Map.new(settings.github_bindings, fn binding ->
-        {binding.name,
-         github_binding(binding, api_url, defaults, settings.repositories, contexts)}
+        entry = github_entry(binding.repository_ref, settings, repositories, environments)
+
+        {binding.name, github_binding(binding, api_url, defaults, settings.repositories, entry)}
       end)
 
     confirmations =
-      case contexts do
-        contexts when map_size(contexts) == 0 ->
+      case task_entries(settings, repositories, environments) do
+        entries when map_size(entries) == 0 ->
           nil
 
-        contexts ->
+        entries ->
           Confirmations.options!(%{
             repositories:
-              Map.new(contexts, fn {ref, context} ->
-                {ref, %{contributor_policy: context.contributor_policy}}
+              Map.new(entries, fn {ref, entry} ->
+                {ref, %{contributor_policy: entry.contributor_policy}}
               end)
           })
       end
@@ -569,13 +718,10 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp github_binding(binding, api_url, defaults, repositories, contexts) do
+  defp github_binding(binding, api_url, defaults, repositories, entry) do
     repository =
       Enum.find(repositories, &(&1.ref == binding.repository_ref)) ||
         raise ArgumentError, "github binding names an unknown repository"
-
-    context_ref = binding.repository_context_ref || binding.repository_ref
-    context = Map.get(contexts, context_ref)
 
     delivery_http =
       json_client!(api_url, defaults.receive_timeout_ms, fn ->
@@ -622,7 +768,7 @@ defmodule Ryker.Runtime.Assembly do
         repository_id: binding.repository_id,
         ryker_actor_id: binding.ryker_actor_id,
         secret: credential!(:github_webhook, "primary"),
-        work_profile: context && context.work_profile
+        work_profile: entry && entry.work_profile
       })
 
     %{
@@ -643,7 +789,7 @@ defmodule Ryker.Runtime.Assembly do
     }
   end
 
-  defp slack(_bootstrap, settings, contexts, schedules, policies, chat) do
+  defp slack(_bootstrap, settings, environments, schedules, policies, outside) do
     with true <- settings.slack.enabled,
          %{} = incident_policy <- installation_policy(policies, :incident) do
       defaults = Defaults.fetch!(:slack)
@@ -671,9 +817,12 @@ defmodule Ryker.Runtime.Assembly do
           app_http: app_http,
           bot_client: bot_client,
           channel_prefix: settings.slack.channel_prefix,
+          # The saved default, even while it cannot run work yet: a channel
+          # joined then is still set to it, and works in it once it can.
+          default_environment: saved_default_environment(settings),
           default_participation: settings.slack.default_participation,
-          default_repository: settings.slack.default_repository_ref,
-          fallback_work_profile: chat,
+          environments: environments,
+          fallback_work_profile: outside,
           identity: %{
             bot_ref: settings.slack.bot_ref,
             bot_user_ref: settings.slack.bot_user_ref,
@@ -682,7 +831,6 @@ defmodule Ryker.Runtime.Assembly do
           incident_policy: incident_policy,
           incident_private: settings.slack.incident_private,
           operators: settings.slack.operators,
-          repositories: contexts,
           schedule_policies: schedules
         })
 
@@ -702,7 +850,7 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp control_plane(bootstrap, _settings, contexts, work, schedules, chat) do
+  defp control_plane(bootstrap, _settings, environments, work, schedules, chat) do
     %{
       access: Map.get(bootstrap.control_plane, :access, :loopback),
       coop_api: work && work.api,
@@ -711,36 +859,13 @@ defmodule Ryker.Runtime.Assembly do
       port: bootstrap.control_plane.port,
       schedule_policies: schedules,
       task_policies:
-        Map.new(contexts, fn {ref, context} -> {ref, context.contributor_policy} end),
-      work_profile: default_work_profile(contexts, chat)
+        for(
+          {ref, %{contributor_policy: %{} = policy}} <- environments,
+          into: %{},
+          do: {ref, policy}
+        ),
+      work_profile: chat
     }
-  end
-
-  # The local console uses the installation's default repository context when one
-  # is configured. It never selects or widens authority from the browser.
-  defp default_work_profile(contexts, fallback) do
-    case Enum.sort(Map.keys(contexts)) do
-      [] -> fallback
-      [ref | _rest] -> Map.fetch!(contexts, ref).work_profile
-    end
-  end
-
-  defp installation_work_profile(policies) do
-    case installation_policy(policies, :conversational) do
-      nil ->
-        nil
-
-      policy ->
-        class = class_policy(policy)
-
-        %{
-          authority_digest: Map.get(policy, :authority_digest),
-          class_policies: %{conversational: class, deep: class, standard: class},
-          policy: policy.name,
-          policy_digest: policy.digest,
-          repository_ref: nil
-        }
-    end
   end
 
   defp adapters(slack, github, control_plane) do
@@ -889,7 +1014,7 @@ defmodule Ryker.Runtime.Assembly do
     |> Enum.max(fn -> 0 end)
   end
 
-  defp webhooks(bootstrap, settings, adapters, repositories, contexts) do
+  defp webhooks(bootstrap, settings, adapters, repositories, environments) do
     sources = Enum.filter(settings.webhook_sources, & &1.enabled)
 
     if sources == [] do
@@ -900,19 +1025,19 @@ defmodule Ryker.Runtime.Assembly do
         port: bootstrap.webhook_listener.port,
         routes:
           Map.new(sources, fn source ->
-            {source.name, webhook_route!(source, adapters, repositories, contexts)}
+            {source.name, webhook_route!(source, adapters, repositories, environments)}
           end)
       }
     end
   end
 
-  defp webhook_route!(source, adapters, repositories, contexts) do
+  defp webhook_route!(source, adapters, repositories, environments) do
     defaults = Defaults.fetch!(:webhooks)
     secret = credential!(:webhook, source.secret_name)
 
-    context =
-      Map.get(contexts, source.context_ref) ||
-        raise ArgumentError, "webhook source names an unknown repository context"
+    environment =
+      Map.get(environments, source.environment_ref) ||
+        raise ArgumentError, "webhook source names an environment that cannot run work"
 
     destination = %{
       conversation_ref: source.destination_conversation_ref,
@@ -927,7 +1052,7 @@ defmodule Ryker.Runtime.Assembly do
       max_body_bytes: defaults.max_body_bytes,
       max_clock_skew_seconds: defaults.max_clock_skew_seconds,
       publication_lifecycle: webhook_lifecycle(source, repositories),
-      work_profile: work_profile!(context.work_profile)
+      work_profile: work_profile!(environment.work_profile)
     }
 
     validate_destination!(destination, adapters)

@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.WorkRecoveryTest do
   use ExUnit.Case, async: true
-  alias Ryker.ControlPlane.{HTML, WorkRecovery}
+  alias Ryker.ControlPlane.{FailuresPage, WorkRecovery}
   alias Ryker.Work.Turn
 
   test "a confirmed task that never started explains setup without implying lost changes" do
@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     assert brief.workspace == "No files changed. No checks ran."
     assert brief.model_output == nil
     assert brief.action == nil
-    assert brief.setup_href == "/settings/system#code-editing"
+    assert brief.setup_href == "/settings/advanced#code-editing"
     assert WorkRecovery.not_started?(turn)
   end
 
@@ -39,7 +39,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     assert WorkRecovery.project(turn, :ok, false).action == nil
     ready = WorkRecovery.project(turn, :ok, true)
     assert ready.action == :retry
-    assert ready.action_label == "Retry task"
+    assert ready.action_label == "Start the task"
     assert ready.next_step =~ "compatible coding worker"
     assert ready.cause =~ "could not save"
     refute ready.next_step =~ "will fail for the same reason"
@@ -53,23 +53,24 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     turn = %{incident_turn() | last_error_detail: "{:coop_protocol_error, :turn}"}
     plain = WorkRecovery.project(turn, :ok, true)
     assert plain.action == :retry
-    assert plain.action_label == "Retry work"
-    assert plain.retry_effect =~ "preserve unfinished changes"
+    assert plain.action_label == "Run the task again"
+    assert plain.retry_effect =~ "preserve any unfinished changes"
 
     resumable = WorkRecovery.project(turn, :ok, true, snapshot())
     assert resumable.action == :retry
-    assert resumable.action_label == "Resume in another workspace"
+    assert resumable.action_label == "Continue on another worker"
     assert resumable.retry_effect =~ "ryker"
     assert resumable.retry_effect =~ "saved working copy"
     # The confirmation has to say what it does not do, because a snapshot whose
     # checks never ran is exactly what an operator might read it as waiving.
     assert resumable.retry_effect =~ "does not waive"
-    refute resumable.retry_effect =~ "preserve unfinished changes"
+    refute resumable.retry_effect =~ "unfinished changes"
+    assert resumable.retry_effect =~ "4.0 KB"
 
     # A state with no action of its own is not given one by a snapshot.
     held = WorkRecovery.project(incident_turn(), :ok, false, snapshot())
     assert held.action == nil
-    assert held.action_label == "Retry work"
+    assert held.action_label == "Run the task again"
   end
 
   defp snapshot do
@@ -110,12 +111,13 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
       work_recovery: brief
     }
 
-    html = HTML.failure(row) |> IO.iodata_to_binary()
+    html = row |> FailuresPage.detail() |> IO.iodata_to_binary()
     assert html =~ brief.headline
-    assert html =~ "Worker’s saved response"
+    assert html =~ "The worker’s last answer"
     assert html =~ "lacks Docker"
-    assert html =~ "What you need to do"
-    refute html =~ "Retry work"
+    assert html =~ "What you can do"
+    assert html =~ "Preserve the existing working copy"
+    refute html =~ "Run the task again"
     refute html =~ "No recognized error explanation"
   end
 
@@ -152,7 +154,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
       work_recovery: brief
     }
 
-    html = HTML.failure(row) |> IO.iodata_to_binary()
+    html = row |> FailuresPage.detail() |> IO.iodata_to_binary()
     assert html =~ "&lt;script&gt;"
     refute html =~ "<script>unsafe()"
   end
@@ -279,7 +281,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     assert WorkRecovery.workspace_hold(nil) == nil
   end
 
-  test "recovery puts the action before a collapsed safely formatted worker report" do
+  test "recovery names what happened before a collapsed safely formatted worker report" do
     brief =
       WorkRecovery.project(incident_turn(), {:error, :work_completed_workspace_recovery_required})
 
@@ -293,12 +295,15 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
       work_recovery: brief
     }
 
-    html = HTML.failure(row) |> IO.iodata_to_binary()
+    html = row |> FailuresPage.detail() |> IO.iodata_to_binary()
     assert html =~ "<code>"
-    assert html =~ "<details class=\"recovery-worker-report\">"
-    {action, _} = :binary.match(html, "What you need to do")
-    {report, _} = :binary.match(html, "Worker’s saved response")
-    assert action < report
+    assert html =~ ~s(<details class="recovery-worker-report failure-report">)
+    refute html =~ ~s(<details class="recovery-worker-report failure-report" open)
+    # What happened is read first; the worker's own words sit, closed, under it.
+    {happened, _} = :binary.match(html, "What happened")
+    {report, _} = :binary.match(html, "The worker’s last answer")
+    {options, _} = :binary.match(html, "What you can do")
+    assert happened < report and report < options
   end
 
   # Found 2026-09-12 — the card told the operator no specific cause existed

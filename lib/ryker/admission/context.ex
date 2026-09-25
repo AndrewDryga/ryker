@@ -27,6 +27,7 @@ defmodule Ryker.Admission.Context do
                 conversation_context: nil,
                 context_manifest: nil,
                 routing_receipt: nil,
+                continuation_window: nil,
                 fitted?: false
               ]
 
@@ -39,6 +40,10 @@ defmodule Ryker.Admission.Context do
           input_entry: Entry.t()
         }
 
+  # What the router reads. The frozen snapshot keeps each document's full
+  # provenance; routing reads who said what and when, so where a message can
+  # be re-read, its revision and retention, the manifest's byte count and the
+  # summary status both the bundle and the manifest carried stay out of it.
   @spec for_model(t()) :: map()
   def for_model(%__MODULE__{} = context) do
     %{
@@ -46,12 +51,108 @@ defmodule Ryker.Admission.Context do
       "candidates" => Enum.map(context.candidates, &Candidate.for_model/1),
       "input" => Input.model_document(context.input)
     }
-    |> put_conversation_context(context.conversation_context, context.context_manifest)
-    |> put_observations(context.observations)
+    |> put_model_conversation(context.conversation_context, context.context_manifest)
+    |> put_observations(model_observations(context.observations, context.conversation_context))
     |> put_knowledge(context.knowledge)
     |> put_slack_addressing(context.slack_addressing)
-    |> put_custom_instructions(context.custom_instructions)
+    |> put_model_custom_instructions(context.custom_instructions)
     |> put_repository_source_kinds(context.input_entry.repository_ref)
+  end
+
+  @doc "Whether the operator saved any instruction text for this request."
+  @spec custom_instructions?(t()) :: boolean()
+  def custom_instructions?(%__MODULE__{custom_instructions: snapshot}),
+    do: instruction_text?(snapshot)
+
+  defp instruction_text?(%{} = snapshot) do
+    Enum.any?(~w(global channel), fn scope ->
+      match?(%{"text" => text} when is_binary(text) and text != "", snapshot[scope])
+    end)
+  end
+
+  defp instruction_text?(_snapshot), do: false
+
+  # A routing session answers one message, so an empty snapshot has no earlier
+  # instruction to clear; it is left out with the paragraph that explains it.
+  defp put_model_custom_instructions(document, snapshot) do
+    if instruction_text?(snapshot),
+      do: Map.put(document, "custom_instructions", snapshot),
+      else: document
+  end
+
+  defp put_model_conversation(document, nil, _manifest), do: document
+
+  defp put_model_conversation(document, bundle, manifest) do
+    document
+    |> Map.put("conversation_context", model_bundle(bundle))
+    |> Map.put("context_manifest", model_manifest(manifest))
+  end
+
+  # The current message is the input document itself; a null summary says the
+  # same thing its absence does.
+  defp model_bundle(bundle) when is_map(bundle) do
+    bundle
+    |> Map.delete("current")
+    |> Map.update(
+      "messages",
+      [],
+      &Enum.map(List.wrap(&1), fn message -> model_message(message) end)
+    )
+    |> Map.update("root", nil, &model_message/1)
+    |> Map.reject(fn {_key, value} -> value in [nil, []] end)
+  end
+
+  defp model_bundle(_bundle), do: %{}
+
+  defp model_message(%{} = message) do
+    %{
+      "actor" => message["actor_ref"],
+      "at" => Candidate.model_time(message["occurred_at"]),
+      "text" => message |> get_in(["content", "text"]) |> Candidate.model_text()
+    }
+  end
+
+  defp model_message(_message), do: nil
+
+  @manifest_fields ~w(cutoff included narrowed range requested root)
+  # A message outside a thread has no root to report; the frozen manifest
+  # still records that it did not apply.
+  defp model_manifest(%{} = manifest) do
+    manifest
+    |> Map.take(@manifest_fields)
+    |> Map.reject(&(&1 == {"root", "not_applicable"}))
+    |> Map.update("cutoff", nil, &Candidate.model_time/1)
+    |> Map.update("range", nil, fn
+      %{} = range -> Map.new(range, fn {key, at} -> {key, Candidate.model_time(at)} end)
+      range -> range
+    end)
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp model_manifest(_manifest), do: nil
+
+  # Notes about messages the router already reads verbatim add nothing; the
+  # rest keep who, when and what, and their topics when there are any.
+  defp model_observations(notes, bundle) do
+    supplied =
+      [bundle && bundle["root"] | List.wrap(bundle && bundle["messages"])]
+      |> Enum.flat_map(fn
+        %{"source_message_ref" => ref} when is_binary(ref) -> [ref]
+        _message -> []
+      end)
+      |> MapSet.new()
+
+    notes
+    |> Enum.reject(&MapSet.member?(supplied, &1["source_message_ref"]))
+    |> Enum.map(fn note ->
+      %{
+        "actor" => note["actor_ref"],
+        "at" => Candidate.model_time(note["occurred_at"]),
+        "summary" => Candidate.model_text(note["summary"]),
+        "topics" => note["topics"]
+      }
+      |> Map.reject(fn {_key, value} -> value in [nil, []] end)
+    end)
   end
 
   @doc false
@@ -60,6 +161,7 @@ defmodule Ryker.Admission.Context do
     %{
       "active_episode_fingerprint" => context.active_episode_fingerprint,
       "built_at" => DateTime.to_iso8601(context.built_at),
+      "continuation_window" => context.continuation_window,
       "candidates" => Enum.map(context.candidates, &Candidate.snapshot/1),
       "conversation_episode_count" => context.conversation_episode_count,
       "source_dependencies" => context.source_dependencies,
@@ -90,7 +192,8 @@ defmodule Ryker.Admission.Context do
   @spec restore(map(), Input.t(), Entry.t(), %{Ecto.UUID.t() => Episode.t()}) ::
           {:ok, t()} | {:error, term()}
   def restore(snapshot, %Input{} = input, %Entry{} = entry, episodes) when is_map(episodes) do
-    fields = ~w(active_episode_fingerprint built_at candidates conversation_episode_count)
+    fields =
+      ~w(active_episode_fingerprint built_at candidates continuation_window conversation_episode_count)
 
     with true <-
            is_map(snapshot) and
@@ -122,6 +225,7 @@ defmodule Ryker.Admission.Context do
          {:ok, built_at} <- parse_datetime(snapshot["built_at"]),
          true <- valid_fingerprint?(snapshot["active_episode_fingerprint"]),
          true <- valid_count?(snapshot["conversation_episode_count"]),
+         true <- valid_window?(snapshot["continuation_window"]),
          {:ok, conversation_context} <- restore_document(snapshot, :conversation_context),
          {:ok, context_manifest} <- restore_document(snapshot, :context_manifest),
          {:ok, routing_receipt} <- restore_document(snapshot, :routing_receipt),
@@ -132,6 +236,7 @@ defmodule Ryker.Admission.Context do
          built_at: built_at,
          candidates: candidates,
          conversation_episode_count: snapshot["conversation_episode_count"],
+         continuation_window: snapshot["continuation_window"],
          input: input,
          input_entry: entry,
          fitted?: true,
@@ -153,6 +258,9 @@ defmodule Ryker.Admission.Context do
 
   def restore(_snapshot, _input, _entry, _episodes),
     do: {:error, {:invalid_admission_context_snapshot, :document}}
+
+  defp valid_window?(nil), do: true
+  defp valid_window?(seconds), do: is_integer(seconds) and seconds > 0
 
   # The frozen bundle and its manifest travel together: a receipt that claimed
   # coverage the model never received would be worse than no receipt at all.

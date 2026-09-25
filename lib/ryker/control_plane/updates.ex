@@ -91,7 +91,9 @@ defmodule Ryker.ControlPlane.Updates do
 
   defp domains("slack_" <> _),
     do:
-      ~w(activity channels incident-rooms timeline conversations failures configuration repositories)
+      ~w(activity channels environments incident-rooms timeline conversations failures configuration repositories)
+
+  defp domains("environment_" <> _), do: ~w(environments channels repositories configuration)
 
   defp domains("coop_" <> _),
     do: ~w(activity workspaces timeline conversations repositories configuration failures)
@@ -101,7 +103,7 @@ defmodule Ryker.ControlPlane.Updates do
   defp domains("memory_" <> _), do: ~w(memory conversations timeline)
 
   defp domains("operator_behaviors"),
-    do: ~w(rules preferences guidance memory configuration channels timeline)
+    do: ~w(rules instructions memory configuration channels timeline)
 
   defp domains("standing_assignment_runs"), do: ~w(rules timeline)
   defp domains("platform_actions"), do: ~w(activity timeline conversations failures)

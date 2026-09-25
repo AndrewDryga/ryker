@@ -287,6 +287,31 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
+  # Task policies are keyed by environment. A task changes the repository it
+  # names, so it runs where that repository takes changes: in Chat's own
+  # environment, the default, when that is its repository, else in the first
+  # environment (by ref) whose work changes it.
+  defp task_policy(task_policies, work_profile, repository) do
+    case own_task_policy(task_policies, work_profile) do
+      %{repository_ref: ^repository} = own ->
+        {:ok, own}
+
+      _elsewhere ->
+        task_policies
+        |> Enum.sort_by(fn {environment_ref, _policy} -> environment_ref end)
+        |> Enum.find_value(:error, fn {_environment_ref, policy} ->
+          changes?(policy, repository) && {:ok, policy}
+        end)
+    end
+  end
+
+  defp own_task_policy(task_policies, %WorkProfile{environment_ref: ref}) when is_binary(ref),
+    do: Map.get(task_policies, ref)
+
+  defp own_task_policy(_task_policies, _outside), do: nil
+
+  defp changes?(policy, repository), do: Map.get(policy, :repository_ref) == repository
+
   defp lab_record_context(conversation_ref, record_ref) do
     case fetch_lab_record(record_ref) do
       {%Record{} = record, %Episode{} = episode, %Turn{} = turn} ->
@@ -385,11 +410,11 @@ defmodule Ryker.ControlPlane.Actions do
          target,
          :confirm_task,
          nil,
-         _work_profile,
+         work_profile,
          task_policies,
          action_ref
        ) do
-    case Map.fetch(task_policies, payload["repository"]) do
+    case task_policy(task_policies, work_profile, payload["repository"]) do
       {:ok, %{name: name, digest: digest} = policy} ->
         TaskOffers.confirm(%{
           actor_ref: @actor_ref,
@@ -397,6 +422,7 @@ defmodule Ryker.ControlPlane.Actions do
           occurred_at: now(),
           policy:
             %{name: name, digest: digest}
+            |> maybe_put(:environment_ref, Map.get(policy, :environment_ref))
             |> maybe_put(:repository_ref, Map.get(policy, :repository_ref))
             |> maybe_put(:repository_context, Map.get(policy, :repository_context)),
           record_ref: record.ref,
@@ -417,7 +443,7 @@ defmodule Ryker.ControlPlane.Actions do
          _task_policies,
          action_ref
        ) do
-    if is_nil(payload["repository"]) or payload["repository"] == context_ref(work_profile) do
+    if is_nil(payload["repository"]) or payload["repository"] == work_profile.repository_ref do
       TaskOffers.confirm(%{
         actor_ref: @actor_ref,
         confirmation_ref: action_ref,
@@ -428,9 +454,10 @@ defmodule Ryker.ControlPlane.Actions do
             digest: work_profile.policy_digest,
             repository_ref: work_profile.repository_ref
           }
+          |> maybe_put(:environment_ref, work_profile.environment_ref)
           |> maybe_put(
             :repository_context,
-            WorkProfile.repository_context_document(work_profile.repository_context)
+            WorkProfile.repository_context_document(WorkProfile.repository_context(work_profile))
           ),
         record_ref: record.ref,
         target: target
@@ -942,11 +969,6 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp action_ref(action),
     do: "control-plane:retention:#{action}:#{Ecto.UUID.generate()}"
-
-  defp context_ref(%WorkProfile{repository_context: %{context_ref: context_ref}}),
-    do: context_ref
-
-  defp context_ref(%WorkProfile{repository_ref: repository_ref}), do: repository_ref
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

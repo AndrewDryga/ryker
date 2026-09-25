@@ -121,14 +121,16 @@ defmodule Ryker.Ingress.Input do
   end
 
   @spec model_document(t()) :: map()
+  # What the source can do reaches the router as the actions and reactions its
+  # response format offers; a capability map named after one transport's tools
+  # repeated that, and misnamed a Chat source as Slack.
   def model_document(%__MODULE__{} = input) do
     %{
       "actor" => %{"kind" => Atom.to_string(input.actor.kind), "ref" => input.actor.ref},
-      "content" => model_content(input.content),
+      "content" => input.content |> model_content() |> trim_text(),
       "event_kind" => Atom.to_string(input.event_kind),
-      "occurred_at" => DateTime.to_iso8601(input.occurred_at),
-      "source" => %{"kind" => input.source.kind, "ref" => input.source.ref},
-      "source_capabilities" => input.source_capabilities
+      "occurred_at" => input.occurred_at |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+      "source" => %{"kind" => input.source.kind, "ref" => input.source.ref}
     }
   end
 
@@ -156,6 +158,11 @@ defmodule Ryker.Ingress.Input do
   def actor_ref(%__MODULE__{} = input) do
     "#{input.source.kind}:#{input.actor.kind}:#{input.actor.ref}"
   end
+
+  defp trim_text(%{"text" => text} = content) when is_binary(text),
+    do: %{content | "text" => text |> String.replace("\r\n", "\n") |> String.trim()}
+
+  defp trim_text(content), do: content
 
   defp model_content(content) do
     encoded = CanonicalJSON.encode!(content)

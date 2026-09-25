@@ -9,8 +9,11 @@ defmodule Ryker.Episodes.RoutingDigests do
   those inputs actually contained, and its own coverage — so a stale digest
   says what it covers rather than inventing an up-to-date narrative.
 
-  It is derived deterministically in the admitting transaction. No model
-  writes it, and it is rebuilt from retained inputs.
+  It is derived deterministically in the admitting transaction and rebuilt
+  from retained inputs. The one exception is the title: a single line the Work
+  turn that named the episode wrote, stored with that turn's id. It is Ryker's
+  own name for the work, so routing reads it beside the source text, never as
+  evidence for it.
   """
 
   import Ecto.Query
@@ -20,13 +23,13 @@ defmodule Ryker.Episodes.RoutingDigests do
   alias Ryker.Ingress.RecallText
   alias Ryker.Repo
   alias Ryker.State.KnowledgeAnchors
+  alias Ryker.Work.{CandidateResponse, Final, Turn}
 
   @objective_bytes 1_024
   @development_bytes 1_024
   @search_bytes 8 * 1_024
   @maximum_anchors 64
   @maximum_conversations 32
-  @freshness_window 24 * 60 * 60
 
   @doc """
   Builds a bounded OR query from the incoming text.
@@ -35,21 +38,50 @@ defmodule Ryker.Episodes.RoutingDigests do
   every term is quoted: an unquoted `https:` or `firing:1` is not a word, and
   one such message would otherwise fail the whole retrieval.
   """
+  # Words that say nothing about which work a message belongs to: English
+  # function words, and the conversational filler people type around a
+  # question ("please", "see", "keep", "check"). Searching for them matched
+  # unrelated work that happened to be phrased the same way.
+  @filler ~w(
+    about above after again against all also and any are aren't because been before being below
+    between both but can can't cannot could couldn't did didn't does doesn't doing don't down
+    during each few for from further had hadn't has hasn't have haven't having her here hers
+    herself him himself his how into isn't it's its itself just let more most myself nor not now
+    off once only other our ours ourselves out over own same she should shouldn't some such than
+    that the their theirs them themselves then there these they this those through too under
+    until very was wasn't were weren't what when where which while who whom why will with won't
+    would wouldn't you your yours yourself yourselves
+    please thanks thank hey hello okay yes yeah see look looks looking keep kept need needs want
+    wants help check checking get got getting make made say said tell told know think like still
+    keeps keeping since ago via per etc
+    today yesterday tomorrow maybe one two new use using used thing things something anything
+    everything way lot bit really actually quick quickly short explain question questions answer
+    ryker don doesn didn isn wasn weren aren haven hasn hadn couldn wouldn shouldn won
+  ) |> MapSet.new()
+
   @spec search_terms(String.t() | nil) :: String.t()
-  def search_terms(text) do
+  def search_terms(text), do: text |> search_words() |> Enum.map_join(" | ", &"'#{&1}'")
+
+  @doc """
+  The words that query is made of, in the order the message used them: what
+  a person reads when asking which words the search looked for.
+  """
+  @spec search_words(String.t() | nil) :: [String.t()]
+  def search_words(text) do
+    # Links are matched whole by the identifier search; as words they were
+    # cut at 80 characters into fragments such as "bes/" that match nothing.
+    text = (text || "") |> String.slice(0, 4_000) |> String.replace(~r{https?://\S+}u, " ")
+
     ~r/[\p{L}\p{N}][\p{L}\p{N}_.:\/-]{2,79}/u
-    |> Regex.scan(String.slice(text || "", 0, 4_000))
+    |> Regex.scan(text)
     |> List.flatten()
     |> Enum.map(&String.downcase/1)
     |> Enum.map(&String.trim(&1, ":"))
     |> Enum.map(&String.replace(&1, ~r/['\\]/, ""))
     |> Enum.reject(&(String.length(&1) < 3))
     |> Enum.uniq()
-    |> Enum.reject(
-      &(&1 in ~w(the and that this what when where why how you are was were with from for can could would should has have not but its))
-    )
+    |> Enum.reject(&MapSet.member?(@filler, &1))
     |> Enum.take(24)
-    |> Enum.map_join(" | ", &"'#{&1}'")
   end
 
   @doc false
@@ -101,6 +133,61 @@ defmodule Ryker.Episodes.RoutingDigests do
     |> Map.new(&{&1.episode_id, &1})
   end
 
+  @doc "Each episode's current title, for the episodes that have one."
+  @spec titles([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => String.t()}
+  def titles([]), do: %{}
+
+  def titles(episode_ids) do
+    Repo.all(
+      from(digest in RoutingDigest,
+        where: digest.episode_id in ^episode_ids and not is_nil(digest.title),
+        select: {digest.episode_id, digest.title}
+      )
+    )
+    |> Map.new()
+  end
+
+  @doc """
+  Adopts the title an accepted Work answer set, inside the transaction that
+  accepts it.
+
+  The accepted candidate's exact bytes are the source: a title of null keeps
+  the current one, and an answer recorded before titles existed has none.
+  """
+  @spec accept_title_in_transaction(Episode.t(), Turn.t()) :: :ok
+  def accept_title_in_transaction(%Episode{id: episode_id}, %Turn{} = turn) do
+    case accepted_title(turn) do
+      nil ->
+        :ok
+
+      title ->
+        now = Repo.now!()
+
+        Repo.update_all(
+          from(digest in RoutingDigest,
+            where: digest.episode_id == ^episode_id,
+            where: is_nil(digest.title) or digest.title != ^title
+          ),
+          set: [title: title, title_turn_id: turn.id, title_updated_at: now, updated_at: now]
+        )
+
+        :ok
+    end
+  end
+
+  defp accepted_title(%Turn{id: turn_id, candidate_attempt: attempt}) when is_integer(attempt) do
+    with %CandidateResponse{body: body} when is_binary(body) <-
+           Repo.get_by(CandidateResponse, turn_id: turn_id, candidate_attempt: attempt),
+         {:ok, %{} = document} <- Jason.decode(body),
+         {:ok, %Final{title: title}} <- Final.parse(document) do
+      title
+    else
+      _unreadable -> nil
+    end
+  end
+
+  defp accepted_title(_turn), do: nil
+
   @doc "Indexed keys for source-backed identity clues; never an authority or uniqueness claim."
   @spec anchor_keys([String.t()]) :: [String.t()]
   def anchor_keys(anchors) do
@@ -111,25 +198,20 @@ defmodule Ryker.Episodes.RoutingDigests do
     |> Enum.sort()
   end
 
-  @doc "The bounded model-visible digest; it states coverage instead of claiming currency."
-  @spec document(RoutingDigest.t() | nil, DateTime.t()) :: map() | nil
-  def document(nil, _now), do: nil
+  @doc """
+  What routing reads about one episode beyond its messages: the name Ryker gave
+  it and how many messages and conversations it spans. The first and latest
+  messages travel as the candidate's own messages, not again as digest text.
+  """
+  @spec document(RoutingDigest.t() | nil) :: map() | nil
+  def document(nil), do: nil
 
-  def document(%RoutingDigest{} = digest, %DateTime{} = now) do
+  def document(%RoutingDigest{} = digest) do
     %{
-      "objective" => digest.objective,
-      "latest_development" => digest.latest_development,
-      "input_count" => digest.input_count,
       "conversations" => length(digest.conversation_refs),
-      "covered_through" => DateTime.to_iso8601(digest.covered_through_at),
-      "freshness" => freshness(digest, now)
+      "message_count" => digest.input_count,
+      "title" => digest.title
     }
-  end
-
-  defp freshness(digest, now) do
-    if DateTime.diff(now, digest.covered_through_at, :second) <= @freshness_window,
-      do: "current",
-      else: "stale"
   end
 
   defp admitted_events(episode_id, %Event{} = event) do

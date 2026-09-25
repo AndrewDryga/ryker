@@ -9,9 +9,11 @@ defmodule Ryker.ControlPlane.ServerTest do
     repository_ref: nil
   }
   @task_policies %{
-    "ryker" => %{
+    "production" => %{
       digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      name: "ryker-contributor"
+      environment_ref: "production",
+      name: "ryker-contributor",
+      repository_ref: "ryker"
     }
   }
 
@@ -78,6 +80,24 @@ defmodule Ryker.ControlPlane.ServerTest do
         task_policies: %{"ryker" => %{name: "browser-choice"}},
         work_profile: @profile
       )
+    end
+  end
+
+  test "task policies are keyed by environment and name the repository their tasks change" do
+    # The running configuration hands the console one contributor policy per
+    # environment since 2026-09-25. A policy keyed by a repository, the shape
+    # before environments, would place a Chat task nowhere, so it is refused
+    # at start rather than failing the first confirmation.
+    policy = @task_policies["production"]
+
+    for invalid <- [
+          %{"ryker" => Map.drop(policy, [:environment_ref, :repository_ref])},
+          %{"production" => Map.delete(policy, :repository_ref)},
+          %{"staging" => policy}
+        ] do
+      assert_raise ArgumentError, fn ->
+        Server.options!(port: 4_090, task_policies: invalid, work_profile: @profile)
+      end
     end
   end
 

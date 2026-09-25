@@ -61,7 +61,7 @@ defmodule Ryker.Evals.LearningRunnerTest do
           sid,
           key,
           revision,
-          %{"contract_version" => "work-final-live-v2"} = submission,
+          %{"contract_version" => "work-final-live-v3"} = submission,
           nil,
           []
         ) do

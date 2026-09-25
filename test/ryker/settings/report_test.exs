@@ -185,7 +185,6 @@ defmodule Ryker.Settings.ReportTest do
           workspace_ref: "T0123456789",
           bot_ref: "A0123456789",
           bot_user_ref: "U0123456789",
-          default_repository_ref: "ryker",
           operators: ["U1111111111"]
         },
         revision + 1,

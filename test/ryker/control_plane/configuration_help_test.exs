@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
   alias Ryker.ControlPlane.CodeEditingSetup
   alias Ryker.ControlPlane.ConfigurationHelp
   alias Ryker.ControlPlane.ConfigurationProjection
-  alias Ryker.ControlPlane.HTML
+  alias Ryker.ControlPlane.RunningSystem
 
   @settings ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks runtime.mode admission.policy admission.decision_timeout_ms work.concurrency work.poll_interval_ms retention.operational_data_seconds retention.closed_work_seconds retention.episode_history_seconds retention.audit_data_seconds retention.disposable_bytes_limit retention.reclaim_target_seconds retention.storage_high_watermark_bytes retention.storage_low_watermark_bytes retention.storage_reserve_bytes)
 
@@ -123,12 +123,11 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
 
   test "unknown settings and grant names remain escaped without invented explanations" do
     page =
-      HTML.configuration(%{
+      RunningSystem.html(%{
         source: "<source>",
         rows: [row("future.<option>", "<script>alert(1)</script>")],
         grants: [%{kind: "MCP tool", name: "<tool>", source: "<source>"}]
       })
-      |> IO.iodata_to_binary()
 
     assert page =~ "Explanation unavailable"
     assert page =~ "&lt;option&gt;"
@@ -177,7 +176,5 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
   defp row(key, value), do: %{key: key, value: value, source: "/etc/ryker.yaml"}
 
   defp html(rows),
-    do:
-      HTML.configuration(%{rows: rows, grants: [], source: "/etc/ryker.yaml"})
-      |> IO.iodata_to_binary()
+    do: RunningSystem.html(%{rows: rows, grants: [], source: "/etc/ryker.yaml"})
 end

@@ -5,8 +5,9 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   A request freezes its intent on the turn first. When the episode has no turn
   row yet, the request settles in the same transaction; otherwise the turn
-  keeps its owner until a leased worker records the exact terminal receipt, and
-  only then does the episode cancel or transfer. Blocked work resumes through
+  keeps its owner until a leased worker records the exact terminal receipt, or
+  the removal from Ryker of the worker holding the run, and only then does the
+  episode cancel or transfer. Blocked work resumes through
   the same transfer path once an operator confirms the exact stopped turn.
   """
 
@@ -15,6 +16,7 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
+  alias Ryker.CoopFleet.{Placement, Worker}
   alias Ryker.Defaults
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
@@ -522,6 +524,21 @@ defmodule Ryker.Work.Custody.Cancellation do
        when is_map(receipt) and action in ~w(cancel transfer),
        do: true
 
+  # A block Ryker settled itself before the run was ever submitted (a task
+  # parked for an archived incident room before its first run) has no remote
+  # run to prove stopped. Closing it was refused as a conflicting stop, so a
+  # person could not close the request and a deleted room's investigation
+  # stayed parked for good.
+  defp operator_supersedes_settled_block?(
+         %Turn{
+           status: :blocked,
+           cancellation_intent: %{"action" => "block"},
+           cancellation_receipt: nil
+         } = turn,
+         %{"action" => "cancel"}
+       ),
+       do: locally_settled_cancellation?(turn)
+
   defp operator_supersedes_settled_block?(_turn, _intent), do: false
 
   defp block_follows_operator_intent?(
@@ -541,7 +558,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   defp replace_settled_block(episode, session, turn, intent, fingerprint) do
     now = Repo.now!()
 
-    with :ok <- exact_cancellation_proof(turn.cancellation_receipt, session, turn),
+    with :ok <- settled_block_proof(turn, session),
          {:ok, settled_episode} <-
            settle_episode_after_cancellation(
              WorkCancellation.command(intent, episode, now),
@@ -565,6 +582,15 @@ defmodule Ryker.Work.Custody.Cancellation do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  defp settled_block_proof(%Turn{cancellation_receipt: nil} = turn, _session) do
+    if locally_settled_cancellation?(turn),
+      do: :ok,
+      else: {:error, :work_cancellation_receipt_mismatch}
+  end
+
+  defp settled_block_proof(turn, session),
+    do: exact_cancellation_proof(turn.cancellation_receipt, session, turn)
 
   defp conflicting_cancellation?(turn, fingerprint),
     do: turn.cancellation_intent != nil and turn.cancellation_intent_fingerprint != fingerprint
@@ -695,8 +721,51 @@ defmodule Ryker.Work.Custody.Cancellation do
          do: exact_session_disposition(receipt, session, turn)
   end
 
+  # Checked here, under the turn's lock, not taken from the caller: the run's
+  # remote identity is exactly what Ryker recorded, and the worker that holds
+  # its session is removed from Ryker now.
+  defp exact_cancellation_proof(
+         %{"kind" => "worker_removed", "worker_id" => worker_id} = receipt,
+         session,
+         turn
+       ) do
+    with :ok <- exact_reference(receipt["remote_session_id"], session.coop_session_id),
+         :ok <- exact_reference(receipt["remote_turn_id"], turn.coop_turn_id) do
+      case removed_worker(session.id) do
+        {:ok, ^worker_id} -> :ok
+        _not_removed -> {:error, :work_cancellation_receipt_mismatch}
+      end
+    end
+  end
+
   defp exact_cancellation_proof(_receipt, _session, _turn),
     do: {:error, :work_cancellation_receipt_mismatch}
+
+  @doc """
+  The worker holding this session, when it was removed from Ryker.
+
+  A bound session is only ever placed back on the worker that created it, so
+  its latest placement names the one worker that could still hold its run.
+  Removal is permanent: a revoked worker can be neither resumed nor drained.
+  """
+  @spec removed_worker(Ecto.UUID.t()) :: {:ok, String.t()} | :none
+  def removed_worker(session_id) do
+    Repo.one(
+      from(placement in Placement,
+        join: worker in Worker,
+        on: worker.id == placement.worker_id,
+        where: placement.session_id == ^session_id,
+        order_by: [desc: placement.generation],
+        limit: 1,
+        select: {worker.id, worker.state, worker.revoked_at}
+      )
+    )
+    |> case do
+      {worker_id, :revoked, _revoked_at} -> {:ok, worker_id}
+      {worker_id, _state, %DateTime{}} -> {:ok, worker_id}
+      _present_or_never_placed -> :none
+    end
+  end
 
   defp exact_bound_remote_identity(receipt, session, turn) do
     if is_binary(session.coop_session_id) and is_binary(turn.coop_turn_id) and
@@ -783,7 +852,21 @@ defmodule Ryker.Work.Custody.Cancellation do
          %{"session_state" => state},
          session
        )
-       when state in ~w(closed discarded) do
+       when state in ~w(closed discarded),
+       do: rotate_cancelled_session(session)
+
+  # The session is on a worker Ryker will never reach again; the next owner
+  # starts on a new generation rather than discovering that one call later.
+  defp maybe_rotate_cancelled_session(
+         %{"action" => "transfer"},
+         %{"kind" => "worker_removed"},
+         session
+       ),
+       do: rotate_cancelled_session(session)
+
+  defp maybe_rotate_cancelled_session(_intent, _receipt, _session), do: :ok
+
+  defp rotate_cancelled_session(session) do
     case Sessions.insert_session(
            session.episode_id,
            session.generation + 1,
@@ -793,8 +876,6 @@ defmodule Ryker.Work.Custody.Cancellation do
       {:error, _reason} = error -> error
     end
   end
-
-  defp maybe_rotate_cancelled_session(_intent, _receipt, _session), do: :ok
 
   defp settle_episode_after_cancellation(nil, episode, _turn), do: {:ok, episode}
 

@@ -67,6 +67,9 @@ defmodule Ryker.Admission.Dispatcher do
         wait(claim, input_ref, reason, settings, settings.now.())
 
       {:error, reason} ->
+        # A run the worker cancelled, interrupted or ran out of budget for
+        # spent its generation too, so the next claim reads the message again
+        # with a fresh run instead of asking anyone to send it again.
         if claim.entry.attempt_count >= @maximum_attempts do
           # A pending predecessor prevents every later input in its conversation
           # from running. Preserve reconciliation keys in operator custody rather

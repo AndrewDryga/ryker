@@ -414,12 +414,15 @@ defmodule Ryker.StateTools.Catalog do
     )
   end
 
+  # The preflight takes the final schema with title optional, like the other
+  # tools' optional fields: an answer recorded before titles still preflights,
+  # and a missing title is the same candidate as a null one.
   defp validate_final_tool(final_schema) do
     tool(
       "validate_final",
-      "Preflight the complete final candidate against current host-owned state. Pass one candidate object containing decision_reason, delivery, message, and outcome; outcome requires state, record_refs, and artifact_refs. Return only the accepted candidate unchanged.",
+      "Preflight the complete final candidate against current host-owned state. Pass one candidate object containing decision_reason, delivery, message, outcome, and title; outcome requires state, record_refs, and artifact_refs. Return only the accepted candidate unchanged.",
       %{
-        "candidate" => final_schema
+        "candidate" => Map.update!(final_schema, "required", &List.delete(&1, "title"))
       }
     )
   end

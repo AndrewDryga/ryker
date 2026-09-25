@@ -37,47 +37,56 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     "limits" => %{"max_inputs" => 40, "context_bytes" => 163_840}
   }
 
-  test "a recorded ledger names eligible, included and each kind of omission" do
+  test "what a Work turn left out is its own card, and the briefing counts only what was sent" do
+    # The briefing is the record of what the model was sent. Eligible, outside
+    # the window and cut to fit are Ryker's selection, made before the briefing,
+    # so they are a card of their own rather than a count inside it.
     work = frozen!("ledger", @ledger)
-    counts = counts(work.episode)
+    {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
+    ids = Enum.map(timeline.items, & &1.id)
+    selection = Enum.find(timeline.items, &String.starts_with?(&1.id, "event-selection-"))
+    briefing = Enum.find(timeline.items, &(&1[:source_kind] == :work and &1.phase == :submission))
 
-    assert counts["inputs"].known?
-    label = counts["inputs"].label
-    assert label =~ "48 eligible"
-    assert label =~ "2 current"
-    assert label =~ "8 outside the history window"
-    assert label =~ "8 cut to fit"
+    assert Enum.find_index(ids, &(&1 == selection.id)) <
+             Enum.find_index(ids, &(&1 == briefing.id))
 
-    # Included is counted from the frozen context, which is the exact set that
-    # reached the model. This ledger claims thirty earlier messages; the request
-    # contains one, and the request wins. A count of what was sent can only come
-    # from what was sent.
-    assert label =~ "1 earlier included"
-    refute label =~ "30"
+    card = selection.step.search
+    assert card.summary == "3 of 48 messages sent"
 
-    refute rendered(work.episode) =~ "48 eligible"
+    assert {"Messages",
+            "2 current · 1 earlier sent · 8 outside the history window · 8 cut to fit"} in card.facts
+
+    assert {"Limits", "Up to 40 messages · 160 KiB of context"} in card.facts
+
+    # Sent is counted from the frozen request, the exact set that reached the
+    # model; this ledger claims thirty earlier messages and the request has one.
+    refute Enum.any?(card.facts, fn {_label, value} -> value =~ "30" end)
+
+    html = rendered(work.episode)
+
+    # Match the count, not the digits: the card shows its time, and any run at
+    # a minute or second of 48 failed here.
+    briefing_text =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("##{briefing.id}")
+      |> LazyHTML.text()
+
+    refute briefing_text =~ ~r/\b48 (earlier )?(messages|inputs)\b|\bof 48\b/
   end
 
-  test "without a ledger the row says the selection was not recorded, never zero" do
+  test "a turn without a selection ledger has no selection card" do
     work = frozen!("no-ledger", nil)
-    counts = counts(work.episode)
-
-    refute counts["inputs"].known?
-    assert counts["inputs"].label =~ "selection not recorded"
-    refute counts["inputs"].label =~ "eligible"
-    refute rendered(work.episode) =~ "selection not recorded"
+    {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
+    refute Enum.any?(timeline.items, &String.starts_with?(&1.id, "event-selection-"))
   end
 
-  test "included counts still come from the frozen context when the ledger is absent" do
+  test "the briefing counts come from the frozen context" do
     work = frozen!("included-only", nil)
-    counts = counts(work.episode)
-
-    assert counts["inputs"].label =~ "2 current"
-    assert counts["inputs"].label =~ "1 earlier included"
-    assert counts["records"] == %{label: "0 included", known?: true}
+    assert counts(work.episode)["records"] == %{label: "0 included", known?: true}
   end
 
-  test "a continuation counts current messages and never calls earlier ones omitted" do
+  test "a continuation counts new messages and never calls earlier ones omitted" do
     work =
       frozen!(
         "continuation",
@@ -89,220 +98,193 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
         continuation: true
       )
 
-    label = counts(work.episode)["current_inputs"].label
-    assert label =~ "1 current"
-    assert label =~ "4 earlier not resent"
-    refute label =~ "omitted"
+    {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
+    card = Enum.find(timeline.items, &String.starts_with?(&1.id, "event-selection-")).step.search
+    assert card.summary == "Continues the session · 1 new message"
+    assert {"Messages", "1 new · 4 earlier already in the session"} in card.facts
+    refute Enum.any?(card.facts, fn {_label, value} -> value =~ "omitted" end)
   end
 
-  test "routing counts what the bounded search checked against what it offered" do
-    {entry, episode} = admitted!(%{"conversation_episode_count" => 5, "candidates" => []})
-    counts = admission_counts(episode, entry)
+  test "the search for earlier work is its own card, before the briefing it fed" do
+    # The search showed inside the briefing, which is the record of what the
+    # model was sent. A timeline card is not edited to add another step's
+    # facts: the search ran first, so it is a card of its own, first.
+    {entry, episode} =
+      admitted!(%{
+        "routing_receipt" => %{
+          "cutoff_reason" => "shortlist_limit",
+          "eligible_conversations" => 3,
+          "examined" => 5,
+          "lanes" => %{
+            "text" => %{"returned" => 5, "saturated" => false},
+            "thread" => %{"returned" => 2, "saturated" => false}
+          },
+          "offered" => 2,
+          "omitted" => 3,
+          "scope" => "workspace_public"
+        },
+        "knowledge_omissions" => [%{"reason" => "source_capacity"}]
+      })
 
-    assert counts["candidates"].known?
-    assert counts["candidates"].label == "2/5 supplied to routing"
-    assert counts["candidates"].excluded == 3
-    assert is_binary(counts["candidates"].reason)
+    {:ok, view} = ModelRequests.project_input(entry.id, %{})
+    ids = Enum.map(view.timeline, & &1.id)
+    search = "event-search-#{entry.id}-1"
+
+    assert Enum.find_index(ids, &(&1 == search)) <
+             Enum.find_index(ids, &(&1 == "admission-#{entry.id}-1"))
+
+    html = rendered(episode)
+    card = html |> LazyHTML.from_document() |> LazyHTML.query("##{search}") |> LazyHTML.text()
+    assert card =~ "Search for earlier work"
+    assert card =~ "5 found, 2 offered"
+    assert card =~ "Public channels Ryker is in: 3 conversations"
+    assert card =~ "5 found, 2 offered to routing · 3 left out (shortlist limit)"
+    assert card =~ "1 learned topic left out to fit"
+
+    # Each of the four searches is its own line with what it found, even the
+    # ones that found nothing; this older record kept no words.
+    methods =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("##{search} .search-methods li")
+      |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
+
+    assert methods == [
+             "Same thread 2 found",
+             "Same links or IDs 0 found",
+             "Similar wording 5 found",
+             "Work still in progress 0 found"
+           ]
+
+    # The briefing keeps to what was sent: no search facts, no work left out.
+    briefing =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#admission-#{entry.id}-1")
+      |> LazyHTML.text()
+
+    refute briefing =~ "How Ryker searched"
+    refute briefing =~ "Not supplied"
+    refute briefing =~ "left out"
   end
 
-  test "routing without a retained snapshot does not invent a search scope" do
-    {entry, episode} = admitted!(nil)
-    counts = admission_counts(episode, entry)
+  test "a search says which words, links and places it used, and why a search did not run" do
+    # Andrew, 2026-09-24: "can we show in a nicer way what was searched and
+    # how? by keywords? where?" The card said "Looked in: This conversation
+    # only" and nothing about what was looked for.
+    {entry, episode} =
+      admitted!(%{
+        "routing_receipt" => %{
+          "cutoff_reason" => "every eligible candidate was offered",
+          "eligible_conversations" => 1,
+          "examined" => 0,
+          "lanes" => %{
+            "identity" => %{"returned" => 0, "saturated" => false},
+            "recent_active" => %{"returned" => 0, "saturated" => false},
+            "text" => %{"returned" => 0, "saturated" => false},
+            "thread" => %{"returned" => 0, "saturated" => false}
+          },
+          "offered" => 0,
+          "omitted" => 0,
+          "scope" => "conversation",
+          "words" => ["kubernetes", "liveness", "readiness", "probe"],
+          "identifiers" => [],
+          "in_thread" => false,
+          "history_since" => "2026-09-16T20:01:29Z",
+          "conversation_refs" => ["control-plane:lab:one"]
+        }
+      })
 
-    refute counts["candidates"].known?
-    assert counts["candidates"].label == "2 supplied to routing · eligible set not recorded"
-    refute counts["candidates"].label =~ "/"
+    search = "event-search-#{entry.id}-1"
+    document = episode |> rendered() |> LazyHTML.from_document() |> LazyHTML.query("##{search}")
+
+    assert LazyHTML.text(document) =~
+             "This conversation · work finished since 16 Sep, and all work still in progress"
+
+    assert document |> LazyHTML.query(".search-method-used code") |> Enum.map(&LazyHTML.text/1) ==
+             ["kubernetes", "liveness", "readiness", "probe"]
+
+    notes = document |> LazyHTML.query(".search-method-note") |> Enum.map(&LazyHTML.text/1)
+    assert notes == ["the message was not in a thread", "no links or IDs in the message"]
+
+    assert LazyHTML.text(document) =~ "Nothing found, so routing had no earlier work to consider."
   end
 
-  test "related episode history is lazy, cutoff-fenced and loaded in one bounded query" do
+  test "an attempt without its own search record has no search card" do
+    {entry, _episode} = admitted!(nil)
+    {:ok, view} = ModelRequests.project_input(entry.id, %{})
+    refute Enum.any?(view.timeline, &String.starts_with?(&1.id, "event-search-"))
+  end
+
+  test "a routing candidate resolves to its own episode timeline" do
+    # The candidate card used to load the earlier episode's messages the router
+    # never read. It now links to that episode, resolved from the host-side
+    # snapshot because the model only ever saw an opaque candidate ref.
     candidate_id = Ecto.UUID.generate()
     candidate_ref = "candidate:#{String.duplicate("c", 64)}"
     candidate_key = "candidate-history:#{candidate_id}"
+    {input, history_entry} = recorded_history_input!(candidate_id, 1)
 
-    history_entries =
-      Enum.map(1..25, fn index ->
-        {input, entry} = recorded_history_input!(candidate_id, index)
-
-        {:ok, %{episode: candidate_episode}} =
-          Episodes.apply(
-            EpisodeFixtures.admit_input(%{
-              episode_id: candidate_id,
-              episode_key: candidate_key,
-              native_input_id: input.native_input_id,
-              occurred_at: input.occurred_at,
-              payload: Ryker.Ingress.Input.document(input),
-              turn_ref: "candidate-history-turn:#{index}:#{candidate_id}"
-            })
-          )
-
-        entry = associate_history_entry!(entry, candidate_episode.id)
-        {entry, candidate_episode}
-      end)
-
-    candidate_episode = history_entries |> hd() |> elem(1)
-
-    built_at = DateTime.utc_now()
-    covered_through = DateTime.add(@now, 25, :second) |> DateTime.to_iso8601()
-
-    {late_input, late_entry} =
-      recorded_history_input!(candidate_id, 26,
-        text: "Late backfilled message",
-        occurred_at: DateTime.add(@now, 10, :second)
-      )
-
-    {:ok, _late_transition} =
+    {:ok, %{episode: candidate_episode}} =
       Episodes.apply(
         EpisodeFixtures.admit_input(%{
           episode_id: candidate_id,
           episode_key: candidate_key,
-          native_input_id: late_input.native_input_id,
-          occurred_at: late_input.occurred_at,
-          payload: Ryker.Ingress.Input.document(late_input),
-          turn_ref: "candidate-history-turn:26:#{candidate_id}"
+          native_input_id: input.native_input_id,
+          occurred_at: input.occurred_at,
+          payload: Ryker.Ingress.Input.document(input),
+          turn_ref: "candidate-history-turn:1:#{candidate_id}"
         })
       )
 
-    associate_history_entry!(late_entry, candidate_episode.id)
-
-    preview = fn text, at ->
-      %{
-        "content_preview" => Jason.encode!(message_payload(text)),
-        "occurred_at" => DateTime.to_iso8601(at),
-        "truncated" => false
-      }
-    end
+    associate_history_entry!(history_entry, candidate_episode.id)
 
     candidate = %{
       "allowed_relations" => ["same_work", "history_only"],
-      "digest" => %{
-        "conversations" => 1,
-        "covered_through" => covered_through,
-        "freshness" => "current",
-        "input_count" => 25,
-        "latest_development" => nil,
-        "objective" => "Investigate candidate history"
-      },
       "episode_ref" => candidate_ref,
-      "first_input" => preview.("History message 1", @now),
-      "latest_input" => preview.("History message 25", DateTime.add(@now, 25, :second)),
-      "match" => %{"same_thread" => true},
-      "same_thread" => true,
-      "source_owner" => false,
-      "state" => "complete"
+      "evidence" => ["same thread"],
+      "first_message" => %{
+        "actor" => "U-history",
+        "at" => DateTime.to_iso8601(input.occurred_at),
+        "text" => "History message 1"
+      },
+      "idle_minutes" => 0,
+      "message_count" => 1,
+      "state" => "complete",
+      "title" => "Investigate candidate history"
     }
 
     snapshot = %{
-      "built_at" => DateTime.to_iso8601(built_at),
+      "built_at" => DateTime.to_iso8601(DateTime.utc_now()),
       "candidates" => [Map.put(candidate, "episode_id", candidate_episode.id)],
       "conversation_episode_count" => 1
     }
 
     {entry, _episode} = admitted!(snapshot, [candidate])
-    artifact_id = "candidate-history-#{entry.id}-#{candidate_episode.id}"
-    handler = "candidate-history-query:#{Ecto.UUID.generate()}"
+    href = "/timeline/" <> URI.encode_www_form(candidate_key)
 
-    :ok =
-      :telemetry.attach(
-        handler,
-        [:ryker, :repo, :query],
-        &__MODULE__.record_candidate_history_query/4,
-        self()
+    assert {:ok, view} = ModelRequests.project_input(entry.id, %{})
+    assert view.selected.counts["candidate_episodes"] == %{candidate_ref => href}
+
+    html =
+      render_component(&RequestPage.render/1,
+        view: view,
+        params: %{},
+        path: "/timeline/#{entry.id}"
       )
 
-    try do
-      assert {:ok, collapsed} = ModelRequests.project_input(entry.id, %{})
-      history = collapsed.selected.counts["candidate_histories"][candidate_ref]
-      assert history == %{"artifact_id" => artifact_id, "state" => "collapsed"}
-      refute_receive {:candidate_history_query, _query}, 0
+    document = LazyHTML.from_document(html)
 
-      assert {:ok, opened} =
-               ModelRequests.project_input(entry.id, %{"disclosed" => [artifact_id]})
+    assert document
+           |> LazyHTML.query(".context-candidate a.candidate-episode-link")
+           |> LazyHTML.attribute("href") == [href]
 
-      assert_receive {:candidate_history_query, _query}
-      refute_receive {:candidate_history_query, _query}, 0
-
-      history = opened.selected.counts["candidate_histories"][candidate_ref]
-      assert history["state"] == "retained"
-      assert history["omitted"] == 5
-      assert length(history["items"]) == 20
-      assert hd(history["items"])["content_preview"] =~ "History message 1"
-      assert hd(history["items"])["history_position"] == 1
-      refute Enum.any?(history["items"], &(&1["content_preview"] =~ "History message 2\""))
-      assert List.last(history["items"])["content_preview"] =~ "History message 25"
-      assert List.last(history["items"])["history_position"] == 25
-      refute Enum.any?(history["items"], &(&1["content_preview"] =~ "Late backfilled message"))
-
-      {last_entry, _episode} = List.last(history_entries)
-
-      last_entry
-      |> Ecto.Changeset.change(operational_pruned_at: DateTime.utc_now())
-      |> Repo.update!()
-
-      assert {:ok, after_pruning} =
-               ModelRequests.project_input(entry.id, %{"disclosed" => [artifact_id]})
-
-      history = after_pruning.selected.counts["candidate_histories"][candidate_ref]
-      refute Enum.any?(history["items"], &(&1["content_preview"] =~ "History message 25"))
-
-      first_attempt = Repo.get_by!(Attempt, input_id: entry.id, generation: 1)
-
-      Repo.insert!(%Attempt{
-        generation: 2,
-        input_id: entry.id,
-        phase: "response_received",
-        policy: first_attempt.policy,
-        policy_digest: first_attempt.policy_digest,
-        submission: first_attempt.submission,
-        submission_fingerprint: first_attempt.submission_fingerprint
-      })
-
-      entry
-      |> Ecto.Changeset.change(
-        admission_context:
-          put_in(snapshot, ["candidates", Access.at(0), "digest", "input_count"], 26),
-        execution_generation: 2
-      )
-      |> Repo.update!()
-
-      assert {:ok, older_generation} =
-               ModelRequests.project_input(entry.id, %{
-                 "generation" => "1",
-                 "disclosed" => [artifact_id]
-               })
-
-      assert older_generation.selected.generation == 1
-      assert older_generation.selected.counts["candidate_histories"] == %{}
-
-      html =
-        render_component(&RequestPage.render/1,
-          view: opened,
-          params: %{},
-          path: "/timeline/#{entry.id}"
-        )
-
-      document = LazyHTML.from_document(html)
-      related = LazyHTML.query(document, ".candidate-related-history")
-      assert LazyHTML.attribute(related, "data-artifact") == [artifact_id]
-      assert LazyHTML.text(related) =~ "Full history not supplied to routing"
-      assert Enum.count(LazyHTML.query(related, ".candidate-preview")) == 20
-
-      labels =
-        related
-        |> LazyHTML.query(".candidate-preview .ui-message-title")
-        |> Enum.map(&LazyHTML.text/1)
-
-      assert "Message 1" in labels
-      assert "Message 7" in labels
-      assert "Message 25" in labels
-      refute Enum.any?(2..6, &("Message #{&1}" in labels))
-    after
-      :telemetry.detach(handler)
-    end
+    refute html =~ "not sent to the model"
   end
 
   defp counts(episode) do
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
-    Enum.find_value(timeline.items, %{}, &(&1.source_kind == :work && &1[:counts]))
+    Enum.find_value(timeline.items, %{}, &(&1[:source_kind] == :work && &1[:counts]))
   end
 
   defp admission_counts(episode, entry) do
@@ -365,7 +347,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
         %{"work" => context},
         prompt(context),
         %{"type" => "object"},
-        "work-final-live-v2"
+        "work-final-live-v3"
       )
 
     {:ok, turn} =
@@ -379,12 +361,6 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
   # The timeline reads the context out of the retained prompt document, so the
   # fixture writes exactly the document the builder writes.
   defp prompt(context), do: Jason.encode!(%{"instructions" => "Investigate", "work" => context})
-
-  def record_candidate_history_query(_event, _measurements, %{query: query}, owner) do
-    if self() == owner and String.contains?(query, "episode_kernel_events") and
-         String.contains?(query, "row_number"),
-       do: send(owner, {:candidate_history_query, query})
-  end
 
   defp admitted!(snapshot, candidates \\ [%{"state" => "active"}, %{"state" => "complete"}]) do
     {:ok, input} =
@@ -449,14 +425,6 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     )
 
     {Repo.get!(Entry, entry.id), episode}
-  end
-
-  defp message_payload(text) do
-    %{
-      "actor" => %{"kind" => "user", "ref" => "U123"},
-      "content" => %{"text" => text},
-      "event_kind" => "message"
-    }
   end
 
   defp recorded_history_input!(candidate_id, index, options \\ []) do

@@ -1,13 +1,18 @@
 defmodule Ryker.ControlPlane.WorkspaceProjection do
   @moduledoc """
-  The Workspaces page: every retained worker session with its cleanup state
-  and the safe operator action for it, plus read-only storage accounting and
-  the exact next cleanup targets.
+  Every retained worker session with its cleanup state and the safe action
+  for it, plus read-only storage accounting and the exact next cleanup
+  targets.
+
+  Task sessions are the repository checkouts the Working copies page lists;
+  background learning sessions hold no checkout and are listed on the
+  Learning page. Both share one cleanup custody, so one list and one
+  confirmed action serve both pages, and each page shows only its own.
   """
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.Activity
+  alias Ryker.ControlPlane.{Activity, RepositoryProjection}
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode
   alias Ryker.Learning.Batch, as: LearningBatch
@@ -16,11 +21,13 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   alias Ryker.State.LearningRun
   alias Ryker.Work.Session
 
-  @doc "Current working copies followed by recent removed history, with safe actions."
+  @doc "Current worker sessions followed by recent removed history, with safe actions."
   def list(_params) do
+    names = RepositoryProjection.names()
+
     # A learning session has no episode; an inner join left every learning
-    # working copy, and any blocked cleanup of one, off this page. Admission
-    # sessions are routing, not working copies a task or a learning run keeps.
+    # session, and any blocked cleanup of one, off both pages. Admission
+    # sessions are routing, not sessions a task or a learning run keeps.
     Repo.all(
       from(session in Session,
         left_join: episode in Episode,
@@ -41,7 +48,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
         select: {session, episode.state, episode.key, learning_run, learning_batch}
       )
     )
-    |> Enum.map(&workspace_item/1)
+    |> Enum.map(&workspace_item(&1, names))
     |> Activity.with_request_titles()
   end
 
@@ -60,8 +67,15 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
              select: {session, episode.state, episode.key, learning_run, learning_batch}
            )
          ) do
-      nil -> :not_found
-      row -> {:ok, row |> workspace_item() |> then(&Activity.with_request_titles([&1])) |> hd()}
+      nil ->
+        :not_found
+
+      row ->
+        {:ok,
+         row
+         |> workspace_item(RepositoryProjection.names())
+         |> then(&Activity.with_request_titles([&1]))
+         |> hd()}
     end
   end
 
@@ -78,6 +92,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   def storage do
     now = Repo.now!()
     settings = Application.get_env(:ryker, :retention, %{})
+    names = RepositoryProjection.names()
 
     %{
       budget:
@@ -86,7 +101,8 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
              storage_low_watermark_bytes storage_reserve_bytes)a,
           &{&1, safe_setting(settings, &1)}
         ),
-      preview: Enum.map(RetentionCustody.eligible_preview(now, 25), &preview_item(&1, now)),
+      preview:
+        Enum.map(RetentionCustody.eligible_preview(now, 25), &preview_item(&1, now, names)),
       workers:
         from(worker in FleetWorker, order_by: [asc: worker.id])
         |> Repo.all()
@@ -127,27 +143,32 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
 
   defp measurement_state(_worker, _now), do: :stale
 
-  defp preview_item({%Session{} = session, eligible_at}, now) do
+  defp preview_item({%Session{} = session, eligible_at}, now, names) do
     %{
       eligible_age_seconds: age_seconds(now, eligible_at),
       kind: session.execution_kind,
       reason: preview_reason(session.cleanup_status),
       ref: session.external_ref,
-      repository: workspace_label(session),
+      repository: workspace_label(session, names),
       status: session.cleanup_status,
       target: session.coop_session_id
     }
   end
 
-  defp workspace_label(%Session{execution_kind: :learning}), do: "Background learning"
-  defp workspace_label(%Session{} = session), do: session.repository_ref
+  defp workspace_label(%Session{execution_kind: :learning}, _names), do: "Background learning"
 
-  defp preview_reason(:active), do: "start the follow-up window"
-  defp preview_reason(:close_pending), do: "retry the exact close"
-  defp preview_reason(:grace), do: "follow-up window expired; close the remote session"
-  defp preview_reason(:plan_pending), do: "retry the exact discard plan"
-  defp preview_reason(:discard_pending), do: "discard the planned workspace"
-  defp preview_reason(:retained), do: "replan from fresh workspace evidence"
+  defp workspace_label(%Session{repository_ref: ref}, names) when is_binary(ref),
+    do: Map.get(names, ref, ref)
+
+  defp workspace_label(%Session{}, _names), do: nil
+
+  # What cleanup does next, in the words a person reading the page uses.
+  defp preview_reason(:active), do: "Keep it briefly for follow-up questions, then remove it"
+  defp preview_reason(:close_pending), do: "Close the worker session again"
+  defp preview_reason(:grace), do: "The follow-up window ended; close the worker session"
+  defp preview_reason(:plan_pending), do: "Check again what is safe to remove"
+  defp preview_reason(:discard_pending), do: "Remove the copy"
+  defp preview_reason(:retained), do: "Check again whether the kept changes can be removed"
   defp preview_reason(status), do: Atom.to_string(status)
 
   defp age_seconds(_now, nil), do: 0
@@ -158,7 +179,8 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   defp age_seconds(now, value), do: max(DateTime.diff(now, value, :second), 0)
 
   defp workspace_item(
-         {%Session{} = session, episode_state, episode_ref, learning_run, learning_batch}
+         {%Session{} = session, episode_state, episode_ref, learning_run, learning_batch},
+         names
        ) do
     %{
       action: workspace_action(session),
@@ -167,7 +189,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
       execution_kind: session.execution_kind,
       learning_state: learning_state(session, learning_run, learning_batch),
       learning_retry_at: learning_retry_at(learning_batch),
-      repository: workspace_label(session),
+      repository: workspace_label(session, names),
       discard_after: session.discard_after,
       ref: session.external_ref,
       state: episode_state,

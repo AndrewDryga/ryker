@@ -38,7 +38,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     assert step.state == "knowledge saved"
     assert step.summary =~ "Saved 1 topic update"
     assert step.tone == :good
-    assert step.href =~ "/memory?"
+    assert step.href =~ "/memory/learning?"
     assert Enum.find(step.details, &(&1.label == "Model")).presentation == :execution_target
     refute Enum.any?(step.details, &(&1.label in ["Prompt", "Result"]))
   end
@@ -114,17 +114,48 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
   end
 
   test "a session that never bound a remote one is not a deleted workspace" do
+    # The step read the receipt under "outcome", a key cleanup never writes: it
+    # writes "kind". Every settled cleanup therefore said "The temporary
+    # workspace was discarded", including a session Ryker never bound, one its
+    # worker had already lost, and one left on a worker removed from Ryker.
     %{episode: episode} = admitted!("never-bound")
 
     cleanup!(episode,
       cleanup_status: :discarded,
       closed_at: @now,
       discarded_at: @now,
-      cleanup_receipt: %{"outcome" => "never_bound"}
+      cleanup_receipt: %{
+        "kind" => "never_bound",
+        "local_session_id" => Ecto.UUID.generate(),
+        "remote_session_id" => nil,
+        "remote_state" => "unknown"
+      }
     )
 
-    step = maintenance_step(episode, "Workspace removed")
-    assert step.summary =~ "no remote workspace to delete"
+    assert maintenance_step(episode, "Workspace removed") == nil
+    step = maintenance_step(episode, "Nothing to remove")
+    assert step.summary =~ "never learned a worker session"
+    refute step.summary =~ "discarded"
+  end
+
+  test "a session left on a removed worker says it could not be removed" do
+    %{episode: episode} = admitted!("worker-removed")
+
+    cleanup!(episode,
+      cleanup_status: :discarded,
+      closed_at: @now,
+      discarded_at: @now,
+      cleanup_receipt: %{
+        "kind" => "worker_removed",
+        "local_session_id" => Ecto.UUID.generate(),
+        "remote_session_id" => "coop-session-removed",
+        "remote_state" => "unreachable",
+        "worker_id" => "worker-gone"
+      }
+    )
+
+    step = maintenance_step(episode, "Workspace left on a removed worker")
+    assert step.summary =~ "removed from Ryker"
   end
 
   test "blocked cleanup does not invalidate the delivered answer" do

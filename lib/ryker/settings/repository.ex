@@ -2,7 +2,7 @@ defmodule Ryker.Settings.Repository do
   @moduledoc "A connected repository: display metadata, base branch and publication checkout."
   use Ecto.Schema
   import Ecto.Changeset
-  alias Ryker.Settings.Validation
+  alias Ryker.Settings.{Environment, Validation}
 
   @primary_key {:ref, :string, autogenerate: false}
   @fields ~w(
@@ -44,14 +44,11 @@ defmodule Ryker.Settings.Repository do
   def new(_snapshot), do: %__MODULE__{}
   def find(snapshot, :ref, ref), do: Enum.find(snapshot.repositories, &(&1.ref == ref))
 
-  def changeset(current, attributes, snapshot) do
-    contexts = Enum.map(snapshot.contexts, & &1.ref)
-
+  def changeset(current, attributes, _snapshot) do
     current
     |> cast(attributes, @fields)
     |> validate_required([:ref, :base_branch])
     |> Validation.validate_reference(:ref)
-    |> validate_exclusion(:ref, contexts)
     |> validate_length(:display_name, min: 1, max: 120)
     |> validate_length(:description, min: 1, max: 1_000)
     |> validate_format(:github_repository, Validation.github_repository_pattern())
@@ -74,19 +71,11 @@ defmodule Ryker.Settings.Repository do
 
   defp references(snapshot, repository_ref) do
     [
-      Enum.any?(snapshot.contexts, &context_reference?(&1, repository_ref)),
+      Enum.any?(snapshot.environments, &(repository_ref in Environment.repository_refs(&1))),
       Enum.any?(snapshot.github_bindings, &(&1.repository_ref == repository_ref)),
-      Enum.any?(snapshot.policy_bindings, &scoped_reference?(&1, repository_ref)),
-      Enum.any?(snapshot.emisar_bindings, &scoped_reference?(&1, repository_ref)),
-      Enum.any?(snapshot.webhook_sources, &(&1.context_ref == repository_ref)),
-      snapshot.slack.default_repository_ref == repository_ref
+      Enum.any?(snapshot.policy_bindings, &scoped_reference?(&1, repository_ref))
     ]
   end
-
-  defp context_reference?(context, repository_ref),
-    do:
-      context.primary_repository_ref == repository_ref or
-        repository_ref in context.read_only_repository_refs
 
   defp scoped_reference?(binding, repository_ref),
     do: binding.scope_kind == :repository and binding.scope_ref == repository_ref

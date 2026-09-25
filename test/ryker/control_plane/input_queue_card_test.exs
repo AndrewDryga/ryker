@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.InputQueueCardTest do
   @moduledoc """
-  The Input queue card: saved or not, waiting for what, handed to routing or not.
+  The Queue card: saved or not, waiting for what, handed to routing or not.
 
   The queue used to be invisible between Participation and the Routing briefing,
   so "Ryker never saw this message" and "Ryker saved it and it is
@@ -31,7 +31,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     html = rendered(episode)
 
     positions =
-      for label <- ["Participation", "Input queue"],
+      for label <- ["Participation", ~s(class="case-event-content input-queue")],
           do: :binary.match(html, label) |> elem(0)
 
     assert positions == Enum.sort(positions)
@@ -104,6 +104,167 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     [_sealed, reattached] = queue_steps(entry)
     assert reattached.queue.qualifier == "Reattached to attempt 1"
     refute reattached.queue.qualifier =~ "Retry"
+
+    # The call kept running on the worker; only the wait for it ran out. It
+    # read as "Retry scheduled", which looked like a failure before the real one.
+    assert Enum.map(reattached.queue.events, & &1.label) == ["Waiting paused", "Current"]
+  end
+
+  test "stopped retries close their queue card and an operator retry opens the next" do
+    # One card ran from "Automatic retries stopped" through an operator's retry
+    # 35 minutes later to the next pickup, and timed the whole gap as a
+    # 2,097-second queue wait. Each is its own moment, and later ones are part
+    # of routing rather than intake.
+    {entry, _input} = pending!()
+    claimed_at = DateTime.add(entry.inserted_at, 60, :millisecond)
+    transition!(entry, :claimed, claimed_at, attempt: 1, owner_ref: "routing:first")
+
+    transition!(entry, :blocked, DateTime.add(claimed_at, 57, :second),
+      attempt: 1,
+      error_code: "acp_protocol_error"
+    )
+
+    rearmed_at = DateTime.add(claimed_at, 2_097, :second)
+    transition!(entry, :rearmed, rearmed_at, attempt: 0)
+
+    transition!(entry, :claimed, DateTime.add(rearmed_at, 110, :millisecond),
+      attempt: 1,
+      owner_ref: "routing:second"
+    )
+
+    [intake, stopped, recovery] = queue_steps(entry)
+    assert Enum.map(intake.queue.events, & &1.label) == ["Saved", "Picked up"]
+    assert Enum.map(stopped.queue.events, & &1.label) == ["Automatic retries stopped"]
+    assert hd(stopped.queue.events).reason =~ "Routing stopped after 1 attempt."
+    assert recovery.queue.qualifier == "Recovery"
+    assert Enum.map(recovery.queue.events, & &1.label) == ["Rearmed", "Picked up"]
+    assert recovery.queue.duration_ms == 110
+    # The queue hands the input to routing and takes it back, so every run is
+    # filed under routing, in time order with the attempts.
+    assert Enum.map([intake, stopped, recovery], & &1.band) == [:routing, :routing, :routing]
+  end
+
+  test "a retried input reads in time order with each attempt named and its failure said" do
+    # The page filed every queue card under intake, so the failure and the
+    # operator's retry appeared above the routing call they followed; the
+    # failed attempt's card never said it failed, and the two briefings were
+    # indistinguishable.
+    {entry, episode} = decided!()
+    first = DateTime.add(entry.inserted_at, 60, :millisecond)
+    answered = DateTime.add(first, 52, :second)
+    attempt!(entry, first)
+
+    Repo.update_all(from(attempt in Attempt, where: attempt.input_id == ^entry.id),
+      set: [
+        phase: "response_received",
+        response: %{"error_code" => "acp_protocol_error", "state" => "failed"},
+        milestones: %{
+          "context_prepared" => DateTime.to_iso8601(first),
+          "response_received" => DateTime.to_iso8601(answered)
+        }
+      ]
+    )
+
+    transition!(entry, :retry_scheduled, DateTime.add(first, 30, :second),
+      attempt: 1,
+      eligible_at: DateTime.add(first, 31, :second),
+      error_code: "coop_timeout"
+    )
+
+    transition!(entry, :claimed, DateTime.add(first, 31, :second),
+      attempt: 1,
+      owner_ref: "routing:reattached"
+    )
+
+    transition!(entry, :blocked, DateTime.add(answered, 5, :second),
+      attempt: 1,
+      error_code: "acp_protocol_error",
+      detail:
+        ~s({:coop_turn_failed, "failed", "acp_protocol_error", "provider service unavailable: Failed to refresh token: 400 Bad Request"})
+    )
+
+    rearmed_at = DateTime.add(first, 2_097, :second)
+    transition!(entry, :rearmed, rearmed_at, attempt: 0)
+
+    transition!(entry, :claimed, DateTime.add(rearmed_at, 110, :millisecond),
+      attempt: 1,
+      owner_ref: "routing:second"
+    )
+
+    second = DateTime.add(rearmed_at, 200, :millisecond)
+
+    Repo.insert!(%Attempt{
+      input_id: entry.id,
+      generation: 2,
+      policy: "admission",
+      policy_digest: String.duplicate("b", 64),
+      phase: "context_prepared",
+      milestones: %{"context_prepared" => DateTime.to_iso8601(second)},
+      inserted_at: second,
+      updated_at: second
+    })
+
+    Repo.update_all(from(saved in Entry, where: saved.id == ^entry.id),
+      set: [execution_generation: 2]
+    )
+
+    sequence = fn kind ->
+      Repo.one(
+        from(transition in InputCustodyTransition,
+          where: transition.input_id == ^entry.id and transition.kind == ^kind,
+          order_by: [desc: transition.sequence],
+          limit: 1,
+          select: transition.sequence
+        )
+      )
+    end
+
+    html = rendered(episode)
+    document = LazyHTML.from_document(html)
+
+    order =
+      for id <- [
+            "event-queue-#{entry.id}",
+            "admission-#{entry.id}-1",
+            "admission-#{entry.id}-1-result",
+            "event-queue-#{entry.id}-#{sequence.(:blocked)}",
+            "admission-#{entry.id}-2"
+          ],
+          do: :binary.match(html, ~s(id="#{id}")) |> elem(0)
+
+    assert order == Enum.sort(order)
+
+    for {id, label} <- [{"1", "Attempt 1"}, {"1-result", "Attempt 1"}, {"2", "Attempt 2"}] do
+      assert document
+             |> LazyHTML.query("#admission-#{entry.id}-#{id} .case-card-heading-detail")
+             |> LazyHTML.text() == label
+    end
+
+    stopped = LazyHTML.query(document, "#event-queue-#{entry.id}-#{sequence.(:blocked)}")
+    assert LazyHTML.text(stopped) =~ "rejected the worker's sign-in"
+    refute LazyHTML.text(stopped) =~ "Acp protocol error"
+
+    # Stopping and the operator's retry follow each other with nothing between
+    # them, so they are one Queue card; the attempts on either side split it.
+    assert stopped |> LazyHTML.query(".queue-events strong") |> Enum.map(&LazyHTML.text/1) ==
+             ["Automatic retries stopped", "Rearmed", "Picked up"]
+
+    refute html =~ ~s(id="event-queue-#{entry.id}-#{sequence.(:rearmed)}")
+
+    # The wait that ran out during attempt 1 belongs to that call: it is told on
+    # its result card, not as a queue card before the failure it preceded.
+    refute html =~ ~s(id="event-queue-#{entry.id}-#{sequence.(:retry_scheduled)}")
+
+    failed = LazyHTML.query(document, "#admission-#{entry.id}-1-result")
+
+    assert failed |> LazyHTML.query(".request-wait") |> LazyHTML.text() =~
+             "wait for the worker ran out at"
+
+    assert failed |> LazyHTML.query(".case-card-heading h3") |> LazyHTML.text() ==
+             "Routing failed"
+
+    assert LazyHTML.text(failed) =~ "rejected the worker's sign-in"
+    refute LazyHTML.text(failed) =~ "Coop timeout"
   end
 
   test "a decided input was handed to routing at its recorded claim time" do
@@ -173,6 +334,14 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     assert card =~ "8 attempts"
     assert html =~ "href=\"/failures/admission/#{URI.encode_www_form(Inbox.ref(entry))}\""
     refute card =~ "Picked up"
+
+    # The way to recovery belongs to the step that stopped, under its
+    # explanation like every other step's link, not loose after the list.
+    assert LazyHTML.from_document(html)
+           |> LazyHTML.query("#event-queue-#{entry.id} li[data-kind=blocked] a")
+           |> LazyHTML.attribute("href") == [
+             "/failures/admission/#{URI.encode_www_form(Inbox.ref(entry))}"
+           ]
   end
 
   test "a retrying input shows when it becomes eligible again, not a promised pickup" do
@@ -284,7 +453,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     {entry, _input} = pending!()
     html = standalone(entry)
 
-    for label <- ["Participation", "Input queue"] do
+    for label <- ["Participation", ~s(class="case-event-content input-queue")] do
       assert html =~ label
     end
   end
@@ -299,7 +468,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     entry
     |> List.wrap()
     |> Preparation.steps()
-    |> Enum.filter(&(&1.stage == "Input queue"))
+    |> Enum.filter(&(&1.stage == "Queue"))
   end
 
   defp rendered(episode) do

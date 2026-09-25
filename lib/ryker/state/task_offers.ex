@@ -18,7 +18,7 @@ defmodule Ryker.State.TaskOffers do
   alias Ryker.Work.{Custody, RepositoryContext, RepositorySource, Session, Turn}
 
   @fields [:actor_ref, :confirmation_ref, :occurred_at, :policy, :record_ref, :target]
-  @policy_fields [:digest, :name, :repository_context, :repository_ref]
+  @policy_fields [:digest, :environment_ref, :name, :repository_context, :repository_ref]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
 
   @type confirmation :: %{
@@ -126,7 +126,8 @@ defmodule Ryker.State.TaskOffers do
              repository_ref,
              Map.get(attributes.policy, :repository_context),
              workspace_task(record),
-             repository_source
+             repository_source,
+             Map.get(attributes.policy, :environment_ref)
            ),
          {:ok, record} <- persist_confirmation(record, transition.episode, attributes) do
       %{
@@ -173,17 +174,9 @@ defmodule Ryker.State.TaskOffers do
     end
   end
 
+  # A task changes the repository its policy writes; in an environment that is
+  # the first repository, never one the environment only reads.
   defp task_repository_placement(nil, _policy), do: :ok
-
-  defp task_repository_placement(
-         context_ref,
-         %{
-           repository_context: %{"context_ref" => context_ref},
-           repository_ref: repository_ref
-         }
-       )
-       when is_binary(repository_ref),
-       do: :ok
 
   defp task_repository_placement(repository_ref, %{repository_ref: repository_ref}), do: :ok
 
@@ -250,6 +243,7 @@ defmodule Ryker.State.TaskOffers do
       with :ok <- reference(policy.name, :policy),
            true <- is_binary(policy.digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, policy.digest),
            :ok <- optional_reference(Map.get(policy, :repository_ref), :repository_ref),
+           :ok <- environment_ref(Map.get(policy, :environment_ref)),
            :ok <-
              repository_context(
                Map.get(policy, :repository_context),
@@ -266,6 +260,14 @@ defmodule Ryker.State.TaskOffers do
   end
 
   defp policy(_policy), do: {:error, {:invalid_task_offer_confirmation, :policy}}
+
+  defp environment_ref(nil), do: :ok
+
+  defp environment_ref(value) do
+    if is_binary(value) and Regex.match?(~r/\A[a-z0-9][a-z0-9-]{0,63}\z/, value),
+      do: :ok,
+      else: {:error, {:invalid_task_offer_confirmation, :environment_ref}}
+  end
 
   defp repository_context(value, repository_ref) do
     case RepositoryContext.restore(value, repository_ref) do

@@ -43,7 +43,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <.link navigate="/" class="back-to-activity">← Activity</.link>
         <div class="episode-title-row">
           <div class="episode-title-copy">
-            <p class="episode-initial-label">Initial request</p>
+            <p class="episode-initial-label">{title_label(@snapshot.trace.case_file)}</p>
             <h1>{@snapshot.trace.case_file.title}</h1>
           </div>
           <.status :if={@startup} state="not_started" />
@@ -74,14 +74,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
             rel="noopener noreferrer"
           >{@snapshot.trace.source.label} →</a>
           <a
-            :if={@snapshot.episode[:conversation_ref]}
-            href={
-              Ryker.ControlPlane.Activity.conversation_path(
-                @snapshot.episode.transport,
-                @snapshot.episode.conversation_ref
-              )
-            }
-          >All activity in this conversation →</a>
+            :if={@snapshot.episode[:conversation_link]}
+            href={@snapshot.episode.conversation_link.href}
+          >{@snapshot.episode.conversation_link.label} →</a>
           <a
             :if={@snapshot.episode[:transport] == "slack" && @snapshot.episode[:thread_ref]}
             href={
@@ -158,14 +153,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
               <dt>Total cost</dt><dd>{cost(@snapshot[:accounting])}</dd>
             </div>
           </dl>
-          <.disclosure
-            :if={@snapshot[:accounting]}
-            id={"cost-details-#{@snapshot.episode.ref}"}
-            label="Cost details"
-            class="metric-cost-details"
-          >
-            <p>{coverage(@snapshot.accounting)}</p>
-          </.disclosure>
         </div>
       </section>
       <section
@@ -303,7 +290,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   attr(:title, :string, required: true)
   attr(:received_at, :any, default: nil)
   attr(:source, :any, default: nil)
-  attr(:conversation_href, :string, default: nil)
+  attr(:conversation_link, :map, default: nil)
 
   def unrouted_intro(assigns) do
     ~H"""
@@ -315,7 +302,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <p class="episode-location">
         <time :if={@received_at}>{timestamp(@received_at)}</time>
         <a :if={@source} href={@source.href} target="_blank" rel="noopener noreferrer">{@source.label} →</a>
-        <a :if={@conversation_href} href={@conversation_href}>All activity in this conversation →</a>
+        <a :if={@conversation_link} href={@conversation_link.href}>{@conversation_link.label} →</a>
       </p>
     </div>
     """
@@ -451,6 +438,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
             tabindex="-1"
           >
             <h4 id={"chapter-#{index}-phase-#{phase_index}"}>{phase_title(phase.band)}</h4>
+            <span :if={phase_summary(phase)} class="phase-summary">{phase_summary(phase)}</span>
             <p :if={turn_association(phase)} class="turn-association">
               {turn_association(phase)}
             </p>
@@ -565,7 +553,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
       %{
         first
-        | steps: Enum.flat_map(group, & &1.steps),
+        | steps: group |> Enum.flat_map(& &1.steps) |> fold_waits() |> merge_queue_runs(),
           owners: owners,
           # Merging two turns into one phase would put one turn's name on
           # another turn's receipts, so a merged phase keeps no turn identity.
@@ -592,9 +580,89 @@ defmodule Ryker.ControlPlane.EpisodePage do
       first
       | owners: owners,
         starts_conversation: Enum.any?(chapters, & &1.starts_conversation),
-        steps: Enum.flat_map(chapters, & &1.steps),
+        steps: chapters |> Enum.flat_map(& &1.steps) |> fold_waits() |> merge_queue_runs(),
         turn: if(match?([_one], turns), do: List.first(turns))
     }
+  end
+
+  # A wait that ran out while the worker was still answering belongs to the
+  # routing call it waited on, so it is told on that call's result card rather
+  # than as a queue card ahead of the result. Until that result exists the
+  # wait stays a card of its own: it is then the latest thing that happened.
+  defp fold_waits(entries) do
+    indexed = Enum.with_index(entries)
+
+    targets =
+      for {%{kind: :event, step: %{stage: "Queue", input_id: input} = step}, index} <- indexed,
+          match?("Reattached" <> _, step.queue.qualifier || ""),
+          %{id: id} <- [Enum.find(Enum.drop(entries, index + 1), &admission_result?(&1, input))],
+          into: %{},
+          do: {index, id}
+
+    waits =
+      Enum.group_by(targets, &elem(&1, 1), fn {index, _id} ->
+        wait(Enum.at(entries, index).step.queue)
+      end)
+
+    for {entry, index} <- indexed, not Map.has_key?(targets, index) do
+      case Map.fetch(waits, entry[:id]) do
+        {:ok, found} -> Map.put(entry, :waits, found)
+        :error -> entry
+      end
+    end
+  end
+
+  defp admission_result?(
+         %{kind: :request, source_kind: :admission, phase: :result, owner: {:input, input}},
+         input
+       ),
+       do: true
+
+  defp admission_result?(_entry, _input), do: false
+
+  defp wait(queue) do
+    paused = Enum.find(queue.events, &(&1.kind == :retry_scheduled))
+    resumed = Enum.find(queue.events, &(&1.kind in [:claimed, :reclaimed]))
+    %{paused_at: paused && paused.at, resumed_at: resumed && resumed.at}
+  end
+
+  # Queue runs for one input that follow each other with nothing in between
+  # read as one card: stopped, rearmed and picked up again is one stretch of
+  # queue history. The runs stay separate wherever a routing call sits
+  # between them.
+  defp merge_queue_runs(entries) do
+    entries
+    |> Enum.reduce([], fn
+      %{kind: :event, step: %{stage: "Queue", input_id: input}} = entry,
+      [%{kind: :event, step: %{stage: "Queue", input_id: input}} = previous | rest] ->
+        [merge_queue(previous, entry) | rest]
+
+      entry, merged ->
+        [entry | merged]
+    end)
+    |> Enum.reverse()
+  end
+
+  defp merge_queue(previous, entry) do
+    earlier = previous.step.queue
+    later = entry.step.queue
+    events = earlier.events ++ later.events
+    stopped? = Enum.any?(events, &(&1.kind == :blocked))
+
+    queue = %{
+      later
+      | qualifier: earlier.qualifier || later.qualifier,
+        events: events,
+        started_at: earlier.started_at,
+        # A stretch that includes a stop was not time spent waiting in the
+        # queue; its clock times say how long it was stopped.
+        duration_ms:
+          if(!stopped? and later.ended_at,
+            do: DateTime.diff(later.ended_at, earlier.started_at, :millisecond)
+          )
+    }
+
+    %{previous | step: %{previous.step | queue: queue, tone: entry.step.tone}}
   end
 
   defp first_step_time(chapters) do
@@ -641,6 +709,26 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp phase_band(:outcome), do: :answer
   defp phase_band(band), do: band
 
+  # How a stage ended, read from its own recorded entries. The label summarizes
+  # the stage; the cards below it stay exactly as each moment recorded them.
+  # Routing's cards say what it decided; the heading does not repeat it.
+  defp phase_summary(%{band: :routing}), do: nil
+
+  defp phase_summary(%{band: :answer, steps: entries}) do
+    cond do
+      Enum.any?(entries, &(message_direction(&1) == "out")) ->
+        "Response sent"
+
+      Enum.any?(entries, &match?(%{kind: :event, step: %{stage: "Result"}}, &1)) ->
+        "No reply sent"
+
+      true ->
+        nil
+    end
+  end
+
+  defp phase_summary(_phase), do: nil
+
   # Background sections remain separate from message-caused work. Their cards
   # retain exact timestamps even though they follow the conversation groups.
   defp background_band?(band), do: band in [:learning, :maintenance]
@@ -649,14 +737,17 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ~H"""
     <article
       id={@entry.id}
-      class={
-        "case-entry case-#{@entry.kind} #{if compact_entry?(@entry), do: "case-checkpoint"} #{if message_container?(@entry), do: "message-container"}"
-      }
+      class={[
+        "case-entry case-#{@entry.kind}",
+        compact_entry?(@entry) && "case-checkpoint",
+        message_container?(@entry) && "message-container",
+        minor_entry?(@entry) && "case-minor"
+      ]}
       data-entry-kind={@entry.kind}
+      data-direction={message_direction(@entry)}
     >
       <div class="case-entry-time">
         <time
-          :if={!message_container?(@entry)}
           datetime={if(@entry.at, do: DateTime.to_iso8601(@entry.at))}
           title={timestamp(@entry.at)}
         >{clock_time(@entry.at)}</time>
@@ -678,7 +769,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
           step={@entry.step}
         />
         <.input_queue
-          :if={@entry.kind == :event && @entry.step.stage == "Input queue"}
+          :if={@entry.kind == :event && @entry.step.stage == "Queue"}
+          step={@entry.step}
+        />
+        <.search_card
+          :if={@entry.kind == :event && @entry.step.stage in ["Search", "Selection"]}
           step={@entry.step}
         />
         <.work_setup
@@ -698,12 +793,30 @@ defmodule Ryker.ControlPlane.EpisodePage do
       stage in [
         "Tool call",
         "Participation",
-        "Input queue",
+        "Queue",
+        "Search",
+        "Selection",
         "Work setup"
       ]
 
   defp message_container?(%{kind: :message, message: message}), do: is_nil(message[:provider])
   defp message_container?(_entry), do: false
+
+  defp message_direction(%{kind: :message, message: %{actor: "Ryker"}}), do: "out"
+  defp message_direction(%{kind: :message}), do: "in"
+  defp message_direction(_entry), do: nil
+
+  # Plumbing that went as expected is one line, not a card.
+  defp minor_entry?(%{kind: :event, step: %{tone: tone}}) when tone in [:bad, :warn], do: false
+
+  defp minor_entry?(%{kind: :event, step: %{stage: stage}})
+       when stage in ["Queue", "Tool call", "Maintenance"],
+       do: true
+
+  defp minor_entry?(%{kind: :event, step: step} = entry),
+    do: compact_entry?(entry) and is_nil(step[:candidate_response])
+
+  defp minor_entry?(_entry), do: false
 
   @doc """
   The Getting ready cards for an input that has no Timeline of its own yet.
@@ -714,13 +827,16 @@ defmodule Ryker.ControlPlane.EpisodePage do
   def getting_ready(assigns) do
     requests = List.wrap(assigns[:requests])
 
-    assigns =
-      assigns
-      |> assign(
-        :entries,
-        Enum.map(assigns.steps, &%{id: "event-#{&1.id}", kind: :event, step: &1, at: &1.at}) ++
-          requests
-      )
+    # One sequence in time order, as on an episode page, so a retried input
+    # reads attempt by attempt instead of all queue history first.
+    entries =
+      (Enum.map(assigns.steps, &%{id: "event-#{&1.id}", kind: :event, step: &1, at: &1.at}) ++
+         requests)
+      |> Enum.sort_by(&(&1[:sort_at] || &1.at), &(DateTime.compare(&1, &2) != :gt))
+      |> fold_waits()
+      |> merge_queue_runs()
+
+    assigns = assign(assigns, :entries, entries)
 
     ~H"""
     <section
@@ -775,14 +891,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <p :if={@step.summary} class="case-event-summary">{@step.summary}</p>
       <.fact_list facts={@step.setup.rows} class="setup-facts" />
       <.disclosure
-        :if={@step.setup.details != []}
-        id={"setup-details-#{@step.id}"}
-        label="Setup details"
-        class="case-event-details"
-      >
-        <.fact_list facts={@step.setup.details} />
-      </.disclosure>
-      <.disclosure
         :if={@step.setup.diagnostics != []}
         id={"setup-diagnostics-#{@step.id}"}
         label="Failure diagnostics"
@@ -801,7 +909,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp input_queue(assigns) do
     ~H"""
     <div class="case-event-content input-queue" data-state={@step.queue.kind}>
-      <.card_heading title="Input queue">
+      <.card_heading title="Queue">
         <:detail :if={@step.queue.qualifier}>{@step.queue.qualifier}</:detail>
         <:meta>
           <span :if={@step.queue.current} class="event-state">Current</span>
@@ -817,7 +925,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </:meta>
       </.card_heading>
       <ol class="queue-events">
-        <li :for={event <- @step.queue.events}>
+        <li :for={event <- @step.queue.events} data-kind={event.kind}>
           <div class="queue-event-heading">
             <strong>{event.label}</strong>
             <time :if={event.at} datetime={DateTime.to_iso8601(event.at)}>{precise_clock(event.at)}</time>
@@ -826,9 +934,56 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <a :if={event.href} href={event.href}>{event.link_label} →</a>
         </li>
       </ol>
-      <p :if={@step.queue.recovery_href} class="queue-recovery">
-        <a href={@step.queue.recovery_href}>View recovery →</a>
-      </p>
+    </div>
+    """
+  end
+
+  # Ryker's own preparation before a briefing: where routing looked for earlier
+  # work, or what a Work turn selected, and what was found but left out. The
+  # briefing after it shows only what the model was sent.
+  defp search_card(assigns) do
+    ~H"""
+    <div class="case-event-content search-card">
+      <.card_heading title={@step.title}>
+        <:meta :if={@step.search.summary}>{@step.search.summary}</:meta>
+      </.card_heading>
+      <dl
+        :if={
+          @step.search.facts != [] || @step.search[:where] || @step.search[:methods] not in [nil, []]
+        }
+        class="context-rows search-facts"
+      >
+        <div :if={@step.search[:where] not in [nil, ""]}>
+          <dt>Where</dt>
+          <dd>{@step.search.where}</dd>
+        </div>
+        <div :if={@step.search[:methods] not in [nil, []]}>
+          <dt>How</dt>
+          <dd>
+            <ul class="search-methods">
+              <li :for={method <- @step.search.methods} data-found={to_string(method.found > 0)}>
+                <span class="search-method-name">{method.name}</span>
+                <span class="search-method-used">
+                  <code :for={term <- method.used} title={term}>{term}</code>
+                  <span :if={method.note} class="search-method-note">{method.note}</span>
+                </span>
+                <span class="search-method-found">
+                  {method.found} found{if method.limit, do: " · limit reached"}
+                </span>
+              </li>
+            </ul>
+          </dd>
+        </div>
+        <div :for={{label, value} <- @step.search.facts}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      </dl>
+      <.disclosure id={@step.id <> "-record"} label={@step.search.record_label} class="search-record">
+        <.copy_block label="Copy JSON">
+          <pre class="model-document-text" tabindex="0">{@step.search.record}</pre>
+        </.copy_block>
+      </.disclosure>
     </div>
     """
   end
@@ -904,6 +1059,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
               class="standing-rule-definition"
             >
               <.fact_list facts={rule_facts(rule)} />
+              <a class="standing-rule-link" href={"/rules#behavior-" <> rule.ref}>
+                Open in Standing rules →
+              </a>
             </.disclosure>
           </li>
         </ul>
@@ -1004,15 +1162,99 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp source_transport(%{provider: :grafana}), do: "webhook"
   defp source_transport(_provider), do: "Slack"
 
+  # What the rule looked for and where, then what the check found in this
+  # message, one row per condition.
   defp rule_facts(rule) do
     [
-      %{label: "Rule", value: rule.ref, identifier: true},
-      %{label: "Revision at the time", value: rule.revision || "Not recorded"},
-      %{label: "Status at the time", value: rule.status},
-      if(rule.scope_ref, do: %{label: "Scope", value: rule.scope_ref, identifier: true})
+      %{label: "Looks for", value: rule_criteria(rule.criteria) <> rule_place(rule.scope_ref)}
+      | rule_evidence(rule.criteria, rule.evidence)
     ]
-    |> Enum.reject(&is_nil/1)
   end
+
+  defp rule_criteria(%{"trigger" => trigger, "source_filter" => from}),
+    do: "#{String.capitalize(trigger_name(trigger, :plural))} from #{listeners(from)}"
+
+  defp rule_criteria(%{"source_kind" => source, "filter" => filter}),
+    do: "#{source_name(source)} events matching #{Jason.encode!(filter)}"
+
+  defp rule_place("slack:" <> _rest = scope), do: " in " <> SlackNames.destination(scope)
+  defp rule_place(_scope), do: ""
+
+  defp rule_evidence(_criteria, nil), do: []
+
+  defp rule_evidence(%{"trigger" => trigger, "source_filter" => from}, evidence) do
+    [
+      %{
+        label: "Sender",
+        value:
+          if(evidence["sender_matches"],
+            do:
+              "#{String.capitalize(sender_name(evidence["sender"]))}, which this rule listens to",
+            else:
+              "#{String.capitalize(sender_name(evidence["sender"]))}; this rule only listens to #{listeners(from)}"
+          )
+      },
+      %{label: "Content", value: trigger_evidence(evidence, trigger)}
+    ]
+  end
+
+  defp rule_evidence(%{"source_kind" => source}, evidence) do
+    [
+      %{
+        label: "Source",
+        value:
+          if(evidence["source_matches"],
+            do: "#{source_name(evidence["source_kind"])}, which this rule listens to",
+            else:
+              "#{source_name(evidence["source_kind"])}; this rule only listens to #{source_name(source)}"
+          )
+      },
+      %{
+        label: "Fields",
+        value:
+          if(evidence["filter_matches"],
+            do: "Every field in the filter matched",
+            else: "The message's fields did not match the filter"
+          )
+      }
+    ]
+  end
+
+  defp trigger_evidence(%{"event_class" => class, "trigger_matches" => true}, trigger)
+       when is_binary(class),
+       do: "Its source marked it as #{trigger_name(trigger, :one)}"
+
+  defp trigger_evidence(%{"event_class" => class}, trigger) when is_binary(class),
+    do: "Its source marked it as #{label(class)}, not #{trigger_name(trigger, :one)}"
+
+  defp trigger_evidence(%{"trigger_text" => text}, _trigger) when is_binary(text),
+    do: "Contains “#{text}”"
+
+  defp trigger_evidence(_evidence, trigger),
+    do: "Nothing in it reads as #{trigger_name(trigger, :one)}"
+
+  defp trigger_name("terraform_plan", :plural), do: "Terraform plans"
+  defp trigger_name("terraform_plan", :one), do: "a Terraform plan"
+  defp trigger_name("deployment", :plural), do: "deployments"
+  defp trigger_name("deployment", :one), do: "a deployment"
+  defp trigger_name("operational_alert", :plural), do: "operational alerts"
+  defp trigger_name("operational_alert", :one), do: "an operational alert"
+  defp trigger_name(trigger, _number), do: label(trigger)
+
+  defp listeners("human"), do: "people"
+  defp listeners("app"), do: "apps and bots"
+  defp listeners("any"), do: "anyone"
+  defp listeners(filter), do: label(filter)
+
+  defp sender_name("user"), do: "a person"
+  defp sender_name("app"), do: "an app"
+  defp sender_name("bot"), do: "a bot"
+  defp sender_name("system"), do: "a system actor"
+  defp sender_name(kind), do: label(kind)
+
+  defp source_name("github"), do: "GitHub"
+  defp source_name("slack"), do: "Slack"
+  defp source_name(source), do: label(source)
 
   # Extracted metadata is visible as soon as the disclosure opens; the raw
   # envelope, the normalized input and the original message are each their own
@@ -1303,9 +1545,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
     copies = visible_copies(snapshot.trace.steps, messages, timeline.items)
 
+    # The timeline also carries Ryker's own steps, such as the search for
+    # earlier work; only model calls have response sections.
     responses =
-      for request <- requests,
-          section <- request.sections,
+      for %{kind: :request, sections: sections} <- requests,
+          section <- sections,
           {id, response} <- section[:response_links] || %{},
           into: %{},
           do: {id, response}
@@ -1434,6 +1678,12 @@ defmodule Ryker.ControlPlane.EpisodePage do
     do: "#{at.day} #{Calendar.strftime(at, "%b, %H:%M:%S UTC")}"
 
   defp message_timestamp(_at), do: "Not recorded"
+  # The label says where the heading came from: Ryker's own name for the
+  # episode, a task's title, or the request that started it.
+  defp title_label(%{title_kind: :episode}), do: "Episode"
+  defp title_label(%{title_kind: :task}), do: "Task"
+  defp title_label(_case_file), do: "Initial request"
+
   defp base(snapshot), do: "/timeline/" <> URI.encode_www_form(snapshot.episode.ref)
   defp pending_answer_label(%{episode: %{state: :cancelled}}), do: "Stopped"
   defp pending_answer_label(%{episode: %{state: :complete}}), do: "No further reply was sent"
@@ -1548,9 +1798,4 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp cost(%{costed: _} = totals), do: Pricing.amount(totals)
 
   defp cost(_), do: "Cost not reported"
-
-  defp coverage(%{costed: costed, attempts: attempts} = totals),
-    do: "#{costed} reported · #{Map.get(totals, :estimated, 0)} estimated / #{attempts} requests"
-
-  defp coverage(_), do: "No price estimate substituted"
 end

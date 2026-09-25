@@ -1,6 +1,7 @@
 defmodule Ryker.Slack.InteractionHandlerTest do
   use ExUnit.Case, async: true
 
+  alias Ryker.Ingress.WorkProfile
   alias Ryker.Slack.{Interaction, InteractionHandler}
 
   defmodule Directory do
@@ -110,11 +111,8 @@ defmodule Ryker.Slack.InteractionHandlerTest do
 
     assert_receive {:task_confirmed, confirmation}
     assert confirmation.actor_ref == "slack:user:U123"
-
-    assert confirmation.policy == %{
-             digest: String.duplicate("b", 64),
-             name: "ryker-contributor"
-           }
+    assert confirmation.policy.name == "production-contributor"
+    assert confirmation.policy.environment_ref == "production"
 
     assert confirmation.record_ref == "record:task_offer:engineering"
 
@@ -124,6 +122,46 @@ defmodule Ryker.Slack.InteractionHandlerTest do
              thread_ref: "1787832000.000100",
              transport: "slack"
            }
+  end
+
+  # A channel selects an environment, and a task confirmed there runs in it:
+  # changing its first repository with the others mounted to read, and with
+  # its Emisar account. The policy lookup still keyed tasks by repository, so
+  # a confirmed task found no policy, or ran without its environment.
+  test "a task confirmed from Slack keeps its environment" do
+    interaction = interaction("ryker_start_engineering_task", "engineering")
+    options = options(["U123"])
+
+    assert {:ok, %{outcome: :confirmed}} = InteractionHandler.handle(interaction, options)
+    assert_receive {:environment_resolved, "T123", "C456"}
+    assert_receive {:task_confirmed, confirmation}
+
+    assert confirmation.policy == %{
+             digest: String.duplicate("b", 64),
+             environment_ref: "production",
+             name: "production-contributor",
+             repository_context: %{
+               "context_ref" => "production",
+               "parallel_goal_limit" => 3,
+               "primary_repository" => "ryker",
+               "read_only_repositories" => ["docs"]
+             },
+             repository_ref: "ryker"
+           }
+
+    # The offer's repository must be one of the environment's repositories.
+    elsewhere = %{options | conversation_environment: fn _workspace, _channel -> "staging" end}
+
+    assert InteractionHandler.handle(interaction, elsewhere) ==
+             {:error, {:slack_task_outside_environment, "ryker"}}
+
+    # A channel with no environment has no repository a task could change.
+    nowhere = %{options | conversation_environment: fn _workspace, _channel -> nil end}
+
+    assert InteractionHandler.handle(interaction, nowhere) ==
+             {:error, {:slack_task_policy_not_configured, "ryker"}}
+
+    refute_received {:task_confirmed, _confirmation}
   end
 
   test "channel setup rechecks full membership and configured operator authority" do
@@ -238,7 +276,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     crossed = interaction("ryker_open_incident", "engineering")
     assert InteractionHandler.handle(crossed, options(["U123"])) == {:ok, %{outcome: :invalid}}
 
-    options = put_in(options(["U123"]), [:repositories], %{})
+    options = put_in(options(["U123"]), [:environments], %{})
 
     assert InteractionHandler.handle(
              interaction("ryker_start_engineering_task", "engineering"),
@@ -776,11 +814,46 @@ defmodule Ryker.Slack.InteractionHandlerTest do
       incident_policy: %{digest: String.duplicate("c", 64), name: "incident-investigate"},
       operators: MapSet.new(),
       records: Records,
-      repositories: %{
-        "ryker" => %{
+      conversation_environment: fn workspace_ref, channel_ref ->
+        send(observer, {:environment_resolved, workspace_ref, channel_ref})
+        "production"
+      end,
+      environments: %{
+        "production" => %{
           contributor_policy: %{
             digest: String.duplicate("b", 64),
-            name: "ryker-contributor"
+            environment_ref: "production",
+            name: "production-contributor",
+            repository_context: %{
+              "context_ref" => "production",
+              "parallel_goal_limit" => 3,
+              "primary_repository" => "ryker",
+              "read_only_repositories" => ["docs"]
+            },
+            repository_ref: "ryker"
+          },
+          work_profile: %WorkProfile{
+            environment_ref: "production",
+            parallel_goal_limit: 3,
+            policy: "production-conversation",
+            policy_digest: String.duplicate("d", 64),
+            read_only_repository_refs: ["docs"],
+            repository_ref: "ryker"
+          }
+        },
+        "staging" => %{
+          contributor_policy: %{
+            digest: String.duplicate("e", 64),
+            environment_ref: "staging",
+            name: "staging-contributor",
+            repository_ref: "payments"
+          },
+          work_profile: %WorkProfile{
+            environment_ref: "staging",
+            parallel_goal_limit: 3,
+            policy: "staging-conversation",
+            policy_digest: String.duplicate("f", 64),
+            repository_ref: "payments"
           }
         }
       }

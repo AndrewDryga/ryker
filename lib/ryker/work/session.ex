@@ -17,6 +17,9 @@ defmodule Ryker.Work.Session do
     field(:repository_ref, :string)
     field(:repository_context, Ryker.CanonicalJSON.Type)
     field(:repository_source, Ryker.CanonicalJSON.Type)
+    # The environment the work ran in. History outlives the settings row, so
+    # this is a recorded ref, never a foreign key.
+    field(:environment_ref, :string)
     field(:emisar_connection_ref, :string)
     field(:emisar_account_ref, :string)
     field(:emisar_rpc_url, :string)
@@ -85,6 +88,7 @@ defmodule Ryker.Work.Session do
           repository_ref: String.t() | nil,
           repository_context: map() | nil,
           repository_source: map() | nil,
+          environment_ref: String.t() | nil,
           emisar_connection_ref: String.t() | nil,
           emisar_account_ref: String.t() | nil,
           emisar_rpc_url: String.t() | nil,

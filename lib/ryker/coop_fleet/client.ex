@@ -161,6 +161,10 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   @impl true
+  def accepts_session?(client, %Session{} = session),
+    do: client.bridge.accepts?(session, client.bridge_options)
+
+  @impl true
   def fence_create_session(client, key, policy, task, source) do
     with {:ok, session} <- session_by_task_ref(task),
          :ok <- exact_authority(session, policy, source),
@@ -406,7 +410,7 @@ defmodule Ryker.CoopFleet.Client do
   @impl true
   def submit_turn(client, session_id, key, revision, prompt, schema) do
     submission = %{
-      "contract_version" => "work-final-live-v2",
+      "contract_version" => "work-final-live-v3",
       "context" => %{},
       "input_artifact_refs" => [],
       "output_schema" => schema,

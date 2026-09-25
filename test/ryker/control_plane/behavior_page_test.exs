@@ -3,70 +3,111 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.BehaviorPage
 
-  test "typed rules show sender restrictions and their full instruction only once" do
-    # Trigger-based rules have no title and can carry a long task. Repeating
-    # it as a heading hides the scope and controls below duplicate prose.
-    for {source, label} <- [
-          {"human", "People only"},
-          {"app", "Apps only"},
-          {"any", "People and apps"}
+  @now ~U[2026-09-24 12:00:00Z]
+
+  test "a typed rule is named by what it does and says when it acts and who can set it off" do
+    # Trigger-based rules have no title. The row names the job ("Triage
+    # alerts"), says the event in a sentence, and prints the stored task once,
+    # never the trigger enum or the sender filter value.
+    for {source, words} <- [
+          {"human", "people only"},
+          {"app", "apps only"},
+          {"any", "people and apps"}
         ] do
       rule = %{
         item(:standing_assignment)
         | payload: %{
-            "trigger" => "terraform_plan",
+            "action" => "triage_alert",
+            "trigger" => "operational_alert",
             "source_filter" => source,
-            "task" => "Review the exact posted Terraform plan and report material risk."
+            "task" => "Check recent deploys and say whether it looks like a real incident."
           }
       }
 
-      html = render_component(&BehaviorPage.render/1, view: view(:standing_assignment, [rule]))
-      assert html =~ label
+      document = rules_document(view(:standing_assignment, [rule]))
+      row = LazyHTML.query(document, "article#behavior-behavior\\:one")
+      assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~ "Triage alerts"
+
+      meta = row |> LazyHTML.query(".entity-meta") |> LazyHTML.text()
+      assert meta =~ "When an alert arrives in Slack channel C456"
+      assert meta =~ words
+
+      html = LazyHTML.to_html(document)
       assert html |> String.split(rule.payload["task"]) |> length() == 2
-      assert html =~ "Terraform plan"
+      refute html =~ "operational_alert"
+      refute html =~ "triage_alert"
+      refute html =~ ">#{source}<"
     end
   end
 
-  test "a library with only expired history is not presented as never configured" do
-    snapshot = %{view(:guidance, []) | counts: %{"expired" => 2}}
-    html = render_component(&BehaviorPage.render/1, view: snapshot)
-    assert html =~ "No active or paused guidance"
-    refute html =~ "No guidance yet"
-  end
-
-  test "creation help is a closed disclosure with the approved instructions" do
-    # The Standing rules screenshot Andrew sent on 2026-09-09 showed the
-    # creation help floated into a right-hand column beside three 30px status
-    # counts, always open, linking into the Card Lab and /lab surfaces that
-    # are being retired. The help still has to be discoverable and still has
-    # to say an entry is proposed and confirmed in a conversation; it now
-    # lives under the description as a specifically labelled disclosure that
-    # points only at pages that survive.
-    for {kind, label, marker} <- [
-          {:standing_assignment, "How to create a standing rule",
-           "Ryker shows the exact rule for confirmation before saving it."},
-          {:preference, "How to save a preference",
-           "Reply-location preferences cannot be limited to a repository."},
-          {:guidance, "How to add guidance",
-           "Ryker shows the guidance for confirmation before saving it."}
+  test "states read as words people use, and only a current rule offers Pause or Resume" do
+    # "disabled" and "superseded" are storage words. A past rule keeps its
+    # state in words and offers no lifecycle control.
+    for {status, tone, word, control} <- [
+          {"active", "on", "On", "Pause"},
+          {"disabled", "off", "Paused", "Resume"},
+          {"expired", "off", "Expired", nil},
+          {"deleted", "off", "Deleted", nil},
+          {"superseded", "off", "Replaced", nil}
         ] do
-      html = render_component(&BehaviorPage.render/1, view: view(kind, []))
-      document = LazyHTML.from_fragment(html)
-      help = LazyHTML.query(document, "details.page-help:not([open])")
-      assert Enum.count(help) == 1
-      assert help |> LazyHTML.query("summary") |> LazyHTML.text() == label
-      assert LazyHTML.text(help) =~ marker
-      assert Enum.empty?(LazyHTML.query(help, "a[href]"))
+      document =
+        rules_document(
+          view(:standing_assignment, [%{item(:standing_assignment) | status: status}])
+        )
 
-      for href <- document |> LazyHTML.query("a[href]") |> LazyHTML.attribute("href") do
-        refute String.starts_with?(href, "/card-lab"), href
-        refute String.starts_with?(href, "/lab"), href
-      end
+      state = LazyHTML.query(document, "article .entity-side .state-word")
+      assert LazyHTML.text(state) == word, status
+      assert LazyHTML.attribute(state, "data-tone") == [tone], status
 
-      refute html =~ "behavior-create"
-      assert Enum.empty?(LazyHTML.query(document, ".behavior-library > h2, .page-help h2"))
-      assert html =~ "No #{String.downcase(BehaviorPage.title(kind))} yet"
+      buttons =
+        document |> LazyHTML.query("form.action-control button") |> Enum.map(&LazyHTML.text/1)
+
+      if control,
+        do: assert(buttons == [control, "Delete"], status),
+        else: assert(buttons == [], status)
     end
+  end
+
+  test "a row reads name and state, what it does, then one line of facts, with its controls last" do
+    # The Kit row: no cards, no definition lists, no raw scope refs. Pause is
+    # the one visible control; Delete sits behind a named overflow menu.
+    document = rules_document(view(:standing_assignment, [item(:standing_assignment)]))
+    row = LazyHTML.query(document, "article.entity-row#behavior-behavior\\:one")
+
+    assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~ "<unsafe>"
+    assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() == "Review the plan"
+
+    meta = LazyHTML.query(row, "p.entity-meta")
+    assert LazyHTML.text(meta) =~ "When a matching GitHub event arrives in Slack channel C456"
+    assert LazyHTML.text(meta) =~ "uses emisar"
+    assert LazyHTML.text(meta) =~ "used 3 times"
+
+    assert LazyHTML.query(meta, "strong") |> Enum.map(&LazyHTML.text/1) == [
+             "Slack channel C456",
+             "emisar"
+           ]
+
+    refute LazyHTML.text(meta) =~ "slack:T123:C456"
+
+    actions = LazyHTML.query(row, ".entity-actions")
+
+    assert LazyHTML.query(row, ".entity-actions > form.action-control button")
+           |> LazyHTML.text() == "Pause"
+
+    menu = LazyHTML.query(actions, "details.behavior-menu")
+    assert LazyHTML.attribute(menu, "open") == []
+    assert LazyHTML.query(menu, "summary") |> LazyHTML.text() =~ "More actions for <unsafe>"
+
+    assert LazyHTML.query(menu, "form.action-control") |> LazyHTML.attribute("action") == [
+             "/actions/behavior/behavior%3Aone/deleted"
+           ]
+
+    assert LazyHTML.query(menu, "a[href^='https://slack.com/']") |> LazyHTML.text() =~
+             "Open original conversation"
+
+    assert Enum.empty?(LazyHTML.query(document, "dl, .behavior-entry, .ui-status"))
+    html = LazyHTML.to_html(document)
+    refute html =~ "<unsafe>"
   end
 
   test "an instruction confirmed in a direct conversation links its original conversation" do
@@ -81,254 +122,251 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
         source_message_ref: nil
     }
 
-    html = render_component(&BehaviorPage.render/1, view: view(item.kind, [item]))
-    document = LazyHTML.from_fragment(html)
+    document = rules_document(view(item.kind, [item]))
 
     assert document |> LazyHTML.query("a[href='/conversations/#{id}']") |> LazyHTML.text() =~
-             "Original conversation"
+             "Open original conversation"
 
-    refute html =~ "/lab/"
+    refute LazyHTML.to_html(document) =~ "/lab/"
 
     broken = %{item | source_conversation_ref: "control-plane:lab:not-a-uuid"}
-    html = render_component(&BehaviorPage.render/1, view: view(item.kind, [broken]))
-    refute html =~ "Original conversation"
+
+    refute rules_document(view(item.kind, [broken])) |> LazyHTML.to_html() =~
+             "original conversation"
   end
 
-  test "the library reads help, toolbar, count, entries, history with no statistics row or apply button" do
-    # Same screenshot: a <dl class="behavior-counts"> of Active/Paused/Expired
-    # numbers above the list, an Apply button beside the filters, and the
-    # total only inside the pagination line. Andrew approved one column:
-    # help, one compact toolbar, a quiet count, the entries, then history.
-    item = item(:standing_assignment)
-    html = render_component(&BehaviorPage.render/1, view: view(:standing_assignment, [item]))
-    document = LazyHTML.from_fragment(html)
+  test "creation is one ask hint with a real example, not a help disclosure" do
+    # Rules are created only by asking Ryker and confirming. The page says so
+    # in one sentence with an example instead of a "How to create" disclosure,
+    # and never links to the retired Card Lab or /lab surfaces.
+    document = rules_document(view(:standing_assignment, []))
+    hint = LazyHTML.query(document, "p.ask-hint")
+    assert LazyHTML.text(hint) =~ "To add a rule, tell Ryker in the channel:"
 
-    assert outline(document, ".behavior-library > *") == [
-             "details.page-help",
-             "form.filter-toolbar",
-             "p.result-count",
-             "div.behavior-entries",
-             "section.behavior-history"
-           ]
+    assert LazyHTML.query(hint, "q") |> LazyHTML.text() ==
+             "When someone posts a Terraform plan here, review it for risky changes."
 
-    refute html =~ "behavior-counts"
-    refute html =~ "behavior-overview"
-    assert document |> LazyHTML.query("p.result-count") |> LazyHTML.text() == "1 rule"
+    assert LazyHTML.text(hint) =~ "saves it only after you confirm"
+    assert Enum.empty?(LazyHTML.query(document, "details.page-help, .configuration-help"))
 
-    toolbar = LazyHTML.query(document, "form.filter-toolbar")
-    assert LazyHTML.attribute(toolbar, "method") == ["get"]
-    assert LazyHTML.attribute(toolbar, "action") == ["/rules"]
-
-    assert Enum.count(LazyHTML.query(toolbar, "details.filter-add-menu > summary.filter-add")) ==
-             1
-
-    assert Enum.empty?(LazyHTML.query(toolbar, "button:not(noscript button)"))
-
-    for {name, id} <- [
-          {"q", "behavior-search"},
-          {"status", "behavior-status"},
-          {"scope", "behavior-scope"}
-        ] do
-      assert LazyHTML.query(toolbar, "[name=#{name}]") |> LazyHTML.attribute("id") == [id]
-      assert Enum.count(LazyHTML.query(toolbar, "label[for=#{id}]")) == 1
+    for href <- document |> LazyHTML.query("a[href]") |> LazyHTML.attribute("href") do
+      refute String.starts_with?(href, "/card-lab"), href
+      refute String.starts_with?(href, "/lab"), href
     end
-
-    assert Enum.empty?(LazyHTML.query(toolbar, "a.filter-clear"))
   end
 
-  test "the result count is the filtered total, never the unfiltered status counts" do
-    # BehaviorLibrary counts statuses before search and scope filtering while
-    # total is filtered. The old page showed the former as if they described
-    # the current list; the count beside the list must be the list's own.
-    for {kind, one, many} <- [
-          {:standing_assignment, "1 rule", "2 rules"},
-          {:preference, "1 preference", "2 preferences"},
-          {:guidance, "1 guidance entry", "2 guidance entries"}
+  test "an empty list says what would put a rule there, and tells nothing yet from nothing current" do
+    for {snapshot, title, text} <- [
+          {view(:standing_assignment, []), "No rules yet", "once someone asks Ryker"},
+          {%{view(:standing_assignment, []) | counts: %{"expired" => 2}},
+           "No rules are on or paused", "under Past"},
+          {%{
+             view(:standing_assignment, [])
+             | counts: %{"active" => 2},
+               params: %{"q" => "", "status" => "past", "show" => "all"}
+           }, "No past rules", "after they expire"}
         ] do
-      snapshot = %{view(kind, [item(kind)]) | counts: %{"active" => 9, "expired" => 4}}
-      one_html = render_component(&BehaviorPage.render/1, view: snapshot)
-      assert count_text(one_html) == one
-      refute one_html =~ ">9<"
-      refute one_html =~ ">4<"
-
-      two = %{snapshot | items: [item(kind), %{item(kind) | ref: "behavior:two"}], total: 2}
-      assert count_text(render_component(&BehaviorPage.render/1, view: two)) == many
+      empty = rules_document(snapshot) |> LazyHTML.query(".entity-empty")
+      assert LazyHTML.query(empty, ".entity-empty-title") |> LazyHTML.text() == title
+      assert LazyHTML.text(empty) =~ text
     end
 
-    filtered = %{
-      view(:guidance, [])
+    searched = %{
+      view(:standing_assignment, [])
       | counts: %{"active" => 9},
-        params: %{"q" => "missing", "status" => "all", "scope" => ""}
+        params: %{"q" => "missing", "status" => "past", "show" => "all"}
     }
 
-    html = render_component(&BehaviorPage.render/1, view: filtered)
-    document = LazyHTML.from_fragment(html)
-    assert Enum.empty?(LazyHTML.query(document, "p.result-count"))
-    assert html =~ "No matching entries"
+    document = rules_document(searched)
+    empty = LazyHTML.query(document, ".entity-empty")
 
-    assert LazyHTML.query(document, "form.filter-toolbar a.filter-clear")
-           |> LazyHTML.attribute("href") == ["/guidance"]
+    assert LazyHTML.query(empty, ".entity-empty-title") |> LazyHTML.text() ==
+             "No rules match “missing”"
+
+    # Clearing the search keeps the view the reader chose.
+    assert LazyHTML.query(empty, "a") |> LazyHTML.attribute("href") == ["/rules?status=past"]
+    assert Enum.empty?(LazyHTML.query(document, "section.behavior-matches"))
   end
 
-  test "active instructions expose scope and confirmation buttons while history stays read only" do
-    # This is an adversarial host-state fixture, not a fabricated model response.
+  test "the filters are shareable addresses: views keep the search and paging keeps both" do
+    # The address is the only filter state, so Back, a pasted link and a
+    # reconcile all show the same rows. Changing a view starts at page one.
+    snapshot = %{
+      view(:standing_assignment, [item(:standing_assignment)])
+      | params: %{"q" => "terraform", "status" => "past", "show" => "all"},
+        page: 2,
+        pages: 3,
+        total: 60
+    }
+
+    document = rules_document(snapshot)
+    search = LazyHTML.query(document, ".behavior-page > .kit-toolbar > form.filter-toolbar")
+    assert LazyHTML.attribute(search, "method") == ["get"]
+    assert LazyHTML.attribute(search, "action") == ["/rules"]
+    assert LazyHTML.query(search, "input[name=q]") |> LazyHTML.attribute("value") == ["terraform"]
+
+    assert LazyHTML.query(search, "input[type=hidden][name=status]")
+           |> LazyHTML.attribute("value") ==
+             ["past"]
+
+    # The search submits on Enter; its only button is the shared toolbar's
+    # Apply for browsers without JavaScript.
+    assert Enum.empty?(LazyHTML.query(search, "select"))
+    assert LazyHTML.query(search, "button") |> Enum.count() == 1
+    assert LazyHTML.query(search, "noscript button") |> LazyHTML.text() == "Apply"
+
+    segments = LazyHTML.query(document, "nav.segmented a")
+
+    assert segments |> Enum.map(&{LazyHTML.text(&1), LazyHTML.attribute(&1, "href")}) == [
+             {"Current", ["/rules?q=terraform"]},
+             {"Past", ["/rules?q=terraform&status=past"]}
+           ]
+
+    assert LazyHTML.query(document, "nav.segmented a[aria-current=page]") |> LazyHTML.text() ==
+             "Past"
+
+    assert LazyHTML.query(document, ".kit-toolbar a.filter-clear") |> LazyHTML.attribute("href") ==
+             [
+               "/rules?status=past"
+             ]
+
+    assert LazyHTML.query(document, "nav.pagination a") |> LazyHTML.attribute("href") == [
+             "/rules?q=terraform&status=past",
+             "/rules?page=3&q=terraform&status=past"
+           ]
+
+    assert LazyHTML.query(document, "nav.pagination") |> LazyHTML.text() =~ "60 rules"
+  end
+
+  test "recent matches say what Ryker did in plain words and open the work it started" do
     item = item(:standing_assignment)
 
-    view = %{
-      view(item.kind, [item])
-      | pages: 3,
-        page: 2,
-        total: 60,
-        runs: [
+    snapshot = %{
+      view(:standing_assignment, [item])
+      | runs: [
           %{
             rule_ref: item.ref,
             episode_ref: "episode:one",
-            at: item.confirmed_at,
+            at: ~U[2026-09-24 10:00:00Z],
             outcome: :decided,
             action: :ignore
+          },
+          %{
+            rule_ref: item.ref,
+            episode_ref: nil,
+            at: ~U[2026-09-24 11:59:30Z],
+            outcome: :pending,
+            action: nil
           }
         ]
     }
 
-    html = render_component(&BehaviorPage.render/1, view: view)
-    assert html =~ "&lt;unsafe&gt;"
-    refute html =~ "<unsafe>"
-    assert html =~ "No expiry"
-    assert html =~ "No response needed"
-    assert html =~ "Original conversation"
-    assert html =~ "/timeline/episode%3Aone"
-    assert html =~ "page=1"
-    assert html =~ "page=3"
-    document = LazyHTML.from_fragment(html)
-    assert document |> LazyHTML.query("form.action-control button") |> LazyHTML.text() =~ "Pause"
+    section = rules_document(snapshot) |> LazyHTML.query("section.behavior-matches")
 
-    assert document |> LazyHTML.query("form.action-control") |> LazyHTML.attribute("method") == [
-             "get",
-             "get"
+    assert LazyHTML.query(section, "header.section-head h2") |> LazyHTML.text() ==
+             "Recent matches"
+
+    rows = LazyHTML.query(section, "article.entity-row")
+    assert Enum.count(rows) == 2
+
+    assert rows |> LazyHTML.query("h3 a") |> LazyHTML.attribute("href") |> Enum.uniq() == [
+             "#behavior-behavior:one"
            ]
 
-    assert html =~ "Event conditions"
+    [ignored, pending] = Enum.map(rows, &(LazyHTML.query(&1, ".entity-meta") |> LazyHTML.text()))
+    assert ignored =~ "No reply needed"
+    assert ignored =~ "2 h ago"
+    assert pending =~ "Waiting for Ryker"
+    assert pending =~ "just now"
 
-    for status <- ["expired", "deleted", "superseded"] do
-      html =
-        render_component(&BehaviorPage.render/1,
-          view: view(item.kind, [%{item | status: status}])
-        )
+    assert LazyHTML.query(section, "a.ui-button") |> LazyHTML.attribute("href") == [
+             "/timeline/episode%3Aone"
+           ]
 
-      refute html =~ "action-control"
+    refute LazyHTML.text(section) =~ "decided"
+  end
+
+  test "usage and expiry are short times with the full UTC time kept for hovering" do
+    rule = %{
+      item(:standing_assignment)
+      | use_count: 12,
+        last_used_at: ~U[2026-09-24 10:00:00Z],
+        expires_at: ~U[2026-09-30 09:00:00Z]
+    }
+
+    meta = rules_document(view(:standing_assignment, [rule])) |> LazyHTML.query(".entity-meta")
+    assert LazyHTML.text(meta) =~ "stops 30 Sep"
+    assert LazyHTML.text(meta) =~ "used 12 times, last 2 h ago"
+
+    assert LazyHTML.query(meta, "time") |> LazyHTML.attribute("title") == [
+             "30 Sep 2026, 09:00 UTC",
+             "24 Sep 2026, 10:00 UTC"
+           ]
+
+    once = %{rule | use_count: 1, last_used_at: ~U[2026-09-01 10:00:00Z], expires_at: nil}
+
+    text =
+      rules_document(view(:standing_assignment, [once]))
+      |> LazyHTML.query(".entity-meta")
+      |> LazyHTML.text()
+
+    assert text =~ "used once, 1 Sep"
+    refute text =~ "stops"
+
+    expired = %{rule | status: "expired", expires_at: ~U[2026-09-12 09:00:00Z], use_count: 0}
+
+    text =
+      rules_document(view(:standing_assignment, [expired]))
+      |> LazyHTML.query(".entity-meta")
+      |> LazyHTML.text()
+
+    assert text =~ "stopped 12 Sep"
+    assert text =~ "not used yet"
+  end
+
+  test "event conditions stay out of the row and read as field-is-value lines behind a closed disclosure" do
+    # A source-event rule matches event fields exactly. The JSON filter is a
+    # detail for the person checking why a rule fired; it never sits in the
+    # row as braces and quotes.
+    rule = %{
+      item(:standing_assignment)
+      | payload: %{
+          "title" => "Summarize merged pull requests",
+          "task" => "Post a two-line summary.",
+          "source_kind" => "github",
+          "filter" => %{"action" => "closed", "pull_request" => %{"merged" => true}}
+        }
+    }
+
+    document = rules_document(view(:standing_assignment, [rule]))
+    row = LazyHTML.query(document, "article.entity-row")
+    conditions = LazyHTML.query(row, "details.behavior-conditions")
+    assert LazyHTML.attribute(conditions, "open") == []
+    assert LazyHTML.attribute(conditions, "id") == ["behavior-behavior:one-conditions"]
+    assert LazyHTML.query(conditions, "summary") |> LazyHTML.text() == "Conditions"
+
+    assert LazyHTML.query(conditions, "li") |> Enum.map(&LazyHTML.text/1) == [
+             "action is closed",
+             "pull_request.merged is true"
+           ]
+
+    for part <- [".entity-text", ".entity-meta", "h3"] do
+      refute LazyHTML.query(row, part) |> LazyHTML.text() =~ "{", part
     end
 
-    assert render_component(&BehaviorPage.render/1,
-             view: view(item.kind, [%{item | status: "disabled"}])
-           ) =~ "Resume"
-  end
+    plain = %{rule | payload: Map.put(rule.payload, "filter", %{})}
+    document = rules_document(view(:standing_assignment, [plain]))
+    assert Enum.empty?(LazyHTML.query(document, "details.behavior-conditions"))
 
-  test "guidance and preferences display their meaning without machine identifiers" do
-    guidance = %{
-      item(:guidance)
-      | payload: %{
-          "subject" => "Review guidance",
-          "summary" => "Risk first",
-          "text" => "Full instruction"
-        },
-        scope_kind: :workspace
-    }
-
-    html = render_component(&BehaviorPage.render/1, view: view(:guidance, [guidance]))
-    assert html =~ "Full instruction"
-    assert html =~ "Entire workspace"
-
-    preference = %{
-      item(:preference)
-      | payload: %{"key" => "response_detail", "value" => "concise"},
-        scope_kind: :repository,
-        scope_ref: "emisar"
-    }
-
-    html = render_component(&BehaviorPage.render/1, view: view(:preference, [preference]))
-    assert html =~ "Response detail"
-    assert html =~ "Concise"
-    assert html =~ "emisar"
-  end
-
-  test "filtered empty libraries do not pretend all instructions are absent" do
-    snapshot = %{
-      view(:guidance, [])
-      | counts: %{"active" => 1},
-        params: %{"q" => "missing", "status" => "all", "scope" => ""}
-    }
-
-    html = render_component(&BehaviorPage.render/1, view: snapshot)
-    assert html =~ "No matching entries"
-    assert html =~ "Clear filters"
-    refute html =~ "No guidance yet"
-  end
-
-  test "an entry reads title, scope and status first, then the instruction, usage and quiet actions" do
-    # The 2026-09-09 Standing rules screenshot showed each rule as a card with
-    # a 20px heading, a six-cell definition list (Applies to / When / From /
-    # Repository / Expires / Used) and a footer that put Delete beside Pause.
-    # Andrew approved one scannable shape: the title with its status, one
-    # 13px line of scope, trigger and expiry, the instruction, one usage line,
-    # then the source link with Pause visible and Delete behind an overflow
-    # control. The definition list is gone rather than kept beside it.
-    item = item(:standing_assignment)
-
-    document =
-      render_component(&BehaviorPage.render/1, view: view(:standing_assignment, [item]))
-      |> LazyHTML.from_fragment()
-
-    assert outline(document, "article.behavior-entry > *") == [
-             "div.behavior-heading",
-             "p.behavior-scope",
-             "p.behavior-instruction",
-             "details.behavior-conditions",
-             "p.behavior-usage",
-             "footer.behavior-footer"
-           ]
-
-    heading = LazyHTML.query(document, "article.behavior-entry > .behavior-heading")
-    assert LazyHTML.query(heading, "h2") |> LazyHTML.text() == "<unsafe>"
-    assert LazyHTML.query(heading, "h2 + .ui-status") |> LazyHTML.text() == "Active"
-    # The dot is the shared status vocabulary; a word alone is a different component.
-    assert LazyHTML.query(heading, "h2 + .ui-status > i[aria-hidden]") |> Enum.count() == 1
-
-    scope = LazyHTML.query(document, "article.behavior-entry > p.behavior-scope")
-    assert LazyHTML.text(scope) =~ "Slack channel C456"
-    assert LazyHTML.text(scope) =~ "GitHub events"
-    assert LazyHTML.text(scope) =~ "emisar"
-    assert LazyHTML.text(scope) =~ "No expiry"
-
-    assert LazyHTML.query(document, "article.behavior-entry > p.behavior-usage")
-           |> LazyHTML.text() =~ "Used 3 times"
-
-    footer = LazyHTML.query(document, "article.behavior-entry > footer.behavior-footer")
-
-    assert LazyHTML.query(footer, "a[href^='https://slack.com/']") |> LazyHTML.text() =~
-             "Original"
-
-    visible = LazyHTML.query(footer, ".behavior-actions > form.action-control button")
-    assert LazyHTML.text(visible) == "Pause"
-
-    menu = LazyHTML.query(footer, ".behavior-actions > details.behavior-menu")
-    assert Enum.count(menu) == 1
-    assert LazyHTML.attribute(menu, "open") == []
-    assert LazyHTML.query(menu, "summary") |> LazyHTML.text() =~ "More actions"
-    assert LazyHTML.query(menu, "form.action-control button") |> LazyHTML.text() == "Delete"
-
-    assert LazyHTML.query(menu, "form.action-control") |> LazyHTML.attribute("action") == [
-             "/actions/behavior/behavior%3Aone/deleted"
-           ]
-
-    assert Enum.empty?(LazyHTML.query(document, "dl.behavior-meta, .behavior-entry header"))
+    assert LazyHTML.query(document, ".entity-meta") |> LazyHTML.text() =~
+             "When a GitHub event arrives"
   end
 
   test "a two-thousand-character instruction is reachable whole, and a short one is not padded with an empty control" do
     # The stored task is the rule. A preview that cannot be expanded is a
-    # truncation with no way to read the rest, and an empty "Show more" on a
-    # one-line preference is noise. The full stored text must be present
-    # verbatim inside a disclosure whose id survives a live refresh, and the
-    # preview must be labelled as one, never presented as the instruction.
+    # truncation with no way to read the rest, and an empty "Show all" on a
+    # one-line rule is noise. The full stored text must be present verbatim
+    # inside a disclosure whose id survives a live refresh.
     long =
       1..40
       |> Enum.map_join(
@@ -340,58 +378,31 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
     assert String.length(long) == 2_000
     rule = %{item(:standing_assignment) | payload: %{"title" => "Long rule", "task" => long}}
+    document = rules_document(view(:standing_assignment, [rule]))
 
-    document =
-      render_component(&BehaviorPage.render/1, view: view(:standing_assignment, [rule]))
-      |> LazyHTML.from_fragment()
-
-    full = LazyHTML.query(document, "article.behavior-entry > details.behavior-full")
+    full = LazyHTML.query(document, "article .entity-body > details.behavior-full")
     assert Enum.count(full) == 1
     assert LazyHTML.attribute(full, "id") == ["behavior-behavior:one-full"]
     assert LazyHTML.attribute(full, "open") == []
-    assert LazyHTML.query(full, "summary") |> LazyHTML.text() == "Show full instruction"
-    assert LazyHTML.query(full, "p.behavior-instruction") |> LazyHTML.text() == long
+    assert LazyHTML.query(full, "summary .behavior-closed") |> LazyHTML.text() == "Show all"
+    assert LazyHTML.query(full, "p.behavior-full-text") |> LazyHTML.text() == long
 
-    preview = LazyHTML.query(document, "article.behavior-entry > p.behavior-preview")
-    assert Enum.count(preview) == 1
-    assert LazyHTML.query(preview, ".behavior-preview-label") |> LazyHTML.text() =~ "Preview"
-    preview_text = LazyHTML.text(preview)
-    assert String.length(preview_text) < 400
-    assert preview_text =~ "Step 1: compare the posted plan"
-    assert String.ends_with?(preview_text, "…")
+    preview = LazyHTML.query(document, "article p.entity-text") |> LazyHTML.text()
+    assert String.length(preview) < 400
+    assert preview =~ "Step 1: compare the posted plan"
+    assert String.ends_with?(preview, "…")
 
     short = %{item(:standing_assignment) | payload: %{"title" => "Short", "task" => "Say hi."}}
-
-    document =
-      render_component(&BehaviorPage.render/1, view: view(:standing_assignment, [short]))
-      |> LazyHTML.from_fragment()
-
-    assert Enum.empty?(LazyHTML.query(document, "details.behavior-full, p.behavior-preview"))
-
-    assert LazyHTML.query(document, "article > p.behavior-instruction") |> LazyHTML.text() ==
-             "Say hi."
-
-    guidance = %{
-      item(:guidance)
-      | payload: %{"subject" => "Review style", "summary" => "Risk first", "text" => long}
-    }
-
-    document =
-      render_component(&BehaviorPage.render/1, view: view(:guidance, [guidance]))
-      |> LazyHTML.from_fragment()
-
-    assert LazyHTML.query(document, "details.behavior-full > summary") |> LazyHTML.text() ==
-             "Show full guidance"
-
-    assert LazyHTML.query(document, "details.behavior-full p.behavior-instruction")
-           |> LazyHTML.text() == long
+    document = rules_document(view(:standing_assignment, [short]))
+    assert Enum.empty?(LazyHTML.query(document, "details.behavior-full"))
+    assert LazyHTML.query(document, "article p.entity-text") |> LazyHTML.text() == "Say hi."
   end
 
   test "every disclosure in an entry carries a stable id so an open one survives a live refresh" do
     # PreserveReadingState keys a <details> by its id and falls back to its
-    # position plus summary text. Two rules with the same "Show full
-    # instruction" summary would swap open states whenever the list reorders
-    # after a reconcile, so each disclosure is named by the entry it belongs to.
+    # position plus summary text. Two rules with the same "Show all" summary
+    # would swap open states whenever the list reorders after a reconcile, so
+    # each disclosure is named by the entry it belongs to.
     long = String.duplicate("Watch the queue and say what changed. ", 20)
 
     rules = [
@@ -403,15 +414,19 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
       %{
         item(:standing_assignment)
         | ref: "behavior:b",
-          payload: %{"title" => "B", "task" => long, "filter" => %{"branch" => "main"}}
+          payload: %{
+            "title" => "B",
+            "task" => long,
+            "source_kind" => "github",
+            "filter" => %{"branch" => "main"}
+          }
       }
     ]
 
-    document =
-      render_component(&BehaviorPage.render/1, view: view(:standing_assignment, rules))
-      |> LazyHTML.from_fragment()
-
-    ids = LazyHTML.query(document, ".behavior-entries details") |> LazyHTML.attribute("id")
+    ids =
+      rules_document(view(:standing_assignment, rules))
+      |> LazyHTML.query("article details")
+      |> LazyHTML.attribute("id")
 
     assert ids == [
              "behavior-behavior:a-full",
@@ -420,8 +435,6 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
              "behavior-behavior:b-conditions",
              "behavior-behavior:b-menu"
            ]
-
-    assert Enum.uniq(ids) == ids
   end
 
   test "opening the action menu or a disclosure performs nothing: every control is a GET to its confirmation" do
@@ -429,14 +442,18 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     # confirmation page. Nothing inside an entry may POST, carry a phx-click,
     # or point anywhere but the existing /actions/behavior confirmation, so
     # opening the menu, or a disclosure, cannot change a row.
-    for status <- ["active", "disabled"] do
+    for kind <- [:standing_assignment, :preference, :guidance],
+        status <- ["active", "disabled"] do
       document =
-        render_component(&BehaviorPage.render/1,
-          view: view(:standing_assignment, [%{item(:standing_assignment) | status: status}])
-        )
-        |> LazyHTML.from_fragment()
+        case kind do
+          :standing_assignment ->
+            rules_document(view(kind, [%{item(kind) | status: status}]))
 
-      forms = LazyHTML.query(document, "article.behavior-entry form")
+          _saved ->
+            instructions_document([], view(kind, [%{item(kind) | status: status}]))
+        end
+
+      forms = LazyHTML.query(document, "article.entity-row form")
       assert Enum.count(forms) == 2
       assert LazyHTML.attribute(forms, "method") |> Enum.uniq() == ["get"]
 
@@ -444,8 +461,6 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
         assert String.starts_with?(action, "/actions/behavior/behavior%3Aone/"), action
       end
 
-      # Delete is reachable only through the closed menu, and the menu itself
-      # is a disclosure, not a form: opening it submits nothing.
       assert Enum.count(
                LazyHTML.query(
                  document,
@@ -455,41 +470,182 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
       assert Enum.empty?(LazyHTML.query(document, "details.behavior-menu > summary form"))
       assert Enum.empty?(LazyHTML.query(document, "[phx-click], [phx-submit], form[method=post]"))
-
-      assert Enum.empty?(
-               LazyHTML.query(document, "article.behavior-entry button:not(form button)")
-             )
+      assert Enum.empty?(LazyHTML.query(document, "article button:not(form button)"))
     end
   end
 
-  defp count_text(html),
-    do: html |> LazyHTML.from_fragment() |> LazyHTML.query("p.result-count") |> LazyHTML.text()
+  test "preferences and guidance read as names people use, with where they apply" do
+    # response_detail/concise and a scope enum were the row before. A person
+    # recognises "Reply length: Concise" in #payments, not the stored key.
+    for {key, value, name} <- [
+          {"response_detail", "concise", "Reply length: Concise"},
+          {"health_check_depth", "quick", "Health checks: Quick"},
+          {"response_location", "prefer_thread", "Where to reply: In the thread"},
+          {"response_location", "follow_context", "Where to reply: Where the conversation is"}
+        ] do
+      preference = %{item(:preference) | payload: %{"key" => key, "value" => value}}
 
-  # "tag.first-class" for each matched element, in document order.
-  defp outline(document, selector) do
-    nodes = LazyHTML.query(document, selector)
+      row =
+        instructions_document([], view(:preference, [preference])) |> LazyHTML.query("article")
 
-    nodes
-    |> LazyHTML.tag()
-    |> Enum.zip(LazyHTML.attributes(nodes))
-    |> Enum.map(fn {tag, attributes} ->
-      case List.keyfind(attributes, "class", 0) do
-        {"class", class} -> tag <> "." <> hd(String.split(class))
-        nil -> tag
-      end
-    end)
+      assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~ name
+      assert Enum.empty?(LazyHTML.query(row, ".entity-text"))
+      refute LazyHTML.text(row) =~ key
+    end
+
+    for {scope_kind, scope_ref, where} <- [
+          {:workspace, "slack:T123", "everywhere"},
+          {:conversation, "slack:T123:C456", "in Slack channel C456"},
+          {:repository, "acme/checkout-api", "for acme/checkout-api"},
+          {:operator, "slack:user:U123", "for one person"}
+        ] do
+      guidance = %{
+        item(:guidance)
+        | payload: %{
+            "subject" => "Check the migrations folder before approving a deploy",
+            "summary" => "Migrations first",
+            "text" => "Any change under db/migrations needs a rollback note."
+          },
+          scope_kind: scope_kind,
+          scope_ref: scope_ref
+      }
+
+      row = instructions_document([], view(:guidance, [guidance])) |> LazyHTML.query("article")
+
+      assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~
+               "Check the migrations folder before approving a deploy"
+
+      assert LazyHTML.query(row, ".entity-text") |> LazyHTML.text() ==
+               "Any change under db/migrations needs a rollback note."
+
+      meta = row |> LazyHTML.query(".entity-meta") |> LazyHTML.text() |> squish()
+      assert meta =~ "Guidance · #{where}", "#{scope_kind}: #{meta}"
+      refute meta =~ "slack:", "#{scope_kind}"
+    end
   end
+
+  test "saved entries are filtered by kind and status through linkable segments that keep each other" do
+    saved = %{
+      view(:guidance, [item(:guidance)])
+      | kinds: [:preference, :guidance],
+        params: %{"q" => "", "status" => "past", "show" => "guidance"},
+        page: 1,
+        pages: 2,
+        total: 26
+    }
+
+    document = instructions_document([], saved)
+    section = LazyHTML.query(document, "section.instructions-saved")
+
+    assert LazyHTML.query(section, "header.section-head#saved h2") |> LazyHTML.text() ==
+             "Saved from conversations"
+
+    assert section
+           |> LazyHTML.query("nav.segmented a")
+           |> Enum.map(&{LazyHTML.text(&1), LazyHTML.attribute(&1, "href")}) == [
+             {"All", ["/instructions?status=past#saved"]},
+             {"Preferences", ["/instructions?show=preferences&status=past#saved"]},
+             {"Guidance", ["/instructions?show=guidance&status=past#saved"]},
+             {"Current", ["/instructions?show=guidance#saved"]},
+             {"Past", ["/instructions?show=guidance&status=past#saved"]}
+           ]
+
+    assert section
+           |> LazyHTML.query("nav.segmented a[aria-current=page]")
+           |> Enum.map(&LazyHTML.text/1) ==
+             ["Guidance", "Past"]
+
+    assert LazyHTML.query(section, "nav.pagination a") |> LazyHTML.attribute("href") == [
+             "/instructions?page=2&show=guidance&status=past#saved"
+           ]
+
+    assert LazyHTML.query(section, "p.ask-hint q") |> LazyHTML.text() ==
+             "Remember to keep incident updates short."
+
+    empty = instructions_document([], %{view(:preference, []) | kinds: [:preference, :guidance]})
+
+    assert LazyHTML.query(empty, "section.instructions-saved .entity-empty-title")
+           |> LazyHTML.text() ==
+             "Nothing saved yet"
+  end
+
+  test "channel instructions list each channel with its words and an edit link to that channel's editor" do
+    channels = [
+      %{
+        workspace_ref: "T123",
+        channel_ref: "C999",
+        text: "Always link the Grafana dashboard you looked at."
+      },
+      %{
+        workspace_ref: "T123",
+        channel_ref: "C456",
+        text:
+          "Include the affected service\nand time window. " <>
+            String.duplicate("More detail. ", 30)
+      }
+    ]
+
+    section =
+      instructions_document(channels, saved([]))
+      |> LazyHTML.query("section.instructions-channels")
+
+    assert LazyHTML.query(section, "header.section-head#channels h2") |> LazyHTML.text() ==
+             "For specific channels"
+
+    rows = LazyHTML.query(section, "article.entity-row")
+
+    assert rows |> LazyHTML.query("h3") |> Enum.map(&LazyHTML.text/1) |> Enum.map(&String.trim/1) ==
+             ["Slack channel C456", "Slack channel C999"]
+
+    [long, short] = rows |> LazyHTML.query(".entity-text") |> Enum.map(&LazyHTML.text/1)
+    assert short == "“Always link the Grafana dashboard you looked at.”"
+    assert long =~ ~r/\A“Include the affected service and time window\. More detail\./
+    assert String.ends_with?(long, "…”")
+    assert String.length(long) < 200
+
+    assert rows |> LazyHTML.query("h3 a") |> LazyHTML.attribute("href") == [
+             "/channels/T123/C456",
+             "/channels/T123/C999"
+           ]
+
+    assert rows |> LazyHTML.query(".entity-actions a") |> LazyHTML.attribute("href") == [
+             "/channels/T123/C456#instructions-slack:T123:C456",
+             "/channels/T123/C999#instructions-slack:T123:C999"
+           ]
+
+    empty =
+      instructions_document([], saved([])) |> LazyHTML.query("section.instructions-channels")
+
+    assert LazyHTML.query(empty, ".entity-empty-title") |> LazyHTML.text() ==
+             "No channel has its own instructions yet"
+
+    assert LazyHTML.query(empty, "a.behavior-add") |> LazyHTML.attribute("href") == ["/channels"]
+  end
+
+  defp squish(text), do: text |> String.split() |> Enum.join(" ")
+
+  defp rules_document(view),
+    do:
+      render_component(&BehaviorPage.rules/1, view: view, now: @now)
+      |> LazyHTML.from_fragment()
+
+  defp instructions_document(channels, saved),
+    do:
+      render_component(&BehaviorPage.instructions/1, channels: channels, saved: saved, now: @now)
+      |> LazyHTML.from_fragment()
+
+  defp saved(items), do: %{view(:guidance, items) | kinds: [:preference, :guidance]}
 
   defp view(kind, items),
     do: %{
-      kind: kind,
+      kinds: [kind],
       items: items,
       counts: if(items == [], do: %{}, else: %{"active" => length(items)}),
       total: length(items),
       page: 1,
       pages: 1,
       runs: [],
-      params: %{"q" => "", "scope" => "", "status" => "current"}
+      params: %{"q" => "", "status" => "current", "show" => "all"}
     }
 
   defp item(kind),

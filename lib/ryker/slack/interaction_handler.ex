@@ -2,9 +2,9 @@ defmodule Ryker.Slack.InteractionHandler do
   @moduledoc """
   Applies authenticated Slack controls at host-owned authority boundaries.
 
-  Membership, operator status, repository policy, delivered-message identity,
-  and current record state are all re-read after the click. The button value
-  alone grants nothing.
+  Membership, operator status, the conversation's environment and its policy,
+  delivered-message identity, and current record state are all re-read after
+  the click. The button value alone grants nothing.
   """
 
   alias Ryker.Slack.Interaction
@@ -132,6 +132,8 @@ defmodule Ryker.Slack.InteractionHandler do
              :configuration_action_mismatch,
              :configuration_actor_mismatch,
              :configuration_channel_mismatch,
+             :configuration_environment_not_found,
+             :configuration_environment_not_offered,
              :configuration_expired,
              :configuration_membership_not_found,
              :configuration_membership_not_joined,
@@ -139,7 +141,6 @@ defmodule Ryker.Slack.InteractionHandler do
              :configuration_message_mismatch,
              :configuration_not_found,
              :configuration_prompt_already_bound,
-             :configuration_repository_not_offered,
              :configuration_revision_stale,
              :configuration_session_not_found,
              :configuration_session_terminal,
@@ -551,7 +552,7 @@ defmodule Ryker.Slack.InteractionHandler do
          options
        ) do
     with :ok <- operator_authority(interaction, record, options),
-         {:ok, policy} <- policy(record, options),
+         {:ok, policy} <- policy(record, interaction, options),
          {:ok, confirmation} <- investigate_incident(interaction, policy, options) do
       {:ok, %{episode_id: confirmation.episode.id, outcome: confirmation.status}}
     end
@@ -565,7 +566,7 @@ defmodule Ryker.Slack.InteractionHandler do
        ) do
     with :ok <- matching_task_action(interaction.action_id, record.payload["kind"]),
          :ok <- operator_authority(interaction, record, options),
-         {:ok, policy} <- policy(record, options),
+         {:ok, policy} <- policy(record, interaction, options),
          {:ok, request} <- request_incident(interaction, policy, options) do
       {:ok, %{outcome: request.status, room_ref: request.room.ref}}
     end
@@ -574,7 +575,7 @@ defmodule Ryker.Slack.InteractionHandler do
   defp apply_action(interaction, %{kind: "task_offer"} = record, nil, options) do
     with :ok <- matching_task_action(interaction.action_id, record.payload["kind"]),
          :ok <- operator_authority(interaction, record, options),
-         {:ok, policy} <- policy(record, options),
+         {:ok, policy} <- policy(record, interaction, options),
          {:ok, confirmation} <- confirm_task(interaction, policy, options) do
       {:ok, %{episode_id: confirmation.episode.id, outcome: confirmation.status}}
     end
@@ -642,23 +643,44 @@ defmodule Ryker.Slack.InteractionHandler do
       else: {:error, :operator_required}
   end
 
-  defp policy(%{payload: %{"kind" => "incident"}}, options),
+  defp policy(%{payload: %{"kind" => "incident"}}, _interaction, options),
     do: {:ok, options.incident_policy}
 
-  defp policy(%{payload: %{"kind" => "engineering", "repository" => repository}}, options) do
-    case get_in(options, [:repositories, repository, :contributor_policy]) do
-      %{digest: digest, name: name} = policy ->
-        {:ok,
-         %{digest: digest, name: name}
-         |> maybe_put(:repository_ref, Map.get(policy, :repository_ref))
-         |> maybe_put(:repository_context, Map.get(policy, :repository_context))}
+  # A task runs in the environment of the conversation it is confirmed in,
+  # under that environment's own policy, and only for one of its repositories.
+  # A conversation outside any environment has no repository to change.
+  defp policy(
+         %{payload: %{"kind" => "engineering", "repository" => repository}},
+         interaction,
+         options
+       ) do
+    environment_ref =
+      options.conversation_environment.(interaction.workspace_ref, interaction.channel_ref)
 
-      _missing ->
+    case environment_ref && Map.get(options.environments, environment_ref) do
+      %{contributor_policy: %{digest: digest, name: name} = policy, work_profile: profile} ->
+        if repository in environment_repositories(profile),
+          do:
+            {:ok,
+             %{digest: digest, environment_ref: environment_ref, name: name}
+             |> maybe_put(:repository_ref, Map.get(policy, :repository_ref))
+             |> maybe_put(:repository_context, Map.get(policy, :repository_context))},
+          else: {:error, {:slack_task_outside_environment, repository}}
+
+      _none ->
         {:error, {:slack_task_policy_not_configured, repository}}
     end
   end
 
-  defp policy(_record, _options), do: {:error, :task_offer_action_mismatch}
+  defp policy(_record, _interaction, _options), do: {:error, :task_offer_action_mismatch}
+
+  defp environment_repositories(%{repository_ref: nil}), do: []
+
+  defp environment_repositories(%{
+         repository_ref: writable,
+         read_only_repository_refs: read_only
+       }),
+       do: [writable | read_only]
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

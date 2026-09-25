@@ -115,7 +115,7 @@ defmodule Ryker.State.MemoriesConcurrencyTest do
               occurred_at: DateTime.utc_now(),
               workspace_ref: fixture.slack_workspace_ref
             },
-            %{default_repository: "ryker", repository_refs: ["ryker"]}
+            %{default_environment: nil, environments: []}
           )
         end)
 
@@ -293,7 +293,7 @@ defmodule Ryker.State.MemoriesConcurrencyTest do
         %{"episode_id" => episode.id},
         "Offer the exact memory mappings for confirmation.",
         %{"type" => "object"},
-        "work-final-live-v2"
+        "work-final-live-v3"
       )
 
     {:ok, _turn} =

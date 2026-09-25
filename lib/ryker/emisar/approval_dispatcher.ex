@@ -25,6 +25,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   @type result ::
           {:ok,
            :idle
+           | {:closed, [String.t()]}
            | {:monitoring, String.t(), String.t()}
            | {:resumed, String.t(), String.t()}
            | {:deferred, String.t(), term()}
@@ -44,7 +45,15 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
     end
   end
 
-  defp execute(nil, _settings), do: {:ok, :idle}
+  # With nothing to observe, close this account's watches that nothing waits
+  # for any more, so none sits blocked under a retry that is always refused.
+  defp execute(nil, settings) do
+    case Approvals.close_ended(settings.connection_ref) do
+      {:ok, []} -> {:ok, :idle}
+      {:ok, closed} -> {:ok, {:closed, closed}}
+      {:error, _reason} = error -> error
+    end
+  end
 
   defp execute(claim, settings) do
     case settings.api.wait_for_run(settings.client, claim.approval.run_id) do

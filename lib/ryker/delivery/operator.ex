@@ -12,8 +12,16 @@ defmodule Ryker.Delivery.Operator do
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Turn}
 
-  @maximum_list 500
+  # The Failures page reads as deep as the page it shows (a hundred a page).
+  @maximum_list 10_001
 
+  @doc """
+  Blocked messages, reactions and model-requested actions, newest first,
+  `limit` in all.
+
+  Each kind was read oldest first, so past `limit` the newest blocked replies,
+  the ones people were still waiting on, were the ones never listed.
+  """
   @spec list_blocked(pos_integer()) :: {:ok, [map()]} | {:error, term()}
   def list_blocked(limit \\ 100) do
     if is_integer(limit) and limit > 0 and limit <= @maximum_list do
@@ -21,7 +29,7 @@ defmodule Ryker.Delivery.Operator do
         Repo.all(
           from(turn in Turn,
             where: turn.status == :blocked and not is_nil(turn.delivery_ref),
-            order_by: [asc: turn.updated_at, asc: turn.id],
+            order_by: [desc: turn.updated_at, desc: turn.id],
             limit: ^limit
           )
         )
@@ -30,7 +38,7 @@ defmodule Ryker.Delivery.Operator do
         Repo.all(
           from(reaction in Reaction,
             where: reaction.status == :blocked,
-            order_by: [asc: reaction.updated_at, asc: reaction.id],
+            order_by: [desc: reaction.updated_at, desc: reaction.id],
             limit: ^limit
           )
         )
@@ -39,7 +47,7 @@ defmodule Ryker.Delivery.Operator do
         Repo.all(
           from(action in PlatformAction,
             where: action.status == :blocked,
-            order_by: [asc: action.updated_at, asc: action.id],
+            order_by: [desc: action.updated_at, desc: action.id],
             limit: ^limit
           )
         )
@@ -47,7 +55,7 @@ defmodule Ryker.Delivery.Operator do
       items =
         (Enum.map(messages, &message_item/1) ++
            Enum.map(reactions, &reaction_item/1) ++ Enum.map(actions, &action_item/1))
-        |> Enum.sort_by(&{DateTime.to_unix(&1.updated_at, :microsecond), &1.delivery_ref})
+        |> Enum.sort_by(&{DateTime.to_unix(&1.updated_at, :microsecond), &1.delivery_ref}, :desc)
         |> Enum.take(limit)
 
       {:ok, items}

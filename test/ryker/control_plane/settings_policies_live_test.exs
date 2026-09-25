@@ -43,11 +43,11 @@ defmodule Ryker.ControlPlane.SettingsPoliciesLiveTest do
 
     assert has_element?(
              view,
-             "#settings-policies > button.settings-editor-add",
-             "+ Add execution policy"
+             "#settings-policies button.settings-editor-add",
+             "Add execution policy"
            )
 
-    view |> element("#settings-policies > button.settings-editor-add") |> render_click()
+    view |> element("#settings-policies button.settings-editor-add") |> render_click()
 
     refute has_element?(view, "input[name=policy_digest]")
     assert has_element?(view, "#settings-policies-policy_name option[value='standard-v1']")
@@ -61,11 +61,12 @@ defmodule Ryker.ControlPlane.SettingsPoliciesLiveTest do
     assert binding.verified_by == :worker
     assert binding.verified_worker_ref == "worker-one"
 
-    assert has_element?(
-             view,
-             ".settings-row-status[data-tone=verified]",
-             "advertised by 1 worker"
-           )
+    assert has_element?(view, "#settings-policies .entity-row .state-word[data-tone=on]", "Ready")
+    assert has_element?(view, "#settings-policies .entity-meta", "Offered by 1 worker")
+
+    # The pinned version is support evidence: folded under Details, not in the row.
+    refute has_element?(view, "#settings-policies .entity-meta", @standard)
+    assert has_element?(view, "#settings-policies details.settings-row-details dd", @standard)
   end
 
   test "a policy the fleet stopped advertising is unavailable and is never repointed" do
@@ -82,7 +83,12 @@ defmodule Ryker.ControlPlane.SettingsPoliciesLiveTest do
 
     {:ok, rotated_view, _html} = open()
 
-    assert has_element?(rotated_view, ".settings-row-status[data-tone=changed]")
+    assert has_element?(
+             rotated_view,
+             "#settings-policies .state-word[data-tone=warn]",
+             "Changed on the workers"
+           )
+
     assert [%{policy_digest: @standard}] = Settings.fetch!().policy_bindings
 
     worker |> Ecto.Changeset.change(policy_digests: %{}) |> Repo.update!()
@@ -90,8 +96,14 @@ defmodule Ryker.ControlPlane.SettingsPoliciesLiveTest do
 
     assert has_element?(
              withdrawn_view,
-             ".settings-row-status[data-tone=unavailable]",
-             "no enrolled worker advertises"
+             "#settings-policies .state-word[data-tone=warn]",
+             "Unavailable"
+           )
+
+    assert has_element?(
+             withdrawn_view,
+             "#settings-policies .entity-text",
+             "No connected worker offers this policy"
            )
 
     assert [%{policy_digest: @standard}] = Settings.fetch!().policy_bindings
@@ -131,17 +143,17 @@ defmodule Ryker.ControlPlane.SettingsPoliciesLiveTest do
 
     {:ok, view, _html} = open()
 
-    view |> element("#settings-policies > button.settings-editor-add") |> render_click()
+    view |> element("#settings-policies button.settings-editor-add") |> render_click()
 
     refute has_element?(view, "#settings-policies-policy_name option[value='standard-v1']")
     assert has_element?(view, "#settings-policies-policy_name option[value='contributor-v1']")
   end
 
-  defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/settings/system")
+  defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/settings/advanced")
 
   defp bind!(view, purpose, policy_name) do
-    if has_element?(view, "#settings-policies > button.settings-editor-add") do
-      view |> element("#settings-policies > button.settings-editor-add") |> render_click()
+    if has_element?(view, "#settings-policies button.settings-editor-add") do
+      view |> element("#settings-policies button.settings-editor-add") |> render_click()
     end
 
     view

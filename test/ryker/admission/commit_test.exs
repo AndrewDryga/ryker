@@ -11,7 +11,7 @@ defmodule Ryker.Admission.CommitTest do
   alias Ryker.Admission.Decision
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
-  alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.State.{EventSubscriptions, Records}
@@ -421,7 +421,7 @@ defmodule Ryker.Admission.CommitTest do
                %{"request" => "The original request"},
                "Handle the original request.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =
@@ -1244,6 +1244,36 @@ defmodule Ryker.Admission.CommitTest do
            }
   end
 
+  # The environment a conversation selects decides what its work may change,
+  # what it only reads and which Emisar account it may use. Admission pins the
+  # profile the input was frozen with, so the session records the environment
+  # and mounts its first repository writable and the others read-only.
+  test "a new episode admitted in an environment records it and mounts its repositories" do
+    entry = environment_input!("environment-pin")
+    context = context!(entry)
+    assert {:ok, profile} = WorkProfile.restore(entry.work_profile)
+    assert {:ok, work_policy} = WorkProfile.policy_for(profile, :conversational)
+
+    assert {:ok, %{episode: episode}} =
+             Admission.commit(
+               context,
+               source_decision!(:start_episode, nil),
+               "decision:environment-pin",
+               work_policy: work_policy
+             )
+
+    session = Repo.get_by!(Session, episode_id: episode.id)
+    assert session.environment_ref == "platform"
+    assert session.repository_ref == "ryker"
+
+    assert session.repository_context == %{
+             "context_ref" => "platform",
+             "parallel_goal_limit" => 2,
+             "primary_repository" => "ryker",
+             "read_only_repositories" => ["coop"]
+           }
+  end
+
   # The selector is route authority, not model authority: a conversational route
   # that never selected a repository cannot be pointed at one.
   test "a route without a repository refuses any selector before the episode exists" do
@@ -1255,6 +1285,26 @@ defmodule Ryker.Admission.CommitTest do
              {:error, {:admission_rejected, :repository_source_not_available}}
 
     assert Repo.aggregate(from(session in Session), :count) == 0
+  end
+
+  defp environment_input!(suffix) do
+    input =
+      input!(
+        event_ref: "Ev-#{suffix}",
+        message_ref: "1787832000.00#{:erlang.phash2(suffix, 8000) + 1000}"
+      )
+
+    work_profile = %{
+      environment_ref: "platform",
+      parallel_goal_limit: 2,
+      policy: "work-conversation",
+      policy_digest: String.duplicate("b", 64),
+      read_only_repository_refs: ["coop"],
+      repository_ref: "ryker"
+    }
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input, work_profile: work_profile)
+    entry
   end
 
   defp repository_input!(suffix) do

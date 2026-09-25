@@ -20,6 +20,8 @@ defmodule Ryker.ControlPlane.Router do
     BehaviorPage,
     BrowserGuard,
     CSRF,
+    FactsPage,
+    FailureExplanation,
     HTML,
     LabControls,
     LearningActivity,
@@ -35,6 +37,8 @@ defmodule Ryker.ControlPlane.Router do
   @maximum_memory_form_bytes 16 * 1_024
   @maximum_lab_form_bytes 65_536
   @maximum_lab_multipart_bytes 8 * 1_024 * 1_024 + @maximum_lab_form_bytes
+  # Every failure kind with a confirmed recovery; publications have none.
+  @recoverable_failures ~w(admission delivery emisar retention slack_incident slack_interaction work)
   @lab_multipart_parser Plug.Parsers.init(
                           parsers: [{:multipart, length: @maximum_lab_multipart_bytes}],
                           query_string_length: 4_096
@@ -338,12 +342,8 @@ defmodule Ryker.ControlPlane.Router do
       html(
         conn,
         200,
-        "Edit reviewed memory",
-        HTML.memory_edit(
-          review,
-          action_path("memory-review", resource_ref, "edit"),
-          token
-        )
+        "Edit this fact",
+        FactsPage.edit_form(review, action_path("memory-review", resource_ref, "edit"), token)
       )
     else
       {:error, _reason} -> html(conn, 404, "Not found", HTML.not_found("Action"))
@@ -398,7 +398,7 @@ defmodule Ryker.ControlPlane.Router do
           explanation,
           path,
           token,
-          action_return_path(kind, resource_ref, options)
+          action_return_path(kind, resource_ref, action, options)
         )
       )
     else
@@ -415,7 +415,7 @@ defmodule Ryker.ControlPlane.Router do
            confirmation(kind, resource_ref, action, options),
          {:ok, token, conn} <- form_token(conn),
          true <- CSRF.valid?(options.csrf_secret, canonical_action, resource_ref, token),
-         return_path <- action_return_path(kind, resource_ref, options),
+         return_path <- action_return_path(kind, resource_ref, action, options),
          {:ok, _resource} <-
            perform(kind, resource_ref, action, options.actions, canonical_action) do
       conn
@@ -516,7 +516,8 @@ defmodule Ryker.ControlPlane.Router do
         {:error, :not_found}
 
       memory ->
-        {:ok, "Forget #{memory.subject} memory?", "The stored value will be redacted.",
+        {:ok, "Forget #{memory.subject}?",
+         "Ryker stops using this fact and erases what it saved. You can ask it to remember again later.",
          "memory:forget"}
     end
   end
@@ -529,10 +530,8 @@ defmodule Ryker.ControlPlane.Router do
       %{"kind" => kind, "status" => "pending"} = review
       when action != "merge" or kind == "duplicate" ->
         subjects = Enum.map_join(review["entries"], ", ", & &1["subject"])
-
-        {:ok, "#{String.capitalize(action)} reviewed memory?",
-         "This applies to #{subjects} through the audited memory-review lifecycle.",
-         "memory-review:#{action}"}
+        {title, explanation} = review_confirmation(action, kind, subjects)
+        {:ok, title, explanation, "memory-review:#{action}"}
 
       _missing_or_incompatible ->
         {:error, :not_found}
@@ -571,7 +570,7 @@ defmodule Ryker.ControlPlane.Router do
       {:ok, %{schedule: %{status: status} = schedule}}
       when status in [:active, :paused, :completed] ->
         {:ok, "Run #{schedule.title} now?",
-         "Ryker will create one fresh execution without changing the saved recurrence cadence.",
+         "Ryker starts one extra run now, in the same place as its scheduled runs. The regular schedule does not change.",
          "schedule:run-now:#{schedule.revision}"}
 
       _unavailable ->
@@ -583,57 +582,41 @@ defmodule Ryker.ControlPlane.Router do
        when action in ["active", "paused", "deleted"] do
     case options.projection.schedule.(resource_ref) do
       {:ok, %{schedule: %{status: status} = schedule}} when status in [:active, :paused] ->
-        {:ok, "Change #{schedule.title}?", "The schedule lifecycle will change to #{action}.",
-         "schedule:#{action}"}
+        {verb, explanation} =
+          case action do
+            "paused" ->
+              {"Pause",
+               "Ryker stops starting new runs until you resume it. A run that has already started keeps going."}
 
-      _unavailable ->
-        {:error, :not_found}
-    end
-  end
+            "active" ->
+              {"Resume", "Ryker runs it again on its regular schedule."}
 
-  defp confirmation("delivery", resource_ref, "rearm", options) do
-    case options.projection.delivery.(resource_ref) do
-      {:ok, %{status: :blocked}} ->
-        {:ok, "Retry this delivery?",
-         "Ryker will retry the exact accepted message, reaction, or platform action at its original destination.",
-         "delivery:rearm"}
-
-      _not_blocked ->
-        {:error, :not_found}
-    end
-  end
-
-  defp confirmation("admission", resource_ref, "rearm", options) do
-    case options.projection.admission.(resource_ref) do
-      {:ok, %{action: :rearm, status: :blocked}} ->
-        {:ok, "Retry routing this message?",
-         "Ryker will reconcile the same frozen input, context, and Coop operation identities.",
-         "admission:rearm"}
-
-      _unavailable ->
-        {:error, :not_found}
-    end
-  end
-
-  defp confirmation("work", resource_ref, "retry", options) do
-    case options.projection.work.(resource_ref) do
-      {:ok,
-       %{
-         action: :retry,
-         status: :blocked,
-         work_recovery: %{fingerprint: fingerprint} = recovery
-       }} ->
-        title =
-          cond do
-            recovery.kind == :completion -> "Resume saving this completed result?"
-            Map.get(recovery, :resume) -> "Resume this work in another workspace?"
-            true -> "Retry this blocked work?"
+            "deleted" ->
+              {"Delete",
+               "Ryker stops running it for good. Its past runs stay listed. To run it again, ask Ryker for a new schedule."}
           end
 
-        {:ok, title, recovery.retry_effect, "work:retry:" <> fingerprint}
+        {:ok, "#{verb} #{schedule.title}?", explanation, "schedule:#{action}"}
 
       _unavailable ->
         {:error, :not_found}
+    end
+  end
+
+  # A failure's recovery is confirmed from the same row, in the same words, as
+  # the Failures page and the failure's own page show it: what the step does,
+  # then whether it should work now. The intent a token is minted for stays
+  # the kind's own, and a work retry stays bound to the exact recovery it was
+  # shown for.
+  defp confirmation(kind, resource_ref, action, options)
+       when kind in @recoverable_failures and action in ["rearm", "retry"] do
+    with {:ok, %{kind: ^kind, status: :blocked} = row} <-
+           options.projection.failure.(kind, resource_ref),
+         {:ok, title, explanation} <- FailureExplanation.confirmation(row, action),
+         {:ok, intent} <- failure_intent(row) do
+      {:ok, title, explanation, intent}
+    else
+      _unavailable -> {:error, :not_found}
     end
   end
 
@@ -665,59 +648,11 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  defp confirmation("emisar", resource_ref, "rearm", options) do
-    case options.projection.emisar.(resource_ref) do
-      {:ok, %{action: :rearm, status: :blocked}} ->
-        {:ok, "Resume approval checks?",
-         "Ryker will resume read-only observation of the same governed Emisar request. It will not approve, deny, or repeat the action.",
-         "emisar:rearm"}
-
-      _unavailable ->
-        {:error, :not_found}
-    end
-  end
-
-  defp confirmation("slack_interaction", resource_ref, "rearm", options) do
-    case options.projection.slack_interaction.(resource_ref) do
-      {:ok, %{action: :rearm, status: :blocked}} ->
-        {:ok, "Refresh this Slack message?",
-         "Ryker will repaint the exact host-owned message recorded by the original interaction audit.",
-         "slack_interaction:rearm"}
-
-      _unavailable ->
-        {:error, :not_found}
-    end
-  end
-
-  defp confirmation("slack_incident", resource_ref, "rearm", options) do
-    case options.projection.slack_incident.(resource_ref) do
-      {:ok, %{action: :rearm, status: :blocked}} ->
-        {:ok, "Resume incident room setup?",
-         "Ryker will continue the exact durable Slack room reconciliation without duplicating resources already recorded.",
-         "slack_incident:rearm"}
-
-      _unavailable ->
-        {:error, :not_found}
-    end
-  end
-
-  defp confirmation("retention", resource_ref, "rearm", options) do
-    case options.projection.workspace.(resource_ref) do
-      {:ok, %{action: :rearm, status: :blocked}} ->
-        {:ok, "Resume workspace cleanup?",
-         "Ryker will resume the exact blocked cleanup phase without changing its frozen Coop identity.",
-         "retention:rearm"}
-
-      _unavailable ->
-        {:error, :not_found}
-    end
-  end
-
   defp confirmation("retention", resource_ref, "discard", options) do
     case options.projection.workspace.(resource_ref) do
       {:ok, %{action: :discard_unmerged, status: :retained}} ->
-        {:ok, "Discard this unmerged workspace?",
-         "Ryker will request a fresh exact Coop discard plan that accepts unmerged commits. Dirty work will still be retained.",
+        {:ok, "Discard the unmerged commits in this working copy?",
+         "Ryker will ask the worker for a fresh plan that removes this copy, including commits that were never merged. Uncommitted changes are still kept.",
          "retention:discard_unmerged"}
 
       _unavailable ->
@@ -726,6 +661,14 @@ defmodule Ryker.ControlPlane.Router do
   end
 
   defp confirmation(_kind, _resource_ref, _action, _snapshot), do: {:error, :not_found}
+
+  defp failure_intent(%{kind: "work", work_recovery: %{fingerprint: fingerprint}})
+       when is_binary(fingerprint),
+       do: {:ok, "work:retry:" <> fingerprint}
+
+  defp failure_intent(%{kind: "work"}), do: {:error, :not_found}
+  defp failure_intent(%{kind: kind, action: :rearm}), do: {:ok, kind <> ":rearm"}
+  defp failure_intent(_row), do: {:error, :not_found}
 
   defp perform("work", resource_ref, "retry", actions, "work:retry:" <> fingerprint),
     do: actions.retry_work.(resource_ref, fingerprint)
@@ -780,6 +723,28 @@ defmodule Ryker.ControlPlane.Router do
 
   defp perform(_kind, _resource_ref, _action, _actions), do: {:error, :invalid_action}
 
+  # What a reviewed fact's action does, in the words its confirmation page shows.
+  defp review_confirmation("keep", "duplicate", subjects),
+    do:
+      {"Keep these facts separate?",
+       "Ryker keeps #{subjects} as separate facts and stops asking about them."}
+
+  defp review_confirmation("keep", _kind, subjects),
+    do:
+      {"Keep #{subjects}?", "Ryker keeps using this as it is and stops asking about it for now."}
+
+  defp review_confirmation("merge", _kind, subjects),
+    do:
+      {"Merge these facts?",
+       "Ryker keeps the most recently changed of #{subjects} and forgets the other copies."}
+
+  defp review_confirmation("forget", _kind, subjects),
+    do: {"Forget #{subjects}?", "Ryker stops using this and erases what it saved."}
+
+  defp review_confirmation("dismiss", _kind, subjects),
+    do:
+      {"Stop reviewing #{subjects}?", "Nothing changes, and Ryker stops asking about it for now."}
+
   defp memory_review_action("keep"), do: :keep
   defp memory_review_action("merge"), do: :merge
   defp memory_review_action("forget"), do: :forget
@@ -788,25 +753,53 @@ defmodule Ryker.ControlPlane.Router do
   defp action_return_path("episode", resource_ref),
     do: "/timeline/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}"
 
-  defp action_return_path("delivery", _resource_ref), do: "/failures"
-  defp action_return_path("retention", _resource_ref), do: "/workspaces"
-  defp action_return_path("schedule", _resource_ref), do: "/schedules"
-
   defp action_return_path(kind, _resource_ref)
-       when kind in ["admission", "emisar", "slack_incident", "slack_interaction", "work"],
+       when kind in [
+              "admission",
+              "delivery",
+              "emisar",
+              "slack_incident",
+              "slack_interaction",
+              "work"
+            ],
        do: "/failures"
 
   defp action_return_path(_kind, _resource_ref), do: "/memory"
 
   defp action_return_path("behavior", resource_ref, options) do
     case options.projection.behavior.(resource_ref) do
-      {:ok, %{kind: kind}} -> BehaviorLibrary.path(kind)
-      _unavailable -> "/memory"
+      {:ok, %{kind: kind}} -> BehaviorLibrary.return_path(kind)
+      _unavailable -> "/rules"
+    end
+  end
+
+  # A learning worker session is listed on the Learning page rather than among
+  # the working copies, so confirming or cancelling its cleanup returns there.
+  # A cleanup returns to the page that lists its session: a working copy to
+  # Working copies, a learning session to Learning. A session no page lists
+  # but Failures (a chat or routing session holds no checkout) returns to
+  # Failures; landing on Working copies hid whether its cleanup resumed.
+  defp action_return_path("retention", resource_ref, options) do
+    case options.projection.workspace.(resource_ref) do
+      {:ok, %{execution_kind: :learning}} -> "/memory/learning"
+      {:ok, %{repository: repository}} when is_binary(repository) -> "/working-copies"
+      _unlisted -> "/failures"
     end
   end
 
   defp action_return_path(kind, resource_ref, _options),
     do: action_return_path(kind, resource_ref)
+
+  # A schedule change returns to the schedule it changed, where its new state
+  # and any run it started show next; a deleted schedule has nothing left to
+  # do on its own page, so Delete returns to the list.
+  defp action_return_path("schedule", _resource_ref, "deleted", _options), do: "/schedules"
+
+  defp action_return_path("schedule", resource_ref, _action, _options),
+    do: "/schedules/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}"
+
+  defp action_return_path(kind, resource_ref, _action, options),
+    do: action_return_path(kind, resource_ref, options)
 
   defp form_token(conn) do
     with [content_type] <- get_req_header(conn, "content-type"),

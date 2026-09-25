@@ -92,7 +92,7 @@ defmodule Ryker.Webhooks.PresetsTest do
       destination_transport: "control_plane",
       destination_conversation_ref: "control-plane:lab:6f1a0f38-0b74-4f77-9f20-7a0c1e2d3b44",
       destination_thread_ref: "control-plane:lab:6f1a0f38-0b74-4f77-9f20-7a0c1e2d3b44",
-      context_ref: "ryker",
+      environment_ref: "ryker",
       group_by_labels: preset.group_by_labels,
       mapping: mapping(preset.adapter_kind)
     }

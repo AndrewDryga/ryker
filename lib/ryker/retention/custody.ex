@@ -280,6 +280,45 @@ defmodule Ryker.Retention.Custody do
     end
   end
 
+  @doc """
+  End cleanup for a session whose worker's Coop no longer knows it.
+
+  The worker's own "session not found" is the proof that nothing is left to
+  close or remove; the receipt says the remote session was absent, not that
+  Ryker removed it.
+  """
+  @spec settle_remote_absent(Ecto.UUID.t(), String.t(), String.t()) ::
+          {:ok, Session.t()} | {:error, term()}
+  def settle_remote_absent(session_id, lease_ref, remote_session_id) do
+    with {:ok, session_id} <- uuid(session_id, :session_id),
+         :ok <- reference(lease_ref, :lease_ref),
+         :ok <- reference(remote_session_id, :remote_session_id) do
+      update_leased(session_id, lease_ref, @pending_statuses, fn session, now ->
+        settle_remote_absent_locked(session, remote_session_id, now)
+      end)
+    end
+  end
+
+  @doc """
+  End cleanup for a session whose worker was removed from Ryker.
+
+  Removal revokes the worker's certificates and placements for good, so no
+  command can reach the session again and nothing left on that worker is
+  Ryker's to remove. A worker that is only away is not removed: the cleanup
+  is refused with `{:retention_worker_unavailable, worker_id}` for the outage
+  retry, decided here under the lease rather than by the caller's reading.
+  """
+  @spec settle_worker_removed(Ecto.UUID.t(), String.t()) ::
+          {:ok, Session.t()} | {:error, term()}
+  def settle_worker_removed(session_id, lease_ref) do
+    with {:ok, session_id} <- uuid(session_id, :session_id),
+         :ok <- reference(lease_ref, :lease_ref) do
+      update_leased(session_id, lease_ref, @pending_statuses, fn session, now ->
+        settle_worker_removed_locked(session, now)
+      end)
+    end
+  end
+
   @spec defer(Ecto.UUID.t(), String.t(), pos_integer(), String.t(), String.t()) ::
           {:ok, Session.t()} | {:error, term()}
   def defer(session_id, lease_ref, retry_seconds, error_code, error_detail) do
@@ -795,12 +834,14 @@ defmodule Ryker.Retention.Custody do
   defp freeze_plan_locked(session, _revision, _accept_unmerged),
     do: Repo.rollback({:retention_plan_revision_conflict, session.discard_plan_expected_revision})
 
+  # Ryker never learned a worker session for it, which is not proof the
+  # worker made none: a create can succeed after its answer is lost.
   defp settle_absent_locked(%Session{coop_session_id: nil} = session, now) do
     receipt = %{
       "kind" => "never_bound",
       "local_session_id" => session.id,
       "remote_session_id" => nil,
-      "remote_state" => "absent"
+      "remote_state" => "unknown"
     }
 
     settle(session, receipt, now)
@@ -847,6 +888,60 @@ defmodule Ryker.Retention.Custody do
 
   defp settle_remote_discarded_locked(_session, _remote_session_id, _now),
     do: Repo.rollback(:retention_remote_session_mismatch)
+
+  defp settle_remote_absent_locked(
+         %Session{coop_session_id: remote_session_id} = session,
+         remote_session_id,
+         now
+       ) do
+    receipt = %{
+      "kind" => "remote_absent",
+      "local_session_id" => session.id,
+      "remote_session_id" => remote_session_id,
+      "remote_state" => "absent"
+    }
+
+    settle(session, receipt, now)
+  end
+
+  defp settle_remote_absent_locked(_session, _remote_session_id, _now),
+    do: Repo.rollback(:retention_remote_session_mismatch)
+
+  defp settle_worker_removed_locked(session, now) do
+    case holding_worker(session.id) do
+      %FleetWorker{} = worker when worker.state == :revoked or not is_nil(worker.revoked_at) ->
+        receipt = %{
+          "kind" => "worker_removed",
+          "local_session_id" => session.id,
+          "remote_session_id" => session.coop_session_id,
+          "remote_state" => "unreachable",
+          "worker_id" => worker.id
+        }
+
+        settle(session, receipt, now)
+
+      %FleetWorker{id: worker_id} ->
+        Repo.rollback({:retention_worker_unavailable, worker_id})
+
+      nil ->
+        Repo.rollback({:retention_worker_unavailable, nil})
+    end
+  end
+
+  # Cleanup runs only on the worker a session was last placed on: a bound
+  # session is never placed anywhere else.
+  defp holding_worker(session_id) do
+    Repo.one(
+      from(placement in Placement,
+        join: worker in FleetWorker,
+        on: worker.id == placement.worker_id,
+        where: placement.session_id == ^session_id,
+        order_by: [desc: placement.generation],
+        limit: 1,
+        select: worker
+      )
+    )
+  end
 
   defp advance_generation(session_id, lease_ref, status, field, generation, reset) do
     with {:ok, session_id} <- uuid(session_id, :session_id),

@@ -175,7 +175,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     assert configuration[:slack].identity.workspace_ref == @workspace
     assert configuration[:slack].operators == ["U1111111111"]
-    assert configuration[:slack].default_repository == "ryker"
+    assert configuration[:slack].default_environment == "platform"
     assert emisar.presentation_timeout_ms > 0
     assert configuration[:github].server.bindings["ryker-app"].installation_id == 1001
     assert configuration[:publication].publisher_binding.repositories["ryker"].path == "/srv"
@@ -338,27 +338,136 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert configuration[:work].platform_tools == configuration[:state_tools].additional_tools
   end
 
-  test "a repository context resolves its own reviewed policies, not the primary's" do
+  # Work in an environment changes its first repository and only reads the
+  # rest. Coop mounts read-only repositories only for a policy that declares
+  # them, so an environment with several repositories runs on its own reviewed
+  # policies, never on its first repository's; one with a single repository
+  # runs on that repository's.
+  test "work in an environment changes its first repository and reads the others" do
     settings = connected!()
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
-    profile = configuration[:control_plane].task_policies["platform"]
+    environments = configuration[:slack].environments
 
-    assert profile.name == "ryker-context-contributor-v1"
-    assert profile.repository_ref == "ryker"
-    assert profile.repository_context["context_ref"] == "platform"
-    assert profile.repository_context["parallel_goal_limit"] == 2
-    assert profile.repository_context["read_only_repositories"] == ["docs"]
+    platform = environments["platform"]
+    assert platform.display_name == "Platform"
+    assert platform.work_profile.environment_ref == "platform"
+    assert platform.work_profile.repository_ref == "ryker"
+    assert platform.work_profile.read_only_repository_refs == ["docs"]
+    assert platform.work_profile.parallel_goal_limit == 2
+    assert platform.work_profile.emisar_connection_ref == "production"
+    assert platform.work_profile.policy == "platform-conversation-v1"
 
-    # A repository keeps its own reviewed policies; the context does not widen
-    # them, and a repository without both required bindings has no context.
-    assert configuration[:control_plane].task_policies["ryker"].name ==
-             "ryker-contributor-v1"
+    task = configuration[:control_plane].task_policies["platform"]
+    assert task.name == "platform-contributor-v1"
+    assert task.environment_ref == "platform"
+    assert task.repository_ref == "ryker"
 
+    assert task.repository_context == %{
+             "context_ref" => "platform",
+             "parallel_goal_limit" => 2,
+             "primary_repository" => "ryker",
+             "read_only_repositories" => ["docs"]
+           }
+
+    assert environments["docs"].work_profile.policy == "docs-conversation-v1"
+    assert environments["docs"].work_profile.read_only_repository_refs == []
+    assert configuration[:control_plane].task_policies["docs"].name == "docs-contributor-v1"
+
+    # Without repositories an environment answers on the installation's own
+    # policy, keeps its Emisar account and has nothing a task could change.
+    ops = environments["ops"]
+    assert ops.work_profile.repository_ref == nil
+    assert ops.work_profile.policy == "ryker-chat-v1"
+    assert ops.work_profile.emisar_connection_ref == "production"
+    refute Map.has_key?(configuration[:control_plane].task_policies, "ops")
+
+    route = configuration[:webhooks].routes["alerts"].work_profile
+    assert route.environment_ref == "platform"
+    assert route.read_only_repository_refs == ["docs"]
+
+    # Several repositories and no reviewed policies of its own: nothing runs.
+    {:ok, changed} =
+      Settings.put_environment(
+        %{ref: "unreviewed", display_name: "Unreviewed", repositories: ["docs", "ryker"]},
+        settings.installation.revision,
+        @actor
+      )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
+    refute Map.has_key?(configuration[:slack].environments, "unreviewed")
     refute Map.has_key?(configuration[:control_plane].task_policies, "unreviewed")
+  end
 
-    # The console resolves a reviewed context deterministically — the first by
-    # name — and never a profile a browser named.
-    assert configuration[:control_plane].work_profile.policy == "docs-conversation-v1"
+  # Chat and every conversation without its own setting work in the default
+  # environment. With none chosen, or one that cannot run work, they answer
+  # outside any environment rather than borrowing another's repositories.
+  test "Chat works in the default environment, else outside any" do
+    settings = connected!()
+    assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
+
+    assert configuration.control_plane.work_profile ==
+             configuration[:slack].environments["platform"].work_profile
+
+    assert configuration[:slack].default_environment == "platform"
+    assert configuration[:slack].fallback_work_profile.policy == "ryker-chat-v1"
+    refute Map.has_key?(configuration[:slack].fallback_work_profile, :environment_ref)
+
+    {:ok, changed} =
+      Settings.put_environment(
+        %{
+          ref: "unreviewed",
+          display_name: "Unreviewed",
+          repositories: ["docs", "ryker"],
+          is_default: true
+        },
+        settings.installation.revision,
+        @actor
+      )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
+    assert configuration.control_plane.work_profile.policy == "ryker-chat-v1"
+    refute Map.has_key?(configuration.control_plane.work_profile, :environment_ref)
+    # Slack still seeds joined channels with the saved default, so they work
+    # in it once it can run work; until then their work runs outside any.
+    assert configuration[:slack].default_environment == "unreviewed"
+    refute Map.has_key?(configuration[:slack].environments, "unreviewed")
+  end
+
+  # GitHub events for a repository run in the environment whose writable
+  # repository it is; a repository environments only read runs in the first
+  # of those; a repository in none runs on its own, without an environment.
+  test "a GitHub event runs where its repository is writable, else where it is read, else alone" do
+    settings = connected!()
+
+    saves = [
+      &Settings.put_repository(%{ref: "tools", github_repository: "ryker/tools"}, &1, @actor),
+      &policy(:conversational, :repository, "tools", "tools-conversation-v1", &1),
+      &policy(:contributor, :repository, "tools", "tools-contributor-v1", &1),
+      &github_binding("docs-app", "docs", 2002, &1),
+      &github_binding("tools-app", "tools", 2003, &1)
+    ]
+
+    Enum.reduce(saves, settings.installation.revision, fn save, revision ->
+      {:ok, saved} = save.(revision)
+      saved.installation.revision
+    end)
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), Settings.fetch!())
+    bindings = configuration.github.server.bindings
+
+    assert bindings["ryker-app"].work_profile.environment_ref == "platform"
+    assert bindings["docs-app"].work_profile.environment_ref == "docs"
+    assert bindings["tools-app"].work_profile.environment_ref == nil
+    assert bindings["tools-app"].work_profile.repository_ref == "tools"
+
+    {:ok, without_docs} =
+      Settings.delete_environment("docs", Settings.fetch!().installation.revision, @actor)
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), without_docs)
+    docs = configuration.github.server.bindings["docs-app"].work_profile
+    assert docs.environment_ref == "platform"
+    assert docs.repository_ref == "ryker"
+    assert docs.read_only_repository_refs == ["docs"]
   end
 
   test "a webhook source keeps the provider shape it was saved with" do
@@ -396,9 +505,16 @@ defmodule Ryker.Runtime.AssemblyTest do
         @actor
       )
 
+    {:ok, _saved} =
+      Settings.put_environment(
+        %{ref: "unreviewed", display_name: "Unreviewed", repositories: ["unreviewed"]},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
     refusals = [
       {&lifecycle_naming/1, "webhook lifecycle names a repository without reviewed policies"},
-      {&webhook_context_naming/1, "webhook source names an unknown repository context"}
+      {&webhook_environment_naming/1, "webhook source names an environment that cannot run work"}
     ]
 
     for {save, expected} <- refusals do
@@ -426,30 +542,6 @@ defmodule Ryker.Runtime.AssemblyTest do
     refute Map.has_key?(configuration.control_plane.task_policies, "unreviewed")
   end
 
-  test "a GitHub binding under an unreviewed context remains metadata-only" do
-    # The binding's context supplies the Work profile every inbound GitHub event
-    # runs under. A context with no reviewed bindings has no profile to supply,
-    # so the binding would otherwise run under whatever the repository had.
-    settings = connected!()
-
-    {:ok, settings} =
-      Settings.put_repository_context(
-        %{ref: "unreviewed-context", primary_repository_ref: "ryker"},
-        settings.installation.revision,
-        @actor
-      )
-
-    {:ok, settings} =
-      Settings.put_github_binding(
-        %{name: "ryker-app", repository_context_ref: "unreviewed-context"},
-        settings.installation.revision,
-        @actor
-      )
-
-    assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
-    assert configuration.github.server.bindings["ryker-app"].work_profile == nil
-  end
-
   defp lifecycle_naming(revision) do
     Settings.put_webhook_source(
       %{
@@ -466,9 +558,27 @@ defmodule Ryker.Runtime.AssemblyTest do
     )
   end
 
-  defp webhook_context_naming(revision),
+  defp webhook_environment_naming(revision),
     do:
-      Settings.put_webhook_source(%{name: "custom", context_ref: "unreviewed"}, revision, @actor)
+      Settings.put_webhook_source(
+        %{name: "custom", environment_ref: "unreviewed"},
+        revision,
+        @actor
+      )
+
+  defp github_binding(name, repository_ref, repository_id, revision) do
+    Settings.put_github_binding(
+      %{
+        name: name,
+        repository_ref: repository_ref,
+        installation_id: 1001,
+        repository_id: repository_id,
+        ryker_actor_id: 3001
+      },
+      revision,
+      @actor
+    )
+  end
 
   defp github_binding_naming(revision) do
     Settings.put_github_binding(
@@ -668,18 +778,7 @@ defmodule Ryker.Runtime.AssemblyTest do
       &policy(:schedule, :repository, "ryker", "ryker-standard-v1", &1),
       &policy(:conversational, :repository, "docs", "docs-conversation-v1", &1),
       &policy(:contributor, :repository, "docs", "docs-contributor-v1", &1),
-      &Settings.put_repository_context(
-        %{
-          ref: "platform",
-          primary_repository_ref: "ryker",
-          read_only_repository_refs: ["docs"],
-          parallel_goal_limit: 2
-        },
-        &1,
-        @actor
-      ),
-      &policy(:conversational, :context, "platform", "ryker-context-conversation-v1", &1),
-      &policy(:contributor, :context, "platform", "ryker-context-contributor-v1", &1),
+      &policy(:conversational, :installation, "", "ryker-chat-v1", &1),
       &policy(:admission, :installation, "", "ryker-admission-v1", &1),
       &policy(:incident, :installation, "", "ryker-incident-v1", &1),
       &policy(:learning, :installation, "", "ryker-learning-v1", &1),
@@ -701,13 +800,27 @@ defmodule Ryker.Runtime.AssemblyTest do
         &1,
         @actor
       ),
-      &Settings.put_emisar_binding(
+      &Settings.put_environment(
         %{
-          scope_kind: :installation_purpose,
-          scope_ref: "standard",
-          purpose: :standard,
-          connection_ref: "production"
+          ref: "platform",
+          display_name: "Platform",
+          repositories: ["ryker", "docs"],
+          parallel_goal_limit: 2,
+          emisar_connection_ref: "production",
+          is_default: true
         },
+        &1,
+        @actor
+      ),
+      &policy(:conversational, :environment, "platform", "platform-conversation-v1", &1),
+      &policy(:contributor, :environment, "platform", "platform-contributor-v1", &1),
+      &Settings.put_environment(
+        %{ref: "docs", display_name: "Docs", repositories: ["docs"]},
+        &1,
+        @actor
+      ),
+      &Settings.put_environment(
+        %{ref: "ops", display_name: "Ops", emisar_connection_ref: "production"},
         &1,
         @actor
       ),
@@ -717,7 +830,6 @@ defmodule Ryker.Runtime.AssemblyTest do
           workspace_ref: @workspace,
           bot_ref: "A0123456789",
           bot_user_ref: "U0123456789",
-          default_repository_ref: "ryker",
           operators: ["U1111111111"]
         },
         &1,
@@ -732,7 +844,6 @@ defmodule Ryker.Runtime.AssemblyTest do
         %{
           name: "ryker-app",
           repository_ref: "ryker",
-          repository_context_ref: "platform",
           installation_id: 1001,
           repository_id: 2001,
           ryker_actor_id: 3001
@@ -796,7 +907,7 @@ defmodule Ryker.Runtime.AssemblyTest do
         destination_transport: "control_plane",
         destination_conversation_ref: @lab,
         destination_thread_ref: @lab,
-        context_ref: "ryker"
+        environment_ref: "platform"
       },
       overrides
     )

@@ -18,6 +18,9 @@ defmodule Ryker.State.Schedule do
     field(:timezone, :string)
     field(:authority, Ecto.Enum, values: [:read_only, :repository_write, :governed_operation])
     field(:repository, :string)
+    # The environment of the conversation that created the schedule; each run
+    # pins it. A recorded ref, not a foreign key: history outlives settings.
+    field(:environment_ref, :string)
     field(:destination_transport, :string)
     field(:destination_conversation_ref, :string)
     field(:destination_thread_ref, :string)

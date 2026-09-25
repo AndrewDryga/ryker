@@ -51,13 +51,41 @@ defmodule Ryker.Slack.CommandHandlerTest do
     assert Enum.map(facts["fields"], & &1["text"]) == [
              "*Conversations*\nJoin when useful",
              "*Alerts*\nOffer an in-place task or incident room",
-             "*Repositories*\n<https://github.com/acme/ryker|ryker>",
-             "*Default repository*\n<https://github.com/acme/ryker|ryker>",
+             "*Environment*\nProduction, with Emisar",
+             "*Repositories*\n<https://github.com/acme/ryker|ryker> — changes\n`docs` — read only",
              "*Incident invitations*\nNo one automatically — you can add people yourself",
              "*Observation mode*\nOff"
            ]
 
     assert hd(context["elements"])["text"] =~ "saved by <@U123>"
+
+    # A channel outside every environment, in an installation without any,
+    # still reads its settings, and a choice made on the channel's web page
+    # says where it was made rather than naming a Slack member.
+    none = %{
+      options
+      | settings_view: fn workspace_ref, channel_ref ->
+          {:ok, settings} = options.settings_view.(workspace_ref, channel_ref)
+
+          {:ok,
+           %{
+             settings
+             | "customized_by" => "control-plane:local",
+               "environment" => nil,
+               "environment_count" => 0
+           }}
+        end
+    }
+
+    assert {:ok, outside} = CommandHandler.handle(command("status", "event:status-none"), none)
+    [_heading, facts, context, _controls] = outside["blocks"]
+
+    assert Enum.slice(Enum.map(facts["fields"], & &1["text"]), 2, 2) == [
+             "*Environment*\nNo environment",
+             "*Repositories*\nNone"
+           ]
+
+    assert hd(context["elements"])["text"] =~ "changed in Ryker's settings"
 
     assert [%{"action_id" => "ryker_welcome_configure", "value" => value}] =
              controls["elements"]
@@ -293,13 +321,20 @@ defmodule Ryker.Slack.CommandHandlerTest do
            "alert_policy" => "offer",
            "configuration_ref" => "6a2f8a5e-2f6a-4a6d-9d2f-2c3f4e5a6b7c",
            "customized_by" => "U123",
-           "default_repository" => "ryker",
+           "environment" => %{
+             "emisar" => true,
+             "name" => "Production",
+             "ready" => true,
+             "ref" => "production",
+             "repositories" => [
+               %{"ref" => "ryker", "url" => "https://github.com/acme/ryker"},
+               %{"ref" => "docs", "url" => nil}
+             ]
+           },
+           "environment_count" => 2,
            "invitations" => %{"user_group_refs" => [], "user_refs" => []},
            "observation" => %{"on" => false, "source" => "channel"},
            "participation" => %{"source" => "channel", "value" => "proactive"},
-           "repositories" => [
-             %{"ref" => "ryker", "url" => "https://github.com/acme/ryker"}
-           ],
            "revision" => 4
          }}
       end,

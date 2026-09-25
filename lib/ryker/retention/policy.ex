@@ -86,11 +86,6 @@ defmodule Ryker.Retention.Policy do
       why: "verified named Emisar account identities, endpoints and desired monitoring state"
     },
     %{
-      table: "emisar_connection_bindings",
-      class: :kept,
-      why: "trusted repository, context and purpose routes to named Emisar accounts"
-    },
-    %{
       table: "report_settings",
       class: :kept,
       why: "weekly self report choice; the managed schedule row carries the recurrence"
@@ -111,9 +106,15 @@ defmodule Ryker.Retention.Policy do
       why: "connected repositories, display metadata, base branch and publication checkout"
     },
     %{
-      table: "repository_context_settings",
+      table: "environment_settings",
       class: :kept,
-      why: "logical contexts with one primary and read-only companions"
+      why:
+        "named environments channels, Chat and webhook sources select, their Emisar account and the default"
+    },
+    %{
+      table: "environment_repository_settings",
+      class: :kept,
+      why: "each environment's ordered repositories; the first is the one its work changes"
     },
     %{
       table: "policy_bindings",

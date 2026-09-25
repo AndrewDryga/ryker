@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
       participation: Map.get(attributes, :participation),
       engagement: Map.get(attributes, :engagement),
       queue: Map.get(attributes, :queue),
+      search: Map.get(attributes, :search),
       setup: Map.get(attributes, :setup),
       record_ref: Map.get(attributes, :record_ref),
       result_ref: Map.get(attributes, :result_ref),

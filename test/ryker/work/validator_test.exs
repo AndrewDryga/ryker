@@ -26,7 +26,29 @@ defmodule Ryker.Work.ValidatorTest do
     assert accepted.final.state == :complete
     assert accepted.result.continuation == %{"kind" => "complete"}
     assert accepted.result.delivery == :reply
-    assert accepted.result.delivery_document == Final.document(accepted.final)
+    assert accepted.result.delivery_document == Final.delivery_document(accepted.final)
+  end
+
+  test "an answer that names its episode delivers only its message" do
+    # Once answers could name their episode, the title rode into every
+    # delivery document. Delivery accepts exactly the message fields, so each
+    # accepted reply blocked as invalid_delivery_message and its episode stayed
+    # "working": the chat showed Working under the question and Needs
+    # attention on the answer that never arrived.
+    candidate =
+      Jason.encode!(%{
+        "decision_reason" => nil,
+        "delivery" => "reply",
+        "message" => "Howdy! What can I help you with?",
+        "outcome" => empty_outcome(),
+        "title" => "Greeting"
+      })
+
+    assert {:accept, accepted} = Validator.validate(candidate, context(), @now)
+    assert accepted.final.title == "Greeting"
+
+    assert accepted.result.delivery_document |> Map.keys() |> Enum.sort() ==
+             ~w(decision_reason delivery message outcome)
   end
 
   test "Slack typed entities are repaired in the same turn unless host authority permits them" do

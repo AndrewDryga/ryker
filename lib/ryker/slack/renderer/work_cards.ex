@@ -269,17 +269,20 @@ defmodule Ryker.Slack.Renderer.WorkCards do
     )
   end
 
-  # Resuming carries the recovery fingerprint of the turn the card was rendered
-  # against, so a stale card cannot restart work that has already moved on.
+  # Pressing this carries the recovery fingerprint of the turn the card was
+  # rendered against, so a stale card cannot restart work that has already
+  # moved on. It starts a new run in which the model works on the task again,
+  # so it says that, in the words the Failures page uses for the same step:
+  # this dialog once promised that nothing already done would be repeated.
   defp work_button("resume", resume_ref, _kind) do
     button(
       "ryker_resume_work",
-      "Resume task",
+      "Run the task again",
       resume_ref,
       "primary",
-      "Resume this task?",
-      "Continue from the stopped run, in the same session and working copy. Nothing already done is repeated.",
-      "Resume task"
+      "Run this task again?",
+      "Ryker starts the task again as a new run, and the model works on it again. Changes the stopped run did not save may be lost, so preserve any unfinished changes you need first.",
+      "Run the task again"
     )
   end
 

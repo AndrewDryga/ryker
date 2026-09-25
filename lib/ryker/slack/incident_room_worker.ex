@@ -14,10 +14,13 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   alias Ryker.Observability.Progress
   alias Ryker.Polling
 
-  alias Ryker.Episodes.Episode
+  alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
+  alias Ryker.Delivery.HostNote
+  alias Ryker.Episodes
+  alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoomCard, IncidentRooms}
-  alias Ryker.Work.Custody
+  alias Ryker.Work.{Custody, Turn}
 
   @default_interval_ms 1_000
 
@@ -65,7 +68,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   @spec run_once(map() | keyword()) ::
           {:ok,
            :idle
-           | {:requested | :ready | :deferred | :blocked, String.t()}
+           | {:requested | :ready | :deferred | :blocked | :closed | :closing, String.t()}
            | {:blocked, String.t(), term()}}
           | {:error, term()}
   def run_once(options) do
@@ -96,9 +99,26 @@ defmodule Ryker.Slack.IncidentRoomWorker do
            options.lease_seconds,
            options.root_card_check_seconds
          ) do
-      {:ok, nil} -> request_automatic(options)
+      {:ok, nil} -> close_orphaned_investigation(options)
       {:ok, room} -> refresh_root_card(room, options)
       {:error, _reason} = error -> error
+    end
+  end
+
+  # An investigation that outlived its deleted room closes the way the room's
+  # deletion closes one: a waiting one at once, a running one through its
+  # worker's confirmed stop. The room closed already and says why.
+  defp close_orphaned_investigation(options) do
+    case IncidentRooms.next_orphaned_investigation() do
+      nil ->
+        request_automatic(options)
+
+      {room, episode} ->
+        case close_investigation(room, episode) do
+          {:ok, %{status: :settled}} -> {:ok, {:closed, room.ref}}
+          {:ok, %{status: :pending}} -> {:ok, {:closing, room.ref}}
+          {:error, _reason} = error -> error
+        end
     end
   end
 
@@ -204,7 +224,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   defp reconcile_lifecycle(room, options) do
     with %Episode{} = episode <- Repo.get(Episode, room.episode_id),
          {:ok, result} <- reconcile_episode_destination(room, episode),
-         {:ok, outcome} <- settle_lifecycle_reconciliation(room, result, options) do
+         {:ok, outcome} <- settle_lifecycle_reconciliation(room, episode, result, options) do
       {:ok, outcome}
     else
       nil -> handle_error(room, :incident_room_episode_not_found, options)
@@ -232,15 +252,69 @@ defmodule Ryker.Slack.IncidentRoomWorker do
     Custody.resume_destination(episode.id, episode.key, destination_pause_ref(room))
   end
 
-  defp reconcile_episode_destination(
-         %{channel_state: state} = room,
-         episode
-       )
-       when state in [:archived, :deleted, :unavailable] do
+  # Slack deletes a channel for good, so an investigation paused for its room
+  # would wait forever for a room that cannot come back: it closes instead.
+  defp reconcile_episode_destination(%{channel_state: :deleted} = room, episode),
+    do: close_investigation(room, episode)
+
+  defp reconcile_episode_destination(%{channel_state: state} = room, episode)
+       when state in [:archived, :unavailable] do
     Custody.pause_destination(episode.id, episode.key, destination_pause_ref(room))
   end
 
-  defp settle_lifecycle_reconciliation(room, %{status: :pending}, options) do
+  # A person's Close request, made for them because Slack deleted the room. A
+  # run still working stops through cancellation custody and the request
+  # closes on its worker's answer; one waiting for a reply or an event closes
+  # now. The kernel closes no request under a reply it accepted, and a reply
+  # owed to the room can never be posted there: it goes to the alert thread
+  # the room was opened from, and the request closes after it.
+  defp close_investigation(_room, %Episode{state: state}) when state in [:complete, :cancelled],
+    do: {:ok, %{status: :settled}}
+
+  defp close_investigation(room, %Episode{state: :working, owner_kind: :turn} = episode) do
+    Custody.request_cancel(
+      episode.id,
+      episode.key,
+      episode.owner_ref,
+      deletion_ref(room),
+      deletion_reason(room)
+    )
+  end
+
+  defp close_investigation(room, %Episode{state: state, owner_kind: owner_kind} = episode)
+       when state in [:waiting_for_input, :waiting_for_event] and owner_kind in [:input, :event] do
+    command = %Command.CancelEpisode{
+      cancel_ref: deletion_ref(room),
+      episode_key: episode.key,
+      expected_owner: %{kind: owner_kind, ref: episode.owner_ref},
+      occurred_at: Repo.now!(),
+      reason: deletion_reason(room)
+    }
+
+    case Episodes.apply(command) do
+      {:ok, _transition} -> {:ok, %{status: :settled}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp close_investigation(room, %Episode{state: :working, owner_kind: :delivery} = episode) do
+    case Custody.redirect_delivery(
+           episode.id,
+           episode.key,
+           "slack:#{room.workspace_ref}:#{room.channel_ref}",
+           IncidentRooms.alert_thread(room)
+         ) do
+      # The reply was posted since the request was read: the next pass closes
+      # whatever the request went on to do.
+      {:ok, %{status: :settled}} -> {:ok, %{status: :pending}}
+      result -> result
+    end
+  end
+
+  defp close_investigation(room, episode),
+    do: Custody.pause_destination(episode.id, episode.key, destination_pause_ref(room))
+
+  defp settle_lifecycle_reconciliation(room, _episode, %{status: :pending}, options) do
     retry_seconds = retry_delay(room.attempt_count, options.retry_base_seconds)
 
     case IncidentRooms.defer(
@@ -254,7 +328,32 @@ defmodule Ryker.Slack.IncidentRoomWorker do
     end
   end
 
-  defp settle_lifecycle_reconciliation(room, %{status: :settled}, _options) do
+  # The alert thread the room came from is told before the room closes, so a
+  # note Slack cannot take right now is retried, never lost, and never posted
+  # twice. A refusal no retry can change does not hold the room open, and
+  # neither does a reply the alert thread refused for good: that reply stays
+  # owed, for a person to post from the Failures page, and the room says so.
+  defp settle_lifecycle_reconciliation(
+         %{channel_state: :deleted} = room,
+         episode,
+         %{status: status} = result,
+         options
+       )
+       when status in [:settled, :refused] do
+    refused_reply = if status == :refused, do: result.turn
+
+    case HostNote.deliver(deletion_note(room, episode)) do
+      {:ok, note} ->
+        close_deleted(room, note, refused_reply)
+
+      {:error, reason} ->
+        if DeliveryDispatcher.retryable?(reason),
+          do: handle_error(room, {:incident_room_note_failed, reason}, options),
+          else: close_deleted(room, {:refused, reason}, refused_reply)
+    end
+  end
+
+  defp settle_lifecycle_reconciliation(room, _episode, %{status: :settled}, _options) do
     case IncidentRooms.mark_lifecycle_reconciled(
            room.id,
            room.lease_ref,
@@ -264,6 +363,84 @@ defmodule Ryker.Slack.IncidentRoomWorker do
       {:error, _reason} = error -> error
     end
   end
+
+  defp close_deleted(room, note, refused_reply) do
+    detail = deletion_detail(note) <> reply_detail(refused_reply)
+
+    case IncidentRooms.close_deleted(room.id, room.lease_ref, detail) do
+      {:ok, closed} -> {:ok, {:closed, closed.ref}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  # Fixed words, no model. Slack's channel_deleted event names nobody, so the
+  # note names the room rather than who deleted it. It goes to the same thread
+  # as a reply the room still owed.
+  defp deletion_note(room, episode) do
+    alert_thread = IncidentRooms.alert_thread(room)
+
+    %HostNote{
+      conversation_ref: alert_thread["conversation_ref"],
+      execution_mode: episode.execution_mode,
+      message: "The incident room ##{room.channel_name} was deleted. Reply here to pick it up.",
+      ref: "incident-room:#{room.ref}:deleted",
+      thread_ref: alert_thread["thread_ref"],
+      transport: alert_thread["transport"]
+    }
+  end
+
+  defp deletion_ref(room), do: "#{room.ref}:deleted"
+
+  defp deletion_reason(room),
+    do: "Closed because its incident room ##{room.channel_name} was deleted in Slack."
+
+  @deletion_detail "Slack deleted the room's channel, so Ryker closed the room"
+
+  defp deletion_detail({:posted, _receipt}),
+    do: @deletion_detail <> " and said so in the alert thread it was opened from."
+
+  defp deletion_detail({:not_posted, :shadow}),
+    do: @deletion_detail <> ". It was a shadow room, so nothing was posted."
+
+  defp deletion_detail({:not_posted, _reason}),
+    do:
+      @deletion_detail <>
+        ". Ryker has no way to post in the alert thread, so it said nothing there."
+
+  defp deletion_detail({:refused, reason}),
+    do:
+      @deletion_detail <>
+        ". Its note in the alert thread was refused (#{refusal(reason)}), so it said nothing there."
+
+  defp reply_detail(nil), do: ""
+
+  defp reply_detail(%Turn{} = reply),
+    do:
+      " The investigation's finished reply could not be posted (#{reply_refusal(reply)}), " <>
+        "so it waits on the Failures page."
+
+  # Slack's own word for the refusal when the error text the delivery lane
+  # saved carries one, and the saved error code otherwise.
+  defp reply_refusal(%Turn{last_error_code: code, last_error_detail: detail}) do
+    case Regex.run(~r/\{:slack_api_error, "([a-z_]{1,60})"\}/, detail || "") do
+      [_error, slack_code] -> slack_code
+      nil -> code || "an error"
+    end
+  end
+
+  defp refusal({:delivery_reconciliation_failed, reason}), do: refusal(reason)
+
+  defp refusal({:slack_api_error, code}) when is_binary(code) do
+    if Regex.match?(~r/\A[a-z_]{1,60}\z/, code), do: code, else: "slack_api_error"
+  end
+
+  defp refusal({:slack_http_error, status, _body}) when is_integer(status), do: "HTTP #{status}"
+
+  defp refusal(reason) when is_tuple(reason) and is_atom(elem(reason, 0)),
+    do: Atom.to_string(elem(reason, 0))
+
+  defp refusal(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp refusal(_reason), do: "an error"
 
   defp destination_pause_ref(room), do: "#{room.ref}:channel"
 

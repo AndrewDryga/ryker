@@ -19,6 +19,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   alias Ryker.Work.{RepositorySource, Session, Turn}
 
   @heartbeat_stale_seconds 60
+  @cleanup_phases [:close_pending, :plan_pending, :discard_pending]
+  @holder_purpose "stop_or_cleanup"
 
   @spec place_session(Ecto.UUID.t(), map(), pos_integer()) ::
           {:ok, Placement.t()} | {:error, term()}
@@ -137,9 +139,17 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
     case current_placement(session_id) do
       %Placement{} = placement ->
-        if current?(placement, now),
-          do: placement,
-          else: replacement_required(placement, now)
+        cond do
+          not current?(placement, now) ->
+            replacement_required(placement, now)
+
+          # A placement on the holder's current policy only ever stops or cleans up.
+          holder_placement?(placement) and not stopping_or_cleaning?(session) ->
+            {:replacement_required, placement.generation}
+
+          true ->
+            placement
+        end
 
       nil ->
         place_unassigned_session(session, requirements, lease_seconds, now)
@@ -154,6 +164,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         cond do
           cancelling_bound_session?(session) ->
             recover_cancellation_placement(session, placement, requirements, lease_seconds, now)
+
+          cleaning_bound_session?(session) ->
+            recover_cleanup_placement(session, placement, requirements, lease_seconds, now)
 
           bound_session?(session) ->
             # The worker still holds this session, so the work is not lost — only the placement
@@ -300,12 +313,81 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   defp cancelling_bound_session?(_session), do: false
 
+  defp cleaning_bound_session?(%Session{cleanup_status: status} = session),
+    do: status in @cleanup_phases and bound_session?(session)
+
+  defp stopping_or_cleaning?(%Session{cleanup_status: status} = session),
+    do: status in @cleanup_phases or cancelling_bound_session?(session)
+
   defp recover_cancellation_placement(session, previous, requirements, lease_seconds, now) do
-    case recover_placement_on_previous_worker(session, previous, requirements, lease_seconds, now) do
+    case place_on_holder(session, previous, requirements, lease_seconds, now) do
       {:ok, placement} -> placement
-      :ineligible -> Shared.rollback({:coop_worker_capacity_unavailable, session.id})
+      :unreachable -> Shared.rollback({:coop_worker_capacity_unavailable, session.id})
     end
   end
+
+  defp recover_cleanup_placement(session, previous, requirements, lease_seconds, now) do
+    case place_on_holder(session, previous, requirements, lease_seconds, now) do
+      {:ok, placement} -> placement
+      :unreachable -> {:replacement_required, previous.generation}
+    end
+  end
+
+  # Stopping a run and cleaning up after one do no policy work: Coop's worker
+  # forwards get, cancel, close, discard planning and discard without naming a
+  # policy, and its daemon never reads one for them. So they go back to the
+  # worker that holds the session under whatever that worker runs now, and need
+  # only that it still reports. Requiring the exact version and setup the
+  # session started with stranded every cleanup and stop after a model change
+  # in Settings: on 2026-09-23 two cleanups blocked behind a retry that could
+  # never work, and a stop in the same place was deferred forever. The
+  # placement pins what the worker runs now, so its own heartbeat keeps it, and
+  # says what it is for so it never carries the session's next turn.
+  defp place_on_holder(session, previous, requirements, lease_seconds, now) do
+    worker = Shared.locked_worker(previous.worker_id)
+
+    if holder_reachable?(worker, requirements.workspace_ref, now) do
+      held = %{
+        session
+        | authority_digest: Map.get(worker.policy_authority_digests, session.policy),
+          policy_digest: Map.get(worker.policy_digests, session.policy)
+      }
+
+      holder = %{
+        requirements
+        | capability_names: [],
+          capability_versions: %{},
+          repository_ref: nil
+      }
+
+      {:ok,
+       insert_placement_on_worker(
+         held,
+         worker,
+         Map.put(holder, :purpose, @holder_purpose),
+         lease_seconds,
+         now
+       )}
+    else
+      :unreachable
+    end
+  end
+
+  defp holder_reachable?(%Worker{} = worker, workspace_ref, now) do
+    cutoff = DateTime.add(now, -@heartbeat_stale_seconds, :second)
+
+    worker.workspace_ref == workspace_ref and worker.state != :revoked and
+      is_nil(worker.revoked_at) and match?(%DateTime{}, worker.last_seen_at) and
+      DateTime.compare(worker.last_seen_at, cutoff) != :lt and
+      match?(%DateTime{}, worker.clock_at) and
+      DateTime.diff(now, worker.clock_at, :second) |> abs() <=
+        Shared.maximum_clock_skew_seconds()
+  end
+
+  defp holder_reachable?(nil, _workspace_ref, _now), do: false
+
+  defp holder_placement?(%Placement{requirements: %{"purpose" => @holder_purpose}}), do: true
+  defp holder_placement?(%Placement{}), do: false
 
   defp worker_current?(%Worker{} = worker, workspace_ref, now) do
     cutoff = DateTime.add(now, -@heartbeat_stale_seconds, :second)
@@ -525,7 +607,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   end
 
   defp placement_requirements(session, worker, requirements) do
-    %{
+    document = %{
       "capability_names" => requirements.capability_names,
       "capability_versions" => requirements.capability_versions,
       "authority_digest" => session.authority_digest,
@@ -535,6 +617,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       "sandbox_digest" => worker.sandbox_digest,
       "workspace_ref" => requirements.workspace_ref
     }
+
+    case Map.get(requirements, :purpose) do
+      nil -> document
+      purpose -> Map.put(document, "purpose", purpose)
+    end
   end
 
   defp placement_authority_current?(requirements, worker) do

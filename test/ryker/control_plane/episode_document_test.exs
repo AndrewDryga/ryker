@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   use Ryker.DataCase, async: true
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{EpisodePage, EpisodeRequest, InspectionRedactor, Projection}
+  alias Ryker.ControlPlane.{Activity, EpisodePage, EpisodeRequest, InspectionRedactor, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
 
@@ -32,14 +32,14 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       "episode_ref" => "candidate:52af063",
       "state" => "complete",
       "allowed_relations" => ["same_work"],
-      "digest" => %{"objective" => "Check the response"}
+      "title" => "Check the response"
     }
 
     other = %{
       "episode_ref" => "candidate:background",
       "state" => "complete",
       "allowed_relations" => ["history_only"],
-      "digest" => %{"objective" => "Earlier notes"}
+      "title" => "Earlier notes"
     }
 
     request = %{
@@ -71,14 +71,28 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     }
 
     document = render_episode(snapshot, [request, result]) |> LazyHTML.from_fragment()
-    link = LazyHTML.query(document, ".request-decision a")
-    assert LazyHTML.text(link) == "Check the response"
+    link = LazyHTML.query(document, ".request-decision li[data-selected=true] a")
+    assert link |> LazyHTML.text() |> String.trim() == "Check the response ↑"
     ["#" <> id] = LazyHTML.attribute(link, "href")
     assert LazyHTML.query(document, ".context-candidate[id='#{id}']") |> Enum.count() == 1
 
-    outcomes = LazyHTML.query(document, ".routing-candidate-outcomes")
-    assert LazyHTML.text(outcomes) =~ "Check the response · Selected for continuation"
-    assert LazyHTML.text(outcomes) =~ "Earlier notes · Background only"
+    # The decision card lists every candidate it weighed with its verdict, as
+    # the Earlier work fact rather than behind a disclosure; each title links
+    # back up to the briefing that offered it, which stays exactly as it was sent.
+    outcomes = LazyHTML.query(document, ".request-decision .routing-candidate-outcomes")
+    assert Enum.empty?(LazyHTML.query(outcomes, "details"))
+
+    assert outcomes
+           |> LazyHTML.query("li")
+           |> Enum.map(fn row ->
+             {row |> LazyHTML.query(".considered-verdict") |> LazyHTML.text(),
+              row |> LazyHTML.query("a") |> LazyHTML.text() |> String.trim()}
+           end) == [{"Continued", "Check the response ↑"}, {"Background only", "Earlier notes ↑"}]
+
+    assert outcomes
+           |> LazyHTML.query("a")
+           |> LazyHTML.attribute("href")
+           |> Enum.all?(&String.starts_with?(&1, "#"))
   end
 
   test "missing full prompts explain availability instead of opening a blank panel" do
@@ -255,8 +269,18 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     document = LazyHTML.from_fragment(html)
 
+    # Every routing briefing has the same sections; a part the model was not
+    # sent keeps its row and says why instead of taking its section with it.
+    # This minimal prompt carries no permitted actions, so it has no scope rows.
     assert LazyHTML.query(document, ".prompt-group > header h4") |> Enum.map(&LazyHTML.text/1) ==
-             ["Instructions", "Messages"]
+             [
+               "Instructions",
+               "Custom instructions",
+               "Messages",
+               "Summaries",
+               "Related history",
+               "Selected knowledge"
+             ]
 
     assert LazyHTML.query(document, ".final-prompt > .ui-disclosure-source .prompt-source-title")
            |> Enum.map(&LazyHTML.text/1) == ["Prompt text", "Response format"]
@@ -266,7 +290,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.query(document, ".prompt-source[data-source='contract']") |> LazyHTML.text() =~
              "object"
 
-    assert html =~ "estimated tokens"
+    assert html =~ ~r/≈ [\d,]+ tokens/
 
     assert LazyHTML.query(document, ".prompt-fragment")
            |> LazyHTML.attribute("data-source-title")
@@ -294,6 +318,36 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert html =~ "Supporting records"
     refute html =~ "Validated response"
     refute html =~ "Validation history"
+  end
+
+  test "an answer that named its episode shows the name on its card" do
+    # The title is set by the answer the host accepted; the card that shows
+    # that answer is where a reader learns when the episode got its name.
+    html =
+      render_request(:work, :result, [
+        section("candidate", "Response to validate", %{
+          "delivery" => "reply",
+          "message" => "Checked.",
+          "outcome" => %{"record_refs" => []},
+          "title" => "Investigate checkout 502s"
+        })
+      ])
+
+    title = html |> LazyHTML.from_fragment() |> LazyHTML.query(".response-title")
+    assert LazyHTML.text(title) =~ "Episode title"
+    assert LazyHTML.text(title) =~ "Investigate checkout 502s"
+
+    untitled =
+      render_request(:work, :result, [
+        section("candidate", "Response to validate", %{
+          "delivery" => "reply",
+          "message" => "Checked.",
+          "outcome" => %{"record_refs" => []},
+          "title" => nil
+        })
+      ])
+
+    refute untitled =~ "response-title"
   end
 
   test "sent text stays visible even when it matches the validated response" do
@@ -553,7 +607,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       document |> LazyHTML.query(".prompt-assembly .prompt-source > summary") |> LazyHTML.text()
 
     assert summaries =~ "System prompt"
-    assert summaries =~ "Confirmed guidance"
+    assert summaries =~ "Guidance"
     assert summaries =~ "Conversation messages"
 
     assert Enum.count(
@@ -586,7 +640,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.query(heading, ".case-card-heading-description")
            |> LazyHTML.text()
            |> String.trim() ==
-             "Classify this message and choose how to respond."
+             "Use an AI model to classify this message and choose how to respond."
 
     assert Enum.empty?(LazyHTML.query(document, ".episode-request > .request-explanation"))
   end
@@ -666,6 +720,18 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert visible =~ "Primary repository"
     refute html =~ "<as text>"
 
+    # Preferences and guidance moved under Instructions on 2026-09-24; their
+    # old pages answer 404, so each group links to its own filtered section.
+    hrefs =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".applied-context a")
+      |> LazyHTML.attribute("href")
+
+    assert "/instructions?show=preferences#saved" in hrefs
+    assert "/instructions?show=guidance#saved" in hrefs
+    refute Enum.any?(hrefs, &(&1 in ["/preferences", "/guidance"]))
+
     for artifact <- [
           InspectionRedactor.artifact(nil),
           %{hd(request.sections).artifact | truncated: true}
@@ -701,6 +767,154 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute LazyHTML.text(document) =~ "turn-recorded"
     refute LazyHTML.text(document) =~ "ryker-chat"
     refute LazyHTML.text(document) =~ String.duplicate("a", 64)
+  end
+
+  test "a briefing says which model ran and why before its instructions" do
+    # The model sat in the corner of the header as a label; a reader could not
+    # tell whether it was chosen for this call or fixed for the whole install.
+    submission = %{
+      id: "admission-model-1",
+      request_id: "model-1",
+      phase: :submission,
+      source_kind: :admission,
+      target: "codex:gpt-5.6-sol/medium@default",
+      policy: "ryker-admission",
+      model_choice: %{
+        purpose: :admission,
+        scope_kind: :installation,
+        scope_ref: "",
+        settings: true
+      },
+      timing: [],
+      coverage: "Retained",
+      sections: [section("instructions", "System prompt", "Classify the message.")]
+    }
+
+    html = render_component(&EpisodeRequest.render/1, request: submission)
+    document = LazyHTML.from_fragment(html)
+    model = LazyHTML.query(document, ".request-model-section")
+
+    assert LazyHTML.text(model) =~ "gpt-5.6-sol"
+    assert LazyHTML.text(model) =~ "Medium reasoning"
+
+    # The model is an operator choice in Settings; the card says where to change it
+    # instead of naming an environment variable nobody could see or edit.
+    assert LazyHTML.query(model, ".request-model-reason") |> LazyHTML.text() |> words() ==
+             "Routing uses the model set for it in Settings"
+
+    assert Enum.count(LazyHTML.query(model, ~s(.request-model-reason a[href="/settings/models"]))) ==
+             1
+
+    assert Enum.empty?(LazyHTML.query(document, ".case-card-heading-meta .execution-target"))
+    refute LazyHTML.text(document) =~ "ryker-admission"
+
+    assert :binary.match(html, "request-model-section") < :binary.match(html, "prompt-assembly")
+
+    # Work names what it was classified as; a result card does not repeat the model.
+    work = %{
+      submission
+      | source_kind: :work,
+        model_choice: %{
+          submission.model_choice
+          | purpose: :deep,
+            scope_kind: :repository,
+            scope_ref: "emisar"
+        }
+    }
+
+    assert render_component(&EpisodeRequest.render/1, request: work)
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query(".request-model-reason")
+           |> LazyHTML.text()
+           |> words() ==
+             "Deep work in emisar uses the model set for it in Settings"
+
+    result = render_component(&EpisodeRequest.render/1, request: %{submission | phase: :result})
+    assert Enum.empty?(LazyHTML.query(LazyHTML.from_fragment(result), ".request-model-section"))
+    refute result =~ "gpt-5.6-sol"
+  end
+
+  test "each stage label says how that stage ended" do
+    # Stage labels only named the stage; a reader scanning a long timeline had to
+    # open each stage's cards to learn what it produced. The label summarizes
+    # the stage from its own recorded entries; no card is rewritten.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    at = snapshot.trace.received_at
+    [step | _] = snapshot.trace.steps
+
+    queue = %{
+      step
+      | id: "queue-summary",
+        band: :ready,
+        stage: "Queue",
+        title: "Queue",
+        tone: nil,
+        at: at
+    }
+
+    queue =
+      Map.put(queue, :queue, %{
+        kind: :claimed,
+        qualifier: nil,
+        current: false,
+        events: [
+          %{kind: :saved, label: "Saved", at: at, reason: "Saved.", href: nil, link_label: nil}
+        ],
+        started_at: at,
+        ended_at: DateTime.add(at, 57, :millisecond),
+        duration_ms: 57,
+        tone: nil
+      })
+
+    reply = %{
+      id: "summary-reply",
+      at: DateTime.add(at, 2, :second),
+      actor: "Ryker",
+      text: "Hello back",
+      available: true,
+      status: "Response sent"
+    }
+
+    routing = %{
+      id: "admission-summary-1-result",
+      at: at,
+      kind: :request,
+      source_kind: :admission,
+      phase: :result,
+      band: :ready,
+      title: "Admission · result",
+      target: "codex:gpt-5.6-sol/medium@default",
+      status: :decided,
+      coverage: "Retained",
+      href: "#admission-summary-1-result",
+      timing: [],
+      sections: [
+        section("candidate", "Committed admission decision", %{
+          "action" => "reply",
+          "relation" => "unrelated",
+          "work_class" => "conversational"
+        })
+      ]
+    }
+
+    summaries =
+      snapshot
+      |> put_in([:trace, :steps], [queue])
+      |> put_in([:trace, :case_file, :conversation], [reply])
+      |> render_episode([routing])
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".conversation-phase-heading")
+      |> Enum.map(fn heading ->
+        {heading |> LazyHTML.query("h4") |> LazyHTML.text(),
+         heading |> LazyHTML.query(".phase-summary") |> LazyHTML.text()}
+      end)
+
+    # Intake and Routing carry no summary: their own cards already say how long
+    # the message waited and what routing decided.
+    assert {"Intake", ""} in summaries
+    assert {"Routing", ""} in summaries
+    assert {"Answer", "Response sent"} in summaries
   end
 
   test "a greeting explains routing without expanding protocol JSON or duplicating delivery chapters" do
@@ -774,28 +988,23 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     assert html =~ "Conversational reply"
     assert html =~ "The user sent a greeting that can be answered directly."
-    assert html =~ "gpt-5.6-luna/low"
-    refute html =~ ">codex:gpt-5.6-luna/low@emisar<"
+    # The model belongs to the briefing's Model section; the result does not repeat it.
+    refute html =~ "gpt-5.6-luna"
 
     assert Enum.count(
              LazyHTML.query(document, ".conversation-phase-heading h4"),
              &(LazyHTML.text(&1) == "Answer")
            ) == 1
 
-    # The result already states the committed decision and timing above. Keep
-    # only the two records that explain selection and expose the exact response,
-    # using the same peer disclosure anatomy as the rest of the product.
+    # The result already states the committed decision and timing above. It
+    # keeps only the exact response; how the search chose earlier work is told
+    # in the briefing beside that work, not in four narrow columns here.
     evidence = LazyHTML.query(document, ".routing-evidence")
-    assert Enum.count(LazyHTML.query(evidence, ".ui-disclosure-source")) == 2
+    assert Enum.count(LazyHTML.query(evidence, ".ui-disclosure-source")) == 1
     assert Enum.empty?(LazyHTML.query(evidence, "details[open]"))
-    assert html =~ "Selection evidence"
     assert html =~ "Raw routing response"
-    assert html =~ "4 of 7 supplied"
-    assert html =~ "3 omitted · Shortlist limit"
-    assert html =~ "Workspace public"
-    assert html =~ "Text 7 (limit reached)"
-    assert html =~ "11 of 20 earlier messages included"
-    assert html =~ "Technical record"
+    refute html =~ "Selection evidence"
+    refute html =~ "Technical record"
     refute html =~ "Committed admission decision"
     refute html =~ "Observed execution milestones"
     refute html =~ "Reported usage and timing"
@@ -857,13 +1066,13 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     document = LazyHTML.from_fragment(html)
     heading = LazyHTML.query(document, ".episode-request > .case-card-heading")
 
-    assert html =~ "Model briefing"
-
     assert LazyHTML.query(heading, ".case-card-heading-main > h3") |> LazyHTML.text() ==
-             "Model briefing"
+             "Work briefing"
 
-    assert LazyHTML.query(heading, ".case-card-heading-meta .execution-target-model")
+    assert LazyHTML.query(document, ".request-model-section .execution-target-model")
            |> LazyHTML.text() == "gpt-5.6-terra"
+
+    assert Enum.empty?(LazyHTML.query(heading, ".execution-target"))
 
     assert html =~ "System prompt"
     assert LazyHTML.text(document) =~ "Briefing sources"
@@ -1058,10 +1267,11 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     links = LazyHTML.query(document, ".episode-location > a")
 
+    # One request in its conversation: the Activity list would show only this
+    # page, so there is no "all activity" link to follow.
     assert Enum.map(links, &LazyHTML.text/1) == [
              "Jump to latest outcome ↓",
              "Open source message →",
-             "All activity in this conversation →",
              "This Slack thread →"
            ]
 
@@ -1077,13 +1287,41 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
              "noopener noreferrer"
            ]
 
-    assert LazyHTML.query(
-             document,
-             ".episode-location > a:not([target]):nth-of-type(3)"
-           )
-           |> LazyHTML.text() == "All activity in this conversation →"
-
     assert Enum.empty?(LazyHTML.query(document, ".case-actions"))
+  end
+
+  test "a conversation link leads somewhere the reader has not just been" do
+    # Andrew, 2026-09-24: "All activity in this conversation" opened Activity
+    # filtered to a conversation whose only item was the page he came from.
+    # A chat now opens the chat itself, and a conversation with more than
+    # one request lists them all.
+    assert Activity.conversation_link("control_plane", "control-plane:lab:abc", :live) ==
+             %{href: "/conversations/abc", label: "Open in Chat"}
+
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    assert Activity.conversation_link(
+             episode.destination_transport,
+             episode.destination_conversation_ref,
+             episode.execution_mode
+           ) == nil
+
+    {:ok, _second} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          episode_id: Ecto.UUID.generate(),
+          episode_key: "slack:second-request",
+          native_input_id: "slack-message:second-request",
+          turn_ref: "turn:second-request"
+        })
+      )
+
+    assert %{label: "All 2 requests in this conversation", href: "/activity?" <> _query} =
+             Activity.conversation_link(
+               episode.destination_transport,
+               episode.destination_conversation_ref,
+               episode.execution_mode
+             )
   end
 
   test "untimed historical events do not inflate the projected wall time" do
@@ -1282,8 +1520,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute text =~ "includes estimates"
     refute text =~ "Includes time between messages"
 
-    assert LazyHTML.query(document, ".metric-cost-details") |> LazyHTML.text() =~
-             "1 reported · 1 estimated / 3 requests"
+    # The cost is one figure; a disclosure larger than its one line is gone.
+    assert Enum.empty?(LazyHTML.query(document, ".metric-cost-details"))
 
     refute text =~ "2 of 3 responses timed"
     refute text =~ "avg"
@@ -1387,6 +1625,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     do: %{id: id, title: title, source_kind: :work, artifact: InspectionRedactor.artifact(value)}
 
   defp compact(value), do: String.replace(value, ~r/\s+/, "")
+  defp words(value), do: value |> String.split() |> Enum.join(" ")
 
   defp render_episode(snapshot, items),
     do:
