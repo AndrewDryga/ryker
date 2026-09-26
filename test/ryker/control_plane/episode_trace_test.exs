@@ -136,7 +136,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     {:ok, closed} = Projection.episode(episode.key)
     assert closed.trace.startup == nil
     assert closed.trace.stopped.headline == "Request stopped"
-    refute Enum.any?(closed.trace.actions, &String.ends_with?(&1.href, "/retry"))
+    refute Enum.any?(closed.trace.actions, &String.contains?(&1.href, "/retry"))
     {:ok, closed_timeline} = ModelRequests.timeline(episode.key, %{})
     assert closed_timeline.items == []
 
@@ -718,6 +718,29 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       |> LazyHTML.text()
 
     assert header == "Needs attention"
+  end
+
+  test "the timeline's retry comes back to the timeline" do
+    # QA re-test, 2026-09-26: Cancel on the retry confirmation opened from a
+    # request's timeline led to Failures, a page the person never came from.
+    {_entry, episode} = admitted_input!()
+    {:ok, _session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+    {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
+
+    Repo.update_all(from(t in Turn, where: t.id == ^claim.turn.id),
+      set: [status: :blocked, lease_ref: nil, lease_owner: nil, lease_expires_at: nil]
+    )
+
+    {:ok, detail} = Projection.episode(episode.key)
+    timeline = "/timeline/" <> URI.encode(episode.key, &URI.char_unreserved?/1)
+
+    assert [retry] =
+             Enum.filter(
+               detail.trace.actions,
+               &String.ends_with?(URI.parse(&1.href).path, "/retry")
+             )
+
+    assert URI.decode_query(URI.parse(retry.href).query || "") == %{"back" => timeline}
   end
 
   test "the episode leads with the actual conversation and safely escapes untrusted source text" do

@@ -392,7 +392,8 @@ defmodule Ryker.ControlPlane.Router do
     with {:ok, resource_ref} <- PathRef.decode(resource_ref),
          {:ok, title, explanation, canonical_action} <-
            confirmation(kind, resource_ref, action, options) do
-      path = action_path(kind, resource_ref, action)
+      back = back(conn)
+      path = action_path(kind, resource_ref, action) <> back_query(back)
       token = CSRF.token(options.csrf_secret, canonical_action, resource_ref)
 
       html(
@@ -404,7 +405,7 @@ defmodule Ryker.ControlPlane.Router do
           explanation,
           path,
           token,
-          action_return_path(kind, resource_ref, action, options)
+          back || action_return_path(kind, resource_ref, action, options)
         )
       )
     else
@@ -421,7 +422,7 @@ defmodule Ryker.ControlPlane.Router do
            confirmation(kind, resource_ref, action, options),
          {:ok, token, conn} <- form_token(conn),
          true <- CSRF.valid?(options.csrf_secret, canonical_action, resource_ref, token),
-         return_path <- action_return_path(kind, resource_ref, action, options),
+         return_path <- back(conn) || action_return_path(kind, resource_ref, action, options),
          {:ok, _resource} <-
            perform(kind, resource_ref, action, options.actions, canonical_action) do
       conn
@@ -807,6 +808,22 @@ defmodule Ryker.ControlPlane.Router do
 
   defp action_return_path(kind, resource_ref, _action, options),
     do: action_return_path(kind, resource_ref, options)
+
+  # A confirmation opened from a request's timeline or its conversation names
+  # that page as `back` and returns there, on Cancel and after confirming.
+  # Only those pages of this control plane are accepted, so the parameter can
+  # never send anyone elsewhere.
+  @back ~r{\A/(?:timeline|conversations)/(?!\.+\z)[A-Za-z0-9%._~-]+\z}
+
+  defp back(conn) do
+    case fetch_query_params(conn).query_params do
+      %{"back" => path} when is_binary(path) -> if Regex.match?(@back, path), do: path
+      _other -> nil
+    end
+  end
+
+  defp back_query(nil), do: ""
+  defp back_query(back), do: "?" <> URI.encode_query(%{"back" => back})
 
   defp form_token(conn) do
     with [content_type] <- get_req_header(conn, "content-type"),
