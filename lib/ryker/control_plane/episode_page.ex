@@ -285,6 +285,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   has not started, not a different kind of thing with a page of its own.
   """
   attr(:title, :string, required: true)
+  attr(:state, :string, default: "not_started")
   attr(:received_at, :any, default: nil)
   attr(:source, :any, default: nil)
   attr(:conversation_link, :map, default: nil)
@@ -294,7 +295,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     <div class="episode-page-intro">
       <.link navigate="/" class="back-to-activity">← Activity</.link>
       <div class="episode-title-row">
-        <h1>{@title}</h1><.status state="not_started" />
+        <h1>{@title}</h1><.status state={@state} />
       </div>
       <p class="episode-location">
         <time :if={@received_at}>{timestamp(@received_at)}</time>
@@ -825,6 +826,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   """
   def getting_ready(assigns) do
     requests = List.wrap(assigns[:requests])
+    assigns = assign_new(assigns, :answer, fn -> [] end)
 
     # One sequence in time order, as on an episode page, so a retried input
     # reads attempt by attempt instead of all queue history first.
@@ -854,6 +856,25 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </div>
         <div class="phase-entries">
           <.entry :for={entry <- @entries} entry={entry} />
+        </div>
+      </section>
+      <section
+        :if={@answer != []}
+        class="trace-chapter phase-answer"
+        aria-labelledby="standalone-answer"
+      >
+        <div class="chapter-heading">
+          <span class="phase-number" aria-hidden="true">02</span>
+          <div class="chapter-description">
+            <h3 id="standalone-answer">Answer</h3>
+            <p>What Ryker sent without starting work.</p>
+          </div>
+        </div>
+        <div class="phase-entries">
+          <.entry
+            :for={step <- @answer}
+            entry={%{id: "event-#{step.id}", kind: :event, step: step, at: step.at}}
+          />
         </div>
       </section>
     </section>

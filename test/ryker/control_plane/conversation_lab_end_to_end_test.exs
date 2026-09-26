@@ -376,6 +376,31 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
 
     assert LabPage.timeline_href(answer) ==
              "/timeline/ingress-input%3A#{admitted.result.entry.id}"
+
+    # Manual test, 2026-09-26: that page's heading said "Couldn't start" for
+    # every message that did not become work, including one routing had just
+    # answered, one it reacted to and one it rightly left alone.
+    assert {:ok, %{heading: heading} = request} =
+             ModelRequests.project_input(admitted.result.entry.id, %{})
+
+    header = render_component(&EpisodePage.unrouted_intro/1, heading)
+    assert header =~ "Answered right away"
+    refute header =~ "Couldn"
+
+    # The page's help promises the answer as the last stage; a quick reply's
+    # page ended at the routing decision and never said what was sent.
+    timeline =
+      render_component(&EpisodePage.getting_ready/1,
+        steps: request.preparation,
+        requests: request.timeline,
+        answer: request.answer
+      )
+      |> LazyHTML.from_fragment()
+
+    answer = LazyHTML.query(timeline, ".phase-answer")
+    assert LazyHTML.text(answer) =~ "Answer"
+    assert LazyHTML.text(answer) =~ "Hi! What can I help with?"
+    assert LazyHTML.text(answer) =~ "Sent"
   end
 
   test "a generated artifact is delivered and retrievable only through its exact Lab turn" do

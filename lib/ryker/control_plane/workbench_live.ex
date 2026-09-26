@@ -1841,6 +1841,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             <EpisodePage.unrouted_intro
               :if={@requests[:heading]}
               title={@requests.heading.title}
+              state={@requests.heading.state}
               received_at={@requests.heading.received_at}
               conversation_link={@requests.heading.conversation_link}
             />
@@ -1852,6 +1853,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               :if={@requests[:preparation]}
               steps={@requests.preparation}
               requests={@requests.timeline}
+              answer={@requests[:answer] || []}
             />
           </div>
           <section :if={@native == :not_found} class="document-unavailable">

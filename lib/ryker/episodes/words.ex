@@ -21,6 +21,7 @@ defmodule Ryker.Episodes.Words do
   def label("blocked"), do: "Needs attention"
   def label("complete"), do: "Completed"
   def label("cancelled"), do: "Stopped"
+  def label("superseded"), do: "Replaced by an edit"
   def label("ignore"), do: "No response needed"
   def label("react"), do: "Reaction selected"
   def label("quick_reply"), do: "Answered right away"
