@@ -7,7 +7,7 @@ defmodule Ryker.Slack.MembershipReconciler do
   channel or erase its configuration.
   """
 
-  use GenServer
+  use Ryker.PollingWorker, lane: :slack_membership, interval: :interval_ms
 
   require Logger
 
@@ -18,21 +18,11 @@ defmodule Ryker.Slack.MembershipReconciler do
   @spec start_link(map()) :: GenServer.on_start()
   def start_link(options) do
     options = options!(options)
-
-    case options.name do
-      nil -> GenServer.start_link(__MODULE__, options)
-      name -> GenServer.start_link(__MODULE__, options, name: name)
-    end
+    GenServer.start_link(__MODULE__, options, name: options.name)
   end
 
-  @impl GenServer
-  def init(options) do
-    send(self(), :reconcile)
-    {:ok, options}
-  end
-
-  @impl GenServer
-  def handle_info(:reconcile, options) do
+  @impl Ryker.PollingWorker
+  def poll(options) do
     case run_once(options) do
       {:ok, _result} ->
         :ok
@@ -41,8 +31,7 @@ defmodule Ryker.Slack.MembershipReconciler do
         Logger.warning("Slack membership reconciliation failed: #{inspect(reason)}")
     end
 
-    Process.send_after(self(), :reconcile, options.interval_ms)
-    {:noreply, options}
+    options.interval_ms
   end
 
   @spec run_once(map()) :: {:ok, map()} | {:error, term()}
