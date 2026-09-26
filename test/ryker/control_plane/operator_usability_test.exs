@@ -375,6 +375,9 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     explained = FailureExplanation.explain(row, @now)
     assert explained.summary =~ "usage limit"
+    # The recovery page shows what happened, not the list's summary: the
+    # provider's words, with when it runs again, must be there too.
+    assert Enum.any?(explained.happened, &(&1 =~ "Sep 29th, 2026 8:59 PM"))
     assert explained.outlook == :fix_first
     assert %{href: "/settings/models", recommended: true} = hd(explained.options)
 

@@ -1334,12 +1334,14 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp admission_cause(%{cause: "The model provider limited the worker's account: " <> _ = cause}) do
+  defp admission_cause(%{
+         cause: "The model provider limited the worker's account: " <> words = cause
+       }) do
     cause(
       cause,
-      "The model run that reads the message was refused by the model provider: the account the worker signs in with is limited.",
+      "The model provider refused the run that reads the message, because the account the worker signs in with is limited. The provider said: “#{words}”",
       :fix_first,
-      "It fails until the model account can run again. The provider's own words above say when.",
+      "It fails until the model account can run again. The provider’s words above say when.",
       %{
         label: "Give the worker a model account that can run",
         href: "/settings/models",
