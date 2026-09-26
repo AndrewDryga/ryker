@@ -205,12 +205,11 @@ defmodule Ryker.State.Cases do
   defp attributes(%Episode{} = episode) do
     digest = Repo.get_by(RoutingDigest, episode_id: episode.id)
     problem = bounded(digest_problem(digest, episode), @problem_bytes)
-    findings = records(episode.id, "finding")
-    actions = records(episode.id, "action") ++ records(episode.id, "evidence")
+    checked = Enum.flat_map(records(episode.id, "evidence"), &checked/1)
 
     content = %{
-      attempted_actions: Enum.take(actions, @maximum_actions),
-      cause: bounded(List.first(findings), @cause_bytes),
+      attempted_actions: Enum.take(checked, @maximum_actions),
+      cause: bounded(cause(records(episode.id, "finding")), @cause_bytes),
       occurrence_refs: occurrence_refs(episode.id),
       outcome: bounded(outcome(episode.id), @outcome_bytes),
       problem: problem
@@ -287,11 +286,26 @@ defmodule Ryker.State.Cases do
             record.status != :superseded,
         order_by: [asc: record.inserted_at],
         limit: 32,
-        select: fragment("?::jsonb ->> 'summary'", record.payload)
+        select: record.payload
       )
     )
-    |> Enum.reject(&(is_nil(&1) or &1 == ""))
   end
+
+  # The cause is what the work found and explained; an unexplained, expected
+  # or out-of-scope finding is not one, and none is better than a guess.
+  defp cause(findings) do
+    Enum.find_value(findings, fn
+      %{"status" => "explained", "what" => what} when is_binary(what) and what != "" -> what
+      _finding -> nil
+    end)
+  end
+
+  # What was tried is what the work checked, and where.
+  defp checked(%{"observation" => observation, "source_name" => source})
+       when is_binary(observation) and observation != "" and is_binary(source) and source != "",
+       do: [source <> ": " <> observation]
+
+  defp checked(_evidence), do: []
 
   defp occurrence_refs(episode_id) do
     Repo.all(
