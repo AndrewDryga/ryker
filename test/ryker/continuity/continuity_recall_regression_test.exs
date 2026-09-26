@@ -274,6 +274,26 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
   defp expand_stale_memory!(:rollup, stale),
     do: expand_rollups!(stale, 63, fn _ -> {stale.state, stale.source_scopes} end)
 
+  # A search's cutoff reads the database clock, and summaries are stamped by
+  # the host's. Whenever the database clock ran behind the host's by more than
+  # the milliseconds between writing a summary and searching, the summary was
+  # invisible: four of these tests failed together on busy gate runs, and the
+  # same seed passed on a quiet rerun (2026-09-26).
+  test "a summary written just before a search is found when the host clock runs ahead" do
+    joined!("C1")
+    matching = summary!("host-ahead", "slack:T123:C1", :public, @captured_situation)
+    ahead = DateTime.add(Repo.now!(), 1, :second)
+    Repo.update!(Ecto.Changeset.change(matching, inserted_at: ahead, updated_at: ahead))
+
+    assert [
+             %{
+               "kind" => "continuity",
+               "state" => %{"situation" => @captured_situation}
+             }
+           ] =
+             search!(:summary, target("slack:T123:C1"), "ryker", @captured_query, "workspace", 1)
+  end
+
   test "an older matching continuity state survives more than 64 newer nonmatches" do
     joined!("C1")
     matching = summary!("matching", "slack:T123:C1", :public, @captured_situation)

@@ -3,12 +3,21 @@ defmodule Ryker.Memories.MemorySearchPage do
   import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
 
+  # How far ahead of the database clock a row's own stamp may be and still
+  # count as written before the search began.
+  @clock_skew_seconds 5
+
   # A cursor traverses content order, never retrieval counters. Rows changed
   # after the cutoff disappear from this traversal; a new search sees them.
   def first(query, scope) do
-    # Operator edits use the database clock. Comparing them with the host clock
-    # intermittently hides an edit from a search immediately after confirmation.
-    cutoff = Repo.now!()
+    # Rows carry both clocks: operator edits the database's, and summaries and
+    # other rows Ecto stamps the host's. A cutoff on the host clock hid an edit
+    # from a search right after confirmation; one exactly on the database
+    # clock hid a summary written just before the search whenever the
+    # database clock ran behind the host's (four continuity recall tests on
+    # busy gate runs, 2026-09-26). The cutoff allows for that skew; only the
+    # first page uses it, and later pages follow the cursor.
+    cutoff = DateTime.add(Repo.now!(), @clock_skew_seconds, :second)
 
     %{
       query: String.trim(query),
