@@ -45,6 +45,32 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     end
   end
 
+  # The briefing named retained fields by capitalizing their keys, so a
+  # reader saw "Sha256", "Json preview" and "Source url" (QA, 2026-09-26).
+  test "retained field names spell their abbreviations the way people write them" do
+    document =
+      %{
+        "prior_outcome" => %{
+          "json_preview" => "{}",
+          "message_id" => "m1",
+          "sha256" => String.duplicate("a", 64),
+          "source_url" => "https://example.invalid/alert"
+        }
+      }
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "field-names")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    labels = document |> LazyHTML.query(".context-field > h4") |> Enum.map(&LazyHTML.text/1)
+
+    assert "SHA-256" in labels
+    assert "JSON preview" in labels
+    assert "Message ID" in labels
+    assert "Source URL" in labels
+    refute Enum.any?(labels, &(&1 in ["Sha256", "Json preview", "Message id", "Source url"]))
+  end
+
   test "continuation context never borrows the conversation memory source-note count" do
     # The live second-turn briefing labelled both different continuity sources
     # 'Source notes 13', though only operator_context contained those notes.
