@@ -346,12 +346,13 @@ defmodule Ryker.Work.SubmissionBuilder do
       |> Enum.sort_by(& &1.sequence)
 
     origins = Origins.for_episode(episode.id) |> Map.new(&{&1.input_ref, &1})
+    notes = routing_notes(episode)
 
     context =
       %{
         "destination" => destination(episode),
         "inputs" => %{
-          "items" => Enum.map(selected, &input_document(&1, episode, origins)),
+          "items" => Enum.map(selected, &input_document(&1, episode, origins, notes)),
           "omitted_count" => total_count - length(selected)
         },
         "origins" => origin_summary(episode, origins),
@@ -434,7 +435,8 @@ defmodule Ryker.Work.SubmissionBuilder do
                 episode,
                 Map.new(Origins.for_episode(episode.id), fn origin ->
                   {origin.input_ref, origin}
-                end)
+                end),
+                routing_notes(episode)
               )
             ),
           "omitted_count" => 0
@@ -625,10 +627,11 @@ defmodule Ryker.Work.SubmissionBuilder do
   # Every input says where it came from, so a briefing built from several
   # conversations stays readable and a direct answer can return to the exact
   # place its question was asked.
-  defp input_document(event, episode, origins) do
+  defp input_document(event, episode, origins, notes) do
     command = event.payload
     current = event.dedupe_key in episode.active_input_refs
     sources = LearningSources.for_work_input(command["payload"])
+    note = if current, do: Map.get(notes, routing_key(command["payload"]))
 
     document =
       %{
@@ -645,9 +648,40 @@ defmodule Ryker.Work.SubmissionBuilder do
       }
       |> put_source_ref(command["payload"])
       |> Map.put_new("source_ref", event.dedupe_key)
+      |> then(&if(note, do: Map.put(&1, "routing_note", note), else: &1))
 
     source_linked_input(event, document, sources, not current)
   end
+
+  # Routing's own account of why each message came to this work: the action it
+  # chose, its reason and the kind of work. Andrew asked (2026-09-26) that Work
+  # see it; it is a first look that checked nothing, and the prompt says so.
+  # An admitted input and its routing entry share the source and event ids.
+  defp routing_notes(%Episode{id: episode_id}) do
+    from(entry in Entry,
+      where: entry.episode_id == ^episode_id and not is_nil(entry.decision_document),
+      select: {entry.source_kind, entry.source_ref, entry.event_ref, entry.decision_document}
+    )
+    |> Repo.all()
+    |> Enum.flat_map(fn {kind, ref, event_ref, decision} ->
+      case routing_note(decision) do
+        nil -> []
+        note -> [{{kind, ref, event_ref}, note}]
+      end
+    end)
+    |> Map.new()
+  end
+
+  defp routing_note(%{"action" => action, "reason" => reason} = decision)
+       when is_binary(action) and is_binary(reason),
+       do: %{"decision" => action, "reason" => reason, "work_class" => decision["work_class"]}
+
+  defp routing_note(_decision), do: nil
+
+  defp routing_key(%{"source" => %{"kind" => kind, "ref" => ref}, "event_ref" => event_ref}),
+    do: {kind, ref, event_ref}
+
+  defp routing_key(_payload), do: nil
 
   defp put_source_ref(
          document,
