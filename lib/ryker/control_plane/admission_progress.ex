@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
   alias Ryker.ControlPlane.CurrentInputs
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Work.FailureCause
@@ -33,6 +34,8 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
             current.execution_mode == entry.execution_mode,
         left_join: attempt in Attempt,
         on: attempt.input_id == entry.id and attempt.generation == entry.execution_generation,
+        left_join: retried in subquery(latest_retries()),
+        on: retried.input_id == entry.id,
         where:
           entry.destination_transport == "control_plane" and
             entry.destination_conversation_ref == ^ref and entry.status in [:pending, :blocked],
@@ -43,6 +46,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
           native_input_id: entry.native_input_id,
           status: entry.status,
           received_at: entry.inserted_at,
+          retried_at: retried.at,
           retry_at: entry.next_attempt_at,
           leased: not is_nil(entry.lease_ref),
           claims: entry.attempt_count,
@@ -68,7 +72,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
         native_input_id: row.native_input_id,
         title: title(row.text, secrets),
         phase: phase(row, now),
-        elapsed_ms: max(DateTime.diff(now, row.received_at, :millisecond), 0),
+        elapsed_ms: max(DateTime.diff(now, started_at(row), :millisecond), 0),
         observed_at: row.observed_at,
         target: row.target,
         generation: row.generation,
@@ -80,6 +84,24 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
       }
     end)
   end
+
+  # A retried message is routed again from the retry: counting from when it
+  # first arrived read "Routing your message 307m 29s" on the live install
+  # (2026-09-26) for a message retried five hours after it stopped.
+  defp latest_retries do
+    from(transition in InputCustodyTransition,
+      where: transition.kind == :rearmed,
+      group_by: transition.input_id,
+      select: %{input_id: transition.input_id, at: max(transition.occurred_at)}
+    )
+  end
+
+  defp started_at(%{retried_at: %DateTime{} = retried}), do: retried
+
+  defp started_at(%{retried_at: %NaiveDateTime{} = retried}),
+    do: DateTime.from_naive!(retried, "Etc/UTC")
+
+  defp started_at(row), do: row.received_at
 
   # A pruned or attachment-only message has no text to name the row after.
   defp title(text, _secrets) when text in [nil, ""], do: "Incoming event"
