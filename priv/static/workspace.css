@@ -975,7 +975,6 @@
 .queue-events p { margin:4px 0 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
 .queue-events a { overflow-wrap:anywhere; }
 .input-queue[data-state="needs_attention"] .queue-events li:last-child p { color:var(--ryker-text-secondary); }
-.standalone-preparation { margin:0 0 24px; }
 
 /* Work setup: how the message joined the request, the environment and the session. */
 .setup-facts { grid-column:1 / -1; margin:8px 0 0; }

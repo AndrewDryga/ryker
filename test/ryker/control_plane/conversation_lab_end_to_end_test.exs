@@ -380,24 +380,19 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     # Manual test, 2026-09-26: that page's heading said "Couldn't start" for
     # every message that did not become work, including one routing had just
     # answered, one it reacted to and one it rightly left alone.
-    assert {:ok, %{heading: heading} = request} =
-             ModelRequests.project_input(admitted.result.entry.id, %{})
+    assert {:ok, request} = ModelRequests.project_input(admitted.result.entry.id, %{})
 
-    header = render_component(&EpisodePage.unrouted_intro/1, heading)
+    page =
+      render_component(&EpisodePage.message_page/1, view: request)
+      |> LazyHTML.from_fragment()
+
+    header = page |> LazyHTML.query(".episode-page-intro") |> LazyHTML.text()
     assert header =~ "Answered right away"
     refute header =~ "Couldn"
 
     # The page's help promises the answer as the last stage; a quick reply's
     # page ended at the routing decision and never said what was sent.
-    timeline =
-      render_component(&EpisodePage.getting_ready/1,
-        steps: request.preparation,
-        requests: request.timeline,
-        answer: request.answer
-      )
-      |> LazyHTML.from_fragment()
-
-    answer = LazyHTML.query(timeline, ".phase-answer")
+    answer = LazyHTML.query(page, ".phase-answer")
     assert LazyHTML.text(answer) =~ "Answer"
     assert LazyHTML.text(answer) =~ "Hi! What can I help with?"
     assert LazyHTML.text(answer) =~ "Sent"

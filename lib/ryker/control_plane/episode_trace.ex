@@ -163,23 +163,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   defp next_activity_page(_page, _pages), do: nil
 
   @doc """
-  The Getting ready cards for one input that may have no episode yet.
-
-  The standalone input view shows the same four cards the Timeline shows, read
-  from the same rows, so an input that was never picked up explains itself the
-  same way as one that was.
+  The preparation cards for one message that has no request of its own:
+  Participation and its queue runs, read from the same rows the Timeline
+  reads, so a message that never became work explains itself the same way as
+  one that did.
   """
   @spec input_preparation(Entry.t()) :: [map()]
   def input_preparation(%Entry{} = input), do: Preparation.steps([input])
-
-  @doc """
-  The heading a message carries before it becomes an episode.
-
-  The same sentence the episode page shows for a case file: the request itself,
-  shortened, and redacted the way every other retained text is.
-  """
-  @spec unrouted_title(Entry.t()) :: String.t()
-  defdelegate unrouted_title(input), to: CaseFile
 
   # Only a call Ryker received inside the narration on this page can join it.
   defp state_tool_calls(_episode_id, []), do: []

@@ -1452,7 +1452,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       {:ok, %{episode_ref: nil} = requests} ->
         assign(socket,
           native: :request,
-          page_title: "Request",
+          page_title: "Message",
           requests: requests
         )
 
@@ -1837,25 +1837,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             />
             {Phoenix.HTML.raw(@body)}
           </div>
-          <div :if={@native == :request} class="episode-workbench execution-document">
-            <EpisodePage.unrouted_intro
-              :if={@requests[:heading]}
-              title={@requests.heading.title}
-              state={@requests.heading.state}
-              received_at={@requests.heading.received_at}
-              conversation_link={@requests.heading.conversation_link}
-            />
-            <EpisodePage.admission_recovery
-              :if={@requests.selected[:recovery]}
-              recovery={@requests.selected.recovery}
-            />
-            <EpisodePage.getting_ready
-              :if={@requests[:preparation]}
-              steps={@requests.preparation}
-              requests={@requests.timeline}
-              answer={@requests[:answer] || []}
-            />
-          </div>
+          <EpisodePage.message_page :if={@native == :request} view={@requests} />
           <section :if={@native == :not_found} class="document-unavailable">
             <h1>This record is unavailable</h1><p>
               It does not exist or is no longer available. Check the link, or start again from Activity.

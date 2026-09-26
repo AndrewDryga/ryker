@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
 
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection, RequestPage}
+  alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
@@ -333,13 +333,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     assert {:ok, view} = ModelRequests.project_input(entry.id, %{})
     assert view.selected.counts["candidate_episodes"] == %{candidate_ref => href}
 
-    html =
-      render_component(&RequestPage.render/1,
-        view: view,
-        params: %{},
-        path: "/timeline/#{entry.id}"
-      )
-
+    html = render_component(&EpisodePage.message_page/1, view: view)
     document = LazyHTML.from_document(html)
 
     assert document

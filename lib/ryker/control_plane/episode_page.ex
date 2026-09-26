@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   use Phoenix.Component
   import Ryker.ControlPlane.Components
 
-  alias Ryker.ControlPlane.{EpisodeRequest, EpisodeTrace, RequestContextHTML, RequestPage}
+  alias Ryker.ControlPlane.{EpisodeRequest, EpisodeTrace, Kit, RequestContextHTML, RequestPage}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
 
@@ -278,32 +278,186 @@ defmodule Ryker.ControlPlane.EpisodePage do
   end
 
   @doc """
-  The page heading for a message that has not become an episode yet.
+  The page of a message that has no request of its own: a greeting routing
+  answered itself, a message it reacted to or left alone, or one still waiting
+  for routing.
 
-  It is the same furniture as an episode: the title of the request, its state,
-  where it came from and when. A message waiting on routing is an episode that
-  has not started, not a different kind of thing with a page of its own.
+  It is the request page's own furniture, not a second design (Andrew,
+  2026-09-26: "why this page is so different … last one is properly designed
+  while other IDK what is that even?!"): the header with what the message says
+  and what happened to it, the summary strip with what applies, and one
+  Message band with the message as it was sent, what routing decided and what
+  Ryker sent. The thread around the message follows, then the cards that show
+  how routing got there, each as the request page draws it.
   """
-  attr(:title, :string, required: true)
-  attr(:state, :string, default: "not_started")
-  attr(:received_at, :any, default: nil)
-  attr(:source, :any, default: nil)
-  attr(:conversation_link, :map, default: nil)
+  attr(:view, :map, required: true, doc: "`Ryker.ControlPlane.ModelRequests.project_input/2`")
 
-  def unrouted_intro(assigns) do
+  def message_page(assigns) do
+    view = assigns.view
+    {results, details} = message_entries(view)
+
+    intake = %{
+      id: "story-message-#{view.message.id}",
+      kind: :message,
+      at: view.message.at,
+      message: view.message
+    }
+
+    phases =
+      [ready: [intake], routing: results, answer: view.answer]
+      |> Enum.reject(fn {_band, steps} -> steps == [] end)
+      |> Enum.map(fn {band, steps} -> %{band: band, steps: steps, turn: nil} end)
+
+    band = %{
+      band: :conversation,
+      conversation_turn: 1,
+      kind: :conversation,
+      marker: "M",
+      phases: phases,
+      title: "Message"
+    }
+
+    source = view.heading.source
+
+    assigns =
+      assign(assigns,
+        band: band,
+        details: details,
+        outcome: message_outcome(results, view.answer),
+        # A Chat message's source is the Chat itself; the header links there once.
+        source:
+          if(
+            source && view.heading.conversation_link &&
+              source.href == view.heading.conversation_link.href,
+            do: nil,
+            else: source
+          ),
+        links:
+          Enum.reject(
+            [
+              view.thread && %{href: "#in-this-thread", label: view.thread.title},
+              details != [] && %{href: "#routing-details", label: "Routing details"}
+            ],
+            &(&1 in [nil, false])
+          )
+      )
+
     ~H"""
-    <div class="episode-page-intro">
-      <.link navigate="/" class="back-to-activity">← Activity</.link>
-      <div class="episode-title-row">
-        <h1>{@title}</h1><.status state={@state} />
+    <div class="episode-workbench execution-document">
+      <div class="episode-page-intro">
+        <.link navigate="/" class="back-to-activity">← Activity</.link>
+        <div class="episode-title-row">
+          <div class="episode-title-copy">
+            <p class="episode-initial-label">Message</p>
+            <h1>{@view.heading.title}</h1>
+          </div>
+        </div>
+        <p class="episode-location">
+          <.status state={@view.heading.state} />
+          <time :if={@view.heading.received_at}>{timestamp(@view.heading.received_at)}</time>
+          <a :if={@outcome} href={@outcome}>Jump to latest outcome ↓</a>
+          <a :if={@source} href={@source.href} target="_blank" rel="noopener noreferrer">{@source.label} →</a>
+          <a
+            :if={@view.heading.conversation_link}
+            href={@view.heading.conversation_link.href}
+          >{@view.heading.conversation_link.label} →</a>
+        </p>
       </div>
-      <p class="episode-location">
-        <time :if={@received_at}>{timestamp(@received_at)}</time>
-        <a :if={@source} href={@source.href} target="_blank" rel="noopener noreferrer">{@source.label} →</a>
-        <a :if={@conversation_link} href={@conversation_link.href}>{@conversation_link.label} →</a>
-      </p>
+      <.admission_recovery :if={@view.selected[:recovery]} recovery={@view.selected.recovery} />
+      <section
+        :if={@view.metrics.response_ms || @view.metrics.cost}
+        class="episode-metrics"
+        aria-label="Message summary"
+      >
+        <div :if={@view.metrics.response_ms} class="metric-group metric-group-timing">
+          <p class="metric-group-label">Timing</p>
+          <dl class="metric-group-items">
+            <div class="metric metric-response">
+              <dt>Response time</dt><dd>{duration_ms(@view.metrics.response_ms)}</dd>
+            </div>
+          </dl>
+        </div>
+        <div :if={@view.metrics.cost} class="metric-group metric-group-cost">
+          <p class="metric-group-label">Cost</p>
+          <dl class="metric-group-items">
+            <div class="metric metric-cost">
+              <dt>Routing cost</dt><dd>{@view.metrics.cost}</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+      <section class="case-timeline" id="execution-timeline" aria-label="Message timeline">
+        <h2 class="sr-only">Message timeline</h2>
+        <.timeline_bands groups={[@band]} started_at={@view.heading.received_at} links={@links} />
+      </section>
+      <section
+        :if={@view.thread}
+        id="in-this-thread"
+        class="message-thread"
+        aria-label={@view.thread.title}
+      >
+        <Kit.section_head title={@view.thread.title} lede={@view.thread.lede} />
+        <Kit.entity_list label={@view.thread.title}>
+          <Kit.entity_row
+            :for={item <- @view.thread.items}
+            id={item.id}
+            name={item.name}
+            href={item.href}
+            navigate
+            link_row
+            tag={if item.current, do: "This message"}
+            state={item.state}
+            at={item.clock}
+            at_time={item.at}
+            group={item.group}
+            meta={item.meta}
+          />
+        </Kit.entity_list>
+        <p :if={@view.thread.truncated} class="message-thread-bound">
+          Showing the {@view.thread.limit} messages nearest this one.
+          <a href={@view.thread.all_href}>{@view.thread.all_label} →</a>
+        </p>
+      </section>
+      <section
+        :if={@details != []}
+        id="routing-details"
+        class="case-timeline routing-details"
+        aria-label="Routing details"
+      >
+        <Kit.section_head
+          title="Routing details"
+          lede="Why Ryker read the message, when routing picked it up, the earlier work it looked for and what the model was sent."
+        />
+        <div class="phase-entries">
+          <.entry :for={entry <- @details} entry={entry} />
+        </div>
+      </section>
     </div>
     """
+  end
+
+  # One sequence in time order, as on a request's page, so a retried message
+  # reads attempt by attempt and a wait that ran out folds into the result it
+  # waited on; then what routing decided goes in the band, and the rest below,
+  # where a decision's links to its briefing point.
+  defp message_entries(view) do
+    {results, details} =
+      view.preparation
+      |> Enum.map(&%{id: "event-#{&1.id}", kind: :event, step: &1, at: &1.at})
+      |> Kernel.++(requests_with_links(view.timeline, %{}))
+      |> Enum.sort_by(&(&1[:sort_at] || &1.at), &(DateTime.compare(&1, &2) != :gt))
+      |> fold_waits()
+      |> merge_queue_runs()
+      |> Enum.split_with(&match?(%{kind: :request, phase: :result}, &1))
+
+    {Enum.map(results, &Map.put(&1, :briefing_below, true)), details}
+  end
+
+  defp message_outcome(results, answer) do
+    case List.last(answer) || List.last(results) do
+      %{id: id} -> "#" <> id
+      nil -> nil
+    end
   end
 
   @doc """
@@ -394,66 +548,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           Long artifacts are labeled when truncated.
         </span>
       </p>
-      <nav :if={@groups != []} class="timeline-index" aria-label="Jump to chapter">
-        <span>Jump to</span>
-        <ol>
-          <li :for={{group, index} <- Enum.with_index(@groups, 1)}>
-            <a href={"#chapter-#{index}"}>{group.title}</a>
-          </li>
-        </ol>
-      </nav>
-      <section
-        :for={{group, index} <- Enum.with_index(@groups, 1)}
-        class={"trace-chapter timeline-group #{if group.kind == :conversation, do: "conversation-chapter", else: "background-chapter"} phase-#{group.band}"}
-        data-conversation-turn={group.conversation_turn}
-        aria-labelledby={"chapter-#{index}"}
-      >
-        <div
-          class="chapter-heading"
-          id={if group.kind == :conversation, do: message_anchor(group)}
-          tabindex={if group.kind == :conversation, do: "-1"}
-        >
-          <span class="phase-number" aria-hidden="true">{group.marker}</span>
-          <div class="chapter-description">
-            <p :if={group.kind == :background} class="chapter-background">Background</p>
-            <h3 id={"chapter-#{index}"}>{group.title}</h3>
-            <p :if={group[:description]}>{group.description}</p>
-          </div>
-          <.timeline_jumps links={message_jumps(@groups, group)} label="Message navigation" />
-        </div>
-        <section
-          :for={{phase, phase_index} <- Enum.with_index(group.phases, 1)}
-          class={"conversation-phase phase-#{phase.band}"}
-          aria-labelledby={
-            if(group.kind == :conversation, do: "chapter-#{index}-phase-#{phase_index}")
-          }
-          aria-label={if(group.kind == :background, do: group.title)}
-        >
-          <div
-            :if={group.kind == :conversation}
-            class="conversation-phase-heading"
-            id={phase_anchor(group, phase)}
-            tabindex="-1"
-          >
-            <h4 id={"chapter-#{index}-phase-#{phase_index}"}>{phase_title(phase.band)}</h4>
-            <span :if={phase_summary(phase)} class="phase-summary">{phase_summary(phase)}</span>
-            <p :if={turn_association(phase)} class="turn-association">
-              {turn_association(phase)}
-            </p>
-            <span class="chapter-span" title="Time since the first message">{chapter_span(
-              phase,
-              @snapshot.trace.received_at
-            )} from start</span>
-            <.timeline_jumps
-              links={phase_jumps(group, phase_index)}
-              label="Stage navigation"
-            />
-          </div>
-          <div class="phase-entries">
-            <.entry :for={entry <- phase.steps} entry={entry} />
-          </div>
-        </section>
-      </section>
+      <.timeline_bands groups={@groups} started_at={@snapshot.trace.received_at} />
       <div id="latest-outcome" class="case-outcome">
         <div
           :if={@snapshot.trace.case_file.awaiting_reply && !@snapshot.trace[:startup]}
@@ -465,6 +560,77 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </div>
         <a href="#execution-timeline">Back to start ↑</a>
       </div>
+    </section>
+    """
+  end
+
+  attr(:groups, :list, required: true)
+  attr(:started_at, :any, required: true, doc: "The first message's time, where spans count from")
+  attr(:links, :list, default: [], doc: "Parts of the page after the timeline, for Jump to")
+
+  # The Jump to line and the bands: each message's band with its stages, then
+  # any background chapters. The request page and a message's own page draw
+  # them the same way.
+  defp timeline_bands(assigns) do
+    ~H"""
+    <nav :if={@groups != []} class="timeline-index" aria-label="Jump to chapter">
+      <span>Jump to</span>
+      <ol>
+        <li :for={{group, index} <- Enum.with_index(@groups, 1)}>
+          <a href={"#chapter-#{index}"}>{group.title}</a>
+        </li>
+        <li :for={link <- @links}><a href={link.href}>{link.label}</a></li>
+      </ol>
+    </nav>
+    <section
+      :for={{group, index} <- Enum.with_index(@groups, 1)}
+      class={"trace-chapter timeline-group #{if group.kind == :conversation, do: "conversation-chapter", else: "background-chapter"} phase-#{group.band}"}
+      data-conversation-turn={group.conversation_turn}
+      aria-labelledby={"chapter-#{index}"}
+    >
+      <div
+        class="chapter-heading"
+        id={if group.kind == :conversation, do: message_anchor(group)}
+        tabindex={if group.kind == :conversation, do: "-1"}
+      >
+        <span class="phase-number" aria-hidden="true">{group.marker}</span>
+        <div class="chapter-description">
+          <p :if={group.kind == :background} class="chapter-background">Background</p>
+          <h3 id={"chapter-#{index}"}>{group.title}</h3>
+          <p :if={group[:description]}>{group.description}</p>
+        </div>
+        <.timeline_jumps links={message_jumps(@groups, group)} label="Message navigation" />
+      </div>
+      <section
+        :for={{phase, phase_index} <- Enum.with_index(group.phases, 1)}
+        class={"conversation-phase phase-#{phase.band}"}
+        aria-labelledby={if(group.kind == :conversation, do: "chapter-#{index}-phase-#{phase_index}")}
+        aria-label={if(group.kind == :background, do: group.title)}
+      >
+        <div
+          :if={group.kind == :conversation}
+          class="conversation-phase-heading"
+          id={phase_anchor(group, phase)}
+          tabindex="-1"
+        >
+          <h4 id={"chapter-#{index}-phase-#{phase_index}"}>{phase_title(phase.band)}</h4>
+          <span :if={phase_summary(phase)} class="phase-summary">{phase_summary(phase)}</span>
+          <p :if={turn_association(phase)} class="turn-association">
+            {turn_association(phase)}
+          </p>
+          <span class="chapter-span" title="Time since the first message">{chapter_span(
+            phase,
+            @started_at
+          )} from start</span>
+          <.timeline_jumps
+            links={phase_jumps(group, phase_index)}
+            label="Stage navigation"
+          />
+        </div>
+        <div class="phase-entries">
+          <.entry :for={entry <- phase.steps} entry={entry} />
+        </div>
+      </section>
     </section>
     """
   end
@@ -818,72 +984,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp minor_entry?(_entry), do: false
 
-  @doc """
-  The Getting ready cards for an input that has no Timeline of its own yet.
-
-  The standalone input view reuses the Timeline's card components so an input
-  that was never picked up explains itself exactly the way an admitted one does.
-  """
-  def getting_ready(assigns) do
-    requests = List.wrap(assigns[:requests])
-    assigns = assign_new(assigns, :answer, fn -> [] end)
-
-    # One sequence in time order, as on an episode page, so a retried input
-    # reads attempt by attempt instead of all queue history first.
-    entries =
-      (Enum.map(assigns.steps, &%{id: "event-#{&1.id}", kind: :event, step: &1, at: &1.at}) ++
-         requests)
-      |> Enum.sort_by(&(&1[:sort_at] || &1.at), &(DateTime.compare(&1, &2) != :gt))
-      |> fold_waits()
-      |> merge_queue_runs()
-
-    assigns = assign(assigns, :entries, entries)
-
-    ~H"""
-    <section
-      class="case-timeline standalone-preparation"
-      id="execution-timeline"
-      aria-label="Complete execution timeline"
-    >
-      <h2 class="sr-only">Execution timeline</h2>
-      <section class="trace-chapter phase-ready" aria-labelledby="standalone-getting-ready">
-        <div class="chapter-heading">
-          <span class="phase-number" aria-hidden="true">01</span>
-          <div class="chapter-description">
-            <h3 id="standalone-getting-ready">Getting ready</h3>
-            <p>{chapter_description(:ready)}</p>
-          </div>
-        </div>
-        <div class="phase-entries">
-          <.entry :for={entry <- @entries} entry={entry} />
-        </div>
-      </section>
-      <section
-        :if={@answer != []}
-        class="trace-chapter phase-answer"
-        aria-labelledby="standalone-answer"
-      >
-        <div class="chapter-heading">
-          <span class="phase-number" aria-hidden="true">02</span>
-          <div class="chapter-description">
-            <h3 id="standalone-answer">Answer</h3>
-            <p>What Ryker sent without starting work.</p>
-          </div>
-        </div>
-        <div class="phase-entries">
-          <.entry
-            :for={step <- @answer}
-            entry={%{id: "event-#{step.id}", kind: :event, step: step, at: step.at}}
-          />
-        </div>
-      </section>
-    </section>
-    """
-  end
-
   attr(:recovery, :map, required: true)
 
-  def admission_recovery(assigns) do
+  # A message routing stopped on, with the way to retry it.
+  defp admission_recovery(assigns) do
     ~H"""
     <section class="story-stop admission-recovery" aria-labelledby="admission-recovery-heading">
       <h2 id="admission-recovery-heading">Routing needs attention</h2>
@@ -1147,6 +1251,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
     </p>
     """
   end
+
+  defp message_title(%{title: title}) when is_binary(title), do: title
 
   defp message_title(%{response_reference: reference}) when is_binary(reference),
     do: "Sent response"

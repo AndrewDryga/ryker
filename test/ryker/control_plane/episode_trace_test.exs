@@ -222,7 +222,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
     assert detail.trace.source == %{
              href: "https://slack.com/archives/C456/p1788562304000100",
-             label: "Open source message",
+             label: "Open in Slack",
              transport: "Slack"
            }
 

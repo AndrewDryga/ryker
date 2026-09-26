@@ -133,15 +133,44 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   defp task_title(_), do: nil
 
-  defp input_title(%{available: true, text: text} = first) do
-    text
-    |> String.split("\n", parts: 2)
-    |> hd()
-    |> SlackMarkdown.plain(first[:workspace])
-    |> bounded(120)
-  end
+  defp input_title(%{available: true, text: text} = first),
+    do: first_line(text, first[:workspace])
 
   defp input_title(_), do: "Untitled request"
+
+  @doc """
+  One message as the case file shows it, for a page about that message alone:
+  who sent it and when, its retained words and their provenance. `disclosed`
+  names the bodies the reader opened.
+  """
+  @spec input_message(Entry.t(), MapSet.t()) :: map()
+  def input_message(%Entry{} = input, disclosed) do
+    case_message(input,
+      secrets: InspectionRedactor.configured_secrets(),
+      max_bytes: 12_000,
+      disclosed: disclosed
+    )
+  end
+
+  @doc """
+  A message's heading as people read it: its first line, the people and
+  channels it mentions named from the Slack directory, never their raw ids.
+  """
+  @spec message_heading(map()) :: String.t()
+  def message_heading(%{available: true, text: text} = message)
+      when is_binary(text) and text != "",
+      do: first_line(text, message[:workspace])
+
+  def message_heading(_message), do: "Message text no longer available"
+
+  defp first_line(text, workspace) do
+    text
+    |> String.trim_leading()
+    |> String.split("\n", parts: 2)
+    |> hd()
+    |> SlackMarkdown.plain(workspace)
+    |> bounded(120)
+  end
 
   defp case_repository(%Session{repository_ref: ref}, _) when is_binary(ref), do: ref
   defp case_repository(_, first), do: first && first.repository
@@ -371,23 +400,4 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   defp case_reply_status(%{delivered_at: %DateTime{}}), do: "Response sent"
   defp case_reply_status(%{accepted_at: %DateTime{}}), do: "Accepted · delivery not confirmed"
   defp case_reply_status(_turn), do: nil
-
-  @doc """
-  The heading a message carries before it becomes an episode.
-
-  The same sentence the episode page shows for a case file: the request itself,
-  shortened, and redacted the way every other retained text is.
-  """
-  @spec unrouted_title(Entry.t()) :: String.t()
-  def unrouted_title(%Entry{operational_pruned_at: nil, content: content}) do
-    case SourceText.from_content(content) do
-      text when is_binary(text) and text != "" ->
-        InspectionRedactor.artifact(text, max_bytes: 160).text
-
-      _absent ->
-        "Message waiting on routing"
-    end
-  end
-
-  def unrouted_title(%Entry{}), do: "Message waiting on routing"
 end

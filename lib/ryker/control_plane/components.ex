@@ -755,8 +755,13 @@ defmodule Ryker.ControlPlane.Components do
   # schemas hold; both name the same tone. Their words are Episodes.Words.
   def tone(value) when is_atom(value) and not is_nil(value), do: tone(Atom.to_string(value))
   def tone(value) when value in ["blocked", "waiting_for_input", "not_started"], do: "attention"
-  def tone(value) when value in ["working", "pending", "delivery_pending"], do: "active"
-  def tone("complete"), do: "done"
+
+  def tone(value) when value in ["working", "pending", "routing", "delivery_pending"],
+    do: "active"
+
+  # What routing did for a message that started no work, as a finished
+  # request reads: its answer and its reaction were sent.
+  def tone(value) when value in ["complete", "quick_reply", "react"], do: "done"
   def tone(_), do: "quiet"
 
   def timestamp(%DateTime{} = value), do: Calendar.strftime(value, "%d %b, %H:%M UTC")

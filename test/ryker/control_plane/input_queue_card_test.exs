@@ -449,7 +449,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     refute card =~ "Waiting for a routing worker"
   end
 
-  test "the standalone input view carries both preparation cards" do
+  test "a message's own page carries both preparation cards" do
     {entry, _input} = pending!()
     html = standalone(entry)
 
@@ -485,11 +485,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
 
   defp standalone(entry) do
     {:ok, view} = ModelRequests.project_input(entry.id, %{})
-
-    render_component(&EpisodePage.getting_ready/1,
-      steps: view.preparation,
-      requests: view.timeline
-    )
+    render_component(&EpisodePage.message_page/1, view: view)
   end
 
   defp attempt!(entry, at) do
