@@ -2070,7 +2070,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
             "<dl class=\"context-rows\">",
             message_detail("Source", message_source(input)),
             message_detail("Sender ID", message_sender(input)),
-            message_detail("Attachments", attachment_count(input)),
+            message_detail("Attachments", attachments(input)),
             "</dl>",
             Components.disclosure_html(
               "Raw event (JSON)",
@@ -2112,16 +2112,21 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     actor["display_name"] || actor["name"] || actor["ref"] || input["actor_ref"]
   end
 
-  defp attachment_count(input) do
+  # The files a message carried by name, so the card says which log or
+  # screenshot it was and that one was refused (manual testing, 2026-09-26:
+  # "1 attachment"); a platform's rich attachments have no name to give.
+  defp attachments(input) do
     content = if is_map(input["content"]), do: input["content"], else: %{}
+    files = content["files"] |> List.wrap() |> Enum.map(&file_label/1)
+    rich = content["attachments"] |> List.wrap() |> length()
+    parts = files ++ if(rich > 0, do: [count(rich, "attachment")], else: [])
 
-    count =
-      [content["attachments"], content["files"]]
-      |> Enum.flat_map(&List.wrap/1)
-      |> length()
-
-    if count > 0, do: count(count, "attachment")
+    if parts != [], do: Enum.join(parts, ", ")
   end
+
+  defp file_label(%{"status" => "available", "name" => name}) when is_binary(name), do: name
+  defp file_label(%{"status" => "unavailable"}), do: "a file Ryker could not read"
+  defp file_label(_file), do: "a file"
 
   defp actor_label(%{"actor" => actor} = input) when is_binary(actor),
     do: input |> Map.delete("actor") |> Map.put("actor_ref", actor) |> actor_label()

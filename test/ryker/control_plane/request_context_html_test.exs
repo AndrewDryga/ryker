@@ -1088,6 +1088,48 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     refute text =~ "Source fields and attachment metadata"
   end
 
+  # Manual testing, 2026-09-26: a message carrying a log read "Attachments:
+  # 1 attachment" on its card, so nobody could tell which file it was, or
+  # that a second one had been refused.
+  test "a message's card names the files it carried and the one Ryker could not read" do
+    context = %{
+      "inputs" => %{
+        "items" => [
+          %{
+            "current" => true,
+            "source" => %{"kind" => "control_plane", "ref" => "local"},
+            "actor" => %{"kind" => "user", "ref" => "local-operator"},
+            "content" => %{
+              "text" => "Summarize the attached log.",
+              "files" => [
+                %{"status" => "available", "name" => "probe.log", "bytes" => 35},
+                %{"status" => "unavailable", "reason" => "unsupported_media_type"}
+              ]
+            },
+            "occurred_at" => "2026-09-26T14:47:51Z"
+          }
+        ]
+      }
+    }
+
+    document =
+      context
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "messages", %{
+        "inputs" => %{label: "1 message", known?: true}
+      })
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    [attachments] =
+      document
+      |> LazyHTML.query(".context-message-details div")
+      |> Enum.filter(&(LazyHTML.text(LazyHTML.query(&1, "dt")) == "Attachments"))
+
+    assert LazyHTML.text(LazyHTML.query(attachments, "dd")) ==
+             "probe.log, a file Ryker could not read"
+  end
+
   test "related history separates continuation and context matches with compact counts" do
     candidate = %{
       "episode_ref" => "candidate:opaque",
