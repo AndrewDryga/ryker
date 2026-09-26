@@ -82,22 +82,36 @@ defmodule Ryker.ControlPlane.RepositoryImport do
             </.link>
           </div>
         </div>
-        <form :if={@repositories != []} phx-submit="import-github-repositories">
+        <%!-- Nothing starts ticked, and the add button counts the choice: 37
+        ticked rows meant unticking 32 to choose 5 (Andrew, 2026-09-26). --%>
+        <form
+          :if={@repositories != []}
+          id="repository-picker"
+          phx-submit="import-github-repositories"
+          phx-hook="RepositoryPicker"
+        >
           <label class="repository-search">
             <span>Search {length(@repositories)} repositories</span><input
               id="repository-search"
               type="search"
               placeholder="Owner or repository name"
-              phx-hook="RepositorySearch"
+              data-repository-search
             />
           </label>
+          <div class="repository-select-all">
+            <button type="button" class="ui-button quiet" data-repository-select="all">
+              Select all shown
+            </button>
+            <button type="button" class="ui-button quiet" data-repository-select="none">
+              Select none
+            </button>
+          </div>
           <ul>
             <li :for={repository <- @repositories} data-repository-name={repository.full_name}>
               <label><input
                 type="checkbox"
                 name="repository_ids[]"
                 value={repository.repository_id}
-                checked={!repository.already_present}
                 disabled={repository.already_present}
               />
               <strong>{repository.full_name}</strong><span>{if repository.already_present,
@@ -112,10 +126,17 @@ defmodule Ryker.ControlPlane.RepositoryImport do
             checked={@view.snapshot.github.auto_add_repositories}
           /> Add new repositories automatically when the app gets access to them</label>
           <div class="repository-import-actions">
-            <button class="ui-button secondary" type="submit" name="import_mode" value="selected">
-              Add selected
+            <button
+              class="ui-button primary"
+              type="submit"
+              name="import_mode"
+              value="selected"
+              data-repository-add-selected
+              disabled
+            >
+              Add 0 selected
             </button>
-            <button class="ui-button primary" type="submit" name="import_mode" value="all">Add all {Enum.count(
+            <button class="ui-button secondary" type="submit" name="import_mode" value="all">Add all {Enum.count(
               @repositories,
               &(!&1.already_present)
             )}</button>

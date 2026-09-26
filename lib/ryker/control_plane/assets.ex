@@ -24,6 +24,7 @@ defmodule Ryker.ControlPlane.Assets do
     "reading-state.mjs" => {:ryker, "priv/static/reading-state.mjs", "text/javascript"},
     "settings-draft.mjs" => {:ryker, "priv/static/settings-draft.mjs", "text/javascript"},
     "relearn-selection.mjs" => {:ryker, "priv/static/relearn-selection.mjs", "text/javascript"},
+    "repository-picker.mjs" => {:ryker, "priv/static/repository-picker.mjs", "text/javascript"},
     "control-plane.css" => {:ryker, "priv/static/control-plane.css", "text/css"},
     "ryker-tokens.css" => {:ryker, "priv/static/ryker-tokens.css", "text/css"},
     "workspace.css" => {:ryker, "priv/static/workspace.css", "text/css"}

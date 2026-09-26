@@ -1834,6 +1834,8 @@
 .ryker-app .repository-search input { box-sizing:border-box; width:100%; max-width:420px; min-height:var(--ryker-control-height); padding:8px 12px; border:1px solid var(--ryker-control-border); border-radius:8px; background:var(--ryker-control-bg); color:var(--ryker-text); font:inherit; font-size:14px; }
 .repository-import .member-choice { display:flex; align-items:center; gap:8px; font-size:14px; line-height:20px; color:var(--ryker-text); }
 .repository-import-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.repository-select-all { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0; }
+.ryker-app .repository-import-actions .ui-button:disabled { opacity:.55; cursor:not-allowed; }
 .repository-connect-prompt, .repository-discovery-result { display:flex; align-items:center; justify-content:space-between; gap:16px; }
 .repository-connect-prompt p, .repository-discovery-result p { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
 .repository-discovery-result strong { display:block; margin-bottom:2px; font-size:14px; color:var(--ryker-text); }
