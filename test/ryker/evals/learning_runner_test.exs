@@ -304,7 +304,11 @@ defmodule Ryker.Evals.LearningRunnerTest do
         client: fake,
         policy: "learning-evaluation-only",
         policy_digest: String.duplicate("a", 64),
-        max_polls: 20
+        max_polls: 400,
+        # The recorded provider answers at once: waiting like a live run cost
+        # this suite 97 s of every gate. Polls return as soon as a batch ends.
+        poll_interval_ms: 10,
+        step_delay_seconds: 0
       }
     }
   end
