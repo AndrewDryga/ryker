@@ -570,8 +570,18 @@ defmodule Ryker.Slack.ClientTest do
     assert joined_requester |> client() |> Client.joined_conversations() ==
              {:ok,
               [
-                %{channel_ref: "C123", external_shared: false, private: false},
-                %{channel_ref: "G456", external_shared: false, private: true}
+                %{
+                  channel_ref: "C123",
+                  external_shared: false,
+                  name: "backend-ops",
+                  private: false
+                },
+                %{
+                  channel_ref: "G456",
+                  external_shared: false,
+                  name: "private-incident",
+                  private: true
+                }
               ]}
   end
 

@@ -55,7 +55,15 @@ defmodule Ryker.Slack.API do
               {:ok, :active | :archived} | :not_found | {:error, term()}
   @callback list_bookmarks(term(), String.t()) :: {:ok, [map()]} | {:error, term()}
   @callback joined_conversations(term()) ::
-              {:ok, [%{channel_ref: String.t(), private: boolean()}]} | {:error, term()}
+              {:ok,
+               [
+                 %{
+                   :channel_ref => String.t(),
+                   :private => boolean(),
+                   optional(:name) => String.t()
+                 }
+               ]}
+              | {:error, term()}
   @callback shared_conversations(term(), String.t(), String.t()) ::
               {:ok, MapSet.t(String.t())} | {:error, term()}
 

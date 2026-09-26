@@ -288,6 +288,7 @@ defmodule Ryker.Slack.Client.Conversations do
           Map.get(channel, "is_member", true),
           private,
           Map.get(channel, "is_ext_shared"),
+          channel["name"],
           refs
         )
 
@@ -303,31 +304,35 @@ defmodule Ryker.Slack.Client.Conversations do
     end
   end
 
-  defp conversation_ref(_channel_ref, false, _private, _external_shared, refs),
+  defp conversation_ref(_channel_ref, false, _private, _external_shared, _name, refs),
     do: {:cont, {:ok, refs}}
 
-  defp conversation_ref(channel_ref, true, private, external_shared, refs)
+  defp conversation_ref(channel_ref, true, private, external_shared, name, refs)
        when is_boolean(external_shared) do
     case Fields.slack_id(channel_ref) do
       :ok ->
-        {:cont,
-         {:ok,
-          [
-            %{
-              channel_ref: channel_ref,
-              external_shared: external_shared,
-              private: private
-            }
-            | refs
-          ]}}
+        channel =
+          named(
+            %{channel_ref: channel_ref, external_shared: external_shared, private: private},
+            name
+          )
+
+        {:cont, {:ok, [channel | refs]}}
 
       {:error, _reason} ->
         {:halt, {:error, {:slack_protocol_error, :conversations}}}
     end
   end
 
-  defp conversation_ref(_channel_ref, _member, _private, _external_shared, _refs),
+  defp conversation_ref(_channel_ref, _member, _private, _external_shared, _name, _refs),
     do: {:halt, {:error, {:slack_protocol_error, :conversations}}}
+
+  # The listing names each channel, and pages show that name; a channel
+  # without a usable one is listed all the same.
+  defp named(channel, name) when is_binary(name) and byte_size(name) in 1..160,
+    do: Map.put(channel, :name, name)
+
+  defp named(channel, _name), do: channel
 
   # --- the conversations Ryker shares with a person -------------------------
 
