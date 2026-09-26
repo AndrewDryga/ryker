@@ -17,6 +17,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Fixtures.ChannelEnvironments
+  alias Ryker.Slack.Runtime, as: SlackRuntime
 
   alias Ryker.Slack.{
     ChannelConfigurations,
@@ -59,6 +60,16 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     end
   end
 
+  defmodule SlowAPI do
+    @moduledoc false
+    # Slack taking longer to answer than anyone should wait for.
+    def update_message(agent, _channel, _message_ref, _document, _delivery_ref) do
+      Agent.update(agent, &Map.put(&1, :asked, true))
+      Process.sleep(3_000)
+      :ok
+    end
+  end
+
   defmodule Directory do
     @moduledoc false
     def user_allowed(_client, _user_ref, _workspace_ref), do: {:ok, true}
@@ -67,6 +78,8 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   setup do
     agent = start_supervised!({Agent, fn -> %{deliveries: %{}, updates: []} end})
     running = start_supervised!({Agent, fn -> true end}, id: :slack_running)
+    slow = start_supervised!({Agent, fn -> false end}, id: :slow_slack)
+    tasks = start_supervised!(Task.Supervisor)
     production = ChannelEnvironments.environment!("production", %{repositories: ["payments"]})
     staging = ChannelEnvironments.environment!("staging")
 
@@ -94,11 +107,24 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
       end
     }
 
+    # What the running Slack runtime does when the page asks for a redraw
+    # (`Ryker.Slack.Runtime.redraw_welcome/3`): start it on a task of its own
+    # and answer the page later, giving up on a Slack that takes too long.
     # Slack switched off has no running runtime to redraw the card with.
     actions =
       Map.put(Actions.callbacks(), :redraw_channel_welcome, fn workspace_ref, channel_ref ->
+        slack = if Agent.get(slow, & &1), do: %{slack | api: SlowAPI}, else: slack
+
         if Agent.get(running, & &1),
-          do: ChannelSetup.redraw_welcome(workspace_ref, channel_ref, slack),
+          do:
+            ChannelSetup.redraw_welcome_async(
+              workspace_ref,
+              channel_ref,
+              slack,
+              self(),
+              tasks,
+              300
+            ),
           else: {:error, :slack_not_running}
       end)
 
@@ -132,7 +158,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
         slack
       )
 
-    %{agent: agent, running: running}
+    %{agent: agent, running: running, slow: slow}
   end
 
   test "an environment chosen on the channel's page redraws its welcome in Slack", %{agent: agent} do
@@ -141,8 +167,10 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
 
     view |> form("#channel-environment", environment: "staging") |> render_submit()
 
-    assert [{"C456", message_ref, document}] = Agent.get(agent, & &1.updates),
+    assert eventually(fn -> Agent.get(agent, & &1.updates) != [] end),
            "the welcome in the channel was not redrawn"
+
+    assert [{"C456", message_ref, document}] = Agent.get(agent, & &1.updates)
 
     assert message_ref ==
              ChannelConfigurations.configuration(@workspace, "C456").welcome_message_ref
@@ -164,7 +192,48 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
            )
   end
 
+  test "a slow Slack never holds up the save, and the page says the card may be stale", context do
+    Agent.update(context.slow, fn _fast -> true end)
+
+    {:ok, view, _html} =
+      live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
+
+    {elapsed, _html} =
+      :timer.tc(
+        fn -> view |> form("#channel-environment", environment: "staging") |> render_submit() end,
+        :millisecond
+      )
+
+    # The page waited for Slack's answer before it said anything (3 seconds
+    # here, and as long as Slack took in production).
+    assert elapsed < 1_000, "the save waited #{elapsed} ms for Slack"
+    assert ChannelConfigurations.configuration(@workspace, "C456").environment_ref == "staging"
+
+    assert has_element?(
+             view,
+             "#channel-environment-notice",
+             "Saved. This channel works in Staging now."
+           )
+
+    # Ryker stops waiting on its own timeout, and the page says what that means.
+    assert eventually(fn ->
+             has_element?(
+               view,
+               "#channel-environment-notice",
+               "Saved. This channel works in Staging now. Slack did not answer in time, so " <>
+                 "Ryker's welcome message in the channel may still show the old environment."
+             )
+           end)
+  end
+
   test "a change the Slack card cannot show yet says so beside the saved choice", context do
+    # The runtime answers at once when Slack has not started: there is no
+    # runtime or task supervisor to redraw anything with.
+    assert Application.get_env(:ryker, :slack) == nil
+
+    assert SlackRuntime.redraw_welcome(@workspace, "C456", self()) ==
+             {:error, :slack_not_running}
+
     Agent.update(context.running, fn _running -> false end)
 
     {:ok, view, _html} =
@@ -184,6 +253,16 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     # Choosing what the channel already uses changes nothing to redraw.
     Agent.update(context.running, fn _running -> true end)
     view |> form("#channel-environment", environment: "staging") |> render_submit()
+    Process.sleep(100)
     assert Agent.get(context.agent, & &1.updates) == []
+  end
+
+  # The redraw answers the page on its own time; wait for it, briefly.
+  defp eventually(check, tries \\ 40) do
+    cond do
+      check.() -> true
+      tries == 0 -> false
+      true -> Process.sleep(50) && eventually(check, tries - 1)
+    end
   end
 end
