@@ -116,6 +116,26 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     refute inspect(running.admission_progress) =~ claim.lease_ref
   end
 
+  # The live install, 2026-09-26: a message retried five hours after it
+  # stopped read "Routing your message 307m 29s" while routing ran again,
+  # counting from when it first arrived instead of from the retry.
+  test "a retried message counts its routing time from the retry" do
+    {:ok, %{entry: entry}} =
+      ConversationLab.send_message(@conversation_id, "hi", profile())
+
+    five_hours_ago = DateTime.add(DateTime.utc_now(), -5, :hour)
+
+    Repo.get!(Ryker.Ingress.Inbox.Entry, entry.id)
+    |> Ecto.Changeset.change(inserted_at: five_hours_ago, status: :blocked)
+    |> Repo.update!()
+
+    assert {:ok, _rearmed} = Inbox.rearm(Inbox.ref(entry))
+
+    assert {:ok, snapshot} = Projection.lab_conversation(@conversation_id)
+    assert [retried] = snapshot.admission_progress
+    assert retried.elapsed_ms < 60_000
+  end
+
   # An attachment-only message is allowed, and its text is the empty string.
   # Admission progress named the row after that text, so the queue beside the
   # message showed a blank title where "Incoming event" belonged.
