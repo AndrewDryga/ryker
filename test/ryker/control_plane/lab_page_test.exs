@@ -51,7 +51,8 @@ defmodule Ryker.ControlPlane.LabPageTest do
   # uppercase TODAY and EARLIER, rows of uneven height, a date where a time
   # belonged, and a status dot of its own. Each row is now one line of title
   # with its clock time at the edge and its state under it as the Kit's dot
-  # and word, and only the open conversation is marked.
+  # and word, and only the open conversation is marked. QA, 2026-09-25: the
+  # time said UTC in Chat's messages but not in this list.
   test "each conversation is one steady row under its day: title, time, state" do
     document =
       render_component(&LabPage.render/1, lab_assigns(directory(), "c"))
@@ -72,12 +73,13 @@ defmodule Ryker.ControlPlane.LabPageTest do
               LazyHTML.attribute(time, "title"), LazyHTML.attribute(state, "data-tone"),
               LazyHTML.text(state)}
            end) == [
-             {"Read the automations", "04:12", ["04:12 UTC"], ["busy"], "Working"},
-             {"Read the automations", "03:54", ["03:54 UTC"], ["off"], "Replied"},
-             {"Yesterday's thread", "23:59", ["12 Sep, 23:59 UTC"], ["warn"], "Needs attention"},
-             {"Deploy review", "18:20", ["10 Sep, 18:20 UTC"], ["warn"], "Waiting for you"},
-             {"Check why Livebook has zero instances", "23:04", ["06 Sep, 23:04 UTC"], ["busy"],
-              "Waiting"}
+             {"Read the automations", "04:12 UTC", ["04:12 UTC"], ["busy"], "Working"},
+             {"Read the automations", "03:54 UTC", ["03:54 UTC"], ["off"], "Replied"},
+             {"Yesterday's thread", "23:59 UTC", ["12 Sep, 23:59 UTC"], ["warn"],
+              "Needs attention"},
+             {"Deploy review", "18:20 UTC", ["10 Sep, 18:20 UTC"], ["warn"], "Waiting for you"},
+             {"Check why Livebook has zero instances", "23:04 UTC", ["06 Sep, 23:04 UTC"],
+              ["busy"], "Waiting"}
            ]
 
     assert LazyHTML.query(document, "a.lab-directory-item[aria-current=page]")

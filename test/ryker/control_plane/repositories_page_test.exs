@@ -69,12 +69,37 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     document = render([@repository, %{@repository | ref: "emisar", configured: nil}])
 
     assert outline(document, "div.repositories-page > *") == [
+             "p.kit-counts",
              "div.kit-toolbar",
              "div.entity-list"
            ]
 
     assert Enum.count(LazyHTML.query(document, "article.entity-row[role=listitem]")) == 2
     assert Enum.empty?(LazyHTML.query(document, "table, h1, h2, .result-count"))
+  end
+
+  test "the page leads with how many repositories it lists, like every list page" do
+    # QA, 2026-09-25: Repositories had no counts row while Environments said
+    # "0 environments"; the list's size and what needs a person come first.
+    needs = put_in(@repository, [:configured, :github_access], :removed)
+
+    for {items, params, counts} <- [
+          {[], %{}, ["0 repositories"]},
+          {[@repository], %{}, ["1 repository"]},
+          {[@repository, %{needs | ref: "acme/billing-api"}], %{},
+           ["2 repositories", "1 needs attention"]},
+          {[@repository], %{"q" => "checkout"}, ["1 matching"]}
+        ] do
+      document = render(items, params)
+
+      assert document
+             |> LazyHTML.query(".kit-counts .kit-count")
+             |> Enum.map(&(&1 |> LazyHTML.text() |> squeeze())) == counts
+
+      if counts |> List.last() |> String.ends_with?("attention") do
+        assert LazyHTML.query(document, ".kit-count[data-tone=warn]") |> Enum.count() == 1
+      end
+    end
   end
 
   test "a ready repository names itself as owner/repo and says where it is used" do

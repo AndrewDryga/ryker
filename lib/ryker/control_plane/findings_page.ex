@@ -7,21 +7,34 @@ defmodule Ryker.ControlPlane.FindingsPage do
   """
   use Phoenix.Component
 
-  import Ryker.ControlPlane.Components, only: [pager: 1]
+  import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1]
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, MemoryFormat}
 
   @doc "The query keys the Findings page reads."
-  def query_keys, do: ["page"]
+  def query_keys, do: ["page", "q"]
 
   @doc "The Findings body for a `FindingsProjection` page."
   @spec html(map()) :: iodata()
   def html(view), do: %{__changed__: nil, view: view} |> render() |> Safe.to_iodata()
 
   def render(assigns) do
+    assigns = assign(assigns, :q, Map.get(assigns.view, :q, ""))
+
     ~H"""
     <div class="memory-view memory-findings">
+      <Kit.counts label="Findings" items={counts(@view, @q)} />
+      <Kit.toolbar :if={@view.total > 0 or @q != ""}>
+        <.filter_toolbar
+          id="findings-search"
+          path="/memory/findings"
+          label="Search findings"
+          placeholder="Search findings"
+          query={@q}
+          filtered={@q != ""}
+        />
+      </Kit.toolbar>
       <Kit.entity_list :if={@view.items != []} label="Findings">
         <Kit.entity_row
           :for={item <- @view.items}
@@ -52,19 +65,41 @@ defmodule Ryker.ControlPlane.FindingsPage do
         </Kit.entity_row>
       </Kit.entity_list>
       <Kit.empty
-        :if={@view.items == []}
+        :if={@view.items == [] and @q != ""}
+        title={"No findings match “#{@q}”"}
+        text="Try other words, or clear the search to see every finding."
+      />
+      <Kit.empty
+        :if={@view.items == [] and @q == ""}
         title="No findings yet"
         text="When Ryker investigates a problem, it saves what it concluded here, with the evidence behind it."
       />
       <.pager
         page={@view.page}
         pages={@view.pages}
-        path={&"/memory/findings?page=#{&1}"}
+        path={&page_path(@q, &1)}
         label="Finding pages"
       />
     </div>
     """
   end
+
+  # How many findings the list holds, then how many are not explained yet.
+  defp counts(view, q) do
+    unexplained = Map.get(view, :unexplained, 0)
+
+    [
+      Kit.list_total(view.total, {"finding", "findings"}, q != ""),
+      unexplained > 0 &&
+        %{value: unexplained, label: "not explained yet", tone: :warn}
+    ]
+    |> Enum.filter(& &1)
+  end
+
+  defp page_path("", page), do: "/memory/findings?page=#{page}"
+
+  defp page_path(q, page),
+    do: "/memory/findings?" <> URI.encode_query(%{"q" => q, "page" => page})
 
   defp state("unexplained"), do: {:warn, "Not explained yet"}
   defp state("explained"), do: {:on, "Explained"}

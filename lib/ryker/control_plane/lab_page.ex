@@ -131,7 +131,7 @@ defmodule Ryker.ControlPlane.LabPage do
               class="lab-directory-time"
               datetime={DateTime.to_iso8601(item.updated_at)}
               title={directory_time(item.updated_at, @now)}
-            >{Kit.clock(item.updated_at)}</time><span class="lab-directory-meta"><.directory_state status={
+            >{Kit.clock(item.updated_at)} UTC</time><span class="lab-directory-meta"><.directory_state status={
               item[:status]
             } /></span></.link>
           </section>

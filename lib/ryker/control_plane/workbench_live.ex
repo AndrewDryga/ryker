@@ -763,7 +763,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       Map.merge(
         Map.take(
           UsageProjection.link_params(socket.assigns.params),
-          ~w(filter target repository state conversation thread transport) ++
+          ~w(filter repository state conversation thread transport) ++
             UsageProjection.filter_keys()
         ),
         Map.take(UsageProjection.link_params(params), ~w(q mode))
@@ -771,6 +771,32 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     patch_path = socket.assigns.path <> "?" <> URI.encode_query(params)
     {:noreply, push_patch(socket, to: patch_path, replace: true)}
+  end
+
+  # Every other list's search form searches as you type, the way Activity's
+  # does: the page is patched to the form's own fields, which hold the view it
+  # searches within. A form only ever patches the page it is on.
+  def handle_event("search-page", %{"path" => form_path} = params, socket)
+      when is_binary(form_path) do
+    {path, fragment} =
+      case String.split(form_path, "#", parts: 2) do
+        [path, fragment] -> {path, "#" <> fragment}
+        [path] -> {path, ""}
+      end
+
+    if path == socket.assigns.path do
+      query =
+        for {name, value} <- params,
+            name not in ["path", "_target"],
+            is_binary(value) and value != "" and byte_size(value) <= 512,
+            into: %{},
+            do: {name, value}
+
+      query = if query == %{}, do: "", else: "?" <> URI.encode_query(query)
+      {:noreply, push_patch(socket, to: path <> query <> fragment, replace: true)}
+    else
+      {:noreply, socket}
+    end
   end
 
   # The filter menu is view state only: "fields" lists what can be added, a

@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{InspectionRedactor, PagedRelation}
+  alias Ryker.ControlPlane.{InspectionRedactor, PagedRelation, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.State.Record
@@ -18,20 +18,38 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   @timeline_record_limit 500
   @page_size 30
 
-  @doc "One page of findings, newest first, with the evidence each cites."
+  @doc """
+  One page of findings, newest first, with the evidence each cites, narrowed
+  by a search over what each concluded, why and its scope; and how many of
+  the listed findings are not explained yet.
+  """
   def list(params) do
+    q = Search.term(params["q"]) || ""
+
+    findings =
+      from(record in Record,
+        join: episode in Episode,
+        on: episode.id == record.episode_id,
+        where: record.kind == "finding",
+        select: {record, episode.key}
+      )
+      |> search(q)
+
     page =
       PagedRelation.read(
-        from(record in Record,
-          join: episode in Episode,
-          on: episode.id == record.episode_id,
-          where: record.kind == "finding",
-          select: {record, episode.key}
-        ),
+        findings,
         [desc: :inserted_at, desc: :id],
         "page",
         params,
         page_size: @page_size
+      )
+
+    unexplained =
+      Repo.aggregate(
+        from([record, _episode] in findings,
+          where: fragment("?::jsonb->>'status' = 'unexplained'", record.payload)
+        ),
+        :count
       )
 
     rows = page.items
@@ -55,11 +73,26 @@ defmodule Ryker.ControlPlane.FindingsProjection do
       |> Map.new(&{{&1.episode_id, &1.ref}, &1})
 
     %{
+      q: q,
       total: page.total,
+      unexplained: unexplained,
       page: page.page,
       pages: page.pages,
       items: Enum.map(rows, &finding_item(&1, evidence, visible_records, secrets))
     }
+  end
+
+  defp search(query, ""), do: query
+
+  defp search(query, q) do
+    pattern = Search.contains(q)
+
+    from([record, _episode] in query,
+      where:
+        fragment("?::jsonb->>'what' ILIKE ?", record.payload, ^pattern) or
+          fragment("?::jsonb->>'reason' ILIKE ?", record.payload, ^pattern) or
+          fragment("?::jsonb->>'scope' ILIKE ?", record.payload, ^pattern)
+    )
   end
 
   defp visible_episode_records(episode_ids) do

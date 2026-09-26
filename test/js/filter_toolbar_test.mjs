@@ -2,12 +2,14 @@ import {test} from "node:test"
 import assert from "node:assert/strict"
 import {applyFilterChange, filterToolbar} from "../../priv/static/filter-toolbar.mjs"
 
-function form({classes = "filter-toolbar", method = "get"} = {}) {
+function form({classes = "filter-toolbar", method = "get", live = false, connected = false} = {}) {
   const submitted = []
   return {
     method,
     submitted,
     matches: selector => selector === "form.filter-toolbar" && classes.split(" ").includes("filter-toolbar"),
+    hasAttribute: name => live && name === "phx-change",
+    closest: selector => (connected && selector === ".phx-connected" ? {} : null),
     requestSubmit() { submitted.push("requestSubmit") },
     submit() { submitted.push("submit") }
   }
@@ -45,4 +47,18 @@ test("a browser without requestSubmit still submits the toolbar", () => {
   delete toolbar.requestSubmit
   assert.equal(applyFilterChange({target: control("SELECT", toolbar)}), true)
   assert.deepEqual(toolbar.submitted, ["submit"])
+})
+
+test("a toolbar LiveView patches as it changes is left to LiveView once connected", () => {
+  // QA, 2026-09-25: Facts searched only on Enter while Activity searched as
+  // you typed. Every list's toolbar now patches its page as it changes; once
+  // the socket is connected, submitting it too would reload the page.
+  const connected = form({live: true, connected: true})
+  assert.equal(applyFilterChange({target: control("SELECT", connected)}), false)
+  assert.deepEqual(connected.submitted, [])
+
+  // Before the socket connects, the same toolbar is still a plain GET form.
+  const offline = form({live: true, connected: false})
+  assert.equal(applyFilterChange({target: control("SELECT", offline)}), true)
+  assert.deepEqual(offline.submitted, ["requestSubmit"])
 })
