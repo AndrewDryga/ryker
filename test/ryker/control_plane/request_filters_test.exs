@@ -119,6 +119,27 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
            |> LazyHTML.text() == "Direct conversation · Weekday incident status"
   end
 
+  # QA, 2026-09-26: hovering a conversation in the filter showed its stored
+  # reference, "control-plane:lab:018f…", as a tooltip over the words that name it.
+  test "a filter value shows its words, never its stored reference, even on hover" do
+    ref = "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+
+    values = [
+      %{
+        conversation_ref: ref,
+        conversation_label: "Direct conversation · Weekday incident status"
+      }
+    ]
+
+    choices =
+      render_filters(%{menu: "fields", values: values})
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#filter-values-conversation button[phx-click=set-filter]")
+
+    assert LazyHTML.attribute(choices, "phx-value-choice") == [ref]
+    assert LazyHTML.attribute(choices, "title") == []
+  end
+
   test "removing a filter, or saving an empty value, keeps every other filter" do
     params = %{"q" => "health", "usage_profile" => "emisar", "usage_window" => "30d"}
 
