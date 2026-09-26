@@ -241,7 +241,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              ]
 
     assert detail.trace.stopped.headline == "Waiting for a person"
-    assert detail.trace.stopped.action == "Reply in the bound conversation"
+    assert detail.trace.stopped.action == "Answer the question in the conversation"
     assert detail.episode.next_action == "operator input"
     assert detail.trace.source.transport == "Slack"
     assert detail.trace.source.href == "https://slack.com/archives/C456/p1787832099000300"
@@ -582,8 +582,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert Enum.map(validation_steps, & &1.summary) == [
              "Supply the missing evidence.",
-             "Accepted candidate on attempt 3.",
-             "Ryker rejected this candidate and requested a same-turn correction."
+             "Ryker checked the answer and accepted it on try 3.",
+             "Ryker rejected this answer and asked the model to correct it."
            ]
 
     for provider_ms <- [120_000, 7_200_000] do
@@ -1424,7 +1424,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert blocked_detail.trace.stopped.href ==
              "/failures/work/#{URI.encode(working.episode.key, &URI.char_unreserved?/1)}"
 
-    assert "1 Work claim" in blocked_detail.trace.stopped.attempted
+    assert "Started once" in blocked_detail.trace.stopped.attempted
 
     waiting_event = start_episode!("waiting-event")
 
@@ -1552,7 +1552,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert %{state: "cancelled", bucket: "done"} = listed_request(cancelled.episode.id)
 
     assert {:ok, waiting_detail} = Projection.episode(waiting_event.episode.key)
-    assert waiting_detail.trace.stopped.headline == "Waiting for an external event"
+    assert waiting_detail.trace.stopped.headline == "Waiting for an event"
 
     assert {:ok, delivery_detail} = Projection.episode(delivery.episode.key)
     assert Enum.any?(delivery_detail.trace.steps, &(&1.title == "Result accepted"))
@@ -1561,7 +1561,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Enum.any?(complete_detail.trace.steps, &(&1.title == "Result accepted"))
 
     assert {:ok, cancelled_detail} = Projection.episode(cancelled.episode.key)
-    assert cancelled_detail.trace.stopped.headline == "Episode cancelled"
+    assert cancelled_detail.trace.stopped.headline == "Request stopped"
 
     assert {:ok, _reaction} =
              Episodes.apply(

@@ -630,8 +630,8 @@ defmodule Ryker.ControlPlane.Router do
     case options.projection.episode.(resource_ref, %{}) do
       {:ok, %{trace: %{actions: actions}}} ->
         if Enum.any?(actions, &String.ends_with?(&1.href, "/resolve")) do
-          {:ok, "Close this episode as no longer needed?",
-           "Ryker will cancel the exact blocked or waiting owner. Nothing is deleted and no new external action is authorized.",
+          {:ok, "Close this request as no longer needed?",
+           "Ryker ends this request and stops waiting for an answer, an event or a retry. Its history stays here, and nothing is posted or changed anywhere else. You can't reopen it; to continue, ask again in the conversation.",
            "episode:resolve"}
         else
           {:error, :not_found}
@@ -645,8 +645,8 @@ defmodule Ryker.ControlPlane.Router do
   defp confirmation("episode", resource_ref, "review", options) do
     case options.projection.episode.(resource_ref, %{}) do
       {:ok, %{trace: %{review: %{awaiting: true}}}} ->
-        {:ok, "Mark this ending reviewed?",
-         "This records that the local operator read this exact terminal semantic version. A later ending becomes reviewable again.",
+        {:ok, "Mark how this request ended as reviewed?",
+         "Ryker notes that you read how this request ended and stops asking you to review it. Nothing else changes, and you can't unmark it. If the request ends again later, Ryker asks for a review again.",
          "episode:review"}
 
       _unavailable ->
@@ -657,8 +657,8 @@ defmodule Ryker.ControlPlane.Router do
   defp confirmation("retention", resource_ref, "discard", options) do
     case options.projection.workspace.(resource_ref) do
       {:ok, %{action: :discard_unmerged, status: :retained}} ->
-        {:ok, "Discard the unmerged commits in this working copy?",
-         "Ryker will ask the worker for a fresh plan that removes this copy, including commits that were never merged. Uncommitted changes are still kept.",
+        {:ok, "Delete this working copy and its unmerged commits?",
+         "Ryker asks the worker to delete this working copy, including commits that were never merged anywhere. The worker checks the copy again first and keeps it if it has uncommitted changes. This can't be undone.",
          "retention:discard_unmerged"}
 
       _unavailable ->
@@ -743,15 +743,18 @@ defmodule Ryker.ControlPlane.Router do
 
   defp review_confirmation("keep", _kind, subjects),
     do:
-      {"Keep #{subjects}?", "Ryker keeps using this as it is and stops asking about it for now."}
+      {"Keep #{subjects}?",
+       "Ryker keeps using this as it is and stops asking about it for now. Nothing is changed."}
 
   defp review_confirmation("merge", _kind, subjects),
     do:
       {"Merge these facts?",
-       "Ryker keeps the most recently changed of #{subjects} and forgets the other copies."}
+       "Ryker keeps the most recently changed of #{subjects} and forgets the other copies. This can't be undone."}
 
   defp review_confirmation("forget", _kind, subjects),
-    do: {"Forget #{subjects}?", "Ryker stops using this and erases what it saved."}
+    do:
+      {"Forget #{subjects}?",
+       "Ryker stops using this and erases what it saved. You can ask it to remember again later."}
 
   defp review_confirmation("dismiss", _kind, subjects),
     do:

@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.WebRouter do
     plug(:fetch_live_flash)
     plug(:protect_from_forgery)
     plug(:put_root_layout, html: {Ryker.ControlPlane.Layouts, :root})
+    plug(:answer_missing_records)
   end
 
   forward("/assets", Ryker.ControlPlane.Assets)
@@ -50,4 +51,14 @@ defmodule Ryker.ControlPlane.WebRouter do
   end
 
   forward("/", Ryker.ControlPlane.HttpPlug)
+
+  # A record that does not exist answers 404 on the server-rendered load, with
+  # the page the browser shows for it. The page's assigns reach the response
+  # just before it is sent; live navigation afterwards makes no HTTP request.
+  @doc false
+  def answer_missing_records(conn, _options) do
+    Plug.Conn.register_before_send(conn, fn conn ->
+      if conn.assigns[:page_status] == 404, do: Plug.Conn.put_status(conn, 404), else: conn
+    end)
+  end
 end

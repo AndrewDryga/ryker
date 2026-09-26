@@ -12,7 +12,7 @@ defmodule Ryker.StateTools.Router do
   import Plug.Conn
 
   alias Ryker.CanonicalJSON
-  alias Ryker.StateTools.{LookupContext, Tools, ToolVisibility}
+  alias Ryker.StateTools.{CallLog, LookupContext, Tools, ToolVisibility}
 
   @maximum_body_bytes 1_048_576
   @protocol_version "2025-11-25"
@@ -127,7 +127,11 @@ defmodule Ryker.StateTools.Router do
          },
          options
        ) do
-    case call_tool(name, arguments, options) do
+    called_at = DateTime.utc_now()
+    answer = call_tool(name, arguments, options)
+    CallLog.record(options.binding, name, arguments, answer, called_at)
+
+    case answer do
       {:ok, result} -> rpc_result(conn, id, tool_result(result, false))
       {:error, error} -> rpc_result(conn, id, tool_result(%{"error" => error}, true))
     end

@@ -367,8 +367,9 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   end
 
   test "a Chat sender is named, not shown as its routing reference" do
-    # The Work briefing named the Local operator "control_plane:user:local-operator"
-    # while the timeline and the routing briefing said "Local operator".
+    # The Work briefing named the person at the keyboard
+    # "control_plane:user:local-operator" while the timeline and the routing
+    # briefing said "Local operator"; all three now say "You", as Chat does.
     artifact =
       InspectionRedactor.artifact(%{
         "inputs" => %{
@@ -389,8 +390,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       |> LazyHTML.from_fragment()
       |> LazyHTML.query(".ui-message")
 
-    assert LazyHTML.query(message, ".ui-message-header strong") |> LazyHTML.text() ==
-             "Local operator"
+    assert LazyHTML.query(message, ".ui-message-header strong") |> LazyHTML.text() == "You"
   end
 
   test "Ryker's own earlier replies read as Ryker's messages in the briefing" do
@@ -417,7 +417,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
              messages,
              &(LazyHTML.query(&1, ".ui-message-header strong") |> LazyHTML.text())
            ) ==
-             ["Local operator", "Ryker"]
+             ["You", "Ryker"]
 
     assert LazyHTML.attribute(messages, "data-author") == ["person", "ryker"]
   end
@@ -541,7 +541,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     run = LazyHTML.query(document, "[data-source=run_details]")
     assert LazyHTML.text(run) =~ "Offer confirmation"
     assert LazyHTML.text(run) =~ "Not supported"
-    assert LazyHTML.text(run) =~ "Episode title"
+    assert LazyHTML.text(run) =~ "Request title"
     assert LazyHTML.text(run) =~ "Investigate checkout 502s"
 
     other = LazyHTML.query(document, "[data-source=other_fields]")
@@ -764,7 +764,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     document = recall_document(memory)
     note = LazyHTML.query(document, ".context-note[data-memory-kind=observation]")
     assert LazyHTML.text(note) =~ hd(memory["observations"])["summary"]
-    assert LazyHTML.text(note) =~ "Local operator"
+    assert LazyHTML.text(note) =~ "You ·"
     assert LazyHTML.text(note) =~ "intended infrastructure configuration"
     assert Enum.empty?(LazyHTML.query(note, "details, pre"))
     assert LazyHTML.text(document) =~ "Conversation notes"
@@ -878,7 +878,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     assert text =~ "Earlier context"
     assert text =~ "Current message"
-    assert text =~ "Local operator"
+    assert text =~ "You"
     assert text =~ "21 Sep, 05:48:52 UTC"
     assert text =~ "Details"
     assert text =~ "Chat"
@@ -893,7 +893,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     assert Enum.empty?(LazyHTML.query(document, "[data-copy-status][aria-live=polite]"))
     refute text =~ "The message that started this routing call"
-    refute text =~ "You"
+    refute text =~ ~r/local operator/i
     refute text =~ "Source fields and attachment metadata"
   end
 

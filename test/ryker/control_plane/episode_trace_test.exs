@@ -135,7 +135,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     assert Repo.get!(Turn, claim.turn.id).status == :superseded
     {:ok, closed} = Projection.episode(episode.key)
     assert closed.trace.startup == nil
-    assert closed.trace.stopped.headline == "Episode cancelled"
+    assert closed.trace.stopped.headline == "Request stopped"
     refute Enum.any?(closed.trace.actions, &String.ends_with?(&1.href, "/retry"))
     {:ok, closed_timeline} = ModelRequests.timeline(episode.key, %{})
     assert closed_timeline.items == []
@@ -632,6 +632,92 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       assert length(detail.trace.case_file.messages) == 1
       assert Repo.get!(Entry, entry.id).content["text"] == "Hello"
     end
+  end
+
+  test "an edited message shows when it was edited, and the message it replaced says so" do
+    # QA 2026-09-25 edited a Chat follow-up four minutes after sending it. The
+    # timeline showed "Message edited" at the original message's time, so the
+    # edit's chapter opened before the earlier reply's work and took over its
+    # evidence and goal cards, while the original request vanished from its own.
+    {entry, episode} = admitted_input!()
+    edited_at = DateTime.add(@received, 240, :second)
+
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: "C456",
+        content: %{"text" => "Corrected request"},
+        event_kind: :edit,
+        event_ref: "Ev-edited",
+        message_ref: "1788562304.000100",
+        occurred_at: edited_at,
+        revision: 2,
+        thread_ref: nil,
+        workspace_ref: "TC9F5B40D364C"
+      })
+
+    {:ok, %{entry: edit}} = Inbox.record(input)
+
+    decision = %{"action" => "continue_episode", "episode_ref" => episode.key}
+
+    Repo.update_all(from(saved in Entry, where: saved.id == ^edit.id),
+      set: [
+        decision_action: :continue_episode,
+        decision_document: decision,
+        decision_fingerprint: CanonicalJSON.digest(decision),
+        decision_ref: "decision:#{edit.id}",
+        episode_id: episode.id,
+        status: :decided
+      ]
+    )
+
+    {:ok, detail} = Projection.episode(episode.key)
+    messages = Enum.reject(detail.trace.case_file.conversation, &(&1.actor == "Ryker"))
+
+    assert [original, edited] = messages
+    assert {original.id, original.at, original.text} == {entry.id, @received, "Hello"}
+    assert original.status == "Replaced by an edit"
+    assert {edited.id, edited.at, edited.text} == {edit.id, edited_at, "Corrected request"}
+
+    html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
+    document = LazyHTML.from_fragment(html)
+
+    [edited_card] =
+      document
+      |> LazyHTML.query("article.ui-message")
+      |> Enum.filter(&(LazyHTML.text(&1) =~ "Message edited"))
+
+    assert edited_card
+           |> LazyHTML.query(".ui-message-meta time")
+           |> LazyHTML.attribute("datetime") == [DateTime.to_iso8601(edited_at)]
+
+    # The case file still reads as the conversation does now.
+    assert detail.trace.case_file.title == "Corrected request"
+  end
+
+  test "a request whose work stopped says so in its header, as its next action does" do
+    # QA 2026-09-25: the header said "Working" above a NEXT ACTION that said
+    # the task had stopped, so the page contradicted itself about the one
+    # thing a reader opened it to learn.
+    {_entry, episode} = admitted_input!()
+    {:ok, _session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+    {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
+
+    Repo.update_all(from(t in Turn, where: t.id == ^claim.turn.id),
+      set: [status: :blocked, lease_ref: nil, lease_owner: nil, lease_expires_at: nil]
+    )
+
+    {:ok, detail} = Projection.episode(episode.key)
+    assert detail.trace.stopped
+    html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
+
+    header =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".episode-location .ui-status")
+      |> LazyHTML.text()
+
+    assert header == "Needs attention"
   end
 
   test "the episode leads with the actual conversation and safely escapes untrusted source text" do

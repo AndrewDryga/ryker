@@ -25,6 +25,7 @@ export function createReadingStateHook(environment = {}) {
       this.handleEvent?.("lab-action-accepted", detail => this.conversation.accept(detail))
       this.handleEvent?.("lab-action-rejected", detail => this.conversation.reject(detail))
       this.composer = createComposer({pushEvent, active: () => this.active, storage, location: loc})
+      this.composer.refresh(this.el)
       this.onInput = event => {
         this.relearnPicker.change(event)
         this.conversation.input(event)
@@ -91,6 +92,7 @@ export function createReadingStateHook(environment = {}) {
       this.restoreDrafts()
       this.relearnPicker.refresh()
       this.conversation.refresh()
+      this.composer.refresh(this.el)
       // LiveView restores input focus, but a replaced response body is not an
       // input. Restore only a focus the patch dropped, never a newer selection.
       if (this.readingURL === loc.href && this.focusedID && doc.activeElement === doc.body) {

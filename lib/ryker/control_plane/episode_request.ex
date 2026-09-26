@@ -155,7 +155,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         <p :if={is_binary(@response["decision_reason"])}>{@response["decision_reason"]}</p>
         <dl :if={is_binary(@response["title"])} class="request-decision response-title">
           <div>
-            <dt>Episode title</dt>
+            <dt>Request title</dt>
             <dd><span>{@response["title"]}</span></dd>
           </div>
         </dl>

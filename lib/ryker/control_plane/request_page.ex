@@ -371,6 +371,7 @@ defmodule Ryker.ControlPlane.RequestPage do
   def candidate_response(assigns) do
     assigns =
       assigns
+      |> assign_new(:sent_href, fn -> nil end)
       |> assign(:document, candidate_document(assigns.response))
       |> assign(:response_meta, candidate_response_meta(assigns.response))
 
@@ -381,9 +382,15 @@ defmodule Ryker.ControlPlane.RequestPage do
       id={"#{@prefix}-response-#{@attempt}"}
     >
       <div id={"#{@prefix}-response-#{@attempt}-body"} class="candidate-response-body" tabindex="-1">
-        <.message_block :if={@document && is_binary(@document["message"])} sender="Ryker">
+        <.message_block
+          :if={@document && is_binary(@document["message"]) && !@sent_href}
+          sender="Ryker"
+        >
           {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@document["message"]))}
         </.message_block>
+        <p :if={@document && is_binary(@document["message"]) && @sent_href} class="candidate-sent">
+          Sent as written. <a href={@sent_href}>Read the reply below ↓</a>
+        </p>
         <p
           :if={@document && is_binary(@document["decision_reason"])}
           class="candidate-decision-reason"
@@ -392,7 +399,7 @@ defmodule Ryker.ControlPlane.RequestPage do
         </p>
         <dl :if={@document && is_binary(@document["title"])} class="request-decision response-title">
           <div>
-            <dt>Episode title</dt>
+            <dt>Request title</dt>
             <dd><span>{@document["title"]}</span></dd>
           </div>
         </dl>

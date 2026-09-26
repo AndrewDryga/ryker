@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
+  import Phoenix.LiveViewTest
 
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.CanonicalJSON
@@ -12,7 +13,9 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     Actions,
     CapabilityTools,
     ConversationLab,
+    EpisodePage,
     HTML,
+    ModelRequests,
     Projection,
     Publisher
   }
@@ -576,6 +579,76 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert %Turn{status: :settled} = Repo.get!(Turn, accepted.turn.id)
   end
 
+  test "a Chat request's timeline reads in the reader's words and shows its reply once" do
+    # QA 2026-09-25 read this page as "Episode", "Local operator", "Accepted
+    # candidate on attempt 1", "Episode title" and a "Maintenance" section,
+    # found the reply three times, and two header links to the same Chat.
+    reply = "Ryker investigates alerts and answers questions about your systems."
+
+    assert {:ok, %{status: :recorded}} =
+             send_message(@first_event_id, @now, "What does this system do?")
+
+    {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
+
+    assert {:ok, {:decided, %{result: %{episode: episode}}}} =
+             AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+    {:ok, work} = FakeWorkCoopAPI.start_link([work_reply(reply, "What Ryker does")])
+
+    assert {:ok, {:executed, %{status: :accepted}}} =
+             Ryker.Work.Dispatcher.run_once(work_options(work, "timeline-words"))
+
+    assert {:ok, {:delivered, :message, _delivery_ref}} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options("timeline-words"))
+
+    # Cleanup afterwards: the worker session closed and its copy removed.
+    receipt = %{"kind" => "discarded"}
+
+    Repo.update_all(from(session in Session, where: session.episode_id == ^episode.id),
+      set: [
+        cleanup_status: :discarded,
+        cleanup_receipt: receipt,
+        cleanup_receipt_fingerprint: CanonicalJSON.digest(receipt),
+        closed_at: DateTime.add(@now, 60, :second),
+        discarded_at: DateTime.add(@now, 90, :second)
+      ]
+    )
+
+    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: detail,
+        timeline: timeline,
+        requests: nil,
+        params: %{}
+      )
+
+    document = LazyHTML.from_fragment(html)
+
+    assert LazyHTML.query(document, ".episode-initial-label") |> LazyHTML.text() == "Request"
+
+    assert document
+           |> LazyHTML.query("article.ui-message[data-author=person] .ui-message-header strong")
+           |> Enum.map(&LazyHTML.text/1)
+           |> Enum.uniq() == ["You"]
+
+    assert document
+           |> LazyHTML.query(".episode-location a[href='/conversations/#{@conversation_id}']")
+           |> Enum.count() == 1
+
+    assert document
+           |> LazyHTML.query(".ui-message-body")
+           |> Enum.count(&(LazyHTML.text(&1) =~ reply)) == 1
+
+    for words <- ["Local operator", "Accepted candidate", "Episode title", "Maintenance"] do
+      refute html =~ words
+    end
+
+    assert document |> LazyHTML.query(".chapter-heading h3") |> LazyHTML.text() =~ "Cleanup"
+  end
+
   defp send_message(event_id, now, message, options \\ []) do
     ConversationLab.send_message(@conversation_id, message, profile(),
       attachments: Keyword.get(options, :attachments, []),
@@ -715,6 +788,10 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
         "state" => "complete"
       }
     })
+  end
+
+  defp work_reply(message, title) do
+    message |> work_reply() |> Jason.decode!() |> Map.put("title", title) |> Jason.encode!()
   end
 
   defp conversation_ref, do: "control-plane:lab:#{@conversation_id}"

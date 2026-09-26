@@ -16,8 +16,7 @@ defmodule Ryker.ControlPlane.LabPage do
 
   # Authored UI examples approved on 2026-09-09, grouped on 2026-09-19 by what
   # Ryker does. They are hints for what an operator could write, not claims
-  # about configured access, and one of them is the placeholder of a newly
-  # opened draft or conversation.
+  # about configured access. A new conversation lists them above the composer.
   @example_groups [
     {"Investigate", :search,
      [
@@ -44,22 +43,15 @@ defmodule Ryker.ControlPlane.LabPage do
 
   def examples, do: @examples
 
-  def random_example, do: Enum.random(@examples)
-
-  @doc """
-  The example an open conversation shows, fixed by its identity.
-
-  The composer is a `phx-update="ignore"` form, so the browser keeps whatever
-  the first render carried across patches and reconnects. Deriving the pick
-  from the conversation id makes the server agree with that on every render.
-  """
-  def example_for(conversation_id) when is_binary(conversation_id),
-    do: Enum.at(@examples, :erlang.phash2(conversation_id, length(@examples)))
+  # QA 2026-09-25: an example prompt in the empty box read as text someone
+  # had already typed. The box says what it is for instead.
+  @placeholder "Write a message to Ryker"
 
   def render(assigns) do
     assigns =
       assigns
       |> assign(:example_groups, @example_groups)
+      |> assign(:placeholder, @placeholder)
       |> assign_new(:filter, fn -> "" end)
       |> assign_new(:environments, fn -> [] end)
       |> assign_new(:environment, fn -> nil end)
@@ -258,14 +250,17 @@ defmodule Ryker.ControlPlane.LabPage do
                 placeholder={@placeholder}
               ></textarea>
               <div class="native-composer-bottom">
-                <label class="lab-attach" for="lab-attachments">Attach files</label><input
+                <input
                   id="lab-attachments"
                   name="attachments[]"
                   type="file"
                   multiple
                   accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,text/csv,application/json,application/yaml,application/x-yaml,application/pdf"
                   aria-describedby="lab-attachments-error"
-                /><button class="ui-button primary" type="submit">
+                /><label class="lab-attach" for="lab-attachments">Attach files</label><span
+                  class="lab-attached"
+                  aria-live="polite"
+                ></span><button class="ui-button primary" type="submit" disabled>
                   Send
                 </button>
               </div><.form_feedback

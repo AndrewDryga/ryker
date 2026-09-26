@@ -87,4 +87,81 @@ defmodule Ryker.StateTools.ErrorCode do
   def code({:invalid_state_record, _field}), do: "invalid_arguments"
   def code({:invalid_emisar_approval, _field}), do: "invalid_arguments"
   def code(_reason), do: "temporarily_unavailable"
+
+  @doc """
+  What a state-tool error means, for the person reading the timeline.
+
+  The model reads the code and any correction it carries; a person reads this
+  sentence, and the exact error stays in the call's Error disclosure.
+  """
+  @spec explain(term()) :: String.t()
+  def explain(error) when is_binary(error),
+    do: error |> String.split(":", parts: 2) |> hd() |> String.trim() |> explanation()
+
+  def explain(_error), do: "Ryker refused the call."
+
+  defp explanation("unauthorized"),
+    do: "Ryker refused the call because this run was not allowed to make it."
+
+  defp explanation("invalid_arguments"),
+    do: "Ryker rejected the call because its arguments did not match what the tool accepts."
+
+  defp explanation("repository_required"),
+    do: "Ryker rejected the task because it did not name a configured repository."
+
+  defp explanation("invalid_repository_reference"),
+    do: "Ryker rejected the call because the repository it named is not one Ryker has."
+
+  defp explanation("question_already_open"),
+    do: "Ryker refused a second question while the first one is still unanswered."
+
+  defp explanation("no_addressee"),
+    do: "Ryker refused the question because nobody has spoken in this conversation."
+
+  defp explanation("not_configured"),
+    do: "Ryker refused the call because this tool is not set up here."
+
+  defp explanation("not_found"), do: "Ryker could not find what the call referred to."
+
+  defp explanation("deadline_elapsed"),
+    do: "Ryker refused the wait because its deadline had already passed."
+
+  defp explanation("unknown_tool"), do: "Ryker does not offer this tool here."
+
+  defp explanation("operation_conflict"),
+    do:
+      "Ryker refused the call because it conflicts with something this run had already recorded."
+
+  defp explanation("confirmation_unsupported"),
+    do: "Ryker refused the offer because nobody here can confirm it."
+
+  defp explanation(code) when code in ["invalid_memory_cursor", "invalid_memory_time_filter"],
+    do: "Ryker rejected the search because its page or time filter was not valid."
+
+  defp explanation("memory_search_budget_exceeded"),
+    do: "The run had already used all of its saved-knowledge searches."
+
+  defp explanation("memory_search_result_too_large"),
+    do: "The search matched more saved knowledge than Ryker returns at once."
+
+  defp explanation(code)
+       when code in [
+              "answer_memory_unauthorized",
+              "answer_memory_conflict",
+              "invalid_answer_memory"
+            ],
+       do: "Ryker refused to remember this answer."
+
+  defp explanation("memory_capacity_reached"), do: "Ryker's saved knowledge is full."
+
+  defp explanation("memory_source_capacity_exceeded"),
+    do: "The run had already read as many saved sources as it may."
+
+  defp explanation("temporarily_unavailable"),
+    do: "Ryker could not answer the call just then. The same call may work if tried again."
+
+  defp explanation("invalid_fabricated_tool_response"),
+    do: "The lookup returned an answer Ryker could not use."
+
+  defp explanation(_code), do: "Ryker refused the call."
 end

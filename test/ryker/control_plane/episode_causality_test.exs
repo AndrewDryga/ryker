@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Slack.Input
+  alias Ryker.State.Records
   alias Ryker.Work.{ActivityEvent, Custody, SubmissionBuilder, Turn}
 
   @now ~U[2026-09-04 22:51:44.000000Z]
@@ -51,6 +52,43 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
     assert late_chapter.conversation_turn == 1
     assert {:turn, turn.id} in late_chapter.owners
     refute {:input, second_input_id(episode)} in late_chapter.owners
+  end
+
+  test "a record a turn saves after a newer message stays with that turn" do
+    # QA 2026-09-25: the evidence and goal cards a turn saved were filed under
+    # whichever message the reader had scrolled past last, so a later edit's
+    # chapter showed the earlier turn's findings as if the edit had caused them.
+    %{episode: episode, turn: turn} = started_work()
+    admit!(episode, "Ev2", DateTime.add(@now, 60, :second))
+
+    {:ok, record} =
+      Records.create(Records.token(turn), "host:causality-evidence", "evidence", %{
+        "claim" => "checkout-api",
+        "claim_id" => "citation:causality",
+        "confidence" => nil,
+        "dimensions" => %{},
+        "freshness" => nil,
+        "health_effect" => nil,
+        "observation" => "The deploy finished at 08:00.",
+        "observed_at" => nil,
+        "relation" => nil,
+        "scope_note" => nil,
+        "source_id" => "deploy-log",
+        "source_name" => "deploy-log",
+        "source_type" => "other",
+        "supersedes" => [],
+        "target" => "checkout-api"
+      })
+
+    record_chapter =
+      episode
+      |> chapters()
+      |> Enum.find(fn chapter ->
+        Enum.any?(chapter.steps, &(&1.id == "event-record-#{record.id}"))
+      end)
+
+    assert record_chapter, "the record must still be rendered"
+    assert record_chapter.conversation_turn == 1
   end
 
   test "an older turn receipt cannot rewind the ordinal of the next message" do

@@ -49,7 +49,7 @@ function fixture(hash = "") {
     {document, window, location, sessionStorage: {getItem() { return null }}, keyFor: () => null,
       createRelearnPicker,
       createConversationControls: () => ({click() {}, keydown() { return false }, input() { return false }, submit() { return false }, restore() { return false }, refresh() {}, destroy() {}}),
-      createComposer: () => ({input() {}, submit() { return false }}),
+      createComposer: () => ({input() {}, refresh() {}, submit() { return false }}),
       // No transcript on this page: the conversation anchor declines ownership.
       captureReadingAnchor: () => null, restoreReadingAnchor: () => false})
   const pushed = []

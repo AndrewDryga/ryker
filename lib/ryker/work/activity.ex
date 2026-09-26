@@ -661,7 +661,12 @@ defmodule Ryker.Work.Activity do
     Map.merge(base, evidence) |> Map.put("evidence_version", 1)
   end
 
-  defp sanitize_evidence(value) do
+  @doc """
+  One retained evidence value: redacted, and cut to a marked preview when it
+  exceeds the bound every retained tool body shares.
+  """
+  @spec sanitize_evidence(term()) :: term()
+  def sanitize_evidence(value) do
     artifact = InspectionRedactor.artifact(value, max_bytes: 16_384)
 
     if artifact.truncated do

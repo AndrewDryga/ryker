@@ -42,6 +42,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       |> Enum.reverse()
       |> Enum.map(&case_message(&1, options))
 
+    # The timeline shows each revision where it happened: the message as it was
+    # sent, and an edit or deletion at the time it was made. The case file above
+    # still reads as the conversation does now.
+    revisions = episode_id |> revisions() |> Enum.map(&revision_message(&1, options))
+
     replies = turns |> Enum.flat_map(&case_reply(&1, options)) |> Enum.take(-20)
     latest_reply = List.last(replies)
     current_turn = List.last(turns)
@@ -68,8 +73,46 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       reply_request_id: latest_reply && latest_reply.id,
       awaiting_reply: is_nil(current_turn) or is_nil(current_turn.delivery_document),
       conversation:
-        Enum.sort_by(messages ++ Enum.filter(replies, & &1.delivered), & &1.at, DateTime)
+        Enum.sort_by(revisions ++ Enum.filter(replies, & &1.delivered), & &1.at, DateTime)
     }
+  end
+
+  # Every revision this episode admitted, newest twenty, each beside the
+  # current revision of its message, which may have arrived anywhere.
+  defp revisions(episode_id) do
+    entries =
+      Repo.all(
+        from(entry in Entry,
+          where: entry.episode_id == ^episode_id,
+          order_by: [desc: entry.occurred_at, desc: entry.id],
+          limit: 20
+        )
+      )
+      |> Enum.reverse()
+
+    native_ids = entries |> Enum.map(& &1.native_input_id) |> Enum.uniq()
+
+    current =
+      Repo.all(
+        from(entry in CurrentInputs.latest(),
+          where: entry.native_input_id in ^native_ids,
+          select: {{entry.execution_mode, entry.native_input_id}, {entry.id, entry.event_kind}}
+        )
+      )
+      |> Map.new()
+
+    Enum.map(entries, &{&1, current[{&1.execution_mode, &1.native_input_id}]})
+  end
+
+  defp revision_message({entry, current}, options) do
+    message = case_message(entry, options)
+
+    case current do
+      {id, _kind} when id == entry.id -> message
+      {_id, :delete} -> Map.put(message, :status, "Deleted later")
+      {_id, _kind} -> Map.put(message, :status, "Replaced by an edit")
+      nil -> message
+    end
   end
 
   defp task_session(%Turn{operational_pruned_at: nil, session_id: id}, sessions),
@@ -97,7 +140,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     |> bounded(120)
   end
 
-  defp input_title(_), do: "Episode case file"
+  defp input_title(_), do: "Untitled request"
 
   defp case_repository(%Session{repository_ref: ref}, _) when is_binary(ref), do: ref
   defp case_repository(_, first), do: first && first.repository
@@ -213,7 +256,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   end
 
   defp actor_label(%{actor_kind: :user, source_kind: "slack"}), do: "Slack user"
-  defp actor_label(%{actor_kind: :user, actor_ref: "local-operator"}), do: "Local operator"
+  defp actor_label(%{actor_kind: :user, actor_ref: "local-operator"}), do: "You"
   defp actor_label(%{actor_kind: :user}), do: "User"
   defp actor_label(_input), do: "Source event"
 

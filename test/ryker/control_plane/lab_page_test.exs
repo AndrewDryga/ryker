@@ -20,25 +20,11 @@ defmodule Ryker.ControlPlane.LabPageTest do
     "Show the automations active in this conversation."
   ]
 
-  test "the placeholder pool is exactly the ten authored examples" do
+  test "the examples are exactly the ten authored ones" do
     # Andrew approved these ten strings on 2026-09-09. They are UI copy, not
     # model fixtures: a generated or paraphrased eleventh example, or a missing
     # one, changes what an operator is invited to type.
     assert LabPage.examples() == @examples
-    assert LabPage.random_example() in @examples
-  end
-
-  test "an open conversation keeps one example across every render of the same view" do
-    # The composer is a phx-update=ignore form, so the placeholder the browser
-    # shows is whatever the first render carried. If the pick changed on every
-    # render, a reconnect would replace the server's idea of the hint while the
-    # browser kept the old one, and tests could not say which one is live.
-    id = Ecto.UUID.generate()
-    assert LabPage.example_for(id) == LabPage.example_for(id)
-    assert LabPage.example_for(id) in @examples
-
-    picks = Enum.map(1..200, fn _ -> LabPage.example_for(Ecto.UUID.generate()) end)
-    assert length(Enum.uniq(picks)) > 1
   end
 
   test "the directory heads each day the way every list does, in one labelled timezone" do
@@ -120,6 +106,27 @@ defmodule Ryker.ControlPlane.LabPageTest do
     [_, heading] = Regex.run(~r/\n\.lab-directory-day > h2 \{([^}]+)\}/, css)
     assert heading =~ "font-size:12px"
     refute heading =~ "uppercase"
+  end
+
+  test "the browser's own controls never show beside Ryker's, and phone examples look tappable" do
+    # QA 2026-09-25: "No file chosen" sat beside Attach files, a phone's More
+    # showed the browser's triangle before its own chevron ("▶ More ›"), and
+    # on a phone the example prompts were plain lines with nothing to say
+    # they could be tapped.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    [_, file] = Regex.run(~r/\n\.lab-native-composer input\[type=file\] \{([^}]+)\}/, css)
+    assert file =~ "position:absolute"
+    assert file =~ "clip:rect(0 0 0 0)"
+
+    [_, summary] = Regex.run(~r/\n\.mobile-manage summary \{([^}]+)\}/, css)
+    assert summary =~ "list-style:none"
+    assert css =~ ".mobile-manage summary::-webkit-details-marker { display:none; }"
+    assert css =~ ~s(.mobile-manage summary::marker { content:""; })
+
+    [_, phone] = Regex.run(~r/@media \(hover:none\), \(max-width:800px\) \{(.*?)\n\}/s, css)
+    [_, example] = Regex.run(~r/\.ryker-app \.lab-example \{([^}]+)\}/, phone)
+    assert example =~ "border:1px solid"
   end
 
   defp directory do
@@ -323,7 +330,6 @@ defmodule Ryker.ControlPlane.LabPageTest do
       messages: [],
       history: %{before: nil, exhausted: true},
       announcement: "",
-      placeholder: "Ask Ryker",
       now: @now,
       environments: [],
       environment: nil

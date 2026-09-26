@@ -283,9 +283,10 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     {:ok, _, roster} = open("/channels")
     assert roster =~ "own instructions"
     refute roster =~ "CHANNEL_PRIVATE_INSTRUCTION"
-    {:ok, _, other} = open("/channels/TOTHER/CTEST")
-    refute other =~ "instructions-form"
-    refute other =~ "CHANNEL_PRIVATE_INSTRUCTION"
+    other = build_conn() |> Map.put(:host, "localhost") |> get("/channels/TOTHER/CTEST")
+    assert other.status == 404
+    refute other.resp_body =~ "instructions-form"
+    refute other.resp_body =~ "CHANNEL_PRIVATE_INSTRUCTION"
   end
 
   test "the channel page reads how Ryker takes part, its instructions, then what applies and what it knows" do

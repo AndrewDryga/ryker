@@ -124,6 +124,64 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
     end
   end
 
+  # QA 2026-09-25: a request's timeline ran 1416px wide at a 1440px window
+  # while Activity, the page a reader opens it from, stopped at 1280px. The
+  # timeline takes Activity's gutter and its content width.
+  test "a request's timeline reads at the width Activity reads at" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    activity = top_level(css, ".ryker-app .native-page > .activity-page")
+    timeline = top_level(css, ".episode-workbench")
+
+    assert timeline["padding"] == activity["padding"]
+    assert timeline["max-width"] == activity["max-width"]
+
+    assert top_level(css, ".episode-workbench > *")["max-width"] ==
+             top_level(css, ".activity-section")["max-width"]
+  end
+
+  # The declarations the unconditional rules for `selector` leave in force:
+  # later rules win, and rules inside an at-rule block are not read.
+  defp top_level(css, selector) do
+    css
+    |> String.replace(~r{/\*.*?\*/}s, "")
+    |> top_level_rules()
+    |> Enum.filter(fn {selectors, _body} ->
+      selector in (selectors |> String.split(",") |> Enum.map(&String.trim/1))
+    end)
+    |> Enum.flat_map(fn {_selectors, body} ->
+      for declaration <- String.split(body, ";"),
+          [name, value] <- [String.split(declaration, ":", parts: 2)],
+          do: {String.trim(name), String.trim(value)}
+    end)
+    |> Map.new()
+  end
+
+  defp top_level_rules(css), do: top_level_rules(css, [])
+
+  defp top_level_rules(css, rules) do
+    case Regex.run(~r/\A\s*([^{}]+)\{/, css) do
+      nil ->
+        Enum.reverse(rules)
+
+      [head, prelude] ->
+        rest = binary_part(css, byte_size(head), byte_size(css) - byte_size(head))
+        {body, rest} = block(rest, 1, "")
+
+        if String.starts_with?(String.trim(prelude), "@"),
+          do: top_level_rules(rest, rules),
+          else: top_level_rules(rest, [{String.trim(prelude), body} | rules])
+    end
+  end
+
+  defp block(<<"}", rest::binary>>, 1, body), do: {body, rest}
+  defp block(<<"}", rest::binary>>, depth, body), do: block(rest, depth - 1, body <> "}")
+  defp block(<<"{", rest::binary>>, depth, body), do: block(rest, depth + 1, body <> "{")
+
+  defp block(<<char::utf8, rest::binary>>, depth, body),
+    do: block(rest, depth, body <> <<char::utf8>>)
+
+  defp block(<<>>, _depth, body), do: {body, ""}
+
   defp words(node), do: node |> LazyHTML.text() |> String.split() |> Enum.join(" ")
 
   # Where the first element carrying `class` opens in the page.

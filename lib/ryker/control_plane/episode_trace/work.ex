@@ -269,13 +269,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         end
 
       # Creating an offer or a question is model work; only a delivery receipt
-      # proves one was sent, so every record sits in the work chapter.
+      # proves one was sent, so every record sits in the work chapter, with the
+      # turn that saved it rather than the message read last before it.
       step(
         "record-#{record.id || index}",
         :work,
         record.inserted_at,
         %{
           actor: "Ryker state",
+          owner: if(record.turn_id, do: {:turn, record.turn_id}, else: :episode),
           record_ref: record.ref,
           details: compact_details(record_details(record, card)),
           href: nil,
@@ -442,17 +444,21 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     do: compact_details([{"Parse", parse}, {"Response bytes", response_bytes}])
 
   defp validation_summary("reject", [], _attempt, _turn),
-    do: "Ryker rejected this candidate and requested a same-turn correction."
+    do: "Ryker rejected this answer and asked the model to correct it."
 
   defp validation_summary("reject", violations, _attempt, _turn), do: Enum.join(violations, " ")
 
-  defp validation_summary("accept", _violations, attempt, _turn) when is_integer(attempt),
-    do: "Accepted candidate on attempt #{attempt}."
+  defp validation_summary("accept", _violations, 1, _turn),
+    do: "Ryker checked the answer and accepted it on the first try."
 
-  defp validation_summary("accept", _violations, _attempt, _turn), do: "Candidate accepted."
+  defp validation_summary("accept", _violations, attempt, _turn) when is_integer(attempt),
+    do: "Ryker checked the answer and accepted it on try #{attempt}."
+
+  defp validation_summary("accept", _violations, _attempt, _turn),
+    do: "Ryker checked the answer and accepted it."
 
   defp validation_summary(_verdict, _violations, _attempt, _turn),
-    do: "A candidate reached the host validation boundary."
+    do: "The model returned an answer for Ryker to check."
 
   defp delivery_summary(%{"delivery" => "reply", "message" => message}) when is_binary(message),
     do: "Ryker accepted this response for delivery."
