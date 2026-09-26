@@ -982,13 +982,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <div class="settings-field">
           <label for="webhook-credential-name">Name</label>
           <p class="settings-help">
-            Lowercase letters, numbers, dots, dashes and colons, such as grafana.
+            Lowercase letters, numbers, dots, dashes, underscores and colons, such as grafana.
           </p>
           <input
             id="webhook-credential-name"
             type="text"
             name="credential[name]"
             pattern="[a-z0-9][a-z0-9_.:\-]{0,127}"
+            title="Lowercase letters, numbers, dots, dashes, underscores and colons, starting with a letter or number"
             required
           />
         </div>
