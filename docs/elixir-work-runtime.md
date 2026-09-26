@@ -57,8 +57,8 @@ tools own durable records. The generic Delivery module owns external message cus
   `{"kind":"default"}`, `{"kind":"branch","name":...}`, `{"kind":"pull_request","number":...}` or
   `{"kind":"commit","sha":...}` inside the already selected repository; the host supplies `default`
   when nobody chose. Workspace-free work carries no selector. The selector rides the create and
-  fence documents byte-identically as `source` (direct `POST /v1/sessions` body and fleet
-  `create_session` payload alike), so a retry under the same operation identity that carries a
+  fence documents byte-identically as `source` (the evaluation client's `POST /v1/sessions` body
+  and the fleet `create_session` payload alike), so a retry under the same operation identity that carries a
   different selector conflicts instead of rebinding, and the fleet refuses to forward any selector
   other than the one custody persisted (`coop_fleet_authority_mismatch: repository_source`).
   Rotation, failover and checkpoint restore copy the predecessor's selector verbatim; a checkpoint
@@ -509,7 +509,9 @@ arguments rather than a global order, controlled failures are replayed per rule,
 return a bounded error instead of fabricated data. Visible output goes only to the inert `eval`
 transport. Hard checks run first, then a tool-free judge session scores every human-language rubric
 criterion exactly once. Missing judge evidence remains `UNRUN`, never green.
-The eval socket cannot equal the production Coop socket. Before any model turn, Ryker verifies the
+Production has no Coop socket for the eval socket to be confused with: product builds reach Coop
+only through the enrolled worker fleet, and the local socket client lives in `evals/`, which no
+release compiles. Before any model turn, Ryker verifies the
 exact policy digest and Coop's public `repository_read_only` bit; the dedicated daemon is deployed
 without production environment, credentials, network mutation tools, or project MCP configuration.
 

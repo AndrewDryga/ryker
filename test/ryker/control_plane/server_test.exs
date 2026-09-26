@@ -83,7 +83,7 @@ defmodule Ryker.ControlPlane.ServerTest do
     end
 
     assert_raise ArgumentError, fn ->
-      Server.options!(Map.put(configuration(), :coop_api, Ryker.Coop.Client))
+      Server.options!(Map.put(configuration(), :coop_api, Ryker.CoopFleet.Client))
     end
 
     assert_raise ArgumentError, fn ->

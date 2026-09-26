@@ -3,10 +3,11 @@ defmodule Ryker.Coop.API do
   The Coop session API admission, Work, learning and cleanup execute through.
 
   The behaviour keeps deterministic orchestration tests independent of
-  transports. `Ryker.Coop.Client` speaks it over the owner-only Unix socket of
-  a local daemon; `Ryker.CoopFleet.Client` speaks it through durable commands
-  to enrolled remote workers. Callbacks a transport may lack are optional, and
-  every caller checks `function_exported?/3` before relying on one.
+  transports. `Ryker.CoopFleet.Client`, the only product transport, speaks it
+  through durable commands to enrolled remote workers; the eval-only
+  `Ryker.Coop.Client` in `evals/` speaks it over the owner-only Unix socket of
+  the dedicated evaluation daemon. Callbacks a transport may lack are optional,
+  and every caller checks `function_exported?/3` before relying on one.
   """
 
   @callback operation_by_key(client :: term(), key :: String.t()) ::

@@ -3,8 +3,8 @@
 # trusted digest before anything is listed or extracted; every path must be
 # safe; the release must carry its executable, its runtime configuration,
 # every migration in this tree and every operator asset in release-assets.txt,
-# no development dependency, the expected version, and it must boot its
-# migration entry point.
+# no development dependency, no eval-only module, the expected version, and it
+# must boot its migration entry point.
 set -euo pipefail
 
 archive=${1:-}
@@ -99,6 +99,22 @@ done <"$manifest"
 
 if find "$scratch/lib" -maxdepth 1 -type d \( -name 'credo-*' -o -name 'jsv-*' \) | grep -q .; then
   echo "release contains development or test dependencies" >&2
+  exit 1
+fi
+
+# The model evaluations, their Mix tasks and the local Unix-socket Coop client
+# they drive live in evals/, compiled only in development and test. Product
+# Coop work runs through the fleet client alone, so any of them in a release is
+# code no product path may reach.
+eval_only=$(find "$scratch/lib" -type f -path '*/ebin/*' \( \
+  -name 'Elixir.Ryker.Evals.*.beam' -o \
+  -name 'Elixir.Ryker.Coop.Client.beam' -o \
+  -name 'Elixir.Mix.Tasks.Ryker.Eval.beam' -o \
+  -name 'Elixir.Mix.Tasks.Ryker.LearningEval.beam' \) -exec basename {} .beam \; | sort)
+
+if [[ -n $eval_only ]]; then
+  echo "release contains eval-only modules:" >&2
+  printf '%s\n' "$eval_only" | sed 's/^/  /' >&2
   exit 1
 fi
 

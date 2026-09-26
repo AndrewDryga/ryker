@@ -240,6 +240,44 @@ defmodule Ryker.ReleaseTest do
     assert output =~ "archive SHA-256 does not match trusted digest"
   end
 
+  test "the archive checker refuses a release that carries eval-only code" do
+    # Until 2026-09-26 every release carried the model evaluations, their Mix
+    # tasks and the local Unix-socket Coop client they drive: 28 modules no
+    # product path uses. evals/ now compiles only in development and test, and
+    # an archive in which any of them reappears must not pass as a release.
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "ryker-release-eval-only-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    version = "0.1.0-g" <> String.duplicate("c", 40)
+    checker = Path.expand("../../scripts/check-elixir-release.sh", __DIR__)
+
+    check = fn archive ->
+      digest = :crypto.hash(:sha256, File.read!(archive)) |> Base.encode16(case: :lower)
+      System.cmd(checker, [archive, version, digest], stderr_to_stdout: true)
+    end
+
+    assert {output, 0} = check.(complete_release_archive!(root, "product", version, []))
+    assert output =~ "is self-contained and migration-capable"
+
+    for module <- ~w(
+          Elixir.Ryker.Evals.WorldRunner
+          Elixir.Ryker.Evals.LearningRunner.ScratchAPI
+          Elixir.Ryker.Coop.Client
+          Elixir.Mix.Tasks.Ryker.Eval
+          Elixir.Mix.Tasks.Ryker.LearningEval
+        ) do
+      assert {output, status} = check.(complete_release_archive!(root, module, version, [module]))
+      assert status != 0
+      assert output =~ "release contains eval-only modules:\n  #{module}\n"
+    end
+  end
+
   test "the container migrates before it starts the release" do
     entrypoint = read!("deploy/compose/entrypoint.sh")
     nginx = read!("deploy/nginx/ryker.conf")
@@ -348,6 +386,43 @@ defmodule Ryker.ReleaseTest do
     File.write!(executable, "#!/bin/sh\nprintf 'ryker #{version}\\n'\n")
     File.chmod!(executable, 0o755)
     File.write!(Path.join(source, "payload.txt"), name)
+
+    archive = Path.join(root, "#{name}.tar.gz")
+    {_output, 0} = System.cmd("tar", ["-czf", archive, "-C", source, "."])
+    archive
+  end
+
+  # A release-shaped archive that satisfies every structural check: the
+  # executable answers `version` and `eval` for the expected version, and every
+  # migration and operator asset is present. `modules` adds ebin entries.
+  defp complete_release_archive!(root, name, version, modules) do
+    source = Path.join(root, name)
+    application = Path.join([source, "lib", "ryker-#{version}"])
+
+    migrations =
+      for path <- Path.wildcard(Path.join(@root, "priv/repo/migrations/*.exs")),
+          do: Path.join(["lib", "ryker-#{version}", "priv/repo/migrations", Path.basename(path)])
+
+    assets =
+      for asset <- String.split(read!("release-assets.txt"), "\n", trim: true),
+          not String.starts_with?(asset, "#"),
+          do: Path.join(["share", "ryker", asset])
+
+    for file <- [Path.join(["releases", version, "runtime.exs"]) | migrations ++ assets] do
+      path = Path.join(source, file)
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, "")
+    end
+
+    for module <- modules do
+      File.mkdir_p!(Path.join(application, "ebin"))
+      File.write!(Path.join([application, "ebin", module <> ".beam"]), "FOR1")
+    end
+
+    File.mkdir_p!(Path.join(source, "bin"))
+    executable = Path.join(source, "bin/ryker")
+    File.write!(executable, "#!/bin/sh\nprintf 'ryker #{version}\\n'\n")
+    File.chmod!(executable, 0o755)
 
     archive = Path.join(root, "#{name}.tar.gz")
     {_output, 0} = System.cmd("tar", ["-czf", archive, "-C", source, "."])

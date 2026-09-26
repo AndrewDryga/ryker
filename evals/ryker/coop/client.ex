@@ -2,6 +2,10 @@ defmodule Ryker.Coop.Client do
   @moduledoc """
   Bounded HTTP client for Coop's owner-only Unix session API.
 
+  Eval-only: the credentialed evaluations drive their dedicated Coop daemon
+  through it, and it compiles only in development and test. Product Coop work
+  runs through `Ryker.CoopFleet.Client`.
+
   It never opens a TCP connection and never accepts repository, model, or tool
   authority from an incoming event. Those remain in Coop's named policy.
   """

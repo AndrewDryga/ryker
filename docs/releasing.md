@@ -18,8 +18,8 @@ make elixir-release-check
 The release identity is the semantic tag for a public release and otherwise the exact Git commit.
 The check builds the archive, verifies it against its trusted digest before listing or extracting
 it, requires safe paths, the executable, every migration in the tree and every operator asset in
-`release-assets.txt`, refuses development dependencies, and boots the archive's migration entry
-point. `make release-dist` then lays the archive and its checksum manifest out under `dist/` the
+`release-assets.txt`, refuses development dependencies and eval-only modules (anything built from
+`evals/`), and boots the archive's migration entry point. `make release-dist` then lays the archive and its checksum manifest out under `dist/` the
 way CI publishes them. Production deployment is the Docker Compose project described in
 [`operations.md`](operations.md); durable recovery is in PostgreSQL, not in canary/promote
 metadata. CI still runs the full gate independently on a clean runner.

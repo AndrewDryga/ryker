@@ -43,7 +43,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
       end
     end)
 
-    for config <- [nil, %{}, %{api: Ryker.Coop.Client}] do
+    for config <- [nil, %{}, %{api: Ryker.TestSupport.FakeCoopAPI}] do
       Application.put_env(:ryker, :work, config)
       refute CodeEditingSetup.checkpoint_supported?()
       assert html([]) =~ "Tasks that change code cannot run"
