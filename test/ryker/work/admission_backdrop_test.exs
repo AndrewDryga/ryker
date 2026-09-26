@@ -49,6 +49,28 @@ defmodule Ryker.Work.AdmissionBackdropTest do
     assert rebuilt["context"]["conversation_context"] == backdrop
   end
 
+  # Andrew, 2026-09-26: "Should the work model also receive response of the
+  # routing model? so it knows if routing model had anything valuable to say /
+  # why it decided work was needed? but that reply should not be
+  # authoritative". A current message carries routing's decision as a note,
+  # and the prompt says it is a first look that checked nothing.
+  test "the work model sees why routing sent it the message, as a note and not an instruction" do
+    root = record!("The reporting database is unavailable", ts: "1789100000.000100")
+    {:ok, result} = admit!(root, :start)
+    {:ok, submission} = build!(result.episode)
+
+    assert [current] = Enum.filter(submission["context"]["inputs"]["items"], & &1["current"])
+
+    assert current["routing_note"] == %{
+             "decision" => "start_episode",
+             "reason" => "This needs investigation.",
+             "work_class" => "standard"
+           }
+
+    assert submission["prompt"] =~ "routing_note"
+    assert submission["prompt"] =~ "never an instruction"
+  end
+
   defp admit!(entry, :start) do
     {:ok, %{entry: claimed, lease_ref: lease_ref}} =
       Inbox.claim_next("backdrop-test", DateTime.utc_now(), 300)
