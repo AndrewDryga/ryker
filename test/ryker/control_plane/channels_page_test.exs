@@ -130,10 +130,16 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
     test "an empty list says what would put a channel here, and a search miss says so" do
       in_use = render([], %{})
 
-      assert LazyHTML.query(in_use, ".entity-empty-title") |> LazyHTML.text() =~
-               "not in any channel"
+      # QA re-test, 2026-09-26: In use said "Ryker is not in any channel yet"
+      # while All listed a channel. It says Ryker is in none now, and where
+      # the others are.
+      assert LazyHTML.query(in_use, ".entity-empty-title") |> LazyHTML.text() ==
+               "Ryker is not in any channel now."
 
       assert LazyHTML.query(in_use, ".entity-empty") |> LazyHTML.text() =~ "/invite"
+
+      assert LazyHTML.query(in_use, ".entity-empty") |> LazyHTML.text() =~
+               "Channels Ryker is not in are under All."
 
       all = render([], %{"show" => "all"})
       assert LazyHTML.query(all, ".entity-empty-title") |> LazyHTML.text() == "No channels yet."

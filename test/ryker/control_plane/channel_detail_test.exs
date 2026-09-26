@@ -236,6 +236,11 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert fact(html, "Code") == "None, so Ryker does not read code here"
     assert fact(html, "Emisar") == "None, so Ryker cannot act on running systems here"
     refute html =~ "channel-environment-choice"
+    # QA re-test, 2026-09-26: the section said "Choose the environment here."
+    # above no control. It says why there is nothing to choose instead.
+    assert lede(html) ==
+             "Ryker keeps settings only for channels it is in. Once it joins this one, choose its environment here."
+
     assert fact(html, "Alerts") == "Investigates in the alert's thread"
     assert fact(html, "Channel settings") == "Never saved; this channel follows the defaults"
     refute "Invites to incident rooms" in fact_labels(html)
@@ -276,11 +281,29 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert fact(html, "Code") == "Changes ryker · from the incident room"
     refute "Environment" in fact_labels(html)
 
+    assert lede(html) ==
+             "An incident room works in the code it was opened with, so there is no environment to choose."
+
     assert html |> LazyHTML.from_document() |> LazyHTML.query(".channel-state") |> LazyHTML.text() =~
              "Incident open"
 
     refute html =~ room.prompt
     refute html =~ "private-incident-error"
+  end
+
+  test "an incident room whose repository is no longer set up says so instead of changing it" do
+    # QA re-test, 2026-09-26: the room's channel said "Changes
+    # acme/checkout-api · from the incident room" on an installation with no
+    # repositories at all.
+    {:ok, _snapshot} = Ryker.Settings.initialize("control-plane:local")
+    source = SavedEntities.source!("slack:T123:C456")
+    incident_room!(source, "T123", "CINCIDENT")
+    membership!("T123", "CINCIDENT", private: true, external_shared: false)
+
+    html = page("/channels/T123/CINCIDENT")
+
+    assert fact(html, "Code") ==
+             "ryker · from the incident room, and no longer set up in Ryker, so work there cannot read it"
   end
 
   test "a channel nobody recorded is not found, and a broken read is unavailable rather than empty" do
@@ -1339,6 +1362,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
              )
 
       assert has_element?(view, "#channel-environment-choice option[value='']", "No environment")
+      assert lede(html) == "Choose the environment here. The rest is set from Slack."
       assert fact(html, "Code") == "acme/api, acme/docs · a task changes the one it needs"
       assert fact(html, "Emisar") == "Production approvals"
 
@@ -2009,6 +2033,14 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
         projection: Projection.callbacks()
       }
     )
+  end
+
+  defp lede(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("#taking-part .section-head p")
+    |> LazyHTML.text()
+    |> String.trim()
   end
 
   defp fact_labels(html) do
