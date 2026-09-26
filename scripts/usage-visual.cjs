@@ -32,7 +32,7 @@ const {chromium} = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(await page.getByText('Unclassified work', {exact: true}).count(), 0);
       assert.equal(await page.getByText('Execution ledger', {exact: true}).count(), 0);
       assert.equal(await page.locator('.execution-ledger-disclosure').count(), 0);
-      assert.equal(await page.locator('.usage-scope [aria-current=page]').textContent(), 'All work');
+      assert.equal(await page.locator('.usage-scope [aria-current=page]').textContent(), 'Live work');
       assert.equal(await page.getByText('Unknown model', {exact: true}).count(), 0);
       assert.equal(await page.locator('#usage-channels').getByText('Direct conversation', {exact: true}).count(), 0);
       for (const href of await page.locator('#usage-channels .usage-identity a').evaluateAll(es => es.map(e => e.href))) {

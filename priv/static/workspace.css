@@ -2415,6 +2415,18 @@
 .usage-section-heading { display:flex; align-items:baseline; gap:10px; }
 .usage-section-heading > span { color:var(--secondary); font-size:13px; }
 .usage-page .table-wrap { background:var(--ryker-surface-raised); border:1px solid var(--stroke); border-radius:6px; }
+/* A chart or table wider than the screen scrolls sideways. A shade on each
+   side that still has more says so and fades once that side is reached
+   (QA, 2026-09-25: at 390px the token chart and every table were cut at the
+   edge with nothing saying they scroll). */
+.usage-page :is(.chart-scroll, .table-wrap) {
+  background:
+    linear-gradient(to right, var(--ryker-surface-raised) 40%, transparent) left center / 24px 100% no-repeat local,
+    linear-gradient(to left, var(--ryker-surface-raised) 40%, transparent) right center / 24px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--ryker-text) 30%, transparent), transparent) left center / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--ryker-text) 30%, transparent), transparent) right center / 12px 100% no-repeat scroll,
+    var(--ryker-surface-raised);
+}
 .ryker-app .usage-breakdown-table { width:100%; min-width:850px; border-collapse:collapse; margin:0; table-layout:fixed; }
 .ryker-app .usage-page .usage-detail-table { min-width:1040px; }
 .usage-name-col { width:20%; }

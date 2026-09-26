@@ -37,7 +37,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   # filtered link the page offers carries exactly the scope the page showed.
   @usage_keys ~w(usage_window mode)
   @default_window "7d"
-  @default_mode "all"
+  @default_mode "live"
 
   @doc "The query parameters the channel route accepts."
   @spec query_keys() :: [String.t()]
@@ -130,7 +130,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   # that reported no tokens or carried no price is counted, not summed as zero.
   defp usage(scope, params) do
     window = UsageProjection.window(params["usage_window"])
-    mode = if params["mode"] in ~w(live shadow), do: params["mode"], else: @default_mode
+    mode = if params["mode"] in ~w(all shadow), do: params["mode"], else: @default_mode
 
     totals =
       UsageProjection.since(window)

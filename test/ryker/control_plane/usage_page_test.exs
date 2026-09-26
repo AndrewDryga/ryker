@@ -1,12 +1,17 @@
 defmodule Ryker.ControlPlane.UsagePageTest do
   use Ryker.DataCase, async: false
-  alias Ryker.ControlPlane.{Assets, Projection, UsagePage}
+  alias Ryker.Accounting.Execution
+  alias Ryker.ControlPlane.{Activity, Assets, Projection, UsagePage}
+  alias Ryker.Episodes
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Ingress.Inbox
+  alias Ryker.Slack.Input
 
-  test "usage shows all work by default without an execution ledger or generic methodology" do
+  test "usage shows live work by default without an execution ledger or generic methodology" do
     html = Projection.usage(%{}) |> UsagePage.render() |> IO.iodata_to_binary()
 
     for label <- [
-          "Episodes",
+          "Requests",
           "Total tokens",
           "Fresh input",
           "Cached input",
@@ -36,7 +41,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     document = LazyHTML.from_document(html)
 
     assert document |> LazyHTML.query(".usage-scope [aria-current=page]") |> LazyHTML.text() ==
-             "All work"
+             "Live work"
   end
 
   test "model and effort form one readable label and average model time is explicit" do
@@ -199,7 +204,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     # "Not measured" where they appear; the page stops narrating the gaps.
     snapshot = Projection.usage(%{})
     totals = %{snapshot.totals | attempts: 4}
-    row = Map.merge(totals, %{episodes: 2})
+    row = Map.merge(totals, %{requests: 2})
 
     html =
       %{
@@ -233,7 +238,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   test "profiles are flat and missing metadata is not presented as a profile or work type" do
     # Old runs created fake profiles and work types that could not explain any activity.
     snapshot = Projection.usage(%{})
-    row = Map.merge(snapshot.totals, %{attempts: 4, episodes: 2})
+    row = Map.merge(snapshot.totals, %{attempts: 4, requests: 2})
 
     profiles = [
       Map.merge(row, %{
@@ -260,13 +265,13 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     assert LazyHTML.query(document, "#usage-work-types tbody tr") |> LazyHTML.to_tree() == []
   end
 
-  test "people focus on episodes tokens and cost instead of provider internals" do
+  test "people focus on requests tokens and cost instead of provider internals" do
     snapshot = Projection.usage(%{})
 
     person =
       Map.merge(snapshot.totals, %{
         attempts: 2,
-        episodes: 1,
+        requests: 1,
         actor: "andrew",
         source: "github",
         workspace: "emisar"
@@ -278,7 +283,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     assert Enum.map(headers, fn node -> LazyHTML.from_tree([node]) |> LazyHTML.text() end) == [
              "User",
-             "Episodes",
+             "Requests",
              "Tokens",
              "Cost"
            ]
@@ -291,7 +296,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     # Andrew, 2026-09-19: "By person" became "By user", and a name alone did not
     # say whether it belonged to a Slack member, a GitHub account or a webhook.
     snapshot = Projection.usage(%{})
-    row = Map.merge(snapshot.totals, %{attempts: 1, episodes: 1})
+    row = Map.merge(snapshot.totals, %{attempts: 1, requests: 1})
 
     users =
       for {source, actor} <- [{"slack", "U123"}, {"github", "andrew"}, {"webhook", "deploys"}],
@@ -315,7 +320,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     row =
       Map.merge(snapshot.totals, %{
         attempts: 2,
-        episodes: 1,
+        requests: 1,
         usage_measured: 1,
         provider: "codex",
         profile: "<script>profile</script>",
@@ -365,7 +370,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     row =
       Map.merge(snapshot.totals, %{
         attempts: 1,
-        episodes: 1,
+        requests: 1,
         usage_measured: 1,
         tokens: 1_200_000,
         input_tokens: 1_100_000,
@@ -427,7 +432,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     row =
       Map.merge(snapshot.totals, %{
         attempts: 1,
-        episodes: 1,
+        requests: 1,
         usage_measured: 1,
         tokens: 5_640,
         input_tokens: 4_100,
@@ -466,5 +471,176 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     assert LazyHTML.query(document, "#model-performance tbody a") |> LazyHTML.attribute("href") ==
              ["/memory/learning"]
+  end
+
+  test "every request count on Usage opens an Activity list of exactly that many requests" do
+    # QA, 2026-09-25: "Routing 21 episodes" opened Activity at "25 items".
+    # Usage counted the episodes its executions belonged to, while Activity
+    # also lists every message routing read that never became one, so the
+    # figure and the list it opened disagreed.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    execution!("admission", episode_id: episode.id)
+    execution!("work", episode_id: episode.id)
+
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: "C456",
+        content: %{"text" => "Is checkout healthy?"},
+        event_kind: :message,
+        event_ref: "Ev-usage-counts",
+        message_ref: "1787832099.000100",
+        occurred_at: DateTime.utc_now(),
+        revision: 1,
+        thread_ref: nil,
+        workspace_ref: "T123"
+      })
+
+    {:ok, %{entry: entry}} = Inbox.record(input)
+    execution!("admission", source_id: entry.id)
+
+    document =
+      Projection.usage(%{})
+      |> UsagePage.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_document()
+
+    counted =
+      for row <- LazyHTML.query(document, ".usage-breakdown tbody tr"),
+          [href] = row |> LazyHTML.query("td.usage-identity a") |> LazyHTML.attribute("href"),
+          String.starts_with?(href, "/activity?") do
+        count = row |> LazyHTML.query("td:nth-child(2) strong") |> LazyHTML.text()
+        name = row |> LazyHTML.query("td.usage-identity a") |> LazyHTML.text()
+        listed = Activity.list(URI.decode_query(URI.parse(href).query)).total
+
+        assert String.to_integer(count) == listed,
+               "#{name} says #{count} and opens #{href}, which lists #{listed}"
+
+        name
+      end
+
+    assert "Routing" in counted
+  end
+
+  test "work that runs without a request says how many runs, never zero requests" do
+    # QA, 2026-09-25: Learning read "0 episodes / 16 executions" and one row
+    # "1 episodes". Learning spends on conversations, not on requests.
+    snapshot = Projection.usage(%{})
+    row = Map.merge(snapshot.totals, %{attempts: 16, requests: 0, usage_measured: 1})
+
+    kinds = [
+      Map.put(row, :work_kind, "learning"),
+      Map.merge(row, %{work_kind: "schedule", attempts: 1, requests: 1})
+    ]
+
+    document =
+      %{snapshot | kinds: kinds}
+      |> UsagePage.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_document()
+
+    usage =
+      document
+      |> LazyHTML.query("#usage-work-types tbody td:nth-child(2)")
+      |> Enum.map(fn cell ->
+        cell
+        |> LazyHTML.to_html()
+        |> String.replace(~r/<[^>]+>/, " ")
+        |> String.split()
+        |> Enum.join(" ")
+      end)
+
+    assert [learning, schedule] = usage
+    assert learning =~ ~r/^16 executions\b/
+    refute learning =~ "request"
+    assert schedule =~ ~r/^1 request\b/
+    refute Enum.any?(usage, &(&1 =~ "episode"))
+
+    assert document |> LazyHTML.query(".usage-headlines") |> LazyHTML.text() =~ "Requests"
+    refute document |> LazyHTML.query(".usage-summary") |> LazyHTML.text() =~ "Episodes"
+  end
+
+  test "a breakdown that leaves out Chat never says there was no activity" do
+    # QA, 2026-09-25: "By channel 0" and "By user 0" each said "No activity in
+    # this period" beside $2.15 of work, all of it from Chat, which neither
+    # breakdown lists by design.
+    execution!("admission",
+      transport: "control_plane",
+      conversation_ref: "control-plane:lab:" <> Ecto.UUID.generate()
+    )
+
+    document =
+      Projection.usage(%{})
+      |> UsagePage.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_document()
+
+    refute LazyHTML.text(document) =~ "No activity in this period"
+
+    assert document |> LazyHTML.query("#usage-channels .empty") |> LazyHTML.text() =~
+             "Chat is not a channel"
+
+    assert document |> LazyHTML.query("#usage-users .empty") |> LazyHTML.text() =~
+             "Chat messages are not counted by user"
+  end
+
+  test "a chart or table wider than a phone shows that it scrolls" do
+    # QA, 2026-09-25, at 390px: the token chart and every breakdown table were
+    # cut at the screen edge with nothing saying they scroll sideways. Each
+    # scrolling part now shades the side that has more, and only that side.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    for part <- [".chart-scroll", ".table-wrap"] do
+      rules =
+        ~r/([^{}]+)\{([^}]*)\}/
+        |> Regex.scan(css, capture: :all_but_first)
+        |> Enum.filter(fn [selector, _body] ->
+          selector =~ ".usage-page" and String.contains?(selector, part)
+        end)
+        |> Enum.map_join(" ", &List.last/1)
+
+      assert rules =~ ~r/background:[^;]*\blocal\b[^;]*\bscroll\b/s,
+             "#{part} scrolls on Usage without a cue"
+    end
+  end
+
+  test "Usage opens on the same work as Activity" do
+    # QA, 2026-09-25: Usage opened on All work and Activity on Live work, so
+    # the two pages counted different things until a scope was chosen.
+    assert Projection.usage(%{}).mode == Activity.list(%{}).mode
+
+    document =
+      Projection.usage(%{})
+      |> UsagePage.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_document()
+
+    assert document |> LazyHTML.query(".usage-scope [aria-current=page]") |> LazyHTML.text() ==
+             "Live work"
+  end
+
+  defp execution!(kind, attributes) do
+    Repo.insert!(
+      struct!(
+        Execution,
+        Map.merge(
+          %{
+            kind: kind,
+            source_id: Ecto.UUID.generate(),
+            generation: "1",
+            transport: "slack",
+            conversation_ref: "slack:T123:C456",
+            execution_mode: "live",
+            remote_ref: "usage-counts:" <> Ecto.UUID.generate(),
+            status: "completed",
+            execution_target: "codex:gpt-5.6-sol/medium@default",
+            usage_recorded: true,
+            usage_input_tokens: 10,
+            recorded_at: DateTime.utc_now()
+          },
+          Map.new(attributes)
+        )
+      )
+    )
   end
 end

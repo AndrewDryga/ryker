@@ -644,9 +644,13 @@ The page leads with its totals as counts, then the daily trend and where the
 time went, then one table per breakdown: one header row, every column named
 once ("Fresh in", "Cached in") and figures right-aligned.
 
-Every row links into an episode list filtered to it. A breakdown that cannot be
-opened says which model costs the most and gives no route to a single turn of
-it.
+The page opens on live work, like Activity; all work and evaluations are one
+choice away. Every row leads with the requests it counts and links into
+Activity filtered to it, where the list holds exactly that many: each episode,
+and each message routing read that never became one. Learning belongs to no
+request, so its rows lead with how many times it ran. A breakdown that cannot
+be opened says which model costs the most and gives no route to a single turn
+of it.
 
 Cost prefers what the provider reported through Coop. A configured
 `config.Pricing.Cost` table supplies a separately labelled estimate only for
