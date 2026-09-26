@@ -8,6 +8,8 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   import Ecto.Query
 
+  require Logger
+
   alias Ryker.Delivery.PlatformActionCustody
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.GitHub.SourceRef
@@ -167,7 +169,7 @@ defmodule Ryker.GitHub.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> raised("read_github_conversation", error, __STACKTRACE__)
   end
 
   def call("search_github", arguments, binding, options) do
@@ -186,7 +188,7 @@ defmodule Ryker.GitHub.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> raised("search_github", error, __STACKTRACE__)
   end
 
   def call("read_github_pull_request", arguments, binding, options) do
@@ -215,7 +217,7 @@ defmodule Ryker.GitHub.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> raised("read_github_pull_request", error, __STACKTRACE__)
   end
 
   def call("read_github_ci", arguments, binding, options),
@@ -251,7 +253,7 @@ defmodule Ryker.GitHub.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> raised("submit_github_review", error, __STACKTRACE__)
   end
 
   @spec call(String.t(), map(), map(), map() | keyword()) ::
@@ -270,7 +272,7 @@ defmodule Ryker.GitHub.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> raised("set_github_reaction", error, __STACKTRACE__)
   end
 
   def call(_name, _arguments, _binding, _options), do: {:error, "unknown_tool"}
@@ -704,7 +706,19 @@ defmodule Ryker.GitHub.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> raised("#{action}_github_ci", error, __STACKTRACE__)
+  end
+
+  # A raise inside a tool still answers the model "temporarily unavailable",
+  # but it is a host bug or an outage, so the log names the tool and the raise.
+  defp raised(tool, error, stacktrace) do
+    Logger.error(
+      "GitHub tool #{tool} raised: " <>
+        Exception.format_banner(:error, error) <>
+        "\n" <> Exception.format_stacktrace(Enum.take(stacktrace, 5))
+    )
+
+    {:error, "temporarily_unavailable"}
   end
 
   defp invoke_ci(configured, :read, arguments) do

@@ -28,25 +28,6 @@ defmodule Ryker.State.Memories.Recall do
 
   def recall(_context, _limit), do: []
 
-  @spec search(map(), String.t(), String.t(), pos_integer()) :: [map()]
-  def search(context, query, scope, limit)
-      when is_map(context) and is_binary(query) and is_binary(scope) and is_integer(limit) and
-             limit in 1..50 do
-    case retrieval_context(context) do
-      {:ok, context} ->
-        Repo.transaction(fn -> search_locked(context, query, scope, limit) end)
-        |> case do
-          {:ok, entries} -> entries
-          {:error, _reason} -> []
-        end
-
-      {:error, _reason} ->
-        []
-    end
-  end
-
-  def search(_context, _query, _scope, _limit), do: []
-
   @spec model_context(Episode.t(), String.t() | nil) :: [map()]
   def model_context(%Episode{} = episode, repository)
       when is_binary(repository) or is_nil(repository) do
@@ -75,10 +56,6 @@ defmodule Ryker.State.Memories.Recall do
       |> Enum.take(limit)
 
     account_memory(entries)
-  end
-
-  defp search_locked(context, query, scope, limit) do
-    MemorySearchPage.read(MemorySearchPage.first(query, scope), limit, &search_page(context, &1))
   end
 
   @doc false

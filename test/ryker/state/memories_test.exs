@@ -6,6 +6,7 @@ defmodule Ryker.State.MemoriesTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.MemoryPages
   alias Ryker.Ingress.Inbox.Entry
 
   alias Ryker.Slack.{
@@ -54,7 +55,7 @@ defmodule Ryker.State.MemoriesTest do
       workspace_ref: "slack:T123"
     }
 
-    assert [match] = Recall.search(context, "ryker", "current_channel", 20)
+    assert [match] = MemoryPages.facts(context, "ryker", "current_channel", 20)
     assert match["memory_ref"] == confirmed.memory.ref
     assert confirmed.memory.inserted_at == database_time
     assert confirmed.memory.updated_at == database_time
@@ -313,9 +314,8 @@ defmodule Ryker.State.MemoriesTest do
   end
 
   test "memory review APIs reject malformed requests and out-of-transaction maintenance" do
-    assert Recall.search(:invalid, "query", "workspace", 20) == []
-    assert Recall.search(%{}, "query", "workspace", 20) == []
-    assert Recall.search(%{}, "query", "workspace", 0) == []
+    assert MemoryPages.facts(%{}, "query", "workspace", 20) == []
+    assert MemoryPages.facts(%{}, "query", "workspace", 0) == []
 
     assert Reviews.refresh_reviews("slack:T123", 0) ==
              {:error, {:invalid_memory_review, :stale_seconds}}
@@ -517,7 +517,7 @@ defmodule Ryker.State.MemoriesTest do
     assert %DateTime{} = edited_memory.last_reviewed_at
 
     assert [edited_document] =
-             Recall.search(
+             MemoryPages.facts(
                %{
                  conversation_ref: "slack:T123:C456",
                  repository: nil,
@@ -936,12 +936,12 @@ defmodule Ryker.State.MemoriesTest do
       workspace_ref: "slack:T123"
     }
 
-    assert Behaviors.search_guidance(context, "does-not-match", "workspace", 20) == []
+    assert MemoryPages.guidance(context, "does-not-match", "workspace", 20) == []
     assert Repo.get!(Behavior, first.behavior.id).use_count == 0
     assert Repo.get!(Behavior, second.behavior.id).use_count == 0
 
     assert [match, _other] =
-             Behaviors.search_guidance(context, "lead with the outcome", "workspace", 20)
+             MemoryPages.guidance(context, "lead with the outcome", "workspace", 20)
 
     assert match["kind"] == "guidance"
     assert Repo.get!(Behavior, first.behavior.id).use_count == 1
@@ -958,10 +958,10 @@ defmodule Ryker.State.MemoriesTest do
       workspace_ref: "slack:T123"
     }
 
-    assert Recall.search(context, "missing", "current_channel", 20) == []
+    assert MemoryPages.facts(context, "missing", "current_channel", 20) == []
     assert Repo.get!(MemoryEntry, confirmed.memory.id).recall_count == 0
 
-    assert [match] = Recall.search(context, "ryker", "current_channel", 20)
+    assert [match] = MemoryPages.facts(context, "ryker", "current_channel", 20)
     assert match["memory_ref"] == confirmed.memory.ref
     assert Repo.get!(MemoryEntry, confirmed.memory.id).recall_count == 1
   end

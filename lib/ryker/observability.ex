@@ -586,8 +586,8 @@ defmodule Ryker.Observability do
   end
 
   defp fleet_capacity(workers) do
-    Map.new(~w(session turn workspace), fn kind ->
-      {String.to_atom(kind),
+    Map.new(~w(session turn workspace)a, fn kind ->
+      {kind,
        %{
          free: Enum.sum(Enum.map(workers, &capacity_slot(&1, kind, :free))),
          total: Enum.sum(Enum.map(workers, &capacity_slot(&1, kind, :total)))

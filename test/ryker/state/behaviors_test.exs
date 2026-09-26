@@ -12,6 +12,7 @@ defmodule Ryker.State.BehaviorsTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.MemoryPages
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Slack.{AppHomeProjection, Event, Renderer, ReplyRecords}
 
@@ -47,7 +48,7 @@ defmodule Ryker.State.BehaviorsTest do
     }
 
     assert [searched] =
-             Behaviors.search_guidance(context, "availability risk", "current_channel", 20)
+             MemoryPages.guidance(context, "availability risk", "current_channel")
 
     assert searched["behavior_ref"] == confirmed.behavior.ref
     assert confirmed.behavior.inserted_at == database_time
@@ -276,10 +277,10 @@ defmodule Ryker.State.BehaviorsTest do
     assert recalled["text"] =~ "availability risk"
 
     assert [searched] =
-             Behaviors.search_guidance(context, "availability risk", "current_channel", 20)
+             MemoryPages.guidance(context, "availability risk", "current_channel")
 
     assert searched["behavior_ref"] == guidance.behavior.ref
-    assert Behaviors.search_guidance(context, "availability risk", "invalid", 20) == []
+    assert MemoryPages.guidance(context, "availability risk", "invalid") == []
 
     other_conversation = %{context | conversation_ref: "slack:T123:C999"}
     assert Behaviors.guidance(other_conversation) == []
@@ -496,7 +497,7 @@ defmodule Ryker.State.BehaviorsTest do
     assert guidance["behavior_ref"] == confirmed.behavior.ref
 
     assert [searched] =
-             Behaviors.search_guidance(source_context, "availability", "repository", 20)
+             MemoryPages.guidance(source_context, "availability", "repository")
 
     assert searched["behavior_ref"] == confirmed.behavior.ref
     assert Behaviors.guidance(%{source_context | conversation_ref: "slack:T123:C999"}) == []
@@ -1122,8 +1123,7 @@ defmodule Ryker.State.BehaviorsTest do
 
     assert Behaviors.guidance(%{}, 20) == []
     assert Behaviors.guidance(%{}, 0) == []
-    assert Behaviors.search_guidance(%{}, "query", "workspace", 20) == []
-    assert Behaviors.search_guidance(%{}, "query", "workspace", 0) == []
+    assert MemoryPages.guidance(%{}, "query", "workspace") == []
     refute Behaviors.standing_match?(:invalid)
 
     assert Behaviors.finalize_assignment_runs_in_transaction(

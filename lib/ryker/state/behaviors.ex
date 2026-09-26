@@ -320,27 +320,6 @@ defmodule Ryker.State.Behaviors do
 
   def guidance(_context, _limit), do: []
 
-  @spec search_guidance(map(), String.t(), String.t(), pos_integer()) :: [map()]
-  def search_guidance(context, query, scope, limit)
-      when is_map(context) and is_binary(query) and is_binary(scope) and is_integer(limit) and
-             limit in 1..50 do
-    with {:ok, context} <- retrieval_context(context),
-         {:ok, documents} <-
-           Repo.transaction(fn ->
-             MemorySearchPage.read(
-               MemorySearchPage.first(query, scope),
-               limit,
-               &search_page(context, &1)
-             )
-           end) do
-      documents
-    else
-      _ -> []
-    end
-  end
-
-  def search_guidance(_context, _query, _scope, _limit), do: []
-
   defp guidance_context(context, limit) do
     active_for_context(:guidance, context)
     |> Enum.sort_by(&{preference_rank(&1), DateTime.to_unix(&1.updated_at, :microsecond) * -1})

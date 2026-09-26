@@ -37,7 +37,7 @@ defmodule Ryker.Publication.Custody do
           {:ok, %{publication: Publication.t(), status: :requested | :duplicate}}
           | {:error, term()}
   def request_review(attributes) do
-    with {:ok, attributes} <- attributes(attributes, @request_fields, :review),
+    with {:ok, attributes} <- attributes(attributes, @request_fields, :invalid_publication_review),
          :ok <- reference(attributes.actor_ref, :actor_ref),
          :ok <- reference(attributes.record_ref, :record_ref),
          :ok <- reference(attributes.request_ref, :request_ref),
@@ -297,7 +297,8 @@ defmodule Ryker.Publication.Custody do
   end
 
   def approve(attributes) do
-    with {:ok, attributes} <- attributes(attributes, @approval_fields, :approval),
+    with {:ok, attributes} <-
+           attributes(attributes, @approval_fields, :invalid_publication_approval),
          :ok <- reference(attributes.actor_ref, :actor_ref),
          :ok <- reference(attributes.approval_ref, :approval_ref),
          :ok <- reference(attributes.publication_ref, :publication_ref),
@@ -898,13 +899,15 @@ defmodule Ryker.Publication.Custody do
          do: record_was_delivered(turn, record.ref)
   end
 
-  defp record_was_delivered(%Turn{delivery_document: document}, record_ref) do
-    if record_ref in get_in(document || %{}, ["outcome", "record_refs"]),
-      do: :ok,
-      else: {:error, :publication_offer_not_delivered}
-  rescue
-    Protocol.UndefinedError -> {:error, :publication_offer_not_delivered}
+  defp record_was_delivered(
+         %Turn{delivery_document: %{"outcome" => %{"record_refs" => refs}}},
+         record_ref
+       )
+       when is_list(refs) do
+    if record_ref in refs, do: :ok, else: {:error, :publication_offer_not_delivered}
   end
+
+  defp record_was_delivered(_turn, _record_ref), do: {:error, :publication_offer_not_delivered}
 
   defp repository(%Session{repository_ref: repository, workspace_task: task}, _episode_id)
        when is_binary(repository) and is_map(task),
@@ -1288,21 +1291,20 @@ defmodule Ryker.Publication.Custody do
     |> Repo.update!()
   end
 
-  defp attributes(attributes, fields, namespace) when is_list(attributes) do
+  defp attributes(attributes, fields, error) when is_list(attributes) do
     if Keyword.keyword?(attributes) and
          Enum.uniq(Keyword.keys(attributes)) == Keyword.keys(attributes),
-       do: attributes |> Map.new() |> attributes(fields, namespace),
-       else: {:error, {String.to_atom("invalid_publication_#{namespace}"), :fields}}
+       do: attributes |> Map.new() |> attributes(fields, error),
+       else: {:error, {error, :fields}}
   end
 
-  defp attributes(attributes, fields, namespace) when is_map(attributes) do
+  defp attributes(attributes, fields, error) when is_map(attributes) do
     if Map.keys(attributes) |> Enum.sort() == Enum.sort(fields),
       do: {:ok, attributes},
-      else: {:error, {String.to_atom("invalid_publication_#{namespace}"), :fields}}
+      else: {:error, {error, :fields}}
   end
 
-  defp attributes(_attributes, _fields, namespace),
-    do: {:error, {String.to_atom("invalid_publication_#{namespace}"), :fields}}
+  defp attributes(_attributes, _fields, error), do: {:error, {error, :fields}}
 
   defp target(target) when is_map(target) do
     if Map.keys(target) |> Enum.sort() == Enum.sort(@target_fields) do

@@ -678,8 +678,7 @@ defmodule Ryker.Work.Validator do
        when map_size(record) == 3 and wait_mode in ["external", "timer"] do
     with true <- reference?(ref),
          {:ok, continuation} <- prepare_record_continuation(continuation) do
-      {:ok,
-       %{continuation: continuation, kind: "event_wait", wait_mode: String.to_atom(wait_mode)}}
+      {:ok, %{continuation: continuation, kind: "event_wait", wait_mode: wait_mode(wait_mode)}}
     else
       false -> {:error, {:invalid_work_validation_context, :record}}
       {:error, _reason} = error -> error
@@ -782,6 +781,9 @@ defmodule Ryker.Work.Validator do
   defp platform_action_status("blocked"), do: {:ok, :blocked}
   defp platform_action_status("delivered"), do: {:ok, :delivered}
   defp platform_action_status(_status), do: {:error, :status}
+
+  defp wait_mode("external"), do: :external
+  defp wait_mode("timer"), do: :timer
 
   defp prepare_record_continuation(nil), do: {:ok, nil}
 
