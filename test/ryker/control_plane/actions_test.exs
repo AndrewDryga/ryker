@@ -1,8 +1,9 @@
 defmodule Ryker.ControlPlane.ActionsTest do
   use Ryker.DataCase, async: false
 
-  alias Ryker.ControlPlane.Actions
+  alias Ryker.ControlPlane.{Actions, Projection}
   alias Ryker.Episodes
+  alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
 
   test "local retention callbacks fail closed while preserving audited action identity" do
@@ -85,6 +86,66 @@ defmodule Ryker.ControlPlane.ActionsTest do
              callbacks.review_episode.(complete.episode.key)
 
     assert replayed.id == review.id
+  end
+
+  test "closing a request does not ask its closer to review the ending they chose" do
+    # QA re-test, 2026-09-26: right after "Close as no longer needed" the
+    # timeline offered "Mark ending reviewed" for the ending the person had
+    # just chosen.
+    callbacks = Actions.callbacks()
+    waiting = start_episode!("close-review")
+
+    assert {:ok, _waiting} =
+             Episodes.apply(
+               EpisodeFixtures.start_wait(%{
+                 episode_key: waiting.episode.key,
+                 expected_turn_ref: waiting.episode.owner_ref,
+                 kind: :input,
+                 wait_ref: "wait:close-review:#{waiting.episode.id}"
+               })
+             )
+
+    assert {:ok, %{state: :cancelled}} = callbacks.resolve_episode.(waiting.episode.key)
+    refute awaiting_review?(waiting.episode.key)
+
+    # A stopped task's close settles later, as this cancel with the close's
+    # own reference.
+    stopped = start_episode!("close-stopped")
+
+    assert {:ok, _cancelled} =
+             cancel(stopped.episode, "control-plane:resolve:#{Ecto.UUID.generate()}")
+
+    refute awaiting_review?(stopped.episode.key)
+
+    # So does closing a task from its chat card.
+    card = start_episode!("close-card")
+
+    assert {:ok, _cancelled} =
+             cancel(card.episode, "control-plane-action:#{String.duplicate("c", 64)}")
+
+    refute awaiting_review?(card.episode.key)
+
+    # An ending nobody chose here still asks to be reviewed.
+    ended = start_episode!("stalled")
+    assert {:ok, _cancelled} = cancel(ended.episode, "work:stalled:#{Ecto.UUID.generate()}")
+    assert awaiting_review?(ended.episode.key)
+  end
+
+  defp cancel(episode, cancel_ref) do
+    Episodes.apply(%Command.CancelEpisode{
+      cancel_ref: cancel_ref,
+      episode_key: episode.key,
+      expected_owner: %{kind: :turn, ref: episode.owner_ref},
+      occurred_at: DateTime.utc_now(),
+      reason: "Stopped."
+    })
+  end
+
+  defp awaiting_review?(episode_key) do
+    {:ok, %{trace: trace}} = Projection.episode(episode_key)
+    reviewable = Enum.any?(trace.actions, &(&1.label == "Mark ending reviewed"))
+    assert reviewable == trace.review.awaiting
+    reviewable
   end
 
   defp start_episode!(suffix) do
