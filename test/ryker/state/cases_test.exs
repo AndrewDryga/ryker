@@ -8,7 +8,7 @@ defmodule Ryker.State.CasesTest do
   alias Ryker.Ingress.Input
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.State.{CaseRecord, Cases}
+  alias Ryker.State.{CaseRecord, Cases, MemorySearchPage}
 
   @now ~U[2026-09-11 12:00:00.000000Z]
   @outage "Postgres primary pgsql-prod-01 is unreachable and replication is stalled"
@@ -29,6 +29,35 @@ defmodule Ryker.State.CasesTest do
 
     # Recall is history, not a reopening: the year-old work stays finished.
     assert Repo.get!(Episode, old.id).state == :complete
+  end
+
+  # Every "Search saved knowledge" call failed on 2026-09-26: the cases lane
+  # put its scope filter inside a boolean where Ecto refuses a dynamic
+  # expression, so the query raised, the tool answered nothing, and every
+  # answer told the person earlier saved context could not be checked.
+  test "memory search finds a retained case in every scope" do
+    old = finished!("case:searchable", @outage)
+    assert {:ok, record} = Cases.capture(old.id)
+
+    context = %{
+      conversation_ref: old.destination_conversation_ref,
+      repository: nil,
+      workspace_ref: record.workspace_ref
+    }
+
+    for scope <- ~w(workspace global current_channel) do
+      {:ok, found} =
+        Repo.transaction(fn ->
+          MemorySearchPage.read(
+            MemorySearchPage.first("pgsql-prod-01", scope),
+            5,
+            &Cases.search_page(context, &1)
+          )
+        end)
+
+      assert [%{"case_ref" => case_ref}] = found, scope
+      assert case_ref == record.case_ref
+    end
   end
 
   test "explicit deletion erases the case beyond recall" do

@@ -157,6 +157,9 @@ defmodule Ryker.StateTools.ErrorCode do
   defp explanation("memory_source_capacity_exceeded"),
     do: "The run had already read as many saved sources as it may."
 
+  defp explanation("internal_error"),
+    do: "Ryker hit an error of its own answering the call. The error is in Ryker's log."
+
   defp explanation("temporarily_unavailable"),
     do: "Ryker could not answer the call just then. The same call may work if tried again."
 
