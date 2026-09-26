@@ -989,8 +989,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       Integrations.slack(view).status in [:not_set_up, :off] &&
         %{
           text:
-            "Slack is not connected, so Ryker cannot post these events yet. Connect it first: " <>
-              "a source that posts to Slack before then keeps newer settings from being applied.",
+            "Slack is not connected, so Ryker cannot post these events yet. A source that " <>
+              "posts to Slack does not take events until Slack runs, and this page says so.",
           link: "Open Slack",
           href: "/integrations/slack"
         }

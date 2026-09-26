@@ -2,7 +2,9 @@ defmodule Ryker.ControlPlane.ProductReadiness do
   @moduledoc """
   Whether Chat and Slack can run right now: Chat's state in words, and
   Slack's as the running evidence `Integrations.slack/1` reads, which says it
-  in the words every page uses.
+  in the words every page uses. Beside them, the webhook sources the running
+  configuration left out and why (`webhooks.left_out`), which
+  `Integrations.webhooks/1` reads the same way.
 
   These states come from the applied runtime and the live worker fleet, not
   from the presence of saved credentials. They never expose worker
@@ -13,7 +15,13 @@ defmodule Ryker.ControlPlane.ProductReadiness do
   alias Ryker.Settings
   alias Ryker.Slack.Gateway
 
-  @spec current() :: %{chat: map(), slack: %{state: atom()}}
+  @type t :: %{
+          chat: map(),
+          slack: %{state: atom()},
+          webhooks: %{left_out: %{String.t() => atom()}}
+        }
+
+  @spec current() :: t()
   def current do
     case Settings.fetch() do
       {:ok, snapshot} -> current(snapshot)
@@ -23,7 +31,7 @@ defmodule Ryker.ControlPlane.ProductReadiness do
     _error -> unavailable()
   end
 
-  @spec current(Settings.snapshot()) :: %{chat: map(), slack: %{state: atom()}}
+  @spec current(Settings.snapshot()) :: t()
   def current(snapshot) do
     control_plane = Application.get_env(:ryker, :control_plane)
     slack = Application.get_env(:ryker, :slack)
@@ -31,7 +39,8 @@ defmodule Ryker.ControlPlane.ProductReadiness do
     runtime = %{
       chat_profile: if(is_map(control_plane), do: chat_profile(control_plane)),
       slack_configured: is_map(slack),
-      slack_connected: Gateway.connected?()
+      slack_connected: Gateway.connected?(),
+      webhook_sources_left_out: Application.get_env(:ryker, :webhook_sources_left_out, %{})
     }
 
     from(snapshot, Observability.fleet(), runtime)
@@ -61,7 +70,11 @@ defmodule Ryker.ControlPlane.ProductReadiness do
         Map.get(runtime, :slack_connected, false)
       )
 
-    %{chat: chat, slack: slack}
+    %{
+      chat: chat,
+      slack: slack,
+      webhooks: %{left_out: Map.get(runtime, :webhook_sources_left_out, %{})}
+    }
   end
 
   defp chat_state(nil, _fleet),
@@ -131,6 +144,12 @@ defmodule Ryker.ControlPlane.ProductReadiness do
         "Ryker could not read the current worker state."
       )
 
-    %{chat: chat, slack: %{state: :unknown}}
+    # What the runtime published does not depend on the worker state that
+    # could not be read.
+    %{
+      chat: chat,
+      slack: %{state: :unknown},
+      webhooks: %{left_out: Application.get_env(:ryker, :webhook_sources_left_out, %{})}
+    }
   end
 end

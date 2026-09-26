@@ -37,6 +37,7 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
   alias Ryker.Slack.Client, as: SlackClient
   alias Ryker.Slack.Target, as: SlackTarget
+  alias Ryker.Webhooks.Route, as: WebhookRoute
   alias Ryker.Work.RepositoryContext
 
   # Every runtime the owner starts, in dependency order, with the module that
@@ -60,7 +61,9 @@ defmodule Ryker.Runtime.Assembly do
     {:control_plane, Ryker.ControlPlane.Server}
   ]
   # Published beside the runtimes: read by whoever asks, started by nobody.
-  @published_facts [:execution_mode, :fleet_profiles]
+  # `webhook_sources_left_out` names each enabled webhook source this
+  # configuration could not serve, with why, for the Integrations state.
+  @published_facts [:execution_mode, :fleet_profiles, :webhook_sources_left_out]
   @managed_keys Enum.sort(Keyword.keys(@runtimes) ++ @published_facts)
 
   @spec runtimes() :: [{atom(), module()}]
@@ -115,7 +118,7 @@ defmodule Ryker.Runtime.Assembly do
     delivery = delivery(settings, adapters)
     publication = publication(bootstrap, settings, work, repositories, github, adapters)
     emisar = emisar(bootstrap, settings, adapters, slack, github)
-    webhooks = webhooks(bootstrap, settings, adapters, repositories, environments)
+    {webhooks, left_out} = webhooks(bootstrap, settings, adapters, repositories, environments)
     retention = retention(settings, work, learning)
 
     state_tools =
@@ -150,6 +153,7 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:slack, slack && slack.runtime)
     |> put_optional(:state_tools, state_tools)
     |> put_optional(:webhooks, webhooks)
+    |> put_optional(:webhook_sources_left_out, if(left_out != %{}, do: left_out))
     |> validate_runtimes!()
   end
 
@@ -1043,30 +1047,38 @@ defmodule Ryker.Runtime.Assembly do
     |> Enum.max(fn -> 0 end)
   end
 
+  # Each enabled source is one sender's route. A source this configuration
+  # cannot serve (its destination is not running, its environment cannot run
+  # work, its credential is missing or too short, its deployment reports name
+  # an unreviewed repository) is left out and named with its reason, and every
+  # other source and setting still applies. Refusing the whole configuration
+  # for one source (QA P1 #4, 2026-09-25) kept every newer setting of every
+  # kind from applying; the reason is reported, so the route never silently
+  # vanishes (`Integrations.webhooks/1`).
   defp webhooks(bootstrap, settings, adapters, repositories, environments) do
-    sources = Enum.filter(settings.webhook_sources, & &1.enabled)
+    {routes, left_out} =
+      settings.webhook_sources
+      |> Enum.filter(& &1.enabled)
+      |> Enum.reduce({%{}, %{}}, fn source, {routes, left_out} ->
+        case webhook_route(source, adapters, repositories, environments) do
+          {:ok, route} -> {Map.put(routes, source.name, route), left_out}
+          {:error, reason} -> {routes, Map.put(left_out, source.name, reason)}
+        end
+      end)
 
-    if sources == [] do
-      nil
-    else
-      %{
-        ip: bootstrap.webhook_listener.ip,
-        port: bootstrap.webhook_listener.port,
-        routes:
-          Map.new(sources, fn source ->
-            {source.name, webhook_route!(source, adapters, repositories, environments)}
-          end)
-      }
-    end
+    listener =
+      if routes != %{},
+        do: %{
+          ip: bootstrap.webhook_listener.ip,
+          port: bootstrap.webhook_listener.port,
+          routes: routes
+        }
+
+    {listener, left_out}
   end
 
-  defp webhook_route!(source, adapters, repositories, environments) do
+  defp webhook_route(source, adapters, repositories, environments) do
     defaults = Defaults.fetch!(:webhooks)
-    secret = credential!(:webhook, source.secret_name)
-
-    environment =
-      Map.get(environments, source.environment_ref) ||
-        raise ArgumentError, "webhook source names an environment that cannot run work"
 
     destination = %{
       conversation_ref: source.destination_conversation_ref,
@@ -1074,91 +1086,149 @@ defmodule Ryker.Runtime.Assembly do
       transport: source.destination_transport
     }
 
-    route = %{
-      adapter: webhook_adapter(source),
-      auth: {source.auth_kind, secret},
-      destination: destination,
-      max_body_bytes: defaults.max_body_bytes,
-      max_clock_skew_seconds: defaults.max_clock_skew_seconds,
-      publication_lifecycle: webhook_lifecycle(source, repositories),
-      work_profile: work_profile!(environment.work_profile)
-    }
-
-    validate_destination!(destination, adapters)
-    route
+    with {:ok, secret} <- webhook_secret(source.secret_name),
+         {:ok, environment} <- webhook_environment(environments, source.environment_ref),
+         {:ok, work_profile} <- webhook_work_profile(environment),
+         {:ok, adapter} <- webhook_adapter(source),
+         {:ok, lifecycle} <- webhook_lifecycle(source, repositories),
+         :ok <- served_destination(destination, adapters),
+         route = %{
+           adapter: adapter,
+           auth: {source.auth_kind, secret},
+           destination: destination,
+           max_body_bytes: defaults.max_body_bytes,
+           max_clock_skew_seconds: defaults.max_clock_skew_seconds,
+           publication_lifecycle: lifecycle,
+           work_profile: work_profile
+         },
+         :ok <- listener_accepts(source.name, route) do
+      {:ok, route}
+    end
   end
 
-  defp webhook_adapter(%{adapter_kind: :universal}), do: %{kind: :universal}
+  defp webhook_secret(name) do
+    case Credentials.fetch(:webhook, name) do
+      {:ok, secret} -> {:ok, secret}
+      {:error, :credential_missing} -> {:error, :credential_missing}
+      {:error, _unreadable} -> {:error, :credential_unreadable}
+    end
+  end
 
-  defp webhook_adapter(%{adapter_kind: :grafana} = source),
-    do: %{kind: :grafana, group_by_labels: source.group_by_labels}
+  defp webhook_environment(environments, ref) do
+    case Map.fetch(environments, ref) do
+      {:ok, environment} -> {:ok, environment}
+      :error -> {:error, :environment_cannot_run_work}
+    end
+  end
 
-  defp webhook_adapter(%{adapter_kind: :mapped_json} = source) do
-    %{
-      kind: :mapped_json,
-      group_by_labels: source.group_by_labels,
-      mapping: Map.new(source.mapping, fn {field, path} -> {mapping_field!(field), path} end)
-    }
+  defp webhook_work_profile(environment) do
+    case WorkProfile.new(environment.work_profile) do
+      {:ok, profile} -> {:ok, profile}
+      {:error, _reason} -> {:error, :environment_cannot_run_work}
+    end
+  end
+
+  # The listener checks every route it is given before it starts, such as a
+  # signing secret long enough for its kind, so a route it would refuse is
+  # left out here rather than refusing the listener, and with it everything.
+  defp listener_accepts(name, route) do
+    case WebhookRoute.new(Map.put(route, :name, name)) do
+      {:ok, _route} -> :ok
+      {:error, {:invalid_webhook_route, :auth}} -> {:error, :secret_too_short}
+      {:error, _refused} -> {:error, :route_invalid}
+    end
   end
 
   @mapping_fields ~w(annotations ends_at event_id incident_id item_id labels revision severity source_url starts_at status summary title)
 
-  defp mapping_field!(field) when field in @mapping_fields, do: String.to_existing_atom(field)
+  defp webhook_adapter(%{adapter_kind: :universal}), do: {:ok, %{kind: :universal}}
 
-  defp mapping_field!(_field), do: raise(ArgumentError, "webhook mapping names an unknown field")
+  defp webhook_adapter(%{adapter_kind: :grafana} = source),
+    do: {:ok, %{kind: :grafana, group_by_labels: source.group_by_labels}}
 
-  defp webhook_lifecycle(%{publication_lifecycle: nil}, _repositories), do: nil
-
-  defp webhook_lifecycle(%{publication_lifecycle: scope}, repositories) do
-    unless Enum.all?(scope["repositories"], &Map.has_key?(repositories, &1)),
-      do: raise(ArgumentError, "webhook lifecycle names a repository without reviewed policies")
-
-    Map.new(~w(environments kinds repositories targets), fn field ->
-      {String.to_existing_atom(field), Enum.sort(scope[field])}
-    end)
+  defp webhook_adapter(%{adapter_kind: :mapped_json} = source) do
+    if Enum.all?(Map.keys(source.mapping), &(&1 in @mapping_fields)),
+      do:
+        {:ok,
+         %{
+           kind: :mapped_json,
+           group_by_labels: source.group_by_labels,
+           mapping:
+             Map.new(source.mapping, fn {field, path} ->
+               {String.to_existing_atom(field), path}
+             end)
+         }},
+      else: {:error, :mapping_unknown_field}
   end
 
-  defp validate_destination!(destination, adapters) do
-    with {:ok, adapter} <- Map.fetch(adapters, destination.transport),
-         {:ok, request} <-
-           Request.new(%{
-             conversation_ref: destination.conversation_ref,
-             document: %{"message" => "configuration probe"},
-             kind: :message,
-             ref: "configuration-probe",
-             source_item_ref: nil,
-             thread_ref: destination.thread_ref,
-             transport: destination.transport
-           }),
-         :ok <- validate_target(request, adapter.binding) do
-      :ok
-    else
-      _invalid -> raise ArgumentError, "webhook destination is not a configured delivery target"
+  defp webhook_lifecycle(%{publication_lifecycle: nil}, _repositories), do: {:ok, nil}
+
+  defp webhook_lifecycle(%{publication_lifecycle: scope}, repositories) do
+    if Enum.all?(scope["repositories"], &Map.has_key?(repositories, &1)),
+      do:
+        {:ok,
+         Map.new(~w(environments kinds repositories targets), fn field ->
+           {String.to_existing_atom(field), Enum.sort(scope[field])}
+         end)},
+      else: {:error, :lifecycle_repository_unreviewed}
+  end
+
+  # Where a source posts must be a delivery target this configuration runs:
+  # its transport assembled, and the exact channel, repository or Chat
+  # conversation one of its bindings serves.
+  defp served_destination(destination, adapters) do
+    with {:ok, adapter} <- running_transport(adapters, destination.transport),
+         {:ok, request} <- probe(destination) do
+      served_target(request, adapter.binding)
     end
   end
 
-  defp validate_target(%Request{transport: "slack"} = request, binding) do
+  defp running_transport(adapters, transport) do
+    case {Map.fetch(adapters, transport), transport} do
+      {{:ok, adapter}, _transport} -> {:ok, adapter}
+      {:error, "slack"} -> {:error, :slack_not_running}
+      {:error, "github"} -> {:error, :github_not_running}
+      {:error, _other} -> {:error, :destination_not_served}
+    end
+  end
+
+  defp probe(destination) do
+    case Request.new(%{
+           conversation_ref: destination.conversation_ref,
+           document: %{"message" => "configuration probe"},
+           kind: :message,
+           ref: "configuration-probe",
+           source_item_ref: nil,
+           thread_ref: destination.thread_ref,
+           transport: destination.transport
+         }) do
+      {:ok, request} -> {:ok, request}
+      {:error, _invalid} -> {:error, :destination_not_served}
+    end
+  end
+
+  defp served_target(%Request{transport: "slack"} = request, binding) do
     with {:ok, target} <- SlackTarget.parse(request),
          true <-
            is_map(binding[:workspaces]) and
              Map.has_key?(binding.workspaces, target.workspace_ref) do
       :ok
     else
-      _invalid -> {:error, :slack_workspace_not_configured}
+      _invalid -> {:error, :slack_workspace_not_served}
     end
   end
 
-  defp validate_target(%Request{transport: "github"} = request, binding) do
+  defp served_target(%Request{transport: "github"} = request, binding) do
     with {:ok, target} <- Target.parse(request),
          {:ok, configured} <- Map.fetch(binding[:bindings] || %{}, target.binding),
          true <- configured.repository_id == target.repository_id do
       :ok
     else
-      _invalid -> {:error, :github_binding_not_configured}
+      _invalid -> {:error, :github_repository_not_served}
     end
   end
 
-  defp validate_target(
+  defp served_target(
          %Request{
            transport: "control_plane",
            conversation_ref: "control-plane:lab:" <> conversation_id = conversation_ref,
@@ -1168,12 +1238,11 @@ defmodule Ryker.Runtime.Assembly do
        ) do
     case ConversationLab.conversation_ref(conversation_id) do
       {:ok, ^conversation_ref} -> :ok
-      {:error, _reason} = error -> error
+      {:error, _reason} -> {:error, :conversation_not_found}
     end
   end
 
-  defp validate_target(%Request{transport: transport}, _binding),
-    do: {:error, {:delivery_adapter_not_supported, transport}}
+  defp served_target(%Request{}, _binding), do: {:error, :destination_not_served}
 
   defp state_tools(bootstrap, _settings, _emisar, slack, github, control_plane, capabilities) do
     %{
@@ -1326,13 +1395,6 @@ defmodule Ryker.Runtime.Assembly do
   # has no options!/1 to ask.
   defp validate_runtime!(Ryker.State.EventWaitWorker, _configuration), do: :ok
   defp validate_runtime!(module, configuration), do: module.options!(configuration)
-
-  defp work_profile!(attributes) do
-    case WorkProfile.new(attributes) do
-      {:ok, profile} -> profile
-      {:error, _reason} -> raise ArgumentError, "reviewed policy binding is not a usable profile"
-    end
-  end
 
   defp json_client!(base_url, receive_timeout, token_provider) do
     {:ok, client} =

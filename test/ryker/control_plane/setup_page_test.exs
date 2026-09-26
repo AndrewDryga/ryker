@@ -363,7 +363,7 @@ defmodule Ryker.ControlPlane.SetupPageTest do
           else: []
         ),
       github_connection: github_connection,
-      readiness: %{slack: %{state: :ready}},
+      readiness: %{slack: %{state: :ready}, webhooks: %{left_out: %{}}},
       snapshot: %{
         slack: slack,
         github: %{

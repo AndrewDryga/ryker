@@ -46,6 +46,7 @@ defmodule Ryker.ControlPlane.Integrations do
   # explained together in the help.
   @on_but_not_working "Slack is on but not working yet, and the page says why."
   @no_sender "No other system can send Ryker events yet."
+  @source_left_out "an enabled source is not taking events, and the page says which one and why."
   @states %{
     slack: [
       not_connected: %{
@@ -200,6 +201,20 @@ defmodule Ryker.ControlPlane.Integrations do
         status: :on,
         state: {:on, "On"},
         means: "senders can deliver events to their sources' addresses.",
+        reason: nil,
+        action: {"Manage", "/integrations/webhooks"}
+      },
+      partly_running: %{
+        status: :broken,
+        state: {:warn, "Partly running"},
+        means: @source_left_out,
+        reason: nil,
+        action: {"Manage", "/integrations/webhooks"}
+      },
+      not_running: %{
+        status: :broken,
+        state: {:bad, "Not running"},
+        means: @source_left_out,
         reason: nil,
         action: {"Manage", "/integrations/webhooks"}
       }
@@ -374,12 +389,19 @@ defmodule Ryker.ControlPlane.Integrations do
   @doc """
   Webhooks: the senders set up to send Ryker events. A signing credential on
   its own sends nothing, so it is a fact beside "Not set up", never a
-  connection.
+  connection. An enabled source the running configuration left out (its
+  destination not running, its environment unable to run work, its
+  credential missing or too short) makes webhooks "on but not working", and
+  the reason names each such source and why; until 2026-09-26 one such source
+  refused every setting instead, and nothing said which.
   """
   @spec webhooks(map()) :: t()
   def webhooks(view) do
     sources = view.snapshot.webhook_sources
     credentials = Enum.count(view.credentials, &(&1.kind == :webhook))
+    enabled = Enum.filter(sources, & &1.enabled)
+    left_out = view.readiness.webhooks.left_out
+    stopped = Enum.filter(enabled, &Map.has_key?(left_out, &1.name))
 
     facts =
       facts([
@@ -399,11 +421,96 @@ defmodule Ryker.ControlPlane.Integrations do
           )
         )
 
-      Enum.any?(sources, & &1.enabled) ->
+      stopped != [] ->
+        :webhooks
+        |> state(if(stopped == enabled, do: :not_running, else: :partly_running), facts: facts)
+        |> Map.put(
+          :reason,
+          Enum.map_join(
+            stopped,
+            " ",
+            &"#{&1.name} is not taking events: #{why(&1, left_out[&1.name], view)}"
+          )
+        )
+
+      enabled != [] ->
         state(:webhooks, :on, facts: facts)
 
       true ->
         state(:webhooks, :off, facts: facts)
+    end
+  end
+
+  @doc """
+  One webhook source's own state, for its row on the Webhooks page: off,
+  taking events, or left out of the running routes, with why.
+  """
+  @spec webhook_source(map(), map()) :: %{state: {tone(), String.t()}, reason: String.t() | nil}
+  def webhook_source(view, source) do
+    case {source.enabled, Map.get(view.readiness.webhooks.left_out, source.name)} do
+      {false, _reason} ->
+        %{state: {:off, "Off"}, reason: nil}
+
+      {true, nil} ->
+        %{state: {:on, "On"}, reason: nil}
+
+      {true, reason} ->
+        %{
+          state: {:bad, "Not running"},
+          reason: "Not taking events: " <> why(source, reason, view)
+        }
+    end
+  end
+
+  # Why the running configuration left a source out, in words; each names
+  # what to change.
+  defp why(_source, :slack_not_running, _view), do: "it posts to Slack, and Slack is not running."
+
+  defp why(_source, :slack_workspace_not_served, _view),
+    do:
+      "it posts to a Slack channel in a workspace Ryker is not connected to. Choose one of " <>
+        "the channels Ryker is in."
+
+  defp why(_source, :github_not_running, _view),
+    do: "it posts to GitHub, and GitHub is not running."
+
+  defp why(_source, :github_repository_not_served, _view),
+    do: "it posts to a GitHub repository Ryker has not added."
+
+  defp why(_source, :conversation_not_found, _view),
+    do: "it posts to a Chat conversation that no longer exists."
+
+  defp why(source, :environment_cannot_run_work, view),
+    do:
+      "its environment #{environment_name(view, source.environment_ref)} cannot run work yet. " <>
+        "Check what each kind of work may do under Advanced."
+
+  defp why(source, :credential_missing, _view),
+    do: "its signing credential #{source.secret_name} no longer exists. Choose another."
+
+  defp why(source, :credential_unreadable, _view),
+    do: "its signing credential #{source.secret_name} cannot be read. Create it again."
+
+  defp why(%{auth_kind: :hmac_sha256}, :secret_too_short, _view),
+    do: "its signing credential is shorter than the 32 characters a signed request needs."
+
+  defp why(_source, :secret_too_short, _view),
+    do: "its signing credential is shorter than the 16 characters a token needs."
+
+  defp why(_source, :lifecycle_repository_unreviewed, _view),
+    do: "its deployment reports name a repository with no reviewed worker policies."
+
+  defp why(_source, :mapping_unknown_field, _view),
+    do: "its field mapping names a field Ryker does not know."
+
+  defp why(_source, _reason, _view),
+    do:
+      "Ryker cannot post where it sends events, or use it as it is saved. Edit it and save again."
+
+  defp environment_name(view, ref) do
+    case Environments.find(view.snapshot, ref) do
+      %{display_name: name} -> name
+      nil -> ref
     end
   end
 

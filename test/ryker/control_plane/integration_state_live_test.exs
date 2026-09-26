@@ -157,6 +157,70 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
     )
   end
 
+  test "a webhook source Ryker left out says which and why on every page" do
+    # Until 2026-09-26 a source Ryker could not serve refused the whole
+    # configuration, and nothing said which. Now it is left out of the running
+    # routes and named with its reason (AssemblyTest); these pages must say
+    # so, or the route would silently vanish.
+    {:ok, _} =
+      Settings.put_environment(
+        %{ref: "production", display_name: "Production"},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    {:ok, _} = Credentials.put(:webhook, "grafana", String.duplicate("s", 32), @actor)
+    {:ok, _} = Credentials.verify(:webhook, "grafana", :verified, @actor)
+
+    {:ok, _} =
+      Settings.put_webhook_source(
+        %{
+          name: "grafana",
+          adapter_kind: :grafana,
+          auth_kind: :bearer,
+          secret_name: "grafana",
+          destination_transport: "slack",
+          destination_conversation_ref: "slack:T0123456789:C0123456789",
+          environment_ref: "production"
+        },
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    # What the runtime published when it applied these settings.
+    previous = Application.fetch_env(:ryker, :webhook_sources_left_out)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:ryker, :webhook_sources_left_out, value)
+        :error -> Application.delete_env(:ryker, :webhook_sources_left_out)
+      end
+    end)
+
+    Application.put_env(:ryker, :webhook_sources_left_out, %{"grafana" => :slack_not_running})
+
+    assert_same(
+      :webhooks,
+      "Not running",
+      "grafana is not taking events: it posts to Slack, and Slack is not running."
+    )
+
+    # The source's own row says it too.
+    {:ok, view, _html} = open("/integrations/webhooks")
+
+    assert has_element?(
+             view,
+             "#settings-webhooks .entity-row .state-word[data-tone=bad]",
+             "Not running"
+           )
+
+    assert has_element?(
+             view,
+             "#settings-webhooks .entity-row .entity-text",
+             "Not taking events: it posts to Slack, and Slack is not running."
+           )
+  end
+
   # Every page that names this integration's state, each read where that page
   # shows it: the word, and the reason beside it.
   defp assert_same(key, word, reason, options \\ []) do
