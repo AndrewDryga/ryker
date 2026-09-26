@@ -163,7 +163,8 @@ defmodule Ryker.Learning.Rebuilds do
         e.status == :decided and e.event_kind != :delete and is_nil(e.operational_pruned_at) and
           not is_nil(e.content),
       where: e.revision == o.revision and e.event_fingerprint == o.source_fingerprint,
-      where: is_nil(o.source_result_ref) or not like(o.source_result_ref, "source-conflict:%")
+      where: is_nil(o.source_result_ref) or not like(o.source_result_ref, "source-conflict:%"),
+      where: is_nil(o.forgotten_at)
     )
   end
 

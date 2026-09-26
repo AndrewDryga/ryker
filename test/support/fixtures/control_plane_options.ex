@@ -32,6 +32,10 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {:forgot_memory, ref})
           {:ok, %{ref: ref}}
         end,
+        forget_knowledge: fn id ->
+          send(parent, {:forgot_knowledge, id})
+          {:ok, %{forgotten: [id], relearn: []}}
+        end,
         resolve_episode: fn ref ->
           send(parent, {:resolved_episode, ref})
           {:ok, %{key: ref}}
@@ -837,6 +841,25 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             selected: nil,
             receipt: nil
           }
+        end,
+        # A recorded topic learned from the same message as another, and a
+        # third that also rests on a different message.
+        # Every recorded topic forgets with the same consequences: one topic
+        # learned only from its messages, and one that also rests on others.
+        forgetting: fn
+          {:knowledge, "knowledge-missing"} ->
+            :error
+
+          {:knowledge, _id} ->
+            {:ok,
+             %{
+               title: "Checkout readiness",
+               forgotten: ["Deploy timing"],
+               relearn: ["Incident timeline"]
+             }}
+
+          {:memory, _ref} ->
+            {:ok, %{forgotten: ["Staging account"], relearn: []}}
         end,
         memory: fn _params ->
           %{

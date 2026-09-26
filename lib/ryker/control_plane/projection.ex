@@ -54,6 +54,7 @@ defmodule Ryker.ControlPlane.Projection do
       lab_conversation: &ConversationProjection.fetch/1,
       lab_history: &ConversationProjection.history/3,
       lab_index: &ConversationProjection.index/0,
+      forgetting: &ConversationMemory.forgetting/1,
       learned: &ConversationMemory.project/1,
       learning: &LearningActivity.project/1,
       memory: &MemoryProjection.fetch/1,

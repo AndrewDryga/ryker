@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
   alias Ryker.InspectionRedactor
   alias Ryker.Learning.{Batch, Batches}
   alias Ryker.Operator.Action
+  alias Ryker.State.Forgetting
 
   @settings %{
     policy: "relearn-ui",
@@ -98,6 +99,49 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
     assert html =~ "draft-ai-suggestions"
     refute html =~ ~r/<details[^>]*class="knowledge-rebuild"[^>]*\bopen\b/
     assert ConversationMemory.project(%{"kind" => "knowledge", "item" => id}).history == before
+  end
+
+  test "a topic can be forgotten from Learned, and then reads as forgotten with nothing to relearn" do
+    # QA re-test, 2026-09-26: Learned topics had no way to be forgotten, and a
+    # forgotten fact's knowledge stayed there.
+    destination = %Episode{
+      destination_transport: "slack",
+      destination_conversation_ref: "slack:TFORGET:CFORGET"
+    }
+
+    {_entry, document} = Fixtures.learn!(destination)
+    id = String.replace_prefix(document["source_ref"], "knowledge:", "")
+
+    list = learned(%{"kind" => "knowledge"})
+
+    assert LazyHTML.query(
+             list,
+             "#topic-#{id} form[action='/actions/knowledge/#{id}/forget'] button"
+           )
+           |> LazyHTML.text() == "Forget"
+
+    assert {:ok, _outcome} = Forgetting.forget_topic(id)
+
+    list = learned(%{"kind" => "knowledge"})
+    row = LazyHTML.query(list, "#topic-#{id}")
+    assert LazyHTML.text(row) =~ "Forgotten knowledge"
+    assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() == "Forgotten"
+    assert LazyHTML.query(row, "form[action$='/forget']") |> Enum.empty?()
+    refute LazyHTML.text(row) =~ "Relearn"
+    refute LazyHTML.text(row) =~ "draft-ai-suggestions"
+
+    page = learned(%{"kind" => "knowledge", "item" => id})
+    refute LazyHTML.text(page) =~ "draft-ai-suggestions"
+    refute LazyHTML.text(page) =~ "Relearn from current sources"
+    assert LazyHTML.text(page) =~ "Ryker no longer uses it and does not learn from the messages"
+  end
+
+  defp learned(params) do
+    params
+    |> ConversationMemory.project()
+    |> LearnedPage.html(String.duplicate("s", 32))
+    |> IO.iodata_to_binary()
+    |> LazyHTML.from_fragment()
   end
 
   test "source selection is explicit and the full retained message is not a search excerpt" do

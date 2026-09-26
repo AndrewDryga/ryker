@@ -26,19 +26,77 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     ConversationKnowledge,
     ConversationObservation,
     ConversationSummary,
+    Forgetting,
     Knowledge,
     KnowledgeRevision,
     KnowledgeSource,
-    LearningSources
+    LearningSources,
+    MemoryEntry
   }
 
   @page_size 30
   @history_size 50
   @expired_text "Saved text expired under the conversation memory retention policy."
+  @forgotten_text "Forgotten. Ryker no longer uses it and does not learn from the messages it came from."
   @query_keys ~w(kind q page item update history_page related_to rebuild_q rebuild_page)
 
   @doc "The query keys the Learned page reads."
   def query_keys, do: @query_keys
+
+  @doc """
+  What forgetting a topic (`{:knowledge, id}`) or a fact (`{:memory, ref}`)
+  would take with it, by topic title: the topics forgotten with it and those
+  that stop being used until they are relearned. A topic's own title comes
+  with it; a missing or already forgotten one is `:error`.
+  """
+  @spec forgetting({:knowledge, String.t()} | {:memory, String.t()}) ::
+          {:ok, %{optional(:title) => String.t(), forgotten: [String.t()], relearn: [String.t()]}}
+          | :error
+  def forgetting({:knowledge, id}) do
+    secrets = InspectionRedactor.configured_secrets()
+
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %ConversationKnowledge{forgotten_at: nil} = topic <- Repo.get(ConversationKnowledge, id) do
+      outcome = Forgetting.preview_topic(id)
+
+      {:ok,
+       %{
+         title: knowledge_title(topic, secrets),
+         forgotten: topic_titles(outcome.forgotten, secrets),
+         relearn: topic_titles(outcome.relearn, secrets)
+       }}
+    else
+      _missing_or_forgotten -> :error
+    end
+  end
+
+  def forgetting({:memory, ref}) when is_binary(ref) do
+    secrets = InspectionRedactor.configured_secrets()
+
+    case Repo.get_by(MemoryEntry, ref: ref, status: :active) do
+      %MemoryEntry{} = fact ->
+        outcome = Forgetting.preview_fact(fact)
+
+        {:ok,
+         %{
+           forgotten: topic_titles(outcome.forgotten, secrets),
+           relearn: topic_titles(outcome.relearn, secrets)
+         }}
+
+      nil ->
+        :error
+    end
+  end
+
+  def forgetting(_subject), do: :error
+
+  defp topic_titles([], _secrets), do: []
+
+  defp topic_titles(ids, secrets) do
+    from(k in ConversationKnowledge, where: k.id in ^ids, order_by: [desc: k.updated_at])
+    |> Repo.all()
+    |> Enum.map(&knowledge_title(&1, secrets))
+  end
 
   def project(params) do
     sources = from(source in ConversationObservation, where: not is_nil(source.note))
@@ -168,8 +226,10 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     |> Map.new()
   end
 
+  # A forgotten topic is not offered for relearning: the person asked Ryker to
+  # stop knowing it.
   defp rebuild(id, "knowledge", available_ids, params) when is_binary(id) do
-    if not MapSet.member?(available_ids, id) do
+    if not MapSet.member?(available_ids, id) and not forgotten?(id) do
       options = %{
         page: PagedRelation.requested(params, "rebuild_page"),
         q: search_text(params["rebuild_q"])
@@ -190,6 +250,12 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   end
 
   defp rebuild(_, _, _, _), do: nil
+
+  defp forgotten?(id),
+    do:
+      Repo.exists?(
+        from(k in ConversationKnowledge, where: k.id == ^id and not is_nil(k.forgotten_at))
+      )
 
   # How one update of the open topic was learned; the Learning page owns the
   # receipts of attempts that belong to a batch.
@@ -337,8 +403,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
     base(knowledge, episodes)
     |> Map.merge(%{
-      title: knowledge_title(state),
-      text: knowledge_text(state),
+      title: knowledge_title(knowledge, secrets),
+      text: if(knowledge.forgotten_at, do: @forgotten_text, else: knowledge_text(state)),
+      forgotten_at: knowledge.forgotten_at,
       groups: [],
       source: nil,
       at: knowledge.updated_at,
@@ -361,6 +428,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       source_at: if(is_nil(warning), do: summary_source_at(summary.source_dependencies))
     })
   end
+
+  defp knowledge_title(%ConversationKnowledge{forgotten_at: %DateTime{}}, _secrets),
+    do: "Forgotten knowledge"
 
   defp knowledge_title(%ConversationKnowledge{} = knowledge, secrets),
     do: knowledge.state |> InspectionRedactor.document(secrets) |> knowledge_title()
@@ -436,6 +506,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp history(nil, _, _, _), do: %{items: [], page: 1, pages: 1}
 
   defp history(id, "knowledge", secrets, params) do
+    erased_text = if forgotten?(id), do: @forgotten_text, else: @expired_text
+
     page =
       PagedRelation.read(
         from(r in KnowledgeRevision,
@@ -460,7 +532,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
           version: revision.version,
           at: revision.inserted_at,
           source_at: revision.source_at,
-          text: knowledge_text(state),
+          text: knowledge_text(state, erased_text),
           source_input_id: revision.source_input_id,
           learning_path: LearningReceipt.path(revision),
           source:
@@ -477,8 +549,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp history(_, _, _, _), do: %{items: [], page: 1, pages: 1}
 
-  defp knowledge_text(%{"retention" => "pruned"}), do: @expired_text
-  defp knowledge_text(state), do: state["summary"] || ""
+  defp knowledge_text(state, erased_text \\ @expired_text)
+  defp knowledge_text(%{"retention" => "pruned"}, erased_text), do: erased_text
+  defp knowledge_text(state, _erased_text), do: state["summary"] || ""
 
   defp base(item, episodes) do
     %{

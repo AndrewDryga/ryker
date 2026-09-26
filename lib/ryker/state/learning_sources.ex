@@ -332,6 +332,10 @@ defmodule Ryker.State.LearningSources do
       %{source_result_ref: "source-conflict:" <> _} ->
         nil
 
+      # A forgotten message is never learned from again.
+      %{forgotten_at: %DateTime{}} ->
+        nil
+
       %{source_input_id: id, revision: revision}
       when id == entry.id and revision == entry.revision ->
         [receipt(source)]
@@ -720,6 +724,8 @@ defmodule Ryker.State.LearningSources do
 
   defp valid_receipt?(_receipt, %{source_result_ref: "source-conflict:" <> _}, _scope),
     do: false
+
+  defp valid_receipt?(_receipt, %{forgotten_at: %DateTime{}}, _scope), do: false
 
   defp valid_receipt?(receipt, source, scope) do
     receipt_matches_source?(receipt, source) and source.workspace_ref == scope.workspace_ref and

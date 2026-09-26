@@ -237,14 +237,17 @@ defmodule Ryker.State.Observations do
   defp monotonic_source_update(updates) do
     updates = Keyword.delete(updates, :updated_at)
 
+    # A forgotten message stays forgotten: a later edit must not bring back
+    # what learning may take from it.
     from(old in ConversationObservation,
       where:
-        old.revision < fragment("EXCLUDED.revision") or
-          (old.revision == fragment("EXCLUDED.revision") and
-             old.source_input_id == fragment("EXCLUDED.source_input_id") and
-             old.source_fingerprint == fragment("EXCLUDED.source_fingerprint") and
-             is_nil(old.source_result_ref) and
-             not is_nil(fragment("EXCLUDED.source_result_ref"))),
+        is_nil(old.forgotten_at) and
+          (old.revision < fragment("EXCLUDED.revision") or
+             (old.revision == fragment("EXCLUDED.revision") and
+                old.source_input_id == fragment("EXCLUDED.source_input_id") and
+                old.source_fingerprint == fragment("EXCLUDED.source_fingerprint") and
+                is_nil(old.source_result_ref) and
+                not is_nil(fragment("EXCLUDED.source_result_ref")))),
       update: [set: ^updates],
       update: [
         set: [

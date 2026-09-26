@@ -22,6 +22,7 @@ defmodule Ryker.State.ConversationObservation do
     field(:occurred_at, :utc_datetime_usec)
     field(:note, Ryker.CanonicalJSON.Type)
     field(:source_dependencies, Ryker.CanonicalJSON.Type)
+    field(:forgotten_at, :utc_datetime_usec)
     timestamps(type: :utc_datetime_usec)
   end
 end

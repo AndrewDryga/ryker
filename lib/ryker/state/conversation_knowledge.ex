@@ -18,6 +18,7 @@ defmodule Ryker.State.ConversationKnowledge do
     field(:source_input_id, :binary_id)
     field(:source_episode_id, :binary_id)
     field(:latest_source_at, :utc_datetime_usec)
+    field(:forgotten_at, :utc_datetime_usec)
     timestamps(type: :utc_datetime_usec)
   end
 end

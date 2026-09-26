@@ -666,16 +666,19 @@ defmodule Ryker.Learning.Batches do
       where:
         e.status == :decided and e.event_kind != :delete and
           is_nil(e.operational_pruned_at) and not is_nil(e.content),
+      where: exists(current_observation(seconds, cutoff))
+    )
+  end
+
+  # The input's own observation, unexpired, and never one a person forgot.
+  defp current_observation(seconds, cutoff) do
+    from(o in ConversationObservation,
       where:
-        exists(
-          from(o in ConversationObservation,
-            where:
-              o.source_input_id == parent_as(:input).id and
-                o.revision == parent_as(:input).revision and
-                o.source_fingerprint == parent_as(:input).event_fingerprint and
-                (^is_nil(seconds) or o.updated_at > ^cutoff)
-          )
-        )
+        o.source_input_id == parent_as(:input).id and
+          o.revision == parent_as(:input).revision and
+          o.source_fingerprint == parent_as(:input).event_fingerprint,
+      where: is_nil(o.forgotten_at),
+      where: ^is_nil(seconds) or o.updated_at > ^cutoff
     )
   end
 

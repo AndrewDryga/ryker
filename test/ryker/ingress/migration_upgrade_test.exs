@@ -82,6 +82,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @unwritten_tables_version 20_260_926_000_200
   @state_tool_calls_version 20_260_926_001_100
   @retired_association_corrections_version 20_260_926_001_300
+  @forgotten_knowledge_version 20_260_926_001_400
   @unwritten_tables ~w(card_lab_feedback card_lab_posts episode_case_lessons slack_channel_setting_overrides)
   @integration_versions [
     20_260_919_000_100,
@@ -115,7 +116,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @slack_retry_caps_version,
     @unwritten_tables_version,
     @state_tool_calls_version,
-    @retired_association_corrections_version
+    @retired_association_corrections_version,
+    @forgotten_knowledge_version
   ]
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
@@ -3714,6 +3716,10 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   end
 
   defp assert_reset_notes(repo, prefix, original) do
+    # An upgrade forgets nothing: where the forgetting column exists, it
+    # arrives empty.
+    forgetting? = column_exists?(repo, prefix, "conversation_observations", "forgotten_at")
+
     expected =
       Map.new(original, fn [row] ->
         value =
@@ -3721,7 +3727,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
             do: Map.merge(row, %{"note" => nil, "source_result_ref" => nil}),
             else: row
 
-        {row["id"], value}
+        {row["id"], if(forgetting?, do: Map.put(value, "forgotten_at", nil), else: value)}
       end)
 
     %{rows: rows} =
@@ -4057,6 +4063,68 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                prefix: prefix,
                log: false
              ) == [@unwritten_tables_version]
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  # Forgetting a learned topic keeps learning from ever taking its messages
+  # again. A rollback would drop that and let the knowledge come back, so it
+  # refuses while anything is forgotten.
+  test "forgotten knowledge refuses rollback only while something is forgotten" do
+    repo = start_migration_repo!()
+    prefix = "forgotten_knowledge_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @forgotten_knowledge_version,
+        prefix: prefix,
+        log: false
+      )
+
+      knowledge_id = Ecto.UUID.generate()
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.conversation_knowledge
+          (id, scope_key, topic_key, transport, workspace_ref, conversation_ref, visibility,
+           state, version, source_generation, source_dependencies, source_input_id,
+           source_episode_id, latest_source_at, inserted_at, updated_at, forgotten_at)
+        VALUES ($1::text::uuid, 'forgotten-scope', 'forgotten-topic', 'slack', 'slack:T',
+                'slack:T:C', 'public', '{"retention":"pruned"}', 1, 1, '[]', $2::text::uuid,
+                $3::text::uuid, clock_timestamp(), clock_timestamp(), clock_timestamp(),
+                clock_timestamp())
+        """,
+        [knowledge_id, ids.ingress_id, ids.episode_id]
+      )
+
+      assert_raise Postgrex.Error, ~r/forgotten knowledge exists/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert column_exists?(repo, prefix, "conversation_knowledge", "forgotten_at")
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.conversation_knowledge WHERE id = $1::text::uuid",
+        [knowledge_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@forgotten_knowledge_version]
+
+      refute column_exists?(repo, prefix, "conversation_knowledge", "forgotten_at")
+      refute column_exists?(repo, prefix, "conversation_observations", "forgotten_at")
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end

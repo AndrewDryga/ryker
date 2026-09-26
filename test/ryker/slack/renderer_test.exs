@@ -134,6 +134,9 @@ defmodule Ryker.Slack.RendererTest do
     assert forget["value"] == "memory:rollback-proof"
     assert forget["confirm"]["title"]["text"] == "Forget this memory?"
     assert forget["confirm"]["text"]["text"] =~ "GCP project"
+    # What learning kept from the same message goes with it (QA re-test,
+    # 2026-09-26).
+    assert forget["confirm"]["text"]["text"] =~ "forget what I learned from the same message"
     assert rendered["text"] =~ "Memory saved: GCP project"
 
     forged = put_in(memory, ["facts"], [["Kind", "<!everyone> pings"]])

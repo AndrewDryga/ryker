@@ -23,6 +23,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.State.{
     Automations,
     Behaviors,
+    Forgetting,
     InputRequests,
     Memories,
     Record,
@@ -62,6 +63,7 @@ defmodule Ryker.ControlPlane.Actions do
       discard_retention: &discard_retention/1,
       edit_lab_message: lab_message_editor(placements),
       forget_memory: &Memories.forget/1,
+      forget_knowledge: &Forgetting.forget_topic/1,
       resolve_episode: &resolve_episode/1,
       resolve_memory_review: &resolve_memory_review/3,
       rearm_admission: &retry_failure("admission", &1),
