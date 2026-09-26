@@ -94,7 +94,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
          do: CaseFile.task_start(episode, current_turn)
 
     totals = totals(episode.id, events, records, sessions, turns)
-    review = review_state(episode)
+    review = review_state(episode, events)
     received_at = Input.first_received_at(episode)
     platform_actions = Outcome.platform_actions(episode.id)
     publications = Outcome.publications(episode.id)
@@ -527,7 +527,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   defp metric(label, value, detail, tone \\ nil),
     do: %{detail: to_string(detail), label: label, tone: tone, value: to_string(value)}
 
-  defp review_state(%Episode{} = episode) do
+  defp review_state(%Episode{} = episode, events) do
     latest =
       Repo.one(
         from(review in EpisodeReview,
@@ -543,12 +543,28 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     %{
       actor_ref: latest && latest.actor_ref,
       at: latest && latest.reviewed_at,
-      awaiting: terminal and not current,
+      awaiting: terminal and not current and not closed_here?(episode, events),
       current: current,
       note: latest && latest.note,
       semantic_version: latest && latest.semantic_version
     }
   end
+
+  # An ending the person chose here, by closing the request from its timeline
+  # or its chat task card, is not waiting for them to review it; the timeline
+  # asked them to the moment after. A stopped task's close settles later, so
+  # it is read from the cancel itself rather than recorded when closing.
+  defp closed_here?(%Episode{state: :cancelled}, events) do
+    Enum.any?(events, fn event ->
+      event.kind == :episode_cancelled and
+        String.starts_with?(to_string(event.payload["cancel_ref"]), [
+          "control-plane:",
+          "control-plane-action:"
+        ])
+    end)
+  end
+
+  defp closed_here?(_episode, _events), do: false
 
   defp operator_actions(episode, current_turn, review) do
     recovery =
