@@ -6,48 +6,37 @@ defmodule Ryker.Work.Worker do
   leaves work claimable after its fenced lease expires.
   """
 
-  use GenServer
+  use Ryker.PollingWorker, lane: :work, interval: :poll_interval_ms
 
   require Logger
 
   alias Ryker.Observability.Progress
-  alias Ryker.Polling
   alias Ryker.Work.Dispatcher
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
     {name, options} = Keyword.pop(options, :name)
-
-    if name,
-      do: GenServer.start_link(__MODULE__, options, name: name),
-      else: GenServer.start_link(__MODULE__, options)
+    GenServer.start_link(__MODULE__, options, name: name)
   end
 
-  @impl GenServer
-  def init(options) do
+  @impl Ryker.PollingWorker
+  def setup(options) do
     poll_interval_ms = Keyword.get(options, :poll_interval_ms, 250)
     dispatcher_options = Keyword.get(options, :dispatcher_options)
 
     if is_integer(poll_interval_ms) and poll_interval_ms > 0 and
          is_list(dispatcher_options) and Keyword.keyword?(dispatcher_options) do
-      send(self(), :poll)
       {:ok, %{dispatcher_options: dispatcher_options, poll_interval_ms: poll_interval_ms}}
     else
       {:stop, {:invalid_work_worker, :options}}
     end
   end
 
-  @impl GenServer
-  def handle_info(:poll, state) do
-    delay =
-      Polling.run(:work, state.poll_interval_ms, fn ->
-        delay = process_once(state.dispatcher_options, state.poll_interval_ms)
-        _ = Progress.beat(:work)
-        delay
-      end)
-
-    Process.send_after(self(), :poll, delay)
-    {:noreply, state}
+  @impl Ryker.PollingWorker
+  def poll(state) do
+    delay = process_once(state.dispatcher_options, state.poll_interval_ms)
+    _ = Progress.beat(:work)
+    delay
   end
 
   defp process_once(options, idle_delay) do

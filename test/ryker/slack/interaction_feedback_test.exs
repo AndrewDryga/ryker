@@ -329,7 +329,7 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
     # Observe the first queued poll, not merely the PID returned by start_link.
     # Without shared sandbox ownership the supervised DB worker dies on that poll.
     assert :sys.get_state(worker) == options
-    assert {:noreply, ^options} = InteractionFeedbackWorker.handle_info(:work, options)
+    assert {:noreply, ^options} = InteractionFeedbackWorker.handle_info(:poll, options)
 
     assert InteractionFeedbackWorker.options!(Map.to_list(options)).worker_ref ==
              options.worker_ref

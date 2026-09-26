@@ -12,7 +12,7 @@ defmodule Ryker.BundledCoop do
 
   alias Ryker.CoopFleet.{Enrollment, Worker}
   alias Ryker.GitHub.InstallationTokens
-  alias Ryker.{Repo, Settings}
+  alias Ryker.{PollingWorker, Repo, Settings}
   alias Ryker.Settings.{Environment, Repository}
 
   @actor "control-plane:local"
@@ -251,7 +251,8 @@ defmodule Ryker.BundledCoop do
         set: [last_github_event_at: occurred_at]
       )
 
-      if worker = Process.whereis(Ryker.GitHub.OnboardingWorker), do: send(worker, :drain)
+      if worker = Process.whereis(Ryker.GitHub.OnboardingWorker),
+        do: PollingWorker.poll_now(worker)
     end
 
     :ok

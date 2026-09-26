@@ -3,12 +3,11 @@ defmodule Ryker.Slack.TaskCardWorker do
   Repairs and refreshes one Slack engineering-task card at a time.
   """
 
-  use GenServer
+  use Ryker.PollingWorker, lane: :slack_task_cards, interval: :interval_ms
 
   require Logger
 
   alias Ryker.Observability.Progress
-  alias Ryker.Polling
 
   alias Ryker.Slack.{TaskCardProjection, TaskCards}
 
@@ -17,42 +16,26 @@ defmodule Ryker.Slack.TaskCardWorker do
 
   def start_link(options) do
     options = options!(options)
-
-    case options.name do
-      nil -> GenServer.start_link(__MODULE__, options)
-      name -> GenServer.start_link(__MODULE__, options, name: name)
-    end
+    GenServer.start_link(__MODULE__, options, name: options.name)
   end
 
-  @impl GenServer
-  def init(options) do
-    send(self(), :work)
-    {:ok, options}
-  end
-
-  @impl GenServer
-  def handle_info(:work, options) do
+  @impl Ryker.PollingWorker
+  def poll(options) do
     delay =
-      Polling.run(:slack_task_cards, options.interval_ms, fn ->
-        delay =
-          case run_once(options) do
-            {:ok, :idle} ->
-              options.interval_ms
+      case run_once(options) do
+        {:ok, :idle} ->
+          options.interval_ms
 
-            {:ok, _result} ->
-              0
+        {:ok, _result} ->
+          0
 
-            {:error, reason} ->
-              Logger.warning("Slack task-card worker failed: #{inspect(reason)}")
-              options.interval_ms
-          end
+        {:error, reason} ->
+          Logger.warning("Slack task-card worker failed: #{inspect(reason)}")
+          options.interval_ms
+      end
 
-        _ = Progress.beat(:slack_task_cards)
-        delay
-      end)
-
-    Process.send_after(self(), :work, delay)
-    {:noreply, options}
+    _ = Progress.beat(:slack_task_cards)
+    delay
   end
 
   @spec run_once(map() | keyword()) ::

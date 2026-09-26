@@ -1,47 +1,36 @@
 defmodule Ryker.Publication.Worker do
   @moduledoc false
 
-  use GenServer
+  use Ryker.PollingWorker, lane: :publication, interval: :poll_interval_ms
 
   require Logger
 
   alias Ryker.Observability.Progress
-  alias Ryker.Polling
   alias Ryker.Publication.Dispatcher
 
   def start_link(options) do
     {name, options} = Keyword.pop(options, :name)
-
-    if name,
-      do: GenServer.start_link(__MODULE__, options, name: name),
-      else: GenServer.start_link(__MODULE__, options)
+    GenServer.start_link(__MODULE__, options, name: name)
   end
 
-  @impl GenServer
-  def init(options) do
+  @impl Ryker.PollingWorker
+  def setup(options) do
     poll_interval_ms = Keyword.get(options, :poll_interval_ms, 250)
     dispatcher_options = Keyword.get(options, :dispatcher_options)
 
     if is_integer(poll_interval_ms) and poll_interval_ms > 0 and
          is_list(dispatcher_options) and Keyword.keyword?(dispatcher_options) do
-      send(self(), :poll)
       {:ok, %{dispatcher_options: dispatcher_options, poll_interval_ms: poll_interval_ms}}
     else
       {:stop, {:invalid_publication_worker, :options}}
     end
   end
 
-  @impl GenServer
-  def handle_info(:poll, state) do
-    delay =
-      Polling.run(:publication, state.poll_interval_ms, fn ->
-        process_once(state.dispatcher_options)
-        _ = Progress.beat(:publication)
-        state.poll_interval_ms
-      end)
-
-    Process.send_after(self(), :poll, delay)
-    {:noreply, state}
+  @impl Ryker.PollingWorker
+  def poll(state) do
+    process_once(state.dispatcher_options)
+    _ = Progress.beat(:publication)
+    state.poll_interval_ms
   end
 
   defp process_once(options) do

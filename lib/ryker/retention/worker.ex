@@ -1,26 +1,22 @@
 defmodule Ryker.Retention.Worker do
   @moduledoc "A small polling process for ownership cleanup and data pruning."
 
-  use GenServer
+  use Ryker.PollingWorker, lane: :retention, interval: :poll_interval_ms
 
   require Logger
 
   alias Ryker.Observability.Progress
-  alias Ryker.Polling
 
   alias Ryker.Retention.{Custody, Data, Dispatcher}
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
     {name, options} = Keyword.pop(options, :name)
-
-    if name,
-      do: GenServer.start_link(__MODULE__, options, name: name),
-      else: GenServer.start_link(__MODULE__, options)
+    GenServer.start_link(__MODULE__, options, name: name)
   end
 
-  @impl GenServer
-  def init(options) do
+  @impl Ryker.PollingWorker
+  def setup(options) do
     dispatcher = Keyword.get(options, :dispatcher, Dispatcher)
     dispatcher_options = Keyword.get(options, :dispatcher_options)
     maintenance = Keyword.get(options, :maintenance, Data)
@@ -31,7 +27,6 @@ defmodule Ryker.Retention.Worker do
          Keyword.keyword?(dispatcher_options) and is_integer(poll_interval_ms) and
          poll_interval_ms > 0 and is_atom(maintenance) and is_map(maintenance_options) do
       reconcile_restart(dispatcher_options)
-      send(self(), :poll)
 
       {:ok,
        %{
@@ -46,18 +41,12 @@ defmodule Ryker.Retention.Worker do
     end
   end
 
-  @impl GenServer
-  def handle_info(:poll, state) do
-    delay =
-      Polling.run(:retention, state.poll_interval_ms, fn ->
-        _result = process_once(state.dispatcher, state.dispatcher_options)
-        _ = Progress.beat(:retention)
-        _maintenance = maintain_once(state.maintenance, state.maintenance_options)
-        state.poll_interval_ms
-      end)
-
-    Process.send_after(self(), :poll, delay)
-    {:noreply, state}
+  @impl Ryker.PollingWorker
+  def poll(state) do
+    _result = process_once(state.dispatcher, state.dispatcher_options)
+    _ = Progress.beat(:retention)
+    _maintenance = maintain_once(state.maintenance, state.maintenance_options)
+    state.poll_interval_ms
   end
 
   # A restarted host owns none of the cleanup leases it wrote before the restart.

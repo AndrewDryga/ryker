@@ -102,8 +102,8 @@ defmodule Ryker.GitHub.OnboardingTest do
 
     log =
       capture_log(fn ->
-        assert {:noreply, ^state} = OnboardingWorker.handle_info(:drain, state)
-        assert_receive :drain, 1_500
+        assert {:noreply, ^state} = OnboardingWorker.handle_info(:poll, state)
+        assert_receive :poll, 1_500
       end)
 
     Repo.query!("ALTER TABLE installation_settings_broken RENAME TO installation_settings")
