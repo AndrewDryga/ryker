@@ -511,9 +511,9 @@ defmodule Ryker.Acceptance.Live do
       else: :ok
   end
 
-  defp same_execution_boundary(%{execution_mode: :direct}, _first, _followup), do: :ok
+  defp same_execution_boundary(%{execution_mode: :isolated}, _first, _followup), do: :ok
 
-  defp execution_mode(%{execution_mode: mode}) when mode in [:direct, :fleet], do: {:ok, mode}
+  defp execution_mode(%{execution_mode: mode}) when mode in [:fleet, :isolated], do: {:ok, mode}
   defp execution_mode(_configuration), do: {:error, {:invalid_live_acceptance, :execution_mode}}
 
   defp worker_placement(session_id) do

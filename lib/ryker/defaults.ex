@@ -125,12 +125,12 @@ defmodule Ryker.Defaults do
   @doc """
   The execution topology chosen by the build, not by an operator.
 
-  `config/config.exs` places Work on the enrolled worker fleet; tests and
-  development select an isolated topology in their own files. The key is
-  always set, so an absent one is a broken build and raises rather than
-  quietly turning into a topology.
+  `config/config.exs` selects `:fleet` for product builds, which place Work on
+  the enrolled worker fleet, and `:isolated` for development and test, which
+  run one process with no fleet. The key is always set, so an absent one is a
+  broken build and raises rather than quietly turning into a topology.
   """
-  @spec execution() :: :fleet | :direct
+  @spec execution() :: :fleet | :isolated
   def execution, do: Application.fetch_env!(:ryker, :execution)
 
   @doc "Raises when two defaults that must agree have drifted apart."

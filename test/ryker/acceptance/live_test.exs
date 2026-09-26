@@ -349,7 +349,7 @@ defmodule Ryker.Acceptance.LiveTest do
 
   defp configuration do
     %{
-      execution_mode: :direct,
+      execution_mode: :isolated,
       slack: %{
         default_environment: "ryker",
         environments: %{"ryker" => %{work_profile: %{repository_ref: "ryker"}}},
