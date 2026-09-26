@@ -257,13 +257,13 @@ defmodule Ryker.Retention.Dispatcher do
     ]
 
     settings = %{
-      api: Map.get(options, :api, Ryker.Coop.Client),
+      api: Map.get(options, :api),
       batch_limit: Map.get(options, :batch_limit, 25),
       batch_seconds: Map.get(options, :batch_seconds, 30),
       client: Map.get(options, :client),
       closed_session_grace_seconds: Map.get(options, :closed_session_grace_seconds, 900),
       executor: Map.get(options, :executor, Executor),
-      learning_api: Map.get(options, :learning_api, Map.get(options, :api, Ryker.Coop.Client)),
+      learning_api: Map.get(options, :learning_api, Map.get(options, :api)),
       learning_client: Map.get(options, :learning_client, Map.get(options, :client)),
       lease_seconds: Map.get(options, :lease_seconds, 300),
       max_attempts: Map.get(options, :max_attempts, 8),
@@ -287,10 +287,12 @@ defmodule Ryker.Retention.Dispatcher do
   defp known_options?(options, allowed), do: Map.keys(options) -- allowed == []
 
   defp dispatcher_dependencies_valid?(settings) do
-    is_atom(settings.api) and is_atom(settings.learning_api) and is_atom(settings.executor) and
+    adapter?(settings.api) and adapter?(settings.learning_api) and is_atom(settings.executor) and
       not is_nil(settings.client) and not is_nil(settings.learning_client) and
       nonnegative?(settings.closed_session_grace_seconds)
   end
+
+  defp adapter?(api), do: is_atom(api) and not is_nil(api)
 
   defp retry_settings_valid?(settings) do
     positive?(settings.lease_seconds) and positive?(settings.max_attempts) and

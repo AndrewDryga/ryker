@@ -2,14 +2,14 @@ defmodule Ryker.Admission.Runtime do
   @moduledoc """
   Supervises bounded admission slots from one trusted configuration.
 
-  Incoming events cannot select the Coop socket, policy, worker identity, or
-  execution limits.
+  The configuration names the Coop adapter explicitly: product assembly hands
+  every slot the outbound fleet client. Incoming events cannot select the Coop
+  adapter, policy, worker identity, or execution limits.
   """
 
   use Supervisor
 
   alias Ryker.Admission.{FleetSession, Worker}
-  alias Ryker.Coop.Client
   alias Ryker.Options
 
   @fields [
@@ -21,7 +21,6 @@ defmodule Ryker.Admission.Runtime do
     :policy_digest,
     :poll_interval_ms,
     :receive_timeout_ms,
-    :socket,
     :worker_ref
   ]
   @lease_seconds 300
@@ -94,7 +93,7 @@ defmodule Ryker.Admission.Runtime do
     validate_digest!(policy_digest)
     validate_ref!(worker_ref, :worker_ref)
 
-    {api, client, callbacks} = coop_adapter!(configuration, receive_timeout_ms)
+    {api, client, callbacks} = coop_adapter!(configuration)
 
     Map.merge(callbacks, %{
       api: api,
@@ -109,21 +108,14 @@ defmodule Ryker.Admission.Runtime do
   end
 
   defp normalize_configuration!(configuration) do
-    missing_or_unknown = "admission configuration has missing or unknown fields"
-
-    configuration =
-      Options.normalize!(configuration, @fields, [:policy, :policy_digest, :worker_ref],
-        list: "admission configuration must use unique known fields",
-        map: missing_or_unknown,
-        other: "admission configuration must be a map or keyword list"
-      )
-
-    keys = Map.keys(configuration)
-
-    if (:socket in keys and :api not in keys and :client not in keys) or
-         (:socket not in keys and :api in keys and :client in keys),
-       do: configuration,
-       else: raise(ArgumentError, missing_or_unknown)
+    Options.normalize!(
+      configuration,
+      @fields,
+      [:api, :client, :policy, :policy_digest, :worker_ref],
+      list: "admission configuration must use unique known fields",
+      map: "admission configuration has missing or unknown fields",
+      other: "admission configuration must be a map or keyword list"
+    )
   end
 
   defp validate_positive!(value, _field) when is_integer(value) and value > 0, do: :ok
@@ -145,8 +137,8 @@ defmodule Ryker.Admission.Runtime do
     raise ArgumentError, "admission decision_timeout_ms must fit within the durable lease window"
   end
 
-  defp coop_adapter!(%{api: api, client: client}, _receive_timeout_ms)
-       when is_atom(api) and not is_nil(client) do
+  defp coop_adapter!(%{api: api, client: client})
+       when is_atom(api) and not is_nil(api) and not is_nil(client) do
     if Code.ensure_loaded?(api) and function_exported?(api, :get_session, 2) do
       callbacks = %{
         bind_execution_session: &FleetSession.bind/2,
@@ -160,27 +152,8 @@ defmodule Ryker.Admission.Runtime do
     end
   end
 
-  defp coop_adapter!(%{socket: socket}, receive_timeout_ms) do
-    validate_ref!(socket, :socket)
-
-    case Client.new(
-           finch: Ryker.CoopFinch,
-           receive_timeout: receive_timeout_ms,
-           socket: socket
-         ) do
-      {:ok, client} ->
-        callbacks = %{
-          bind_execution_session: fn _entry, _session_id -> :ok end,
-          prepare_execution_session: fn _entry, _policy -> :ok end,
-          settle_execution_session: fn _entry, _session_id -> :ok end
-        }
-
-        {Client, client, callbacks}
-
-      {:error, reason} ->
-        raise ArgumentError, "invalid admission Coop client: #{inspect(reason)}"
-    end
-  end
+  defp coop_adapter!(_configuration),
+    do: raise(ArgumentError, "admission requires a trusted Coop adapter")
 
   defp validate_ref!(value, _field) when is_binary(value) do
     if String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and

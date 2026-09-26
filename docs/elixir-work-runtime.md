@@ -517,9 +517,11 @@ without production environment, credentials, network mutation tools, or project 
 
 `Ryker.Work.Runtime` is optional. Its trusted configuration contains only:
 
-- `socket`: local Coop Unix socket;
-- `worker_ref`: stable identity prefix for this local worker pool;
-- `concurrency`: optional local slot count, from 1 through 32 (default 4);
+- `api` and `client`: the Coop adapter every slot shares. Product assembly builds the outbound
+  fleet client (`Ryker.CoopFleet.Client`) for the selected worker workspace; there is no local
+  Coop socket option, and a configuration without an adapter does not start;
+- `worker_ref`: stable identity prefix for this worker pool;
+- `concurrency`: optional slot count, from 1 through 32 (default 4);
 - `platform_tools`: optional exact names from the MCP catalog exposed by the pinned Coop
   policy; these names make the frozen model context truthful but confer no authority; and
 - optional bounded polling and receive timeouts.
@@ -565,11 +567,12 @@ Obtain both `policy_digests` and `policy_authority_digests` from
 digest and shared authority digest into every Work profile and worker advertisement; never derive or
 hand-write either digest in Ryker.
 
-For example:
+For example, where `fleet_client` is the client assembly built for the workspace:
 
 ```elixir
 config :ryker, :work,
-  socket: "/var/lib/ryker/coop/control.sock",
+  api: Ryker.CoopFleet.Client,
+  client: fleet_client,
   worker_ref: "ryker-work:host-a",
   concurrency: 4,
   platform_tools: ["list_runners", "find_actions"],
@@ -597,9 +600,8 @@ authority; the virtual incident stays in the conversation instead of fabricating
 Slack workspace audience rules, real workspace data, and Slack API provisioning still require the
 authenticated Slack adapter and its disposable live qualification.
 
-All slots must reach the same Coop daemon. The persisted Coop session ID is not yet paired with a
-routable execution endpoint, so this stage does not claim cross-machine lease takeover. Durable
-execution placement and takeover are a later boundary.
+All slots share that one adapter. The fleet client places each session on an enrolled worker and
+records the placement durably, so no slot addresses a Coop daemon of its own.
 
 The worker never accepts a policy, repository, provider, credential, Slack destination, or tool set
 from an incoming event. Those are admitted and pinned by their owning boundaries.

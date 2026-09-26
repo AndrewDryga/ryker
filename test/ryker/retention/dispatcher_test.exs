@@ -473,8 +473,39 @@ defmodule Ryker.Retention.DispatcherTest do
     assert {:error, {:invalid_retention_executor, :status}} =
              Executor.run(
                %{lease_ref: "lease", session: %Session{cleanup_status: :active}},
+               api: FakeAPI,
                client: :unused
              )
+  end
+
+  test "cleanup without an explicit Coop adapter is refused before it claims custody" do
+    # A missing adapter used to fall back to the local Unix-socket client, which
+    # is eval-only and left the release: cleanup must refuse to run rather than
+    # claim a session and fail at its first Coop call.
+    assert {:error, {:invalid_retention_dispatcher, :options}} =
+             Dispatcher.settings(client: :client, worker_ref: "cleanup:no-adapter")
+
+    assert {:error, {:invalid_retention_dispatcher, :options}} =
+             Dispatcher.settings(api: nil, client: :client, worker_ref: "cleanup:no-adapter")
+
+    assert {:error, {:invalid_retention_dispatcher, :options}} =
+             Dispatcher.settings(
+               api: FakeAPI,
+               client: :client,
+               learning_api: nil,
+               worker_ref: "cleanup:no-adapter"
+             )
+
+    assert {:ok, %{api: FakeAPI, learning_api: FakeAPI}} =
+             Dispatcher.settings(api: FakeAPI, client: :client, worker_ref: "cleanup:adapter")
+
+    claim = %{lease_ref: "lease", session: %Session{cleanup_status: :active}}
+
+    assert {:error, {:invalid_retention_executor, :options}} =
+             Executor.run(claim, client: :unused)
+
+    assert {:error, {:invalid_retention_executor, :options}} =
+             Executor.run(claim, api: nil, client: :unused)
   end
 
   defp run(api, worker_ref) do

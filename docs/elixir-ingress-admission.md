@@ -73,8 +73,11 @@ same shape directly:
 
 ```elixir
 config :ryker, :admission,
+  # The outbound fleet client assembly built for the selected worker workspace;
+  # a test passes a fake adapter and client in the same two fields.
+  api: Ryker.CoopFleet.Client,
+  client: fleet_client,
   policy: "admission-read-only",
-  socket: "/var/run/coop/control.sock",
   worker_ref: "ryker:admission:local"
 
 config :ryker, :webhooks,
@@ -369,8 +372,8 @@ owner, which is the one candidate rank can never displace.
 
 ## Coop and validation
 
-The optional admission worker talks only to Coop's private Unix socket under a configured read-only
-policy. One input gets one isolated admission session. Session and turn creation use stable operation
+The optional admission worker talks to Coop only through the enrolled worker fleet, under a
+configured read-only policy. One input gets one isolated admission session. Session and turn creation use stable operation
 keys, so a lost HTTP response reconciles the existing operation instead of starting another model
 turn.
 
@@ -429,7 +432,7 @@ Fast deterministic tests cover:
 - exact retry and changed-retry conflict;
 - distinct webhook occurrences updating one stable source item by revision;
 - an unknown webhook through HTTP, durable queue, one Coop turn, and one episode;
-- real Unix-socket HTTP requests to the Coop API;
+- one fleet admission session per input generation, converging under simultaneous preparation;
 - lost asynchronous operation responses;
 - schema-valid but semantically invalid output repaired in the same turn;
 - missing semantic-validation receipts being refused;

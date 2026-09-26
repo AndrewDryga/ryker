@@ -7,6 +7,7 @@ defmodule Ryker.Retention.Runtime do
   alias Ryker.Retention.Worker
 
   @required [
+    :api,
     :audit_data_seconds,
     :batch_limit,
     :batch_seconds,
@@ -30,7 +31,7 @@ defmodule Ryker.Retention.Runtime do
     :worker_ref
   ]
 
-  @optional [:api, :learning_api, :learning_client]
+  @optional [:learning_api, :learning_client]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
@@ -93,9 +94,8 @@ defmodule Ryker.Retention.Runtime do
 
     settings =
       configuration
-      |> Map.put_new(:api, Ryker.Coop.Client)
-      |> then(&Map.put_new(&1, :learning_api, &1.api))
-      |> then(&Map.put_new(&1, :learning_client, &1.client))
+      |> Map.put_new(:learning_api, configuration.api)
+      |> Map.put_new(:learning_client, configuration.client)
 
     validate!(settings)
     settings
@@ -153,11 +153,13 @@ defmodule Ryker.Retention.Runtime do
   end
 
   defp runtime_dependencies_valid?(settings) do
-    is_atom(settings.api) and is_atom(settings.learning_api) and not is_nil(settings.client) and
+    adapter?(settings.api) and adapter?(settings.learning_api) and not is_nil(settings.client) and
       not is_nil(settings.learning_client) and
       is_integer(settings.closed_session_grace_seconds) and
       settings.closed_session_grace_seconds >= 0
   end
+
+  defp adapter?(api), do: is_atom(api) and not is_nil(api)
 
   defp positive_fields_valid?(settings, fields) do
     Enum.all?(fields, &(is_integer(settings[&1]) and settings[&1] > 0))

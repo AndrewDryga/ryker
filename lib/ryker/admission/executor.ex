@@ -755,7 +755,7 @@ defmodule Ryker.Admission.Executor do
 
     if Keyword.keyword?(options) and Enum.all?(Keyword.keys(options), &(&1 in allowed)) do
       validate_settings(%{
-        api: Keyword.get(options, :api, Ryker.Coop.Client),
+        api: Keyword.fetch!(options, :api),
         bind_execution_session:
           Keyword.get(options, :bind_execution_session, fn _entry, _session_id -> :ok end),
         candidate_limit: Keyword.get(options, :candidate_limit, 20),
@@ -788,7 +788,7 @@ defmodule Ryker.Admission.Executor do
   defp settings(_options), do: {:error, {:invalid_admission_executor, :options}}
 
   defp validate_settings(settings) do
-    with :ok <- executor_value(is_atom(settings.api), :api),
+    with :ok <- executor_value(is_atom(settings.api) and not is_nil(settings.api), :api),
          :ok <-
            executor_value(
              is_function(settings.bind_execution_session, 2),

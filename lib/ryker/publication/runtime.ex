@@ -1,11 +1,13 @@
 defmodule Ryker.Publication.Runtime do
   @moduledoc """
   Supervises a bounded pool for review, notification, and draft publication.
+
+  The configuration names the Coop adapter explicitly; product assembly hands
+  the pool the outbound fleet client.
   """
 
   use Supervisor
 
-  alias Ryker.Coop.Client
   alias Ryker.Delivery.Adapters
   alias Ryker.Options
   alias Ryker.Publication.{FollowupWorker, Worker}
@@ -23,7 +25,6 @@ defmodule Ryker.Publication.Runtime do
     :receive_timeout_ms,
     :retry_base_seconds,
     :retry_max_seconds,
-    :socket,
     :worker_ref
   ]
   @maximum_concurrency 16
@@ -120,7 +121,7 @@ defmodule Ryker.Publication.Runtime do
           raise ArgumentError, "invalid publication delivery adapters: #{inspect(reason)}"
       end
 
-    {coop_api, coop_client} = coop_adapter!(configuration, receive_timeout_ms)
+    {coop_api, coop_client} = coop_adapter!(configuration)
 
     %{
       coop_api: coop_api,
@@ -142,24 +143,14 @@ defmodule Ryker.Publication.Runtime do
   end
 
   defp normalize!(configuration) do
-    missing_or_unknown = "publication configuration has missing or unknown fields"
-
-    configuration =
-      Options.normalize!(
-        configuration,
-        @fields,
-        [:delivery_adapters, :publisher, :publisher_binding, :worker_ref],
-        list: "publication configuration must use unique known fields",
-        map: missing_or_unknown,
-        other: "publication configuration must be a map or keyword list"
-      )
-
-    keys = Map.keys(configuration)
-
-    if (:socket in keys and :coop_api not in keys and :coop_client not in keys) or
-         (:socket not in keys and :coop_api in keys and :coop_client in keys),
-       do: configuration,
-       else: raise(ArgumentError, missing_or_unknown)
+    Options.normalize!(
+      configuration,
+      @fields,
+      [:coop_api, :coop_client, :delivery_adapters, :publisher, :publisher_binding, :worker_ref],
+      list: "publication configuration must use unique known fields",
+      map: "publication configuration has missing or unknown fields",
+      other: "publication configuration must be a map or keyword list"
+    )
   end
 
   defp validate_integer!(value, minimum, maximum, _field)
@@ -181,26 +172,15 @@ defmodule Ryker.Publication.Runtime do
            do: raise(ArgumentError, "publication publisher must implement publish/2")
   end
 
-  defp coop_adapter!(%{coop_api: api, coop_client: client}, _receive_timeout_ms)
-       when is_atom(api) and not is_nil(client) do
+  defp coop_adapter!(%{coop_api: api, coop_client: client})
+       when is_atom(api) and not is_nil(api) and not is_nil(client) do
     if Code.ensure_loaded?(api) and function_exported?(api, :run_review, 4),
       do: {api, client},
       else: raise(ArgumentError, "publication Coop API must implement review custody")
   end
 
-  defp coop_adapter!(%{socket: socket}, receive_timeout_ms) do
-    case Client.new(
-           finch: Ryker.CoopFinch,
-           receive_timeout: receive_timeout_ms,
-           socket: socket
-         ) do
-      {:ok, client} ->
-        {Client, client}
-
-      {:error, reason} ->
-        raise ArgumentError, "invalid publication Coop client: #{inspect(reason)}"
-    end
-  end
+  defp coop_adapter!(_configuration),
+    do: raise(ArgumentError, "publication requires a trusted Coop adapter")
 
   defp status_source!(%{api: api, client: client}) do
     unless is_atom(api) and Code.ensure_loaded?(api) and
