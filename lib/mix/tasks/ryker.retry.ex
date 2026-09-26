@@ -5,9 +5,8 @@ defmodule Mix.Tasks.Ryker.Retry do
       MIX_ENV=prod mix ryker.retry KIND REF \
         --operator SLACK_USER_ID --action-ref UNIQUE_ACTION_REF
 
-  Supported kinds are admission, delivery, emisar, retention,
-  slack_incident, slack_interaction, and work. Publication review is not a
-  generic infrastructure retry.
+  Supported kinds are #{Enum.join(Ryker.Operator.Failures.kinds(), ", ")}.
+  Publication review is not a generic infrastructure retry.
 
   Work recovery also requires --expected-recovery SHA256 from the inspected
   failure's work_recovery.fingerprint. A changed turn requires fresh inspection.

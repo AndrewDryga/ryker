@@ -54,6 +54,18 @@ defmodule Ryker.Operator.MixTasksTest do
     assert [[]] = documents
   end
 
+  # The retry task's help listed seven kinds after the Slack card and thread
+  # status kinds were added, so an operator reading it did not know two
+  # failures could be retried from the command line (docs audit, 2026-09-26).
+  test "the retry task's help names every kind it can retry" do
+    {:docs_v1, _anno, _language, _format, %{"en" => help}, _metadata, _entries} =
+      Code.fetch_docs(Retry)
+
+    for kind <- Ryker.Operator.Failures.kinds() do
+      assert help =~ kind, "the help does not name #{kind}"
+    end
+  end
+
   test "failure inspection prints the shared empty projection in-process" do
     assert capture_io(fn -> FailuresTask.run([]) end) == "[]\n"
   end

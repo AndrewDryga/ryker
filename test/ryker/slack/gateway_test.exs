@@ -557,6 +557,33 @@ defmodule Ryker.Slack.GatewayTest do
     assert_received {:audited_interaction, "interaction:env-stale", :invalid}
   end
 
+  # With every incident room slot in use, Create incident room answered "That
+  # control is no longer current": the person could not tell the button was
+  # fine and the rooms were full. It is still audited as a refused control.
+  test "a full set of incident rooms says so to the person who pressed" do
+    audit = fn interaction, outcome ->
+      send(self(), {:audited_interaction, interaction.event_ref, outcome})
+      {:ok, %{status: :recorded}}
+    end
+
+    full =
+      settings()
+      |> Map.put(:interaction_handler, InteractionHandler)
+      |> Map.put(:interaction_options, %{
+        observer: self(),
+        result: {:ok, %{outcome: :room_capacity}}
+      })
+      |> Map.put(:interaction_audit, audit)
+
+    assert {:ack, {:interaction, :room_capacity}, payload} =
+             Gateway.handle_envelope(interaction_envelope("env-rooms-full"), full)
+
+    assert payload["response_type"] == "ephemeral"
+    assert payload["text"] =~ "as many incident rooms open as it keeps"
+    assert payload["text"] =~ "Archive a room"
+    assert_received {:audited_interaction, "interaction:env-rooms-full", :invalid}
+  end
+
   test "submit without selection gives private guidance without accepting or repainting a question" do
     options =
       settings()

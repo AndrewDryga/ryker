@@ -18,15 +18,14 @@ defmodule Ryker.Runtime.AssemblyTest do
   @channel "slack:T0123456789:C0123456789"
   @alert_secret "alertmanager-signing-secret-long-enough"
   @custody_secret "checkpoint-scan-secret-long-enough"
-  @certificates Path.join(System.tmp_dir!(), "ryker-assembly-test-certificates")
   @certificate_fields ~w(cacertfile ca_keyfile certfile keyfile)a
 
   setup_all do
     # The gateway refuses a certificate path that is not an existing file, so
     # the fixture supplies real ones rather than plausible names.
-    File.mkdir_p!(@certificates)
+    File.mkdir_p!(certificates())
     Enum.each(@certificate_fields, &File.write!(certificate(&1), "placeholder"))
-    on_exit(fn -> File.rm_rf!(@certificates) end)
+    on_exit(fn -> File.rm_rf!(certificates()) end)
 
     key = :public_key.generate_key({:rsa, 2_048, 65_537})
     %{pem: :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])}
@@ -1313,7 +1312,13 @@ defmodule Ryker.Runtime.AssemblyTest do
     }
   end
 
-  defp certificate(field), do: Path.join(@certificates, "#{field}.pem")
+  defp certificate(field), do: Path.join(certificates(), "#{field}.pem")
+
+  # One folder per test VM: a fixed name let two worktrees' runs delete each
+  # other's certificates mid-test ("cacertfile must be an existing absolute
+  # file", seventeen failures at once).
+  defp certificates,
+    do: Path.join(System.tmp_dir!(), "ryker-assembly-test-certificates-#{System.pid()}")
 
   defp put_variable(name, value) do
     previous = System.get_env(name)
