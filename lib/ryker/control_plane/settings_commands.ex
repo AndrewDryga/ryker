@@ -119,11 +119,17 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   # A source may reference only a credential this deployment registered. Saving
   # an unregistered name would leave a route that cannot start, and accepting an
   # arbitrary name would make the form a way to read the process environment.
+  # A source with no credential chosen is refused by the settings, beside
+  # whatever else it is missing, so the form can say everything at once.
   defp put(%{key: :webhooks}, attributes, revision) do
-    if Map.get(attributes, :secret_name) in registered_secrets() do
-      Settings.put_webhook_source(attributes, revision, actor())
-    else
-      {:error, {:invalid_settings, [{:secret_name, :unregistered_secret}]}}
+    case Map.get(attributes, :secret_name) do
+      nil ->
+        Settings.put_webhook_source(attributes, revision, actor())
+
+      name ->
+        if name in registered_secrets(),
+          do: Settings.put_webhook_source(attributes, revision, actor()),
+          else: {:error, {:invalid_settings, [{:secret_name, :unregistered_secret}]}}
     end
   end
 

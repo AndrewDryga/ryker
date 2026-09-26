@@ -10,7 +10,8 @@ defmodule Ryker.Webhooks.Presets do
 
   The samples exist so a mapping can be checked against a real payload shape
   before an incident depends on it. They are the payloads the transform tests
-  exercise, trimmed to one event.
+  exercise, trimmed to one event. Each preset's title and description are
+  what the webhook source form offers it as, in the sender's words.
   """
 
   @grafana_sample """
@@ -59,11 +60,10 @@ defmodule Ryker.Webhooks.Presets do
       adapter_kind: :universal,
       auth_kind: :hmac_sha256,
       group_by_labels: [],
-      title: "Ryker envelope",
+      title: "Ryker's own format",
       description:
-        "For a producer you control. Ryker's own signed envelope carries the event " <>
-          "identity in headers, so the body is free-form JSON and every field is kept as " <>
-          "evidence rather than mapped.",
+        "From a system you control. It names each event in Ryker's headers, so the body can " <>
+          "be any JSON, and Ryker keeps all of it.",
       sample: @universal_sample
     },
     %{
@@ -71,10 +71,10 @@ defmodule Ryker.Webhooks.Presets do
       adapter_kind: :grafana,
       auth_kind: :bearer,
       group_by_labels: ["cluster", "service"],
-      title: "Grafana alerting",
+      title: "Grafana alerts",
       description:
-        "One delivery carries a group of alerts. Each alert becomes its own input with the " <>
-          "cycle identity Grafana supplies, correlated by the labels listed here.",
+        "From a Grafana contact point. Each alert in a delivery becomes its own event, and " <>
+          "alerts with the same group-by labels count as one situation.",
       sample: @grafana_sample
     },
     %{
@@ -82,11 +82,10 @@ defmodule Ryker.Webhooks.Presets do
       adapter_kind: :mapped_json,
       auth_kind: :hmac_sha256,
       group_by_labels: [],
-      title: "Custom JSON with a mapping",
+      title: "Other JSON",
       description:
-        "For a provider whose shape you cannot change. Name the dotted path to each field; " <>
-          "event ID, status and title are required because without them an event cannot be " <>
-          "identified, resolved or read.",
+        "From any other sender whose format you cannot change. You say where its JSON keeps " <>
+          "each event's ID, status and title.",
       sample: @mapped_sample
     }
   ]

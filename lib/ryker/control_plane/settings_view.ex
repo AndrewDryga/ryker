@@ -36,7 +36,8 @@ defmodule Ryker.ControlPlane.SettingsView do
           webhook_secret_names: [String.t()] | :invalid,
           workers: WorkerPolicies.catalog(),
           github_connection: :ready | :missing | :invalid,
-          environment_channels: %{(String.t() | nil) => non_neg_integer()}
+          environment_channels: %{(String.t() | nil) => non_neg_integer()},
+          slack_channels: [%{workspace_ref: String.t(), channel_ref: String.t()}]
         }
 
   @typedoc """
@@ -83,6 +84,7 @@ defmodule Ryker.ControlPlane.SettingsView do
   @spec view(Settings.snapshot()) :: t()
   def view(%{installation: installation} = snapshot) do
     credentials = Credentials.statuses()
+    joined = Enum.filter(ChannelDirectory.list(%{}), &(&1.membership == :joined))
 
     # What an integration's state is read from (`Integrations`), so the setup
     # steps below read the same state every page shows.
@@ -100,7 +102,9 @@ defmodule Ryker.ControlPlane.SettingsView do
       applied_revision: installation.applied_revision,
       saved_by: installation.saved_by,
       saved_at: installation.saved_at,
-      setup: setup_status(connections),
+      setup: setup_status(connections, joined),
+      # The channels Ryker is in, the places a webhook source can post to.
+      slack_channels: Enum.map(joined, &Map.take(&1, [:workspace_ref, :channel_ref])),
       github_callback_url: Application.fetch_env!(:ryker, :github_public_url),
       webhook_base_url: Application.fetch_env!(:ryker, :webhook_public_url),
       webhook_secret_names: registered_secret_names(),
@@ -146,8 +150,7 @@ defmodule Ryker.ControlPlane.SettingsView do
   # Slack's step is done once Slack is switched on, working or not: a
   # connection that stopped says so on the done step. GitHub's is done once
   # the App is verified; adding a repository, the next step, switches it on.
-  defp setup_status(%{snapshot: snapshot} = connections) do
-    joined = Enum.filter(ChannelDirectory.list(%{}), &(&1.membership == :joined))
+  defp setup_status(%{snapshot: snapshot} = connections, joined) do
     configured = Enum.filter(joined, &is_binary(&1.environment_ref))
 
     successful_request =

@@ -37,6 +37,96 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     :ok
   end
 
+  test "the source form offers what Ryker has and explains each choice in plain words" do
+    # QA, 2026-09-25: the Environment select offered only "Not set" and said
+    # nothing until a submit, the channel was a text box showing
+    # slack:T0123456789:C0123456789, the choices were named by their internal
+    # kinds, and "Deployment filters" listed four bare field names.
+    installation!()
+    {:ok, view, _html} = open()
+    open_source_editor(view)
+
+    form = "#settings-webhooks-form"
+
+    # A new source starts on what this installation has: its default
+    # environment and its only signing credential, accepting events.
+    assert has_element?(
+             view,
+             "#{form} select[name=environment_ref] option[selected]",
+             "Production"
+           )
+
+    assert has_element?(view, "#{form} select[name=secret_name] option[selected]", @registered)
+    assert has_element?(view, "#{form} input[type=checkbox][name=enabled][checked]")
+
+    for select <- ~w(environment_ref secret_name destination_transport) do
+      refute has_element?(view, "#{form} select[name=#{select}] option", "Not set"), select
+    end
+
+    # The channel is chosen from the channels Ryker is in, by the name the
+    # rest of Ryker shows for it.
+    assert has_element?(
+             view,
+             "#{form} select[name=destination_conversation_ref] option[value='slack:T0123456789:C0123456789']",
+             Ryker.ControlPlane.SlackNames.name("T0123456789", "C0123456789")
+           )
+
+    refute has_element?(view, "#{form} [placeholder*='T0123456789']")
+
+    # Each way to prove a sender says what it means, and signing says how
+    # long its secret must be.
+    assert has_element?(
+             view,
+             "#{form} fieldset#settings-webhooks-auth_kind",
+             "at least 32 characters"
+           )
+
+    assert has_element?(view, "#{form} fieldset#settings-webhooks-adapter_kind", "Grafana")
+    refute render(view) =~ "HMAC SHA-256)"
+    refute render(view) =~ "Deployment filters"
+    assert has_element?(view, "#{form} details summary", "Deployment reports")
+  end
+
+  test "a source missing what it needs says each thing to choose, all at once" do
+    # QA, 2026-09-25: an unset credential answered "Signing credential is not a
+    # signing credential Ryker has.", and nothing else until that was fixed.
+    installation!()
+    {:ok, view, _html} = open()
+    open_source_editor(view)
+
+    view
+    |> form("#settings-webhooks-form", %{"name" => "alerts"})
+    |> render_submit(%{"secret_name" => "", "environment_ref" => ""})
+
+    assert has_element?(
+             view,
+             "#settings-webhooks .settings-error",
+             "Choose the signing credential this sender uses. Add one under Signing credentials above if there is none."
+           )
+
+    assert has_element?(
+             view,
+             "#settings-webhooks .settings-error",
+             "Choose the environment the work from these events runs in."
+           )
+
+    assert Settings.fetch!().webhook_sources == []
+  end
+
+  test "a source form with no environment to choose says how to make one" do
+    {:ok, _snapshot} = Settings.initialize(@actor)
+    {:ok, view, _html} = open()
+    open_source_editor(view)
+
+    assert has_element?(
+             view,
+             "#settings-webhooks .settings-notice",
+             "Work from a webhook runs in an environment, and there is none yet."
+           )
+
+    assert has_element?(view, "#settings-webhooks .settings-notice a[href='/environments']")
+  end
+
   test "a source may only reference a credential Ryker has in encrypted custody" do
     installation!()
     {:ok, view, _html} = open()
@@ -108,7 +198,12 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     )
     |> render_submit()
 
-    assert has_element?(view, ".settings-error", "Field mapping")
+    assert has_element?(
+             view,
+             ".settings-error",
+             "Fill in where the event ID, status and title are."
+           )
+
     assert Settings.fetch!().webhook_sources == []
 
     view
@@ -396,7 +491,26 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     )
   end
 
+  # A Slack channel Ryker is in, so a source can post to it.
+  defp joined_channel!(channel) do
+    %{
+      channel_ref: channel,
+      generation: 1,
+      id: Ecto.UUID.generate(),
+      joined_at: DateTime.utc_now(),
+      private: false,
+      external_shared: false,
+      status: :joined,
+      workspace_ref: "T0123456789"
+    }
+    |> Ryker.Slack.ChannelConfigurationChangeset.membership()
+    |> Repo.insert!()
+  end
+
+  # An installation with an environment, and a Slack channel Ryker is in for
+  # sources to post to.
   defp installation! do
+    joined_channel!("C0123456789")
     {:ok, %{installation: %{revision: revision}}} = Settings.initialize(@actor)
 
     {:ok, snapshot} =
