@@ -45,16 +45,15 @@ The root card is the authoritative incident snapshot. It shows:
 The top-level fallback text carries the same essential status for notifications and screen readers.
 Ryker updates this message in place and alternates card writes with thread delivery so a busy
 conversation cannot leave the pinned snapshot stale.
-Ryker also persists the rendered card UI revision. A changed revision marks every writable
-existing card dirty once during startup, so upgraded controls appear without waiting for unrelated
-incident activity; failed Slack updates remain queued for retry.
+Ryker also persists the rendered card UI revision. Its card workers keep re-checking active cards
+(task cards every two seconds, incident cards every five minutes) and repaint any card whose
+revision or content changed, so upgraded controls appear without waiting for unrelated incident
+activity; failed Slack updates remain queued for retry.
 
 Configured operators can converse anywhere in an incident channel without an `@mention`.
 Ryker admits ordinary top-level messages and thread replies, keeps them in the same Coop
 conversation, and follows the operator's current location: a channel message gets a channel
-response and a thread reply gets a reply in that thread. An operator may say `switch to a thread`
-or `back to the channel`; Emisar acknowledges the move at the new location before continuing.
-Mentions and replies to the pinned card are explicitly direct; for ambient room conversation, the
+response and a thread reply gets a reply in that thread. Mentions and replies to the pinned card are explicitly direct; for ambient room conversation, the
 agent may stay silent when a human teammate would have nothing useful to add. Thread-scoped
 engineering tasks are the deliberate exception: their authorization and working copy remain bound
 to the source thread. Active full members may collaborate in a contributor task; operator-capability
@@ -68,7 +67,8 @@ raw webhook refreshes, and raw patches are not relayed. Long output is bounded a
 truncated.
 
 Agent-authored prose uses Slack's Block Kit `markdown` block, which lets Slack render standard
-Markdown from the model without lossy `mrkdwn` translation. Responses may use proportional
+Markdown from the model without lossy `mrkdwn` translation. A reply longer than the block's
+12,000 characters is sent as plain-text sections instead. Responses may use proportional
 headings, emphasis, links, quotes, lists, task lists, dividers, tables, inline code, and
 language-tagged code blocks. Ryker, not the model, owns buttons, menus, mentions, approvals,
 and other interactive or notification-bearing elements.
@@ -84,16 +84,17 @@ links are omitted; repeated destinations appear once. The answer and valid inlin
 links remain unchanged, and the full authorized evidence stays in the episode even
 when it cannot supply a Slack link.
 
-When enabled, Slack's native assistant status appears immediately after accepted operator input and
-cycles through semantic milestones such as topology mapping, live Emisar checks, source
-reconciliation, coverage assessment, and response preparation. Slack clears it only when the reply,
-silence decision, incident handoff, or user-facing failure has been handled. Parked and blocked
-state remains on the card rather than using a misleading persistent typing indicator.
+When enabled, Slack's native assistant status appears as soon as Ryker has an input to decide on
+and names its phase in one plain string: "is queued...", "is deciding how to respond...", "is
+waiting to retry admission...", "is working..." or "is preparing the response...". Ryker refreshes
+it every 90 seconds, inside Slack's two-minute expiry, and clears it once the work is complete,
+cancelled, blocked or waiting. Parked and blocked state remains on the card rather than using a
+misleading persistent typing indicator.
 
 ## Agent surfaces
 
 App Home shows durable open-incident, active-session, failed-work, incident-history, saved-memory,
-and active-commitment counts plus the current incident rooms, work Emisar owes the team, compact
+and active-commitment counts plus the current incident rooms, work Ryker owes the team, compact
 channel situations, and bounded memory controls. Its destination-backed rows show the original
 request and jump to the exact Slack channel or thread; memory and behavior rows link to their source
 while the exact user still shares it. Operators can edit stale memory, run or manage schedules,
@@ -106,8 +107,8 @@ to Home**. Each page is read again from the same scoped query the channel's own 
 under the channels the operator shares with Ryker at that moment, so a channel they have left
 is gone from the next page. A page that could not be read says so and is never an empty list. The Agent Messages tab offers the suggested
 prompts declared in the app manifest — production health, alert explanation, and open work. A
-direct message always starts
-read-only triage and does not require proactive mode or an `@mention`.
+direct message is always read, with no proactive mode or `@mention` needed, and goes through the
+same admission as any other message.
 
 The **Investigate message** shortcut runs the same ordered read-only triage against a
 selected message and replies in its thread. Direct messages and shortcuts do not create incidents
@@ -117,46 +118,56 @@ An explicit repository-change request can produce a **Start task** button. Until
 active full workspace member confirms it, no writable session or fork is created. Confirmation posts
 a durable task card in the same Slack thread and creates an isolated Coop working copy. Active full
 members may collaborate there, edit, validate, and commit repository files under the contributor
-policy, then inspect and review the changes. Shared operational MCP and environment credentials are
-not projected. A configured operator must publish, stop, close, or discard task work. Nobody can
-merge, deploy, sign, or mutate infrastructure through the contributor task. Ordinary replies in the
+policy, then inspect and review the changes. The contributor policy is a worker policy like any
+other: the bundled worker withholds the project environment and MCP servers only from background
+learning, so a member's task gets the same tools as other work in its environment, including the
+environment's Emisar account. Publishing is off until **Let Ryker open pull requests** is turned
+on; once it is, a confirmed task opens its own draft pull request when its review is clean (see
+Controls). Only a configured operator can press **Create draft PR**, stop, close, or discard task
+work. Nobody can merge, deploy or sign through the contributor task, and any change to running
+systems still goes through Emisar's own policy and approvals. Ordinary replies in the
 source thread continue the same task session without an `@mention`; unrelated channel messages never
 enter it. Slash commands cannot identify a thread, so task controls live on the task card.
 
 ## Explicit summons
 
-In any channel where Emisar is a member:
+In any channel where Ryker is a member:
 
 ```text
-@Emisar investigate production checkout errors
+@Ryker investigate production checkout errors
 ```
 
 The user must be a full workspace member. Ryker performs bounded read-only triage and follows
 the user's current channel or thread location; no proactive channel configuration is required, and
-the mention alone does not create an incident. A configured operator can say
-`@Emisar open an incident for production checkout errors` to create one directly. Ryker then
-acknowledges the request, creates the dedicated room, and posts a durable `Incident room ready`
-reply after configured responders are invited and the topic and root pin are ready. The room works
+the mention alone does not create an incident. Asking in words,
+`@Ryker open an incident for production checkout errors`, gets Ryker's incident offer: the model
+decides to offer it, and no phrase is matched. A room is created only when a configured operator
+presses **Create incident room** (or when the channel's alert setting opens one for a credible app
+alert). Ryker then creates the dedicated room and, once configured responders are invited and the
+topic and root pin are ready, posts "Incident room ready: #room. The investigation and its pinned
+status card are now in that room." in the source thread. The room works
 in the environment of the conversation it was opened from — the repositories that conversation
 mounted and its Emisar account — whatever the channel has chosen since; new conversations in the
-room run there too. If the open-incident limit is full, it replies in the summon thread with the action
-required instead of silently dropping the request.
+room run there too. At most 25 rooms can be open in a workspace. When that limit is full, no room
+is created: the person who pressed the button gets only the generic private notice that the
+control is no longer current, and an automatic room is not opened (the worker logs it).
 
-After Emisar answers, that channel location remains an active conversation for 30 minutes. Nearby
+After Ryker answers, that channel location remains an active conversation for 30 minutes. Nearby
 human follow-ups are admitted without another mention, including a reply that starts a thread from
-Emisar's top-level answer. This window is anchored to the last successfully delivered Emisar triage
-reply; silence does not extend it. Membership, chronological context, addressee classification,
-attention policy, and per-conversation serialization still apply, so nearby human conversation can
-be understood without forcing Emisar to interrupt it.
+Ryker's top-level answer. The window counts from when the answered work completed, which is when
+its reply was delivered; silence does not extend it, and work still running or waiting is always
+continued. Membership, chronological context, and per-conversation serialization still apply, so
+nearby human conversation can be understood without forcing Ryker to interrupt it.
 
 ## Watched channels
 
 ### Channel welcome and optional setup
 
 Ryker admits the bot's own Slack channel-join event immediately and records the event, the
-membership transition and a complete default configuration in one transaction: mentions-only
-participation, the default environment (or no environment when none is the default), in-place
-alert investigation and no additional incident invitees. Useful defaults need no click, and none of
+membership transition and a complete default configuration in one transaction: participation left
+to the installation default (mentions only unless changed under Integrations › Slack), the default
+environment (or no environment when none is the default), in-place alert investigation and no
+additional incident invitees. Useful defaults need no click, and none of
 them requires an environment to exist: joins, the reconciliation below and `/ryker status` work in
 an installation that has none. A periodic reconciliation against the bot's
 joined conversations is the recovery path for a missed event; it configures and welcomes only the
@@ -172,9 +183,9 @@ participation, the actual alert behavior, observation mode and incident invitati
 no environment says it answers without any repos or Emisar and how to choose one; an environment
 that cannot run work right now is named with that said, rather than read as none. It never says "alerts are handled separately".
 Its controls follow the saved state: **Be proactive** and **Customize** on a mentions-only
-channel, **Mentions only** and **Customize** on a proactive one, **Configure channel** alone while
-observation mode or a `/ryker` override is in effect (the welcome then says which override and
-how `inherit` returns to the saved setting). Each control carries the configuration id and the
+channel, **Mentions only** and **Customize** on a proactive one, and **Configure channel** alone in
+observation mode or an incident room. Under a `/ryker` override the welcome keeps those buttons and
+adds a sentence naming the override and how `inherit` returns to the saved setting. Each control carries the configuration id and the
 revision it was rendered from; the host rechecks operator authority, channel membership and that
 exact revision before saving, and a participation change preserves the environment, alert policy
 and invitations chosen earlier. Every save re-renders this same welcome in place with a short
@@ -191,17 +202,17 @@ option before asking for a choice, pairing the exact button label with what Ryke
    answers without any repos or Emisar; choosing one decides which environment the channel uses
    and never changes what is in it. The step is asked even when no environment exists yet, with
    **No environment** as its only choice;
-3. alerts: **Investigate** in the alert's thread, **Offer a choice** between the thread and an
-   incident room, or **Create automatically**;
-4. invitations: **On-call responders only** (or **No invitations** when none are configured), or a
-   reply with the members and user groups to add; configured on-call responders are always invited;
+3. alerts: **Investigate here** (in the alert's thread), **Offer a room** (a choice between the
+   thread and an incident room), or **Always open a room**;
+4. invitations: **Nobody automatically**, or a reply with the members and user groups to add;
+   configured operators are always invited;
 5. confirm: a plain-English summary of the choices with **Save settings**, **Start over** and
    **Cancel**, each explained.
 
 Natural-language answers remain available for operators who prefer conversation; ambiguous answers
-produce a scoped clarification and do not advance the draft. Controls are bound to the durable setup
-id, channel, actor, current step, revision and 30-minute expiry, so a stale, copied or replayed
-button cannot advance or save. Saving retires the wizard message, revises the saved configuration
+produce a scoped clarification and do not advance the draft. Only the configured operator who
+started the setup can answer it. Controls are bound to the durable setup id, channel, actor, current
+step, revision and 30-minute expiry, so a stale, copied or replayed button cannot advance or save. Saving retires the wizard message, revises the saved configuration
 and re-renders the welcome; cancelling or expiring leaves the saved settings and the welcome
 untouched. Saving affects listening, the channel's environment, Slack-app alert escalation and
 room invitations only. It never authorizes repository changes, Emisar approvals, deployments or
@@ -216,10 +227,11 @@ message, runs in the default environment. Confirmed channel deletion removes its
 configuration.
 
 The installation participation default covers shared operational feeds such as `#infra-alerts`
-without naming them one by one. Ryker must be invited to every channel it participates in, and
-`ryker doctor` checks membership. Public and private channels behave the same way.
+without naming them one by one. Ryker must be invited to every channel it participates in; the
+membership reconciliation above repairs missed joins and leaves at startup and every five minutes.
+Public and private channels behave the same way.
 
-Operators can change proactivity without editing the file or restarting Ryker:
+Operators can change proactivity from Slack, without restarting Ryker:
 
 ```text
 /ryker proactive on
@@ -234,42 +246,45 @@ The effective setting is the channel's own saved participation when it has one, 
 default otherwise. `global on` moves that default, so every channel that never chose follows it
 immediately; a per-channel `off` opts out and a per-channel `on` opts in regardless. `inherit`
 clears the channel's own setting so it follows the default again — it stores inheritance rather than
-copying today's default. Ryker verifies current channel membership before accepting a
-per-channel `on`, and moving the installation default requires a saved operator.
+copying today's default. A per-channel `on` needs the channel's saved configuration, which exists
+once Ryker has joined and stays after it leaves; every `/ryker` command requires a configured
+operator.
 
 Ryker durably reads ordinary messages from active full workspace members and messages posted by
 external Slack apps in each watched channel. It ignores its own messages, unsupported message
 subtypes, foreign-workspace events, guests, and external Slack Connect users. Inputs are processed
 in Slack timestamp order within a channel, while separate channels can progress independently.
-Before deciding, Ryker waits for a configurable quiet period after the newest queued message
-(two seconds by default). This lets a nearby human reply become context instead of racing an agent
-response. A delayed Slack event older than an already completed channel decision is retained and
+There is no settling delay: each input is decided as soon as it is its turn. A delayed Slack event older than an already completed channel decision is retained and
 audited but cannot produce an out-of-order reply.
 
-Each watched channel has one persistent Coop triage session so a new message is interpreted in the
-context of that feed. Immediately before submission, Ryker reads recent Slack channel history
-or the target thread, merges it with admitted inputs, removes timestamp duplicates, guarantees the
-target message is present, and freezes a target-centered `slack.watch_context_messages` window.
-The default is 20 messages and the allowed range is 10 through 50. A thread window keeps its root,
-the nearest preceding replies, the target, and up to three immediately following messages. On the
-first visit to an old thread, Ryker follows Slack pagination to recover the newest tail instead
-of mistaking the first page for recent context. Once a compact summary exists, its last message
-timestamp becomes the cursor and later turns fetch only the delta.
+Each input is decided in its own short Coop session, closed after the decision; what carries a
+feed's context from one message to the next is the frozen transcript and the stored conversation
+summaries. Before submission, Ryker freezes a transcript that ends at the target message: a
+thread reply gets the thread's root and the replies before the target, and a top-level message
+gets the top-level messages before it, never replies lifted out of other threads. The window holds
+20 earlier messages by default (a code default between 10 and 20, not a setting), and nothing that
+arrived after the target can enter it. Retained inputs are authoritative; a bounded read of Slack
+history (at most three pages) fills only gaps that retention has already reclaimed, and the frozen
+manifest says which happened.
 
 This applies to explicit mentions even when broad proactive triage is off. Top-level context can
 include ambient messages that were never Ryker work, allowing the agent to recognize that two
 people are talking to each other or that another person already answered. Raw messages from
-unrelated threads are not mixed into the target thread. Compact situation memory is stored per
-Slack conversation and retains purpose, situation summary, goal, active topics, verified topology,
-decisions, open loops, unresolved questions, and evidence references. Each turn also receives a
+unrelated threads are not mixed into the target thread. A conversation summary is stored per
+Slack thread and per channel and retains purpose, situation, goal, active topics, topology,
+decisions, open loops, unresolved questions, evidence references and participants. Each turn also
+receives a
 bounded set of recent summaries from the same channel and from public channels across the
 workspace, preferring the same repository. Private-channel summaries stay local unless a future
-membership-aware path can prove the requester may read them. The underlying channel session rotates
-after a configurable age or turn count while conversation summaries survive for the separately
-configured retention period.
+membership-aware path can prove the requester may read them. A work session is replaced when its
+worker reports it exhausted, closed or discarded (the bundled worker's policy allows 100 turns),
+when its knowledge context goes stale, when the model setting for its kind of work changes, or when
+its worker is lost; Ryker has no age or turn-count rotation of its own. Conversation summaries
+survive for the conversation-memory retention period.
 
-An operator may also explicitly ask Ryker to remember a durable alias, repository binding,
-evidence route, entity relationship correction, or open-ended collaboration guidance. A natural
+An operator may also explicitly ask Ryker to remember a fact (what a service is called, which
+repository holds it; the model can propose only these, saved as entity relationships) or open-ended
+collaboration guidance. A natural
 request such as `remember that when you explain fixes to me, start with a plain-language summary`
 produces a confirmation card with the exact guidance, scope, and expiry. Personal guidance follows
 that operator across channels; an explicit channel or team convention uses channel or workspace
@@ -284,7 +299,7 @@ recalled from the evidence ledger, while evidence from other private channels is
 
 Confirming a schedule, standing rule, preference, guidance or memory offer re-renders that message
 as the saved entity through one shared projection: the stable title, the full readable purpose or
-instructions, real metadata (when and timezone, next run, catch-up, authority, repository binding,
+instructions, real metadata (when and timezone, next run, authority, repository binding,
 destination, scope, visibility, expiry — "Until disabled" and "No expiry" are values, never
 placeholders), a brief notice such as **Schedule saved** or **Schedule has been updated**, who saved
 it and when, and one exact-resource removal control: **Delete schedule**, **Delete rule**,
@@ -312,19 +327,23 @@ Behavior memory is a separate typed facility for deterministic controls. An expl
 as `when I ask about infrastructure health, always do a deep check` can offer a
 `health_check_depth=deep` preference. `Prefer threads when replying to me` can offer
 `response_location=prefer_thread`.
-An explicit request such as `when you see a Terraform plan here, report its main diff and red
-flags` can offer a channel standing rule. The model may select only a supported preference value or
-trigger/action pair; Ryker never persists the original prose as an executable trigger.
+An explicit request such as `when someone posts a Terraform plan here, review it for risky changes`
+can offer a standing rule: a source-event automation naming its source (`slack`, `github` or
+`webhook`), an exact filter on the event, the task, the channels it reads and replies in, an
+optional repository and an optional end. The model may select only a supported preference value or
+such a rule; Ryker never persists the original prose as an executable trigger.
 
 Every behavior offer is a host-rendered confirmation card. It states the normalized behavior,
-scope, expiry, source filter when applicable, and the boundary that it remains read-only and cannot
-create incidents, edit files, deploy, approve, or mutate infrastructure. Confirmation requires a
-configured full workspace operator. That operator may make an explicit behavior setup request in
+scope, expiry, source filter when applicable, and the boundary: "Read-only initiative in this
+channel; it cannot approve, publish, deploy, or mutate infrastructure." A matching rule can still
+start read-only work. Confirmation requires a configured full workspace operator in Slack (on
+GitHub, `/ryker confirm` from someone with write access to the repository). That operator may make an explicit behavior setup request in
 any channel where Ryker is invited, even if ordinary mentions and proactive triage are disabled
 there. This exception admits only the typed setup turn; it does not turn the channel into a summon
-channel. Preferences resolve in operator, channel, repository, then workspace order. Rules are
-channel-scoped and match only Terraform plans, deployments, or operational alerts from the
-configured `human`, `app`, or `any` source.
+channel. Preferences resolve in operator, channel, repository, then workspace order. A rule matches
+an exact filter on events from its one source. The older Terraform-plan, deployment and
+operational-alert rules with a `human`, `app` or `any` filter are still honored, but nothing
+creates them any more.
 
 After a successful automation, schedule, memory, preference, or guidance confirmation, Slack shows a
 private acknowledgement and refreshes the original card to its confirmed state without the old button.
@@ -350,8 +369,8 @@ never an inferred repository diff. The channel queue preserves Slack timestamp o
 durable rule/source-event key prevents duplicate execution after redelivery or restart. Shadow mode records
 the matched decision and run without posting.
 
-When a watched-channel run starts, Ryker queues a native thread status explaining that it is
-checking live systems with Emisar and that broad checks can take a few minutes. Statuses, replies,
+When a watched-channel input arrives, Ryker queues a native thread status naming its phase, as
+described above. Statuses, replies,
 and cards share the durable Slack delivery ledger, so restart does not lose them. The status is
 refreshed before Slack's two-minute expiry and cleared only after the run replies, stays silent,
 hands off to incident creation, or queues a user-facing failure. Every progress update and clear has
@@ -363,9 +382,10 @@ For a question about current infrastructure health, operational state, or an ale
 inspect the repository for declared topology and use policy-authorized read-only tools, especially
 Emisar for live state, before deciding. It also considers any other available MCP server or tool
 that owns relevant evidence and reconciles disagreements between configured and observed state. It
-cannot modify repository files from this shared-channel session. An exact operational mutation is
-eligible only when a configured operator explicitly requests it and Emisar authorizes it. The host
-accepts only one validated decision:
+cannot modify repository files from this shared-channel session. Changes to running systems go only
+through Emisar: anyone in a conversation Ryker serves can ask for an exact change, and Emisar's
+policy decides whether it runs and who must approve it (see Controls). The host accepts only one
+validated decision:
 
 - stay silent for noise, routine success or recovery notifications, duplicates, and ambient
   conversation;
@@ -382,30 +402,26 @@ accepts only one validated decision:
   and **Open incident room** appears only as a link once the room's channel exists;
 - attach a `Start task` confirmation when a human teammate explicitly requests repository
   changes, without weakening the shared channel's read-only boundary;
-- attach a `Prepare code fix` confirmation when a decision-ready confirmed or likely issue has a
-  narrow repository-backed remediation; this can appear beside the incident offer, carries the
-  exact fix objective into the task, and still requires review before draft-PR publication;
-- open a normal dedicated incident automatically for a credible unresolved monitoring-app alert, or
-  directly when a human explicitly asks to open, create, start, or declare an incident.
+- open a dedicated incident room automatically for a credible unresolved monitoring-app alert, when
+  the channel's alert setting is **Always open a room**. A human's explicit request to open, create,
+  start, or declare an incident gets the incident offer; a configured operator's **Create incident
+  room** creates the room.
 
 An ordinary human health question is never sufficient host authorization for automatic incident
 creation, even if the model identifies an unhealthy component. The offer button explains that no
 incident exists yet and requires a configured full-member operator. The original Slack input stores
-the offered title, repository, and optional fix objective durably, so a restart does not change what
-the button approves. Repeated clicks are idempotent.
+the offered title and repository durably, so a restart does not change what the button approves. Repeated clicks are idempotent.
 
-Every decision includes a bounded attention assessment: intended addressee plus urgency,
-confidence, novelty, and ownership scores. Ryker applies this after the model returns, so a
-model cannot bypass the interruption policy. Ambient prose replies require
-`slack.proactive_reply_attention_threshold`; reactions require
-`slack.proactive_reaction_attention_threshold`. Direct requests remain eligible. A human-directed
-message cannot produce an ambient Emisar reply or reaction. Emisar may use any standard Slack emoji
-or a workspace custom emoji visible in the supplied message context. The host validates and
-normalizes the emoji name, permits only one reaction, and lets Slack reject names that are not
-available in that workspace. A reaction acknowledges or signals; it never claims verification,
+There are no attention scores or thresholds. The admission decision is one of ignore, react,
+reply, start work or continue existing work, with its reason, the work it relates to, and the kind
+of work (conversational, standard or deep); Ryker validates it before acting on it. Ryker may use
+any standard Slack emoji or a workspace custom emoji visible in the supplied message context. The
+host validates the emoji name, adds or removes one reaction per call on an exact current human
+message (removing only reactions Ryker added), and lets Slack reject names that are not available
+in that workspace. A reaction acknowledges or signals; it never claims verification,
 approval, remediation, or future work.
 
-Emisar also observes reaction additions and removals on messages it posted. These events enter the
+Ryker also observes reaction additions and removals on messages it posted. These events enter the
 same durable episode order as messages and appear in the next
 conversation turn alongside the current bounded reaction counts and reacting member IDs. A reaction
 does not start an agent turn or produce a reply by itself. Removed reactions are retained only as
@@ -419,22 +435,20 @@ repository work as an alert incident. Dedicated Slack rooms remain reserved for 
 coordination. A member offer runs in its conversation's environment: it must name one of that
 environment's repositories, runs under the environment's own contributor policy and keeps the
 environment on the task's session. A conversation with no environment has no repository a task
-could change. Only operators may publish or use destructive task controls.
+could change. Only operators may press the publication and destructive task controls; a confirmed
+task's own draft grant can open its draft pull request without a click (see Controls).
 
 An approved or permitted incident decision retains the original Slack message as evidence,
 acknowledges the source thread, and enters the same channel, root-card, isolated-fork, and
-policy-controlled investigation workflow as webhook and manual incidents. Every admitted watched
-message is one accepted request in its channel's ordered triage session. Ryker extends exhausted
-watched and incident sessions automatically up to the effective `coop.turn_limit`. That ceiling is a
-shipped host bound and no Slack control raises it. The reasoning is that a session
-which has spent a thousand accepted requests is looping rather than short of room, and the card says
-so; the cost is that an operator who reaches the ceiling mid-incident cannot clear it from Slack and
-needs someone who can edit the configuration and redeploy. Coop policy and service-wide limits remain
-authoritative.
+policy-controlled investigation workflow. Every admitted watched message is one accepted request,
+decided in channel order. When a work session is exhausted, Ryker continues in a fresh one. The
+bound is the worker's own policy (the bundled worker allows 100 turns, 20 queued turns and a
+one-hour turn timeout); Ryker has no turn ceiling of its own, and no Slack control changes the
+worker's limits. Coop policy and service-wide limits remain authoritative.
 
-An explicit mention in a summon-enabled watched channel is routed through the same read-only triage
-session and gets ryker-targeting priority. Only explicit incident wording bypasses
-classification and starts a manual incident. Slack also emits the same mentioned message through
+An explicit mention goes through the same admission as any other input. Incident wording is not
+matched as a phrase: the model decides to offer an incident room, and an operator's press creates
+it. Slack also emits the same mentioned message through
 the ordinary channel-message subscription; Ryker acknowledges that duplicate and admits only
 the `app_mention` event.
 
@@ -470,45 +484,45 @@ the channel is read for. Those are the controls an operator needs when a room wi
 and the ordinary conversational path is the thing that is broken.
 
 `assignments` is the fifth, and what is left of it belongs to the same argument: reading a channel's
-standing grants and taking one back are what an operator reaches for when Ryker itself is the
-problem. Its `create` verb did not belong, and it left on 2026-08-15. A standing assignment is
-scoped authority to open pull requests without a per-action click, and `create` asked an operator to
-compose that as six `key=value` bounds and confirmed nothing but their own typing — a miscounted
-`paths=` was a repository-wide grant that read as a narrow one. Asking in words now produces an
-`offer_assignment` operation, and the host answers with a card stating the NORMALIZED bounds it
-would store: repository, change class, daily budget, expiry, path globs, signal. Nothing exists
-until the button is pressed, the click re-authorizes and re-reads the recorded offer, and what it
-creates is still shadowed — the grant is evaluated by the real gate and opens nothing until that
-flag is cleared as a separate decision. The typed verb answers with a pointer to that conversation.
+standing rules and taking one back are what an operator reaches for when Ryker itself is the
+problem. A standing assignment is a confirmed standing rule, the same record the control plane's
+Rules page lists. Its `create` verb did not belong, and it left on 2026-08-15: it asked an operator
+to compose a grant as six `key=value` bounds and confirmed nothing but their own typing — a
+miscounted `paths=` was a repository-wide grant that read as a narrow one. Asking in words now
+produces a rule offer card stating exactly what it would save: its source and filter, the task, the
+channels it reads and replies in, the repository and when it ends, under the read-only boundary.
+Nothing exists until **Enable automation** is pressed, and the click re-authorizes and re-reads the
+recorded offer. The typed verb answers "Ask for the standing assignment in ordinary language. Ryker
+will show its normalized read-only bounds for explicit confirmation."
 
 Everything else moved to a surface that can reach further than the composer can. A removed verb
-answers with the one line naming where it went, plus the whole of what is left. It does not answer
-"unknown subcommand": an operator who typed a verb that worked last week did not misspell it, and
-the capability still exists somewhere.
+answers "Unknown `/ryker` subcommand `<verb>`." followed by the whole guide; the table below says
+where each capability lives now.
 
 | Typed | Where it lives now |
 | --- | --- |
 | `incidents`, `work`, `commitments` | App Home's **In flight** and needs-you rows, the web control plane, or ask in the channel |
 | `memory`, `preferences`, `rules`, `schedules` | App Home and the web control plane manage them; creating one stays conversational and is confirmed on a card |
 | `feedback` | Say it. Feedback is recorded from what was said |
-| `timeline`, `evidence`, `handoff`, `postmortem` | The **Record** row on the pinned incident or task card |
-| `update`, `changes`, `review`, `publish`, `stop`, `close` | The buttons already on the pinned card, or ask in the thread |
-| `extend` | Nothing. Ryker allocates session capacity automatically |
-| `turn-limit` | a worker execution bound, which is a deployment change |
-| `assignments create` | Ask for the standing work in words; the `offer_assignment` card shows the normalized bounds and grants nothing until confirmed |
+| `timeline`, `evidence`, `handoff`, `postmortem` | The overflow menu on the incident or task card (**Open evidence** is a button on an incident card) |
+| `update`, `changes`, `review`, `publish`, `stop`, `close` | The buttons on the pinned card (**Stop current run**, the close control, the publication controls), or ask in the thread |
+| `extend` | Nothing. An exhausted session continues in a fresh one |
+| `turn-limit` | A worker execution bound in the worker's own policy |
+| `assignments create` | Ask for the rule in words; the offer card shows what it would save and nothing exists until it is confirmed |
 
 Slack does not provide application-defined autocomplete for text after a slash command, so the
 manifest carries one short static usage hint and the whole guide lives behind `help`. The hint names
 the four emergency verbs only, because it is a picker and not a catalogue. Running `/ryker` with
-no arguments returns the full guide: every verb that exists, one line on why there are so few, and a
-read-only button for channel status.
+no arguments returns the full guide as plain text: every verb that exists and one line on why there
+are so few.
 
 No phrase table sits beside it. A keyword router used to rewrite plain operator messages into slash
 subcommands, and it read every message in a proactive channel: "shadow traffic is on the new
 cluster, ignore it" turned the channel silent, and "hey bob what are you working on?" posted the
 commitment card at the room. Free text is now classified by the model and executed by the host, and
-`@Emisar reconfigure this channel` is the one request still read from text — it has to survive the
-model being unavailable, and it is read only when Ryker is addressed.
+`@Ryker reconfigure this channel` (or `configure this channel`) is the one request still read from
+text — it has to survive the model being unavailable, and it is read only as that exact phrase, in a
+mention, from a configured operator.
 
 `status` is the private form of the structured effective-settings view the welcome uses:
 Conversations, Alerts, Environment (or No environment), Repositories (the one work changes, then
@@ -578,10 +592,10 @@ host rejects them for nonoperators before any repository or session mutation:
 
 - provisioning or holding: **Close incident**;
 - active turn: **Stop current run**;
-- waiting for input: **Ask agent for update** and **Close incident**;
+- waiting for input: **Close incident**;
 - reviewing or publishing a draft PR: the card activity names the current publication stage,
-  keeps any existing **Open PR** link, and hides review, publish, update, and
-  close controls until the attempt finishes. Rendering this progress does not wait for another
+  keeps any existing **Open PR** link, and hides review, publish and close controls until the
+  attempt finishes. Rendering this progress does not wait for another
   Coop change inspection;
 - transient publication failure: the card shows the bounded last error, preserves
   any existing **Open PR** link, and offers **Retry publication** for that exact recovery
@@ -599,8 +613,6 @@ host rejects them for nonoperators before any repository or session mutation:
   stays the operator's explicit decision to review against that head;
 - published draft PR: **Open PR** and **Check delivery** remain available independently of a
   transient Coop inspection failure;
-- safety-ceiling blocked: **Close incident** and an action-needed explanation naming
-  `coop.turn_limit`, saying plainly that raising it needs a deployment change;
 - workspace not recoverable yet: the worker finished, but the host could not save its working copy
   or could not release its reply. The card says so in plain language, says what to keep and whether
   the worker session is closed, and attributes the retained answer as the worker's own report
@@ -610,8 +622,6 @@ host rejects them for nonoperators before any repository or session mutation:
   as the earlier snapshot without this work;
 - closed: read-only record controls only; otherwise no controls.
 
-- **Ask agent for update** requests fresh verified facts, hypothesis, changes, blockers, and next
-  action.
 - Diff reading is web-only. Slack never renders or pages a patch: the control plane owns the
   changes page, which reads Coop's typed fork summary one snapshot-bound page at a time, carries
   the complete patch digest and byte range, and says how many paths are omitted from the compact
@@ -629,9 +639,10 @@ host rejects them for nonoperators before any repository or session mutation:
   Readiness never merges, signs, or deploys.
   Checks and follow-up Work share session custody, so a normal reply waits for an active review
   without consuming an execution attempt. Delivery and unrelated sessions continue independently.
-- A confirmed coding task carries its own draft grant. When the person who confirmed the task named
-  this repository and the exact reviewed candidate came from that task's work, Ryker opens the
-  draft pull request itself: the card says it is opening the draft and offers no publication click,
+- A confirmed coding task carries its own draft grant. When publishing is on (**Let Ryker open pull
+  requests**, off by default), the confirmed task offer named this repository, and the exact
+  reviewed candidate came from that task's work, Ryker opens the draft pull request itself,
+  recorded as approved by the task's confirmer: the card says it is opening the draft and offers no publication click,
   because a click could not change the candidate, the repository or the scope. Revoking the
   confirmation, confirming for a different repository, or a task with no repository leaves the
   candidate at **Create draft PR** for a person. The grant is publication only — merge, deployment
@@ -646,9 +657,12 @@ host rejects them for nonoperators before any repository or session mutation:
   After publication the task shows **Open PR** and **Check delivery**, and a draft opened that way
   keeps saying which check never finished instead of reading as an ordinary reviewed pull request.
   Ryker reuses and updates that same authorized publication; an uncertain create reconciles
-  against the App-owned pull request it already published rather than issuing another blind create. Ryker polls GitHub for
-  check and merge transitions without occupying a model turn. Checks that fail on that exact head
-  return the task to in-scope correction once, without a click and without widening the task; a
+  against the App-owned pull request it already published rather than issuing another blind create.
+  Ryker checks the pull request once when it is published, then refreshes it when GitHub reports
+  check runs, check suites, statuses, workflow runs or pull-request events for that head, or when
+  someone presses **Check delivery**; there is no timer, and waiting occupies no model turn.
+  Checks that turn to failing on that exact head return the task to in-scope correction, once per
+  failing head, without a click and without widening the task; a
   hard deadline, a head that moved outside the publication, a close and a merge stay history for a
   person. A correction that completes in scope re-arms the task's own publication for a fresh
   review and updates that same pull request: one task keeps one publication and one draft PR, the
@@ -659,22 +673,25 @@ host rejects them for nonoperators before any repository or session mutation:
   resurrected, and a review, approval or publish phase still in flight keeps the publication it
   holds. After merge, matching deployment and
   Terraform app messages from other watched channels return to the original task thread only when
-  the source message contains that publication's exact PR, branch, head SHA, or merge SHA. Loose
-  topic, repository-name, and timing matches are rejected. An exact reference activates this
+  the source message contains that publication's exact pull-request URL, branch, head SHA, or
+  merge SHA for the same repository, within 30 days of publication. Loose topic, repository-name,
+  and timing matches are rejected. An exact reference activates this
   correlation path even when ordinary proactive participation is off in the source channel; other
-  app messages retain the channel's configured behavior. The poll interval and post-merge
-  correlation window are configured under `github`; **Check delivery** refreshes GitHub state
-  immediately. These controls cannot merge or deploy.
+  app messages retain the channel's configured behavior. The 30-day window is fixed (it restarts
+  when the pull request is reviewed again); **Check delivery** refreshes GitHub state immediately.
+  These controls cannot merge or deploy.
 - **Stop current run** cancels only the active agent turn. The session, queue, and fork remain.
-- **Close incident/task** closes the Coop session. Clean zero-change or durably published workspace
-  state is reclaimed after the configured grace period; dirty or unpublished changes are retained.
-- **Discard retained work** appears only on a closed engineering task with unpublished changes. Its
-  confirmation authorizes Coop to delete clean committed work after an exact discard-plan check.
+- **Close incident**/**Close task** closes the Coop session. Clean zero-change or durably published
+  workspace state is reclaimed after a fixed 15-minute grace period; dirty or unpublished changes are
+  retained.
+- **Discard retained work** appears in App Home, for configured operators, on a closed engineering
+  task with unpublished changes (the control plane's Working copies page offers the same as
+  **Discard unmerged**). Its confirmation authorizes Coop to delete clean committed work after an exact discard-plan check.
   Dirty uncommitted files are still refused.
 
-Every work card's single overflow menu includes **Work record**. It opens a compact second-level
-directory with **Timeline**, **Evidence**, **Handoff summary**, **Review recovery** on a task whose
-workspace or reply the host is still holding, and **Postmortem draft** on an incident. This keeps
+Every work card has one overflow menu that lists its records directly: **Timeline**, **Evidence**,
+**Handoff summary**, **Review recovery** on a task whose workspace or reply the host is still
+holding, and **Postmortem draft** on an incident. This keeps
 the primary card to one clearly owned menu while staying below Block Kit's five-option ceiling. An
 incident card is the one exception: it carries **Open evidence** as a button and keeps the rest in
 the menu, because on that card the findings are the subject rather than an aside.
@@ -683,8 +700,9 @@ the menu, because on that card the findings are the subject rather than an aside
 lifecycle events, Emisar approvals and terminal run results, and draft-PR publication. It derives
 these entries from their canonical rows rather than copying them. **Evidence** shows the latest
 source ledger and material unknowns. **Handoff summary** prepares an evidence-backed shift summary.
-**Postmortem draft** regenerates the post-incident draft that closing also posts, including after
-the incident has closed; it does not invent impact, root cause, owners, or corrective actions.
+**Postmortem draft** builds the post-incident draft from the durable record whenever it is asked
+for, including after the incident has closed; closing does not post it, and it does not invent
+impact, root cause, owners, or corrective actions.
 **Review recovery** appears only while the host is holding a finished worker's working copy or its
 reply: it shows the same brief the control-plane recovery page shows — the host failure in plain
 language, what to restore, the workspace and delivery status, and the complete retained answer
@@ -702,20 +720,21 @@ requests reuse established conversation context unless the user asks for a fresh
 context is not enough. The footer describes saved supporting findings and assessed system areas in
 ordinary language instead of dumping the source ledger into the conversation.
 
-Emisar may use brief, understated humor in relaxed, successful, or explicitly playful conversation,
-after giving the useful answer. Humor is optional and follows the team's tone; silence is better than
-a forced joke. Incident response, customer impact, failures, security, approvals, access problems,
-risk, and uncertain operational states remain straightforward. Humor never appears in evidence,
-memory, titles, controls, approval text, timelines, or technical identifiers, and never targets a
-person or their mistake.
-
-Automatic, inferred, and model-proposed operational mutation is not exposed through Slack. In any
-Slack conversation, a configured operator can directly request one exact operational action.
-Ryker submits it only through Emisar; no incident room is required. If Emisar requires
-approval, the current conversation receives an **Approval required in
-Emisar** card with the exact action, immutable runner and pack references, expiry, and a **Review
-approval in Emisar** link. Opening the link is navigation, not approval; no action has run, and the
-decision remains in Emisar's authenticated console and audit trail.
+Changes to running systems go only through Emisar, and Emisar decides them. Anyone in a
+conversation Ryker serves can ask for an exact change; Ryker adds no operator check of its own.
+Every work session in an environment with an Emisar account can use Emisar's tools (they come from
+the worker's own MCP configuration) and Ryker's tool for recording the approval it then waits on.
+Emisar's policy decides whether an action runs and who must approve it, and Emisar's audit records
+the decision. The model is told not to treat an alert or other event as a request to act, and not
+to run an action again or start a replacement run while it verifies one; those are instructions to
+the model, not checks. No incident room is required. When an action waits for approval, the
+conversation receives an **Emisar review** card: its status ("◷ Waiting for review." or how many
+reviews are in), the reason, evidence and expected outcome from the review, the command or action,
+and the runner, with **Review in Emisar** (later **Open in Emisar**) and **Open exact run**. On
+GitHub the same request is a comment titled "Approval required in Emisar" with the action, runner,
+pack and expiry. Opening the link is navigation, not approval; no action has run, and the decision
+remains in Emisar's authenticated console and audit trail. Ryker watches that exact run and, when
+it finishes, continues the same conversation with its result.
 There is no text spelling of a control. An unadvertised `!respond <verb>` router used to read every
 message in a thread carrying an incident and match eight verbs against it; it was removed on
 2026-08-15. The pinned card above the thread carries stop, publish and close as buttons that
@@ -727,11 +746,15 @@ anything else — is an operator turn, not a cancellation.
 
 ## Authorization
 
-Workspace membership alone does not grant operational authority. Incident steering, incident-offer
-approval, durable behavior, schedules, and operational mutations require both:
+Workspace membership alone does not grant operator authority. Incident steering, incident-offer
+approval, durable behavior and schedules require both:
 
-- the Slack user ID is listed in `slack.operators`;
-- Slack reports a current full member in `slack.team_id`.
+- the Slack user ID is one of the configured operators (`operators` in the Slack settings, chosen
+  under Integrations › Slack);
+- Slack reports a current full member of the configured workspace (`workspace_ref`).
+
+Changes to running systems are not on this list: Ryker does not decide them, and Emisar's policy
+does (see Controls).
 
 Bots, app users, deleted users, guests, restricted users, strangers, and external Slack Connect
 members cannot steer an incident session. Foreign-source channel events are dropped before
@@ -750,11 +773,11 @@ text is parsed by the host as an exact command; it is never sent to the model.
 Engineering tasks deliberately use a different boundary. Any active full member of the configured
 workspace may confirm a task offer for one of its conversation's environment's repositories,
 collaborate in its source thread, and
-use its non-destructive task controls. A configured operator must publish, stop, close, or discard
-work. Guests, bots, restricted users,
-strangers, and external Slack Connect members remain denied. Task authority never grants incident
-control, durable behavior changes, scheduling, infrastructure mutation, merge, deployment, or
-signing authority.
+use its non-destructive task controls. A configured operator must press the publication controls,
+stop, close, or discard work (a confirmed task's draft grant can publish without a click; see
+Controls). Guests, bots, restricted users, strangers, and external Slack Connect members remain
+denied. Task authority never grants incident control, durable behavior changes, scheduling, merge,
+deployment, or signing authority; a change to running systems remains Emisar's decision.
 
 Buttons are also bound to the incident ID, channel, and root message timestamp. Stale or copied
 controls are rejected.
@@ -763,22 +786,22 @@ controls are rejected.
 
 Once a root card exists, incident failures are visible there and in accessible fallback text. A
 failed or cancelled turn posts a concise thread message explaining what stopped, that the fork and
-evidence remain, and how to continue. Failures before channel or root creation remain visible
-through `ryker status`, `ryker failures`, metrics, and service logs. Manual capacity
-rejection is also posted in the summon thread.
+evidence remain, and how to continue. Failures before channel or root creation remain visible on
+the control plane's Failures page, in metrics, and in service logs.
 
-Active-session capacity puts an admitted incident into holding. The separate open-incident limit
-rejects new occurrences before channel creation; webhook work remains retryable and manual summons
-receive a direct explanation. Webhook admission remains durable during a temporary Slack or Coop
+Active-session capacity puts an admitted incident into holding. The separate open-room limit (25
+per workspace) refuses a new room before its channel is created, without an explanation in the
+thread (see Explicit summons). Webhook admission remains durable during a temporary Slack or Coop
 outage, while `/readyz` reports the disconnected dependency.
 
 Closing never archives the channel or merges work. It schedules ownership-checked retention;
 automatic cleanup refuses dirty and unpublished committed changes.
 If a human archives or deletes an incident room, Slack's lifecycle event is persisted before
-acknowledgement. An archived room's open incident becomes blocked, new turns and room writes stop,
-and the Coop session, isolated fork, channel identity, and audit records remain. Unarchive events
+acknowledgement. An archived room pauses: its card says "The Slack room is archived. Unarchive it
+to resume investigation and delivery.", room writes stop, and the Coop session, isolated fork,
+channel identity, and audit records remain. Unarchive events
 restore the room. A deleted channel never comes back, so Ryker closes its investigation the way
-**Close request** does (a run still working stops first, on its worker's answer), posts one fixed
+**Close as no longer needed** does (a run still working stops first, on its worker's answer), posts one fixed
 note in the alert thread the room was opened from, *The incident room #name was deleted. Reply
 here to pick it up.*, and closes the room with that reason, freeing its place in the open-room
 limit. Slack names nobody in a deletion event, so the note names the room. A reply the

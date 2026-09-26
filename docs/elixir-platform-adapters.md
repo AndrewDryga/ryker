@@ -66,9 +66,9 @@ authority. Generic GitHub conversations still expose the eight native emoji reac
 feedback is routed for task work rather than converted into a crossed-platform reaction target.
 
 Authorized Coop readiness reviews run whenever a delivery adapter is configured, even without
-GitHub publication credentials. The optional `publication` configuration adds the exact
-GitHub-bound repository allowlist; without it, the existing publication worker can review and
-deliver results but cannot publish a PR. An attempted publication retains its reviewed candidate
+GitHub publication credentials. Turning on **Let Ryker open pull requests** (Integrations › GitHub,
+off by default) with a connected GitHub App adds the exact GitHub-bound repository allowlist;
+without it, the existing publication worker can review and deliver results but cannot publish a PR. An attempted publication retains its reviewed candidate
 and reports `publication_repository_not_configured` until the binding is configured. This does
 not grant task, publication, merge, or deployment authority.
 
@@ -193,6 +193,9 @@ validation boundary.
 
 ## Trusted runtime configuration
 
+`Ryker.Runtime.Assembly` builds this configuration from the saved settings and the encrypted
+credentials; the block below shows its shape, not a file anyone edits.
+
 Credentials remain behind zero-argument host callbacks and are fetched for every HTTP request.
 Ryker signs a short-lived RS256 App JWT from its encrypted private-key credential, mints a token scoped to
 the exact configured installation and repository, caches it only until the refresh window, and rotates
@@ -252,7 +255,8 @@ config :ryker, :delivery,
   }
 ```
 
-The Slack token callback remains host configuration. GitHub uses the supervised App installation-token
+The Slack tokens come from the encrypted credential store, entered under **Integrations › Slack**.
+GitHub uses the supervised App installation-token
 provider described above; a static installation token is not a supported production configuration.
 
 Both the GitHub listener and Delivery runtime are optional and start only when configured. This work

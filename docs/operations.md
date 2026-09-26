@@ -83,17 +83,21 @@ in place.
 
 ## Upgrade
 
-Set `RYKER_IMAGE` and `RYKER_VERSION` in `.ryker/compose.env` to the authenticated immutable release
-you intend to run, then:
+Upgrades build from the checkout: no Ryker container image is published, and a GitHub Release
+carries the verified release archive ([releasing.md](releasing.md)). Move the checkout to the
+release you intend to run (for example `git checkout vX.Y.Z`), set `RYKER_VERSION` in
+`.ryker/compose.env` to that version and `RYKER_IMAGE` to the local tag to build (for example
+`ryker:X.Y.Z`), then:
 
 ```bash
 scripts/compose.sh backup
 scripts/compose.sh upgrade
 ```
 
-Upgrade pulls the selected image when applicable, rebuilds only a local development image, starts
-the replacement, runs migrations through the container entrypoint, and verifies health, readiness
-and the exact version header. Enrolled remote workers are not restarted or modified.
+Upgrade pulls the pinned third-party images (such as PostgreSQL and the worker's Docker daemon), rebuilds
+the Ryker and bundled-worker images from the checkout, starts the replacements, runs migrations
+through the container entrypoint, and verifies health, readiness and the exact version header.
+Enrolled remote workers are not restarted or modified.
 
 ## Backup and restore
 

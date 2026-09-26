@@ -62,7 +62,7 @@ rules**, then the **Engagement** decision. The first and last read
 the input: the entry path, the effective proactive/shadow values with the
 source each one won from, and the outcome of every predicate the gate actually
 reached. The Slack gate short-circuits, and the receipt records that honestly;
-a predicate it never ran renders "Not checked", never "No". Explicit Lab and
+a predicate it never ran renders "Not checked", never "No". Explicit Chat and
 shortcut submissions record that they bypassed channel settings instead of
 inventing Slack checks. Inputs without a receipt render "not recorded"; nothing
 is recomputed from today's settings.
@@ -217,7 +217,7 @@ lines; any code change it proposed; and **Room history**, what happened to the
 room and its channel, oldest first. Room, channel, record and request IDs appear
 only in one closed Details disclosure.
 The list includes requested and blocked rooms before a Slack
-channel exists; it is not a directory of local Lab incidents. Room status and
+channel exists; it is not a directory of local Chat incidents. Room status and
 search filters remain in the URL, and committed lifecycle changes refresh the list
 and detail views.
 
@@ -346,8 +346,8 @@ sets everything else: no accounts, no roles, no invitations.
 
 ## Reach and trust
 
-**Bound to `127.0.0.1` only**, on the port Ryker already serves
-(`RYKER_CONTROL_IP` and `RYKER_CONTROL_PORT`). Reached in a browser on the same machine, or
+**Published on `127.0.0.1` only** by default, on the port Ryker already serves
+(`RYKER_CONTROL_BIND` and `RYKER_CONTROL_PORT` in `.ryker/compose.env`). Reached in a browser on the same machine, or
 through an SSH tunnel. No authentication, because the loopback interface is the
 authentication.
 
@@ -371,6 +371,13 @@ Consequences to respect:
 ## Information architecture
 
 Nine pages. Each answers one question.
+
+This is the original design. The pages that exist today are the ones
+`lib/ryker/control_plane/navigation.ex` lists and the table under "What the
+Elixir replacement currently wires" describes: Overview and Episodes became
+Activity and the Timeline, Settings split into Integrations and Settings,
+and there is no Audit page (the audit trail is kept and has its own retention
+limit, but no list of its own).
 
 ### 1. Overview — "what is happening right now?"
 
@@ -663,10 +670,10 @@ request, so its rows lead with how many times it ran. A breakdown that cannot
 be opened says which model costs the most and gives no route to a single turn
 of it.
 
-Cost prefers what the provider reported through Coop. A configured
-`config.Pricing.Cost` table supplies a separately labelled estimate only for
-model rows that reported tokens but no money; reported and estimated amounts
-are never added together. Wall clock reads the migration-49 columns and
+Cost prefers what the provider reported through Coop. For rows that reported
+tokens but no money, the rates under **Settings › Model prices** supply an
+estimate; the cost figure adds the two, the page lists the rates it used under
+"Rates used for estimates", and a row with neither says "Not measured". Wall clock reads the migration-49 columns and
 averages only over timed turns; a window with none says "nothing timed" rather
 than inventing an instant.
 
@@ -697,8 +704,8 @@ different clocks.
 
 `context_manifests.submitted_prompt` is the exact submitted bytes, and the
 `compiled_prompt` reference records a sha256 over them. It is transport state:
-Prune empties it on the operational horizon, twenty-four hours, alongside the
-agent run context it rides with.
+Prune empties it on the operational horizon (Prompts, replies and tool activity,
+30 days by default), alongside the agent run context it rides with.
 
 `context_manifest_texts.prompt` is the same prompt after the production
 sanitizer, cascading from the manifest and so from the episode — the
@@ -737,14 +744,14 @@ Coop normalizes ACP's cumulative USD counter into a durable per-turn delta, and
 Ryker totals those reported amounts without re-pricing them. This is the
 authoritative money figure when the adapter supplies one.
 
-For adapters that report tokens but not money, `pricing` in the configuration
-file can provide a clearly labelled estimate. `config.Pricing.Cost(provider,
-model, usage)` returns an amount and whether it is knowable. An unpriced model
-reports **no estimate, not a zero**. Keys are `provider:model`, falling back to
-bare `provider`; rates are per million tokens.
+For adapters that report tokens but not money, the versioned rates under
+**Settings › Model prices** supply an estimate: USD per million input, cached
+input, output and reasoning tokens, each with the day it starts and where it
+came from. An unpriced model reports **no estimate, not a zero**, and the
+Models page warns about it.
 
-The default table is empty and valid: provider-reported money still appears,
-while turns whose adapters report no money stay unpriced.
+Ryker ships default rates for the models it offers. Provider-reported money
+always wins; removing a rate leaves turns that reported no money unpriced.
 
 ### Wall-clock — recorded per attempt, except the split inside the provider
 
@@ -812,12 +819,11 @@ replacement, not the older dashboard or the intended final design above.
 
 | Page | Wired |
 |---|---|
-| Overview | Live for active, waiting, blocked, delivery-pending, admission queued/deciding/retrying counts, oldest active-admission time, durable Slack-status backlog age, and bounded attention records |
-| Conversations | Live, with durable messages/files, generated-image delivery, the exact Slack chat tool schemas through a local-only adapter, reactions, confirmed extra posts, native cards/actions, episode custody, and same-session continuation |
-| Episodes list and detail | Live, with bounded search, state filtering, pagination, lifecycle metadata, and typed state-record summaries |
+| Chat (`/conversations`) | Live, with durable messages/files, generated-image delivery, the exact Slack chat tool schemas through a local-only adapter, reactions, confirmed extra posts, native cards/actions, episode custody, and same-session continuation |
+| Activity (`/`) and Timeline (`/timeline/:ref`) | Live: the counts that lead Activity (in progress, needs you), bounded search, the All · Needs you · In progress · Finished views and filters, pagination, and one timeline per request with its lifecycle and typed state records. There is no separate Overview or Episodes page |
 | Incident rooms list and detail | Live, with bounded search, Slack-room lifecycle, linked source and investigation episodes, typed evidence records, and sanitized publication state |
 | Schedules list and detail | Live, with bounded search, confirmed run-now, direct-conversation replacement, recurrence and authority, destination, trigger kind, child execution state and timing, attempts, sanitized failures, and dispatched or missed occurrence history |
-| Waits | Live, with active-first bounded search, readable target/condition/request, relative timing and exact UTC timestamps, accurate event/timer resolution, and collapsed technical details without raw source payloads |
+| Follow-ups (`/follow-ups`) | Live, with active-first bounded search, readable target/condition/request, relative timing and exact UTC timestamps, accurate event/timer resolution, and collapsed technical details without raw source payloads |
 | Environments | Live: how many environments there are and how many channels chose none; each environment with how many repositories it has and the default one, its Emisar account and how many channels and webhook sources use it, the default first; an editor above the list for a new environment and under its row for one that exists, with the repositories in order (all available to its work, the first the default), Emisar account and Use as default; Use as default and Remove, which asks first and names who still uses the environment when it is refused |
 | Channels list and detail | Live: the channels Ryker is in (In use/All, search by name or environment) and how it takes part in each, in plain words, with the environment its work runs in; one page per channel with how Ryker takes part and its environment chosen in place, beside the code and Emisar account that environment gives it, its own instructions, what applies there (rules, saved instructions, facts) and where each comes from, what Ryker learned, schedules, recent work and usage, each list paged on its own |
 | Repositories | Live: each repository as Ready, Setting up or Needs attention with its one next step, which environments it is in, where it is used and the last code Ryker used, Retry setup for a stopped setup, access, permissions, GitHub events, RYKER.md and worker revisions in a closed Details, and adding repositories from the connected GitHub App, each joining the default environment |
@@ -905,9 +911,9 @@ browser never calls Coop or a model provider directly. Accepted replies and
 status are projected from the same PostgreSQL rows that own runtime custody;
 there is no second chat transcript or browser-owned recovery state.
 
-A conversation uses the exact `control_plane.work_profile` from trusted host
-configuration. That profile pins its Coop policy, digest, and optional
-repository just like a Slack, GitHub, or webhook adapter does. Browser content
+A conversation uses the work profile of its environment (the default one when
+it starts, or the one chosen for it), exactly as a Slack channel or webhook
+source does: that profile pins its Coop policy, digest and repositories. Browser content
 cannot select a policy, mount another repository, or widen authority.
 
 One stable UUID identifies the local conversation and its exact destination
@@ -952,12 +958,10 @@ Episode/Work/Delivery record agree.
 
 ## Technology
 
-The following describes the current implementation. The target is Phoenix
-LiveView with committed-state updates and reconnect recovery, as specified in
-the retired redesign plan (see [history.md](history.md)).
+The following describes the current implementation.
 
-- **Elixir Plug/Bandit**, server-rendered. No frontend build step, bundler, or
-  node_modules. Read models are bounded Ecto projections over the same durable
+- **Phoenix LiveView on Bandit**, server-rendered, with live updates over a
+  same-origin socket. No frontend build step, bundler, or node_modules. Read models are bounded Ecto projections over the same durable
   stores that own runtime custody.
 - **Filters and time windows are links**, not controls. A filtered list is a
   URL, which makes it bookmarkable and pasteable into an incident thread, and
