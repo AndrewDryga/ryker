@@ -452,19 +452,84 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     html = artifact |> RequestContextHTML.render("$.work", "work") |> IO.iodata_to_binary()
 
-    for row <- [
-          "<dt>Repository</dt><dd>emisar</dd>",
-          "<dt>Access</dt><dd>read-only</dd>",
-          "<dt>Checked out</dt><dd>refs/heads/main · 92c952f7</dd>",
-          "<dt>Freshness</dt><dd>current · fetched 2026-09-13 09:48 UTC</dd>",
-          "<dt>Companions</dt><dd>none</dd>"
-        ] do
-      assert html =~ row
-    end
+    assert workspace_rows(html) == [
+             {"emisar", "Read only · main at 92c952f7 · up to date as of 13 Sep, 09:48:09 UTC"}
+           ]
 
     # None of the dumped labels survive as headings.
     for gone <- ["Stale base revision", "Workspace base revision", "Remote identity", "Version"] do
       refute html =~ "<h4>#{gone}</h4>"
+    end
+  end
+
+  test "workspace access lists every repository by name, with its access and freshness in words" do
+    # Andrew, 2026-09-26: the card showed "Repository: primary", "Access:
+    # read-only", "Freshness: not_applicable · fetched …" and "Companions:
+    # none". An environment can hold several repositories; each is its own
+    # row, named, with whether the run could change it and how fresh it was.
+    artifact =
+      InspectionRedactor.artifact(%{
+        "repository_ref" => "payments",
+        "workspace" => %{
+          "companions" => [
+            %{
+              "base_commit" => String.duplicate("5e0a7f2", 6) |> binary_part(0, 40),
+              "name" => "infra",
+              "path" => "/coop/repositories/infra",
+              "read_only" => true
+            }
+          ],
+          "context_ref" => "payments",
+          "freshness" => %{
+            "owner" => "coop",
+            "repositories" => [
+              receipt("primary", "current", "2026-09-26T09:14:05.118223Z"),
+              receipt("infra", "stale", "2026-09-26T09:14:06.402113Z")
+            ],
+            "status" => "recorded"
+          },
+          "parallel_goal_limit" => 1,
+          "primary" => %{
+            "base_commit" => String.duplicate("c1b143d", 6) |> binary_part(0, 40),
+            "name" => "payments",
+            "path" => ".",
+            "read_only" => false
+          }
+        }
+      })
+
+    html = artifact |> RequestContextHTML.render("$.work", "work") |> IO.iodata_to_binary()
+
+    assert workspace_rows(html) == [
+             {"payments", "Can change · up to date as of 26 Sep, 09:14:05 UTC"},
+             {"infra", "Read only · behind its remote as of 26 Sep, 09:14:06 UTC"}
+           ]
+
+    for gone <- ["primary", "Companions", "Access", "Freshness", "stale", "current"] do
+      refute workspace_text(html) =~ gone
+    end
+  end
+
+  test "a workspace without a repository says so instead of naming the scratch folder" do
+    # The harvested Work prompt ran with no repository: Coop's empty scratch
+    # folder, which it names "primary", read-only, with a not_applicable
+    # freshness receipt. None of those words mean anything to a reader.
+    %{"work" => work} =
+      "testdata/control_plane/submitted-prompts/work-full.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    html =
+      work
+      |> Map.take(["repository_ref", "workspace"])
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.render("$.work", "work")
+      |> IO.iodata_to_binary()
+
+    assert workspace_rows(html) == [{"No repository", "An empty working folder · read only"}]
+
+    for gone <- ["primary", "Companions", "not_applicable", "fetched"] do
+      refute workspace_text(html) =~ gone
     end
   end
 
@@ -1220,5 +1285,38 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert malformed =~ "Historical candidate · retained shape unavailable"
     assert malformed =~ "Retained raw candidate"
     assert String.length(malformed) < 1_000
+  end
+
+  defp workspace_rows(html) do
+    html
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("[data-source=workspace] .context-rows > div")
+    |> Enum.map(fn row ->
+      {row |> LazyHTML.query("dt") |> LazyHTML.text(),
+       row |> LazyHTML.query("dd") |> LazyHTML.text()}
+    end)
+  end
+
+  defp workspace_text(html) do
+    html
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("[data-source=workspace] .context-rows")
+    |> LazyHTML.text()
+  end
+
+  defp receipt(name, status, fetched_at) do
+    resolved = String.duplicate(if(name == "primary", do: "c1b143d", else: "5e0a7f2"), 6)
+
+    %{
+      "fetched_at" => fetched_at,
+      "name" => name,
+      "remote_identity" => "origin",
+      "requested_revision" => "refs/heads/main",
+      "resolved_revision" => binary_part(resolved, 0, 40),
+      "stale_base_revision" =>
+        if(status == "stale", do: String.duplicate("9", 40), else: binary_part(resolved, 0, 40)),
+      "stale_base_status" => status,
+      "version" => 2
+    }
   end
 end
