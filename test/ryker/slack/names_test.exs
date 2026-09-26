@@ -53,6 +53,27 @@ defmodule Ryker.Slack.NamesTest do
     refute_received {:lookup, "C456"}
   end
 
+  # Right after a restart, a message page's title read "Hi Slack user" for
+  # "Hi @Ryker" until the cache had asked Slack who Ryker's own bot user is,
+  # which it already knew from its settings (2026-09-26).
+  test "Ryker's own name is known from the start, before Slack is asked" do
+    parent = self()
+
+    start_supervised!(
+      {Names,
+       workspace: "T123",
+       known: [{"UBOT", "Ryker"}],
+       fetch: fn ref ->
+         send(parent, {:lookup, ref})
+         {:error, :unavailable}
+       end}
+    )
+
+    assert Names.name("T123", "UBOT") == "@Ryker"
+    assert :ok = GenServer.call(Names, :refresh)
+    refute_received {:lookup, "UBOT"}
+  end
+
   test "names are scoped to the configured workspace and unavailable names do not block rendering" do
     parent = self()
 

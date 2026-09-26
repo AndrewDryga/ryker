@@ -941,7 +941,12 @@ defmodule Ryker.Runtime.Assembly do
   defp slack_names(%{slack: %{workspace_ref: workspace} = slack}) when is_binary(workspace) do
     case Credentials.fetch(:slack_bot, "primary") do
       {:ok, _token} ->
-        %{workspace: workspace, workspace_url: slack.workspace_url, client: slack_bot_client()}
+        %{
+          workspace: workspace,
+          workspace_url: slack.workspace_url,
+          client: slack_bot_client(),
+          known: own_name(slack)
+        }
 
       {:error, _missing_or_unreadable} ->
         nil
@@ -949,6 +954,12 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp slack_names(_settings), do: nil
+
+  # Ryker's own bot user reads by its name from the first page after a start.
+  defp own_name(%{bot_user_ref: ref, bot_name: name}) when is_binary(ref) and is_binary(name),
+    do: [{ref, name}]
+
+  defp own_name(_slack), do: []
 
   defp slack_bot_client do
     defaults = Defaults.fetch!(:slack)
