@@ -20,6 +20,11 @@ defmodule Ryker.Work.FailureCause do
   # truncated detail, and a half sentence is not a cause.
   @coop_refusal ~r/:coop_operation_failed, "(?:[^"\\]|\\.)*", "((?:[^"\\]|\\.)*)"/
 
+  # A provider that limits the worker's model account: Coop fails the turn
+  # with `rate_limited` and keeps the provider's own sentence, which says
+  # whether it is a moment's throttle or a usage cap, and until when.
+  @provider_limit ~r/"rate_limited", "provider rate limited the turn: ((?:[^"\\]|\\.)*)"/
+
   @doc """
   The cause a saved execution error names and the step that answers it.
 
@@ -33,6 +38,13 @@ defmodule Ryker.Work.FailureCause do
         %{
           cause: "The worker rejected the operation: " <> refusal,
           next_step: "Correct the condition the worker named, then retry this task."
+        }
+
+      limit = provider_limit(detail) ->
+        %{
+          cause: "The model provider limited the worker's account: " <> limit,
+          next_step:
+            "Add credits to the model account the worker signs in with, or sign it in to another account, then retry."
         }
 
       String.contains?(detail, "Failed to refresh token") ->
@@ -92,8 +104,11 @@ defmodule Ryker.Work.FailureCause do
   # The refusal is a provider's own sentence inside an inspected tuple, so it is
   # unescaped back out of that literal, then redacted and bounded like any other
   # untrusted text an operator surface displays.
-  defp coop_refusal(detail) do
-    case Regex.run(@coop_refusal, detail, capture: :all_but_first) do
+  defp coop_refusal(detail), do: provider_sentence(@coop_refusal, detail)
+  defp provider_limit(detail), do: provider_sentence(@provider_limit, detail)
+
+  defp provider_sentence(pattern, detail) do
+    case Regex.run(pattern, detail, capture: :all_but_first) do
       [escaped] ->
         escaped
         |> Macro.unescape_string()
