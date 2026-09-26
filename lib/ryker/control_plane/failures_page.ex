@@ -78,7 +78,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
           <Kit.section_head
             id="housekeeping"
             title="Housekeeping"
-            lede="Cleanup after finished work. Nobody is waiting on these."
+            lede="Background work such as cleanup and learning. No one is missing a reply, an update or a result because of these, but some need you to decide."
           />
           <Kit.entity_list label="Housekeeping failures">
             <.row :for={{row, explanation} <- @housekeeping} row={row} e={explanation} now={@now} />
