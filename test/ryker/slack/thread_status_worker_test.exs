@@ -6,9 +6,11 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
   import Ecto.Query
 
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
+  alias Ryker.Episodes.Episode
   alias Ryker.Operator.Failures
   alias Ryker.Repo
-  alias Ryker.Slack.{ThreadStatus, ThreadStatuses, ThreadStatusWorker}
+  alias Ryker.Slack.{ThreadStatus, ThreadStatuses, ThreadStatusProjection, ThreadStatusWorker}
+  alias Ryker.Work.{Activity, Session, Turn}
 
   defmodule FakeAPI do
     def set_thread_status(agent, channel_ref, thread_ref, status) do
@@ -244,6 +246,41 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
     end
   end
 
+  # The status line follows every tool the running turn starts, and a
+  # tool-heavy investigation starts hundreds: fifty Slack searches in a row, or
+  # a search and then a channel list that read the same to a person. Writing
+  # each one would spend a Slack call per tool on text that did not change;
+  # only a different phrase is written, paced as before, and an unchanged one
+  # waits for the refresh that keeps Slack from expiring it.
+  test "an unchanged phrase is not written again before the refresh, and a new one is written once" do
+    {:ok, client} = Agent.start_link(fn -> %{writes: []} end)
+    options = options(client, nil, %{snapshot: &ThreadStatusProjection.snapshot/1})
+    turn = running_turn!()
+
+    narrate!(turn, 1, "tool.started", state_tool("search", "search_slack"))
+    assert {:ok, %{failed: 0, written: 1}} = ThreadStatusWorker.run_once(options)
+
+    # Well past the three-second pacing, well inside the refresh.
+    settle_delivery!(-30)
+    narrate!(turn, 2, "tool.completed", %{"status" => "completed", "tool_call_id" => "search"})
+    narrate!(turn, 3, "tool.started", state_tool("channels", "list_slack_channels"))
+    assert {:ok, %{failed: 0, written: 0}} = ThreadStatusWorker.run_once(options)
+    assert %ThreadStatus{generation: 1, status: :delivered} = status!()
+
+    narrate!(turn, 4, "tool.started", state_tool("memory", "search_memory"))
+    assert {:ok, %{failed: 0, written: 1}} = ThreadStatusWorker.run_once(options)
+    assert {:ok, %{failed: 0, written: 0}} = ThreadStatusWorker.run_once(options)
+
+    settle_delivery!(-91)
+    assert {:ok, %{failed: 0, written: 1}} = ThreadStatusWorker.run_once(options)
+
+    assert Agent.get(client, & &1.writes) == [
+             {"C456", "1787832000.000100", "is searching Slack…"},
+             {"C456", "1787832000.000100", "is searching what it knows…"},
+             {"C456", "1787832000.000100", "is searching what it knows…"}
+           ]
+  end
+
   test "the supervised worker advances its independent reconciliation loop" do
     parent = self()
     {:ok, client} = Agent.start_link(fn -> %{writes: []} end)
@@ -356,6 +393,73 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
   end
 
   defp status!, do: Repo.one!(from(status in ThreadStatus))
+
+  defp settle_delivery!(seconds) do
+    Repo.update_all(from(status in ThreadStatus),
+      set: [delivered_at: DateTime.add(Repo.now!(), seconds, :second)]
+    )
+  end
+
+  defp running_turn! do
+    episode =
+      Repo.insert!(%Episode{
+        destination_conversation_ref: "slack:T123:C456",
+        destination_thread_ref: "1787832000.000100",
+        destination_transport: "slack",
+        execution_mode: :live,
+        id: Ecto.UUID.generate(),
+        key: "thread-status:paced-progress",
+        owner_kind: :turn,
+        owner_ref: "turn:thread-status:paced-progress",
+        state: :working
+      })
+
+    session =
+      Repo.insert!(%Session{
+        coop_session_id: "remote-session:#{Ecto.UUID.generate()}",
+        episode_id: episode.id,
+        external_ref: "session:thread-status:paced-progress",
+        id: Ecto.UUID.generate(),
+        policy: "ryker-work",
+        policy_digest: String.duplicate("a", 64)
+      })
+
+    turn =
+      Repo.insert!(%Turn{
+        coop_turn_id: "remote-turn:#{Ecto.UUID.generate()}",
+        episode_id: episode.id,
+        id: Ecto.UUID.generate(),
+        session_id: session.id,
+        status: :pending,
+        turn_ref: episode.owner_ref
+      })
+
+    %{session: session, turn: turn}
+  end
+
+  defp state_tool(call, tool) do
+    %{
+      "input" => %{"server" => "responder-state", "tool" => tool},
+      "kind" => "execute",
+      "tool_call_id" => call
+    }
+  end
+
+  defp narrate!(%{session: session, turn: turn}, sequence, type, payload) do
+    assert {:ok, %{inserted: 1}} =
+             Activity.ingest(session.id, [
+               %{
+                 "id" => "#{session.coop_session_id}:#{sequence}",
+                 "occurred_at" => DateTime.to_iso8601(DateTime.utc_now()),
+                 "payload" => payload,
+                 "sequence" => sequence,
+                 "session_id" => session.coop_session_id,
+                 "turn_id" => turn.coop_turn_id,
+                 "type" => type,
+                 "version" => 1
+               }
+             ])
+  end
 
   # Due by the database's clock, which the worker claims with; a host-clock
   # "one second ago" can still be ahead of a trailing database clock.
