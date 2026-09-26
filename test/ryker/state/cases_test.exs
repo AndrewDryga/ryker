@@ -65,6 +65,9 @@ defmodule Ryker.State.CasesTest do
     assert recalled["cause"] =~ "WAL volume"
   end
 
+  # The gate on 2026-09-26 also found nothing here once: the case was stamped
+  # by the host clock and the search's cutoff by the database clock, so a
+  # case captured a moment before could fall after the cutoff.
   test "memory search finds a retained case in every scope" do
     old = finished!("case:searchable", @outage)
     assert {:ok, record} = Cases.capture(old.id)
