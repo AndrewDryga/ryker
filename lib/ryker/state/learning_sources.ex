@@ -221,7 +221,8 @@ defmodule Ryker.State.LearningSources do
                 THEN (r->>'observation_id')::uuid ELSE NULL END
               OFFSET 0
             ) o ON true
-            WHERE o.id IS NULL OR o.source_input_id::text IS DISTINCT FROM r->>'source_input_id'
+            WHERE o.id IS NULL OR o.forgotten_at IS NOT NULL
+              OR o.source_input_id::text IS DISTINCT FROM r->>'source_input_id'
               OR o.revision::text IS DISTINCT FROM r->>'revision'
               OR o.source_fingerprint IS DISTINCT FROM r->>'fingerprint'
               OR o.workspace_ref IS DISTINCT FROM ?
@@ -724,8 +725,6 @@ defmodule Ryker.State.LearningSources do
 
   defp valid_receipt?(_receipt, %{source_result_ref: "source-conflict:" <> _}, _scope),
     do: false
-
-  defp valid_receipt?(_receipt, %{forgotten_at: %DateTime{}}, _scope), do: false
 
   defp valid_receipt?(receipt, source, scope) do
     receipt_matches_source?(receipt, source) and source.workspace_ref == scope.workspace_ref and
