@@ -59,6 +59,13 @@ defmodule Ryker.StateTools.ErrorCode do
     do:
       "no_addressee: nobody has spoken in this conversation, so a question would wait unanswered. Continue with the evidence you can gather, use wait_for when you are waiting on a system rather than a person, and say plainly in the reply what is unresolved and what would settle it."
 
+  # A final naming a record this work never created was answered
+  # `temporarily_unavailable`, so the model retried the same call; three checks
+  # of one reply failed that way on 2026-09-26.
+  def code(:state_record_not_found),
+    do:
+      "invalid_arguments: outcome.record_refs names a record this work did not create. Use only the refs your tools returned, or leave record_refs empty. Nothing was accepted."
+
   def code(:not_configured), do: "not_configured"
   def code(:not_found), do: "not_found"
   def code(:deadline_elapsed), do: "deadline_elapsed"

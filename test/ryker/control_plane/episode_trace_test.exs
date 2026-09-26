@@ -151,6 +151,49 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   # The Chat card stopped printing "SOURCE admit_input:63c450cc…" on
   # 2026-09-25, since nobody can read or open that there. Tracing which source
   # a citation came from is what the timeline is for, so it keeps it.
+  # Andrew, 2026-09-26, of a reply that also added 👍: the reaction card read
+  # "Queued" right above "Slack reaction confirmed", named no emoji, and the
+  # reply's "Supporting records" printed the raw platform-action ref. History
+  # cards stay as they were at their time, so the first one says what Ryker
+  # asked for rather than a state that goes stale, both name the emoji, and
+  # the request card is what a supporting record links to.
+  test "a reaction reads as what Ryker asked and what Slack confirmed, never a stale state" do
+    queued_at = ~U[2026-09-26 17:18:00.100000Z]
+
+    action = %Ryker.Delivery.PlatformAction{
+      id: Ecto.UUID.generate(),
+      action_ref: "platform-action:" <> String.duplicate("a", 64),
+      conversation_ref: "slack:T123:C456",
+      thread_ref: "1790441855.847989",
+      document: %{"action" => "add", "emoji_name" => "+1"},
+      kind: :reaction,
+      tool: :set_slack_reaction,
+      transport: "slack",
+      status: :delivered,
+      inserted_at: queued_at,
+      delivered_at: DateTime.add(queued_at, 1, :second)
+    }
+
+    assert [asked, confirmed] = EpisodeTrace.Outcome.platform_action_steps([action])
+
+    assert asked.title == "Slack reaction"
+    assert asked.summary == "Asked Slack to add 👍 to the message."
+    assert is_nil(asked.state)
+    assert asked.record_ref == action.action_ref
+
+    assert confirmed.title == "Slack reaction confirmed"
+    assert confirmed.summary == "Slack added 👍 to the message."
+    assert confirmed.tone == :good
+
+    assert [only] =
+             EpisodeTrace.Outcome.platform_action_steps([
+               %{action | delivered_at: nil, status: :pending}
+             ])
+
+    assert only.summary == "Asked Slack to add 👍 to the message."
+    assert is_nil(only.state)
+  end
+
   test "the timeline keeps the reference a citation was made from" do
     source = "admit_input:63c450ccc15dd8fb105ed9574cdec80d95645bc20891a5fdefb3640b230cda46"
 

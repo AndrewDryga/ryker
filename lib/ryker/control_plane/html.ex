@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.HTML do
 
   alias Phoenix.HTML.Safe
 
-  alias Ryker.ControlPlane.{ConversationLab, Layouts, SlackMarkdown}
+  alias Ryker.ControlPlane.{ConversationLab, Emoji, Layouts, SlackMarkdown}
   alias Ryker.Delivery.ChatCard
 
   # The title and description are the shell's header; the body owns the rest.
@@ -353,12 +353,7 @@ defmodule Ryker.ControlPlane.HTML do
 
   defp lab_reaction_picker(_message), do: ""
 
-  defp lab_emoji_glyph(emoji_name) do
-    case List.keyfind(@quick_reactions, emoji_name, 0) do
-      {_name, glyph} -> glyph
-      nil -> ":#{emoji_name}:"
-    end
-  end
+  defp lab_emoji_glyph(emoji_name), do: Emoji.glyph(emoji_name)
 
   defp lab_short_digest(value) do
     :crypto.hash(:sha256, value) |> Base.encode16(case: :lower) |> binary_part(0, 16)
