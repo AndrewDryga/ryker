@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.WebhookPreview do
 
   use Phoenix.LiveComponent
 
-  alias Ryker.ControlPlane.{Components, Kit}
+  alias Ryker.ControlPlane.{Components, Kit, SettingsSections}
   alias Ryker.Webhooks.Presets
 
   @impl true
@@ -46,8 +46,11 @@ defmodule Ryker.ControlPlane.WebhookPreview do
       )
 
     case run(socket) do
-      {:ok, mapped} -> {:noreply, assign(socket, error: nil, mapped: mapped)}
-      {:error, reason} -> {:noreply, assign(socket, error: message(reason), mapped: nil)}
+      {:ok, mapped} ->
+        {:noreply, assign(socket, error: nil, mapped: mapped)}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, error: message(reason, adapter_kind(socket)), mapped: nil)}
     end
   end
 
@@ -73,28 +76,48 @@ defmodule Ryker.ControlPlane.WebhookPreview do
 
   defp sources(view), do: view.snapshot.webhook_sources
 
-  defp message(:invalid_json), do: "That is not valid JSON. Nothing was sent or recorded."
+  defp message(:invalid_json, _shape), do: "That is not valid JSON. Nothing was sent or recorded."
 
-  defp message(:sample_too_large),
+  defp message(:sample_too_large, _shape),
     do: "A sample must be under 40 KB, the same bound a real request has."
 
-  defp message(:invalid_sample), do: "Paste the JSON body of one delivery."
-  defp message(:unknown_webhook_source), do: "That source is no longer saved."
+  defp message(:invalid_sample, _shape), do: "Paste the JSON body of one delivery."
+  defp message(:unknown_webhook_source, _shape), do: "That source is no longer saved."
 
-  defp message(:unavailable),
+  defp message(:unavailable, _shape),
     do: "Settings could not be read, so there was nothing to check against."
 
-  defp message({:invalid_webhook_transform, field}),
-    do: "The payload has no usable #{field}. Check the mapping path for that field."
+  # A missing field is named in the form's words, with where to look for
+  # the shape the source reads: the mapping for custom JSON, the sender's own
+  # format otherwise. It said "no usable event_id" and "check the mapping
+  # path" even for a Grafana source, which has no mapping.
+  defp message({:invalid_webhook_transform, field}, :mapped_json) do
+    label = label(field)
+    "This payload has no usable #{label}. Check where the mapping says the #{label} is."
+  end
 
-  defp message({:invalid_webhook_input, field}),
-    do: "The mapped #{field} is not usable as event identity."
+  defp message({:invalid_webhook_transform, field}, :grafana),
+    do:
+      "This is not a Grafana alert delivery Ryker can read: it has no usable " <>
+        "#{lower(label(field))}."
 
-  defp message({:invalid_webhook_route, field}),
-    do: "This source's #{field} is not valid, so it cannot map anything yet."
+  defp message({:invalid_webhook_transform, field}, _universal),
+    do: "This is not in Ryker's own format: it has no usable #{lower(label(field))}."
 
-  defp message({:invalid_input, field}), do: "The mapped #{field} is not a valid input field."
-  defp message(_reason), do: "This payload could not be mapped."
+  defp message({:invalid_webhook_route, _field}, _shape),
+    do:
+      "This source's settings are not complete, so it cannot read anything yet. Edit it, then check again."
+
+  defp message(_reason, _shape),
+    do:
+      "Ryker could not turn this payload into an event. Check that the sender sends the shape " <>
+        "this source expects."
+
+  defp label(:alerts), do: "Alerts"
+  defp label(:metadata), do: "Labels and annotations"
+  defp label(field), do: SettingsSections.subfield_label(to_string(field))
+
+  defp lower(<<first::utf8, rest::binary>>), do: String.downcase(<<first::utf8>>) <> rest
 
   @impl true
   def render(assigns) do

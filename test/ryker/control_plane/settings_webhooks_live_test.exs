@@ -255,7 +255,10 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     assert Repo.aggregate(Inbox.Entry, :count) == 0
   end
 
-  test "a payload the mapping cannot read names the field instead of guessing one" do
+  test "a payload the mapping cannot read names the field in words and where to look" do
+    # The check answered "The payload has no usable event_id. Check the
+    # mapping path for that field.": the field's internal name, and advice
+    # about a mapping that a Grafana source does not even have.
     installation!()
     {:ok, view, _html} = open()
     open_source_editor(view)
@@ -278,9 +281,39 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     })
     |> render_submit()
 
-    assert has_element?(view, "[role=alert]", "event_id")
+    assert has_element?(
+             view,
+             "[role=alert]",
+             "This payload has no usable Event ID. Check where the mapping says the Event ID is."
+           )
+
+    refute has_element?(view, "[role=alert]", "event_id")
     refute has_element?(view, ".webhook-preview-result")
     assert Repo.aggregate(Inbox.Entry, :count) == 0
+
+    # A Grafana source has no mapping to check: it says what a Grafana
+    # delivery needs instead.
+    open_source_editor(view)
+
+    view
+    |> form(
+      "#settings-webhooks-form",
+      source_params(%{"name" => "grafana", "adapter_kind" => "grafana"})
+    )
+    |> render_submit()
+
+    view
+    |> form("#webhook-preview-form", %{
+      "source_name" => "grafana",
+      "sample" => ~s({"status": "firing"})
+    })
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "[role=alert]",
+             "This is not a Grafana alert delivery Ryker can read: it has no usable alerts."
+           )
   end
 
   test "a sample that is not JSON, or is larger than a real request, is refused inertly" do
