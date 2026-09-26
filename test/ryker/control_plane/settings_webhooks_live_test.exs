@@ -4,10 +4,11 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
+  alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SlackNames}
   alias Ryker.Credentials
   alias Ryker.Ingress.Inbox
   alias Ryker.Settings
+  alias Ryker.Slack.ChannelConfigurationChangeset
   alias Ryker.Webhooks.Presets
 
   @endpoint Endpoint
@@ -68,7 +69,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     assert has_element?(
              view,
              "#{form} select[name=destination_conversation_ref] option[value='slack:T0123456789:C0123456789']",
-             Ryker.ControlPlane.SlackNames.name("T0123456789", "C0123456789")
+             SlackNames.name("T0123456789", "C0123456789")
            )
 
     refute has_element?(view, "#{form} [placeholder*='T0123456789']")
@@ -503,7 +504,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
       status: :joined,
       workspace_ref: "T0123456789"
     }
-    |> Ryker.Slack.ChannelConfigurationChangeset.membership()
+    |> ChannelConfigurationChangeset.membership()
     |> Repo.insert!()
   end
 

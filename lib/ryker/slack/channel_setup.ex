@@ -21,6 +21,8 @@ defmodule Ryker.Slack.ChannelSetup do
     MembershipTransition
   }
 
+  alias Ryker.Slack.Renderer.Fields
+
   @environment_action ~r/\Aryker_setup_environment_([0-9]{1,3})\z/
   @no_environment_answers ["no environment", "none", "without an environment"]
   @welcome_value ~r/\A([0-9a-f-]{36})\|([1-9][0-9]{0,9})\z/
@@ -274,6 +276,24 @@ defmodule Ryker.Slack.ChannelSetup do
     end
   end
 
+  @doc """
+  Redraws a channel's welcome after its settings were saved, with a line
+  saying who changed them and when: the path a save in Slack takes, and the
+  one a change on the channel's page in Ryker takes (until 2026-09-26 that
+  change left the welcome naming the old environment).
+  """
+  @spec redraw_welcome(String.t(), String.t(), map()) ::
+          {:ok, :posted | :updated} | {:error, term()}
+  def redraw_welcome(workspace_ref, channel_ref, options) do
+    case options.configurations.configuration(workspace_ref, channel_ref) do
+      %ChannelConfiguration{} = configuration ->
+        ensure_welcome(configuration, settings_notice(configuration), options)
+
+      nil ->
+        {:error, :configuration_not_found}
+    end
+  end
+
   @doc false
   @spec welcome_document(ChannelConfiguration.t(), String.t() | nil, map()) ::
           {:ok, map()} | {:error, term()}
@@ -437,24 +457,22 @@ defmodule Ryker.Slack.ChannelSetup do
   defp maybe_welcome(_result, _options), do: {:ok, :none}
 
   # Who changed it and when, the way a teammate would say it — not a system
-  # notice that leaves the channel guessing which of them pressed something.
+  # notice that leaves the channel guessing which of them pressed something. A
+  # change made on the channel's page in Ryker has no Slack member to mention,
+  # so it says where it was made.
   defp settings_notice(%ChannelConfiguration{actor_ref: actor, saved_at: %DateTime{} = at})
-       when is_binary(actor),
-       do: %{"actor_ref" => actor, "at" => DateTime.to_iso8601(at)}
+       when is_binary(actor) do
+    if Fields.slack_reference?(actor),
+      do: %{"actor_ref" => actor, "at" => DateTime.to_iso8601(at)},
+      else:
+        "Settings changed on this channel's page in Ryker at #{Calendar.strftime(at, "%H:%M")} UTC"
+  end
 
   defp settings_notice(_configuration), do: "Settings changed."
 
   defp welcome_after_save(%{status: :saved, session: session}, options) do
-    case options.configurations.configuration(session.workspace_ref, session.channel_ref) do
-      %ChannelConfiguration{} = configuration ->
-        with {:ok, _delivered} <-
-               ensure_welcome(configuration, settings_notice(configuration), options) do
-          :ok
-        end
-
-      nil ->
-        {:error, :configuration_not_found}
-    end
+    with {:ok, _delivered} <- redraw_welcome(session.workspace_ref, session.channel_ref, options),
+         do: :ok
   end
 
   defp welcome_after_save(_result, _options), do: :ok

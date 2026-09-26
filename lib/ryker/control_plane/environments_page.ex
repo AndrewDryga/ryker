@@ -41,8 +41,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
         # showing the list as if it had opened.
         missing: is_binary(assigns.params["edit"]) and is_nil(edit),
         query: query,
-        rows: Enum.filter(environments, &matches?(&1, query, snapshot)),
-        github: Integrations.github(assigns.view)
+        rows: Enum.filter(environments, &matches?(&1, query, snapshot))
       )
 
     ~H"""
@@ -124,15 +123,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
           </:details>
         </Kit.entity_row>
       </Kit.entity_list>
-      <Kit.empty
-        :if={@environments == [] and @edit != "new"}
-        title="No environments yet"
-        text={first_step(@github)}
-      >
-        <.link navigate={first_action(@github).href} class="ui-button secondary">
-          {first_action(@github).label}
-        </.link>
-      </Kit.empty>
+      <.first_environment :if={@environments == [] and @edit != "new"} view={@view} />
       <Kit.empty
         :if={@environments != [] and @rows == []}
         title={"No environments match “#{@query}”."}
@@ -194,9 +185,23 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
       ]
   end
 
+  attr(:view, :map, required: true)
+
   # The first environment comes with the first repository, and a repository
   # needs a working GitHub App: the empty page names the step GitHub's own
   # state says is next.
+  defp first_environment(assigns) do
+    assigns = assign(assigns, :github, Integrations.github(assigns.view))
+
+    ~H"""
+    <Kit.empty title="No environments yet" text={first_step(@github)}>
+      <.link navigate={first_action(@github).href} class="ui-button secondary">
+        {first_action(@github).label}
+      </.link>
+    </Kit.empty>
+    """
+  end
+
   defp first_step(%{status: status}) do
     first =
       case status do
