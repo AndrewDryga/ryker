@@ -81,6 +81,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @slack_retry_caps_version 20_260_926_000_100
   @unwritten_tables_version 20_260_926_000_200
   @state_tool_calls_version 20_260_926_001_100
+  @retired_association_corrections_version 20_260_926_001_300
   @unwritten_tables ~w(card_lab_feedback card_lab_posts episode_case_lessons slack_channel_setting_overrides)
   @integration_versions [
     20_260_919_000_100,
@@ -113,7 +114,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @environment_repositories_version,
     @slack_retry_caps_version,
     @unwritten_tables_version,
-    @state_tool_calls_version
+    @state_tool_calls_version,
+    @retired_association_corrections_version
   ]
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
@@ -2844,7 +2846,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                ] ++ @integration_versions
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
-      assert table_exists?(repo, prefix, "episode_association_corrections")
+      refute table_exists?(repo, prefix, "episode_association_corrections")
       assert table_exists?(repo, prefix, "episode_case_records")
       refute table_exists?(repo, prefix, "episode_case_lessons")
       assert column_exists?(repo, prefix, "episode_work_turns", "delivery_target")
@@ -2876,6 +2878,9 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                    @durable_settings_version,
                    @learning_executions_version
                  ]
+
+      # Rolling back the retirement brought the table back empty.
+      assert table_exists?(repo, prefix, "episode_association_corrections")
 
       assert_raise Postgrex.Error, ~r/retained cases or lessons have data/, fn ->
         Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
@@ -4055,6 +4060,94 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
+  end
+
+  # Operator association corrections lost their last writer: nothing in the
+  # product recorded a merge, split or reassignment, and the only readers were a
+  # candidate-search filter and an episode trace step that could never find a
+  # row. The live table was empty on 2026-09-26. Dropping a table is the one
+  # step a rollback cannot undo, so the migration must refuse a populated table
+  # outright, and its rollback must bring the table back exactly as it stood so
+  # the migration that created it still finds what its own rollback drops.
+  test "retiring association corrections refuses rows and recreates the table empty on rollback" do
+    repo = start_migration_repo!()
+    prefix = "retired_corrections_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+    table = "episode_association_corrections"
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @state_tool_calls_version,
+        prefix: prefix,
+        log: false
+      )
+
+      objects = named_objects(repo, prefix, "%association_correction%")
+      shape = table_shape(repo, prefix, table)
+      indexes = index_definitions(repo, prefix, table)
+
+      check =
+        constraint_definition(repo, prefix, table, "episode_association_correction_valid")
+
+      correction_id = insert_association_correction!(repo, prefix, Ecto.UUID.generate())
+
+      assert_raise Postgrex.Error, ~r/episode_association_corrections has data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :up,
+          to: @retired_association_corrections_version,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      assert table_exists?(repo, prefix, table)
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.#{table} WHERE id = $1::text::uuid",
+        [correction_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @retired_association_corrections_version,
+               prefix: prefix,
+               log: false
+             ) == [@retired_association_corrections_version]
+
+      refute table_exists?(repo, prefix, table)
+      assert named_objects(repo, prefix, "%association_correction%") == []
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@retired_association_corrections_version]
+
+      assert named_objects(repo, prefix, "%association_correction%") == objects
+      assert table_shape(repo, prefix, table) == shape
+      assert index_definitions(repo, prefix, table) == indexes
+
+      assert constraint_definition(repo, prefix, table, "episode_association_correction_valid") ==
+               check
+
+      assert %{rows: [[0]]} = SQL.query!(repo, "SELECT count(*) FROM #{prefix}.#{table}", [])
+      assert table in triggers(repo, prefix, "ryker_control_plane_changed")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @retired_association_corrections_version,
+               prefix: prefix,
+               log: false
+             ) == [@retired_association_corrections_version]
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  defp index_definitions(repo, prefix, table) do
+    %{rows: rows} =
+      SQL.query!(
+        repo,
+        "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2 ORDER BY indexname",
+        [prefix, table]
+      )
+
+    List.flatten(rows)
   end
 
   defp table_shape(repo, prefix, table) do

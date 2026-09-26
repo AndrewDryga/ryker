@@ -119,7 +119,7 @@ defmodule Ryker.Episodes.CorrelationClaims do
     )
   end
 
-  @doc "Retires every active claim of an episode after an audited correction; rows are kept."
+  @doc "Retires every active claim of a finished or cancelled episode; rows are kept."
   @spec retire_in_transaction(Ecto.UUID.t()) :: {:ok, non_neg_integer()}
   def retire_in_transaction(episode_id) do
     {count, _} =

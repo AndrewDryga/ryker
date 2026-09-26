@@ -1,14 +1,14 @@
 defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   @moduledoc """
   "What came in": the kernel's lifecycle events tied back to the inputs that
-  caused them, how evidence was gathered across conversations and corrected
-  by operators, and the link to the source message.
+  caused them, how evidence was gathered across conversations, and the link to
+  the source message.
   """
 
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.Episodes.{AssociationCorrection, Episode, Origins}
+  alias Ryker.Episodes.{Episode, Origins}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
 
@@ -187,18 +187,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   defp kernel_tone(_kind), do: nil
 
   @doc """
-  How evidence was gathered across conversations and corrected by operators.
+  How evidence was gathered across conversations.
 
   One piece of work can be reported in several places. An operator reading
-  this trace has to see where its evidence actually came from, which signals
-  are still firing, and every audited change of membership -- otherwise a
-  merged episode looks like it simply lost its messages.
+  this trace has to see where its evidence actually came from, or an episode
+  gathering evidence from three channels looks like one thread.
   """
   def association_steps(%Episode{} = episode) do
     origins = Origins.for_episode(episode.id)
     conversations = origins |> Enum.map(& &1.conversation_ref) |> Enum.uniq()
 
-    gathered_steps(episode, origins, conversations) ++ correction_steps(episode)
+    gathered_steps(episode, origins, conversations)
   end
 
   defp gathered_steps(_episode, _origins, conversations) when length(conversations) < 2, do: []
@@ -221,47 +220,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
       })
     ]
   end
-
-  defp correction_steps(%Episode{} = episode) do
-    Repo.all(
-      from(correction in AssociationCorrection,
-        where:
-          correction.source_episode_id == ^episode.id or
-            correction.target_episode_id == ^episode.id,
-        order_by: [asc: correction.applied_at]
-      )
-    )
-    |> Enum.map(fn correction ->
-      step("association-#{correction.id}", :ready, correction.applied_at, %{
-        actor: "Operator",
-        stage: "Routing",
-        state: Atom.to_string(correction.kind),
-        title: correction_title(correction, episode),
-        summary: correction.reason,
-        details:
-          compact_details([
-            {"Confirmed by", correction.actor_ref, identifier: true},
-            {"Confirmation", correction.confirmation_ref, identifier: true},
-            {"Messages moved", length(correction.input_refs)}
-          ])
-      })
-    end)
-  end
-
-  defp correction_title(%{kind: :merge, source_episode_id: id}, %Episode{id: id}),
-    do: "Merged into another request by a person's correction"
-
-  defp correction_title(%{kind: :merge}, _episode),
-    do: "Another request merged into this one by a person's correction"
-
-  defp correction_title(%{kind: :split}, _episode),
-    do: "Messages removed from this request by a person's correction"
-
-  defp correction_title(%{kind: :reassign, source_episode_id: id}, %Episode{id: id}),
-    do: "Messages moved to another request by a person's correction"
-
-  defp correction_title(%{kind: :reassign}, _episode),
-    do: "Messages moved into this request by a person's correction"
 
   @doc "A link to the source message of the first input that has one, or nil."
   def source_link(episode, events, inputs) do

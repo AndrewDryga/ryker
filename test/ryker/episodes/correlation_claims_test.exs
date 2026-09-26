@@ -55,7 +55,7 @@ defmodule Ryker.Episodes.CorrelationClaimsTest do
     refute CorrelationClaims.all_terminal?(incident.id)
   end
 
-  test "retiring an episode's claims frees the occurrence for a corrected owner without deleting history" do
+  test "retiring an episode's claims frees the occurrence for another owner without deleting history" do
     wrong = episode!("claims:wrong")
     right = episode!("claims:right")
     assert {:ok, claim} = claim(wrong, "slack:T1", "slack:app:B1", "run-1")

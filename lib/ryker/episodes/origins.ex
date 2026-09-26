@@ -3,9 +3,9 @@ defmodule Ryker.Episodes.Origins do
   Per-message origin projection of the episode ledger.
 
   Every `input_admitted` event records where its input came from. The
-  projection is written in the same transaction as the event and is rebuilt
-  from the ledger until an audited correction moves an input; it never invents
-  native provenance a source did not supply. A Slack root binds its own timestamp as thread, so root and reply
+  projection is written in the same transaction as the event and can be
+  rebuilt from the ledger; it never invents native provenance a source did not
+  supply. A Slack root binds its own timestamp as thread, so root and reply
   are told apart from the retained identities alone.
   """
 
@@ -93,10 +93,9 @@ defmodule Ryker.Episodes.Origins do
   @doc """
   The episode's effective membership, in source chronology.
 
-  An input an audited correction moved elsewhere keeps its row here, marked
-  ineffective and pointing at that correction, but it is no longer this
-  episode's evidence. Ordering by occurrence rather than by this episode's own
-  event sequence keeps merged evidence in the order it actually happened.
+  Ordering by occurrence rather than by this episode's own event sequence
+  keeps evidence gathered from several conversations in the order it actually
+  happened.
   """
   @spec for_episode(Ecto.UUID.t()) :: [Origin.t()]
   def for_episode(episode_id) do
