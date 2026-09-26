@@ -1784,10 +1784,8 @@
 .connection-line p { flex:1; min-width:0; margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
 .connection-line strong { color:var(--ryker-text); font-weight:600; }
 .ryker-app .connection-line .ui-button { flex:none; min-height:36px; padding:6px 14px; font-size:13px; line-height:18px; }
-.connection-dot { display:inline-block; width:7px; height:7px; margin:0 8px 1px 0; border-radius:50%; background:var(--ryker-stroke-strong); vertical-align:middle; }
-.connection-dot[data-tone=on] { background:var(--ryker-accent); }
-.connection-dot[data-tone=warn] { background:var(--ryker-warning); }
-.connection-dot[data-tone=bad] { background:var(--ryker-error); }
+.connection-line p .state-word { margin:0 8px 0 6px; vertical-align:-1px; }
+.connection-line p .state-word:is([data-tone=on], [data-tone=busy], [data-tone=off]) { color:var(--ryker-text); }
 /* Details on demand: closed, quiet, exact. */
 :is(.channel-page, .repositories-page, .working-copies-page) .entity-details { margin:6px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 :is(.channel-page, .repositories-page, .working-copies-page) .entity-details > summary { width:max-content; padding:2px 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); cursor:pointer; }

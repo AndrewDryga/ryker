@@ -203,17 +203,17 @@ defmodule Ryker.ControlPlane.SetupPageTest do
     using = %{without | emisar_connection_ref: "production"}
 
     for {accounts, environments, status, word, missing} <- [
-          {[], [], :not_connected, "Not connected", nil},
-          {[account], [without], :unfinished, "Not in use yet", "approval monitoring"},
-          {[%{account | monitoring_enabled: true}], [without], :unfinished, "Not in use yet",
+          {[], [], :not_set_up, "Not connected", "cannot act on anything that is running"},
+          {[account], [without], :off, "Not in use yet", "approval monitoring"},
+          {[%{account | monitoring_enabled: true}], [without], :off, "Not in use yet",
            "Give an environment this account"},
-          {[account], [using], :unfinished, "Not in use yet", "Turn on approval monitoring"},
-          {[%{account | enabled_for_new_work: false}], [using], :paused, "Paused", "paused"},
-          {[%{account | monitoring_enabled: true}], [using], :ready, "Connected", nil}
+          {[account], [using], :off, "Not in use yet", "Turn on approval monitoring"},
+          {[%{account | enabled_for_new_work: false}], [using], :off, "Paused", "paused"},
+          {[%{account | monitoring_enabled: true}], [using], :on, "Connected", nil}
         ] do
       emisar = Integrations.emisar(view(emisar: accounts, environments: environments))
       assert {emisar.status, elem(emisar.state, 1)} == {status, word}
-      if missing, do: assert(emisar.text =~ missing), else: assert(is_nil(emisar.text))
+      if missing, do: assert(emisar.reason =~ missing), else: assert(is_nil(emisar.reason))
     end
 
     ready =
@@ -245,7 +245,7 @@ defmodule Ryker.ControlPlane.SetupPageTest do
     view = view(emisar: [account], environments: environments)
     emisar = Integrations.emisar(view)
 
-    assert {emisar.status, emisar.state} == {:ready, {:on, "Connected"}}
+    assert {emisar.status, emisar.state} == {:on, {:on, "Connected"}}
     assert emisar.facts == ["Production approvals"]
     assert emisar.unassigned == 1
 
@@ -363,7 +363,7 @@ defmodule Ryker.ControlPlane.SetupPageTest do
           else: []
         ),
       github_connection: github_connection,
-      readiness: %{slack: %{state: :ready, title: "Slack is ready", detail: ""}},
+      readiness: %{slack: %{state: :ready}},
       snapshot: %{
         slack: slack,
         github: %{

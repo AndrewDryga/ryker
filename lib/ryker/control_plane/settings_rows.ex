@@ -24,7 +24,7 @@ defmodule Ryker.ControlPlane.SettingsRows do
       name: model_name(rate.execution_target),
       meta:
         [provider(rate.execution_target)] ++
-          prices(rate) ++ [effective(rate.effective_from), rate.provenance]
+          prices(rate) ++ [effective(rate.effective_from), source(rate.provenance)]
     })
   end
 
@@ -161,6 +161,19 @@ defmodule Ryker.ControlPlane.SettingsRows do
 
   defp effective(nil), do: nil
   defp effective(%Date{} = date), do: "from " <> short_date(date)
+
+  # A source that is a web address opens it; only http and https are links,
+  # so a saved note can never become a script URL.
+  defp source(provenance) do
+    case URI.parse(provenance || "") do
+      %URI{scheme: scheme, host: host} = uri
+      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+        {:link, host <> (uri.path || ""), provenance}
+
+      _note ->
+        provenance
+    end
+  end
 
   defp events(:grafana), do: "Grafana alerts"
   defp events(:mapped_json), do: "Custom JSON events"

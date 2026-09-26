@@ -440,6 +440,28 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert has_element?(view, "#instructions-text", "Draft during an outage")
   end
 
+  test "an empty instructions box reads as empty, and stops at its limit" do
+    # QA, 2026-09-25: the box showed "Keep replies concise. Separate observed
+    # facts from guesses." in grey, which read as instructions already saved,
+    # and let people type past the 2,000 characters a save accepts.
+    join!()
+
+    for path <- ["/instructions", "/channels/TINSTRUCTIONS/CTEST"] do
+      {:ok, view, _html} = open(path)
+      assert has_element?(view, "#instructions-text[maxlength='2000']"), path
+      refute has_element?(view, "#instructions-text[placeholder]"), path
+    end
+
+    # The example lives in the page's help instead.
+    {:ok, _view, html} = open("/instructions")
+
+    assert html
+           |> LazyHTML.from_document()
+           |> LazyHTML.query("aside.page-help")
+           |> LazyHTML.text() =~
+             "Keep replies concise. Separate observed facts from guesses."
+  end
+
   test "over-limit text says how much to remove instead of a negative remaining count" do
     {:ok, view, _} = open("/instructions")
     edit(view, String.duplicate("x", 2_001))

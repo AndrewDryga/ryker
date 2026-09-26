@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
+  alias Ryker.Credentials
   alias Ryker.Settings
 
   @endpoint Endpoint
@@ -159,7 +160,10 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     |> Enum.map(&{text(&1), &1 |> LazyHTML.attribute("href") |> List.first()})
   end
 
-  test "an installation without environments says how one gets created" do
+  test "an installation without environments says the real first step toward one" do
+    # QA, 2026-09-25: the empty page said "Adding a repository creates the
+    # Default environment" while Repositories could add nothing until GitHub
+    # was repaired. The first step is the one GitHub's state says it is.
     installation!()
     {:ok, view, _html} = open("/environments")
 
@@ -168,7 +172,27 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert has_element?(
              view,
              ".entity-empty",
-             "Adding a repository creates the Default environment"
+             "Connect GitHub, then add a repository: Ryker creates the Default environment for it."
+           )
+
+    assert has_element?(view, ".entity-empty a[href='/integrations/github']", "Connect GitHub")
+
+    for kind <- [:github_private_key, :github_webhook] do
+      {:ok, _} = Credentials.put(kind, "primary", "not-a-working-key-long-enough", @actor)
+    end
+
+    {:ok, view, _html} = open("/environments")
+
+    assert has_element?(
+             view,
+             ".entity-empty",
+             "Repair the GitHub connection, then add a repository: Ryker creates the Default environment for it."
+           )
+
+    assert has_element?(
+             view,
+             ".entity-empty a[href='/integrations/github#github-app']",
+             "Repair GitHub"
            )
 
     assert has_element?(
@@ -181,6 +205,27 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     view |> element(".page-action a", "Add an environment") |> render_click()
     assert has_element?(view, "#environment-editor-new")
     refute has_element?(view, ".entity-empty")
+  end
+
+  test "an address for an environment that is gone says so above the list" do
+    # QA, 2026-09-25: /environments?edit=<a ref nobody has> quietly showed the
+    # list, as if the link had worked.
+    installation!()
+    environment!("production", "Production", ~w(api), default: true)
+
+    {:ok, view, _html} = open("/environments?edit=staging")
+
+    assert has_element?(
+             view,
+             "#environment-not-found",
+             "That environment was not found. It may have been removed."
+           )
+
+    assert has_element?(view, "#environment-production")
+    refute has_element?(view, "[id^=environment-editor]")
+
+    {:ok, view, _html} = open("/environments?edit=production")
+    refute has_element?(view, "#environment-not-found")
   end
 
   test "removing an environment channels use is refused and says who uses it" do

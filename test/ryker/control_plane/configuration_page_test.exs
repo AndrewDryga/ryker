@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
   """
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.{RunningSystem, SettingsPage}
+  alias Ryker.ControlPlane.{Integrations, RunningSystem, SettingsPage}
 
   @source "durable settings"
 
@@ -17,15 +17,18 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
     # explanations beside every key; the keys and raw values matter only for
     # support, so they sit under each setting's own Details.
     document =
-      render([
-        row("admission", "enabled"),
-        row("slack", "disabled"),
-        row("runtime.mode", "product"),
-        row("admission.policy", "ryker-admission-v1"),
-        row("work.concurrency", "4"),
-        row("retention.audit_data_seconds", "2592000"),
-        %{key: "future.option", value: "42", source: "/etc/override.yaml"}
-      ])
+      render(
+        [
+          row("admission", "enabled"),
+          row("slack", "disabled"),
+          row("runtime.mode", "product"),
+          row("admission.policy", "ryker-admission-v1"),
+          row("work.concurrency", "4"),
+          row("retention.audit_data_seconds", "2592000"),
+          %{key: "future.option", value: "42", source: "/etc/override.yaml"}
+        ],
+        [Integrations.read(:slack, {:error, :settings_not_initialized})]
+      )
 
     evidence = LazyHTML.query(document, "section.configuration-evidence")
     assert LazyHTML.query(evidence, ".section-head h2") |> LazyHTML.text() == "What is running"
@@ -39,6 +42,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
     assert LazyHTML.query(details, ".configuration-group > h3") |> Enum.map(&LazyHTML.text/1) ==
              [
                "Parts of Ryker",
+               "Integrations",
                "Installation",
                "Routing",
                "Running work",
@@ -61,10 +65,22 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
     subsystems = LazyHTML.query(values, ".configuration-group[data-group='subsystems']")
 
     assert LazyHTML.query(subsystems, ".configuration-setting")
-           |> LazyHTML.attribute("data-setting") == ["admission", "slack"]
+           |> LazyHTML.attribute("data-setting") == ["admission"]
 
     assert LazyHTML.query(subsystems, ".configuration-value")
-           |> Enum.map(&String.trim(LazyHTML.text(&1))) == ["Configured", "Not configured"]
+           |> Enum.map(&String.trim(LazyHTML.text(&1))) == ["Configured"]
+
+    # Slack says what its own page says, never "Not configured"; whether the
+    # running Ryker loaded it is a support detail under Details.
+    slack = LazyHTML.query(values, "[data-group='integrations'] #running-slack")
+    assert LazyHTML.query(slack, ".state-word") |> LazyHTML.text() == "Not connected"
+    assert text(slack) =~ "Ryker cannot read or reply in Slack until you connect it."
+    refute text(slack) =~ "Not configured"
+
+    assert LazyHTML.query(slack, "details dd code") |> Enum.map(&LazyHTML.text/1) == [
+             "slack",
+             "no"
+           ]
 
     # The key and the raw value are support details, folded under the setting.
     assert LazyHTML.query(admission, ".entity-body > details.settings-row-details dd code")
@@ -107,6 +123,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
   test "tool grants are an inventory with their source, distinct from health and permission" do
     document =
       RunningSystem.html(%{
+        integrations: [],
         rows: [],
         grants: [
           %{kind: "MCP tool", name: "search_slack", source: "/etc/ryker.yaml"},
@@ -129,7 +146,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
              ["MCP tool · From /etc/ryker.yaml", "Capability · From #{@source}"]
 
     none =
-      RunningSystem.html(%{rows: [], grants: [], source: @source})
+      RunningSystem.html(%{rows: [], grants: [], source: @source, integrations: []})
       |> LazyHTML.from_fragment()
 
     assert LazyHTML.query(none, ".configuration-grants .entity-empty") |> LazyHTML.text() =~
@@ -157,8 +174,8 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
   # Text as a reader sees it: HTML collapses the line breaks of the template.
   defp text(nodes), do: nodes |> LazyHTML.text() |> String.split() |> Enum.join(" ")
 
-  defp render(rows) do
-    RunningSystem.html(%{rows: rows, grants: [], source: @source})
+  defp render(rows, integrations \\ []) do
+    RunningSystem.html(%{rows: rows, grants: [], source: @source, integrations: integrations})
     |> LazyHTML.from_fragment()
   end
 end

@@ -157,7 +157,7 @@ defmodule Ryker.Slack.Runtime do
     default_participation =
       participation!(Map.get(configuration, :default_participation, :mentions))
 
-    channel_prefix = configuration |> Map.get(:channel_prefix, "ems") |> channel_prefix!()
+    channel_prefix = configuration |> Map.get(:channel_prefix, "inc") |> channel_prefix!()
 
     # An incident room invites the operators, who are the people authorized to
     # act on it, plus whoever the channel named in its own setup thread. There

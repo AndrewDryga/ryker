@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
     Components,
     EnvironmentEditor,
     Environments,
+    Integrations,
     Kit,
     SettingsPage
   }
@@ -36,12 +37,22 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
       assign(assigns,
         environments: environments,
         edit: edit,
+        # A link to an environment that is gone says so, instead of quietly
+        # showing the list as if it had opened.
+        missing: is_binary(assigns.params["edit"]) and is_nil(edit),
         query: query,
-        rows: Enum.filter(environments, &matches?(&1, query, snapshot))
+        rows: Enum.filter(environments, &matches?(&1, query, snapshot)),
+        github: Integrations.github(assigns.view)
       )
 
     ~H"""
     <div class="environments-page">
+      <Components.form_feedback
+        :if={@missing}
+        id="environment-not-found"
+        tone={:warning}
+        message="That environment was not found. It may have been removed."
+      />
       <Kit.counts label="Environments" items={counts(@rows, @query, @view)} />
       <Kit.toolbar>
         <Components.filter_toolbar
@@ -116,8 +127,12 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
       <Kit.empty
         :if={@environments == [] and @edit != "new"}
         title="No environments yet"
-        text="Adding a repository creates the Default environment. You can also add one yourself with Add an environment."
-      />
+        text={first_step(@github)}
+      >
+        <.link navigate={first_action(@github).href} class="ui-button secondary">
+          {first_action(@github).label}
+        </.link>
+      </Kit.empty>
       <Kit.empty
         :if={@environments != [] and @rows == []}
         title={"No environments match “#{@query}”."}
@@ -178,6 +193,27 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
         )
       ]
   end
+
+  # The first environment comes with the first repository, and a repository
+  # needs a working GitHub App: the empty page names the step GitHub's own
+  # state says is next.
+  defp first_step(%{status: status}) do
+    first =
+      case status do
+        :not_set_up -> "Connect GitHub, then add a repository: "
+        :broken -> "Repair the GitHub connection, then add a repository: "
+        _app_works -> "Add a repository and "
+      end
+
+    first <>
+      "Ryker creates the Default environment for it. You can also add one yourself with " <>
+      "Add an environment."
+  end
+
+  defp first_action(%{status: status, action: action}) when status in [:not_set_up, :broken],
+    do: action
+
+  defp first_action(_app_works), do: %{label: "Add repositories", href: "/repositories"}
 
   defp removal(%{is_default: true}),
     do:

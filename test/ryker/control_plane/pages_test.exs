@@ -74,6 +74,7 @@ defmodule Ryker.ControlPlane.PagesTest do
     # The running system's evidence is part of Settings › Advanced now.
     evidence =
       options().projection.operator_configuration.()
+      |> Map.put(:integrations, [])
       |> RunningSystem.html()
 
     assert evidence =~ "Tasks that change code"

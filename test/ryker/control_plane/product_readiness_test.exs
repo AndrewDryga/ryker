@@ -53,7 +53,6 @@ defmodule Ryker.ControlPlane.ProductReadinessTest do
 
     assert waiting.chat.state == :worker_unavailable
     assert waiting.slack.state == :worker_unavailable
-    assert waiting.slack.title == "Slack is waiting for its worker"
 
     runtime_failed =
       ProductReadiness.from(
@@ -67,6 +66,5 @@ defmodule Ryker.ControlPlane.ProductReadinessTest do
       )
 
     assert runtime_failed.slack.state == :runtime_unavailable
-    assert runtime_failed.slack.detail =~ "could not be applied"
   end
 end

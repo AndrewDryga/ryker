@@ -124,7 +124,11 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :text,
           label: "Name starts with",
           group: "Incident rooms",
-          help: "Lowercase letters, numbers, dashes and underscores."
+          help: "Lowercase letters, numbers, dashes and underscores, such as inc.",
+          errors: %{
+            required: "Choose how incident room names start, such as inc.",
+            format: "Use 1 to 20 lowercase letters, numbers, dashes or underscores, such as inc."
+          }
         },
         %{
           name: :incident_private,
@@ -645,14 +649,23 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :date,
           label: "Effective from",
           group: "Source",
-          help: "Used for usage on and after this day."
+          help: "Used for usage on and after this day.",
+          errors: %{
+            required: "Choose the first day this price applies.",
+            already_bound: {__MODULE__, :price_taken}
+          }
         },
         %{
           name: :provenance,
           kind: :text,
           label: "Where this price came from",
           group: "Source",
-          placeholder: "Provider price list"
+          help:
+            "A link to the provider's price list, or a note on where these numbers came from.",
+          errors: %{
+            required:
+              "Add where this price came from, such as a link to the provider's price list."
+          }
         }
       ]
     }
@@ -741,7 +754,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
   # Every priced Codex model at each effort the bundled worker can run, on the
   # saved model's profile. A saved model outside that list stays selectable.
   # Every option runs through Codex on the same profile, so a label names only
-  # the model and its effort.
+  # the model and its effort. Every select lists them in one order, by model
+  # and then effort, and marks the saved one: QA, 2026-09-25, found each
+  # select putting its own saved model first, eight orders for one list.
   def options(%{options: :bundled_models, name: name}, view) do
     current = Map.fetch!(view.snapshot.work, name)
     profile = (ExecutionTarget.parts(current) || %{})[:profile] || "default"
@@ -752,13 +767,44 @@ defmodule Ryker.ControlPlane.SettingsSections do
           uniq: true,
           do: "#{model}/#{effort}@#{profile}"
 
-    Enum.map(Enum.uniq([current | priced]), &{&1, model_label(&1)})
+    [current | priced]
+    |> Enum.uniq()
+    |> Enum.sort_by(&model_order/1)
+    |> Enum.map(&{&1, model_label(&1) <> if(&1 == current, do: " (current)", else: "")})
   end
 
   def options(%{options: options}, _view) when is_list(options), do: options
 
+  defp model_order(target) do
+    case ExecutionTarget.parts(target) do
+      %{model: model, effort: effort} ->
+        {model, Enum.find_index(@efforts, &(&1 == effort)) || length(@efforts), target}
+
+      nil ->
+        {target, 0, target}
+    end
+  end
+
   defp workers(1), do: "worker"
   defp workers(_count), do: "workers"
+
+  @doc """
+  What a second price for the same model and day says: which price is
+  already there, and the two ways out.
+  """
+  @spec price_taken(%{String.t() => String.t()}) :: String.t()
+  def price_taken(draft) do
+    target = Map.get(draft, "execution_target", "")
+    model = (ExecutionTarget.parts(target) || %{model: target}).model
+
+    day =
+      case Date.from_iso8601(Map.get(draft, "effective_from", "")) do
+        {:ok, date} -> Calendar.strftime(date, "%-d %b %Y")
+        {:error, _invalid} -> "that day"
+      end
+
+    "#{model} already has a price from #{day}. Choose another day, or edit that price."
+  end
 
   @doc "The words for a saved model, as its option in the select reads."
   @spec model_label(String.t()) :: String.t()

@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, ShortTime}
+  alias Ryker.ControlPlane.{Components, Integrations, Kit, ShortTime}
 
   # The App permissions work needs; anything missing is named on the row.
   @required_permissions ~w(metadata contents pull_requests checks actions deployments issues)
@@ -103,44 +103,19 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
 
   attr(:settings, :any, required: true, doc: "The settings view the shell already read")
 
-  @doc "One line saying whether GitHub is connected, with the way to fix or change it."
+  @doc """
+  One line saying where GitHub stands, in the words the GitHub page uses, with
+  the one step that moves it forward.
+  """
   def github_status(assigns) do
-    assigns = assign(assigns, :github, github(assigns.settings))
-
     ~H"""
-    <div class="connection-line" id="github-status">
-      <p>
-        <span class="connection-dot" data-tone={elem(@github, 0)} aria-hidden="true"></span>
-        <strong>{elem(@github, 1)}</strong> {elem(@github, 2)}
-      </p>
-      <.link navigate="/integrations/github" class="ui-button secondary">{elem(@github, 3)}</.link>
-    </div>
+    <Integrations.line
+      id="github-status"
+      key={:github}
+      integration={Integrations.read(:github, @settings)}
+    />
     """
   end
-
-  defp github({:ok, %{github_connection: :ready} = view}) do
-    {:on, "GitHub is connected",
-     "as the #{view.snapshot.github.app_slug} app. Ryker can read the repositories the app can reach.",
-     "Manage"}
-  end
-
-  defp github({:ok, %{github_connection: :invalid}}),
-    do:
-      {:warn, "GitHub needs repair.",
-       "Ryker cannot read repositories or add new ones until the connection works again.",
-       "Repair GitHub connection"}
-
-  defp github({:ok, _missing}), do: not_connected()
-  defp github({:error, :settings_not_initialized}), do: not_connected()
-
-  defp github(_unavailable),
-    do:
-      {:warn, "GitHub status is unknown",
-       "because settings could not be read. Repositories below are still current.",
-       "Open settings"}
-
-  defp not_connected,
-    do: {:warn, "GitHub is not connected.", "Connect it to add repositories.", "Connect GitHub"}
 
   @doc "The name people know a repository by: owner/repo when it was added from GitHub."
   @spec name(map()) :: String.t()

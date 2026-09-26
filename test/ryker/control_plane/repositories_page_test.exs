@@ -249,25 +249,46 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     refute page.body =~ "Publishing settings"
   end
 
-  test "the GitHub line says whether GitHub is connected and where to change it" do
-    for {settings, words, link} <- [
-          {{:ok, %{github_connection: :ready, snapshot: %{github: %{app_slug: "ryker-acme"}}}},
-           "GitHub is connected as the ryker-acme app.", "Manage"},
-          {{:ok, %{github_connection: :invalid}}, "GitHub needs repair.",
-           "Repair GitHub connection"},
-          {{:ok, %{github_connection: :missing}}, "GitHub is not connected.", "Connect GitHub"},
-          {{:error, :settings_not_initialized}, "GitHub is not connected.", "Connect GitHub"}
+  test "the GitHub line says what the GitHub page says and where to change it" do
+    # It said "GitHub needs repair. Ryker cannot read repositories…" while the
+    # GitHub page said "Needs repair. The saved App ID or private key no
+    # longer works." (QA, 2026-09-25). Both read Integrations now.
+    for {github_connection, enabled, words, link, href} <- [
+          {:ready, true, "GitHub Connected App ryker-acme · 1 repository", "Manage",
+           "/integrations/github"},
+          {:ready, false,
+           "GitHub Add a repository to start The App is verified. Ryker starts GitHub work once a repository is added.",
+           "Add repositories", "/repositories"},
+          {:invalid, true, "GitHub Needs repair The saved App ID or private key no longer works.",
+           "Repair GitHub", "/integrations/github#github-app"},
+          {:missing, false,
+           "GitHub Not connected Ryker cannot read your code or open pull requests until you connect it.",
+           "Connect GitHub", "/integrations/github"}
         ] do
-      line =
-        %{__changed__: nil, settings: settings}
-        |> RepositoriesPage.github_status()
-        |> Safe.to_iodata()
-        |> IO.iodata_to_binary()
-        |> LazyHTML.from_fragment()
+      view = %{
+        github_connection: github_connection,
+        snapshot: %{github: %{app_slug: "ryker-acme", enabled: enabled}, repositories: [%{}]}
+      }
 
-      assert line |> LazyHTML.query("p") |> LazyHTML.text() |> squeeze() =~ words
-      assert LazyHTML.query(line, "a[href='/integrations/github']") |> LazyHTML.text() =~ link
+      line = github_line({:ok, view})
+      assert line |> LazyHTML.query("p") |> LazyHTML.text() |> squeeze() == words
+      assert LazyHTML.query(line, "a[href='#{href}']") |> LazyHTML.text() == link
     end
+
+    assert github_line({:error, :settings_not_initialized})
+           |> LazyHTML.query(".state-word")
+           |> LazyHTML.text() == "Not connected"
+
+    assert github_line({:error, :settings_unavailable}) |> LazyHTML.query("p") |> LazyHTML.text() =~
+             "unknown, because settings could not be read"
+  end
+
+  defp github_line(settings) do
+    %{__changed__: nil, settings: settings}
+    |> RepositoriesPage.github_status()
+    |> Safe.to_iodata()
+    |> IO.iodata_to_binary()
+    |> LazyHTML.from_fragment()
   end
 
   defp state(row) do

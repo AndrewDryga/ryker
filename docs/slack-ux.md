@@ -22,7 +22,7 @@ collaboration: attached incident rooms remain conversational even when proactive
 Each incident occurrence receives:
 
 1. a deterministic channel named `<prefix>-MMDD-title-incidentid`, using the validated
-   `slack.channel_prefix` setting (`ems` by default);
+   `slack.channel_prefix` setting (`inc` by default);
 2. a concise topic with the incident identity;
 3. invited configured responders;
 4. one pinned root card;

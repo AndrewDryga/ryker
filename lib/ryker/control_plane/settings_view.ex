@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.SettingsView do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{ChannelDirectory, Environments, ProductReadiness}
+  alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, ProductReadiness}
   alias Ryker.Credentials
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.AppJWT
@@ -26,6 +26,7 @@ defmodule Ryker.ControlPlane.SettingsView do
           revision: pos_integer(),
           applied_revision: non_neg_integer(),
           application: :applied | :pending | {:failed, atom()},
+          readiness: %{chat: map(), slack: map()},
           saved_by: String.t(),
           saved_at: DateTime.t(),
           credentials: [map()],
@@ -82,21 +83,24 @@ defmodule Ryker.ControlPlane.SettingsView do
   @spec view(Settings.snapshot()) :: t()
   def view(%{installation: installation} = snapshot) do
     credentials = Credentials.statuses()
-    github_connection = github_connection(snapshot, credentials)
-    setup = setup_status(snapshot, credentials, github_connection)
 
-    %{
+    # What an integration's state is read from (`Integrations`), so the setup
+    # steps below read the same state every page shows.
+    connections = %{
       snapshot: snapshot,
+      application: Settings.application_status(snapshot),
+      credentials: credentials,
+      github_connection: github_connection(snapshot, credentials),
+      readiness: ProductReadiness.current(snapshot)
+    }
+
+    Map.merge(connections, %{
       host_ref: installation.host_ref,
       revision: installation.revision,
       applied_revision: installation.applied_revision,
-      application: Settings.application_status(snapshot),
       saved_by: installation.saved_by,
       saved_at: installation.saved_at,
-      credentials: credentials,
-      github_connection: github_connection,
-      readiness: ProductReadiness.current(snapshot),
-      setup: setup,
+      setup: setup_status(connections),
       github_callback_url: Application.fetch_env!(:ryker, :github_public_url),
       webhook_base_url: Application.fetch_env!(:ryker, :webhook_public_url),
       webhook_secret_names: registered_secret_names(),
@@ -104,7 +108,7 @@ defmodule Ryker.ControlPlane.SettingsView do
       # Channels choose an environment in the Slack tables, so how many use
       # each one is read beside the snapshot rather than from it.
       environment_channels: Environments.channel_counts()
-    }
+    })
   end
 
   @doc "The required setup steps, in order."
@@ -139,7 +143,10 @@ defmodule Ryker.ControlPlane.SettingsView do
     |> Enum.map(& &1.name)
   end
 
-  defp setup_status(snapshot, credentials, github_connection) do
+  # Slack's step is done once Slack is switched on, working or not: a
+  # connection that stopped says so on the done step. GitHub's is done once
+  # the App is verified; adding a repository, the next step, switches it on.
+  defp setup_status(%{snapshot: snapshot} = connections) do
     joined = Enum.filter(ChannelDirectory.list(%{}), &(&1.membership == :joined))
     configured = Enum.filter(joined, &is_binary(&1.environment_ref))
 
@@ -149,8 +156,8 @@ defmodule Ryker.ControlPlane.SettingsView do
       |> successful_channel_request?()
 
     steps = %{
-      slack: snapshot.slack.enabled and verified?(credentials, [:slack_app, :slack_bot]),
-      github: github_connection == :ready,
+      slack: Integrations.slack(connections).status in [:on, :broken],
+      github: Integrations.github(connections).status in [:off, :on],
       repositories: snapshot.repositories != [],
       invited: joined != [],
       channel_environment: configured != [],
