@@ -204,7 +204,7 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
            end) == [
              {"transport", "Source", "GitHub"},
              {"state", "State", "Completed"},
-             {"usage_profile", "Profile", "emisar"},
+             {"usage_profile", "Account", "emisar"},
              {"usage_window", "Usage period", "Last 7 days"}
            ]
 

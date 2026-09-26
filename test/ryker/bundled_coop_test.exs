@@ -446,6 +446,76 @@ defmodule Ryker.BundledCoopTest do
     end
   end
 
+  # When Coop refuses Ryker's newest policies, the worker keeps what it last
+  # loaded and leaves Coop's words in the shared directory. Those name the
+  # policy, the model's place in its list and the account's bare name; the
+  # Models page needs the saved account that is and the command that signs
+  # it in, or it cannot say why a saved change never reached the worker.
+  test "a refused policy file reads as the account to sign in, and as nothing without one" do
+    {_root, shared} = configure_distribution_root!()
+    File.mkdir_p!(shared)
+    problem = Path.join(shared, "policy-problem")
+    {:ok, snapshot} = Settings.initialize(@actor)
+    snapshot = price!(snapshot, "claude:claude-opus-4-6")
+
+    {:ok, snapshot} =
+      Settings.save_work(
+        %{model_accounts: ["codex@default", "claude@zzqa"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, _snapshot} =
+      Settings.save_work(
+        %{
+          routing_models: ["codex:gpt-5.6-sol/medium@default", "claude:claude-opus-4-6/high@zzqa"]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    assert BundledCoop.policy_problem() == nil
+
+    File.write!(problem, File.read!("testdata/coop/policies-unsigned-account.stderr"))
+
+    assert BundledCoop.policy_problem() ==
+             "the claude@zzqa account is not signed in on the worker. Sign it in with " <>
+               "scripts/compose.sh model-login claude@zzqa, or choose another account."
+
+    # Anything else is Coop's own sentence, from where it names the policy.
+    File.write!(problem, File.read!("testdata/coop/policies-unsupported-effort.stderr"))
+
+    assert BundledCoop.policy_problem() ==
+             ~s(policy "ryker-admission": target Invalid agent target ) <>
+               ~s("gemini:gemini-3-pro/medium@emisar" — Gemini takes effort low or high, ) <>
+               ~s(not "medium": Gemini 3 has no other thinking level, and any Gemini target ) <>
+               ~s(can end up on a Gemini 3 model.)
+
+    File.rm!(problem)
+    assert BundledCoop.policy_problem() == nil
+  end
+
+  # The worker leaves its reason in a file. Open pages redraw on their own
+  # every few seconds; the watcher tells them as soon as the reason appears
+  # or clears, and only then.
+  test "a new or cleared policy problem reaches open pages without a reload" do
+    {_root, shared} = configure_distribution_root!()
+    File.mkdir_p!(shared)
+    problem = Path.join(shared, "policy-problem")
+    Phoenix.PubSub.subscribe(Ryker.PubSub, "control-plane")
+
+    start_supervised!(
+      {BundledCoop.ProblemWatcher, interval_ms: 10, name: :bundled_problem_watcher_test}
+    )
+
+    refute_receive :control_plane_changed, 100
+    File.write!(problem, File.read!("testdata/coop/policies-unsigned-account.stderr"))
+    assert_receive :control_plane_changed, 1_000
+    refute_receive :control_plane_changed, 100
+    File.rm!(problem)
+    assert_receive :control_plane_changed, 1_000
+  end
+
   test "the bundled learning policy makes the isolated sessions background learning requires" do
     # Coop grants a session the project environment and project MCP servers
     # unless its policy says project_env: false and project_mcp: false. The

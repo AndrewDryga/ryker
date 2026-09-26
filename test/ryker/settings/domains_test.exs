@@ -77,8 +77,9 @@ defmodule Ryker.Settings.DomainsTest do
   # coop allows?" A fallback runs on another account, and Ryker cannot see
   # which accounts the worker has signed in: Model accounts is that list. A
   # model on an account missing from it would reach the worker's policy file,
-  # and Coop refuses the whole file while one account is not signed in, which
-  # stops every kind of work, not only the one that named it.
+  # and Coop refuses the whole file while one account is not signed in: the
+  # change never runs, and until the worker kept its last loaded policies it
+  # stopped every kind of work, not only the one that named it.
   test "an account not listed under Model accounts is refused", %{snapshot: snapshot} do
     fallback = "codex:gpt-5.6-sol/medium@personal"
     routing = ["codex:gpt-5.6-sol/medium@default", fallback]

@@ -2006,12 +2006,17 @@
 .settings-field .settings-composite input { max-width:none; }
 .settings-ladder { gap:10px; }
 .settings-ladder-list { display:grid; gap:12px; margin:0; padding:0; list-style:none; }
-.settings-ladder-entry { display:flex; flex-wrap:wrap; align-items:end; gap:8px 16px; }
-.settings-ladder-choice { flex:1 1 480px; min-width:0; margin:0; padding:0; border:0; }
+.settings-ladder-entry { display:grid; grid-template-columns:minmax(0, 584px) 116px; align-items:end; gap:8px 12px; }
+.settings-ladder-choice { min-width:0; margin:0; padding:0; border:0; }
 .settings-ladder-choice > legend { margin:0 0 4px; padding:0; font-size:13px; line-height:18px; font-weight:600; color:var(--ryker-text-secondary); }
-.settings-ladder-choice .settings-composite { grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); }
+.settings-ladder-choice .settings-composite { grid-template-columns:minmax(0, 240px) minmax(0, 140px) minmax(0, 180px); gap:4px 12px; }
 .settings-field .settings-ladder-choice select { max-width:none; }
-.settings-ladder-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.settings-ladder-actions { display:grid; grid-template-columns:repeat(3, 36px); gap:4px; }
+.ryker-app .settings-ladder-actions .ui-button { width:36px; min-width:36px; padding:0; }
+.settings-ladder-up { grid-column:1; }
+.settings-ladder-down { grid-column:2; }
+.settings-ladder-remove { grid-column:3; }
+@media (max-width:800px) { .settings-ladder-entry, .settings-ladder-choice .settings-composite { grid-template-columns:minmax(0, 1fr); } }
 .settings-ladder-add { justify-self:start; }
 .settings-evidence { font:12px/18px var(--ryker-font-mono); color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
 .settings-optional-field > summary { width:fit-content; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); cursor:pointer; }

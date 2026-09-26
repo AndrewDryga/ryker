@@ -13,7 +13,7 @@ defmodule Ryker.BundledCoop do
   alias Ryker.CoopFleet.{Enrollment, Worker}
   alias Ryker.GitHub.InstallationTokens
   alias Ryker.{PollingWorker, Repo, Settings}
-  alias Ryker.Settings.{Environment, Repository}
+  alias Ryker.Settings.{Environment, Repository, Work}
 
   @actor "control-plane:local"
   @worker_env "RYKER_BUNDLED_COOP_WORKER_ID"
@@ -62,8 +62,136 @@ defmodule Ryker.BundledCoop do
     learning: :learning_models
   }
 
+  # Where the worker leaves Coop's reason when it could not load Ryker's
+  # newest policies (deploy/compose/coop/load-policies.sh caps it at 4 KiB).
+  @problem_file "policy-problem"
+  @problem_bytes 4_096
+  @unsigned ~r/policy "([^"]+)": target(?:\[(\d+)\])? credential "([^"]+)" is not authenticated/
+
   @doc "The Work setting that holds the models for a policy purpose."
   def model_field(purpose), do: Map.get(@models, purpose)
+
+  @doc """
+  Why the bundled worker still runs the policies it loaded before Ryker's
+  newest ones, in words for Settings › Models, or nil when it runs the newest.
+
+  Coop refuses a whole policy file over one entry; the worker then keeps what
+  it last loaded and leaves Coop's reason in the directory it shares with
+  Ryker. An account the worker has not signed in reads as the saved account
+  and the command that signs it in. Anything else is Coop's own sentence,
+  from where it names the policy.
+  """
+  @spec policy_problem(Settings.snapshot() | nil) :: String.t() | nil
+  def policy_problem(snapshot \\ nil) do
+    case policy_problem_text() do
+      nil -> nil
+      text -> problem_reason(text, snapshot || saved_settings())
+    end
+  end
+
+  @doc false
+  # The worker's own words, bounded, or nil without them.
+  def policy_problem_text do
+    with shared when is_binary(shared) <- System.get_env("RYKER_BUNDLED_COOP_SHARED"),
+         {:ok, file} <- File.open(Path.join(shared, @problem_file), [:read, :binary]) do
+      try do
+        case IO.binread(file, @problem_bytes) do
+          text when is_binary(text) -> text
+          _empty_or_unreadable -> ""
+        end
+      after
+        File.close(file)
+      end
+    else
+      _absent -> nil
+    end
+  end
+
+  defp saved_settings do
+    case Settings.fetch() do
+      {:ok, snapshot} -> snapshot
+      {:error, _reason} -> nil
+    end
+  end
+
+  # The worker's cap can cut a character in two, and a terminal colour code
+  # is not words; neither reaches the page.
+  defp problem_reason(text, snapshot) do
+    text = text |> String.replace_invalid() |> String.replace(~r/\e\[[0-9;]*[A-Za-z]/, "")
+
+    case Regex.run(@unsigned, text) do
+      [_match, policy, index, name] -> unsigned_reason(snapshot, policy, index, name)
+      nil -> coop_reason(text)
+    end
+  end
+
+  defp unsigned_reason(snapshot, policy, index, name) do
+    case unsigned_account(snapshot, policy, index, name) do
+      nil ->
+        "the worker has not signed in an account named #{name}. Sign it in with " <>
+          "scripts/compose.sh model-login, or choose another account."
+
+      account ->
+        "the #{account} account is not signed in on the worker. Sign it in with " <>
+          "scripts/compose.sh model-login #{account}, or choose another account."
+    end
+  end
+
+  # The saved account Coop means: the model at that place in that policy's
+  # list, or else the first saved model on an account of that name.
+  defp unsigned_account(nil, _policy, _index, _name), do: nil
+
+  defp unsigned_account(snapshot, policy, index, name) do
+    named? = &(is_binary(&1) and String.ends_with?(&1, "@" <> name))
+    position = if index == "", do: 0, else: String.to_integer(index)
+    listed = Map.get(snapshot.work, model_field(policy_purpose(policy))) || []
+    exact = listed |> Enum.at(position) |> Work.account()
+
+    if named?.(exact),
+      do: exact,
+      else:
+        Work.model_fields()
+        |> Enum.flat_map(&(Map.get(snapshot.work, &1) || []))
+        |> Enum.map(&Work.account/1)
+        |> Enum.find(named?)
+  end
+
+  defp policy_purpose(name) do
+    Enum.find_value(@installation_policies, fn {purpose, policy} ->
+      if policy == name, do: purpose
+    end) ||
+      Enum.find_value(Map.merge(@repository_policies, @environment_policies), fn {purpose, suffix} ->
+        if String.starts_with?(name, ["ryker-repo-", "ryker-env-"]) and
+             String.ends_with?(name, "-" <> suffix),
+           do: purpose
+      end)
+  end
+
+  # Coop's sentence from where it names the refused policy; else the line of
+  # substance after its headline, without the file's path in front.
+  defp coop_reason(text) do
+    lines = text |> String.split("\n") |> Enum.map(&String.trim/1)
+
+    line =
+      case Regex.run(~r/policy "[^\n]*/, text) do
+        [policy] ->
+          policy
+
+        nil ->
+          lines
+          |> Enum.reject(&(&1 == "" or String.starts_with?(&1, ["✗", "Help:"])))
+          |> List.first()
+      end
+
+    case line && line |> String.replace(~r{^/\S+\s+}, "") |> String.trim() do
+      blank when blank in [nil, ""] -> "the worker could not load them."
+      reason -> reason |> String.slice(0, 400) |> sentence()
+    end
+  end
+
+  defp sentence(text) do
+    if String.ends_with?(text, [".", "!", "?"]), do: text, else: text <> "."
+  end
 
   @doc "Whether this installation runs the Compose distribution's bundled worker."
   def distribution?, do: not is_nil(configured_root())

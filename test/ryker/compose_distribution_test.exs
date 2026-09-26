@@ -63,7 +63,7 @@ defmodule Ryker.ComposeDistributionTest do
     assert lifecycle =~ ~s(codex_auth_root=${CODEX_HOME:-$HOME/.codex})
     assert lifecycle =~ "Imported the existing Codex sign-in"
     assert worker =~ "coop sessions connect"
-    assert worker =~ "coop sessions policies"
+    assert worker =~ "ryker-coop-load-policies"
     assert worker =~ "worker.json"
     # A laptop can sleep through the normal client-certificate renewal window.
     # The Compose distribution must then discard only that expired identity and
@@ -121,6 +121,89 @@ defmodule Ryker.ComposeDistributionTest do
     refute installer =~ "policy digest"
   end
 
+  # Andrew, 2026-09-26, asking for fallbacks on any account: Coop refuses a
+  # whole policy file while one model names an account the worker has not
+  # signed in, and the entrypoint then waited for model access forever. One
+  # fallback on claude@zzqa took the worker offline and stopped every kind of
+  # work, not only the one that named it. The worker now connects with the
+  # copy it last loaded, and still watches Ryker's newest file, so a refused
+  # file neither reconnects in a loop nor stops the next change being tried.
+  test "the worker connects with the policies it last loaded and watches the newest file" do
+    worker = read("deploy/compose/coop/entrypoint.sh")
+    worker_image = read("deploy/compose/coop/Dockerfile")
+    loader = read("deploy/compose/coop/load-policies.sh")
+
+    assert worker =~ ~s(loaded=$state/session-policies.loaded.yaml)
+    assert worker =~ ~s(problem=$shared/policy-problem)
+
+    assert worker =~
+             ~s[policy_json=$(ryker-coop-load-policies "$policies" "$loaded" "$problem")]
+
+    assert worker =~ "session_policy_path: $loaded"
+    refute worker =~ "session_policy_path: $policies"
+    refute worker =~ "coop sessions policies"
+
+    assert worker =~
+             ~s[policy_sha=$(sha256sum "$policies" "$repositories" | sha256sum | awk '{print $1}')]
+
+    assert worker =~ "Ryker's worker is waiting for model access."
+    assert loader =~ ~s(coop sessions policies --policies "$new" --json)
+
+    assert worker_image =~
+             "COPY --chown=coop:coop deploy/compose/coop/load-policies.sh " <>
+               "/usr/local/bin/ryker-coop-load-policies"
+
+    assert worker_image =~
+             "chmod 0755 /usr/local/bin/ryker-coop-entrypoint /usr/local/bin/ryker-coop-load-policies"
+
+    assert read("release-assets.txt") =~ "deploy/compose/coop/load-policies.sh"
+  end
+
+  describe "the worker's policy loader" do
+    test "a file Coop loads becomes the copy the worker connects with and clears the reason" do
+      dir = scratch!()
+      new = write!(dir, "new.yaml", "target: codex@default\n")
+      loaded = Path.join(dir, "loaded.yaml")
+      problem = write!(dir, "policy-problem", "an earlier refusal")
+
+      assert {output, 0} = load_policies(dir, new, loaded, problem)
+      assert Jason.decode!(output) == %{"policy_file" => new}
+      assert File.read!(loaded) == File.read!(new)
+      assert mode(loaded) == 0o600
+      refute File.exists?(problem)
+    end
+
+    test "a file Coop refuses leaves the worker on the copy it last loaded, with Coop's reason" do
+      dir = scratch!()
+      loaded = write!(dir, "loaded.yaml", "target: codex@default\n")
+      File.chmod!(loaded, 0o600)
+      new = write!(dir, "new.yaml", "target: [codex@default, claude@zzqa]\n")
+      problem = Path.join(dir, "policy-problem")
+
+      assert {output, 0} = load_policies(dir, new, loaded, problem)
+      assert Jason.decode!(output) == %{"policy_file" => loaded}
+      assert File.read!(loaded) == "target: codex@default\n"
+      assert File.read!(problem) == refusal()
+      assert mode(problem) == 0o644
+    end
+
+    test "with nothing it can load, the worker still waits, and Coop's reason is capped" do
+      dir = scratch!()
+      new = write!(dir, "new.yaml", "target: claude@zzqa\n")
+      loaded = Path.join(dir, "loaded.yaml")
+      problem = Path.join(dir, "policy-problem")
+      long = refusal() <> String.duplicate("x", 5_000)
+
+      assert {"", 1} = load_policies(dir, new, loaded, problem, long)
+      assert File.read!(problem) == binary_part(long, 0, 4_096)
+      refute File.exists?(loaded)
+
+      # A copy Coop refuses as well is no better than none.
+      write!(dir, "loaded.yaml", "target: claude@zzqa\n")
+      assert {"", 1} = load_policies(dir, new, loaded, problem)
+    end
+  end
+
   test "the production image is an Elixir release without a Node runtime" do
     dockerfile = read("Dockerfile")
 
@@ -174,4 +257,60 @@ defmodule Ryker.ComposeDistributionTest do
   end
 
   defp read(relative), do: File.read!(Path.join(@root, relative))
+
+  # Coop's words for a file it refuses, harvested from a real refusal.
+  defp refusal, do: read("testdata/coop/policies-unsigned-account.stderr")
+
+  # Stands in for `coop sessions policies --policies FILE --json` the way Coop
+  # answers it: a file that names the unsigned zzqa account is refused.
+  @fake_coop """
+  #!/bin/sh
+  [ "$1 $2 $3 $5" = "sessions policies --policies --json" ] || exit 64
+  if grep -q zzqa "$4"; then
+    cat "$(dirname "$0")/refusal" >&2
+    exit 1
+  fi
+  printf '{"policy_file":"%s"}\\n' "$4"
+  """
+
+  # Runs the loader with the stand-in first on PATH, its own diagnostics kept
+  # apart from the JSON it prints.
+  defp load_policies(dir, new, loaded, problem, refusal \\ refusal()) do
+    bin = Path.join(dir, "bin")
+    File.mkdir_p!(bin)
+    File.write!(Path.join(bin, "refusal"), refusal)
+    File.write!(Path.join(bin, "coop"), @fake_coop)
+    File.chmod!(Path.join(bin, "coop"), 0o755)
+
+    System.cmd(
+      "sh",
+      [
+        "-c",
+        ~S(exec sh "$0" "$1" "$2" "$3" 2>>"$4"),
+        Path.join(@root, "deploy/compose/coop/load-policies.sh"),
+        new,
+        loaded,
+        problem,
+        Path.join(dir, "loader.log")
+      ],
+      env: [{"PATH", bin <> ":" <> System.get_env("PATH")}]
+    )
+  end
+
+  defp scratch! do
+    dir =
+      Path.join(System.tmp_dir!(), "ryker-load-policies-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+    dir
+  end
+
+  defp write!(dir, name, content) do
+    path = Path.join(dir, name)
+    File.write!(path, content)
+    path
+  end
+
+  defp mode(path), do: Bitwise.band(File.stat!(path).mode, 0o777)
 end

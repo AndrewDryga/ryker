@@ -24,8 +24,9 @@ RUN coop version \
  && coop help sessions connect >/dev/null
 
 COPY --chown=coop:coop deploy/compose/coop/entrypoint.sh /usr/local/bin/ryker-coop-entrypoint
+COPY --chown=coop:coop deploy/compose/coop/load-policies.sh /usr/local/bin/ryker-coop-load-policies
 COPY deploy/compose/coop/Box.Dockerfile /usr/local/share/ryker/Box.Dockerfile
-RUN chmod 0755 /usr/local/bin/ryker-coop-entrypoint
+RUN chmod 0755 /usr/local/bin/ryker-coop-entrypoint /usr/local/bin/ryker-coop-load-policies
 
 USER coop
 ENV HOME=/var/lib/coop \

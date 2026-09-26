@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
   filters only change this view, never execution state.
 
   The menu offers the filters a person uses. Usage, the timeline and the
-  channel pages link here with a few more, such as a profile or a Slack
+  channel pages link here with a few more, such as an account or a Slack
   thread; each of those still reads as a chip in plain words and can be
   removed. A parameter that only narrows another, such as the workspace of a
   chosen user, is part of that filter's chip and leaves with it.
@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
     {"usage_work_kind", "Work type", UsagePage.work_kinds()},
     {"usage_model", "Model", :text},
     {"usage_effort", "Reasoning effort", @efforts},
-    {"usage_profile", "Profile", :text},
+    {"usage_profile", "Account", :text},
     {"usage_provider", "Provider", :text},
     {"usage_actor", "User", :user},
     {"usage_channel", "Channel", :channel},
