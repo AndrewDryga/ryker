@@ -34,6 +34,7 @@ defmodule Ryker.ControlPlane.IntegrationErrorsTest do
     {:slack_missing_scopes, ["users:read", "chat:write"]},
     {:github_verification_failed, :response},
     {:github_verification_failed, :app_id_mismatch},
+    {:github_verification_failed, :app_not_installed},
     {:github_verification_failed, :app_not_connected},
     {:github_verification_failed, :installations},
     {:github_verification_failed, :repositories},
