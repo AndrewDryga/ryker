@@ -3,6 +3,7 @@ defmodule Ryker.Slack.ClientTest do
 
   alias __MODULE__.FakeRequester
   alias Ryker.Slack.Client
+  alias Ryker.Slack.Client.{Messages, Users}
 
   test "directory labels validate identity and preserve workspace rate limits" do
     {:ok, requester} =
@@ -12,21 +13,21 @@ defmodule Ryker.Slack.ClientTest do
         {:ok, %{status: 429, headers: [{"retry-after", "120"}], body: "rate limited"}}
       ])
 
-    assert Client.directory_name(client(requester), "T123", "T123") ==
+    assert Users.directory_name(client(requester), "T123", "T123") ==
              {:error, :directory_name_unavailable}
 
-    assert Client.directory_name(client(requester), "T123", "U123") ==
+    assert Users.directory_name(client(requester), "T123", "U123") ==
              {:error, :directory_name_unavailable}
 
     assert {:error, {:delivery_rate_limited, 120, _}} =
-             Client.directory_name(client(requester), "T123", "T123")
+             Users.directory_name(client(requester), "T123", "T123")
   end
 
   test "workspace names use the existing token without requesting an extra Slack scope" do
     # Emisar's existing token lacks team:read. auth.test returns the bound team
     # name without new scopes; identity must still match the configured team.
     {:ok, requester} = FakeRequester.start([slack(%{"team" => "Emisar", "team_id" => "T123"})])
-    assert Client.directory_name(client(requester), "T123", "T123") == {:ok, "Emisar"}
+    assert Users.directory_name(client(requester), "T123", "T123") == {:ok, "Emisar"}
     assert [{:post, "/auth.test", %{}, []}] = FakeRequester.requests(requester)
   end
 
@@ -37,10 +38,12 @@ defmodule Ryker.Slack.ClientTest do
     # delivery renders through Renderer.render/1 and must be the only way a
     # message leaves this client; a leftover specimen path would let any
     # caller post unrendered Block Kit that bypasses that boundary.
-    Code.ensure_loaded!(Client)
-    refute function_exported?(Client, :post_card_specimen, 5)
-    refute function_exported?(Client, :update_card_specimen, 5)
-    refute function_exported?(Client, :find_card_specimen, 4)
+    for module <- [Client, Messages] do
+      Code.ensure_loaded!(module)
+      refute function_exported?(module, :post_card_specimen, 5)
+      refute function_exported?(module, :update_card_specimen, 5)
+      refute function_exported?(module, :find_card_specimen, 4)
+    end
 
     {:ok, requester} = FakeRequester.start([slack(%{"ts" => "1787832001.000200"})])
 

@@ -1,6 +1,13 @@
 defmodule Ryker.Slack.API do
   @moduledoc false
 
+  # Grouped as `Ryker.Slack.Client` splits the work behind them. Five are
+  # required: find_message, post_message, find_files, upload_files and
+  # add_reaction. Every other callback is optional, and its caller checks that
+  # it is there.
+
+  # --- messages -------------------------------------------------------------
+
   @callback find_message(term(), String.t(), String.t() | nil, String.t()) ::
               {:ok, String.t()} | :not_found | {:error, term()}
   @callback post_message(term(), String.t(), String.t() | nil, String.t() | map(), String.t()) ::
@@ -14,28 +21,46 @@ defmodule Ryker.Slack.API do
   """
   @callback post_ephemeral(term(), String.t(), String.t(), String.t() | nil, String.t()) ::
               :ok | {:error, term()}
-
   @callback update_message(term(), String.t(), String.t(), String.t() | map(), String.t()) ::
               :ok | {:error, term()}
+  @callback read_messages(term(), String.t(), String.t() | nil, map()) ::
+              {:ok, map()} | {:error, term()}
+
+  # --- files ----------------------------------------------------------------
+
   @callback find_files(term(), String.t(), String.t() | nil, [String.t()]) ::
               {:ok, String.t()} | :not_found | {:error, term()}
   @callback upload_files(term(), String.t(), String.t() | nil, map(), String.t(), [map()]) ::
               {:ok, String.t()} | {:error, term()}
+  @callback file_info(term(), String.t()) :: {:ok, map()} | {:error, term()}
+
+  # --- reactions ------------------------------------------------------------
+
   @callback add_reaction(term(), String.t(), String.t(), String.t()) ::
               :ok | {:error, term()}
   @callback remove_reaction(term(), String.t(), String.t(), String.t()) ::
               :ok | {:error, term()}
+
+  # --- assistant ------------------------------------------------------------
+
+  @callback set_thread_status(term(), String.t(), String.t(), String.t()) ::
+              :ok | {:error, term()}
   @callback search_context(term(), String.t(), map()) :: {:ok, map()} | {:error, term()}
+
+  # --- conversations Ryker reads --------------------------------------------
+
   @callback list_conversations(term(), map()) :: {:ok, map()} | {:error, term()}
   @callback conversation_info(term(), String.t()) :: {:ok, map()} | {:error, term()}
+  @callback conversation_state(term(), String.t()) ::
+              {:ok, :active | :archived} | :not_found | {:error, term()}
   @callback list_bookmarks(term(), String.t()) :: {:ok, [map()]} | {:error, term()}
-  @callback file_info(term(), String.t()) :: {:ok, map()} | {:error, term()}
-  @callback read_messages(term(), String.t(), String.t() | nil, map()) ::
-              {:ok, map()} | {:error, term()}
   @callback joined_conversations(term()) ::
               {:ok, [%{channel_ref: String.t(), private: boolean()}]} | {:error, term()}
   @callback shared_conversations(term(), String.t(), String.t()) ::
               {:ok, MapSet.t(String.t())} | {:error, term()}
+
+  # --- rooms Ryker creates and sets up --------------------------------------
+
   @callback ensure_conversation(
               term(),
               String.t(),
@@ -47,30 +72,29 @@ defmodule Ryker.Slack.API do
   @callback invite_users(term(), String.t(), [String.t()]) :: :ok | {:error, term()}
   @callback set_topic(term(), String.t(), String.t()) :: :ok | {:error, term()}
   @callback pin_message(term(), String.t(), String.t()) :: :ok | {:error, term()}
-  @callback conversation_state(term(), String.t()) ::
-              {:ok, :active | :archived} | :not_found | {:error, term()}
+
+  # --- views ----------------------------------------------------------------
+
   @callback publish_home(term(), String.t(), map()) :: :ok | {:error, term()}
   @callback open_view(term(), String.t(), map()) :: :ok | {:error, term()}
-  @callback set_thread_status(term(), String.t(), String.t(), String.t()) ::
-              :ok | {:error, term()}
 
-  @optional_callbacks list_conversations: 2,
-                      search_context: 3,
-                      remove_reaction: 4,
-                      conversation_info: 2,
-                      list_bookmarks: 2,
-                      file_info: 2,
+  @optional_callbacks post_ephemeral: 5,
+                      update_message: 5,
                       read_messages: 4,
+                      file_info: 2,
+                      remove_reaction: 4,
+                      set_thread_status: 4,
+                      search_context: 3,
+                      list_conversations: 2,
+                      conversation_info: 2,
+                      conversation_state: 2,
+                      list_bookmarks: 2,
                       joined_conversations: 1,
                       shared_conversations: 3,
                       ensure_conversation: 6,
                       invite_users: 3,
                       set_topic: 3,
                       pin_message: 3,
-                      conversation_state: 2,
-                      open_view: 3,
-                      post_ephemeral: 5,
                       publish_home: 3,
-                      set_thread_status: 4,
-                      update_message: 5
+                      open_view: 3
 end

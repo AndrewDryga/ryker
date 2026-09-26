@@ -19,7 +19,7 @@ defmodule Ryker.Runtime.Owner do
 
   alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.Runtime.Assembly
-  alias Ryker.Slack.Client
+  alias Ryker.Slack.Client.Users, as: SlackUsers
   alias Ryker.Slack.Names
 
   @retry_ms 5_000
@@ -299,7 +299,7 @@ defmodule Ryker.Runtime.Owner do
        when is_binary(workspace),
        do: [
          workspace: workspace,
-         fetch: &Client.directory_name(client, workspace, &1)
+         fetch: &SlackUsers.directory_name(client, workspace, &1)
        ]
 
   defp name_cache(_slack), do: []
