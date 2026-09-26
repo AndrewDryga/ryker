@@ -60,34 +60,47 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     end)
   end
 
+  # A list may start right under a line of text ("Check these first:\n1. …"),
+  # so a paragraph is split into runs of plain lines, bullet lines and
+  # numbered lines, each rendered as what it is. A question that listed what
+  # it needed ran into one line before.
   defp paragraph(text, workspace) do
-    lines = String.split(text, "\n")
+    text
+    |> String.split("\n")
+    |> Enum.chunk_by(&line_kind/1)
+    |> Enum.map(&block(&1, line_kind(hd(&1)), workspace))
+  end
 
+  defp line_kind(line) do
     cond do
-      Enum.all?(lines, &Regex.match?(~r/^\s*[-*•] /u, &1)) ->
-        [
-          "<ul>",
-          Enum.map(
-            lines,
-            &["<li>", render(Regex.replace(~r/^\s*[-*•] /u, &1, ""), workspace), "</li>"]
-          ),
-          "</ul>"
-        ]
-
-      Enum.all?(lines, &Regex.match?(~r/^\s*\d+\. /u, &1)) ->
-        [
-          ordered_list_open(hd(lines)),
-          Enum.map(
-            lines,
-            &["<li>", render(Regex.replace(~r/^\s*\d+\. /u, &1, ""), workspace), "</li>"]
-          ),
-          "</ol>"
-        ]
-
-      true ->
-        ["<p>", render(text, workspace), "</p>"]
+      Regex.match?(~r/^\s*[-*•] /u, line) -> :bullet
+      Regex.match?(~r/^\s*\d+\. /u, line) -> :numbered
+      true -> :text
     end
   end
+
+  defp block(lines, :bullet, workspace),
+    do: [
+      "<ul>",
+      Enum.map(
+        lines,
+        &["<li>", render(Regex.replace(~r/^\s*[-*•] /u, &1, ""), workspace), "</li>"]
+      ),
+      "</ul>"
+    ]
+
+  defp block(lines, :numbered, workspace),
+    do: [
+      ordered_list_open(hd(lines)),
+      Enum.map(
+        lines,
+        &["<li>", render(Regex.replace(~r/^\s*\d+\. /u, &1, ""), workspace), "</li>"]
+      ),
+      "</ol>"
+    ]
+
+  defp block(lines, :text, workspace),
+    do: ["<p>", render(Enum.join(lines, "\n"), workspace), "</p>"]
 
   # Items separated by blank lines arrive as separate paragraphs; each list
   # starts at the number its first item was written with, so they still count

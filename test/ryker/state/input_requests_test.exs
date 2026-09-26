@@ -154,6 +154,26 @@ defmodule Ryker.State.InputRequestsTest do
     end
   end
 
+  # QA re-test, 2026-09-26: after a person edited their earlier message, the
+  # question Ryker had asked about the old wording showed "answered" although
+  # nobody answered it: the edit was taken as the typed reply. An edit is not
+  # an answer; it replaces the question it made obsolete.
+  test "an edit of an earlier message replaces the open question instead of answering it" do
+    fixture = delivered_question!()
+
+    edit =
+      typed_answer!(fixture, %{
+        content: %{"text" => "And 5+5? Just the number."},
+        message_ref: "1787832000.000200",
+        revision: 2
+      })
+
+    associate!(fixture, edit)
+
+    assert Repo.aggregate(Response, :count) == 0
+    assert Repo.get!(Record, fixture.record.id).status == :superseded
+  end
+
   test "a later typed reply does not overwrite an already accepted button answer" do
     fixture = delivered_question!()
     assert {:ok, accepted} = InputRequests.answer(answer(fixture, 1, "selected"))

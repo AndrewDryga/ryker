@@ -274,6 +274,38 @@ defmodule Ryker.Delivery.ChatCardTest do
     refute HTML.lab_message_extras(%{cards: [answered]}) |> IO.iodata_to_binary() =~ "Reply"
   end
 
+  # QA re-test, 2026-09-26: a question replaced by an edit read "superseded"
+  # (after it had wrongly read "answered"), and a question listing numbered
+  # items ran them into one line: "…details are needed. 1. Can you paste…".
+  test "a question card says what became of it in words and keeps its numbered list" do
+    question = "Two details are needed.\n1. Can you paste the probe error?\n2. Which pods failed?"
+
+    words =
+      for status <- [:answered, :dismissed, :superseded] do
+        {:ok, card} =
+          ChatCard.project(
+            record("input_request", %{"choices" => [], "question" => question}, status)
+          )
+
+        ChatCard.display_status(card)
+      end
+
+    assert words == ["Answered", "Closed", "Replaced by your edit"]
+
+    {:ok, open} =
+      ChatCard.project(record("input_request", %{"choices" => [], "question" => question}))
+
+    html = HTML.lab_message_extras(%{cards: [open]}) |> IO.iodata_to_binary()
+    document = LazyHTML.from_fragment(html)
+
+    assert document |> LazyHTML.query(".lab-card ol > li") |> Enum.count() == 2
+
+    assert document |> LazyHTML.query(".lab-card p") |> LazyHTML.text() =~
+             "Two details are needed."
+
+    refute html =~ "needed. 1."
+  end
+
   # QA, 2026-09-25: chat cards printed "SOURCE admit_input:63c450cc…", a digest
   # nobody can open, beside "AUTHORITY read_only", "KIND Entity relationship"
   # and "SCOPE Workspace": stored values a person can neither read nor act on.
