@@ -88,6 +88,41 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     end
   end
 
+  test "a request that held a credential shows it removed, with no secrets disclaimer anywhere" do
+    # Andrew, 2026-09-26: "i also do not want to add disclaimers like 'Secrets
+    # redacted' anywhere". The request page carried a standing SECRETS
+    # REDACTED label, each redacted body said "Retained · redacted", the
+    # Timeline's full request said "Secrets redacted" and its prompt row said
+    # "Sensitive values are hidden in this view". The credential is still
+    # removed before anything renders; the pages just stop saying so.
+    {episode, turn, _original} = frozen_turn!()
+    {:ok, view} = ModelRequests.project(episode.key, %{})
+
+    {:ok, timeline} =
+      ModelRequests.timeline(episode.key, %{"disclosed" => ["work-#{turn.id}-request"]})
+
+    request = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
+    assert Enum.find(request.sections, &(&1.id == "request")).artifact.redacted
+
+    pages = [
+      render_component(&RequestPage.render/1,
+        view: view,
+        params: %{},
+        path: "/timeline/#{URI.encode_www_form(episode.key)}"
+      ),
+      render_component(&EpisodeRequest.render/1, request: request)
+    ]
+
+    for html <- pages do
+      text = html |> LazyHTML.from_document() |> LazyHTML.text()
+      refute html =~ "xoxb-recorded-credential"
+      assert text =~ "Full submitted request"
+      refute text =~ ~r/secrets redacted/i
+      refute text =~ ~r/· redacted/i
+      refute text =~ ~r/sensitive values are hidden/i
+    end
+  end
+
   test "a request cannot be inspected through another episode" do
     {episode, _turn, _prompt} = frozen_turn!()
     assert :not_found == ModelRequests.project(episode.key, %{"attempt" => Ecto.UUID.generate()})
@@ -151,7 +186,6 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       prompt_component = LazyHTML.query(full, ".prompt-source[data-source=request]")
       refute LazyHTML.text(prompt_component) =~ "Recorded when the request was sent"
       refute LazyHTML.text(full) =~ "Recorded with this request"
-      assert LazyHTML.text(prompt_component) =~ "Sensitive values are hidden in this view"
       refute LazyHTML.text(prompt_component) =~ "Retained submission"
       refute LazyHTML.text(prompt_component) =~ "exact retained prompt text"
       refute LazyHTML.text(full) =~ "alongside"

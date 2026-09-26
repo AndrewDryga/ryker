@@ -137,9 +137,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       <section :if={@prompt_section} class="final-prompt" id={"#{@request.id}-final-prompt"}>
         <header>
           <h4>
-            Full submitted request<span :if={@prompt_section.artifact.redacted}>Secrets redacted</span><span :if={
-              @prompt_section.artifact.truncated
-            }>Partial display</span>
+            Full submitted request<span :if={@prompt_section.artifact.truncated}>Partial display</span>
           </h4>
         </header>
         {Phoenix.HTML.raw(
@@ -298,7 +296,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     [
       kind,
       artifact_size(bytes),
-      artifact[:redacted] && "Secrets redacted",
       artifact[:truncated] && "Partial display"
     ]
     |> Enum.reject(&(&1 in [nil, false]))

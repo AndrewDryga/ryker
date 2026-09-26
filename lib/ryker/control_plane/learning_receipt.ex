@@ -212,7 +212,7 @@ defmodule Ryker.ControlPlane.LearningReceipt do
         <.part :if={section.artifact.state == :retained} section={section} />
       </details>
       <p :if={!@receipt.expired} class="learning-estimate">
-        Token counts estimate the displayed, redacted text; they are not provider usage receipts.
+        Token counts are estimates from the text shown here, not the provider's usage figures.
       </p>
     </section>
     """

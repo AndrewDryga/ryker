@@ -1305,7 +1305,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <span :if={@artifact.state == :expired}>Expired</span>
         <span :if={@artifact.state == :not_recorded}>Not recorded</span>
         <span :if={@artifact.state == :omitted}>Omitted</span>
-        <span :if={@artifact[:redacted]}>Secrets redacted</span>
         <span :if={@artifact[:truncated]}>Partial display</span>
       </:meta>
       <p :if={@artifact.state == :collapsed} class="artifact-loading" role="status">Loading…</p>
@@ -1415,7 +1414,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <:meta>
         <span :if={@artifact.state == :collapsed}>{bytes(@artifact.bytes)}</span><span :if={
           @artifact.truncated
-        }>Partial display</span><span :if={@artifact.redacted}>Secrets redacted</span>
+        }>Partial display</span>
       </:meta>
       <p :if={@artifact.state == :collapsed} class="artifact-loading" role="status">Loading…</p>
       <p :if={@artifact.state in [:expired, :not_recorded]} class="artifact-unavailable">

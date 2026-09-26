@@ -433,6 +433,28 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     end
   end
 
+  test "no page reassures the reader that secrets were removed" do
+    # Andrew, 2026-09-26, on a routing reply labelled "JSON · 467 bytes ·
+    # Secrets redacted": "there can't be secrets in that reply, i also do not
+    # want to add disclaimers like 'Secrets redacted' anywhere". Nine places
+    # said it: the request page's standing SECRETS REDACTED label, "Retained ·
+    # redacted", "Sensitive values are hidden in this view", "Secrets redacted"
+    # beside raw bodies and full requests, Relearn's "secrets redacted" and the
+    # learning estimate's "redacted text". Redaction still happens before
+    # anything renders; this keeps the reassurance from returning in a new card.
+    disclaimer = ~r/secrets redacted|sensitive values are hidden|· redacted|displayed, redacted/i
+
+    offenders =
+      for path <-
+            Path.wildcard("lib/ryker/control_plane/**/*.ex") ++
+              Path.wildcard("priv/static/*.{js,mjs}"),
+          {line, number} <- path |> File.read!() |> String.split("\n") |> Enum.with_index(1),
+          Regex.match?(disclaimer, line),
+          do: "#{path}:#{number}: #{String.trim(line)}"
+
+    assert offenders == []
+  end
+
   defp contrast(a, b) do
     [low, high] = Enum.sort([luminance(a), luminance(b)])
     (high + 0.05) / (low + 0.05)
