@@ -155,7 +155,4 @@ or previously delivered GitHub markers own those contracts. They change only wit
 - the `responder.publication_lifecycle.v1` event type; and
 - the hidden `<!-- responder-delivery:… -->` marker on already delivered GitHub comments.
 
-The source repository is also still published at the externally owned
-`github.com/AndrewDryga/responder` URL even though the product and images are Ryker.
-
 These compatibility contracts are not product branding and must not be renamed independently.

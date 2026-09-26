@@ -1286,6 +1286,40 @@ defmodule Ryker.StateTools.RouterTest do
     assert Records.retained_records(claim.episode.id) == []
   end
 
+  # The same conversation: once the tool had saved a Monday-only proposal, the
+  # model's corrected proposal in that turn was refused, because proposals were
+  # keyed by their position in the call and the corrected one sat in the first
+  # position too. A correction the model cannot make is a host bug.
+  test "a corrected proposal in the same turn is a new offer, and a repeat is the same one" do
+    claim = claim!("corrected-automation")
+    options = bound_options(claim)
+
+    proposal = fn recurrence ->
+      %{
+        "proposals" => [
+          time_proposal(
+            Map.merge(%{"time" => "09:00", "timezone" => "UTC", "type" => "time"}, recurrence)
+          )
+        ]
+      }
+    end
+
+    monday = proposal.(%{"recurrence" => "weekly", "weekday" => "monday"})
+    weekdays = proposal.(%{"recurrence" => "weekdays"})
+
+    assert {:ok, %{"proposals" => [%{"record_ref" => first}]}} =
+             Tools.call("propose_automation", monday, options)
+
+    assert {:ok, %{"proposals" => [%{"record_ref" => corrected}]}} =
+             Tools.call("propose_automation", weekdays, options)
+
+    assert corrected != first
+    assert Repo.get_by!(Record, ref: corrected).payload["recurrence"]["kind"] == "weekdays"
+
+    assert {:ok, %{"proposals" => [%{"record_ref" => ^corrected}]}} =
+             Tools.call("propose_automation", weekdays, options)
+  end
+
   test "an invalid automation time is reported as an argument error, not an outage" do
     claim = claim!("invalid-automation-time")
 

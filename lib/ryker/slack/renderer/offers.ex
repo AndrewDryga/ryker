@@ -194,23 +194,23 @@ defmodule Ryker.Slack.Renderer.Offers do
   end
 
   defp schedule_offer(ref, payload) do
-    scope =
-      case payload["repository"] do
-        nil -> payload["authority"]
-        repository -> "#{payload["authority"]} · #{repository}"
-      end
-
-    expiry = payload["expires_at"] || "no expiry"
     # The recurrence the confirmation saves, in the words every surface uses,
     # never the title or task the model wrote over it.
     cadence = ScheduleCadence.describe(payload["recurrence"], payload["timezone"])
+
+    limits =
+      [
+        ScheduleCadence.access(payload["authority"], payload["repository"]),
+        ScheduleCadence.ends(payload["expires_at"])
+      ]
+      |> Enum.reject(&is_nil/1)
 
     summary =
       [
         "*#{escape(payload["title"])}*",
         escape(payload["task"]),
         "When: #{escape(cadence)}",
-        "Scope: `#{escape(scope)}` · Expires: `#{escape(expiry)}`",
+        if(limits != [], do: escape(Enum.join(limits, " · "))),
         "_This is only an offer; no schedule exists yet._"
       ]
       |> compact_lines()

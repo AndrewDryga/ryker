@@ -1789,6 +1789,46 @@ defmodule Ryker.Slack.RendererTest do
     assert summary["text"]["text"] =~ "When: Every weekday at 09:00 UTC"
   end
 
+  # The same QA pass found the Slack schedule offer still showing
+  # "Scope: `read_only` · Expires: `no expiry`" after the Chat card had moved
+  # to plain words: stored values a person cannot act on.
+  test "a Slack schedule offer says what each run may do and when it ends in words" do
+    offer = %{
+      "kind" => "schedule_offer",
+      "payload" => %{
+        "authority" => "repository_write",
+        "expires_at" => "2026-10-01T09:00:00Z",
+        "recurrence" => %{"kind" => "weekdays", "time" => "09:00:00"},
+        "repository" => "checkout-api",
+        "task" => "Post a one-line status of open incidents.",
+        "timezone" => "Etc/UTC",
+        "title" => "Weekday open incident status"
+      },
+      "ref" => "record:schedule_offer:access",
+      "status" => "open"
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Prepared.", "records" => [offer]})
+    [_, summary, _actions] = rendered["blocks"]
+    text = summary["text"]["text"]
+    assert text =~ "Can change code in checkout-api · Ends on 1 Oct 2026 at 09:00 UTC"
+    refute text =~ "Scope"
+    refute text =~ "repository_write"
+
+    read_only =
+      offer
+      |> put_in(["payload", "authority"], "read_only")
+      |> put_in(["payload", "repository"], nil)
+      |> put_in(["payload", "expires_at"], nil)
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Prepared.", "records" => [read_only]})
+
+    [_, summary, _actions] = rendered["blocks"]
+    assert summary["text"]["text"] =~ "\nRead-only\n"
+    refute summary["text"]["text"] =~ "expiry"
+  end
+
   test "a post that has landed says so and links to it" do
     # The 2026-09-12 coverage measurement: a confirmed post card said the
     # delivery worker was "sending or reconciling this exact message" forever,

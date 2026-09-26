@@ -37,7 +37,7 @@ FROM debian:bookworm-slim AS runtime
 ARG RYKER_VERSION
 LABEL org.opencontainers.image.title="Ryker" \
       org.opencontainers.image.version="$RYKER_VERSION" \
-      org.opencontainers.image.source="https://github.com/AndrewDryga/responder"
+      org.opencontainers.image.source="https://github.com/AndrewDryga/ryker"
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client openssl libstdc++6 libncurses6 \

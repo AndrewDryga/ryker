@@ -112,6 +112,5 @@ defmodule Ryker.StateTools.RecordWriter do
     do: [arguments["target_message_ref"], arguments["category"]]
 
   defp host_slot("validate_final", arguments), do: CanonicalJSON.digest(arguments)
-  defp host_slot("propose_automation:" <> index, _arguments), do: index
   defp host_slot(_tool, arguments), do: CanonicalJSON.digest(arguments)
 end
