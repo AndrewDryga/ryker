@@ -153,8 +153,30 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
       |> render()
 
     text = document |> LazyHTML.query("p.entity-text") |> LazyHTML.text()
-    assert text =~ "missing permission for contents, pull requests, checks"
+    assert text =~ "missing permission for contents, pull requests."
     assert state(LazyHTML.query(document, "article.entity-row")) == {"Needs attention", ["warn"]}
+  end
+
+  # Andrew's AndrewDryga/AndrewDryga read "Needs attention: the Ryker GitHub App
+  # is missing permission for deployments" (2026-09-26), though deployments
+  # only feed rules that watch deployments. A permission that turns on one
+  # feature is a detail; only what the repository cannot work without needs a
+  # person.
+  test "a permission that only turns on one feature is a detail, not a problem" do
+    document =
+      @repository
+      |> put_in(
+        [:configured, :github_permissions],
+        Map.new(~w(metadata contents pull_requests checks actions issues), &{&1, "write"})
+      )
+      |> render()
+
+    row = LazyHTML.query(document, "article.entity-row")
+    refute state(row) == {"Needs attention", ["warn"]}
+    assert Enum.empty?(LazyHTML.query(row, "p.entity-text"))
+
+    details = row |> LazyHTML.query("details") |> LazyHTML.text() |> squeeze()
+    assert details =~ "Enough to work here. Not shared: deployments"
   end
 
   test "a blocked setup offers Retry setup on its row, bound to that repository" do
