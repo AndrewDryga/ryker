@@ -732,7 +732,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       source: batch.repository_ref || "no repository",
       start_limit: batch.start_limit,
       status: batch.status,
-      summary: batch.error_code || "learning_deferred",
+      summary: LearningActivity.cause_code(batch) || "learning_deferred",
       updated_at: batch.updated_at
     }
   end

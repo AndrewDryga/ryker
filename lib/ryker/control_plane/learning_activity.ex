@@ -154,9 +154,12 @@ defmodule Ryker.ControlPlane.LearningActivity do
           )
           |> MapSet.new()
 
+    exhausted = for row <- rows, row.error_code == "learning_retry_exhausted", do: row.id
+
     %{
       titles: ConversationProjection.titles(direct),
       rechecked: rechecked,
+      causes: stale_attempts(exhausted),
       now: DateTime.utc_now()
     }
   end
@@ -301,7 +304,45 @@ defmodule Ryker.ControlPlane.LearningActivity do
   can update it.
   """
   @spec relearn_topics(Batch.t()) :: [%{id: String.t(), title: String.t(), path: String.t()}]
-  def relearn_topics(%Batch{error_code: "knowledge_target_unavailable"} = batch) do
+  def relearn_topics(%Batch{} = batch) do
+    if cause_code(batch) == "knowledge_target_unavailable",
+      do: stale_topics(batch),
+      else: []
+  end
+
+  def relearn_topics(_batch), do: []
+
+  @doc """
+  What stopped a batch, as its code. A batch stops with the code of what
+  stopped it; one that stopped before a stale topic had a code of its own
+  used every start on that topic, and its attempts carry the cause instead
+  (QA re-test, 2026-09-26: batch 96368bd7 still offered "Grant one more
+  start"). The same rule applies to it, whatever date it has.
+  """
+  @spec cause_code(Batch.t()) :: String.t() | nil
+  def cause_code(%Batch{error_code: "learning_retry_exhausted", id: id}),
+    do: Map.get(stale_attempts([id]), id, "learning_retry_exhausted")
+
+  def cause_code(%Batch{error_code: code}), do: code
+
+  # The stopped batches, of `ids`, whose latest attempt stopped on a topic that
+  # lost its sources.
+  defp stale_attempts([]), do: %{}
+
+  defp stale_attempts(ids) do
+    Repo.all(
+      from(r in LearningRun,
+        where: r.batch_id in ^ids and not is_nil(r.error_code),
+        distinct: r.batch_id,
+        order_by: [asc: r.batch_id, desc: r.inserted_at, desc: r.id],
+        select: {r.batch_id, r.error_code}
+      )
+    )
+    |> Enum.filter(fn {_id, code} -> code == "knowledge_target_unavailable" end)
+    |> Map.new()
+  end
+
+  defp stale_topics(batch) do
     repository =
       if is_nil(batch.repository_ref),
         do: dynamic([k], is_nil(k.repository_ref)),
@@ -327,8 +368,6 @@ defmodule Ryker.ControlPlane.LearningActivity do
       &%{id: &1.id, title: &1.title, path: ConversationMemory.topic_path(&1.id) <> "#relearn"}
     )
   end
-
-  def relearn_topics(_batch), do: []
 
   defp outstanding_execution?(row) do
     Repo.exists?(
@@ -450,8 +489,8 @@ defmodule Ryker.ControlPlane.LearningActivity do
       at: row.inserted_at,
       completed_at: row.completed_at,
       next_check: next_check(row, context),
-      error: error(row.error_code),
-      error_code: safe_code(row.error_code, secrets),
+      error: error(Map.get(context.causes, row.id, row.error_code)),
+      error_code: safe_code(Map.get(context.causes, row.id, row.error_code), secrets),
       path: path(row.id)
     }
 

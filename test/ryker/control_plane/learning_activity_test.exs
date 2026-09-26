@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   alias Ryker.ControlPlane.{
     ConversationMemory,
     CSRF,
+    FailureProjection,
     LearningActivity,
     LearningPage,
     LearningReceipt,
@@ -160,6 +161,37 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     selected = LearningActivity.project(params).selected
     assert selected.relearn == []
     assert selected.retry_available
+  end
+
+  test "a batch that used every start on a topic that lost its sources points to relearning it" do
+    # QA re-test, 2026-09-26, batch 96368bd7: stopped before batches carried
+    # the stale topic's own code, it read "every start was used" and offered
+    # "Grant one more start", though both attempts had stopped on the topic.
+    # Its attempts carry the cause, so the same rule applies to it.
+    topic = stale_topic!()
+    assert {:ok, claim} = Batches.claim("inspection-test", @settings)
+    assert {:ok, run} = Batches.prepare(claim)
+
+    Repo.update!(
+      Ecto.Changeset.change(run, status: :rejected, error_code: "knowledge_target_unavailable")
+    )
+
+    assert {:ok, _} = Batches.finish(claim, :deferred, "learning_retry_exhausted")
+    params = %{"batch" => claim.batch.id}
+
+    selected = LearningActivity.project(params).selected
+    refute selected.retry_available
+    relearn = ConversationMemory.topic_path(topic.id) <> "#relearn"
+    assert [%{path: ^relearn}] = selected.relearn
+    assert selected.error =~ "A topic's source history is no longer valid"
+
+    [listed] = LearningActivity.project(%{}).attention.items
+    assert listed.error =~ "A topic's source history is no longer valid"
+
+    # Failures says the same and points to the topic.
+    assert {:ok, row} = FailureProjection.fetch("learning", claim.batch.id)
+    assert row.summary == "knowledge_target_unavailable"
+    assert row.relearn_path == relearn
   end
 
   test "a stopped batch says the starts it used, and a next check is never in the past" do
