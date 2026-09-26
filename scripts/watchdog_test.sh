@@ -9,14 +9,10 @@
 # The not-ready case reproduces 2026-09-13 to 2026-09-18: the deployment's
 # control plane answering 503 with its fleet gone, for days, while the previous
 # watchdog looked for a database file that no longer existed and said nothing.
+# The version case is the deploy that started a container and never pinned
+# it, and the container case is the worker gone while readiness still says
+# ready because its lease has not lapsed.
 set -uo pipefail
-
-# The watchdog is a launchd agent and reads launch agents with plutil; it only
-# exists on macOS, so that is the only place its self-test means anything.
-if [[ $(uname -s) != Darwin ]]; then
-  echo "skip: the watchdog is a launchd agent; its self-test runs on macOS"
-  exit 0
-fi
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
@@ -30,12 +26,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export WATCHDOG_AGENTS="$work/agents"
 export WATCHDOG_STATE="$work/state"
 export WATCHDOG_NO_NOTIFY=1
 export WATCHDOG_STRIKES=2
 export WATCHDOG_RENOTIFY_MINUTES=30
-unset WATCHDOG_SLACK_CHANNEL WATCHDOG_SLACK_API
 
 failures=0
 check() {
@@ -61,12 +55,11 @@ refute() {
 }
 
 # A stand-in control plane: /readyz and /metrics answer from files the cases
-# rewrite, and every POST — the Slack API — is recorded with its bearer token
-# and whether its body parsed as JSON.
+# rewrite, and every answer carries the version another file names.
 fake="$work/fake"
-mkdir -p "$fake"
-cat > "$work/server.py" <<'PY'
-import http.server, json, os, sys
+mkdir -p "$fake" "$work/bin"
+cat >"$work/server.py" <<'PY'
+import http.server, os, sys
 
 base = sys.argv[1]
 
@@ -83,6 +76,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "text/plain")
         self.send_header("Content-Length", str(len(data)))
+        version = read("version").strip()
+        if version:
+            self.send_header("x-ryker-version", version)
         self.end_headers()
         self.wfile.write(data)
 
@@ -93,17 +89,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.respond(200, read("metrics"))
         else:
             self.respond(404, "not found\n")
-
-    def do_POST(self):
-        body = self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode()
-        try:
-            json.loads(body)
-            parsed = "json"
-        except ValueError:
-            parsed = "INVALID-JSON"
-        with open(os.path.join(base, "slack-posts"), "a") as handle:
-            handle.write(f"{self.path} {self.headers.get('Authorization', '')} {parsed} {body}\n")
-        self.respond(200, '{"ok":true}')
 
     def log_message(self, *args):
         pass
@@ -118,43 +103,57 @@ server_pid=$!
 for _ in $(seq 1 50); do [[ -s $fake/port ]] && break; sleep 0.1; done
 port=$(cat "$fake/port")
 
-ready() { printf '200' > "$fake/readyz.code"; printf 'ready\n' > "$fake/readyz.body"; }
-not_ready() { printf '503' > "$fake/readyz.code"; printf 'not ready: %s\n' "$1" > "$fake/readyz.body"; }
-metrics() { printf '%s\n' "$@" > "$fake/metrics"; }
+ready() { printf '200' >"$fake/readyz.code"; printf 'ready\n' >"$fake/readyz.body"; }
+not_ready() { printf '503' >"$fake/readyz.code"; printf 'not ready: %s\n' "$1" >"$fake/readyz.body"; }
+metrics() { printf '%s\n' "$@" >"$fake/metrics"; }
+serving() { printf '%s\n' "$1" >"$fake/version"; }
 
-# The deployment exactly as this host lays it out: the release's launch agent
-# names its state root as WorkingDirectory, and the root holds runtime.env.
-deploy="$work/deploy/emisar"
-mkdir -p "$WATCHDOG_AGENTS" "$deploy/log" "$deploy/coop-worker/log"
-cat > "$deploy/runtime.env" <<ENV
-RYKER_CONTROL_IP=0.0.0.0
+# The installation exactly as install.sh and deploy.sh leave it: the pinned
+# version and the control listener in compose.env, plus the project's
+# containers as a fake Docker lists them.
+install="$work/install"
+mkdir -p "$install"
+cat >"$install/compose.env" <<ENV
+# RYKER_GENERATED_ENV - test installation
+RYKER_VERSION=1.2.3
+RYKER_IMAGE=ryker:1.2.3
+RYKER_DATABASE_PASSWORD=secret-test-password
+RYKER_CONTROL_BIND=0.0.0.0
 RYKER_CONTROL_PORT=$port
 ENV
-agent() {
-  local label="$1" key="$2" value="$3"
-  /usr/bin/plutil -create xml1 "$WATCHDOG_AGENTS/$label.plist"
-  /usr/bin/plutil -insert Label -string "$label" "$WATCHDOG_AGENTS/$label.plist"
-  /usr/bin/plutil -insert "$key" -string "$value" "$WATCHDOG_AGENTS/$label.plist"
+export WATCHDOG_ENV_FILE="$install/compose.env"
+
+cat >"$work/bin/docker" <<'SH'
+#!/bin/bash
+fake=$WATCHDOG_TEST_FAKE
+[[ -f $fake/docker.down ]] && exit 1
+cat "$fake/containers"
+SH
+chmod 0755 "$work/bin/docker"
+export WATCHDOG_DOCKER="$work/bin/docker" WATCHDOG_TEST_FAKE="$fake"
+containers() {
+  # containers [SERVICE STATE HEALTH]...: the fake project's listing.
+  printf 'volume-init\texited\t\n' >"$fake/containers"
+  while (($# >= 3)); do
+    printf '%s\t%s\t%s\n' "$1" "$2" "$3" >>"$fake/containers"
+    shift 3
+  done
 }
-agent ai.emisar.ryker WorkingDirectory "$deploy"
-/usr/bin/plutil -insert StandardErrorPath -string "$deploy/log/ryker.stderr.log" \
-  "$WATCHDOG_AGENTS/ai.emisar.ryker.plist"
-# Neighbours under the same prefix that are not deployments: the Coop worker,
-# the watchdog itself, and a staged copy left by an interrupted install.
-agent ai.emisar.ryker.emisar-coop-worker StandardErrorPath "$deploy/coop-worker/log/worker.stderr.log"
-agent ai.emisar.ryker.watchdog StandardErrorPath "$WATCHDOG_STATE/stderr.log"
-cp "$WATCHDOG_AGENTS/ai.emisar.ryker.plist" "$WATCHDOG_AGENTS/ai.emisar.ryker.plist.staged-abc123"
+all_healthy() {
+  containers ryker running healthy database running healthy \
+    ryker-coop running healthy ryker-coop-docker running healthy
+}
 
 # run prints only the log lines this run wrote, then its exit status.
 run() {
   local before=0 status
-  [[ -f $WATCHDOG_STATE/watchdog.log ]] && before=$(wc -l < "$WATCHDOG_STATE/watchdog.log")
+  [[ -f $WATCHDOG_STATE/watchdog.log ]] && before=$(wc -l <"$WATCHDOG_STATE/watchdog.log")
   bash "$root/scripts/watchdog.sh"
   status=$?
   [[ -f $WATCHDOG_STATE/watchdog.log ]] && tail -n +"$((before + 1))" "$WATCHDOG_STATE/watchdog.log"
   echo "exit=$status"
 }
-reset() { rm -rf "$WATCHDOG_STATE" "$fake/slack-posts"; }
+reset() { rm -rf "$WATCHDOG_STATE" "$fake/docker.down"; all_healthy; serving 1.2.3; }
 
 # ---------------------------------------------------------------------------
 # A healthy deployment is silent, and the heartbeat proves the check ran.
@@ -163,7 +162,7 @@ out="$(run)$(run)"
 refute "a healthy deployment raises nothing" "ALERT" "$out"
 check "a healthy deployment exits cleanly" "exit=0" "$out"
 check "the heartbeat records that the check ran" "T" "$(cat "$WATCHDOG_STATE/heartbeat" 2>/dev/null)"
-refute "the Coop worker, the watchdog and a staged copy are not deployments" "coop-worker" "$out"
+refute "volume-init exiting is by design" "volume-init" "$out"
 
 # ---------------------------------------------------------------------------
 # 2026-09-13 to 09-18: the fleet was gone and /readyz said so for days.
@@ -173,19 +172,19 @@ check "one bad check is a strike" "strike 1/2): not ready: no_eligible_workers; 
 refute "one bad check is not an alarm" "ALERT" "$first"
 second=$(run)
 check "consecutive bad checks alarm with the host's own reasons" \
-  "ALERT Ryker emisar is not working — not ready: no_eligible_workers; no_session_capacity" "$second"
+  "ALERT Ryker is not working — not ready: no_eligible_workers; no_session_capacity" "$second"
 third=$(run)
 refute "a standing outage does not alarm every minute" "ALERT" "$third"
 fourth=$(WATCHDOG_RENOTIFY_MINUTES=0 run)
-check "a standing outage is repeated once the renotify interval passes" "ALERT Ryker emisar is not working" "$fourth"
+check "a standing outage is repeated once the renotify interval passes" "ALERT Ryker is not working" "$fourth"
 
 ready
 recovered=$(run)
-check "the first ready check after an alarm says so" "ALERT Ryker emisar recovered" "$recovered"
+check "the first ready check after an alarm says so" "ALERT Ryker recovered" "$recovered"
 again=$(run)
 refute "recovery is announced once" "ALERT" "$again"
 
-# A deploy restarts the release and drops readiness for about a minute: one
+# A deploy replaces the container and drops readiness for about a minute: one
 # bad check between good ones is neither an alarm nor a recovery.
 reset; ready; run >/dev/null
 not_ready "lane not cycling: work"; blip=$(run)
@@ -196,14 +195,52 @@ refute "a single bad check during a deploy stays quiet" "ALERT" "$blip$after"
 # A control plane that does not answer is the alarm itself; the watchdog
 # needs nothing from the process it watches.
 reset
-printf 'RYKER_CONTROL_IP=127.0.0.1\nRYKER_CONTROL_PORT=%s\n' "$((port + 1))" > "$deploy/runtime.env.down"
-cp "$deploy/runtime.env" "$deploy/runtime.env.up"
-cp "$deploy/runtime.env.down" "$deploy/runtime.env"
-run >/dev/null
-down=$(run)
+sed "s/^RYKER_CONTROL_PORT=.*/RYKER_CONTROL_PORT=$((port + 1))/" "$install/compose.env" >"$install/compose.env.down"
+WATCHDOG_ENV_FILE="$install/compose.env.down" run >/dev/null
+down=$(WATCHDOG_ENV_FILE="$install/compose.env.down" run)
 check "an unreachable control plane alarms" \
-  "ALERT Ryker emisar is not working — control plane unreachable at http://127.0.0.1:$((port + 1))" "$down"
-cp "$deploy/runtime.env.up" "$deploy/runtime.env"
+  "ALERT Ryker is not working — control plane unreachable at http://127.0.0.1:$((port + 1))" "$down"
+
+# ---------------------------------------------------------------------------
+# A container serving other code than compose.env pins is a deploy that did
+# not finish, and the operator reading compose.env would debug the wrong
+# release.
+reset; ready; serving 9.9.9
+run >/dev/null
+crossed=$(run)
+check "a running version other than the pinned one alarms" \
+  "ALERT Ryker is not working — running 9.9.9, but $install/compose.env pins 1.2.3" "$crossed"
+serving 1.2.3
+repinned=$(run)
+check "the pinned version serving again is a recovery" "ALERT Ryker recovered" "$repinned"
+
+# ---------------------------------------------------------------------------
+# Readiness lags a lost worker by its lease; the container listing does not.
+reset; ready
+containers ryker running healthy database running healthy \
+  ryker-coop exited "" ryker-coop-docker running unhealthy
+run >/dev/null
+gone=$(run)
+check "an exited container alarms while readiness still says ready" \
+  "ALERT Ryker is not working — container ryker-coop is exited; container ryker-coop-docker is unhealthy" "$gone"
+reset; ready
+containers ryker running healthy database running healthy ryker-coop-docker running healthy
+run >/dev/null
+missing=$(run)
+check "a container that is not in the project at all is named" "container ryker-coop is missing" "$missing"
+reset; ready
+containers ryker running starting database running healthy \
+  ryker-coop running healthy ryker-coop-docker running healthy
+starting=$(run)
+refute "a container still starting its health check is not a problem" "strike" "$starting"
+
+# Docker itself not answering is worth knowing even while the release is up:
+# the next turn needs a box, and there will be none.
+reset; ready; touch "$fake/docker.down"
+run >/dev/null
+nodocker=$(run)
+check "a Docker that cannot list the project alarms" \
+  "ALERT Ryker is not working — docker compose cannot list the project's containers" "$nodocker"
 
 # ---------------------------------------------------------------------------
 # Work whose retries are spent waits for a person on the Failures page. That
@@ -215,7 +252,7 @@ metrics 'ryker_work_total{status="blocked"} 1' 'ryker_retention_blocked 4' \
   'ryker_retention_sessions{status="blocked"} 4'
 blocked=$(run)
 check "newly blocked work alarms at once" \
-  "ALERT Ryker emisar needs attention — 1 request is blocked and waiting for an operator: http://127.0.0.1:$port/failures" \
+  "ALERT Ryker needs attention — 1 request is blocked and waiting for an operator: http://127.0.0.1:$port/failures" \
   "$blocked"
 same=$(run)
 refute "the same blocked work is not repeated" "ALERT" "$same"
@@ -233,8 +270,7 @@ refute "a workspace kept for review is not blocked work" "needs attention" "$ret
 # ---------------------------------------------------------------------------
 # A watchdog with nothing to watch is itself a failure, not a quiet success.
 reset; ready
-empty="$work/empty-agents"; mkdir -p "$empty"
-nothing=$(WATCHDOG_AGENTS="$empty" run)
+nothing=$(WATCHDOG_ENV_FILE="$work/nowhere/compose.env" run)
 check "nothing to watch alarms" "ALERT Ryker watchdog found nothing to watch" "$nothing"
 check "nothing to watch fails the run" "exit=1" "$nothing"
 

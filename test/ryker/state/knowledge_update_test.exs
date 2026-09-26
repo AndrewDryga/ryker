@@ -42,6 +42,7 @@ defmodule Ryker.State.KnowledgeUpdateTest do
       "action" => "ignore",
       "episode_ref" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "Learn without responding.",
       "reaction" => nil,

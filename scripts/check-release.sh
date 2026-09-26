@@ -1,9 +1,13 @@
 #!/bin/sh
+# Smoke-tests a release directory: the checksum manifest (and, for a tagged
+# release, its keyless cosign bundle) must authenticate exactly one Linux
+# amd64 Elixir archive, which must then pass the structural release check.
 set -eu
 
 dist=${1:-dist}
 tag=${2:-}
 checksums="$dist/checksums.txt"
+scripts=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 if [ ! -s "$checksums" ]; then
 	echo "missing release checksums: $checksums" >&2
@@ -54,18 +58,6 @@ if ! printf '%s\n' "$archive_sha256" | grep -Eq '^[0-9a-f]{64}$'; then
 	exit 1
 fi
 
-for helper in install-elixir-release.sh check-elixir-release.sh activate-elixir-release.sh; do
-	if [ ! -x "$dist/$helper" ]; then
-		echo "release is missing executable $helper" >&2
-		exit 1
-	fi
-	digest=$(awk -v file="$helper" '$2 == file { print $1 }' "$checksums")
-	if ! printf '%s\n' "$digest" | grep -Eq '^[0-9a-f]{64}$'; then
-		echo "checksums.txt does not name exactly one trusted $helper" >&2
-		exit 1
-	fi
-done
-
-scripts/check-elixir-release.sh "$archive" "$version" "$archive_sha256" --archive-only
+"$scripts/check-elixir-release.sh" "$archive" "$version" "$archive_sha256"
 
 echo "release archive verified"

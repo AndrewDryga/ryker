@@ -38,7 +38,7 @@ defmodule Ryker.ControlPlane.Router do
   @maximum_lab_form_bytes 65_536
   @maximum_lab_multipart_bytes 8 * 1_024 * 1_024 + @maximum_lab_form_bytes
   # Every failure kind with a confirmed recovery; publications have none.
-  @recoverable_failures ~w(admission delivery emisar retention slack_incident slack_interaction work)
+  @recoverable_failures ~w(admission delivery emisar retention slack_incident slack_interaction slack_task_card slack_thread_status work)
   @lab_multipart_parser Plug.Parsers.init(
                           parsers: [{:multipart, length: @maximum_lab_multipart_bytes}],
                           query_string_length: 4_096
@@ -704,6 +704,12 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("slack_incident", resource_ref, "rearm", actions),
     do: actions.rearm_slack_incident.(resource_ref)
 
+  defp perform("slack_task_card", resource_ref, "rearm", actions),
+    do: actions.rearm_slack_task_card.(resource_ref)
+
+  defp perform("slack_thread_status", resource_ref, "rearm", actions),
+    do: actions.rearm_slack_thread_status.(resource_ref)
+
   defp perform("episode", resource_ref, "resolve", actions),
     do: actions.resolve_episode.(resource_ref)
 
@@ -753,16 +759,8 @@ defmodule Ryker.ControlPlane.Router do
   defp action_return_path("episode", resource_ref),
     do: "/timeline/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}"
 
-  defp action_return_path(kind, _resource_ref)
-       when kind in [
-              "admission",
-              "delivery",
-              "emisar",
-              "slack_incident",
-              "slack_interaction",
-              "work"
-            ],
-       do: "/failures"
+  defp action_return_path(kind, _resource_ref) when kind in @recoverable_failures,
+    do: "/failures"
 
   defp action_return_path(_kind, _resource_ref), do: "/memory"
 

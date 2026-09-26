@@ -14,7 +14,7 @@ defmodule Ryker.Admission.ConversationContextTest do
   alias Ryker.State.ConversationSummary
   alias Ryker.Work.{Custody, Turn}
 
-  @workspace "TROUTE"
+  @workspace "TCONTEXT"
   # This module's own channel: its Ryker replies admit episodes, and async
   # modules that share a conversation take its admission lock in opposite
   # orders and deadlock under load.

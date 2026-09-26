@@ -39,6 +39,8 @@ defmodule Ryker.Slack.ThreadStatusReceipts do
     |> Repo.insert(on_conflict: :nothing, conflict_target: [:lease_ref])
   end
 
+  # Tests read the receipts of one thread back, in acknowledgement order.
+  @doc false
   def for_thread(workspace, channel, thread) do
     Repo.all(
       from(r in __MODULE__,

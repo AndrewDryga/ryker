@@ -303,6 +303,8 @@ defmodule Ryker.State.KnowledgeSnapshot do
     end
   end
 
+  # Tests read a session's recorded source exposures back through this.
+  @doc false
   def session_sources(session_id) do
     sources =
       Repo.all(

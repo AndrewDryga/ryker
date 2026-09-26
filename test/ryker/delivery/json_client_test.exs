@@ -1,6 +1,7 @@
 defmodule Ryker.Delivery.JSONClientTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
   import Plug.Conn
 
   alias Ryker.Delivery.JSONClient
@@ -260,6 +261,21 @@ defmodule Ryker.Delivery.JSONClientTest do
                  JSONClient.request(client, :get, "/v1/example", nil, [])
       end
     )
+
+    # A provider that raised was returned as the whole exception, whose
+    # message can carry the vault it failed against, and that reason is
+    # stored with the delivery. The reason names the class; the log keeps
+    # the message.
+    raising = fn -> raise "vault crashed at https://vault.example" end
+    assert {:ok, client} = JSONClient.new(Keyword.put(valid, :token_provider, raising))
+
+    log =
+      capture_log(fn ->
+        assert {:error, {:delivery_credentials_unavailable, {:raised, RuntimeError}}} =
+                 JSONClient.request(client, :get, "/v1/example", nil, [])
+      end)
+
+    assert log =~ "vault crashed"
   end
 
   defp unused_port! do

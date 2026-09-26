@@ -1,330 +1,220 @@
 #!/usr/bin/env bash
-# Build, prove, install, and restart the one-writer Ryker service.
+# Deploy HEAD to the Docker Compose installation in this checkout.
 #
-# Durable admission, Work, delivery, schedule, and fleet custody resume from
-# PostgreSQL after the restart; there is no canary/promote state. Before the
-# running service is touched this proves that:
+# The only deployment is the Compose project in compose.yml, pinned by
+# RYKER_VERSION and RYKER_IMAGE in .ryker/compose.env. This is the one way a
+# commit gets there:
 #
-#   1. the tree is clean, so the release identity is an exact commit;
-#   2. the exact archive is self-contained, boots, migrates, restarts, and
-#      restores against a disposable PostgreSQL (make elixir-candidate-check);
-#   3. when the archive carries migrations the live database has not applied,
-#      a backup is taken and those migrations run against a restored copy —
-#      a migration that fails on real rows fails here, with the old release
-#      still serving. Deploys without new migrations skip this entirely.
+#   1. refuse a dirty tree and, unless --allow-not-main says otherwise, a
+#      HEAD that is not main's, so what runs is always an exact named commit;
+#   2. back the database up into .ryker/backups/ before anything changes:
+#      the container runs its migrations when it boots, and a migration that
+#      fails on real rows is undone from that archive, not by hand;
+#   3. build the image from a clean git worktree of HEAD, so nothing in the
+#      working directory that git does not know about can reach the image;
+#   4. replace only the ryker container (`up --detach --build --wait
+#      --no-deps ryker`); PostgreSQL, the bundled worker and its Docker
+#      daemon keep running and are never rebuilt here;
+#   5. wait, from the host's side, for /healthz, /readyz and the exact
+#      x-ryker-version header, and only then pin the new version in
+#      compose.env — a failed deploy leaves the previous version pinned and
+#      prints the container's log tail instead;
+#   6. remove the worktree whatever happened, and say what is running.
 #
-# Then it installs the archive immutably, moves `current`, restarts the job
-# under the host's service manager (systemd on Linux, launchd on macOS), and
-# waits for /healthz, /readyz, and the exact running version header.
+# PostgreSQL custody resumes pending admission, Work, delivery, schedule and
+# remote-worker state after the normal one-writer restart; there is no
+# canary/promote state.
 set -euo pipefail
+umask 077
 
-if [[ $# -ne 0 ]]; then
-  echo "usage: scripts/deploy.sh" >&2
+usage() {
+  cat >&2 <<'USAGE'
+usage: scripts/deploy.sh [--allow-not-main]
+
+  --allow-not-main   deploy a HEAD that is not main's HEAD (a branch or a
+                     detached commit); refused unless asked for on purpose
+USAGE
   exit 2
-fi
+}
+
+allow_not_main=0
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --allow-not-main)
+      allow_not_main=1
+      shift
+      ;;
+    *) usage ;;
+  esac
+done
 
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+state_dir=${RYKER_INSTALL_STATE:-$repository/.ryker}
+env_file=$state_dir/compose.env
+ready_timeout=${RYKER_DEPLOY_READY_TIMEOUT:-180}
+poll_seconds=${RYKER_DEPLOY_POLL_SECONDS:-2}
+keep_images=${RYKER_KEEP_IMAGES:-2}
+started=$SECONDS
+
+say() { echo "deploy: $*"; }
+fail() {
+  echo "deploy: $*" >&2
+  exit 1
+}
+
 cd "$repository"
 
-health_url=${RYKER_HEALTH_URL:-http://127.0.0.1:4321}
-keep_releases=${RYKER_KEEP_RELEASES:-5}
-
-case $(uname -s) in
-  Darwin)
-    manager=launchd
-    prefix=${RYKER_DEPLOY_PREFIX:-$HOME/.local/lib/ryker-elixir}
-    state_root=${RYKER_STATE_ROOT:-$HOME/.local/state/ryker/emisar}
-    runtime_env=${RYKER_RUNTIME_ENV:-$state_root/runtime.env}
-    label=${RYKER_LAUNCHD_LABEL:-ai.emisar.ryker}
-    erl_flags=${RYKER_ERL_FLAGS:-+S 4:4}
-    launch_agents="$HOME/Library/LaunchAgents"
-    plist="$launch_agents/$label.plist"
-    service="$label"
-    ;;
-  *)
-    manager=systemd
-    prefix=${RYKER_DEPLOY_PREFIX:-/usr/local/lib/ryker}
-    state_root=${RYKER_STATE_ROOT:-/var/lib/ryker}
-    runtime_env=${RYKER_RUNTIME_ENV:-/etc/ryker/ryker.env}
-    unit=${RYKER_SYSTEMD_UNIT:-ryker.service}
-    service="$unit"
-    ;;
-esac
-
-if [[ $health_url =~ :([0-9]+)/?$ ]]; then
-  control_port=${BASH_REMATCH[1]}
-else
-  control_port=80
-fi
-
+# --- what would run --------------------------------------------------------
 if [[ -n $(git status --porcelain) ]]; then
-  echo "deploy: refusing to deploy a dirty tree — commit first" >&2
-  exit 1
+  fail "refusing to deploy a dirty tree — commit first"
 fi
 
-command -v curl >/dev/null 2>&1 || {
-  echo "deploy: curl is required for post-restart health verification" >&2
-  exit 1
-}
-
-case $manager in
-  systemd)
-    command -v systemctl >/dev/null 2>&1 || {
-      echo "deploy: systemctl is required by the systemd deployment" >&2
-      exit 1
-    }
-    ;;
-  launchd)
-    command -v launchctl >/dev/null 2>&1 || {
-      echo "deploy: launchctl is required by the macOS deployment" >&2
-      exit 1
-    }
-    [[ -r $runtime_env ]] || {
-      echo "deploy: $runtime_env is missing; the launchd job sources it before every start" >&2
-      exit 1
-    }
-    ;;
-esac
-
-run_privileged() {
-  if [[ $manager != systemd || $(id -u) -eq 0 ]]; then
-    "$@"
-  else
-    command -v sudo >/dev/null 2>&1 || {
-      echo "deploy: sudo is required to install or restart the production service" >&2
-      return 1
-    }
-    sudo "$@"
-  fi
-}
-
-archive_sha256() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  else
-    shasum -a 256 "$1" | awk '{print $1}'
-  fi
-}
-
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-deploy.XXXXXX")
-preflight_database=
-preflight_port=
-
-cleanup() {
-  if [[ -n $preflight_database ]]; then
-    PGPASSWORD=postgres dropdb --if-exists -h 127.0.0.1 -p "$preflight_port" -U postgres \
-      "$preflight_database" >/dev/null 2>&1 || true
-  fi
-  rm -rf -- "$scratch"
-}
-
-trap cleanup EXIT
-
-# Build the exact committed archive and prove it against migrations, a
-# same-database restart, a pg_dump/restore boot, readiness, metrics, and clean
-# shutdown before touching anything installed.
-make elixir-candidate-check
+head=$(git rev-parse HEAD)
+main=$(git rev-parse --verify --quiet refs/heads/main || true)
+if [[ $head != "$main" && $allow_not_main -ne 1 ]]; then
+  fail "HEAD ${head:0:12} is not main's HEAD ${main:0:12}; deploy from main, or pass --allow-not-main on purpose"
+fi
 
 version=$(scripts/elixir-release-version.sh)
-archive="_build/prod/ryker-$version.tar.gz"
-digest=$(archive_sha256 "$archive")
-candidate="_build/prod/rel/ryker/bin/ryker"
-candidate_credential_key=
+image="ryker:$version"
 
-env_value() {
-  # env_value FILE KEY: the value of KEY=value, without surrounding quotes.
-  awk -v key="$2" '
-    index($0, key "=") == 1 {
-      value = substr($0, length(key) + 2)
-      gsub(/^["'\'']|["'\'']$/, "", value)
-      print value
-      exit
-    }' "$1"
-}
+# --- where it would run ----------------------------------------------------
+for tool in git docker curl tar; do
+  command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"
+done
+docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 (the 'docker compose' command) is required"
+[[ -r $env_file ]] || fail "Ryker is not installed here: $env_file is missing. Run ./install.sh first, or restore a backup."
 
-candidate_eval() {
-  # candidate_eval DATABASE_URL EXPRESSION: evaluate inside the built release
-  # against one database, with nothing else from the deployment's environment.
-  env DATABASE_URL="$1" POOL_SIZE=2 RELEASE_DISTRIBUTION=none \
-    RELEASE_TMP="$scratch/release-tmp" RYKER_CREDENTIAL_KEY="$candidate_credential_key" \
-    RYKER_STATE_DIR="$scratch/state" \
-    "$candidate" eval "$2"
-}
-
-pending_migrations() {
-  candidate_eval "$1" \
-    'Ryker.Release.migrations() |> Enum.count(&match?({:down, _, _}, &1)) |> IO.puts()' |
-    tail -n 1
-}
-
-# A migration proven on an empty candidate database can still fail on real
-# rows. When this archive carries migrations the live database has not applied,
-# back the live database up and run them on a restored copy in the disposable
-# test PostgreSQL first. Most deploys carry none and skip this after one check.
-if [[ -r $runtime_env ]]; then
-  database_url=$(env_value "$runtime_env" DATABASE_URL)
-  [[ -n $database_url ]] || {
-    echo "deploy: $runtime_env does not define DATABASE_URL" >&2
-    exit 1
-  }
-  candidate_credential_key=$(env_value "$runtime_env" RYKER_CREDENTIAL_KEY)
-  [[ -n $candidate_credential_key ]] || {
-    echo "deploy: $runtime_env does not define RYKER_CREDENTIAL_KEY" >&2
-    exit 1
-  }
-
-  pending=$(pending_migrations "$database_url")
-  [[ $pending =~ ^[0-9]+$ ]] || {
-    echo "deploy: could not read the live migration state: $pending" >&2
-    exit 1
-  }
-
-  if [[ $pending -gt 0 ]]; then
-    echo "deploy: $pending pending migration(s); backing up the live database and rehearsing them on a restored copy"
-    backup_dir="$state_root/backups"
-    mkdir -p "$backup_dir"
-    chmod 0700 "$backup_dir"
-    backup="$backup_dir/pre-$version-$(date -u +%Y%m%dT%H%M%SZ).dump"
-    pg_dump --format=custom --no-owner --no-privileges --file="$backup" \
-      "${database_url/#ecto:/postgresql:}"
-    chmod 0600 "$backup"
-    echo "deploy: backup written to $backup"
-
-    compose=(docker compose --project-name ryker-kernel --file "$repository/compose.test.yml")
-    "${compose[@]}" up --detach --wait episode-db >/dev/null
-    address=$("${compose[@]}" port episode-db 5432)
-    preflight_port=${address##*:}
-    preflight_database="ryker_preflight_${$}_${RANDOM}"
-    PGPASSWORD=postgres createdb -h 127.0.0.1 -p "$preflight_port" -U postgres "$preflight_database"
-    PGPASSWORD=postgres pg_restore --exit-on-error --no-owner --no-privileges \
-      -h 127.0.0.1 -p "$preflight_port" -U postgres --dbname="$preflight_database" "$backup"
-
-    preflight_url="ecto://postgres:postgres@127.0.0.1:$preflight_port/$preflight_database"
-    if ! candidate_eval "$preflight_url" 'Ryker.Release.migrate()' >"$scratch/preflight-migrate.log" 2>&1; then
-      echo "deploy: pending migrations failed against a restored copy of the live database; nothing was changed" >&2
-      cat "$scratch/preflight-migrate.log" >&2
-      exit 1
-    fi
-
-    remaining=$(pending_migrations "$preflight_url")
-    [[ $remaining == 0 ]] || {
-      echo "deploy: the rehearsal left $remaining migration(s) unapplied" >&2
-      exit 1
-    }
-    echo "deploy: migrations rehearsed on the restored copy"
-  else
-    echo "deploy: no pending migrations"
-  fi
-else
-  echo "deploy: $runtime_env is not readable; skipping the migration rehearsal"
-fi
-
-# The installer writes an immutable version directory and atomically moves only
-# the `current` symlink. The old release remains available for an explicit,
-# database-compatible rollback.
-run_privileged scripts/install-elixir-release.sh \
-  "$archive" "$version" "$digest" "$prefix" --local-build
-
-stop_unmanaged_listener() {
-  # A release started by hand (`bin/ryker daemon`) is not a launchd job.
-  # It is stopped only when it is verifiably a Ryker release under the
-  # install prefix; anything else holding the port aborts the deploy.
-  local pids pid command
-  pids=$(lsof -nP -t -iTCP:"$control_port" -sTCP:LISTEN 2>/dev/null || true)
-  [[ -n $pids ]] || return 0
-
-  for pid in $pids; do
-    command=$(ps -o comm= -p "$pid" || true)
-    if [[ $command != "$prefix/releases/"*/erts-*/bin/beam.smp ]]; then
-      echo "deploy: port $control_port is held by pid $pid ($command), not a Ryker release under $prefix" >&2
-      exit 1
-    fi
-    echo "deploy: stopping the Ryker release running outside launchd (pid $pid)"
-    kill -TERM "$pid"
-  done
-
-  for _attempt in $(seq 1 60); do
-    if [[ -z $(lsof -nP -t -iTCP:"$control_port" -sTCP:LISTEN 2>/dev/null || true) ]]; then
-      return 0
-    fi
-    sleep 1
-  done
-
-  echo "deploy: the previous release did not release port $control_port within 60s" >&2
-  exit 1
-}
-
-case $manager in
-  systemd)
-    run_privileged systemctl restart "$unit"
-    ;;
-  launchd)
-    mkdir -p "$state_root/log" "$HOME/Library/LaunchAgents"
-    sed -e "s|__LABEL__|$label|g" \
-      -e "s|__PREFIX__|$prefix|g" \
-      -e "s|__RUNTIME_ENV__|$runtime_env|g" \
-      -e "s|__STATE_ROOT__|$state_root|g" \
-      -e "s|__ERL_FLAGS__|$erl_flags|g" \
-      deploy/launchd/ryker.plist.template >"$scratch/$label.plist"
-    plutil -lint "$scratch/$label.plist" >/dev/null
-    install -m 0644 "$scratch/$label.plist" "$plist"
-
-    domain="gui/$(id -u)"
-    launchctl bootout "$domain/$label" 2>/dev/null || true
-    # bootout returns before launchd has finished tearing the job down, and a
-    # bootstrap that races it fails with "Input/output error" -- which on
-    # 2026-09-12 left the old release already stopped and nothing serving. Wait
-    # for the label to actually leave the domain before loading it again.
-    for _attempt in $(seq 1 60); do
-      launchctl print "$domain/$label" >/dev/null 2>&1 || break
-      sleep 1
-    done
-    if launchctl print "$domain/$label" >/dev/null 2>&1; then
-      echo "deploy: $label is still loaded in $domain 60s after bootout" >&2
-      exit 1
-    fi
-    stop_unmanaged_listener
-    launchctl bootstrap "$domain" "$plist"
-    ;;
+env_value() { sed -n "s/^$1=//p" "$env_file" | tail -n 1; }
+previous_version=$(env_value RYKER_VERSION)
+previous_image=$(env_value RYKER_IMAGE)
+control_port=$(env_value RYKER_CONTROL_PORT)
+control_port=${control_port:-4321}
+control_bind=$(env_value RYKER_CONTROL_BIND)
+case $control_bind in
+  "" | 0.0.0.0 | "::") control_bind=127.0.0.1 ;;
 esac
+origin="http://$control_bind:$control_port"
 
-ready=0
-for _attempt in $(seq 1 180); do
-  if curl --silent --fail --max-time 1 "$health_url/healthz" >/dev/null 2>&1 &&
-    curl --silent --fail --max-time 1 "$health_url/readyz" >/dev/null 2>&1; then
-    ready=1
-    break
+# --- cleanup, whatever happens ---------------------------------------------
+worktree=
+scratch=
+cleanup() {
+  local status=$?
+  if [[ -n $worktree && -d $worktree ]]; then
+    git -C "$repository" worktree remove --force "$worktree" >/dev/null 2>&1 || rm -rf -- "$worktree"
+    git -C "$repository" worktree prune >/dev/null 2>&1 || true
   fi
-  sleep 1
-done
+  [[ -n $scratch ]] && rm -rf -- "$scratch"
+  exit "$status"
+}
+trap cleanup EXIT
 
-if [[ $ready != 1 ]]; then
-  echo "deploy: $service did not become healthy and ready at $health_url" >&2
-  case $manager in
-    systemd) run_privileged systemctl status --no-pager "$unit" >&2 || true ;;
-    launchd) tail -n 40 "$state_root/log/ryker.stderr.log" >&2 || true ;;
-  esac
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-deploy-scratch.XXXXXX")
+worktree=$(mktemp -d "${TMPDIR:-/tmp}/ryker-deploy.XXXXXX")
+git worktree add --detach "$worktree" HEAD >/dev/null 2>&1 ||
+  fail "could not create a worktree of HEAD at $worktree"
+compose=(docker compose --env-file "$env_file" --file "$worktree/compose.yml")
+
+say "deploying ryker $version (commit ${head:0:12}) from a clean worktree at $worktree"
+say "currently pinned: ${previous_version:-nothing} (${previous_image:-no image})"
+
+# --- the database is backed up before anything changes ---------------------
+"${compose[@]}" exec -T database pg_isready -U ryker -d ryker >/dev/null 2>&1 ||
+  fail "the database container is not running; start the project first (scripts/compose.sh start)"
+
+backup_dir=$state_dir/backups
+mkdir -p "$backup_dir"
+chmod 0700 "$backup_dir"
+"${compose[@]}" exec -T database pg_dump -U ryker -d ryker --format=custom --no-owner --no-privileges \
+  >"$scratch/database.dump"
+[[ -s $scratch/database.dump ]] || fail "the database backup is empty"
+"${compose[@]}" exec -T database pg_restore --list <"$scratch/database.dump" >/dev/null ||
+  fail "the database backup does not read back as a PostgreSQL archive"
+cp "$env_file" "$scratch/compose.env"
+chmod 0600 "$scratch/database.dump" "$scratch/compose.env"
+backup="$backup_dir/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+tar -czf "$backup" -C "$scratch" database.dump compose.env
+chmod 0600 "$backup"
+say "database backed up to $backup (scripts/compose.sh restore takes it)"
+
+# --- replace the container ---------------------------------------------------
+report_failure() {
+  echo "deploy: FAILED — $1" >&2
+  echo "--- docker compose logs --tail 60 ryker ---" >&2
+  "${compose[@]}" logs --no-color --tail 60 ryker >&2 2>/dev/null || true
+  echo "--- end of logs ---" >&2
+  echo "deploy: $env_file still pins ${previous_version:-nothing}; scripts/compose.sh start recreates the container from it," >&2
+  echo "deploy: and $backup holds the database from before this deploy (scripts/compose.sh restore) in case the new release migrated it" >&2
   exit 1
+}
+
+say "building $image and replacing the ryker container (migrations run when it boots)"
+if ! env RYKER_VERSION="$version" RYKER_IMAGE="$image" \
+  "${compose[@]}" up --detach --build --wait --wait-timeout "$ready_timeout" --no-deps ryker; then
+  report_failure "the ryker container did not become healthy as $version"
 fi
 
-installed_version=$("$prefix/current/bin/ryker" version)
-if [[ $installed_version != "ryker $version" ]]; then
-  echo "deploy: installed pointer reports '$installed_version', expected ryker $version" >&2
-  exit 1
-fi
+# --- the host's view: healthy, ready, and exactly this version --------------
+healthz_code=000
+readyz_code=000
+readyz_body=
+running_version=
+probe() {
+  healthz_code=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 \
+    "$origin/healthz" 2>/dev/null || echo 000)
+  readyz_code=$(curl --silent --dump-header "$scratch/readyz.headers" --output "$scratch/readyz.body" \
+    --write-out '%{http_code}' --max-time 3 "$origin/readyz" 2>/dev/null || echo 000)
+  readyz_body=$(head -n 1 "$scratch/readyz.body" 2>/dev/null || true)
+  running_version=$(awk 'tolower($1) == "x-ryker-version:" { sub(/\r$/, "", $2); print $2; exit }' \
+    "$scratch/readyz.headers" 2>/dev/null || true)
+  [[ $healthz_code == 200 && $readyz_code == 200 && $running_version == "$version" ]]
+}
 
-scripts/check-running-elixir-release.sh "$health_url" "$version"
-
-# Keep a few immutable installs for rollback; each is tens of megabytes and a
-# hundred of them once filled the disk. Release directories are named by the
-# installer's validated version strings, so ls is safe here.
-current_target=$(readlink "$prefix/current")
-# shellcheck disable=SC2012
-ls -1t "$prefix/releases" | tail -n +"$((keep_releases + 1))" | while read -r old; do
-  [[ $old == .* || "releases/$old" == "$current_target" ]] && continue
-  run_privileged rm -rf -- "$prefix/releases/$old"
-  echo "deploy: pruned old release $old"
+deadline=$((SECONDS + ready_timeout))
+until probe; do
+  if ((SECONDS >= deadline)); then
+    report_failure "$origin did not answer healthy, ready and as $version within ${ready_timeout}s (last: /healthz $healthz_code, /readyz $readyz_code${readyz_body:+ \"$readyz_body\"}, version ${running_version:-none})"
+  fi
+  sleep "$poll_seconds"
 done
 
-echo "deploy: $service is active and ready on ryker $version"
-echo "deploy: PostgreSQL custody will resume pending work after the normal restart"
+# --- pin, then tidy ----------------------------------------------------------
+pinned=$(mktemp "$state_dir/.compose.env.XXXXXX")
+awk -v version="$version" -v image="$image" '
+  /^RYKER_VERSION=/ { print "RYKER_VERSION=" version; seen_version = 1; next }
+  /^RYKER_IMAGE=/ { print "RYKER_IMAGE=" image; seen_image = 1; next }
+  { print }
+  END {
+    if (!seen_version) print "RYKER_VERSION=" version
+    if (!seen_image) print "RYKER_IMAGE=" image
+  }' "$env_file" >"$pinned"
+chmod 0600 "$pinned"
+mv -f "$pinned" "$env_file"
+say "pinned RYKER_VERSION=$version and RYKER_IMAGE=$image in $env_file"
+
+# Every deploy leaves a 240 MB image behind, and a host that filled up once
+# refused Coop workspaces and corrupted the Go cache. Keep the pinned image,
+# the previous one for a rollback and a few more recent commit builds; tagged
+# releases and hand-made tags are never touched.
+pruned=()
+while IFS= read -r tag; do
+  [[ $tag =~ ^ryker:0\.1\.0-g[0-9a-f]{40}$ ]] || continue
+  [[ $tag == "$image" || $tag == "$previous_image" ]] && continue
+  if ((keep_images > 0)); then
+    keep_images=$((keep_images - 1))
+    continue
+  fi
+  if docker image rm "$tag" >/dev/null 2>&1; then
+    pruned+=("$tag")
+  fi
+done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' ryker 2>/dev/null || true)
+if ((${#pruned[@]} > 0)); then
+  say "pruned ${#pruned[@]} older image(s): ${pruned[*]}"
+fi
+
+elapsed=$((SECONDS - started))
+say "ryker $version is running at $origin (image $image): healthy, ready, version header verified"
+"${compose[@]}" ps ryker 2>/dev/null || true
+say "done in $((elapsed / 60))m $((elapsed % 60))s"
+say "PostgreSQL custody resumes pending work after the normal restart"

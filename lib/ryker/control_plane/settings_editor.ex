@@ -9,7 +9,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   removing a row takes a second step that says what removing it does.
 
   A list section reads as rows on the page (see `Kit`); a row is edited in
-  place, and a new row is added below the list.
+  place, under that row. Add opens the form for a new row right under the
+  button, above the list, and pressed again closes it, as Cancel does.
   """
 
   use Phoenix.LiveComponent
@@ -74,8 +75,13 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   def handle_event("select-item", %{"item" => key}, socket),
     do: {:noreply, reset(socket, key)}
 
-  def handle_event("new-item", _params, socket),
-    do: {:noreply, socket |> reset(nil) |> assign(:editor_visible, true)}
+  # Add toggles the form for a new row: pressed while that form is open, it
+  # closes it the way Cancel does.
+  def handle_event("new-item", _params, socket) do
+    if adding?(socket.assigns),
+      do: {:noreply, reset(socket, nil)},
+      else: {:noreply, socket |> reset(nil) |> assign(:editor_visible, true)}
+  end
 
   def handle_event("review-current", _params, socket),
     do: {:noreply, assign(socket, conflict: nil, expected_revision: socket.assigns.view.revision)}
@@ -334,18 +340,36 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       aria-label={@section.title}
     >
       <Kit.section_head :if={@show_header} title={@section.title} lede={@section.description}>
-        <:actions :if={@collection? and !@open?}>
-          <.add_button noun={@noun} myself={@myself} />
+        <:actions :if={@collection?}>
+          <.add_button noun={@noun} myself={@myself} expanded={@placement == :above} />
         </:actions>
       </Kit.section_head>
       <div :if={!@show_header and @collection?} class="settings-collection-bar">
         <p>{count(@rows, @noun)}</p>
-        <.add_button :if={!@open?} noun={@noun} myself={@myself} />
+        <.add_button noun={@noun} myself={@myself} expanded={@placement == :above} />
       </div>
       <p :if={@notice} class="settings-notice">
         {@notice.text}
         <.link :if={@notice[:href]} navigate={@notice.href}>{@notice.link}</.link>
       </p>
+      <.editor
+        :if={@placement == :above}
+        id={@id}
+        section={@section}
+        view={@view}
+        draft={@draft}
+        dirty={@dirty}
+        errors={@errors}
+        error={@error}
+        impact={@impact}
+        conflict={@conflict}
+        item_key={@item_key}
+        message={@message}
+        myself={@myself}
+        show_header={@show_header}
+        collection?={@collection?}
+        noun={@noun}
+      />
       <Kit.entity_list :if={@rows != []} label={@section.title}>
         <Kit.entity_row
           :for={{key, row} <- @rows}
@@ -472,6 +496,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   attr(:noun, :string, required: true)
   attr(:myself, :any, required: true)
+  attr(:expanded, :boolean, required: true, doc: "Whether the form for a new row is open")
 
   defp add_button(assigns) do
     ~H"""
@@ -480,6 +505,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       class="ui-button secondary settings-editor-add"
       phx-click="new-item"
       phx-target={@myself}
+      aria-expanded={to_string(@expanded)}
     ><Components.icon name={:plus} />Add {@noun}</button>
     """
   end
@@ -661,6 +687,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     """
   end
 
+  # A choice whose reach is not obvious, such as a model, says under the
+  # control where Ryker uses it, and is read out with it.
   defp field(assigns) do
     ~H"""
     <div class="settings-field">
@@ -670,11 +698,14 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         field={@field}
         id={@id}
         value={@value}
-        help={help_id(@id, @field)}
+        help={described_by(@id, @field)}
         options={@options}
         invalid={not is_nil(@error)}
         locked={@locked}
       />
+      <p :if={@field[:used]} class="settings-help settings-used" id={"#{@id}-used"}>
+        {@field.used}
+      </p>
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
     </div>
     """
@@ -796,6 +827,13 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp help_id(id, %{help: _help}), do: "#{id}-help"
   defp help_id(_id, _field), do: nil
 
+  defp described_by(id, field) do
+    case Enum.filter([help_id(id, field), field[:used] && "#{id}-used"], & &1) do
+      [] -> nil
+      ids -> Enum.join(ids, " ")
+    end
+  end
+
   # A singleton form that stands alone on its page shows its groups as the
   # page's sections; inside a titled section or a list row they are small
   # group titles.
@@ -807,13 +845,17 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       not is_nil(assigns.error) or not is_nil(assigns.conflict) or not is_nil(assigns.impact)
   end
 
+  defp adding?(assigns), do: is_nil(assigns.item_key) and editor_open?(assigns)
+
   # A row is edited where it is listed. A new row, or one that disappeared
-  # while it was open, is edited below the list.
+  # while it was open, is edited above the list, under the Add that opened
+  # it: a form under the whole list is one nobody sees open. A section that
+  # is one form has no list, so its form simply follows its heading.
   defp placement(false, _open?, _item_key, _rows), do: :below
   defp placement(true, false, _item_key, _rows), do: nil
 
   defp placement(true, true, item_key, rows) do
-    if item_key && List.keymember?(rows, item_key, 0), do: {:row, item_key}, else: :below
+    if item_key && List.keymember?(rows, item_key, 0), do: {:row, item_key}, else: :above
   end
 
   defp rows(section, view) do

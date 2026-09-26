@@ -40,13 +40,16 @@ at a time:
 5. choose that channel’s environment; and
 6. send one real Slack request and receive its delivered answer.
 
-An **environment** is where Ryker works: the repositories work in it may use, in order (work
-changes the first and only reads the others), and at most one Emisar account. Importing a
-repository adds it to the default environment and creates one named "Default" when there is none,
-so there is no separate step for environments. A channel Ryker joins starts in the default
-environment; one it joined before any existed has none, and step 5 chooses one on the channel's
-page (or from Ryker's welcome message in Slack). Chat and every conversation without its own
-choice work in the default environment. Environments are managed under **Work › Environments**.
+An **environment** is where Ryker works: a set of repositories, all of which every piece of work
+in it can read, and at most one Emisar account. Each task changes one repository of the
+environment, chosen for that task (Ryker picks it from what the request or alert is about; a
+proposed task names it), and mounts the others read-only beside it; the order only names the
+default choice, the first. Importing a repository adds it to the default environment and creates
+one named "Default" when there is none, so there is no separate step for environments. A channel
+Ryker joins starts in the default environment; one it joined before any existed has none, and
+step 5 chooses one on the channel's page (or from Ryker's welcome message in Slack). A Chat
+conversation starts in the default environment and can switch to another, or to none, while it is
+open. Environments are managed under **Work › Environments**.
 
 Ryker notices steps 4 and 6 itself, and step 5 as soon as a joined channel has an environment.
 Connecting Emisar is the one recommended extra: it is optional and never blocks setup, but without

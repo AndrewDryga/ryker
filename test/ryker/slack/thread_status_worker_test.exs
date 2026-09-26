@@ -5,6 +5,8 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
   import ExUnit.CaptureLog
   import Ecto.Query
 
+  alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
+  alias Ryker.Operator.Failures
   alias Ryker.Repo
   alias Ryker.Slack.{ThreadStatus, ThreadStatuses, ThreadStatusWorker}
 
@@ -71,6 +73,77 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
 
     assert {:ok, %{failed: 0, written: 0}} = ThreadStatusWorker.run_once(options)
     assert length(Agent.get(client, & &1.writes)) == 1
+  end
+
+  # A status whose channel Slack said was gone was written again every minute
+  # for as long as the thread existed, and nothing listed it; the only cap on
+  # its attempts was the backoff ceiling.
+  test "a thread status Slack says is gone stops retrying and is listed on Failures" do
+    {:ok, client} =
+      Agent.start_link(fn ->
+        %{result: {:error, {:slack_api_error, "channel_not_found"}}, writes: []}
+      end)
+
+    {:ok, projection} = Agent.start_link(fn -> [target(:working, "is working...")] end)
+    options = options(client, projection)
+
+    assert {:ok, %{failed: 1, written: 0}} = ThreadStatusWorker.run_once(options)
+
+    assert %ThreadStatus{status: :blocked, attempt_count: 1, next_attempt_at: nil} =
+             blocked = status!()
+
+    assert blocked.last_error_code == "slack_api_error"
+    assert blocked.lease_ref == nil
+
+    # Nothing claims it again.
+    assert {:ok, %{failed: 0, written: 0}} = ThreadStatusWorker.run_once(options)
+    assert length(Agent.get(client, & &1.writes)) == 1
+
+    assert {:ok, failures} = FailureProjection.list(%{})
+    assert %{} = row = Enum.find(failures, &(&1.ref == blocked.id))
+    assert row.kind == "slack_thread_status"
+    assert row.action == :rearm
+    assert row.destination == "slack:T123:C456 / 1787832000.000100"
+    assert row.provider_error == "channel_not_found"
+    assert FailureExplanation.explain(row).outlook == :stuck
+
+    assert {:ok, %{outcome: %{"status" => "pending"}}} =
+             Failures.retry("slack_thread_status", blocked.id,
+               actor_ref: "control-plane:local",
+               action_ref: "control-plane:retry:#{Ecto.UUID.generate()}"
+             )
+
+    assert %ThreadStatus{status: :pending, attempt_count: 0, last_error_code: nil} = status!()
+    assert FailureProjection.fetch("slack_thread_status", blocked.id) == :not_found
+    assert {:error, :slack_thread_status_not_blocked} = ThreadStatuses.rearm(blocked.id)
+
+    Agent.update(client, &%{&1 | result: :ok})
+    assert {:ok, %{failed: 0, written: 1}} = ThreadStatusWorker.run_once(options)
+    assert %ThreadStatus{status: :delivered, delivered_generation: 1} = status!()
+  end
+
+  # A status Slack keeps refusing for other reasons blocks after its attempts.
+  # The next thing Ryker wants to show in that thread is a new write with its
+  # own budget, so the blocked row clears itself and leaves Failures.
+  test "a thread status that keeps failing blocks after its attempts and a newer status starts fresh" do
+    {:ok, client} =
+      Agent.start_link(fn -> %{result: {:error, :slack_unavailable}, writes: []} end)
+
+    {:ok, projection} = Agent.start_link(fn -> [target(:queued, "is queued...")] end)
+    options = options(client, projection, %{max_attempts: 2})
+
+    assert {:ok, %{failed: 1, written: 0}} = ThreadStatusWorker.run_once(options)
+    assert %ThreadStatus{status: :pending, attempt_count: 1} = status!()
+    make_due!(status!().id)
+    assert {:ok, %{failed: 1, written: 0}} = ThreadStatusWorker.run_once(options)
+    assert %ThreadStatus{status: :blocked, attempt_count: 2} = blocked = status!()
+    assert {:ok, %{status: :blocked}} = FailureProjection.fetch("slack_thread_status", blocked.id)
+
+    Agent.update(projection, fn _ -> [target(:working, "is working...")] end)
+    assert {:ok, %{failed: 1, written: 0}} = ThreadStatusWorker.run_once(options)
+
+    assert %ThreadStatus{status: :pending, attempt_count: 1, generation: 2} = status!()
+    assert FailureProjection.fetch("slack_thread_status", blocked.id) == :not_found
   end
 
   test "a newer durable generation fences confirmation of an older in-flight write" do
@@ -252,20 +325,25 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
     assert ThreadStatusWorker.run_once(valid_keyword_options) == {:error, :unavailable}
   end
 
-  defp options(client, projection) do
-    ThreadStatusWorker.options!(%{
-      api: FakeAPI,
-      client: client,
-      interval_ms: 1_000,
-      lease_seconds: 30,
-      maximum_writes: 10,
-      minimum_interval_ms: 3_000,
-      refresh_interval_ms: 90_000,
-      retry_base_ms: 1_000,
-      snapshot: fn _workspace_ref -> {:ok, Agent.get(projection, & &1)} end,
-      worker_ref: "slack-status:T123",
-      workspace_ref: "T123"
-    })
+  defp options(client, projection, overrides \\ %{}) do
+    ThreadStatusWorker.options!(
+      Map.merge(
+        %{
+          api: FakeAPI,
+          client: client,
+          interval_ms: 1_000,
+          lease_seconds: 30,
+          maximum_writes: 10,
+          minimum_interval_ms: 3_000,
+          refresh_interval_ms: 90_000,
+          retry_base_ms: 1_000,
+          snapshot: fn _workspace_ref -> {:ok, Agent.get(projection, & &1)} end,
+          worker_ref: "slack-status:T123",
+          workspace_ref: "T123"
+        },
+        overrides
+      )
+    )
   end
 
   defp target(phase, status) do

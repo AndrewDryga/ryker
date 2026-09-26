@@ -22,7 +22,7 @@ COPY config config
 COPY lib lib
 COPY priv priv
 COPY README.md CHANGELOG.md LICENSE SECURITY.md ./
-COPY Dockerfile compose.yml install.sh ./
+COPY Dockerfile compose.yml install.sh release-assets.txt ./
 COPY deploy/compose deploy/compose
 COPY deploy/nginx deploy/nginx
 COPY docs docs

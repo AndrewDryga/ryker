@@ -5,7 +5,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
   Integrations overview and a page per integration (Slack, GitHub, Emisar,
   Webhooks), and a page per installation setting (Models, Data retention,
   Model prices, Advanced). The sidebar is the only menu; each page has one
-  title, one sentence and plain sections.
+  title, one sentence and plain sections. A page's Add opens its form under
+  the button, above the list it adds to, and pressed again closes it.
 
   A connection reads as a dot and a word with the one action that fits it
   (see `Integrations`). Anything that disconnects or deletes asks first and
@@ -16,6 +17,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   use Phoenix.Component
 
   alias Phoenix.LiveView.JS
+  alias Ryker.BundledCoop
 
   alias Ryker.ControlPlane.{
     Components,
@@ -99,7 +101,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
     ~H"""
     <div class="settings-page" id="settings-page" phx-hook="SettingsDraft">
       <Components.page_header title={@page.title} description={@page.description}>
-        <:action :if={@section == :environments}><EnvironmentsPage.add /></:action>
+        <:action :if={@section == :environments}>
+          <EnvironmentsPage.add open={@params["edit"] == "new"} />
+        </:action>
       </Components.page_header>
 
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="page-feedback" />
@@ -309,10 +313,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         title="Slack tokens"
         lede="Replace them only when they changed in your Slack app."
       />
-      <details class="settings-disclosure">
-        <summary>Replace the tokens</summary>
-        <.slack_form label="Replace tokens" />
-      </details>
+      <.slack_form label="Replace tokens" />
     </section>
     """
   end
@@ -468,10 +469,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         title="App credentials"
         lede="Replace them only when the App ID, private key or webhook secret changed."
       />
-      <details class="settings-disclosure">
-        <summary>Replace the App credentials</summary>
-        <.github_form label="Replace credentials" />
-      </details>
+      <.github_form label="Replace credentials" />
     </section>
     """
   end
@@ -511,11 +509,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
         </div>
         <div class="settings-field">
           <label for={"github-webhook-secret-#{@key}"}>Webhook secret</label>
-          <p class="settings-help">Leave empty and Ryker creates one.</p>
+          <p class="settings-help">At least 32 characters. Leave empty and Ryker creates one.</p>
           <input
             id={"github-webhook-secret-#{@key}"}
             type="password"
             name="connection[webhook_secret]"
+            minlength="32"
           />
         </div>
       </fieldset>
@@ -578,15 +577,20 @@ defmodule Ryker.ControlPlane.SettingsPage do
         title="Accounts"
         lede="Pause an account to stop sending it new work. Its history stays."
       >
-        <:actions :if={is_nil(@edit_ref)}>
+        <:actions>
           <button
             type="button"
             class="ui-button secondary"
-            phx-click="show-emisar-form"
+            phx-click={if @edit_ref == "new", do: "hide-emisar-form", else: "show-emisar-form"}
             phx-value-ref="new"
+            aria-expanded={to_string(@edit_ref == "new")}
           ><Components.icon name={:plus} />Add account</button>
         </:actions>
       </Kit.section_head>
+      <div :if={@edit_ref == "new"} class="settings-editor">
+        <h3 class="settings-editor-heading">Add an account</h3>
+        <.emisar_form cancel={true} />
+      </div>
       <Kit.entity_list label="Emisar accounts">
         <Kit.entity_row
           :for={account <- @accounts}
@@ -637,13 +641,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
           </:details>
         </Kit.entity_row>
       </Kit.entity_list>
-      <div :if={@edit_ref == "new"} class="settings-editor">
-        <h3 class="settings-editor-heading">Add an account</h3>
-        <.emisar_form />
-        <button type="button" class="ui-button secondary" phx-click="hide-emisar-form">
-          Cancel
-        </button>
-      </div>
     </section>
     """
   end
@@ -733,6 +730,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
     """
   end
 
+  attr(:cancel, :boolean, default: false, doc: "Whether the form can be closed without adding")
+
   defp emisar_form(assigns) do
     ~H"""
     <form phx-submit="connect-emisar" autocomplete="off" class="settings-form">
@@ -754,6 +753,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
       </div>
       <div class="settings-actions">
         <button class="ui-button primary" type="submit">Connect account</button>
+        <button
+          :if={@cancel}
+          type="button"
+          class="ui-button secondary"
+          phx-click="hide-emisar-form"
+        >Cancel</button>
       </div>
     </form>
     """
@@ -781,12 +786,20 @@ defmodule Ryker.ControlPlane.SettingsPage do
         title="Signing credentials"
         lede="Senders sign each request with a shared secret, so Ryker knows it is theirs."
       >
-        <:actions :if={@credentials != [] and !@editing}>
-          <button type="button" class="ui-button secondary" phx-click="show-webhook-credential-form">
+        <:actions :if={@credentials != []}>
+          <button
+            type="button"
+            class="ui-button secondary"
+            phx-click={
+              if @editing, do: "hide-webhook-credential-form", else: "show-webhook-credential-form"
+            }
+            aria-expanded={to_string(@editing)}
+          >
             <Components.icon name={:plus} />Add signing credential
           </button>
         </:actions>
       </Kit.section_head>
+      <.webhook_credential_form :if={@credentials == [] or @editing} cancel={@credentials != []} />
       <Kit.entity_list :if={@credentials != []} label="Signing credentials">
         <Kit.entity_row
           :for={credential <- @credentials}
@@ -818,40 +831,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
           </:details>
         </Kit.entity_row>
       </Kit.entity_list>
-      <div :if={@credentials == [] or @editing} class="settings-editor">
-        <h3 class="settings-editor-heading">Add a signing credential</h3>
-        <form phx-submit="create-webhook-credential" autocomplete="off" class="settings-form">
-          <div class="settings-field">
-            <label for="webhook-credential-name">Name</label>
-            <p class="settings-help">
-              Lowercase letters, numbers, dots, dashes and colons, such as grafana.
-            </p>
-            <input
-              id="webhook-credential-name"
-              type="text"
-              name="credential[name]"
-              pattern="[a-z0-9][a-z0-9_.:-]{0,127}"
-              required
-            />
-          </div>
-          <div class="settings-field">
-            <label for="webhook-credential-secret">Existing secret (optional)</label>
-            <p class="settings-help">
-              Leave empty and Ryker creates a strong one and shows it to you once.
-            </p>
-            <input id="webhook-credential-secret" type="password" name="credential[secret]" />
-          </div>
-          <div class="settings-actions">
-            <button class="ui-button primary" type="submit">Create credential</button>
-            <button
-              :if={@credentials != []}
-              type="button"
-              class="ui-button secondary"
-              phx-click="hide-webhook-credential-form"
-            >Cancel</button>
-          </div>
-        </form>
-      </div>
     </section>
 
     <.live_component
@@ -868,6 +847,53 @@ defmodule Ryker.ControlPlane.SettingsPage do
       view={@view}
       check={@commands.preview_webhook}
     />
+    """
+  end
+
+  attr(:cancel, :boolean, required: true, doc: "Whether the form can be closed without adding")
+
+  # Opens under the section's Add button, above the credentials it adds to.
+  defp webhook_credential_form(assigns) do
+    ~H"""
+    <div class="settings-editor">
+      <h3 class="settings-editor-heading">Add a signing credential</h3>
+      <form phx-submit="create-webhook-credential" autocomplete="off" class="settings-form">
+        <div class="settings-field">
+          <label for="webhook-credential-name">Name</label>
+          <p class="settings-help">
+            Lowercase letters, numbers, dots, dashes and colons, such as grafana.
+          </p>
+          <input
+            id="webhook-credential-name"
+            type="text"
+            name="credential[name]"
+            pattern="[a-z0-9][a-z0-9_.:-]{0,127}"
+            required
+          />
+        </div>
+        <div class="settings-field">
+          <label for="webhook-credential-secret">Existing secret (optional)</label>
+          <p class="settings-help">
+            At least 32 characters. Leave empty and Ryker creates a strong one and shows it to you once.
+          </p>
+          <input
+            id="webhook-credential-secret"
+            type="password"
+            name="credential[secret]"
+            minlength="32"
+          />
+        </div>
+        <div class="settings-actions">
+          <button class="ui-button primary" type="submit">Create credential</button>
+          <button
+            :if={@cancel}
+            type="button"
+            class="ui-button secondary"
+            phx-click="hide-webhook-credential-form"
+          >Cancel</button>
+        </div>
+      </form>
+    </div>
     """
   end
 
@@ -1050,10 +1076,26 @@ defmodule Ryker.ControlPlane.SettingsPage do
         "What each model costs per million tokens. Ryker uses these to estimate cost when the provider does not report it."
     }
 
-  defp page(:system),
-    do: %{
+  # What a worker is comes first, because everything on the page is about
+  # one. Only the Compose distribution has a worker set up for the reader.
+  defp page(:system) do
+    worker =
+      "Ryker runs its work on a worker: a machine with your code checked out that runs the " <>
+        "model and its tools."
+
+    %{
       title: "Advanced",
       description:
-        "Worker placement, execution policies and what the running system loaded. The bundled worker sets these up for you."
+        if(BundledCoop.distribution?(),
+          do:
+            worker <>
+              " The bundled worker on this host is set up for you; change these only if you " <>
+              "run your own workers.",
+          else:
+            worker <>
+              " This installation uses workers you run yourself; choose their install and " <>
+              "what each kind of work may do below."
+        )
     }
+  end
 end

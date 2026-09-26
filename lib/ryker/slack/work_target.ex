@@ -22,21 +22,6 @@ defmodule Ryker.Slack.WorkTarget do
 
   def resolve(_work_ref, _target), do: {:error, :work_control_not_found}
 
-  @spec resolve_thread(String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def resolve_thread("task-card:" <> _rest = work_ref, target) do
-    with {:ok, resolved} <- task(work_ref) do
-      exact_thread_target(resolved, target)
-    end
-  end
-
-  def resolve_thread("incident-room:" <> _rest = work_ref, target) do
-    with {:ok, resolved} <- incident(work_ref) do
-      exact_thread_target(resolved, target)
-    end
-  end
-
-  def resolve_thread(_work_ref, _target), do: {:error, :work_control_not_found}
-
   defp task(work_ref) do
     case Repo.one(
            from(card in TaskCard,
@@ -106,22 +91,6 @@ defmodule Ryker.Slack.WorkTarget do
 
   defp exact_target(_resolved, _target, _stored_thread_ref),
     do: {:error, :work_control_target_mismatch}
-
-  defp exact_thread_target(resolved, %{} = target) do
-    expected_conversation = "slack:#{resolved.workspace_ref}:#{resolved.channel_ref}"
-
-    if Map.keys(target) |> Enum.sort() ==
-         Enum.sort([:conversation_ref, :message_ref, :thread_ref, :transport]) and
-         target.transport == "slack" and target.conversation_ref == expected_conversation and
-         is_binary(target.message_ref) and target.message_ref != "" and
-         exact_thread?(target.thread_ref, resolved.output_thread_ref, target.message_ref) do
-      {:ok, resolved}
-    else
-      {:error, :work_control_target_mismatch}
-    end
-  end
-
-  defp exact_thread_target(_resolved, _target), do: {:error, :work_control_target_mismatch}
 
   defp exact_thread?(value, value, _message_ref), do: true
   defp exact_thread?(nil, stored, message_ref), do: stored == message_ref

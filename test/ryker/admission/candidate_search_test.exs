@@ -12,7 +12,7 @@ defmodule Ryker.Admission.CandidateSearchTest do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.Session
 
-  @workspace "TROUTE"
+  @workspace "TCANDIDATES"
   @now ~U[2026-09-11 12:00:00.000000Z]
 
   setup do

@@ -64,11 +64,6 @@ defmodule Ryker.ControlPlane.FactsPage do
         title="No facts yet"
         text="A fact appears here after someone asks Ryker to remember something and confirms what it proposes to save."
       />
-      <Kit.ask_hint
-        lead="To add a fact, tell Ryker in chat or Slack:"
-        example="Remember that pay-gw is the payments gateway."
-        rest="It saves the fact after you confirm."
-      />
       <section :if={@view.reviews != []} id="review" class="memory-section">
         <Kit.section_head
           title="Needs review"

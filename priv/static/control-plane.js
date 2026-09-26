@@ -10,6 +10,7 @@ import {ElapsedTime} from "/assets/elapsed-time.mjs"
 import {copyValueFromEvent} from "/assets/copy-value.mjs"
 import {setupTooltips} from "/assets/tooltips.mjs"
 import {setupPromptParts} from "/assets/prompt-parts.mjs"
+import {createPageHelp, wideQuery} from "/assets/page-help.mjs"
 
 // The shell: one LiveView socket and the hooks that keep a reader's place,
 // drafts and unsaved edits across patches. Each hook's behaviour lives in its
@@ -31,6 +32,14 @@ const InstructionDraft = {
 const SettingsDraft = {
   mounted() { this.guard = createSettingsGuard(this.el) },
   destroyed() { this.guard.destroy() }
+}
+const PageHelp = {
+  mounted() {
+    const keepOpenState = element => this.js().ignoreAttributes(element, ["open"])
+    this.help = createPageHelp(this.el, window.matchMedia(wideQuery), keepOpenState)
+    this.help.mounted()
+  },
+  destroyed() { this.help.destroyed() }
 }
 const PrivateKeyFile = {
   mounted() {
@@ -61,6 +70,6 @@ const RepositorySearch = {
 const csrfToken = document.querySelector("meta[name=csrf-token]").content
 const liveSocket = new LiveSocket("/live", Socket, {
   params: {_csrf_token: csrfToken},
-  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PrivateKeyFile, RepositorySearch, ConversationHistory, FilterMenu, ElapsedTime}
+  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PageHelp, PrivateKeyFile, RepositorySearch, ConversationHistory, FilterMenu, ElapsedTime}
 })
 liveSocket.connect()

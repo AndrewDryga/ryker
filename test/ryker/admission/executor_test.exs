@@ -280,6 +280,96 @@ defmodule Ryker.Admission.ExecutorTest do
              )
   end
 
+  # A route in an environment with several repositories requires the new
+  # episode to name the one it changes, from the list the prompt offered, and
+  # the session is pinned to exactly that choice: its working copy, with the
+  # others read-only. Before, every episode there changed the environment's
+  # first repository whatever the event was about, so a task on any other
+  # repository ran against the wrong working copy.
+  test "a shared environment's route requires the repository choice and pins the session to it" do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "The ledger export is failing since the last deploy."},
+               event_kind: :message,
+               event_ref: "Ev-executor-repository-choice",
+               message_ref: "1787832004.000100",
+               occurred_at: @now,
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "TE5D7C8842D32"
+             })
+
+    repositories = ["billing", "ledger"]
+
+    work_profile = %{
+      environment_ref: "platform",
+      parallel_goal_limit: 2,
+      policies:
+        Map.new(repositories, fn repository ->
+          {repository,
+           Map.new([:conversational, :standard, :deep], fn work_class ->
+             {work_class,
+              %{
+                authority_digest: String.duplicate("e", 64),
+                policy: "#{repository}-#{work_class}",
+                policy_digest: String.duplicate("b", 64)
+              }}
+           end)}
+        end),
+      repositories: repositories
+    }
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input, work_profile: work_profile)
+    lease_ref = claim!(entry)
+
+    with_repository = fn repository ->
+      decision("start_episode")
+      |> Jason.decode!()
+      |> Map.put("repository", repository)
+      |> Jason.encode!()
+    end
+
+    {:ok, fake} =
+      FakeAPI.start_link([
+        with_repository.(nil),
+        with_repository.("elsewhere"),
+        with_repository.("ledger")
+      ])
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+
+    assert execution.result.entry.decision_action == :start_episode
+
+    state = FakeAPI.state(fake)
+
+    assert state.schema["properties"]["repository"]["anyOf"] == [
+             %{"enum" => repositories, "type" => "string"},
+             %{"type" => "null"}
+           ]
+
+    assert Jason.decode!(state.submitted_prompt)["context"]["repository_choices"] ==
+             [%{"ref" => "billing"}, %{"ref" => "ledger"}]
+
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :reject, :accept]
+    [required, unknown | _accepted] = Enum.map(state.validations, &List.wrap(&1.violations))
+    assert hd(required) =~ "repository is required"
+    assert hd(unknown) =~ ~s("billing", "ledger")
+
+    assert %Session{policy: "ledger-standard", repository_ref: "ledger"} =
+             session =
+             Repo.one!(
+               from(session in Session,
+                 where: session.episode_id == ^execution.result.episode.id
+               )
+             )
+
+    assert session.repository_context["primary_repository"] == "ledger"
+    assert session.repository_context["read_only_repositories"] == ["billing"]
+  end
+
   test "a selector on a route without a repository is repaired in the same Coop turn" do
     entry = record_slack_input!("Ev-executor-source-unbacked")
     lease_ref = claim!(entry)

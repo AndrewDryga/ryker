@@ -35,8 +35,9 @@ defmodule Ryker.BundledCoop do
     schedule: "schedule",
     standard: "standard"
   }
-  # An environment with several repositories needs its own policies: Coop
-  # mounts the read-only repositories only for a policy that declares them.
+  # An environment with several repositories needs policies of its own, one
+  # set per repository: work there may change any of them, and Coop mounts
+  # the other repositories read-only only for a policy that declares them.
   @environment_policies %{
     conversational: "conversation",
     contributor: "contributor",
@@ -181,30 +182,33 @@ defmodule Ryker.BundledCoop do
 
     match?(%Worker{}, worker) and snapshot.work.workspace_ref == worker.workspace_ref and
       expected_bindings(snapshot)
-      |> Enum.all?(fn {purpose, scope_kind, scope_ref, policy_name} ->
+      |> Enum.all?(fn {purpose, scope_kind, scope_ref, repository_ref, policy_name} ->
         digest = Map.get(worker.policy_digests, policy_name)
 
         is_binary(digest) and
           Enum.any?(snapshot.policy_bindings, fn binding ->
             binding.purpose == purpose and binding.scope_kind == scope_kind and
-              binding.scope_ref == scope_ref and binding.policy_name == policy_name and
-              binding.policy_digest == digest
+              binding.scope_ref == scope_ref and binding.repository_ref == repository_ref and
+              binding.policy_name == policy_name and binding.policy_digest == digest
           end)
       end)
   rescue
     _error -> false
   end
 
+  # Every binding this distribution pins: purpose, scope, the repository an
+  # environment binding is for (empty for every other scope) and the policy.
   defp expected_bindings(snapshot) do
     installation =
       Enum.map(@installation_policies, fn {purpose, policy_name} ->
-        {purpose, :installation, "", policy_name}
+        {purpose, :installation, "", "", policy_name}
       end)
 
     repositories =
       Enum.flat_map(snapshot.repositories, fn repository ->
         Enum.map(@repository_policies, fn {purpose, suffix} ->
-          {purpose, :repository, repository.ref, repository_policy_name(repository.ref, suffix)}
+          {purpose, :repository, repository.ref, "",
+           repository_policy_name(repository.ref, suffix)}
         end)
       end)
 
@@ -212,10 +216,11 @@ defmodule Ryker.BundledCoop do
       snapshot.environments
       |> Enum.filter(&own_policies?/1)
       |> Enum.flat_map(fn environment ->
-        Enum.map(@environment_policies, fn {purpose, suffix} ->
-          {purpose, :environment, environment.ref,
-           environment_policy_name(environment.ref, suffix)}
-        end)
+        for repository_ref <- Environment.repository_refs(environment),
+            {purpose, suffix} <- @environment_policies do
+          {purpose, :environment, environment.ref, repository_ref,
+           environment_policy_name(environment.ref, repository_ref, suffix)}
+        end
       end)
 
     installation ++ repositories ++ environments
@@ -468,24 +473,25 @@ defmodule Ryker.BundledCoop do
     end)
   end
 
-  # The first repository is the one the environment's work changes; every other
-  # one is mounted read-only under its ref, the name the Work executor checks
+  # Work in an environment may change any of its repositories, so each one
+  # gets its own policies: that repository as the working copy and every other
+  # one mounted read-only under its ref, the name the Work executor checks
   # each session's companions against.
   defp environment_policy_documents(root, environment) do
-    [writable | read_only] = Environment.repository_refs(environment)
+    refs = Environment.repository_refs(environment)
 
-    companions =
-      Enum.map(read_only, &%{name: &1, repository: Path.join([root, "repositories", &1])})
-
-    Enum.map(@environment_policies, fn {purpose, suffix} ->
+    for repository_ref <- refs, {purpose, suffix} <- @environment_policies do
       %{
-        companions: companions,
-        name: environment_policy_name(environment.ref, suffix),
+        companions:
+          refs
+          |> List.delete(repository_ref)
+          |> Enum.map(&%{name: &1, repository: Path.join([root, "repositories", &1])}),
+        name: environment_policy_name(environment.ref, repository_ref, suffix),
         purpose: purpose,
         read_only: purpose not in @writable_purposes,
-        repository: Path.join([root, "repositories", writable])
+        repository: Path.join([root, "repositories", repository_ref])
       }
-    end)
+    end
   end
 
   defp policy_yaml(policy, target) do
@@ -560,7 +566,7 @@ defmodule Ryker.BundledCoop do
 
   defp ensure_installation_bindings(worker) do
     Enum.each(@installation_policies, fn {purpose, policy_name} ->
-      ensure_binding(worker, purpose, :installation, "", policy_name)
+      ensure_binding(worker, purpose, :installation, "", "", policy_name)
     end)
   end
 
@@ -574,6 +580,7 @@ defmodule Ryker.BundledCoop do
           purpose,
           :repository,
           repository.ref,
+          "",
           repository_policy_name(repository.ref, suffix)
         )
       end)
@@ -584,19 +591,21 @@ defmodule Ryker.BundledCoop do
     snapshot.environments
     |> Enum.filter(&own_policies?/1)
     |> Enum.each(fn environment ->
-      Enum.each(@environment_policies, fn {purpose, suffix} ->
+      for repository_ref <- Environment.repository_refs(environment),
+          {purpose, suffix} <- @environment_policies do
         ensure_binding(
           worker,
           purpose,
           :environment,
           environment.ref,
-          environment_policy_name(environment.ref, suffix)
+          repository_ref,
+          environment_policy_name(environment.ref, repository_ref, suffix)
         )
-      end)
+      end
     end)
   end
 
-  defp ensure_binding(worker, purpose, scope_kind, scope_ref, policy_name) do
+  defp ensure_binding(worker, purpose, scope_kind, scope_ref, repository_ref, policy_name) do
     case Map.fetch(worker.policy_digests, policy_name) do
       {:ok, digest} ->
         snapshot = Settings.fetch!()
@@ -604,7 +613,7 @@ defmodule Ryker.BundledCoop do
         current =
           Enum.find(snapshot.policy_bindings, fn binding ->
             binding.purpose == purpose and binding.scope_kind == scope_kind and
-              binding.scope_ref == scope_ref
+              binding.scope_ref == scope_ref and binding.repository_ref == repository_ref
           end)
 
         attributes = %{
@@ -612,6 +621,7 @@ defmodule Ryker.BundledCoop do
           policy_digest: digest,
           policy_name: policy_name,
           purpose: purpose,
+          repository_ref: repository_ref,
           scope_kind: scope_kind,
           scope_ref: scope_ref,
           verified_by: :worker,
@@ -629,7 +639,9 @@ defmodule Ryker.BundledCoop do
   end
 
   defp repository_policy_name(ref, suffix), do: "ryker-repo-#{ref}-#{suffix}"
-  defp environment_policy_name(ref, suffix), do: "ryker-env-#{ref}-#{suffix}"
+
+  defp environment_policy_name(ref, repository_ref, suffix),
+    do: "ryker-env-#{ref}-#{repository_ref}-#{suffix}"
 
   defp atomic_write!(path, content, mode) do
     temporary = path <> ".#{System.unique_integer([:positive])}.tmp"

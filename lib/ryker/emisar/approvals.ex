@@ -138,6 +138,8 @@ defmodule Ryker.Emisar.Approvals do
     end
   end
 
+  # Tests read an approval watch back by its Emisar identity.
+  @doc false
   @spec get_by_request_id(String.t(), String.t()) :: Approval.t() | nil
   def get_by_request_id(connection_ref, request_id)
       when is_binary(connection_ref) and is_binary(request_id),

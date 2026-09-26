@@ -77,15 +77,14 @@ defmodule Ryker.Ingress.Inbox do
 
   def fetch(_ref), do: :error
 
-  @doc """
-  The pending input that currently keeps `entry` out of the claimable set, if any.
-
-  This is the same lane predicate the dispatcher claims by: an earlier pending
-  input in the same transport, conversation and execution mode, or one whose
-  routing lease is still live. It is a current fact about the queue, not a
-  history of what blocked the input earlier, and it says nothing once the
-  input has left the queue.
-  """
+  # The pending input that currently keeps `entry` out of the claimable set, if
+  # any. This is the same lane predicate the dispatcher claims by: an earlier
+  # pending input in the same transport, conversation and execution mode, or
+  # one whose routing lease is still live. It is a current fact about the
+  # queue, not a history of what blocked the input earlier, and it says nothing
+  # once the input has left the queue. Recording names the predecessor in the
+  # saved transition; tests call this directly to check the lane rule.
+  @doc false
   @spec queue_predecessor(Entry.t(), DateTime.t()) :: Entry.t() | nil
   def queue_predecessor(%Entry{status: :pending} = entry, %DateTime{} = now) do
     Repo.one(

@@ -27,7 +27,7 @@ defmodule Ryker.ControlPlane.ProductReadiness do
     slack = Application.get_env(:ryker, :slack)
 
     runtime = %{
-      chat_profile: if(is_map(control_plane), do: Map.get(control_plane, :work_profile)),
+      chat_profile: if(is_map(control_plane), do: chat_profile(control_plane)),
       slack_configured: is_map(slack),
       slack_connected: Gateway.connected?()
     }
@@ -35,6 +35,16 @@ defmodule Ryker.ControlPlane.ProductReadiness do
     from(snapshot, Observability.fleet(), runtime)
   rescue
     _error -> unavailable()
+  end
+
+  # Chat can run once the console holds a Work profile for it: the one
+  # outside any environment, or any environment's.
+  defp chat_profile(control_plane) do
+    Map.get(control_plane, :fallback_work_profile) ||
+      control_plane
+      |> Map.get(:environments, %{})
+      |> Map.values()
+      |> Enum.find_value(&Map.get(&1, :work_profile))
   end
 
   @doc false

@@ -4,11 +4,12 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   work in it may use, its Emisar account and whether it is the default.
 
   The repositories are every added repository, the chosen ones first and in
-  their order: work changes the first and only reads the others, and Move up
-  and Move down change that order. A live refresh never overwrites an unsaved
-  draft; a refused save keeps the draft and says what to fix in words; a save
-  against settings that changed underneath is refused rather than written
-  over them. The LiveView closes the editor once a save lands.
+  their order. Every chosen one is available to work in the environment and a
+  task picks the one it changes; the first is only the default, and Move up
+  and Move down change which one that is. A live refresh never overwrites an
+  unsaved draft; a refused save keeps the draft and says what to fix in
+  words; a save against settings that changed underneath is refused rather
+  than written over them. The LiveView closes the editor once a save lands.
   """
 
   use Phoenix.LiveComponent
@@ -220,10 +221,14 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   defp refused({:display_name, _length}), do: "Use a name of 80 characters or fewer."
   defp refused({:description, _length}), do: "Keep the description to 500 characters or fewer."
 
+  # With several repositories, work opens every one it does not change
+  # beside the one it does, under the repository's own name, and a task may
+  # change any of them, so every name has to fit.
   defp refused({:repositories, :companion_name}),
     do:
-      "Ryker can only read a repository after the first when its name is up to 48 lowercase " <>
-        "letters, numbers, dashes or underscores. Move it first or leave it out."
+      "With more than one repository, each name has to be up to 48 lowercase letters, " <>
+        "numbers, dashes or underscores, so Ryker can open it beside the others. " <>
+        "Leave out the one whose name does not fit."
 
   defp refused({:repositories, :unknown_repository}),
     do: "A chosen repository is no longer added. Reload the page and choose again."
@@ -302,7 +307,8 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
         <fieldset class="settings-field">
           <legend>Repositories</legend>
           <p class="settings-help">
-            Changes go to the first repository; the others are read only.
+            Every repository here is available to work in this environment. The first one is the
+            default; a task picks the one it changes.
           </p>
           <input type="hidden" name="environment[repositories][]" value="" />
           <ol :if={@choices != []} class="environment-repositories">
@@ -320,8 +326,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
               />
               <label for={"#{@id}-repository-#{choice.ref}"}>
                 <strong>{choice.name}</strong>
-                <small :if={choice.position == 0}>Changes go here</small>
-                <small :if={choice.position && choice.position > 0}>Read only</small>
+                <small :if={choice.position == 0}>Default</small>
               </label>
               <span :if={choice.position} class="environment-repository-order">
                 <button

@@ -67,6 +67,18 @@ defmodule Ryker.CredentialsTest do
              Credentials.fetch(:github_webhook, "relocated")
   end
 
+  # Every stored secret is redaction material too: worker output is scanned
+  # for it before anyone sees it, and the worker server refuses a secret under
+  # eight bytes, which cannot be told apart from ordinary text. One stored
+  # five-character secret therefore stopped every later settings apply.
+  test "a secret too short to redact from worker output is never stored" do
+    assert {:error, :credential_value_too_short} =
+             Credentials.put(:webhook, "grafana", "short", @actor)
+
+    assert Credentials.fetch(:webhook, "grafana") == {:error, :credential_missing}
+    assert {:ok, _metadata} = Credentials.put(:webhook, "grafana", "eight-ch", @actor)
+  end
+
   test "inspection lists status metadata but no secret bytes" do
     assert {:ok, _metadata} = Credentials.put(:webhook, "alerts", @secret, @actor)
 

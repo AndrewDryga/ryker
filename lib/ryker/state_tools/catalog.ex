@@ -240,7 +240,7 @@ defmodule Ryker.StateTools.Catalog do
   defp request_task_tool do
     tool(
       "request_task",
-      "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. A supplied read-only repository permits an inert proposal, not execution. Engineering requires a configured target from work.repository_ref or the relevant work.workspace.companions[].name; incident tasks may use null. Kind defaults to engineering.",
+      "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. A supplied read-only repository permits an inert proposal, not execution. Engineering requires a configured target, any repository of this environment: work.repository_ref or the relevant work.workspace.companions[].name; incident tasks may use null. Kind defaults to engineering.",
       %{
         "authority_limits" => array(text(500), 1, 20),
         "instruction_ref" => reference(256),
@@ -253,7 +253,7 @@ defmodule Ryker.StateTools.Catalog do
         "repository" =>
           nullable(reference(256))
           |> describe(
-            "Configured target: required (non-null) for engineering; null is allowed for incident. Use work.repository_ref or the relevant supplied work.workspace.companions[].name. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
+            "Configured target: required (non-null) for engineering; null is allowed for incident. It may be any repository of this environment: work.repository_ref or the relevant supplied work.workspace.companions[].name, whichever the task changes. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
           ),
         "repository_source" =>
           nullable(RepositorySource.json_schema())

@@ -38,3 +38,6 @@
 !.gemini/
 .gemini/*
 !.gemini/skills
+
+# Expert (Elixir language server) tool logs written beside the file it was opened on.
+.expert/

@@ -146,6 +146,37 @@ defmodule Ryker.PollingTest do
     refute_receive :cycle_attempted
   end
 
+  # A statement the database refused (a connection limit, a cancelled
+  # statement, a lock that timed out) raised out of the cycle and into the
+  # supervisor exactly like the pool exhaustion above: only a lost connection
+  # backed off, so every poller restarted at once and spent the same budget.
+  test "a statement the database refused backs off like a lost connection" do
+    parent = self()
+
+    log =
+      capture_log(fn ->
+        delay =
+          Polling.run(:retention, 60_000, fn ->
+            send(parent, :cycle_attempted)
+
+            raise Postgrex.Error,
+              postgres: %{
+                code: "53300",
+                message: "private connection details",
+                severity: "FATAL"
+              }
+          end)
+
+        assert delay == 60_000
+      end)
+
+    assert_receive :cycle_attempted
+    refute_receive :cycle_attempted
+    assert log =~ "database polling unavailable; retrying after backoff"
+    assert log =~ "too_many_connections"
+    refute log =~ "private connection details"
+  end
+
   test "database polling warnings do not expose exception payloads" do
     log =
       capture_log(fn ->

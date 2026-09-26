@@ -30,13 +30,13 @@ defmodule Ryker.Episodes.OriginsTest do
       )
 
     assert {:ok, episode} = Episodes.fetch_by_key("routing:home")
-    assert episode.destination_conversation_ref == "slack:TROUTE:CDEVOPS"
+    assert episode.destination_conversation_ref == "slack:TORIGINS:CDEVOPS"
     assert episode.destination_thread_ref == "1787832000.000100"
 
     assert [first, second] = Origins.for_episode(episode.id)
 
     assert %{
-             conversation_ref: "slack:TROUTE:CDEVOPS",
+             conversation_ref: "slack:TORIGINS:CDEVOPS",
              thread_ref: "1787832000.000100",
              origin_kind: :channel_root,
              root_ref: "1787832000.000100",
@@ -45,7 +45,7 @@ defmodule Ryker.Episodes.OriginsTest do
            } = first
 
     assert %{
-             conversation_ref: "slack:TROUTE:CALERTS",
+             conversation_ref: "slack:TORIGINS:CALERTS",
              thread_ref: "1787832005.000100",
              origin_kind: :thread_reply,
              root_ref: "1787832005.000100",
@@ -55,21 +55,19 @@ defmodule Ryker.Episodes.OriginsTest do
            } = second
 
     assert Origins.reply_target(second) == %{
-             conversation_ref: "slack:TROUTE:CALERTS",
+             conversation_ref: "slack:TORIGINS:CALERTS",
              thread_ref: "1787832005.000100",
              transport: "slack"
            }
 
     assert Origins.home(episode) == %{
-             conversation_ref: "slack:TROUTE:CDEVOPS",
+             conversation_ref: "slack:TORIGINS:CDEVOPS",
              thread_ref: "1787832000.000100",
              transport: "slack"
            }
 
-    assert Origins.participating_conversations(episode.id) == [
-             "slack:TROUTE:CALERTS",
-             "slack:TROUTE:CDEVOPS"
-           ]
+    assert episode.id |> Origins.for_episode() |> Enum.map(& &1.conversation_ref) |> Enum.uniq() ==
+             ["slack:TORIGINS:CDEVOPS", "slack:TORIGINS:CALERTS"]
   end
 
   test "a retried admission does not duplicate the origin row" do
@@ -155,7 +153,7 @@ defmodule Ryker.Episodes.OriginsTest do
         occurred_at: Keyword.get(overrides, :occurred_at, @now),
         revision: 1,
         thread_ref: Keyword.get(overrides, :thread_ref),
-        workspace_ref: "TROUTE"
+        workspace_ref: "TORIGINS"
       })
 
     input

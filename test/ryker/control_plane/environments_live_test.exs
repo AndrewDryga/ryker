@@ -71,14 +71,16 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert LazyHTML.query(production, ".entity-tag") |> LazyHTML.text() == "Default"
     assert LazyHTML.query(production, ".entity-icon") |> Enum.count() == 1
 
+    # Every repository is there to work in, and a task picks the one it
+    # changes; the first is only the default, so the row says so.
     assert LazyHTML.query(production, ".entity-meta") |> text() ==
-             "2 repositories · changes go to acme/api · Emisar: Production approvals · Used by 2 channels"
+             "2 repositories · default acme/api · Emisar: Production approvals · Used by 2 channels"
 
     assert LazyHTML.query(document, "#environment-staging .entity-text") |> text() ==
              "Pre-release checks"
 
     assert LazyHTML.query(document, "#environment-staging .entity-meta") |> text() ==
-             "1 repository · changes go to acme/api · No Emisar account · Used by 1 channel"
+             "1 repository · default acme/api · No Emisar account · Used by 1 channel"
 
     assert LazyHTML.query(document, "#environment-ops .entity-meta") |> text() ==
              "No repositories · No Emisar account · Not used by any channel yet"
@@ -105,9 +107,11 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
              )
     end
 
-    # A list page's search and count sit in the one Kit toolbar row.
+    # A list page's search sits in the one Kit toolbar row; its count leads
+    # the page as a Kit count, never a second number in the toolbar.
     assert has_element?(view, ".kit-toolbar > .filter-toolbar input[name=q]")
-    assert has_element?(view, ".kit-toolbar-count", "3 environments")
+    assert has_element?(view, ".environments-page > .kit-counts .kit-count", "3 environments")
+    refute has_element?(view, ".kit-toolbar-count")
 
     assert has_element?(
              view,
@@ -124,6 +128,35 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
            )
 
     assert %{ref: "staging"} = Settings.Environment.default(Settings.fetch!())
+  end
+
+  # Andrew, 2026-09-25: "One place for counts." The page leads with how many
+  # environments there are and how many channels chose none, so work there
+  # runs without code; a search narrows the first count to what matches.
+  test "the Environments page leads with its environments and the channels that chose none" do
+    installation!()
+    environment!("production", "Production", ~w(api), default: true)
+    environment!("staging", "Staging", ~w(api))
+    channel_in!("CPAY", "production")
+    channel_in!("CQUIET", nil)
+    channel_in!("CHUSH", nil)
+
+    {:ok, _view, html} = open("/environments")
+
+    assert counts(html) == [
+             {"2 environments", nil},
+             {"2 channels without an environment", "/channels"}
+           ]
+
+    {:ok, _view, html} = open("/environments?q=stag")
+    assert [{"1 matching", nil} | _channels] = counts(html)
+  end
+
+  defp counts(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(".environments-page > .kit-counts > .kit-count")
+    |> Enum.map(&{text(&1), &1 |> LazyHTML.attribute("href") |> List.first()})
   end
 
   test "an installation without environments says how one gets created" do
@@ -143,6 +176,11 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
              ".page-action a[href='/environments?edit=new']",
              "Add an environment"
            )
+
+    # Adding the first one opens its form where the empty list was.
+    view |> element(".page-action a", "Add an environment") |> render_click()
+    assert has_element?(view, "#environment-editor-new")
+    refute has_element?(view, ".entity-empty")
   end
 
   test "removing an environment channels use is refused and says who uses it" do
@@ -187,9 +225,40 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     refute has_element?(view, "#environment-scratch")
   end
 
-  test "an environment's repositories are saved in the order shown, and the first takes the changes" do
-    # Work changes an environment's first repository and only reads the
-    # others, so the order a person arranges on the page is the one saved.
+  test "Add an environment opens its form above the list, and Edit opens under its row" do
+    # Andrew, 2026-09-25, of Model prices and every list like it: an Add
+    # button at the top that opens its form under the whole list reads as a
+    # button that does nothing.
+    installation!()
+    environment!("production", "Production", ~w(api), default: true)
+    environment!("staging", "Staging", ~w(api))
+    {:ok, view, _html} = open("/environments")
+
+    add = ".page-action a"
+    assert has_element?(view, "#{add}[href='/environments?edit=new'][aria-expanded=false]")
+
+    view |> element(add, "Add an environment") |> render_click()
+    assert_patch(view, "/environments?edit=new")
+
+    assert has_element?(view, ".environments-page > #environment-editor-new ~ .entity-list")
+    refute has_element?(view, ".environments-page > .entity-list ~ #environment-editor-new")
+
+    # The same button closes it again.
+    assert has_element?(view, "#{add}[href='/environments'][aria-expanded=true]")
+    view |> element(add, "Add an environment") |> render_click()
+    assert_patch(view, "/environments")
+    refute has_element?(view, "#environment-editor-new")
+
+    view |> element("#environment-staging .entity-actions a", "Edit") |> render_click()
+    assert has_element?(view, "#environment-staging .entity-meta ~ #environment-editor-staging")
+    refute has_element?(view, ".environments-page > [id^=environment-editor]")
+  end
+
+  test "an environment's repositories are saved in the order shown, and the first is the default" do
+    # Every repository in an environment is there to work in, and a task
+    # picks the one it changes; the first is only the default. Until
+    # 2026-09-25 the editor said changes went to the first and the others
+    # were read only, which stopped being true when tasks began choosing.
     installation!()
     environment!("production", "Production", ~w(api), default: true)
 
@@ -199,7 +268,8 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert has_element?(
              view,
              "#environment-editor-new .settings-help",
-             "Changes go to the first repository; the others are read only."
+             "Every repository here is available to work in this environment. " <>
+               "The first one is the default; a task picks the one it changes."
            )
 
     view
@@ -214,23 +284,18 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     )
     |> render_change()
 
-    assert has_element?(
-             view,
-             "#environment-editor-new li[data-repository=api]",
-             "Changes go here"
-           )
+    assert has_element?(view, "#environment-editor-new li[data-repository=api] small", "Default")
+    refute has_element?(view, "#environment-editor-new li[data-repository=docs] small")
 
-    assert has_element?(view, "#environment-editor-new li[data-repository=docs]", "Read only")
+    for words <- ["Changes go", "Read only"],
+        do: refute(has_element?(view, "#environment-editor-new", words))
 
     view
     |> element("#environment-editor-new li[data-repository=docs] button[phx-value-direction=up]")
     |> render_click()
 
-    assert has_element?(
-             view,
-             "#environment-editor-new li[data-repository=docs]",
-             "Changes go here"
-           )
+    assert has_element?(view, "#environment-editor-new li[data-repository=docs] small", "Default")
+    refute has_element?(view, "#environment-editor-new li[data-repository=api] small")
 
     view |> form("#environment-editor-new form") |> render_submit()
 
@@ -270,14 +335,53 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
 
     assert has_element?(
              view,
-             "#environment-editor-production li[data-repository=docs]",
-             "Read only"
+             "#environment-editor-production li[data-repository=api] + li[data-repository=docs]"
+           )
+
+    assert has_element?(
+             view,
+             "#environment-editor-production li[data-repository=api] small",
+             "Default"
            )
 
     assert %{display_name: "Production"} =
              production = Settings.Environment.default(Settings.fetch!())
 
     assert Settings.Environment.repository_refs(production) == ["api"]
+  end
+
+  test "a repository work cannot open beside the others is refused in words, the default too" do
+    # A task picks which of an environment's repositories it changes, so any
+    # of them, the default included, may be opened beside another under its
+    # own name. The refusal used to say only the ones after the first had to
+    # fit, and to move the misfit first, which no longer helps.
+    installation!()
+
+    {:ok, _snapshot} =
+      Settings.put_repository(
+        %{ref: "primary", display_name: "acme/primary", github_repository: "acme/primary"},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    {:ok, view, _html} = open("/environments?edit=new")
+
+    view
+    |> form("#environment-editor-new form",
+      environment: %{display_name: "Mixed", repositories: ["", "primary", "api"]}
+    )
+    |> render_change()
+
+    view |> form("#environment-editor-new form") |> render_submit()
+
+    assert has_element?(
+             view,
+             "#environment-editor-new .form-feedback-error",
+             "With more than one repository, each name has to be up to 48 lowercase letters, " <>
+               "numbers, dashes or underscores, so Ryker can open it beside the others."
+           )
+
+    refute Enum.any?(Settings.fetch!().environments, &(&1.display_name == "Mixed"))
   end
 
   defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)

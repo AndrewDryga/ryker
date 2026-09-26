@@ -7,13 +7,10 @@ defmodule Ryker.Slack.AppHomeControls do
   again by the host.
   """
 
-  alias Ryker.Retained
   alias Ryker.Slack.{Collections, HomeEvent, HomeInteraction, HomeSubmission}
 
-  # A retained-workspace control names the session's external_ref. Sessions
-  # created before the 2026-09-13 rename still carry the retained prefix and are
-  # still held by workers, so both prefixes are accepted here by rule.
-  @work_session_prefixes ["ryker-work:", Retained.work_session_prefix()]
+  # A retained-workspace control names the session's external_ref.
+  @work_session_prefix "ryker-work:"
 
   @spec handle(HomeInteraction.t(), map()) :: {:ok, map()} | {:error, term()}
   def handle(%HomeInteraction{} = interaction, %{} = options) do
@@ -567,7 +564,7 @@ defmodule Ryker.Slack.AppHomeControls do
         fingerprint = List.last(parts)
         ref = parts |> Enum.drop(-1) |> Enum.join(":")
 
-        if String.starts_with?(ref, @work_session_prefixes) and
+        if String.starts_with?(ref, @work_session_prefix) and
              Regex.match?(~r/\A[0-9a-f]{64}\z/, fingerprint),
            do: {:ok, ref, fingerprint},
            else: {:error, :app_home_control_mismatch}

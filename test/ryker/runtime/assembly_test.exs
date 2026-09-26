@@ -6,6 +6,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
   alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
+  alias Ryker.Ingress.WorkProfile
   alias Ryker.Runtime.Assembly
   alias Ryker.Slack.Runtime, as: SlackRuntime
 
@@ -79,7 +80,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), Settings.fetch!())
 
-    assert configuration.control_plane.work_profile == %{
+    assert configuration.control_plane.fallback_work_profile == %{
              authority_digest: digest("authority"),
              class_policies: %{
                conversational: %{
@@ -338,40 +339,57 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert configuration[:work].platform_tools == configuration[:state_tools].additional_tools
   end
 
-  # Work in an environment changes its first repository and only reads the
-  # rest. Coop mounts read-only repositories only for a policy that declares
-  # them, so an environment with several repositories runs on its own reviewed
-  # policies, never on its first repository's; one with a single repository
-  # runs on that repository's.
-  test "work in an environment changes its first repository and reads the others" do
+  # Every session in an environment mounts all of its repositories, the one
+  # its work changes as the working copy and the others read-only, so an
+  # environment with several repositories runs on its own reviewed policies
+  # for each repository, never on one repository's; one with a single
+  # repository runs on that repository's. Before, work in an environment could
+  # only change the first repository, on one policy set mounting it writable,
+  # so a task on any other repository ran against the wrong working copy.
+  test "work in an environment may change any of its repositories, mounting the rest read-only" do
     settings = connected!()
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
     environments = configuration[:slack].environments
 
     platform = environments["platform"]
     assert platform.display_name == "Platform"
-    assert platform.work_profile.environment_ref == "platform"
-    assert platform.work_profile.repository_ref == "ryker"
-    assert platform.work_profile.read_only_repository_refs == ["docs"]
-    assert platform.work_profile.parallel_goal_limit == 2
-    assert platform.work_profile.emisar_connection_ref == "production"
-    assert platform.work_profile.policy == "platform-conversation-v1"
+    profile = platform.work_profile
+    assert profile.environment_ref == "platform"
+    assert profile.repositories == ["ryker", "docs"]
+    assert profile.parallel_goal_limit == 2
+    assert profile.emisar_connection_ref == "production"
+    assert Map.keys(profile.policies) |> Enum.sort() == ["docs", "ryker"]
+    assert profile.policies["ryker"].conversational.policy == "platform-ryker-conversation-v1"
+    assert profile.policies["docs"].conversational.policy == "platform-docs-conversation-v1"
+    refute Map.has_key?(profile, :policy)
+    assert platform.github_repositories == %{"docs" => "ryker/docs", "ryker" => "ryker/ryker"}
 
-    task = configuration[:control_plane].task_policies["platform"]
-    assert task.name == "platform-contributor-v1"
-    assert task.environment_ref == "platform"
-    assert task.repository_ref == "ryker"
+    # A task runs under the environment's policy for the repository it
+    # changes, with the others mounted read-only.
+    tasks = configuration[:control_plane].task_policies["platform"]
+    assert Map.keys(tasks) |> Enum.sort() == ["docs", "ryker"]
+    assert tasks["ryker"].name == "platform-ryker-contributor-v1"
+    assert tasks["ryker"].environment_ref == "platform"
+    assert tasks["ryker"].repository_ref == "ryker"
 
-    assert task.repository_context == %{
+    assert tasks["ryker"].repository_context == %{
              "context_ref" => "platform",
              "parallel_goal_limit" => 2,
              "primary_repository" => "ryker",
              "read_only_repositories" => ["docs"]
            }
 
-    assert environments["docs"].work_profile.policy == "docs-conversation-v1"
-    assert environments["docs"].work_profile.read_only_repository_refs == []
-    assert configuration[:control_plane].task_policies["docs"].name == "docs-contributor-v1"
+    assert tasks["docs"].name == "platform-docs-contributor-v1"
+    assert tasks["docs"].repository_context["primary_repository"] == "docs"
+    assert tasks["docs"].repository_context["read_only_repositories"] == ["ryker"]
+
+    # One repository: that repository's own policies, mounted alone.
+    docs = environments["docs"].work_profile
+    assert docs.repositories == ["docs"]
+    assert docs.policies["docs"].conversational.policy == "docs-conversation-v1"
+
+    assert configuration[:control_plane].task_policies["docs"]["docs"].name ==
+             "docs-contributor-v1"
 
     # Without repositories an environment answers on the installation's own
     # policy, keeps its Emisar account and has nothing a task could change.
@@ -383,7 +401,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     route = configuration[:webhooks].routes["alerts"].work_profile
     assert route.environment_ref == "platform"
-    assert route.read_only_repository_refs == ["docs"]
+    assert route.repositories == ["ryker", "docs"]
 
     # Several repositories and no reviewed policies of its own: nothing runs.
     {:ok, changed} =
@@ -396,21 +414,61 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
     refute Map.has_key?(configuration[:slack].environments, "unreviewed")
     refute Map.has_key?(configuration[:control_plane].task_policies, "unreviewed")
+
+    # Policies for one of its repositories are not enough: every repository
+    # of the environment needs its own before any work runs there.
+    saves = [
+      &policy(
+        :conversational,
+        :environment,
+        "unreviewed",
+        "unreviewed-docs-conversation-v1",
+        &1,
+        "docs"
+      ),
+      &policy(
+        :contributor,
+        :environment,
+        "unreviewed",
+        "unreviewed-docs-contributor-v1",
+        &1,
+        "docs"
+      )
+    ]
+
+    partly =
+      Enum.reduce(saves, changed, fn save, current ->
+        {:ok, saved} = save.(current.installation.revision)
+        saved
+      end)
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), partly)
+    refute Map.has_key?(configuration[:slack].environments, "unreviewed")
   end
 
-  # Chat and every conversation without its own setting work in the default
-  # environment. With none chosen, or one that cannot run work, they answer
-  # outside any environment rather than borrowing another's repositories.
-  test "Chat works in the default environment, else outside any" do
+  # Each Chat conversation picks its environment, so the console receives
+  # every environment that can run work and the profile of work outside any;
+  # a conversation whose environment cannot run work right now runs outside.
+  # Before, Chat ran in the default environment only, whatever a conversation
+  # was about.
+  test "Chat receives every runnable environment and the profile outside any" do
     settings = connected!()
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
 
-    assert configuration.control_plane.work_profile ==
-             configuration[:slack].environments["platform"].work_profile
+    assert Map.keys(configuration.control_plane.environments) |> Enum.sort() ==
+             ["docs", "ops", "platform"]
 
+    assert configuration.control_plane.environments["platform"] == %{
+             display_name: "Platform",
+             work_profile: configuration[:slack].environments["platform"].work_profile
+           }
+
+    assert configuration.control_plane.fallback_work_profile.policy == "ryker-chat-v1"
+    refute Map.has_key?(configuration.control_plane.fallback_work_profile, :environment_ref)
     assert configuration[:slack].default_environment == "platform"
-    assert configuration[:slack].fallback_work_profile.policy == "ryker-chat-v1"
-    refute Map.has_key?(configuration[:slack].fallback_work_profile, :environment_ref)
+
+    assert configuration[:slack].fallback_work_profile ==
+             configuration.control_plane.fallback_work_profile
 
     {:ok, changed} =
       Settings.put_environment(
@@ -425,18 +483,19 @@ defmodule Ryker.Runtime.AssemblyTest do
       )
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
-    assert configuration.control_plane.work_profile.policy == "ryker-chat-v1"
-    refute Map.has_key?(configuration.control_plane.work_profile, :environment_ref)
+    refute Map.has_key?(configuration.control_plane.environments, "unreviewed")
+    assert configuration.control_plane.fallback_work_profile.policy == "ryker-chat-v1"
     # Slack still seeds joined channels with the saved default, so they work
     # in it once it can run work; until then their work runs outside any.
     assert configuration[:slack].default_environment == "unreviewed"
     refute Map.has_key?(configuration[:slack].environments, "unreviewed")
   end
 
-  # GitHub events for a repository run in the environment whose writable
-  # repository it is; a repository environments only read runs in the first
-  # of those; a repository in none runs on its own, without an environment.
-  test "a GitHub event runs where its repository is writable, else where it is read, else alone" do
+  # GitHub events for a repository run in the environment whose default
+  # repository it is; a repository other environments hold runs in the first
+  # of those, as the default choice of the work it starts; a repository in
+  # none runs on its own, without an environment.
+  test "a GitHub event runs where its repository is the default, else where it is held, else alone" do
     settings = connected!()
 
     saves = [
@@ -466,8 +525,12 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, configuration} = Assembly.build(bootstrap(), without_docs)
     docs = configuration.github.server.bindings["docs-app"].work_profile
     assert docs.environment_ref == "platform"
-    assert docs.repository_ref == "ryker"
-    assert docs.read_only_repository_refs == ["docs"]
+    # An event is about its own repository, so that repository is the default
+    # choice of the work it starts, with the rest of the environment beside it.
+    assert docs.repositories == ["docs", "ryker"]
+
+    assert {:ok, %WorkProfile{repository_ref: "docs"}} =
+             WorkProfile.prepare(docs)
   end
 
   test "a webhook source keeps the provider shape it was saved with" do
@@ -812,8 +875,31 @@ defmodule Ryker.Runtime.AssemblyTest do
         &1,
         @actor
       ),
-      &policy(:conversational, :environment, "platform", "platform-conversation-v1", &1),
-      &policy(:contributor, :environment, "platform", "platform-contributor-v1", &1),
+      &policy(
+        :conversational,
+        :environment,
+        "platform",
+        "platform-ryker-conversation-v1",
+        &1,
+        "ryker"
+      ),
+      &policy(
+        :contributor,
+        :environment,
+        "platform",
+        "platform-ryker-contributor-v1",
+        &1,
+        "ryker"
+      ),
+      &policy(
+        :conversational,
+        :environment,
+        "platform",
+        "platform-docs-conversation-v1",
+        &1,
+        "docs"
+      ),
+      &policy(:contributor, :environment, "platform", "platform-docs-contributor-v1", &1, "docs"),
       &Settings.put_environment(
         %{ref: "docs", display_name: "Docs", repositories: ["docs"]},
         &1,
@@ -913,12 +999,15 @@ defmodule Ryker.Runtime.AssemblyTest do
     )
   end
 
-  defp policy(purpose, scope_kind, scope_ref, name, revision) do
+  # An environment binding names the repository it is for; every other scope
+  # leaves it empty.
+  defp policy(purpose, scope_kind, scope_ref, name, revision, repository_ref \\ "") do
     Settings.put_policy_binding(
       %{
         purpose: purpose,
         scope_kind: scope_kind,
         scope_ref: scope_ref,
+        repository_ref: repository_ref,
         policy_name: name,
         policy_digest: digest(name),
         authority_digest: digest("authority"),

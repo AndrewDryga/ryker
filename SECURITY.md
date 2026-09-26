@@ -13,9 +13,11 @@ Ryker is trusted with Slack application credentials, webhook secrets, the worker
 certificate authority, and the workspace checkpoint key. Coop is trusted with provider credentials
 and the configured repository policies. Emisar independently authorizes infrastructure actions.
 
-The owner-only Coop Unix socket is a local transport boundary, not malicious-process isolation when
-Ryker and Coop use the same Unix account. Systemd hardening reduces accidental exposure but
-does not change that fact.
+In the Docker Compose deployment Ryker and the bundled Coop worker are separate containers. The
+worker reaches Ryker only through the outbound worker gateway over mutual TLS, and its boxes run
+in a private Docker daemon container, never on the host's socket. The volumes the two share
+(worker configuration and workspaces) are a transport boundary between processes of the same
+unprivileged user ID, not malicious-process isolation.
 
 ## Controls
 
@@ -36,15 +38,18 @@ policies that do not need them.
 
 ## Deployment
 
-- Use a dedicated Unix account. Keep mutable state and Coop state directories owner-only at
-  mode `0700`; keep root-owned service configuration at directory mode `0750` and file mode `0640`.
+- Keep the installation state owner-only: `.ryker/` at mode `0700`, and `.ryker/compose.env` and
+  every backup under `.ryker/backups/` at mode `0600`. They hold the database password and the
+  encryption roots; a backup is as sensitive as the database it restores.
+- The containers run as an unprivileged user and keep mutable state in named volumes. Never mount
+  the host's Docker socket into Ryker or the worker; the worker's boxes belong to the private
+  `ryker-coop-docker` daemon.
 - Terminate TLS at a maintained reverse proxy and publish only `/v1/github` and `/v1/hooks/`.
-- Keep `/healthz`, `/readyz`, `/metrics`, PostgreSQL, and the Coop socket private.
-- Enroll each Coop worker with `mix ryker.coop_worker enroll` and keep its enrollment token,
-  identity, and journal owner-private. Workers connect outbound over mutual TLS; never expose the
-  operator control plane to reach a worker.
-- Grant Docker socket access only to the Coop process. The shipped systemd unit adds the `docker`
-  supplementary group to Coop, not to Ryker.
+- The control UI, `/healthz`, `/readyz` and `/metrics` bind to loopback by default, and PostgreSQL
+  and the worker socket are not published at all. Keep it that way.
+- Enroll each remote Coop worker with `mix ryker.coop_worker enroll` and keep its enrollment
+  token, identity, and journal owner-private. Workers connect outbound over mutual TLS; never
+  expose the operator control plane to reach a worker.
 - Coop never receives Ryker's Slack, webhook, GitHub, or Emisar secrets: the fleet protocol carries
   placement identities and the bounded submission only. Emisar access comes from Coop's own
   owner-private configuration.
@@ -52,5 +57,5 @@ policies that do not need them.
   operator-directed actions, use a narrowly scoped Emisar credential whose server-side policy,
   approval, runner validation, and audit remain authoritative; prompts never grant authority.
 - Do not add GitHub, deploy, merge, or signing credentials to the agent box.
-- Verify the checksum manifest's keyless cosign bundle, the selected archive checksum, and GitHub
-  build provenance before installing a release.
+- Verify the checksum manifest's keyless cosign bundle and the selected archive checksum
+  (`scripts/check-release.sh`) and GitHub build provenance before installing a release.

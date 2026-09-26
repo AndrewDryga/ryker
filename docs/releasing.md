@@ -1,28 +1,28 @@
 # Releasing Ryker
 
 Ryker releases are public, tag-driven GitHub Releases. The canonical service artifact is the
-self-contained Linux amd64 Elixir release. The workflow builds and structurally checks it, adds the
-three installation helpers, signs `checksums.txt` through GitHub OIDC and cosign, and publishes the
-finalized changelog section. GitHub records build provenance for the archive.
+self-contained Linux amd64 Elixir release archive. The workflow builds and structurally checks it,
+signs `checksums.txt` through GitHub OIDC and cosign, and publishes the finalized changelog
+section. GitHub records build provenance for the archive.
 
 Pushing a version tag is the release-publication boundary. All release preparation before that
 push is reversible without rewriting a published release.
 
 Local release checks require the Erlang and Elixir versions from `.tool-versions` and ShellCheck.
-Commit first, then prove the exact Elixir artifact without touching a production listener:
+Commit first, then prove the exact Elixir artifact without touching the running deployment:
 
 ```bash
 make elixir-release-check
-make elixir-candidate-check
 ```
 
 The release identity is the semantic tag for a public release and otherwise the exact Git commit.
-The candidate check installs that archive immutably, migrates a disposable PostgreSQL database,
-boots and restarts the release against it, takes and restores a custom-format backup into a fresh
-database, boots from the restored state, requires health/readiness/metrics throughout, and stops it
-cleanly. Production deployment is
-one normal writer replacement; durable recovery is in PostgreSQL, not in canary/promote metadata.
-CI still runs the full gate independently on a clean runner.
+The check builds the archive, verifies it against its trusted digest before listing or extracting
+it, requires safe paths, the executable, every migration in the tree and every operator asset in
+`release-assets.txt`, refuses development dependencies, and boots the archive's migration entry
+point. `make release-dist` then lays the archive and its checksum manifest out under `dist/` the
+way CI publishes them. Production deployment is the Docker Compose project described in
+[`operations.md`](operations.md); durable recovery is in PostgreSQL, not in canary/promote
+metadata. CI still runs the full gate independently on a clean runner.
 
 ## Repository setup
 
@@ -47,8 +47,8 @@ host.
 ## Prepare
 
 1. Work from a clean `main` that is not behind `origin/main`.
-2. Run `make release-check`. It executes the complete gate, builds and inspects the exact unsigned
-   Elixir release, and boots the candidate against disposable PostgreSQL.
+2. Run `make release-check`. It executes the complete gate, then builds and inspects the exact
+   unsigned Elixir release archive.
 3. Refuse a no-op release. Compare the latest version tag to `main`; if only documentation or the
    changelog changed, attribute those notes to the existing release instead of cutting a
    byte-identical archive.
@@ -85,17 +85,17 @@ git push origin vX.Y.Z
 Watch `.github/workflows/release.yml` to completion, then confirm the GitHub Release contains:
 
 - `ryker_X.Y.Z_elixir_linux_amd64.tar.gz`;
-- `install-elixir-release.sh`, `check-elixir-release.sh`, and `activate-elixir-release.sh`;
 - `checksums.txt`;
 - `checksums.txt.bundle`.
 
 The workflow smoke-tests its local artifacts before creating the draft, records provenance, and
 only then makes the release public.
 
-Use the verification and installation procedure in
-[`operations.md`](operations.md#release-verification) against downloaded assets. It verifies the
-OIDC-signed manifest and GitHub-hosted provenance before any archive is listed, extracted, or
-executed. Attestations are not release assets.
+Verify downloaded assets before using them: put the three files in one directory and run
+`scripts/check-release.sh DIRECTORY vX.Y.Z` from this repository. It verifies the OIDC-signed
+manifest with cosign and the archive's checksum before the archive is listed, extracted, or
+executed. Attestations are not release assets; `gh attestation verify --repo AndrewDryga/ryker`
+checks the GitHub-hosted build provenance separately.
 
 ## Failure policy
 

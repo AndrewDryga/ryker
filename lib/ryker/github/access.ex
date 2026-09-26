@@ -26,107 +26,108 @@ defmodule Ryker.GitHub.Access do
 
   def affected(_event, _payload, _bindings), do: []
 
-  def apply("installation_repositories", payload, bindings) do
-    installation_id = get_in(payload, ["installation", "id"])
-    added = ids(payload["repositories_added"])
-    removed = ids(payload["repositories_removed"])
-    installed = matching(bindings, installation_id)
+  @events ["installation", "installation_repositories", "repository"]
 
-    with :ok <- refresh_permissions(installed, payload),
-         {:ok, changed} <-
-           installed
-           |> Enum.filter(&(&1.repository_id in added or &1.repository_id in removed))
-           |> update_many(&repository_membership(&1, removed)),
-         :ok <- maybe_import_new_repositories(payload) do
+  @doc """
+  Applies one event as one settings change.
+
+  The permission refresh, access states, renames and auto-imported
+  repositories commit together or not at all, so a failed event that GitHub
+  redelivers finds nothing half applied.
+  """
+  def apply(event, payload, bindings) when event in @events,
+    do: Settings.atomically(fn -> apply_event(event, payload, bindings, Settings.fetch!()) end)
+
+  def apply(_event, _payload, _bindings), do: {:ok, []}
+
+  defp apply_event("installation_repositories", payload, bindings, snapshot) do
+    removed = ids(payload["repositories_removed"])
+    installed = matching(bindings, get_in(payload, ["installation", "id"]))
+    changed = affected("installation_repositories", payload, bindings)
+
+    with {:ok, snapshot} <- refresh_permissions(installed, payload, snapshot),
+         {:ok, snapshot} <- update_many(changed, snapshot, &membership(&1, &2, removed)),
+         :ok <- import_new_repositories(payload, snapshot) do
       {:ok, changed}
     end
   end
 
-  def apply("installation", payload, bindings) do
-    installation_id = get_in(payload, ["installation", "id"])
-    installed = matching(bindings, installation_id)
+  defp apply_event("installation", payload, bindings, snapshot) do
+    installed = matching(bindings, get_in(payload, ["installation", "id"]))
 
+    with {:ok, snapshot} <- refresh_permissions(installed, payload, snapshot) do
+      case installation_state(payload["action"]) do
+        nil -> {:ok, []}
+        state -> change(installed, snapshot, &access(&1, &2, state))
+      end
+    end
+  end
+
+  defp apply_event("repository", payload, bindings, snapshot) do
+    named = affected("repository", payload, bindings)
+    full_name = get_in(payload, ["repository", "full_name"])
+
+    case repository_state(payload["action"]) do
+      nil -> {:ok, []}
+      state -> change(named, snapshot, &update_repository(&1, &2, state, full_name))
+    end
+  end
+
+  defp installation_state("suspended"),
+    do: {:suspended, :blocked, "The GitHub App installation is suspended."}
+
+  defp installation_state("deleted"),
+    do: {:removed, :blocked, "The GitHub App installation was removed."}
+
+  defp installation_state(action) when action in ["unsuspended", "created"],
+    do: {:available, :pending, nil}
+
+  defp installation_state(_action), do: nil
+
+  defp repository_state(action) when action in ["deleted", "archived"],
+    do: {:removed, :blocked, "This repository is no longer available to Ryker."}
+
+  defp repository_state(action) when action in ["renamed", "transferred", "unarchived", "edited"],
+    do: {:available, nil, nil}
+
+  defp repository_state(_action), do: nil
+
+  defp change(bindings, snapshot, update) do
+    with {:ok, _snapshot} <- update_many(bindings, snapshot, update), do: {:ok, bindings}
+  end
+
+  defp membership(binding, snapshot, removed) do
     state =
-      case payload["action"] do
-        "suspended" -> {:suspended, :blocked, "The GitHub App installation is suspended."}
-        "deleted" -> {:removed, :blocked, "The GitHub App installation was removed."}
-        "unsuspended" -> {:available, :pending, nil}
-        "created" -> {:available, :pending, nil}
-        _action -> nil
-      end
+      if binding.repository_id in removed,
+        do: {:removed, :blocked, "GitHub App access was removed."},
+        else: {:available, :pending, nil}
 
-    with :ok <- refresh_permissions(installed, payload) do
-      if state do
-        update_many(installed, &apply_access_state(&1, state))
-      else
-        {:ok, []}
-      end
+    access(binding, snapshot, state)
+  end
+
+  defp update_repository(binding, snapshot, state, full_name) do
+    with {:ok, snapshot} <- access(binding, snapshot, state) do
+      if is_binary(full_name), do: rename(binding, snapshot, full_name), else: {:ok, snapshot}
     end
   end
 
-  def apply("repository", payload, bindings) do
-    installation_id = get_in(payload, ["installation", "id"])
-    repository_id = get_in(payload, ["repository", "id"])
+  defp import_new_repositories(payload, %{github: %{auto_add_repositories: true} = github}) do
+    case repositories_added(payload) do
+      [] ->
+        :ok
 
-    state =
-      case payload["action"] do
-        action when action in ["deleted", "archived"] ->
-          {:removed, :blocked, "This repository is no longer available to Ryker."}
-
-        action when action in ["renamed", "transferred", "unarchived", "edited"] ->
-          {:available, nil, nil}
-
-        _action ->
-          nil
-      end
-
-    if state do
-      bindings
-      |> Map.values()
-      |> Enum.filter(
-        &(&1.installation_id == installation_id and &1.repository_id == repository_id)
-      )
-      |> update_many(&update_repository(&1, state, payload))
-    else
-      {:ok, []}
+      repositories ->
+        case IntegrationSetup.import_github_repositories(repositories,
+               ryker_actor_id: github.bot_actor_id
+             ) do
+          {:ok, %{failed: []}} -> :ok
+          {:ok, _partial} -> {:error, :github_repository_auto_import_failed}
+          {:error, _reason} = error -> error
+        end
     end
   end
 
-  def apply(_event, _payload, _bindings), do: {:ok, []}
-
-  defp repository_membership(binding, removed) do
-    if binding.repository_id in removed,
-      do: access(binding, :removed, :blocked, "GitHub App access was removed."),
-      else: access(binding, :available, :pending, nil)
-  end
-
-  defp apply_access_state(binding, state),
-    do: access(binding, elem(state, 0), elem(state, 1), elem(state, 2))
-
-  defp update_repository(binding, state, payload) do
-    with {:ok, _snapshot} <- apply_access_state(binding, state),
-         full_name when is_binary(full_name) <- get_in(payload, ["repository", "full_name"]) do
-      rename(binding, full_name)
-    else
-      {:error, _reason} = error -> error
-      _invalid_name -> :ok
-    end
-  end
-
-  defp maybe_import_new_repositories(payload) do
-    snapshot = Settings.fetch!()
-
-    case snapshot.github.auto_add_repositories do
-      true -> import_new_repositories(payload, snapshot.github.bot_actor_id)
-      false -> :ok
-    end
-  end
-
-  defp import_new_repositories(payload, actor_id) do
-    payload
-    |> repositories_added()
-    |> import_repositories(actor_id)
-  end
+  defp import_new_repositories(_payload, _snapshot), do: :ok
 
   defp repositories_added(payload) do
     account = get_in(payload, ["installation", "account"]) || %{}
@@ -149,44 +150,25 @@ defmodule Ryker.GitHub.Access do
     end
   end
 
-  defp import_repositories([], _actor_id), do: :ok
-
-  defp import_repositories(repositories, actor_id) do
-    case IntegrationSetup.import_github_repositories(repositories, ryker_actor_id: actor_id) do
-      {:ok, %{failed: []}} -> :ok
-      {:ok, _partial} -> {:error, :github_repository_auto_import_failed}
-      {:error, _reason} = error -> error
-    end
-  end
-
   defp matching(bindings, installation_id) do
     bindings |> Map.values() |> Enum.filter(&(&1.installation_id == installation_id))
   end
 
-  defp refresh_permissions(bindings, payload) do
+  defp refresh_permissions(bindings, payload, snapshot) do
     case get_in(payload, ["installation", "permissions"]) do
       permissions when is_map(permissions) and map_size(permissions) > 0 ->
-        bindings
-        |> update_many(fn binding ->
-          snapshot = Settings.fetch!()
+        grants = IntegrationSetup.github_action_grants(permissions)
 
+        update_many(bindings, snapshot, fn binding, snapshot ->
           Settings.put_github_binding(
-            %{
-              name: binding.name,
-              action_grants: IntegrationSetup.github_action_grants(permissions),
-              granted_permissions: permissions
-            },
+            %{name: binding.name, action_grants: grants, granted_permissions: permissions},
             snapshot.installation.revision,
             @actor
           )
         end)
-        |> case do
-          {:ok, _updated} -> :ok
-          {:error, _reason} = error -> error
-        end
 
       _missing ->
-        :ok
+        {:ok, snapshot}
     end
   end
 
@@ -195,40 +177,40 @@ defmodule Ryker.GitHub.Access do
 
   defp ids(_values), do: []
 
-  defp update_many(bindings, callback) do
-    Enum.reduce_while(bindings, {:ok, []}, fn binding, {:ok, changed} ->
-      case callback.(binding) do
-        :ok -> {:cont, {:ok, [binding | changed]}}
-        {:ok, _snapshot} -> {:cont, {:ok, [binding | changed]}}
+  # Each write returns the snapshot it saved, so the next write builds on it
+  # without reading the settings again.
+  defp update_many(bindings, snapshot, update) do
+    Enum.reduce_while(bindings, {:ok, snapshot}, fn binding, {:ok, snapshot} ->
+      case update.(binding, snapshot) do
+        {:ok, snapshot} -> {:cont, {:ok, snapshot}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
 
-  defp access(%Binding{name: ref}, access, onboarding, error) do
-    snapshot = Settings.fetch!()
-    repository = Enum.find(snapshot.repositories, &(&1.ref == ref))
-
-    if repository do
-      attributes =
-        %{ref: ref, github_access: access, onboarding_error: error}
-        |> maybe_put(:onboarding_state, onboarding)
-
-      Settings.put_repository(attributes, snapshot.installation.revision, @actor)
+  defp access(%Binding{name: ref}, snapshot, {access, onboarding, error}) do
+    if saved?(snapshot, ref) do
+      %{ref: ref, github_access: access, onboarding_error: error}
+      |> maybe_put(:onboarding_state, onboarding)
+      |> Settings.put_repository(snapshot.installation.revision, @actor)
     else
-      {:ok, nil}
+      {:ok, snapshot}
     end
   end
 
-  defp rename(%Binding{name: ref}, full_name) do
-    snapshot = Settings.fetch!()
-
-    Settings.put_repository(
-      %{ref: ref, display_name: full_name, github_repository: full_name},
-      snapshot.installation.revision,
-      @actor
-    )
+  defp rename(%Binding{name: ref}, snapshot, full_name) do
+    if saved?(snapshot, ref) do
+      Settings.put_repository(
+        %{ref: ref, display_name: full_name, github_repository: full_name},
+        snapshot.installation.revision,
+        @actor
+      )
+    else
+      {:ok, snapshot}
+    end
   end
+
+  defp saved?(snapshot, ref), do: Enum.any?(snapshot.repositories, &(&1.ref == ref))
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

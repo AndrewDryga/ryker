@@ -14,7 +14,7 @@ defmodule Ryker.ComposeDistributionTest do
   )
 
   test "the public Compose contract contains only host and machine-root settings" do
-    public = read("compose.yml") <> read("install.sh")
+    public = read("compose.yml") <> read("install.sh") <> read("scripts/compose.sh")
 
     assert read(".gitignore") =~ "/.ryker/"
 
@@ -52,11 +52,16 @@ defmodule Ryker.ComposeDistributionTest do
     lifecycle = read("scripts/compose.sh")
     worker = read("deploy/compose/coop/entrypoint.sh")
 
-    assert installer =~ "prepare_bundled_coop"
-    assert installer =~ "docker compose"
-    assert installer =~ "0.1.0-source.g"
-    assert installer =~ ~s(codex_auth_root=${CODEX_HOME:-$HOME/.codex})
-    assert installer =~ "Imported the existing Codex sign-in"
+    # install.sh is the documented name; the lifecycle helper owns the install
+    # itself, so install, upgrade, backup and restore share one project and
+    # one readiness check.
+    assert installer =~ ~s(scripts/compose.sh" install)
+    assert lifecycle =~ "install_ryker"
+    assert lifecycle =~ "prepare_bundled_coop"
+    assert lifecycle =~ "docker compose"
+    assert lifecycle =~ "0.1.0-source.g"
+    assert lifecycle =~ ~s(codex_auth_root=${CODEX_HOME:-$HOME/.codex})
+    assert lifecycle =~ "Imported the existing Codex sign-in"
     assert worker =~ "coop sessions connect"
     assert worker =~ "coop sessions policies"
     assert worker =~ "worker.json"
@@ -98,6 +103,11 @@ defmodule Ryker.ComposeDistributionTest do
     assert compose_entrypoint =~ "grep -q 'does match certificate'"
     assert worker =~ ~s(capabilities: [{name: "responder-state", version: "1"}])
     assert worker_image =~ "COOP_REVISION=cb5178ebb9f0e6c53999df51ffffe73bd5f84e6c"
+    # The Coop pin lives in one place, the worker Dockerfile; compose.yml only
+    # passes an operator's COOP_VERSION override through. Two copies of the
+    # default once had to be bumped together.
+    assert worker_image =~ ~r/^ARG COOP_VERSION=v/m
+    refute read("compose.yml") =~ "COOP_VERSION:-"
     assert worker_image =~ "COPY --from=build /out/coop /usr/local/bin/coop"
     assert worker_image =~ "coop help sessions policies"
     assert worker_image =~ "coop help sessions connect"
@@ -116,7 +126,7 @@ defmodule Ryker.ComposeDistributionTest do
 
     assert dockerfile =~ "mix release ryker"
     assert dockerfile =~ "RYKER_ELIXIR_VERSION=${RYKER_VERSION}"
-    assert dockerfile =~ "COPY Dockerfile compose.yml install.sh ./"
+    assert dockerfile =~ "COPY Dockerfile compose.yml install.sh release-assets.txt ./"
     assert dockerfile =~ "COPY deploy/nginx deploy/nginx"
     assert dockerfile =~ "FROM debian:bookworm-slim AS runtime"
     assert dockerfile =~ "LANG=C.UTF-8"
@@ -126,17 +136,17 @@ defmodule Ryker.ComposeDistributionTest do
   end
 
   test "the shipped release points operators to Compose rather than host service managers" do
-    mix = read("mix.exs")
+    manifest = read("release-assets.txt")
 
-    assert mix =~ "compose.yml"
-    assert mix =~ "install.sh"
-    assert mix =~ "scripts/compose.sh"
-    assert mix =~ "deploy/compose/coop/Box.Dockerfile"
-    assert mix =~ "deploy/compose/coop/Dockerfile"
-    assert mix =~ "deploy/compose/coop/entrypoint.sh"
-    refute mix =~ "deploy/systemd/ryker.service"
-    refute mix =~ "deploy/systemd/ryker.env.example"
-    refute mix =~ "deploy/launchd"
+    assert read("mix.exs") =~ "release-assets.txt"
+    assert manifest =~ "compose.yml"
+    assert manifest =~ "install.sh"
+    assert manifest =~ "scripts/compose.sh"
+    assert manifest =~ "deploy/compose/coop/Box.Dockerfile"
+    assert manifest =~ "deploy/compose/coop/Dockerfile"
+    assert manifest =~ "deploy/compose/coop/entrypoint.sh"
+    refute manifest =~ "deploy/systemd"
+    refute manifest =~ "deploy/launchd"
   end
 
   defp read(relative), do: File.read!(Path.join(@root, relative))

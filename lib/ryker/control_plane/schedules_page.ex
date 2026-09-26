@@ -38,7 +38,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
     %{"q" => query, "view" => if(params["view"] == "past", do: "past", else: "current")}
   end
 
-  @doc "The Schedules list: the toolbar, the rows, and how to add one."
+  @doc "The Schedules list: the toolbar and the rows. How to add one is the page's help."
   @spec list([map()], map()) :: iodata()
   def list(items, params) do
     %{
@@ -88,10 +88,6 @@ defmodule Ryker.ControlPlane.SchedulesPage do
         Showing the first 100 schedules. Search to narrow the list.
       </p>
       <.list_empty :if={@items == []} query={@query} view={@view} />
-      <Kit.ask_hint
-        lead="To add a schedule, tell Ryker where the results should go:"
-        example="Every Monday at 09:00 Berlin time, summarize unresolved incidents in this channel."
-      />
     </div>
     """
   end

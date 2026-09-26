@@ -22,8 +22,17 @@ defmodule Ryker.Retention.RuntimeTest do
     assert flags.strategy == :one_for_one
     assert child.id == Worker
 
-    assert child.start |> elem(2) |> hd() |> Keyword.fetch!(:maintenance) ==
-             Ryker.Retention.Data
+    # Data pruning is the worker's own; the runtime hands it the horizons only.
+    worker_options = child.start |> elem(2) |> hd()
+    refute Keyword.has_key?(worker_options, :maintenance)
+
+    assert Keyword.fetch!(worker_options, :maintenance_options) == %{
+             audit_data_seconds: 2_592_000,
+             closed_work_seconds: 604_800,
+             conversation_memory_seconds: 7_776_000,
+             episode_history_seconds: 2_592_000,
+             operational_data_seconds: 86_400
+           }
 
     assert Runtime.child_spec(configuration()).id == Runtime
   end
@@ -82,19 +91,7 @@ defmodule Ryker.Retention.RuntimeTest do
     end
   end
 
-  test "maintenance absence and failures never stop cleanup polling" do
-    assert {:ok, nil_maintenance} =
-             Worker.start_link(
-               dispatcher: __MODULE__.Dispatcher,
-               dispatcher_options: [response: {:ok, pass(0, %{idle: true})}, test_pid: self()],
-               poll_interval_ms: 60_000
-             )
-
-    assert %{poll_interval_ms: 60_000} = :sys.get_state(nil_maintenance)
-    assert_receive {:retention_dispatch, {:ok, %{idle: true}}}
-    assert Process.alive?(nil_maintenance)
-    GenServer.stop(nil_maintenance)
-
+  test "maintenance failures never stop cleanup polling" do
     for mode <- [:error, :raise, :throw] do
       assert {:ok, pid} =
                Worker.start_link(
@@ -115,12 +112,11 @@ defmodule Ryker.Retention.RuntimeTest do
       GenServer.stop(pid)
     end
 
+    # Pruning is not optional: a worker without its horizons does not start.
     assert {:stop, {:invalid_retention_worker, :options}} =
              Worker.init(
                dispatcher: __MODULE__.Dispatcher,
                dispatcher_options: [],
-               maintenance: __MODULE__.Maintenance,
-               maintenance_options: nil,
                poll_interval_ms: 60_000
              )
   end

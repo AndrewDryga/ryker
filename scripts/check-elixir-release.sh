@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
+# Structural check of one Elixir release archive. The bytes must match the
+# trusted digest before anything is listed or extracted; every path must be
+# safe; the release must carry its executable, its runtime configuration,
+# every migration in this tree and every operator asset in release-assets.txt,
+# no development dependency, the expected version, and it must boot its
+# migration entry point.
 set -euo pipefail
 
 archive=${1:-}
 expected_version=${2:-}
 expected_sha256=${3:-}
-mode=${4:-}
-script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+manifest="$root/release-assets.txt"
 
-if [[ -z $archive || -z $expected_version || -z $expected_sha256 || ! -f $archive ]]; then
-  echo "usage: scripts/check-elixir-release.sh ARCHIVE VERSION TRUSTED_SHA256 [--archive-only]" >&2
-  exit 2
-fi
-
-if [[ -n $mode && $mode != --archive-only ]]; then
-  echo "unknown release check mode: $mode" >&2
+if [[ $# -ne 3 || -z $archive || -z $expected_version || -z $expected_sha256 || ! -f $archive ]]; then
+  echo "usage: scripts/check-elixir-release.sh ARCHIVE VERSION TRUSTED_SHA256" >&2
   exit 2
 fi
 
@@ -72,31 +73,29 @@ fi
 tar -xzf "$verified_archive" -C "$scratch"
 
 binary="$scratch/bin/ryker"
-migration="$scratch/lib/ryker-$expected_version/priv/repo/migrations/20260830000100_finalize_elixir_product_schema.exs"
-
 [[ -x $binary ]] || { echo "release is missing executable bin/ryker" >&2; exit 1; }
-[[ -f $migration ]] || { echo "release is missing the product migration" >&2; exit 1; }
 [[ -f $scratch/releases/$expected_version/runtime.exs ]] || {
   echo "release is missing runtime configuration" >&2
   exit 1
 }
 
-for asset in \
-  README.md \
-  compose.yml \
-  install.sh \
-  Dockerfile \
-  deploy/compose/entrypoint.sh \
-  deploy/nginx/ryker.conf \
-  docs/elixir-ingress-admission.md \
-  docs/operations.md \
-  docs/releasing.md \
-  scripts/compose.sh; do
+# Every migration this tree carries must be in the release, or the container
+# boots an older schema than the code expects.
+for migration in "$root"/priv/repo/migrations/*.exs; do
+  name=${migration##*/}
+  if [[ ! -f $scratch/lib/ryker-$expected_version/priv/repo/migrations/$name ]]; then
+    echo "release is missing migration $name" >&2
+    exit 1
+  fi
+done
+
+while IFS= read -r asset; do
+  [[ -z $asset || $asset == \#* ]] && continue
   if [[ ! -f $scratch/share/ryker/$asset ]]; then
     echo "release is missing operator asset share/ryker/$asset" >&2
     exit 1
   fi
-done
+done <"$manifest"
 
 if find "$scratch/lib" -maxdepth 1 -type d \( -name 'credo-*' -o -name 'jsv-*' \) | grep -q .; then
   echo "release contains development or test dependencies" >&2
@@ -112,52 +111,5 @@ DATABASE_URL=ecto://release-check:release-check@127.0.0.1/ryker_release_check \
   RYKER_CREDENTIAL_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
   $binary eval \
   'if Code.ensure_loaded?(Ryker.Release), do: System.halt(0), else: System.halt(1)'
-
-if [[ $mode != --archive-only ]]; then
-  install_prefix="$scratch/install-root"
-
-  "$script_dir/install-elixir-release.sh" \
-    "$verified_archive" "$expected_version" "$expected_sha256" "$install_prefix" \
-    --local-build >/dev/null
-
-  [[ -L $install_prefix/current ]] || {
-    echo "release installer did not create the current pointer" >&2
-    exit 1
-  }
-
-  [[ $(readlink "$install_prefix/current") == "releases/$expected_version" ]] || {
-    echo "release installer selected the wrong version" >&2
-    exit 1
-  }
-
-  [[ $("$install_prefix"/current/bin/ryker version) == "ryker $expected_version" ]] || {
-    echo "installed release does not execute through current" >&2
-    exit 1
-  }
-
-  "$script_dir/install-elixir-release.sh" \
-    "$verified_archive" "$expected_version" "$expected_sha256" "$install_prefix" \
-    --local-build >/dev/null
-
-  if "$script_dir/activate-elixir-release.sh" "$install_prefix" missing-version >/dev/null 2>&1; then
-    echo "release activator selected a missing version" >&2
-    exit 1
-  fi
-
-  [[ $(readlink "$install_prefix/current") == "releases/$expected_version" ]] || {
-    echo "failed activation changed the current release" >&2
-    exit 1
-  }
-
-  "$script_dir/activate-elixir-release.sh" \
-    "$install_prefix" "$expected_version" >/dev/null
-
-  if "$script_dir/install-elixir-release.sh" \
-    "$verified_archive" "$expected_version" "$expected_sha256" relative/prefix \
-    --local-build >/dev/null 2>&1; then
-    echo "release installer accepted a relative prefix" >&2
-    exit 1
-  fi
-fi
 
 echo "Elixir release $expected_version is self-contained and migration-capable"

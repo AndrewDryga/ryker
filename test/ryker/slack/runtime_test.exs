@@ -32,12 +32,11 @@ defmodule Ryker.Slack.RuntimeTest do
     assert outside.policy == "ryker-chat"
     assert outside.environment_ref == nil
     assert outside.repository_ref == nil
-    assert outside.read_only_repository_refs == []
+    assert outside.repositories == []
 
     assert {:ok, %WorkProfile{} = production} = work_profile.("T123", "slack:T123:C0PROD")
     assert production.environment_ref == "production"
-    assert production.repository_ref == "payments"
-    assert production.read_only_repository_refs == ["ledger"]
+    assert production.repositories == ["payments", "ledger"]
 
     # A conversation with no setting of its own, like a direct message, runs in
     # the default environment.
@@ -114,8 +113,9 @@ defmodule Ryker.Slack.RuntimeTest do
     assert is_function(options.handler_settings.interaction_options.check_task_publication, 1)
     assert is_function(options.handler_settings.interaction_options.recover_task_publication, 2)
 
-    # A channel may select the environment by name; only the repository work
-    # changes has a known GitHub page.
+    # A channel may select the environment by name. Work there may change any
+    # of its repositories, the first being the default, and each links to its
+    # GitHub page when the host knows one.
     assert options.handler_settings.setup_options.catalog == %{
              default_environment: "production",
              environments: [
@@ -131,13 +131,15 @@ defmodule Ryker.Slack.RuntimeTest do
              ]
            }
 
-    # A task confirmed in Slack runs under its environment's own policy.
-    assert %{"production" => %{contributor_policy: task_policy}} =
+    # A task confirmed in Slack runs under its environment's policy for the
+    # repository it changes, the others mounted read-only.
+    assert %{"production" => %{contributor_policies: task_policies}} =
              options.handler_settings.interaction_options.environments
 
-    assert task_policy.environment_ref == "production"
-    assert task_policy.repository_ref == "payments"
-    assert task_policy.repository_context["read_only_repositories"] == ["ledger"]
+    assert task_policies["ledger"].environment_ref == "production"
+    assert task_policies["ledger"].repository_ref == "ledger"
+    assert task_policies["ledger"].repository_context["read_only_repositories"] == ["payments"]
+    assert task_policies["payments"].repository_context["read_only_repositories"] == ["ledger"]
 
     assert %{
              binding: %{
@@ -182,9 +184,9 @@ defmodule Ryker.Slack.RuntimeTest do
     # An environment with no repository answers on the installation's policy
     # and has nothing a confirmed task could change.
     chat_only = %{
-      contributor_policy: nil,
+      contributor_policies: %{},
       display_name: "Chat",
-      github_repository: nil,
+      github_repositories: %{},
       work_profile: %{
         environment_ref: "chat",
         parallel_goal_limit: 3,
@@ -223,6 +225,36 @@ defmodule Ryker.Slack.RuntimeTest do
       )
     end
 
+    # A task policy or GitHub page for a repository the environment does not
+    # hold, or one that places its work in another repository, is not this
+    # environment's either.
+    outside_policy = %{
+      digest: String.duplicate("b", 64),
+      environment_ref: "production",
+      name: "production-contributor",
+      repository_ref: "billing"
+    }
+
+    for invalid <- [
+          put_in(
+            base,
+            [:environments, "production", :contributor_policies, "billing"],
+            outside_policy
+          ),
+          put_in(
+            base,
+            [:environments, "production", :contributor_policies, "ledger", :repository_ref],
+            "payments"
+          ),
+          put_in(
+            base,
+            [:environments, "production", :github_repositories, "billing"],
+            "acme/billing"
+          )
+        ] do
+      assert_raise ArgumentError, fn -> Runtime.options!(invalid) end
+    end
+
     assert_raise ArgumentError, fn ->
       Runtime.options!(put_in(base, [:environments, "production", :display_name], ""))
     end
@@ -249,7 +281,8 @@ defmodule Ryker.Slack.RuntimeTest do
   end
 
   # The Slack runtime configuration Assembly builds for an installation with a
-  # default environment "production": it changes payments and reads ledger.
+  # default environment "production" holding payments and ledger; payments is
+  # its default repository.
   defp configuration do
     app_http = json_client("xapp-test")
     {:ok, bot_client} = Client.new(http: json_client("xoxb-test"), requester: JSONClient)
@@ -272,31 +305,42 @@ defmodule Ryker.Slack.RuntimeTest do
   end
 
   defp production_environment do
-    context = %{
-      "context_ref" => "production",
-      "parallel_goal_limit" => 3,
-      "primary_repository" => "payments",
-      "read_only_repositories" => ["ledger"]
-    }
+    repositories = ["payments", "ledger"]
 
     %{
-      contributor_policy: %{
-        digest: String.duplicate("b", 64),
-        environment_ref: "production",
-        name: "production-contributor",
-        repository_context: context,
-        repository_ref: "payments"
-      },
+      contributor_policies:
+        Map.new(repositories, fn repository ->
+          {repository,
+           %{
+             digest: String.duplicate("b", 64),
+             environment_ref: "production",
+             name: "production-#{repository}-contributor",
+             repository_context: %{
+               "context_ref" => "production",
+               "parallel_goal_limit" => 3,
+               "primary_repository" => repository,
+               "read_only_repositories" => List.delete(repositories, repository)
+             },
+             repository_ref: repository
+           }}
+        end),
       display_name: "Production",
-      github_repository: "acme/payments",
+      github_repositories: %{"payments" => "acme/payments"},
       work_profile: %{
-        emisar_connection_ref: nil,
         environment_ref: "production",
         parallel_goal_limit: 3,
-        policy: "production-conversation",
-        policy_digest: String.duplicate("d", 64),
-        read_only_repository_refs: ["ledger"],
-        repository_ref: "payments"
+        policies:
+          Map.new(repositories, fn repository ->
+            {repository,
+             Map.new([:conversational, :standard, :deep], fn work_class ->
+               {work_class,
+                %{
+                  policy: "production-#{repository}-conversation",
+                  policy_digest: String.duplicate("d", 64)
+                }}
+             end)}
+          end),
+        repositories: repositories
       }
     }
   end

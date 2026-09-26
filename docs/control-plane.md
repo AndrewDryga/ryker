@@ -3,11 +3,10 @@
 A local web dashboard for the operator who runs Ryker, and for whoever has
 to work out why it did something.
 
-The current implementation plan is [Control-plane redesign](control-plane-redesign.md).
-It specifies Phoenix LiveView throughout, fast reliable admission, readable model
-request inspection, complete cost accounting, the reviewed learning flywheel,
-and simpler configuration. Its target technology and information architecture
-supersede the older proposals below; they are not yet deployed. This document
+The redesign plan this document once pointed at (Phoenix LiveView throughout,
+fast reliable admission, readable model request inspection, complete cost
+accounting, the reviewed learning flywheel, simpler configuration) was retired on
+2026-09-25; [history.md](history.md) records where each part landed. This document
 remains the capability inventory and historical design rationale.
 
 This document preserves the intended complete control-plane design. The current
@@ -169,10 +168,18 @@ opens to work on an incident: one row per room with its state in words (Setting
 up, Open, Needs attention, Closed), its channel, repository, when it opened and a
 link to its investigation. A room is opened only from Ryker's incident offer in
 Slack, so the page says how to ask for one instead of offering a create button.
-Each room opens at `/incident-rooms/:ref`: Ryker's latest progress, the room's
-facts, what the investigation recorded (in the words its timeline cards use), any
-code change it proposed, and the channel's history, with references in one closed
-Details disclosure. The list includes requested and blocked rooms before a Slack
+Each room opens at `/incident-rooms/:ref` in the order someone handling the incident needs it: its
+state, when it opened and its channel on one line; its facts two to a line
+(channel, who can join, the alert thread it was opened from, its environment and
+repository, when it opened and last changed); a **Now** card with Ryker's latest
+update and its stage, which says so first when the channel is archived, out of
+reach or deleted, or the room closed, and where Ryker's reply or note went;
+**Investigation**, what Ryker recorded (in the words its timeline cards use) as
+rows newest first under day headings, a long record opening in place from three
+lines; any code change it proposed; and **Room history**, what happened to the
+room and its channel, oldest first. Room, channel, record and request IDs appear
+only in one closed Details disclosure.
+The list includes requested and blocked rooms before a Slack
 channel exists; it is not a directory of local Lab incidents. Room status and
 search filters remain in the URL, and committed lifecycle changes refresh the list
 and detail views.
@@ -189,30 +196,35 @@ filtering and refreshing this page never changes a wait.
 
 ## Environments
 
-An **environment** is where Ryker works: the repositories work in it may use, in
-order, and at most one Emisar account. Work changes the first repository and only
-reads the others. Slack channels and webhook sources choose an environment; Chat
-and every conversation without its own choice use the default one. Adding a
-repository puts it in the default environment and creates "Default" when there
-is none, so a new installation needs no extra step. There are no repository
-groups and no approval routes.
+An **environment** is where Ryker works: the repositories work in it may use and
+at most one Emisar account. Every repository in it is available to its work: a
+task picks the one it changes, the others are mounted read-only beside it, and
+the first is the default. Slack channels and webhook sources choose an
+environment; Chat and every conversation without its own choice use the default
+one. Adding a repository puts it in the default environment and creates "Default"
+when there is none, so a new installation needs no extra step. There are no
+repository groups and no approval routes.
 
-`/environments` lists each environment as one row, the default first: its name
-(which opens its editor), a Default tag, what it is for, how many repositories it
-has and which one takes the changes, its Emisar account, and how many channels and
-webhook sources use it. Edit opens the editor in place (`?edit=<ref>`, or
-`?edit=new` for Add an environment): name, description, the added repositories as
-an ordered list with move up and down (the first takes the changes, the others are
-read only), the Emisar account and Use as default. Use as default moves the
-default in one save. Remove asks first, and a removal the settings refuse says who
-still uses the environment: "Staging is used by 3 channels and 1 webhook source.
-Change them first."
+`/environments` leads with how many environments it lists and, once a channel
+chose none, how many channels have no environment, linked to Channels. Then one
+row per environment, the default first: its name (which opens its editor), a
+Default tag, what it is for, how many repositories it has and the default one
+("3 repositories · default acme/api"), its Emisar account, and how many channels
+and webhook sources use it. Add an environment (`?edit=new`) opens the editor
+under the page header, above the list, and pressed again closes it; Edit
+(`?edit=<ref>`) opens it under its row. The editor holds the name, description,
+the added repositories as an ordered list with move up and down (every chosen one
+is available to work there, and the first, marked Default, is the default), the
+Emisar account and Use as default. Use as default moves the default in one save.
+Remove asks first, and a removal the settings refuse says who still uses the
+environment: "Staging is used by 3 channels and 1 webhook source. Change them
+first."
 
 A channel's page chooses its environment in place: a select of the environments
 and "No environment", saved as the channel's own setting, beside the code and
 Emisar account that choice gives the channel's work. Rules, guidance and memory
-scoped to a repository reach a channel through the repository its environment
-changes. The Repositories page says which environments each repository is in, and
+scoped to a repository reach a channel through its environment's default
+repository. The Repositories page says which environments each repository is in, and
 the Emisar page says which environments use each account and counts, with a link
 here, the environments that have none.
 
@@ -246,6 +258,27 @@ Already submitted work and exact transport retries retain their saved instructio
 Clears are explicit empty revisions, not missing history. Request and learning
 inspection show the text, scope and revisions actually submitted, through existing
 redaction and retention; today's settings never reconstruct an expired request.
+
+## How this page works
+
+Every page the route map serves carries "How this page works": that page's own
+help, written for someone who has never seen Ryker, as a title and two to five
+short sections (what the page shows, what can be done there, how Ryker uses it,
+what to do when something looks wrong, and how to ask Ryker in chat or Slack
+where that applies). `ControlPlane.PageHelp` keys the help by route and the
+shell renders it once per page as one `<aside class="page-help">` holding a
+`<details>` headed "How this page works". `PageHelpTest` fails on a routed page
+without help, on help that outlives its page, and on Ryker's internal words
+("episode", "custody", "digest", …) in the help.
+
+From 1600px wide the help is a sticky 272px column at the right of the page,
+open, and the page keeps its own width beside it; below that it is a quiet
+disclosure above the page, closed until the reader opens it. `page-help.mjs`
+opens it when the page loads wide or the window is widened past 1600px, keeps
+the reader's choice across live updates, and never closes it. The panel replaced
+the one-line how-to hints that sat under a few lists ("To open one, ask Ryker in
+the alert's Slack thread…"): no page explains itself in its body, while an empty
+state still says what would put something in the list.
 
 ## Why this exists
 
@@ -520,15 +553,26 @@ episode.
 ### 7. Settings — "how is it set up, and what is that costing me?"
 
 - Editors for the product decisions: Slack, GitHub and Emisar connections,
-  repositories, environments, GitHub repository bindings, execution
-  policies, work placement, publication identity, the weekly report, learning,
-  retention horizons and optional token rates. Each section saves explicitly at
-  the revision it was read at, keeps its draft when a save is refused, and shows
-  what is saved now when another writer got there first
-- Execution policies are chosen by name from what enrolled, unrevoked workers
+  repositories, environments, GitHub repository bindings, what each kind of work
+  may do (worker policies), where work runs (the worker install), publication
+  identity, the weekly report, learning, retention horizons and optional token
+  rates. Each section saves explicitly at the revision it was read at, keeps its
+  draft when a save is refused, and shows what is saved now when another writer
+  got there first
+- Settings explain themselves in plain words: each model says under its choice
+  where Ryker uses it, as the code decides it; Advanced opens with what a worker
+  is, and says what a policy is; a policy row reads as the kind of work, where it
+  applies, whether it can change code when that is known and how many workers
+  offer it, with the worker's own policy name and pins under Details
+- Add opens its form under the button, above the list it adds to, and pressed
+  again closes it, as Cancel does; a row's Edit opens its form under that row. A
+  section whose only job is a form, such as the Slack tokens or the GitHub App
+  credentials, shows its fields rather than a disclosure
+- Worker policies are chosen by name from what enrolled, unrevoked workers
   advertise; the digest and authority digest are copied from that advertisement,
   never typed, and a binding the fleet no longer advertises is shown as
-  unavailable with its pin intact rather than repointed
+  unavailable with its pin intact rather than repointed. An environment binds
+  each kind of work once per repository, since its work may change any of them
 - Saved revision and running revision as two separate facts, with the reason a
   saved revision could not be applied
 - Which deployment credentials are configured, missing or unusable — presence
@@ -728,7 +772,7 @@ replacement, not the older dashboard or the intended final design above.
 | Incident rooms list and detail | Live, with bounded search, Slack-room lifecycle, linked source and investigation episodes, typed evidence records, and sanitized publication state |
 | Schedules list and detail | Live, with bounded search, confirmed run-now, direct-conversation replacement, recurrence and authority, destination, trigger kind, child execution state and timing, attempts, sanitized failures, and dispatched or missed occurrence history |
 | Waits | Live, with active-first bounded search, readable target/condition/request, relative timing and exact UTC timestamps, accurate event/timer resolution, and collapsed technical details without raw source payloads |
-| Environments | Live: each environment with its repositories in order, the one that takes the changes, its Emisar account and how many channels and webhook sources use it, the default first; an editor in place with ordered repositories, Emisar account and Use as default; Use as default and Remove, which asks first and names who still uses the environment when it is refused |
+| Environments | Live: how many environments there are and how many channels chose none; each environment with how many repositories it has and the default one, its Emisar account and how many channels and webhook sources use it, the default first; an editor above the list for a new environment and under its row for one that exists, with the repositories in order (all available to its work, the first the default), Emisar account and Use as default; Use as default and Remove, which asks first and names who still uses the environment when it is refused |
 | Channels list and detail | Live: the channels Ryker is in (In use/All, search by name or environment) and how it takes part in each, in plain words, with the environment its work runs in; one page per channel with how Ryker takes part and its environment chosen in place, beside the code and Emisar account that environment gives it, its own instructions, what applies there (rules, saved instructions, facts) and where each comes from, what Ryker learned, schedules, recent work and usage, each list paged on its own |
 | Repositories | Live: each repository as Ready, Setting up or Needs attention with its one next step, which environments it is in, where it is used and the last code Ryker used, Retry setup for a stopped setup, access, permissions, GitHub events, RYKER.md and worker revisions in a closed Details, and adding repositories from the connected GitHub App, each joining the default environment |
 | Failures | Live, with typed confirmed recovery for admission, Work, delivery, Slack repaint/incident, Emisar monitoring, and retention custody |
@@ -740,7 +784,7 @@ replacement, not the older dashboard or the intended final design above.
 | Memory | Three pages beside Findings. Facts: what people asked Ryker to remember, where each applies and how often it was used, with confirmed forget and a Needs review section (keep, merge, edit, forget) for stale or repeated facts. Learned: topics and conversation summaries with their source messages, update history, how each update was learned, and relearning for a topic whose sources are gone. Learning: whether background learning runs here, what waits, batches that need attention with one more start, recent passes by outcome, handovers that were not saved, and learning worker sessions, with the on/off switch opposite the title |
 | Setup | Live onboarding at `/setup`: the six required steps as an ordered list with one open step (why it matters, what it needs, about how long, one action), the Slack-side steps checked off when Ryker notices them, the channel's environment chosen on the channel's page (done once a joined channel has one; adding a repository creates the Default environment, so there is no step for that), Emisar as the one recommended step with its own panel that never blocks ready, and a calm ready state; the sidebar keeps a way back while required steps are open |
 | Integrations | Live: an overview of Slack, GitHub, Emisar and webhooks, each with its state in words, what it gives Ryker, what is connected and one action, and a page per integration to connect, repair, manage or disconnect it (disconnects and removals ask first); each Emisar account says which environments use it, and the environments without one are counted with a link to Environments |
-| Settings | Models, Data retention, Model prices and Advanced: live editors for every product decision, each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; under Advanced an allowlist of effective runtime values, MCP/host/tool grant names, and repository-topology linkage. Secrets, endpoints, callbacks, and raw policy documents are omitted, and credentials appear only as configured, missing or unusable |
+| Settings | Models, Data retention, Model prices and Advanced: live editors for every product decision, each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; each model says where Ryker uses it; Add opens its form above the list and a row's Edit under that row; Advanced says in plain words where work runs, what each kind of work may do and whether tasks that change code can run, then an allowlist of effective runtime values, MCP/host/tool grant names, and repository-topology linkage. Secrets, endpoints, callbacks, and raw policy documents are omitted, and credentials appear only as configured, missing or unusable |
 
 Every administrative action is a POST behind a native two-step confirm and
 writes its store transition and audit row in the same act, attributed to
@@ -854,7 +898,7 @@ Episode/Work/Delivery record agree.
 
 The following describes the current implementation. The target is Phoenix
 LiveView with committed-state updates and reconnect recovery, as specified in
-the [redesign plan](control-plane-redesign.md#1-liveview-throughout-the-control-plane).
+the retired redesign plan (see [history.md](history.md)).
 
 - **Elixir Plug/Bandit**, server-rendered. No frontend build step, bundler, or
   node_modules. Read models are bounded Ecto projections over the same durable

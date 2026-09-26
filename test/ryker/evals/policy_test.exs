@@ -1,8 +1,10 @@
 defmodule Ryker.Evals.PolicyTest do
   use Ryker.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias Ryker.Evals.Policy
-  alias Ryker.Settings
+  alias Ryker.{Repo, Settings}
 
   @no_tools String.duplicate("a", 64)
   @world String.duplicate("b", 64)
@@ -18,6 +20,23 @@ defmodule Ryker.Evals.PolicyTest do
       "RYKER_EVAL_WORLD_BASELINE_POLICY" => "eval-world-baseline",
       "RYKER_EVAL_WORLD_BASELINE_POLICY_DIGEST" => @baseline
     })
+  end
+
+  # The fence answered "not reused" whenever the database could not answer at
+  # all, so an eval ran with production authority exactly when the settings
+  # read failed: a safety check that failed open.
+  test "a database error in the eval policy fence refuses the policy" do
+    # Only the table the fence reads is broken; the sandbox rollback restores it.
+    Repo.query!("ALTER TABLE policy_bindings RENAME TO policy_bindings_broken")
+
+    log =
+      capture_log(fn ->
+        assert Policy.for_kind(:world) == {:error, :model_eval_authority_check_unavailable}
+      end)
+
+    Repo.query!("ALTER TABLE policy_bindings_broken RENAME TO policy_bindings")
+    assert log =~ "model eval authority check unavailable"
+    assert log =~ "Postgrex.Error"
   end
 
   test "the world lane receives only its dedicated authorities" do

@@ -21,11 +21,11 @@ defmodule Ryker.Slack.InteractionAudits do
   @maximum_error_detail_bytes 4_096
   @identity_fields ~w(action_id action_value_digest actor_ref channel_ref event_ref message_ref outcome thread_ref workspace_ref)a
 
-  @spec record(Interaction.t(), :denied | :invalid | :confirmed | :retired) ::
+  @spec record(Interaction.t(), :denied | :invalid | :confirmed) ::
           {:ok, %{audit: InteractionAudit.t(), status: :recorded | :duplicate}}
           | {:error, term()}
   def record(%Interaction{} = interaction, outcome)
-      when outcome in [:denied, :invalid, :confirmed, :retired] do
+      when outcome in [:denied, :invalid, :confirmed] do
     attributes = attributes(interaction, outcome)
 
     Repo.transaction(fn -> record_locked(attributes) end)
@@ -259,13 +259,6 @@ defmodule Ryker.Slack.InteractionAudits do
     if DateTime.compare(expires_at, now) == :gt,
       do: callback.(audit, now),
       else: Repo.rollback(:slack_interaction_audit_lease_lost)
-  end
-
-  # A click on a card posted before the 2026-09-13 rename is unavailable rather
-  # than stale: no current control could repaint that message, so the row keeps
-  # the exact retired action id and enters no repaint queue.
-  defp attributes(interaction, :retired) do
-    %{attributes(interaction, :invalid) | repaint_status: :none}
   end
 
   defp attributes(interaction, outcome) do

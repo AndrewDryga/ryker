@@ -96,6 +96,9 @@ defmodule Ryker.State.Memories.Reviews do
     end
   end
 
+  # Tests read the review documents of one workspace back; the product reads
+  # through `home_reviews/3` and the control plane's own queries.
+  @doc false
   @spec list_reviews(String.t(), keyword()) :: [map()]
   def list_reviews(workspace_ref, options \\ []) do
     with :ok <- Memories.reference(workspace_ref, :workspace_ref),

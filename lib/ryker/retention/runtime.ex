@@ -4,7 +4,7 @@ defmodule Ryker.Retention.Runtime do
   use Supervisor
 
   alias Ryker.Reference
-  alias Ryker.Retention.{Data, Worker}
+  alias Ryker.Retention.Worker
 
   @required [
     :audit_data_seconds,
@@ -72,7 +72,6 @@ defmodule Ryker.Retention.Runtime do
       {Worker,
        [
          dispatcher_options: dispatcher_options,
-         maintenance: Data,
          maintenance_options: %{
            audit_data_seconds: settings.audit_data_seconds,
            closed_work_seconds: settings.closed_work_seconds,

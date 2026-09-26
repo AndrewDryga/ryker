@@ -235,6 +235,8 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   def kind_name("retention"), do: "Cleanup"
   def kind_name("slack_incident"), do: "Incident room setup"
   def kind_name("slack_interaction"), do: "Slack message update"
+  def kind_name("slack_task_card"), do: "Task card update"
+  def kind_name("slack_thread_status"), do: "Thread status"
   def kind_name("stopping"), do: "Stopping a task"
   def kind_name("work"), do: "Task"
   def kind_name(kind), do: kind |> to_string() |> String.replace("_", " ") |> String.capitalize()
@@ -336,6 +338,8 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp story(%{kind: "delivery"} = row, now), do: delivery(row, now)
   defp story(%{kind: "slack_interaction"} = row, now), do: interaction(row, now)
   defp story(%{kind: "slack_incident"} = row, now), do: incident(row, now)
+  defp story(%{kind: "slack_task_card"} = row, now), do: task_card(row, now)
+  defp story(%{kind: "slack_thread_status"} = row, now), do: thread_status(row, now)
   defp story(%{kind: "emisar"} = row, now), do: emisar(row, now)
   defp story(%{kind: "publication"} = row, now), do: publication(row, now)
   defp story(%{kind: "learning"} = row, now), do: learning(row, now)
@@ -1714,6 +1718,130 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
       _other ->
         {"Ryker could not rebuild or update the message.", :unknown,
+         "Whether it works depends on the cause. The Technical details keep the saved code."}
+    end
+  end
+
+  # --- Task cards and thread statuses ----------------------------------------
+
+  # A task's card in Slack is the same message edited in place as the task
+  # moves. One Slack would not update was retried every hour for as long as
+  # the task existed and listed nowhere: the message had been deleted or its
+  # channel archived. Eight failed refreshes block it; Slack saying the
+  # message or channel is gone blocks it at once.
+  defp task_card(row, now) do
+    cause = slack_cause(row, task_card_code_cause(row))
+
+    %{
+      title: "Updating a task’s card stopped",
+      impact: :people,
+      lede: "The task’s card in Slack is out of date. #{outlook_short(cause.outlook)}",
+      summary: "The task’s card in Slack is out of date. #{cause.short}",
+      happened: [
+        "Ryker keeps a card in Slack up to date as an engineering task moves, by editing the same message. Updating it stopped#{place_words(row)}.",
+        cause.long
+      ],
+      affects: [
+        "The card shows an older state of the task. The task itself is not affected and keeps going; the request page shows its real state.",
+        "People reading the thread cannot tell from the card what the task is doing now."
+      ],
+      tried: [
+        tried(row, now),
+        "Ryker retries a failed update eight times with growing waits, then stops so it does not keep editing a message it cannot update. It stops at once when Slack says the message or its channel is gone."
+      ],
+      if_left:
+        "The card stays as it is. The task keeps going and finishes on its own; only the card in Slack is stale.",
+      outlook: cause.outlook,
+      outlook_note: cause.note,
+      fix: cause.fix,
+      retry: %{
+        label: "Update the card again",
+        question: "Update this task’s card again?",
+        effect:
+          "Ryker rebuilds the card from what is true now and replaces the same Slack message. It never posts a new card."
+      }
+    }
+  end
+
+  defp task_card_code_cause(%{summary: code}) do
+    case code do
+      "task_card_source_not_found" ->
+        {"The task this card belonged to no longer exists.", :stuck,
+         "It will stop the same way: the task’s record is gone, so there is nothing to show. The card can be left as it is."}
+
+      "delivery_rate_limited" ->
+        {"Slack kept asking Ryker to slow down.", :unknown,
+         "It usually works once Slack stops limiting Ryker, within minutes."}
+
+      "delivery_transport_unavailable" ->
+        {"Ryker could not reach Slack.", :unknown, "It works once Ryker can reach Slack again."}
+
+      "delivery_credentials_unavailable" ->
+        {"Ryker had no Slack sign-in to update the card with.", :auth, nil}
+
+      _other ->
+        {"Ryker could not rebuild or update the card.", :unknown,
+         "Whether it works depends on the cause. The Technical details keep the saved code."}
+    end
+  end
+
+  # Ryker shows what it is doing under a Slack thread while it works and
+  # clears it when done. A status Slack refused was written again every
+  # minute for as long as the thread existed. Eight failed writes block it;
+  # the next thing Ryker wants to show there is a new write with its own
+  # attempts, so a blocked status clears itself as soon as the work moves on.
+  defp thread_status(row, now) do
+    cause = slack_cause(row, thread_status_code_cause(row))
+
+    wanted =
+      case row[:desired_text] do
+        text when is_binary(text) and text != "" -> "show “#{text}” under the thread"
+        _clear -> "clear the status under the thread"
+      end
+
+    %{
+      title: "Showing Ryker’s status in a thread stopped",
+      impact: :housekeeping,
+      lede: "The status under the thread may be wrong. #{outlook_short(cause.outlook)}",
+      summary: "The status under the thread may be wrong. #{cause.short}",
+      happened: [
+        "Ryker shows what it is doing under a Slack thread while it works and clears it when it is done. It tried to #{wanted}#{place_words(row)}, and Slack did not take it.",
+        cause.long
+      ],
+      affects: [
+        "The thread may show an old status, or none, while Ryker works. The request itself is not affected; replies still arrive."
+      ],
+      tried: [
+        tried(row, now),
+        "Ryker retries a failed status write eight times with growing waits, then stops. The next change in what Ryker is doing there starts again on its own. It stops at once when Slack says the thread or its channel is gone."
+      ],
+      if_left:
+        "The status under the thread stays as it is until Ryker’s next change there. Nothing else waits on it.",
+      outlook: cause.outlook,
+      outlook_note: cause.note,
+      fix: cause.fix,
+      retry: %{
+        label: "Write the status again",
+        question: "Write this thread status again?",
+        effect: "Ryker writes the same status under the same thread once more. Nothing is posted."
+      }
+    }
+  end
+
+  defp thread_status_code_cause(%{summary: code}) do
+    case code do
+      "delivery_rate_limited" ->
+        {"Slack kept asking Ryker to slow down.", :unknown,
+         "It usually works once Slack stops limiting Ryker, within minutes."}
+
+      "delivery_transport_unavailable" ->
+        {"Ryker could not reach Slack.", :unknown, "It works once Ryker can reach Slack again."}
+
+      "delivery_credentials_unavailable" ->
+        {"Ryker had no Slack sign-in to write the status with.", :auth, nil}
+
+      _other ->
+        {"Slack did not take the status.", :unknown,
          "Whether it works depends on the cause. The Technical details keep the saved code."}
     end
   end

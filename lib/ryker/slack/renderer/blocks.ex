@@ -63,7 +63,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
   def mention(user_ref), do: "<@#{user_ref}>"
   def group_mention(group_ref), do: "<!subteam^#{group_ref}>"
 
-  def channel_mention(channel_ref) do
+  defp channel_mention(channel_ref) do
     if Fields.slack_reference?(channel_ref),
       do: "<##{channel_ref}>",
       else: "`#{escape(channel_ref)}`"

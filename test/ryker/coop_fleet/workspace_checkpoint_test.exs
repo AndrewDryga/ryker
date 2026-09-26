@@ -123,7 +123,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
 
     for value <- invalid do
       assert {:error, {:invalid_workspace_checkpoint_bundle, _reason}} =
-               WorkspaceCheckpoint.validate_bundle_manifest(value)
+               WorkspaceCheckpoint.decode_bundle_manifest(Jason.encode!(value))
     end
   end
 
@@ -142,7 +142,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
 
     for value <- invalid do
       assert {:error, {:invalid_workspace_checkpoint_bundle, _reason}} =
-               WorkspaceCheckpoint.validate_bundle_manifest(value)
+               WorkspaceCheckpoint.decode_bundle_manifest(Jason.encode!(value))
     end
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :json}} =
@@ -152,7 +152,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
              WorkspaceCheckpoint.decode_bundle_manifest("")
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :document}} =
-             WorkspaceCheckpoint.validate_bundle_manifest("not-a-manifest")
+             WorkspaceCheckpoint.decode_bundle_manifest(Jason.encode!("not-a-manifest"))
 
     for value <- [
           Map.put(manifest, "task_projection", nil),
@@ -161,13 +161,14 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
           put_in(manifest, ["untracked_files", Access.at(0)], nil)
         ] do
       assert {:error, {:invalid_workspace_checkpoint_bundle, _reason}} =
-               WorkspaceCheckpoint.validate_bundle_manifest(value)
+               WorkspaceCheckpoint.decode_bundle_manifest(Jason.encode!(value))
     end
 
     assert {:ok, %{"gate_receipt" => nil}} =
              manifest
              |> Map.put("gate_receipt", nil)
-             |> WorkspaceCheckpoint.validate_bundle_manifest()
+             |> Jason.encode!()
+             |> WorkspaceCheckpoint.decode_bundle_manifest()
   end
 
   test "descriptor and manifest cannot be crossed" do

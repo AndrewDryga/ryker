@@ -307,6 +307,38 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     assert has_element?(view, ".form-feedback-success", "#{@registered} was deleted.")
   end
 
+  test "Add opens its form above the list it adds to, and pressed again closes it" do
+    # Andrew, 2026-09-25, of Model prices, and every list with an Add button
+    # like it: a button at the top that opens its form under the whole list
+    # reads as a button that does nothing.
+    installation!()
+    {:ok, view, _html} = open()
+
+    section = "section[aria-label='Signing credentials']"
+    add = "#{section} .section-head button"
+    assert has_element?(view, "#{add}[aria-expanded=false]", "Add signing credential")
+
+    view |> element(add) |> render_click()
+
+    assert has_element?(view, "#{section} > .settings-editor ~ .entity-list")
+
+    assert has_element?(
+             view,
+             "#{section} > .settings-editor form[phx-submit=create-webhook-credential]"
+           )
+
+    refute has_element?(view, "#{section} > .entity-list ~ .settings-editor")
+
+    view |> element(add) |> render_click()
+    refute has_element?(view, "form[phx-submit=create-webhook-credential]")
+
+    # Sources follow the same rule, through the settings editor.
+    open_source_editor(view)
+    assert has_element?(view, "#settings-webhooks-form")
+    refute has_element?(view, "#settings-webhooks > .entity-list ~ .settings-editor")
+    assert has_element?(view, "#settings-webhooks button.settings-editor-add[aria-expanded=true]")
+  end
+
   test "a refused signing credential is said in the error tone, not as a success" do
     # Every refusal on the connection pages rendered with the success tone.
     installation!()

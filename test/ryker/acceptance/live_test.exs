@@ -382,22 +382,33 @@ defmodule Ryker.Acceptance.LiveTest do
         default_environment: "ryker",
         environments: %{
           "ryker" => %{
-            contributor_policy: %{
-              digest: String.duplicate("b", 64),
-              environment_ref: "ryker",
-              name: "ryker-contributor",
-              repository_ref: "ryker"
+            contributor_policies: %{
+              "ryker" => %{
+                digest: String.duplicate("b", 64),
+                environment_ref: "ryker",
+                name: "ryker-contributor",
+                repository_context: %{
+                  "context_ref" => "ryker",
+                  "parallel_goal_limit" => 3,
+                  "primary_repository" => "ryker",
+                  "read_only_repositories" => []
+                },
+                repository_ref: "ryker"
+              }
             },
             display_name: "Ryker",
-            github_repository: "acme/ryker",
+            github_repositories: %{"ryker" => "acme/ryker"},
             work_profile: %{
-              emisar_connection_ref: nil,
               environment_ref: "ryker",
               parallel_goal_limit: 3,
-              policy: "ryker-conversation",
-              policy_digest: String.duplicate("d", 64),
-              read_only_repository_refs: [],
-              repository_ref: "ryker"
+              policies: %{
+                "ryker" =>
+                  Map.new([:conversational, :standard, :deep], fn work_class ->
+                    {work_class,
+                     %{policy: "ryker-conversation", policy_digest: String.duplicate("d", 64)}}
+                  end)
+              },
+              repositories: ["ryker"]
             }
           }
         },

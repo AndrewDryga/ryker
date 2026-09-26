@@ -94,14 +94,17 @@ defmodule Ryker.Admission.Executor do
 
   defp work_policy(_entry, %Decision{work_class: nil}, _settings), do: {:ok, nil}
 
+  # A new episode in an environment with several repositories is placed in
+  # the one the decision chose; every other decision, and every other route,
+  # takes the profile's default placement.
   defp work_policy(
          %{work_profile: profile},
-         %Decision{work_class: work_class},
+         %Decision{work_class: work_class, repository: repository},
          _settings
        )
        when is_map(profile) do
     case WorkProfile.restore(profile) do
-      {:ok, restored} -> WorkProfile.policy_for(restored, work_class)
+      {:ok, restored} -> WorkProfile.policy_for(restored, work_class, repository)
       {:error, _reason} = error -> error
     end
   end
@@ -236,7 +239,8 @@ defmodule Ryker.Admission.Executor do
       Decision.json_schema(
         Input.allowed_actions(context.input),
         Input.reaction_names(context.input),
-        is_binary(entry.repository_ref)
+        is_binary(entry.repository_ref),
+        Enum.map(context.repository_choices, & &1["ref"])
       )
 
     with :ok <- renew_lease(settings),
@@ -642,6 +646,22 @@ defmodule Ryker.Admission.Executor do
 
   defp violation({:admission_rejected, :repository_source_not_available}) do
     "repository_source is unavailable for this source: the route selected no repository. Use null."
+  end
+
+  defp violation({:admission_rejected, :repository_required, details}) do
+    "repository is required on start_episode for this source: name the repository the new work changes, one of #{inspect(details[:allowed])} from repository_choices."
+  end
+
+  defp violation({:admission_rejected, :repository_not_allowed, details}) do
+    "repository is not one of this environment's repositories. Allowed: #{inspect(details[:allowed])}; submitted: #{inspect(details[:submitted])}."
+  end
+
+  defp violation({:admission_rejected, :repository_not_available}) do
+    "repository is unavailable for this source: its environment offers no choice of repository. Use null."
+  end
+
+  defp violation({:invalid_decision, :repository}) do
+    "repository must be null, or on start_episode the ref of one repository listed in repository_choices. Other actions keep the repository their work already pinned."
   end
 
   defp violation({:invalid_decision, :repository_source}) do

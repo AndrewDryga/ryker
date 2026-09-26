@@ -112,6 +112,8 @@ defmodule Ryker.ControlPlane.Projection do
   defdelegate schedules(params), to: ScheduleProjection, as: :list
   defdelegate slack_incident(ref), to: FailureProjection
   defdelegate slack_interaction(ref), to: FailureProjection
+  defdelegate slack_task_card(ref), to: FailureProjection
+  defdelegate slack_thread_status(ref), to: FailureProjection
   defdelegate subscriptions(params), to: SubscriptionProjection, as: :list
   defdelegate usage(params), to: UsageProjection, as: :page
   defdelegate work(ref), to: FailureProjection

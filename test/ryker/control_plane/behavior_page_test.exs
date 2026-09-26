@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.BehaviorPageTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.BehaviorPage
+  alias Ryker.ControlPlane.{BehaviorPage, PageHelp}
 
   @now ~U[2026-09-24 12:00:00Z]
 
@@ -135,19 +135,18 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
              "original conversation"
   end
 
-  test "creation is one ask hint with a real example, not a help disclosure" do
-    # Rules are created only by asking Ryker and confirming. The page says so
-    # in one sentence with an example instead of a "How to create" disclosure,
-    # and never links to the retired Card Lab or /lab surfaces.
+  test "how to add a rule is the page's help, with a real example, not a line under the list" do
+    # Rules are created only by asking Ryker and confirming. Until 2026-09-25
+    # the list ended in one line of small print saying so; the shell's "How
+    # this page works" panel says it now, with room to explain. The page
+    # never links to the retired Card Lab or /lab surfaces.
     document = rules_document(view(:standing_assignment, []))
-    hint = LazyHTML.query(document, "p.ask-hint")
-    assert LazyHTML.text(hint) =~ "To add a rule, tell Ryker in the channel:"
+    assert Enum.empty?(LazyHTML.query(document, ".ask-hint, .page-help, .configuration-help"))
 
-    assert LazyHTML.query(hint, "q") |> LazyHTML.text() ==
-             "When someone posts a Terraform plan here, review it for risky changes."
-
-    assert LazyHTML.text(hint) =~ "saves it only after you confirm"
-    assert Enum.empty?(LazyHTML.query(document, "details.page-help, .configuration-help"))
+    help = PageHelp.for_path("/rules")
+    text = Enum.map_join(help.sections, " ", &Enum.join(&1.paragraphs, " "))
+    assert text =~ "“When someone posts a Terraform plan here, review it for risky changes.”"
+    assert text =~ "saves it only after you confirm"
 
     for href <- document |> LazyHTML.query("a[href]") |> LazyHTML.attribute("href") do
       refute String.starts_with?(href, "/card-lab"), href
@@ -559,8 +558,14 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
              "/instructions?page=2&show=guidance&status=past#saved"
            ]
 
-    assert LazyHTML.query(section, "p.ask-hint q") |> LazyHTML.text() ==
-             "Remember to keep incident updates short."
+    # How to save one is the page's help, not a line under the section.
+    assert Enum.empty?(LazyHTML.query(section, ".ask-hint"))
+
+    assert "/instructions"
+           |> PageHelp.for_path()
+           |> Map.fetch!(:sections)
+           |> Enum.map_join(" ", &Enum.join(&1.paragraphs, " ")) =~
+             "“Remember to keep incident updates short.”"
 
     empty = instructions_document([], %{view(:preference, []) | kinds: [:preference, :guidance]})
 

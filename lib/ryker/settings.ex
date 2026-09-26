@@ -83,6 +83,39 @@ defmodule Ryker.Settings do
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(@pubsub, @topic)
 
+  @doc """
+  Runs several settings writes as one change.
+
+  The writes `operation` makes commit together or not at all, and the runtime
+  hears the saved revision once, after the commit. `operation` returns
+  `{:ok, value}` or `{:error, reason}`; an error rolls every write back.
+
+  Wrap any settings write that shares a transaction with other writes in
+  this. A write inside a bare `Repo.transaction` cannot announce itself: the
+  runtime would read the settings before they were visible and miss them.
+  """
+  @spec atomically((-> {:ok, term()} | {:error, term()})) :: {:ok, term()} | {:error, term()}
+  def atomically(operation) when is_function(operation, 0) do
+    nested? = Repo.in_transaction?()
+
+    result =
+      Repo.transaction(fn ->
+        case operation.() do
+          {:ok, value} -> value
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+
+    with {:ok, _value} <- result,
+         false <- nested?,
+         revision when is_integer(revision) <-
+           Repo.one(from(installation in Installation, select: installation.revision)) do
+      announce(revision)
+    end
+
+    result
+  end
+
   @doc "The current consistent snapshot, or an explicit not-initialized error."
   @spec fetch() :: {:ok, snapshot()} | {:error, :settings_not_initialized}
   def fetch do
@@ -335,9 +368,10 @@ defmodule Ryker.Settings do
   @doc """
   Creates or edits one environment.
 
-  `repositories` is the ordered list of repository refs: work changes the
-  first and reads the others. Making an environment the default takes the
-  default from whichever environment had it, in the same revision.
+  `repositories` is the ordered list of repository refs. Work may change any
+  of them and reads the others; the first is the default choice. Making an
+  environment the default takes the default from whichever environment had
+  it, in the same revision.
   """
   def put_environment(attributes, expected_revision, actor_ref) do
     with :ok <- authorize(actor_ref),
@@ -653,10 +687,14 @@ defmodule Ryker.Settings do
   # A committed write is announced after the transaction, so a subscriber
   # that reads the revision it heard about finds it. A no-op save announces
   # the revision it left in place; the owner answers that with :unchanged.
+  # A write inside a larger change commits with it, so atomically/1 announces
+  # it instead.
   defp transaction(operation) do
+    nested? = Repo.in_transaction?()
+
     case Repo.transaction(operation) do
       {:ok, %{installation: %Installation{revision: revision}} = snapshot} ->
-        Phoenix.PubSub.broadcast(@pubsub, @topic, {:settings_saved, revision})
+        unless nested?, do: announce(revision)
         {:ok, snapshot}
 
       {:ok, result} ->
@@ -666,6 +704,9 @@ defmodule Ryker.Settings do
         {:error, reason}
     end
   end
+
+  defp announce(revision),
+    do: Phoenix.PubSub.broadcast(@pubsub, @topic, {:settings_saved, revision})
 
   # The local console is trusted by reach. A Slack actor is trusted only when
   # the saved operator membership already names it; the payload's own claim of

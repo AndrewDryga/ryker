@@ -2,12 +2,14 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
   @moduledoc """
   Environments at /environments: where Ryker works.
 
-  One Kit row per environment says what it holds, its repositories in order
-  (the first takes the changes) and its Emisar account, and who chooses it.
-  The default comes first and says so. A row's name and Edit open its editor
-  in place (`EnvironmentEditor`); Use as default moves the default in one
-  save; Remove asks first, and a removal the settings refuse names who still
-  uses the environment. The LiveView runs every write; this only renders.
+  One Kit row per environment says what it holds, how many repositories and
+  the default one (a task picks the one it changes) and its Emisar account,
+  and who chooses it. The default comes first and says so. A row's name and
+  Edit open its editor in place, under the row (`EnvironmentEditor`); Add an
+  environment opens one above the list and, pressed again, closes it. Use as
+  default moves the default in one save; Remove asks first, and a removal the
+  settings refuse names who still uses the environment. The LiveView runs
+  every write; this only renders.
   """
 
   use Phoenix.Component
@@ -16,7 +18,6 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
     Components,
     EnvironmentEditor,
     Environments,
-    Integrations,
     Kit,
     SettingsPage
   }
@@ -41,7 +42,8 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
 
     ~H"""
     <div class="environments-page">
-      <Kit.toolbar count={Integrations.count(length(@environments), "environment")}>
+      <Kit.counts label="Environments" items={counts(@rows, @query, @view)} />
+      <Kit.toolbar>
         <Components.filter_toolbar
           id="environment-search"
           path="/environments"
@@ -52,6 +54,13 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
           disabled={@environments == []}
         />
       </Kit.toolbar>
+      <.live_component
+        :if={@edit == "new"}
+        module={EnvironmentEditor}
+        id="environment-editor-new"
+        ref="new"
+        view={@view}
+      />
       <Kit.entity_list :if={@rows != []} label="Environments">
         <Kit.entity_row
           :for={environment <- @rows}
@@ -105,7 +114,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
         </Kit.entity_row>
       </Kit.entity_list>
       <Kit.empty
-        :if={@environments == []}
+        :if={@environments == [] and @edit != "new"}
         title="No environments yet"
         text="Adding a repository creates the Default environment. You can also add one yourself with Add an environment."
       />
@@ -114,24 +123,47 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
         title={"No environments match “#{@query}”."}
         text="Try another name or clear the search."
       />
-      <.live_component
-        :if={@edit == "new"}
-        module={EnvironmentEditor}
-        id="environment-editor-new"
-        ref="new"
-        view={@view}
-      />
     </div>
     """
   end
 
-  @doc "The page's own action: adding an environment opens the editor below the list."
+  attr(:open, :boolean, default: false, doc: "Whether the editor for a new environment is open")
+
+  @doc """
+  The page's own action: adding an environment opens its editor above the
+  list, and pressed again closes it.
+  """
   def add(assigns) do
     ~H"""
-    <.link patch="/environments?edit=new" class="ui-button secondary">
+    <.link
+      patch={if @open, do: "/environments", else: "/environments?edit=new"}
+      class="ui-button secondary"
+      aria-expanded={to_string(@open)}
+    >
       <Components.icon name={:plus} />Add an environment
     </.link>
     """
+  end
+
+  # The page leads with how many environments it lists and, once any channel
+  # chose none, how many channels work without code or Emisar.
+  defp counts(rows, query, view) do
+    without = Map.get(view.environment_channels, nil, 0)
+
+    [
+      Kit.list_total(length(rows), {"environment", "environments"}, query != ""),
+      without > 0 &&
+        %{
+          value: without,
+          label:
+            if(without == 1,
+              do: "channel without an environment",
+              else: "channels without an environment"
+            ),
+          href: "/channels"
+        }
+    ]
+    |> Enum.filter(& &1)
   end
 
   defp meta(environment, view) do

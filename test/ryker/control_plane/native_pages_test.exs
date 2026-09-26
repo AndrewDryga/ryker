@@ -76,7 +76,8 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     # When is the row's edge, under its day's heading.
     assert LazyHTML.query(rows, ".entity-side time[datetime]") |> Enum.count() == 5
     assert LazyHTML.query(rows, ".entity-group") |> Enum.count() >= 1
-    assert LazyHTML.query(document, ".kit-toolbar-count") |> LazyHTML.text() == "90 items"
+    # A search and a repository narrow the list, so its size is what matches.
+    assert first_count(document) == "90 matching"
 
     assert html =~ "Page 2 of 3"
     assert html =~ "page=1"
@@ -152,6 +153,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
               count |> LazyHTML.text() |> String.split() |> List.last(),
               count |> LazyHTML.attribute("href") |> List.first()}
            end) == [
+             {"0", "requests", nil},
              {"3", "active", "/?filter=running"},
              {"2", "waiting", "/?filter=attention"},
              {"1", "blocked", "/?filter=attention"}
@@ -175,7 +177,8 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     assert LazyHTML.query(toolbar, "nav.segmented a[aria-current=page]") |> LazyHTML.text() ==
              "All"
 
-    assert LazyHTML.query(toolbar, ".kit-toolbar-count") |> LazyHTML.text() == "0 items"
+    # The list's size is the first count, never a second number in the toolbar.
+    refute LazyHTML.text(toolbar) =~ ~r/\d+ (items?|requests?)/
 
     assert LazyHTML.query(html, ".entity-empty .entity-empty-title") |> LazyHTML.text() ==
              "No activity yet"
@@ -221,6 +224,104 @@ defmodule Ryker.ControlPlane.NativePagesTest do
       refute html =~ "Local operator"
       refute html =~ "empty-orbit"
     end
+  end
+
+  # Andrew, 2026-09-25: the toolbar's "18 items" said again what the counts
+  # above it said. How many requests the list holds is now said once, as the
+  # first count, and it says "matching" whenever a search, a filter or a view
+  # narrows the list, so a narrowed list never reads as everything Ryker got.
+  test "activity says how many requests it lists once, as its first count" do
+    for {params, total, first} <- [
+          {%{}, 18, "18 requests"},
+          {%{}, 1, "1 request"},
+          {%{"mode" => "all"}, 40, "40 requests"},
+          {%{"q" => "deploy"}, 5, "5 matching"},
+          {%{"repository" => "ryker"}, 3, "3 matching"},
+          {%{"filter" => "attention"}, 2, "2 matching"},
+          {%{"usage_model" => "gpt-5.6-sol", "usage_window" => "7d"}, 7, "7 matching"}
+        ] do
+      document = activity_document(params, total)
+      assert first_count(document) == first, inspect(params)
+      assert LazyHTML.query(document, ".kit-counts > .kit-count") |> Enum.count() == 4
+      refute LazyHTML.query(document, ".kit-toolbar") |> LazyHTML.text() =~ ~r/\d+ (items?|req)/
+    end
+  end
+
+  # Andrew, 2026-09-25: "+ Filter" sat between the work select and the views,
+  # splitting the controls every visit uses with the one that adds a custom
+  # filter. The row now reads search, work included, the four views, then the
+  # custom filters: each applied chip and "+ Filter" with its menu.
+  test "activity's custom filters come after the view switch, with their menu" do
+    document = activity_document(%{"repository" => "ryker"}, 3, "fields")
+    [toolbar] = LazyHTML.query(document, ".activity-page > .kit-toolbar") |> Enum.to_list()
+    html = LazyHTML.to_html(toolbar)
+
+    order =
+      Enum.map(
+        [
+          ~s(id="activity-filters-search"),
+          ~s(id="activity-mode"),
+          ~s(class="segmented"),
+          ~s(data-filter="repository"),
+          ~s(id="filter-add")
+        ],
+        &(:binary.match(html, &1) |> elem(0))
+      )
+
+    assert order == Enum.sort(order)
+    assert LazyHTML.query(toolbar, "#activity-filters-toolbar #request-filters") |> Enum.empty?()
+    assert LazyHTML.query(toolbar, ".filter-add-wrap > #filter-popover") |> Enum.count() == 1
+
+    assert LazyHTML.query(toolbar, "#filter-popover .filter-field[data-field=state]")
+           |> LazyHTML.text() == "Request state"
+  end
+
+  # Moving the custom filters after the view switch took them out of the
+  # search form's `.filter-toolbar`, whose control finish every chip and
+  # "+ Filter" wore: without it "+ Filter" turns bold on another ground and
+  # border than the select beside it. Every rule that finishes a control in
+  # the search form finishes the custom filters too.
+  test "activity's custom filters keep the search form's control finish" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    selectors =
+      ~r/([^{}]+)\{/
+      |> Regex.scan(css, capture: :all_but_first)
+      |> Enum.map(fn [selector] -> String.trim(selector) end)
+      |> Enum.filter(
+        &(&1 =~ ~r/\.filter-toolbar\s+\.filter-(control|clear)\b/ or
+            &1 =~ ~r/:is\(\.filter-toolbar,/)
+      )
+
+    assert selectors != []
+
+    for selector <- selectors,
+        do:
+          assert(selector =~ ".filter-toolbar-controls", "#{selector} misses the custom filters")
+  end
+
+  defp activity_document(params, total, menu \\ nil) do
+    render_component(&ActivityPage.render/1,
+      overview: %{counts: %{active: 1, waiting: 0, blocked: 0}, fleet: %{required: false}},
+      activity: %{total: total, page: 1, pages: 1, mode: params["mode"] || "live"},
+      params: params,
+      path: "/activity",
+      now: @now,
+      stream: [],
+      new_items: 0,
+      schedules: [],
+      filter_menu: menu
+    )
+    |> LazyHTML.from_fragment()
+  end
+
+  defp first_count(document) do
+    document
+    |> LazyHTML.query(".kit-counts > .kit-count")
+    |> Enum.at(0)
+    |> LazyHTML.text()
+    |> String.split()
+    |> Enum.join(" ")
   end
 
   # One active schedule as the Schedules projection lists it.

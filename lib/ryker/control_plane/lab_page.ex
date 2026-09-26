@@ -11,7 +11,8 @@ defmodule Ryker.ControlPlane.LabPage do
   """
   use Phoenix.Component
   import Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.HTML
+  alias Ryker.ControlPlane.{Environments, HTML, Kit}
+  alias Ryker.Settings.Environment
 
   # Authored UI examples approved on 2026-09-09, grouped on 2026-09-19 by what
   # Ryker does. They are hints for what an operator could write, not claims
@@ -60,7 +61,10 @@ defmodule Ryker.ControlPlane.LabPage do
       assigns
       |> assign(:example_groups, @example_groups)
       |> assign_new(:filter, fn -> "" end)
-      |> then(&assign(&1, :groups, directory_groups(filtered(&1.items, &1.filter), &1.now)))
+      |> assign_new(:environments, fn -> [] end)
+      |> assign_new(:environment, fn -> nil end)
+      |> then(&assign(&1, :days, directory_days(filtered(&1.items, &1.filter), &1.now)))
+      |> then(&assign(&1, :title, title(&1.snapshot, &1.items)))
       |> assign(:progress, progress_by_input(assigns.snapshot))
       |> assign_new(:readiness, fn ->
         %{
@@ -120,11 +124,11 @@ defmodule Ryker.ControlPlane.LabPage do
             <strong>No conversations yet</strong>
             <p>Send a message and it will appear here.</p>
           </div>
-          <p :if={@items != [] and @groups == []} class="lab-directory-empty">
+          <p :if={@items != [] and @days == []} class="lab-directory-empty">
             No conversation matches “{@filter}”.
           </p>
-          <section :for={{group, items} <- @groups} class="lab-directory-group">
-            <h2>{group}</h2>
+          <section :for={{day, items} <- @days} class="lab-directory-day">
+            <h2 :if={day}>{day}</h2>
             <.link
               :for={item <- items}
               navigate={"/conversations/#{item.id}"}
@@ -132,12 +136,12 @@ defmodule Ryker.ControlPlane.LabPage do
               title={item.title}
               aria-current={if item.id == @selected, do: "page"}
             ><span class="lab-directory-title">{item.title}</span><time
+              class="lab-directory-time"
               datetime={DateTime.to_iso8601(item.updated_at)}
               title={directory_time(item.updated_at, @now)}
-            >{list_time(item.updated_at, @now)}</time><span
-              class="lab-directory-status"
-              data-status={item[:status] || :replied}
-            ><i aria-hidden="true"></i>{status_label(item[:status])}</span></.link>
+            >{Kit.clock(item.updated_at)}</time><span class="lab-directory-meta"><.directory_state status={
+              item[:status]
+            } /></span></.link>
           </section>
         </div>
       </aside>
@@ -157,6 +161,7 @@ defmodule Ryker.ControlPlane.LabPage do
           {@announcement}
         </p>
         <div class="lab-column">
+          <.conversation_head title={@title} environments={@environments} environment={@environment} />
           <div
             id="lab-history"
             phx-hook="ConversationHistory"
@@ -284,6 +289,106 @@ defmodule Ryker.ControlPlane.LabPage do
     """
   end
 
+  attr(:title, :string, required: true)
+  attr(:environments, :list, required: true, doc: "What environment_choices/1 offers")
+
+  attr(:environment, :string,
+    default: nil,
+    doc: "The ref of the conversation's environment; nil is no environment"
+  )
+
+  # The head of the conversation (2026-09-25, "Chat picks its environment"):
+  # its title, one quiet line saying where its messages work, and the
+  # environment they run in as one compact select, when there is one to
+  # choose. The choice is saved for the conversation, not the browser.
+  defp conversation_head(assigns) do
+    assigns = assign(assigns, :place, works_in(assigns.environment, assigns.environments))
+
+    ~H"""
+    <header class="lab-chat-head">
+      <div class="lab-chat-head-main">
+        <h2 class="lab-chat-title">{@title}</h2>
+        <p class="lab-chat-place">{@place}</p>
+      </div>
+      <form
+        :if={@environments != []}
+        id="lab-environment-form"
+        class="lab-environment"
+        phx-change="select-conversation-environment"
+        phx-submit="select-conversation-environment"
+      >
+        <label for="lab-environment">Environment</label>
+        <select id="lab-environment" name="environment">
+          <option
+            :for={choice <- @environments}
+            value={choice.ref}
+            selected={choice.ref == @environment}
+          >
+            {choice.name}
+          </option>
+          <option value="" selected={is_nil(@environment)}>No environment</option>
+        </select>
+      </form>
+    </header>
+    """
+  end
+
+  @doc """
+  The environments the head offers, from a settings snapshot: the default
+  first, each with the repositories it holds as people know them and whether
+  it has an Emisar account.
+  """
+  @spec environment_choices(map()) :: [map()]
+  def environment_choices(snapshot) do
+    snapshot.environments
+    |> Environments.ordered()
+    |> Enum.map(fn environment ->
+      %{
+        ref: environment.ref,
+        name: environment.display_name,
+        default: environment.is_default,
+        repositories:
+          environment
+          |> Environment.repository_refs()
+          |> Enum.map(&Environments.repository_name(snapshot, &1)),
+        emisar: is_binary(environment.emisar_connection_ref)
+      }
+    end)
+  end
+
+  # Where the conversation's next messages work, in one line: the
+  # environment's repositories and its Emisar account, or no code at all.
+  defp works_in(nil, _choices), do: "Works without code"
+
+  defp works_in(ref, choices) do
+    case Enum.find(choices, &(&1.ref == ref)) do
+      nil ->
+        "Works without code"
+
+      %{repositories: [], name: name} = choice ->
+        "Works in #{name} without code" <> emisar(choice)
+
+      %{repositories: repositories, name: name} = choice ->
+        "Works in #{name}: " <> Enum.join(repositories, ", ") <> emisar(choice)
+    end
+  end
+
+  defp emisar(%{emisar: true}), do: " · Emisar connected"
+  defp emisar(_choice), do: ""
+
+  # What the head calls the conversation: the directory's title for it, what
+  # one with no messages yet is, or the plain word for one the directory (its
+  # newest hundred) does not list.
+  defp title(%{draft: true}, _items), do: "New conversation"
+
+  defp title(snapshot, items) do
+    case Enum.find(items, &(&1.id == snapshot.conversation_id)) do
+      %{title: title} when is_binary(title) and title != "" -> title
+      _unlisted when snapshot.messages == [] -> "New conversation"
+      _unlisted -> "Conversation"
+    end
+  end
+
   attr(:id, :string, required: true)
   attr(:message, :map, required: true)
   attr(:now, :any, required: true)
@@ -407,30 +512,22 @@ defmodule Ryker.ControlPlane.LabPage do
   end
 
   @doc """
-  Retained conversations grouped by when they last changed, newest first.
+  Retained conversations under the day each last changed, newest first, with
+  the headings every Kit list uses: Today, Yesterday, a weekday within the
+  week, then the date (`Kit.day_groups/3`).
 
-  Labels come from the observed UTC clock; nothing here invents a summary or
-  a count. Items keep the projection's order inside their group.
+  Days come from the observed UTC clock; nothing here invents a summary or a
+  count. Items keep the projection's order inside their day.
   """
-  def directory_groups(items, now) do
-    today = DateTime.to_date(now)
-    yesterday = Date.add(today, -1)
-
-    grouped =
-      Enum.group_by(items, fn item ->
-        case DateTime.to_date(item.updated_at) do
-          ^today -> "Today"
-          ^yesterday -> "Yesterday"
-          _earlier -> "Earlier"
-        end
-      end)
-
-    Enum.flat_map(["Today", "Yesterday", "Earlier"], fn label ->
-      case grouped[label] do
-        nil -> []
-        group -> [{label, group}]
-      end
+  @spec directory_days([map()], DateTime.t()) :: [{String.t() | nil, [map()]}]
+  def directory_days(items, now) do
+    items
+    |> Enum.zip(Kit.day_groups(items, & &1.updated_at, now))
+    |> Enum.reduce([], fn
+      {item, nil}, [{day, rows} | days] -> [{day, [item | rows]} | days]
+      {item, day}, days -> [{day, [item]} | days]
     end)
+    |> Enum.reduce([], fn {day, rows}, days -> [{day, Enum.reverse(rows)} | days] end)
   end
 
   @doc "A time in the one timezone the whole surface uses; the date only when it is not today."
@@ -508,21 +605,24 @@ defmodule Ryker.ControlPlane.LabPage do
   defp live_phase("Needs attention"), do: "Routing stopped"
   defp live_phase(_phase), do: "Routing your message"
 
-  defp status_label(:working), do: "Working"
-  defp status_label(:attention), do: "Needs attention"
-  defp status_label(:waiting_for_you), do: "Waiting for you"
-  defp status_label(:waiting), do: "Waiting"
-  defp status_label(_status), do: "Replied"
+  attr(:status, :atom, default: nil)
 
-  # The list is scanned, not read: today's time or the date, with the full
-  # time a hover away.
-  defp list_time(%DateTime{} = at, now) do
-    if DateTime.to_date(at) == DateTime.to_date(now),
-      do: Calendar.strftime(at, "%H:%M"),
-      else: Calendar.strftime(at, "%d %b")
+  # What a conversation needs from the reader, as the Kit's dot and word:
+  # Ryker at work is busy, anything that needs a person warns, a reply is quiet.
+  defp directory_state(assigns) do
+    {tone, word} = directory_status(assigns.status)
+    assigns = assign(assigns, tone: tone, word: word)
+
+    ~H"""
+    <Kit.state tone={@tone} word={@word} />
+    """
   end
 
-  defp list_time(_at, _now), do: ""
+  defp directory_status(:working), do: {:busy, "Working"}
+  defp directory_status(:attention), do: {:warn, "Needs attention"}
+  defp directory_status(:waiting_for_you), do: {:warn, "Waiting for you"}
+  defp directory_status(:waiting), do: {:busy, "Waiting"}
+  defp directory_status(_status), do: {:off, "Replied"}
 
   defp filtered(items, filter) when filter in [nil, ""], do: items
 

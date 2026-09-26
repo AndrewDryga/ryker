@@ -14,11 +14,22 @@ defmodule Ryker.Operator.Failures do
   alias Ryker.Operator.{Actions, Reference}
   alias Ryker.Retention.Operator, as: RetentionOperator
   alias Ryker.Retention.OperatorAction
-  alias Ryker.Slack.{IncidentRoom, IncidentRooms, InteractionAudit, InteractionAudits}
+
+  alias Ryker.Slack.{
+    IncidentRoom,
+    IncidentRooms,
+    InteractionAudit,
+    InteractionAudits,
+    TaskCard,
+    TaskCards,
+    ThreadStatus,
+    ThreadStatuses
+  }
+
   alias Ryker.Work.Custody
   alias Ryker.Work.Session
 
-  @kinds ~w(admission delivery emisar retention slack_incident slack_interaction work)
+  @kinds ~w(admission delivery emisar retention slack_incident slack_interaction slack_task_card slack_thread_status work)
   @spec list(map()) :: {:ok, [map()]} | {:error, term()}
   def list(params \\ %{})
   def list(params) when is_map(params), do: FailureProjection.list(params)
@@ -71,6 +82,8 @@ defmodule Ryker.Operator.Failures do
   defp retry_kind("emisar", ref, _settings), do: EmisarOperator.rearm(ref)
   defp retry_kind("slack_incident", ref, _settings), do: IncidentRooms.rearm(ref)
   defp retry_kind("slack_interaction", ref, _settings), do: InteractionAudits.rearm(ref)
+  defp retry_kind("slack_task_card", ref, _settings), do: TaskCards.rearm(ref)
+  defp retry_kind("slack_thread_status", ref, _settings), do: ThreadStatuses.rearm(ref)
 
   defp retry_kind("work", ref, settings),
     do: Custody.retry_blocked(ref, settings.expected_recovery)
@@ -137,6 +150,24 @@ defmodule Ryker.Operator.Failures do
       "kind" => "slack_interaction",
       "ref" => ref,
       "status" => Atom.to_string(audit.repaint_status)
+    }
+  end
+
+  defp outcome("slack_task_card", ref, %TaskCard{} = card) do
+    %{
+      "attempt_count" => card.attempt_count,
+      "kind" => "slack_task_card",
+      "ref" => ref,
+      "status" => Atom.to_string(card.status)
+    }
+  end
+
+  defp outcome("slack_thread_status", ref, %ThreadStatus{} = status) do
+    %{
+      "attempt_count" => status.attempt_count,
+      "kind" => "slack_thread_status",
+      "ref" => ref,
+      "status" => Atom.to_string(status.status)
     }
   end
 

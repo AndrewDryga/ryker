@@ -35,8 +35,8 @@ Use the narrowest validation that proves the current edit while iterating:
    control-plane JavaScript, and ShellCheck. It takes a few minutes and never calls a model.
 3. Commit, then run `scripts/deploy.sh` (see "Finish by deploying").
 4. `make check` is the full gate: dev-check plus the deterministic host replay in an
-   isolated database, the watchdog and live-acceptance wrapper tests, the thirty-day
-   retention simulation, and the eval-trend self-test. CI runs it on every push to origin.
+   isolated database, the watchdog, deploy and live-acceptance script self-tests, the
+   thirty-day retention simulation, and the eval-trend self-test. CI runs it on every push to origin.
    Run it locally before a tagged release or when a change touches retention custody or the
    release scripts, not before every deploy.
 5. Run live Slack, Coop, or Emisar acceptance only when the changed integration boundary
@@ -100,18 +100,24 @@ list of verdicts.
 
 Work is not done when the gate is green. It is done when the code is running.
 
-Commit the change, then run `scripts/deploy.sh`. It refuses a dirty tree, builds the exact
-Elixir release incrementally, qualifies the archive against a disposable PostgreSQL, rehearses
-any migrations the live database has not applied on a restored backup of it, installs the
-release under the immutable prefix, atomically updates `current`, restarts the service under
-systemd on Linux or launchd on macOS, and waits for `/healthz`, `/readyz`, and the exact running
-version header. PostgreSQL custody resumes pending admission, Work, delivery, schedule, and
-remote-worker state after the normal one-writer restart; there is no canary/promote deployment
-state. A deploy without new migrations takes about two minutes end to end.
+The only deployment is the Docker Compose project `ryker` in this checkout; `.ryker/compose.env`
+holds its pins (`RYKER_VERSION`, `RYKER_IMAGE`) and its roots, and `scripts/compose.sh` is its
+lifecycle. Commit the change, then run `scripts/deploy.sh`. It refuses a dirty tree and a HEAD
+that is not `main`'s (pass `--allow-not-main` only on purpose), backs the database up into
+`.ryker/backups/pre-deploy-<time>.tar.gz` first, builds `ryker:0.1.0-g<commit>` from a clean
+git worktree of HEAD, replaces only the `ryker` container with
+`docker compose up --detach --build --wait --no-deps ryker` (migrations run when the container
+boots), waits from the host's side for `/healthz`, `/readyz` and the exact `x-ryker-version`
+header, and only then pins the new version in `.ryker/compose.env`. On failure it prints the
+container's log tail and leaves the previous version pinned, so `scripts/compose.sh start`
+returns to it (restore the pre-deploy backup first if the new release migrated). PostgreSQL
+custody resumes pending admission, Work, delivery, schedule, and remote-worker state after the
+normal one-writer restart; there is no canary/promote deployment state. The worktree is removed
+whatever happens, and the script ends by saying what is running and how long it took.
 
-Production Coop workers are enrolled and upgraded independently through the outbound fleet
-protocol. Do not make the Ryker deployment restart or install Coop. A deliberately configured
-single local Coop worker remains a development/test topology, not a second production path.
+A deploy never rebuilds or restarts the bundled Coop worker (`ryker-coop`) or its Docker daemon,
+and production Coop workers are enrolled and upgraded independently through the outbound fleet
+protocol. Do not make the Ryker deployment restart or install Coop.
 
 Say plainly what is running. "The gate is green" and "the fix is live" are different claims, and
 reporting the first as if it were the second sends an operator to debug a Slack failure against

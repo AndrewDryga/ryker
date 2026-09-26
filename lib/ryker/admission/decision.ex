@@ -4,6 +4,8 @@ defmodule Ryker.Admission.Decision do
 
   Candidate references are opaque values supplied by the host. The decision
   never contains a channel, thread, delivery destination, or raw episode identity.
+  On a new episode in an environment with several repositories it names, by
+  ref, the one the work changes, from the choices the host offered.
   """
 
   alias Ryker.Work.RepositorySource
@@ -11,7 +13,12 @@ defmodule Ryker.Admission.Decision do
   @actions [:start_episode, :continue_episode, :reply, :react, :ignore]
   @relations [:same_work, :history_only, :unrelated]
   @work_classes [:conversational, :standard, :deep]
-  @fields ~w(action episode_ref reaction relation reason repository_source work_class)
+  @fields ~w(action episode_ref reaction relation reason repository repository_source work_class)
+  # `repository` joined the contract on 2026-09-25. A decision recorded before
+  # then carries no such key, and absence means what null means: no choice.
+  # Recorded answers are history and stay readable as recorded; the published
+  # schema still requires the key, so a live model always sends it.
+  @required_fields @fields -- ["repository"]
   @nonblank_pattern "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
 
   @enforce_keys [
@@ -23,7 +30,9 @@ defmodule Ryker.Admission.Decision do
     :repository_source,
     :work_class
   ]
-  defstruct @enforce_keys
+  # A decision built without a repository chose none, like one recorded
+  # before the field existed.
+  defstruct @enforce_keys ++ [repository: nil]
 
   @type t :: %__MODULE__{
           action: :start_episode | :continue_episode | :reply | :react | :ignore,
@@ -31,6 +40,7 @@ defmodule Ryker.Admission.Decision do
           reaction: %{emoji_name: String.t()} | nil,
           relation: :same_work | :history_only | :unrelated,
           reason: String.t(),
+          repository: String.t() | nil,
           repository_source: map() | nil,
           work_class: :conversational | :standard | :deep | nil
         }
@@ -46,6 +56,7 @@ defmodule Ryker.Admission.Decision do
          :ok <- validate_reason(value["reason"]),
          :ok <- validate_shape(action, value["episode_ref"], reaction, relation),
          :ok <- validate_work_class(action, work_class),
+         {:ok, repository} <- parse_repository(action, Map.get(value, "repository")),
          {:ok, repository_source} <-
            parse_repository_source(action, value["repository_source"]) do
       {:ok,
@@ -55,6 +66,7 @@ defmodule Ryker.Admission.Decision do
          reaction: reaction,
          relation: relation,
          reason: value["reason"],
+         repository: repository,
          repository_source: repository_source,
          work_class: work_class
        }}
@@ -75,6 +87,7 @@ defmodule Ryker.Admission.Decision do
       "reaction" => reaction_document(decision.reaction),
       "relation" => Atom.to_string(decision.relation),
       "reason" => decision.reason,
+      "repository" => decision.repository,
       "repository_source" => decision.repository_source,
       "work_class" => work_class_document(decision.work_class)
     }
@@ -106,15 +119,24 @@ defmodule Ryker.Admission.Decision do
   def json_schema(allowed_actions, reaction_names) when is_list(allowed_actions),
     do: json_schema(allowed_actions, reaction_names, false)
 
+  @spec json_schema([atom()], :any | [String.t()] | nil, boolean()) :: map()
+  def json_schema(allowed_actions, reaction_names, repository_source?)
+      when is_list(allowed_actions) and is_boolean(repository_source?),
+      do: json_schema(allowed_actions, reaction_names, repository_source?, [])
+
   @doc """
   Publishes the decision contract for one source.
 
-  `repository_source?` is host-owned: only a route whose repository Ryker
-  already selected may offer a source selector, and only on a new episode.
+  Both selectors are host-owned. `repository_source?` is offered only on a
+  route whose repository Ryker already selected, and only on a new episode.
+  `repository_choices` are the repositories of the route's environment when
+  it has more than one: a new episode must name one of them, and every other
+  action sends null. With one repository or none there is nothing to choose.
   """
-  @spec json_schema([atom()], :any | [String.t()] | nil, boolean()) :: map()
-  def json_schema(allowed_actions, reaction_names, repository_source?)
-      when is_list(allowed_actions) and is_boolean(repository_source?) do
+  @spec json_schema([atom()], :any | [String.t()] | nil, boolean(), [String.t()]) :: map()
+  def json_schema(allowed_actions, reaction_names, repository_source?, repository_choices)
+      when is_list(allowed_actions) and is_boolean(repository_source?) and
+             is_list(repository_choices) do
     actions = Enum.filter(@actions, &(&1 in allowed_actions))
 
     %{
@@ -136,6 +158,7 @@ defmodule Ryker.Admission.Decision do
         },
         "relation" => %{"enum" => Enum.map(@relations, &Atom.to_string/1)},
         "reason" => bounded_string_schema(512),
+        "repository" => nullable_repository_schema(repository_choices),
         "repository_source" => repository_source_schema(repository_source?),
         "work_class" => %{
           "anyOf" => [
@@ -144,39 +167,42 @@ defmodule Ryker.Admission.Decision do
           ]
         }
       },
-      "oneOf" => decision_shapes(actions, reaction_names, repository_source?),
+      "oneOf" => decision_shapes(actions, reaction_names, repository_source?, repository_choices),
       "required" => @fields,
       "title" => "Ryker admission decision",
       "type" => "object"
     }
   end
 
-  defp decision_shapes(actions, reaction_names, repository_source?) do
+  defp decision_shapes(actions, reaction_names, repository_source?, repository_choices) do
     selectable = repository_source? and :start_episode in actions
+    new_episode = %{choices: repository_choices, source: selectable}
+    pinned = %{choices: [], source: false}
 
     [
-      shape("start_episode", nil, nil, "unrelated", :investigation, selectable),
-      shape("start_episode", :reference, nil, "history_only", :investigation, selectable),
-      shape("continue_episode", :reference, nil, "same_work", :investigation, false),
-      shape("reply", nil, nil, "unrelated", :conversation, false),
-      shape("reply", :reference, nil, "same_work", :conversation, false),
-      shape("reply", :reference, nil, "history_only", :conversation, false),
-      shape("react", nil, {:reaction, reaction_names}, "unrelated", nil, false),
-      shape("ignore", nil, nil, "unrelated", nil, false)
+      shape("start_episode", nil, nil, "unrelated", :investigation, new_episode),
+      shape("start_episode", :reference, nil, "history_only", :investigation, new_episode),
+      shape("continue_episode", :reference, nil, "same_work", :investigation, pinned),
+      shape("reply", nil, nil, "unrelated", :conversation, pinned),
+      shape("reply", :reference, nil, "same_work", :conversation, pinned),
+      shape("reply", :reference, nil, "history_only", :conversation, pinned),
+      shape("react", nil, {:reaction, reaction_names}, "unrelated", nil, pinned),
+      shape("ignore", nil, nil, "unrelated", nil, pinned)
     ]
     |> Enum.filter(fn %{"properties" => %{"action" => %{"const" => action}}} ->
       String.to_existing_atom(action) in actions
     end)
   end
 
-  defp shape(action, episode_ref, reaction, relation, work_class, selectable) do
+  defp shape(action, episode_ref, reaction, relation, work_class, selectors) do
     %{
       "properties" => %{
         "action" => %{"const" => action},
         "episode_ref" => reference_shape(episode_ref),
         "reaction" => reaction_shape(reaction),
         "relation" => %{"const" => relation},
-        "repository_source" => repository_source_schema(selectable),
+        "repository" => repository_shape(selectors.choices),
+        "repository_source" => repository_source_schema(selectors.source),
         "work_class" => work_class_shape(work_class)
       }
     }
@@ -186,6 +212,16 @@ defmodule Ryker.Admission.Decision do
 
   defp repository_source_schema(true),
     do: %{"anyOf" => [RepositorySource.json_schema(), %{"type" => "null"}]}
+
+  # Offered choices are required on the shapes that take them: a new episode
+  # in an environment with several repositories always names one.
+  defp repository_shape([]), do: %{"type" => "null"}
+  defp repository_shape(choices), do: %{"enum" => choices, "type" => "string"}
+
+  defp nullable_repository_schema([]), do: %{"type" => "null"}
+
+  defp nullable_repository_schema(choices),
+    do: %{"anyOf" => [repository_shape(choices), %{"type" => "null"}]}
 
   defp reference_shape(nil), do: %{"type" => "null"}
 
@@ -223,11 +259,22 @@ defmodule Ryker.Admission.Decision do
   end
 
   defp exact_fields(value) do
-    if Enum.all?(@fields, &Map.has_key?(value, &1)) and
+    if Enum.all?(@required_fields, &Map.has_key?(value, &1)) and
          Enum.all?(Map.keys(value), &(&1 in @fields)),
        do: :ok,
        else: {:error, {:invalid_decision, :fields}}
   end
+
+  # A repository is chosen once, when the episode is created, from the
+  # environment's repositories the host offered. Continuing, replying,
+  # reacting and ignoring inherit whatever their work already pinned.
+  defp parse_repository(_action, nil), do: {:ok, nil}
+
+  defp parse_repository(:start_episode, value) do
+    if bounded_text?(value, 256), do: {:ok, value}, else: invalid(:repository)
+  end
+
+  defp parse_repository(_action, _value), do: invalid(:repository)
 
   defp parse_enum(value, allowed, field) when is_binary(value) do
     case Enum.find(allowed, &(Atom.to_string(&1) == value)) do

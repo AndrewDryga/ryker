@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
+# Runs the live acceptance lane inside the deployed ryker container, against
+# the installation's own durable settings and database: the container already
+# carries DATABASE_URL and the encryption roots, so nothing is copied out of
+# .ryker/compose.env and nothing runs a second Ryker.
 set -euo pipefail
 
 channel_ref=${1:-}
-release=${RYKER_ELIXIR_RELEASE:-"$HOME/.local/lib/ryker-elixir/current/bin/ryker"}
 timeout_seconds=${RYKER_LIVE_TIMEOUT_SECONDS:-600}
+repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+state_dir=${RYKER_INSTALL_STATE:-$repository/.ryker}
+env_file=$state_dir/compose.env
 
-if [[ -z $channel_ref ]]; then
+if [[ $# -ne 1 || -z $channel_ref ]]; then
   echo "usage: scripts/elixir-live-acceptance.sh SLACK_TEST_CHANNEL" >&2
-  echo "the harness reads the deployment's own durable settings" >&2
+  echo "the lane runs in the deployed ryker container and reads its own durable settings" >&2
   exit 2
 fi
 
-if (( ${#channel_ref} < 1 || ${#channel_ref} > 256 )) ||
+if ((${#channel_ref} < 1 || ${#channel_ref} > 256)) ||
   [[ ! $channel_ref =~ ^[A-Za-z0-9._:-]+$ ]]; then
   echo "live acceptance Slack channel reference is invalid" >&2
   exit 2
@@ -22,27 +28,12 @@ if [[ ! $timeout_seconds =~ ^[0-9]+$ ]] || ((timeout_seconds < 1 || timeout_seco
   exit 2
 fi
 
-if [[ ! -x $release ]]; then
-  echo "installed Elixir release is unavailable at $release" >&2
+if [[ ! -r $env_file ]]; then
+  echo "Ryker is not installed here: $env_file is missing. Run ./install.sh first." >&2
   exit 1
 fi
 
-case $(uname -s) in
-  Darwin) default_runtime_env="$HOME/.local/state/ryker/emisar/runtime.env" ;;
-  *) default_runtime_env=/etc/ryker/ryker.env ;;
-esac
-runtime_env=${RYKER_RUNTIME_ENV:-$default_runtime_env}
-
-if [[ ! -r $runtime_env ]]; then
-  echo "deployment runtime environment is unavailable at $runtime_env" >&2
-  exit 1
-fi
-
-set -a
-# shellcheck source=/dev/null
-source "$runtime_env"
-set +a
-
-RYKER_LIVE_CHANNEL=$channel_ref \
-RYKER_LIVE_TIMEOUT_SECONDS=$timeout_seconds \
-  "$release" eval 'Ryker.Acceptance.Live.run_from_env!()'
+exec docker compose --env-file "$env_file" exec -T \
+  --env "RYKER_LIVE_CHANNEL=$channel_ref" \
+  --env "RYKER_LIVE_TIMEOUT_SECONDS=$timeout_seconds" \
+  ryker /opt/ryker/bin/ryker eval 'Ryker.Acceptance.Live.run_from_env!()'

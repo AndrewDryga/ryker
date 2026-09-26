@@ -1,6 +1,6 @@
 defmodule Ryker.State.Cases do
   @moduledoc """
-  Durable custody for completed cases and the lessons drawn from them.
+  Durable custody for completed cases.
 
   Everything Ryker learned from an incident used to expire with the raw
   transcript that produced it, so a matching outage a year later started from
@@ -20,7 +20,7 @@ defmodule Ryker.State.Cases do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{CorrelationClaim, Episode, Origin, RoutingDigest, RoutingDigests}
   alias Ryker.Repo
-  alias Ryker.State.{CaseLesson, CaseRecord, MemorySearchPage, Record}
+  alias Ryker.State.{CaseRecord, MemorySearchPage, Record}
   alias Ryker.Work.Turn
 
   @problem_bytes 4_096
@@ -37,8 +37,8 @@ defmodule Ryker.State.Cases do
   Captures or refreshes the compact case for each finished episode.
 
   Retention calls this before the raw episode rows become eligible for
-  cleanup, so a pending lesson review is never the reason the useful part of
-  an incident disappears at the history horizon.
+  cleanup, so the useful part of an incident never disappears at the history
+  horizon.
   """
   @spec capture_many([Ecto.UUID.t()]) :: non_neg_integer()
   def capture_many([]), do: 0
@@ -100,7 +100,7 @@ defmodule Ryker.State.Cases do
     end
   end
 
-  @doc "One `search_memory` page over retained cases and their approved lessons."
+  @doc "One `search_memory` page over retained cases."
   @spec search_page(map(), map()) :: {:ok, map(), list()} | :done
   def search_page(context, page) do
     from(record in CaseRecord,
@@ -121,89 +121,12 @@ defmodule Ryker.State.Cases do
   end
 
   @doc """
-  Records one extracted lesson as a draft.
-
-  A draft is never presented as approved guidance; only review makes it so.
-  """
-  @spec draft_lesson(map()) :: {:ok, CaseLesson.t()} | {:error, term()}
-  def draft_lesson(%{case_ref: case_ref} = attributes) do
-    case Repo.get_by(CaseRecord, case_ref: case_ref, status: :active) do
-      nil ->
-        {:error, :case_not_found}
-
-      %CaseRecord{} = record ->
-        Repo.insert(
-          %CaseLesson{
-            anchor_keys: record.anchor_keys,
-            case_id: record.id,
-            conditions: attributes.conditions,
-            lesson_ref: "lesson:#{case_ref}:#{attributes.revision}",
-            risks: Map.get(attributes, :risks),
-            search_text:
-              bounded(
-                Enum.join([attributes.conditions, attributes.steps, record.problem], "\n"),
-                @search_bytes
-              ),
-            source_refs: record.source_refs,
-            status: :draft,
-            steps: attributes.steps,
-            verification: Map.get(attributes, :verification),
-            workspace_ref: record.workspace_ref
-          },
-          on_conflict: :nothing,
-          conflict_target: [:lesson_ref]
-        )
-        |> case do
-          {:ok, %CaseLesson{id: nil}} ->
-            {:ok,
-             Repo.get_by!(CaseLesson, lesson_ref: "lesson:#{case_ref}:#{attributes.revision}")}
-
-          {:ok, lesson} ->
-            {:ok, lesson}
-
-          {:error, changeset} ->
-            {:error, {:invalid_case_lesson, changeset.errors}}
-        end
-    end
-  end
-
-  @doc "Marks one reviewed lesson approved and supersedes the revision it replaces."
-  @spec approve_lesson(String.t(), String.t(), String.t()) ::
-          {:ok, CaseLesson.t()} | {:error, term()}
-  def approve_lesson(lesson_ref, actor_ref, review_ref) do
-    Repo.transaction(fn ->
-      case Repo.one(
-             from(lesson in CaseLesson,
-               where: lesson.lesson_ref == ^lesson_ref and lesson.status == :draft,
-               lock: "FOR UPDATE"
-             )
-           ) do
-        nil ->
-          Repo.rollback(:case_lesson_not_reviewable)
-
-        lesson ->
-          superseded = supersede_previous(lesson)
-
-          lesson
-          |> Ecto.Changeset.change(
-            reviewed_at: DateTime.utc_now(),
-            reviewed_by_actor_ref: actor_ref,
-            review_ref: review_ref,
-            status: :approved,
-            supersedes_lesson_id: superseded
-          )
-          |> Repo.update!()
-      end
-    end)
-  end
-
-  @doc """
-  Explicitly removes one retained case and everything derived from it.
+  Explicitly removes one retained case.
 
   The identity and the lifecycle stay so an operator can see that it was
   deleted; the text is erased, and no summary that quoted it can bring it back.
   """
-  @spec delete(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  @spec delete(String.t()) :: {:ok, CaseRecord.t()} | {:error, term()}
   def delete(case_ref) do
     Repo.transaction(fn ->
       case Repo.one(
@@ -213,22 +136,6 @@ defmodule Ryker.State.Cases do
           Repo.rollback(:case_not_found)
 
         record ->
-          {lessons, _} =
-            Repo.update_all(
-              from(lesson in CaseLesson,
-                where: lesson.case_id == ^record.id and lesson.status != :removed
-              ),
-              set: [
-                conditions: "(removed)",
-                search_text: "",
-                status: :removed,
-                steps: "(removed)",
-                verification: nil,
-                risks: nil,
-                updated_at: DateTime.utc_now()
-              ]
-            )
-
           record
           |> Ecto.Changeset.change(
             attempted_actions: [],
@@ -241,8 +148,6 @@ defmodule Ryker.State.Cases do
             anchor_keys: []
           )
           |> Repo.update!()
-
-          lessons + 1
       end
     end)
   end
@@ -252,8 +157,8 @@ defmodule Ryker.State.Cases do
 
   Routine expiry of a transcript is not a withdrawal, and a case exists exactly
   so it can outlive one. Somebody deleting the message is different: no derived
-  record may keep quoting what they removed, so the case and its lessons are
-  redacted rather than revalidated into silence later.
+  record may keep quoting what they removed, so the case is redacted rather
+  than revalidated into silence later.
   """
   @spec withdraw_source(String.t()) :: non_neg_integer()
   def withdraw_source(native_input_id) when is_binary(native_input_id) do
@@ -265,21 +170,10 @@ defmodule Ryker.State.Cases do
     )
     |> Enum.reduce(0, fn case_ref, redacted ->
       case delete(case_ref) do
-        {:ok, _count} -> redacted + 1
+        {:ok, _record} -> redacted + 1
         {:error, _reason} -> redacted
       end
     end)
-  end
-
-  @doc "The approved, reusable lessons of one retained case."
-  @spec approved_lessons(Ecto.UUID.t()) :: [CaseLesson.t()]
-  def approved_lessons(case_id) do
-    Repo.all(
-      from(lesson in CaseLesson,
-        where: lesson.case_id == ^case_id and lesson.status == :approved,
-        order_by: [desc: lesson.reviewed_at]
-      )
-    )
   end
 
   defp persist(%Episode{} = episode) do
@@ -455,44 +349,12 @@ defmodule Ryker.State.Cases do
       "closed_at" => DateTime.to_iso8601(record.closed_at),
       "conversation_ref" => record.conversation_ref,
       "kind" => "case",
-      "lessons" => Enum.map(approved_lessons(record.id), &lesson_document/1),
       "links" => record.links,
       "occurrence_refs" => record.occurrence_refs,
       "outcome" => record.outcome,
       "problem" => record.problem,
       "repository_ref" => record.repository_ref
     }
-  end
-
-  defp lesson_document(%CaseLesson{} = lesson) do
-    %{
-      "conditions" => lesson.conditions,
-      "lesson_ref" => lesson.lesson_ref,
-      "reviewed_at" => DateTime.to_iso8601(lesson.reviewed_at),
-      "risks" => lesson.risks,
-      "steps" => lesson.steps,
-      "verification" => lesson.verification
-    }
-  end
-
-  defp supersede_previous(%CaseLesson{} = lesson) do
-    case Repo.one(
-           from(previous in CaseLesson,
-             where:
-               previous.case_id == ^lesson.case_id and previous.status == :approved and
-                 previous.id != ^lesson.id,
-             order_by: [desc: previous.reviewed_at],
-             limit: 1,
-             lock: "FOR UPDATE"
-           )
-         ) do
-      nil ->
-        nil
-
-      previous ->
-        previous |> Ecto.Changeset.change(status: :superseded) |> Repo.update!()
-        previous.id
-    end
   end
 
   defp scope_filter(context, "current_channel"),

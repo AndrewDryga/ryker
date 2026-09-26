@@ -1009,7 +1009,12 @@ defmodule Ryker.ControlPlane.RouterTest do
            {:rearmed_slack_interaction, "interaction:one"}},
           {"slack_incident", "incident-room:one", "rearm",
            "Continue setting up this incident room?",
-           {:rearmed_slack_incident, "incident-room:one"}}
+           {:rearmed_slack_incident, "incident-room:one"}},
+          {"slack_task_card", "task-card:one", "rearm", "Update this task’s card again?",
+           {:rearmed_slack_task_card, "task-card:one"}},
+          {"slack_thread_status", "0d0c5c7e-1c3d-4a4a-9a8f-2d0d0a1b2c3d", "rearm",
+           "Write this thread status again?",
+           {:rearmed_slack_thread_status, "0d0c5c7e-1c3d-4a4a-9a8f-2d0d0a1b2c3d"}}
         ] do
       encoded_ref = URI.encode(ref, &URI.char_unreserved?/1)
       path = "/actions/#{kind}/#{encoded_ref}/#{action}"

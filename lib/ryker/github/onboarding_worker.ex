@@ -2,7 +2,7 @@ defmodule Ryker.GitHub.OnboardingWorker do
   @moduledoc "Drains durable repository onboarding states without coupling repositories together."
   use GenServer
 
-  alias Ryker.{BundledCoop, Settings}
+  alias Ryker.{BundledCoop, Polling, Settings}
   alias Ryker.GitHub.Onboarding
 
   @default_interval 2_000
@@ -30,46 +30,53 @@ defmodule Ryker.GitHub.OnboardingWorker do
     {:ok, state}
   end
 
+  # A database the worker cannot read backs off and says so. Choosing the
+  # next repository used to turn every error into "nothing to do", so an
+  # outage looked like an idle queue.
   @impl true
   def handle_info(:drain, state) do
+    delay = Polling.run(:github_onboarding, state.interval_ms, fn -> drain(state) end)
+    Process.send_after(self(), :drain, delay)
+    {:noreply, state}
+  end
+
+  defp drain(state) do
     case next_repository() do
       nil -> :ok
       {:onboard, ref} -> _ = Onboarding.run(ref, api: state.api)
       {:sync, ref} -> _ = BundledCoop.materialize_repository(ref)
     end
 
-    Process.send_after(self(), :drain, state.interval_ms)
-    {:noreply, state}
+    state.interval_ms
   end
 
   defp next_repository do
     case Settings.fetch() do
-      {:ok, snapshot} ->
-        onboarding =
-          snapshot.repositories
-          |> Enum.filter(
-            &(&1.github_access == :available and
-                &1.onboarding_state in [:pending, :cloning, :scanning, :publishing])
-          )
-          |> Enum.sort_by(&{&1.updated_at, &1.ref})
-          |> List.first()
+      {:ok, snapshot} -> next_repository(snapshot)
+      {:error, :settings_not_initialized} -> nil
+    end
+  end
 
-        cond do
-          onboarding ->
-            {:onboard, onboarding.ref}
+  defp next_repository(snapshot) do
+    onboarding =
+      snapshot.repositories
+      |> Enum.filter(
+        &(&1.github_access == :available and
+            &1.onboarding_state in [:pending, :cloning, :scanning, :publishing])
+      )
+      |> Enum.sort_by(&{&1.updated_at, &1.ref})
+      |> List.first()
 
-          repository = Enum.find(snapshot.repositories, &materialization_due?/1) ->
-            {:sync, repository.ref}
+    cond do
+      onboarding ->
+        {:onboard, onboarding.ref}
 
-          true ->
-            nil
-        end
+      repository = Enum.find(snapshot.repositories, &materialization_due?/1) ->
+        {:sync, repository.ref}
 
-      _error ->
+      true ->
         nil
     end
-  rescue
-    _error -> nil
   end
 
   defp materialization_due?(repository) do

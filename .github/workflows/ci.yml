@@ -44,21 +44,6 @@ jobs:
           version-file: .tool-versions
           version-type: strict
       - name: build and verify canonical Elixir release
-        run: |
-          set -eu
-          make elixir-release-check
-          version=$(awk '{print $2}' _build/prod/rel/ryker/releases/start_erl.data)
-          install -d -m 0755 dist
-          install -m 0644 \
-            "_build/prod/ryker-${version}.tar.gz" \
-            "dist/ryker_${version}_elixir_linux_amd64.tar.gz"
-          install -m 0755 scripts/install-elixir-release.sh dist/install-elixir-release.sh
-          install -m 0755 scripts/check-elixir-release.sh dist/check-elixir-release.sh
-          install -m 0755 scripts/activate-elixir-release.sh dist/activate-elixir-release.sh
-          (cd dist && sha256sum \
-            ryker_*_elixir_linux_amd64.tar.gz \
-            install-elixir-release.sh \
-            check-elixir-release.sh \
-            activate-elixir-release.sh > checksums.txt)
+        run: make release-dist
       - name: smoke release archives
         run: scripts/check-release.sh dist

@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Card, EpisodeProjection, Search}
+  alias Ryker.ControlPlane.{Card, Environments, EpisodeProjection, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.FailureDetail
   alias Ryker.Publication.Publication
@@ -71,7 +71,16 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   def list(_params), do: list(%{})
 
-  @doc "One incident room with its lifecycle, records and latest publication."
+  @doc """
+  One incident room with its lifecycle, records and latest publication.
+
+  The room carries its milestones as times (`channel_created_at`,
+  `invited_at`, `ready_at`, `stopped_at`, `closed_at`), where its
+  investigation stands (`episode_state`), the names of its environment and
+  repository, and, for a room Ryker closed because Slack deleted its channel,
+  the note it wrote about where its words went (`closed_note`). No other saved
+  error leaves the Failures page.
+  """
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(from(room in IncidentRoom, where: room.ref == ^ref, limit: 1)) do
       nil ->
@@ -80,83 +89,152 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       room ->
         episode = if room.episode_id, do: Repo.get(Episode, room.episode_id)
 
-        lifecycle =
-          Repo.all(
-            from(event in IncidentRoomLifecycleEvent,
-              where: event.room_id == ^room.id,
-              order_by: [asc: event.occurred_at, asc: event.id],
-              limit: @detail_limit,
-              select: %{
-                kind: event.kind,
-                occurred_at: event.occurred_at,
-                channel_ref: event.channel_ref
-              }
-            )
-          )
-
-        records =
-          if room.episode_id do
-            Repo.all(
-              from(record in Record,
-                where: record.episode_id == ^room.episode_id,
-                order_by: [asc: record.sequence, asc: record.id],
-                limit: @detail_limit
-              )
-            )
-            |> Enum.map(&record/1)
-          else
-            []
-          end
-
-        publication =
-          if room.episode_id do
-            Repo.one(
-              from(publication in Publication,
-                where: publication.episode_id == ^room.episode_id,
-                order_by: [desc: publication.updated_at, desc: publication.id],
-                limit: 1,
-                select: %{
-                  branch_ref: publication.branch_ref,
-                  commit_sha: publication.commit_sha,
-                  last_error: publication.last_error_detail,
-                  pr_number: publication.pull_request_number,
-                  pr_url: publication.pull_request_url,
-                  ref: publication.ref,
-                  repository: publication.repository,
-                  status: publication.status,
-                  updated_at: publication.updated_at
-                }
-              )
-            )
-            |> sanitize_publication()
-          end
-
         {:ok,
          %{
-           lifecycle: lifecycle,
-           publication: publication,
-           records: records,
-           room: %{
-             channel_name: room.channel_name,
-             channel_ref: room.channel_ref,
-             channel_state: room.channel_state,
-             episode_ref: episode && episode.key,
-             private: room.private,
-             ref: room.ref,
-             repository_ref: room.repository_ref,
-             requested_at: room.requested_at,
-             source_channel_ref: room.source_channel_ref,
-             source_episode_ref: EpisodeProjection.key(room.source_episode_id),
-             status: room.status,
-             title: room.title,
-             updated_at: room.updated_at,
-             workspace_ref: room.workspace_ref
-           }
+           lifecycle: lifecycle(room),
+           publication: publication(room.episode_id),
+           records: records(room.episode_id),
+           room: room(room, episode, settings())
          }}
     end
   end
 
   def fetch(_ref), do: :not_found
+
+  defp room(room, episode, settings) do
+    %{
+      channel_created_at: channel_created_at(room),
+      channel_name: room.channel_name,
+      channel_ref: room.channel_ref,
+      channel_state: room.channel_state,
+      # A blocked room waits for a person and a closed one is final, so the
+      # row's last change is when setup stopped or it closed.
+      closed_at: if(room.status == :closed, do: room.updated_at),
+      closed_note: closed_note(room),
+      environment_name: environment_name(settings, room.environment_ref),
+      environment_ref: room.environment_ref,
+      episode_ref: episode && episode.key,
+      episode_state: episode && episode.state,
+      invited_at: room.audience_prepared_at,
+      invited_groups: length(room.invite_user_group_refs),
+      invited_people: length(room.invite_user_refs),
+      private: room.private,
+      # The investigation starts in the same transaction that makes the room
+      # ready, so its request's creation is when it did.
+      ready_at: episode && episode.inserted_at,
+      record_ref:
+        Repo.one(from(record in Record, where: record.id == ^room.record_id, select: record.ref)),
+      ref: room.ref,
+      repository_name: repository_name(settings, room.repository_ref),
+      repository_ref: room.repository_ref,
+      requested_at: room.requested_at,
+      source_channel_ref: room.source_channel_ref,
+      source_episode_ref: EpisodeProjection.key(room.source_episode_id),
+      status: room.status,
+      stopped_at: if(room.status == :blocked, do: room.updated_at),
+      title: room.title,
+      updated_at: room.updated_at,
+      workspace_ref: room.workspace_ref
+    }
+  end
+
+  defp lifecycle(room) do
+    Repo.all(
+      from(event in IncidentRoomLifecycleEvent,
+        where: event.room_id == ^room.id,
+        order_by: [asc: event.occurred_at, asc: event.id],
+        limit: @detail_limit,
+        select: %{
+          kind: event.kind,
+          occurred_at: event.occurred_at,
+          channel_ref: event.channel_ref
+        }
+      )
+    )
+  end
+
+  # The newest records, oldest first: the page leads with the latest update,
+  # which the oldest two hundred of a long investigation lack.
+  defp records(nil), do: []
+
+  defp records(episode_id) do
+    Repo.all(
+      from(record in Record,
+        where: record.episode_id == ^episode_id,
+        order_by: [desc: record.sequence, desc: record.id],
+        limit: @detail_limit
+      )
+    )
+    |> Enum.reverse()
+    |> Enum.map(&record/1)
+  end
+
+  defp publication(nil), do: nil
+
+  defp publication(episode_id) do
+    Repo.one(
+      from(publication in Publication,
+        where: publication.episode_id == ^episode_id,
+        order_by: [desc: publication.updated_at, desc: publication.id],
+        limit: 1,
+        select: %{
+          branch_ref: publication.branch_ref,
+          commit_sha: publication.commit_sha,
+          last_error: publication.last_error_detail,
+          pr_number: publication.pull_request_number,
+          pr_url: publication.pull_request_url,
+          ref: publication.ref,
+          repository: publication.repository,
+          status: publication.status,
+          updated_at: publication.updated_at
+        }
+      )
+    )
+    |> sanitize_publication()
+  end
+
+  # Creating the channel is the first change of its state; every later one
+  # (an archive, a deletion, a check that found it changed) names the event
+  # that made it and overwrites the time, so only an unchanged channel still
+  # knows when it was created.
+  defp channel_created_at(%IncidentRoom{channel_ref: nil}), do: nil
+
+  defp channel_created_at(%IncidentRoom{channel_state_event_ref: nil} = room),
+    do: room.channel_state_changed_at
+
+  defp channel_created_at(_room), do: nil
+
+  # The worker writes this note, in fixed words, when it closes a room whose
+  # channel Slack deleted, for whoever opens the room later: whether it told
+  # the alert thread and where a reply it still owed waits.
+  defp closed_note(
+         %IncidentRoom{status: :closed, last_error_code: "incident_room_deleted"} = room
+       ),
+       do: room.last_error_detail
+
+  defp closed_note(_room), do: nil
+
+  defp settings do
+    case Ryker.Settings.fetch() do
+      {:ok, snapshot} -> snapshot
+      {:error, :settings_not_initialized} -> nil
+    end
+  end
+
+  # An environment removed since keeps the ref the room saved: history
+  # outlives settings.
+  defp environment_name(_settings, nil), do: nil
+  defp environment_name(nil, ref), do: ref
+
+  defp environment_name(settings, ref) do
+    case Environments.find(settings, ref) do
+      %{display_name: name} -> name
+      nil -> ref
+    end
+  end
+
+  defp repository_name(nil, ref), do: ref
+  defp repository_name(settings, ref), do: Environments.repository_name(settings, ref)
 
   # A record in the words its timeline card uses — "Evidence", the claim and
   # what was observed — beside its identity for support.
@@ -168,6 +246,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       end
 
     %{
+      at: record.inserted_at,
       kind: record.kind,
       label: card[:label],
       ref: record.ref,

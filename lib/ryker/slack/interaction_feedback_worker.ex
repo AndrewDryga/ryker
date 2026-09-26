@@ -97,22 +97,39 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
   # accepted press and a card that never changed, which is indistinguishable
   # from the host having ignored them. The press really was recorded, so that is
   # what this says; the failure reason is host diagnostics and stays out of it.
+  #
+  # The note is best effort: the block is already recorded, and a note that
+  # fails must not fail the worker. It failed in silence once, so nobody could
+  # tell the person was never told; now every refusal, raise or exit from the
+  # Slack client is logged with its class and message.
   defp tell_the_presser(audit, options) do
     if function_exported?(options.api, :post_ephemeral, 5) do
-      options.api.post_ephemeral(
-        options.client,
-        audit.channel_ref,
-        audit.actor_ref,
-        audit.thread_ref,
-        "Your press was recorded. I couldn't update the message to show it, so what you see may be out of date."
-      )
+      case options.api.post_ephemeral(
+             options.client,
+             audit.channel_ref,
+             audit.actor_ref,
+             audit.thread_ref,
+             "Your press was recorded. I couldn't update the message to show it, so what you see may be out of date."
+           ) do
+        :ok -> :ok
+        {:error, reason} -> note_failed(audit, inspect(reason))
+        other -> note_failed(audit, inspect(other))
+      end
     end
 
     :ok
   rescue
-    _error -> :ok
+    error -> note_failed(audit, "#{inspect(error.__struct__)}: #{Exception.message(error)}")
   catch
-    _kind, _reason -> :ok
+    kind, reason -> note_failed(audit, "#{kind}: #{inspect(reason)}")
+  end
+
+  defp note_failed(audit, why) do
+    Logger.warning(
+      "could not tell the person who pressed #{audit.action_id} in #{audit.channel_ref} that the message is out of date: #{why}"
+    )
+
+    :ok
   end
 
   defp retry_delay(attempt_count, base) do

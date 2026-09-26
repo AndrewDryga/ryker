@@ -315,6 +315,18 @@ It also chooses one abstract `work_class` for work-producing actions. `reply` re
 | `standard` | `codex:gpt-5.6-sol/medium` | normal investigations and tool-backed work |
 | `deep` | `codex:gpt-5.6-sol/xhigh` | difficult, high-ambiguity, or high-consequence reasoning |
 
+When the route runs in an environment with more than one repository, the context carries
+`repository_choices`, the environment's repositories by ref with the description the operator wrote
+for each, and a `start_episode` decision must set `repository` to one of those refs: the repository
+the new work is about and may change; the others stay mounted read-only beside it. The list is
+frozen with the context, so the receipt shows exactly the choices the model had. Every other
+action, and every route with one repository or none, sends `null` (`invalid_decision: repository`
+for another action, `admission_rejected: repository_not_available` for a route without choices); a
+missing or unlisted choice is rejected in the same Coop turn (`admission_rejected:
+repository_required` / `repository_not_allowed`). The chosen repository selects the frozen Work
+profile's policy for the class and the session's working copy. Decisions recorded before
+2026-09-25 carry no `repository` key, which reads as `null`.
+
 When the route already selected a repository, the context carries `repository_source_kinds` and a
 `start_episode` decision may also set `repository_source` to one of `{"kind":"default"}`,
 `{"kind":"branch","name":"feature/payments"}`, `{"kind":"pull_request","number":514}` or
@@ -429,7 +441,7 @@ Fast deterministic tests cover:
   provider failure, and summary freshness including after-cutoff revisions;
 - admission/episode transaction rollback, shared conversation-lock ordering, and concurrent episode
   creation; and
-- the harvested Slack lifecycle corpus described in the [corpus review](elixir-slack-admission-corpus.md).
+- the harvested Slack lifecycle corpus summarised in [history.md](history.md).
 
 These tests use recorded decisions or a deterministic fake Coop API; they never call an LLM. Model
 choice quality remains a separate recorded-context evaluation suite. The downstream Work, state,

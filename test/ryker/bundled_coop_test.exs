@@ -91,11 +91,14 @@ defmodule Ryker.BundledCoopTest do
     refute Enum.any?(snapshot.policy_bindings, &(&1.scope_kind == :environment))
   end
 
-  # Coop mounts read-only repositories only for a policy that declares them, so
-  # an environment with several repositories needs policies of its own: its
-  # first repository writable (for confirmed tasks only) and every other one
-  # mounted read-only under its ref, the name the Work executor checks.
-  test "an environment with several repositories gets its own policies mounting the rest read-only" do
+  # Coop mounts read-only repositories only for a policy that declares them, and
+  # work in an environment may change any of its repositories, so an
+  # environment with several gets policies per repository: that repository as
+  # the working copy and every other one mounted read-only under its ref, the
+  # name the Work executor checks. The first pass wrote one set with the first
+  # repository as the working copy, so a task about any other repository ran
+  # against the wrong checkout.
+  test "a shared environment gets policies per repository, the rest mounted read-only" do
     {root, _shared} = configure_distribution_root!()
     assert :ok = BundledCoop.prepare_distribution!()
     snapshot = Settings.fetch!()
@@ -118,57 +121,75 @@ defmodule Ryker.BundledCoopTest do
     materialize!(root, "app")
     materialize!(root, "lib")
     assert :ok = BundledCoop.sync_policies()
-    refute Map.has_key?(read_policies!(root), "ryker-env-platform-conversation")
+    refute Enum.any?(Map.keys(read_policies!(root)), &String.starts_with?(&1, "ryker-env-"))
 
     materialize!(root, "docs")
     assert :ok = BundledCoop.sync_policies()
     policies = read_policies!(root)
+    checkout = &Path.join([root, "repositories", &1])
 
-    for suffix <- ~w(conversation standard deep contributor) do
-      policy = Map.fetch!(policies, "ryker-env-platform-#{suffix}")
-      assert policy["repository"] == Path.join([root, "repositories", "app"])
+    for {working, companions} <- [
+          {"app", ~w(lib docs)},
+          {"lib", ~w(app docs)},
+          {"docs", ~w(app lib)}
+        ],
+        suffix <- ~w(conversation standard deep contributor) do
+      policy = Map.fetch!(policies, "ryker-env-platform-#{working}-#{suffix}")
+      assert policy["repository"] == checkout.(working)
 
-      assert policy["companions"] == [
-               %{"name" => "lib", "repository" => Path.join([root, "repositories", "lib"])},
-               %{"name" => "docs", "repository" => Path.join([root, "repositories", "docs"])}
-             ]
+      assert policy["companions"] ==
+               Enum.map(companions, &%{"name" => &1, "repository" => checkout.(&1)})
     end
 
-    assert authority(policies["ryker-env-platform-conversation"]) ==
-             authority(policies["ryker-env-platform-standard"])
+    for working <- ~w(app lib docs) do
+      conversation = authority(policies["ryker-env-platform-#{working}-conversation"])
+      assert authority(policies["ryker-env-platform-#{working}-standard"]) == conversation
+      assert authority(policies["ryker-env-platform-#{working}-deep"]) == conversation
+      assert policies["ryker-env-platform-#{working}-conversation"]["repository_read_only"]
 
-    assert authority(policies["ryker-env-platform-conversation"]) ==
-             authority(policies["ryker-env-platform-deep"])
+      refute Map.get(
+               policies["ryker-env-platform-#{working}-contributor"],
+               "repository_read_only",
+               false
+             )
+    end
 
-    refute Map.get(policies["ryker-env-platform-contributor"], "repository_read_only", false)
+    refute Map.has_key?(policies, "ryker-env-platform-conversation")
 
     assert {:ok, _worker} =
              ControlPlane.authorize_worker("ryker-compose", "ryker-compose", @digest)
 
+    environment_policies =
+      for working <- ~w(app lib docs),
+          suffix <- ~w(conversation standard deep contributor),
+          do: "ryker-env-platform-#{working}-#{suffix}"
+
     advertise_policies!(
       ~w(ryker-admission ryker-chat ryker-incident ryker-learning ryker-schedule-governed
-        ryker-schedule-read-only) ++
-        for(
-          suffix <- ~w(conversation standard deep contributor),
-          do: "ryker-env-platform-#{suffix}"
-        )
+        ryker-schedule-read-only) ++ environment_policies
     )
 
     assert :ok = BundledCoop.configure("ryker-compose")
 
-    assert Settings.fetch!().policy_bindings
-           |> Enum.filter(&(&1.scope_kind == :environment))
-           |> Enum.map(&{&1.purpose, &1.scope_ref, &1.policy_name})
-           |> Enum.sort() ==
-             [
-               {:conversational, "platform", "ryker-env-platform-conversation"},
-               {:standard, "platform", "ryker-env-platform-standard"},
-               {:deep, "platform", "ryker-env-platform-deep"},
-               {:contributor, "platform", "ryker-env-platform-contributor"}
-             ]
-             |> Enum.sort()
+    bindings =
+      Settings.fetch!().policy_bindings
+      |> Enum.filter(&(&1.scope_kind == :environment))
+      |> Enum.map(&{&1.purpose, &1.scope_ref, &1.repository_ref, &1.policy_name})
+      |> Enum.sort()
 
-    assert BundledCoop.policy?("ryker-env-platform-deep")
+    assert bindings ==
+             Enum.sort(
+               for working <- ~w(app lib docs),
+                   {purpose, suffix} <- [
+                     conversational: "conversation",
+                     standard: "standard",
+                     deep: "deep",
+                     contributor: "contributor"
+                   ],
+                   do: {purpose, "platform", working, "ryker-env-platform-#{working}-#{suffix}"}
+             )
+
+    assert BundledCoop.policy?("ryker-env-platform-docs-deep")
   end
 
   # A Work profile requires its conversation, standard and deep policies to

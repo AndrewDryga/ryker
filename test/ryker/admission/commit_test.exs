@@ -1244,34 +1244,65 @@ defmodule Ryker.Admission.CommitTest do
            }
   end
 
-  # The environment a conversation selects decides what its work may change,
-  # what it only reads and which Emisar account it may use. Admission pins the
-  # profile the input was frozen with, so the session records the environment
-  # and mounts its first repository writable and the others read-only.
-  test "a new episode admitted in an environment records it and mounts its repositories" do
+  # The environment a conversation selects decides what its work may use and
+  # which Emisar account. Admission pins the profile the input was frozen
+  # with, placed in the repository the decision chose, so the session records
+  # the environment and mounts that repository as its working copy with the
+  # environment's other repositories read-only. Before, the session always
+  # mounted the environment's first repository writable, whatever the event
+  # was about.
+  test "a new episode admitted in an environment mounts the repository it chose as its working copy" do
     entry = environment_input!("environment-pin")
     context = context!(entry)
     assert {:ok, profile} = WorkProfile.restore(entry.work_profile)
-    assert {:ok, work_policy} = WorkProfile.policy_for(profile, :conversational)
+    assert {:ok, work_policy} = WorkProfile.policy_for(profile, :conversational, "coop")
 
     assert {:ok, %{episode: episode}} =
              Admission.commit(
                context,
-               source_decision!(:start_episode, nil),
+               source_decision!(:start_episode, nil, "coop"),
                "decision:environment-pin",
                work_policy: work_policy
              )
 
     session = Repo.get_by!(Session, episode_id: episode.id)
     assert session.environment_ref == "platform"
-    assert session.repository_ref == "ryker"
+    assert session.repository_ref == "coop"
+    assert session.policy == "coop-conversation"
 
     assert session.repository_context == %{
              "context_ref" => "platform",
              "parallel_goal_limit" => 2,
-             "primary_repository" => "ryker",
-             "read_only_repositories" => ["coop"]
+             "primary_repository" => "coop",
+             "read_only_repositories" => ["ryker"]
            }
+  end
+
+  # The repositories offered are route authority: a new episode on a route
+  # with several must name one of them, and no other route may name any, so
+  # the model can neither skip the choice nor point work at a repository the
+  # environment does not hold.
+  test "a new episode on a shared route names one offered repository, and no other route may" do
+    shared = context!(environment_input!("repository-choice"))
+
+    assert Admission.validate(shared, source_decision!(:start_episode, nil)) ==
+             {:error, {:admission_rejected, :repository_required, allowed: ["ryker", "coop"]}}
+
+    assert Admission.validate(shared, source_decision!(:start_episode, nil, "elsewhere")) ==
+             {:error,
+              {:admission_rejected, :repository_not_allowed,
+               allowed: ["ryker", "coop"], submitted: "elsewhere"}}
+
+    assert {:ok, _selection} =
+             Admission.validate(shared, source_decision!(:start_episode, nil, "coop"))
+
+    single = context!(repository_input!("repository-single"))
+
+    assert Admission.validate(single, source_decision!(:start_episode, nil, "ryker")) ==
+             {:error, {:admission_rejected, :repository_not_available}}
+
+    assert {:ok, _selection} = Admission.validate(single, source_decision!(:start_episode, nil))
+    assert Repo.aggregate(from(session in Session), :count) == 0
   end
 
   # The selector is route authority, not model authority: a conversational route
@@ -1294,13 +1325,26 @@ defmodule Ryker.Admission.CommitTest do
         message_ref: "1787832000.00#{:erlang.phash2(suffix, 8000) + 1000}"
       )
 
+    repositories = ["ryker", "coop"]
+
+    # Each repository's three class policies share one execution authority.
     work_profile = %{
       environment_ref: "platform",
       parallel_goal_limit: 2,
-      policy: "work-conversation",
-      policy_digest: String.duplicate("b", 64),
-      read_only_repository_refs: ["coop"],
-      repository_ref: "ryker"
+      policies:
+        Map.new(repositories, fn repository ->
+          {repository,
+           Map.new(~w(conversational standard deep)a, fn work_class ->
+             {work_class,
+              %{
+                authority_digest: String.duplicate("e", 64),
+                policy: "#{repository}-#{work_class}",
+                policy_digest: String.duplicate("b", 64)
+              }}
+           end)
+           |> put_in([:conversational, :policy], "#{repository}-conversation")}
+        end),
+      repositories: repositories
     }
 
     assert {:ok, %{entry: entry}} = Inbox.record(input, work_profile: work_profile)
@@ -1332,7 +1376,7 @@ defmodule Ryker.Admission.CommitTest do
     }
   end
 
-  defp source_decision!(action, repository_source) do
+  defp source_decision!(action, repository_source, repository \\ nil) do
     assert {:ok, decision} =
              Decision.parse(%{
                "action" => Atom.to_string(action),
@@ -1340,6 +1384,7 @@ defmodule Ryker.Admission.CommitTest do
                "reaction" => nil,
                "relation" => "unrelated",
                "reason" => "Recorded model admission decision for this test.",
+               "repository" => repository,
                "repository_source" => repository_source,
                "work_class" => "standard"
              })

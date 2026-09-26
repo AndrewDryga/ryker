@@ -1,6 +1,8 @@
 defmodule Ryker.GitHub.InstallationTokensTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Ryker.GitHub.InstallationTokens
 
   defmodule FakeRequester do
@@ -12,7 +14,38 @@ defmodule Ryker.GitHub.InstallationTokensTest do
     end
   end
 
+  defmodule RaisingRequester do
+    def request(_agent, _method, _path, _document, _headers),
+      do: raise("token endpoint exploded at /app/installations/41/access_tokens")
+  end
+
   @now ~U[2026-08-29 12:00:00Z]
+
+  # A raise inside the token request or the clock was returned as the whole
+  # exception, whose message can carry the request that failed, and that
+  # reason is stored with whatever the token was for. The reason now names
+  # the class alone; the log keeps the message.
+  test "a raise while minting or reading the clock is reported by class, never by body" do
+    {provider, _requester} = provider_with([], requester: RaisingRequester)
+
+    log =
+      capture_log(fn ->
+        assert InstallationTokens.token(provider, "github-main", :delivery) ==
+                 {:error, {:github_installation_token_unavailable, {:raised, RuntimeError}}}
+      end)
+
+    assert log =~ "token endpoint exploded"
+
+    {provider, _requester} = provider_with([], clock: fn -> raise "clock failed at vault" end)
+
+    log =
+      capture_log(fn ->
+        assert InstallationTokens.token(provider, "github-main", :delivery) ==
+                 {:error, {:github_installation_token_unavailable, {:raised, RuntimeError}}}
+      end)
+
+    assert log =~ "clock failed at vault"
+  end
 
   test "mints one repository-scoped installation token and refreshes before expiry" do
     clock = start_supervised!({Agent, fn -> @now end}, id: :installation_token_clock)
@@ -264,7 +297,7 @@ defmodule Ryker.GitHub.InstallationTokensTest do
            bindings: %{"github-main" => %{installation_id: 41, repository_id: 99}},
            clock: Keyword.get(options, :clock, fn -> @now end),
            name: nil,
-           requester: FakeRequester
+           requester: Keyword.get(options, :requester, FakeRequester)
          }},
         id: {:installation_token_provider, make_ref()}
       )

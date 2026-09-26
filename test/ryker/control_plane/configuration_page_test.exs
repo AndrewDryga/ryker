@@ -28,25 +28,27 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
       ])
 
     evidence = LazyHTML.query(document, "section.configuration-evidence")
-    assert LazyHTML.query(evidence, ".section-head h2") |> LazyHTML.text() == "Running system"
+    assert LazyHTML.query(evidence, ".section-head h2") |> LazyHTML.text() == "What is running"
 
     details = LazyHTML.query(evidence, "details.system-evidence")
     assert Enum.count(details) == 1
     assert LazyHTML.attribute(details, "open") == []
 
+    # Grouped under the names people know the parts of Ryker by (2026-09-25:
+    # "Admission" and "Work execution" were Ryker's own words for them).
     assert LazyHTML.query(details, ".configuration-group > h3") |> Enum.map(&LazyHTML.text/1) ==
              [
-               "Subsystems",
-               "Runtime",
-               "Admission",
-               "Work execution",
+               "Parts of Ryker",
+               "Installation",
+               "Routing",
+               "Running work",
                "Cleanup and retention",
                "Other settings"
              ]
 
     values = LazyHTML.query(details, ".configuration-values")
-    note = values |> LazyHTML.query("p.settings-lede") |> LazyHTML.text()
-    assert note =~ "read-only evidence"
+    note = values |> LazyHTML.query("p.settings-lede") |> text()
+    assert note =~ "Nothing here can be changed"
     assert note =~ "without a deployment"
     assert note =~ "Configured means a setting was saved"
     assert LazyHTML.query(values, "p.settings-lede code") |> LazyHTML.text() == @source
@@ -54,7 +56,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
     admission = LazyHTML.query(values, ".configuration-group[data-group='admission']")
 
     assert LazyHTML.query(admission, "[data-setting='admission.policy'] .entity-name")
-           |> LazyHTML.text() == "Admission execution policy"
+           |> LazyHTML.text() == "Routing policy"
 
     subsystems = LazyHTML.query(values, ".configuration-group[data-group='subsystems']")
 
@@ -87,8 +89,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
              LazyHTML.query(document, "form, input, button, select, textarea, [phx-click]")
            )
 
-    assert LazyHTML.text(document) =~
-             "Docker Compose installations should provide work execution automatically"
+    assert text(document) =~ "Docker Compose installations set this up on their own"
   end
 
   test "code changes that cannot run are shown outside the folded evidence, where recovery links" do
@@ -116,8 +117,9 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
       |> LazyHTML.from_fragment()
 
     grants = LazyHTML.query(document, ".configuration-grants")
-    assert LazyHTML.text(grants) =~ "not a live tool-health check"
-    assert LazyHTML.text(grants) =~ "does not grant permission"
+    assert LazyHTML.query(document, ".configuration-grants > h3") |> text() == "Tools"
+    assert text(grants) =~ "This is not a health check"
+    assert text(grants) =~ "does not give permission to use it"
 
     assert LazyHTML.query(grants, ".entity-row .entity-name")
            |> Enum.map(&String.trim(LazyHTML.text(&1))) == ["search_slack", "responder-state"]
@@ -131,10 +133,10 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
       |> LazyHTML.from_fragment()
 
     assert LazyHTML.query(none, ".configuration-grants .entity-empty") |> LazyHTML.text() =~
-             "No MCP or tool grants are configured"
+             "This installation names no tools"
 
     assert LazyHTML.query(none, ".configuration-values .entity-empty") |> LazyHTML.text() =~
-             "No effective settings were published"
+             "The running Ryker published no settings"
   end
 
   test "the running system renders under the Advanced page's own title and no other" do
@@ -145,12 +147,15 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
     assert Enum.count(LazyHTML.query(document, "section.configuration-evidence")) == 1
 
     assert LazyHTML.query(document, ".section-head h2") |> Enum.map(&LazyHTML.text/1) ==
-             ["Work execution", "Running system"]
+             ["Tasks that change code", "What is running"]
 
     assert Enum.empty?(LazyHTML.query(document, "h1"))
   end
 
   defp row(key, value), do: %{key: key, value: value, source: @source}
+
+  # Text as a reader sees it: HTML collapses the line breaks of the template.
+  defp text(nodes), do: nodes |> LazyHTML.text() |> String.split() |> Enum.join(" ")
 
   defp render(rows) do
     RunningSystem.html(%{rows: rows, grants: [], source: @source})

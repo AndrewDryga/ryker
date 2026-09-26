@@ -174,8 +174,10 @@ defmodule Ryker.State.TaskOffers do
     end
   end
 
-  # A task changes the repository its policy writes; in an environment that is
-  # the first repository, never one the environment only reads.
+  # A task changes exactly the repository its confirmed policy places it in:
+  # in an environment, any of its repositories, as that repository's working
+  # copy with the others mounted read-only. The caller chose the policy for
+  # the repository the offer named; a policy placed elsewhere is a mismatch.
   defp task_repository_placement(nil, _policy), do: :ok
 
   defp task_repository_placement(repository_ref, %{repository_ref: repository_ref}), do: :ok

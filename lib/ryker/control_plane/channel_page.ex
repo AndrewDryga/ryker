@@ -141,7 +141,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
     <section id="taking-part" class="channel-section">
       <Kit.section_head
         title="How Ryker takes part"
-        lede="Choose the environment here. To change the rest, type /ryker status in the channel."
+        lede="Choose the environment here. The rest is set from Slack."
       />
       <dl class="channel-facts">
         <.fact label="Conversations">
@@ -170,18 +170,20 @@ defmodule Ryker.ControlPlane.ChannelPage do
           <% end %>
         </.fact>
         <.fact label="Code">
-          <%= case @environment.repositories do %>
-            <% [] -> %>
+          <%= case {@environment.source, @environment.repositories} do %>
+            <% {_source, []} -> %>
               None, so Ryker does not read code here
-            <% [writable | read_only] -> %>
+            <% {:incident_room, [writable | _read_only]} -> %>
               Changes
-              <strong>{writable.name}</strong><span
-                :if={read_only != []}
-                class="channel-fact-note"
-              > · reads {Enum.map_join(read_only, ", ", & &1.name)}</span><span
-                :if={@environment.source == :incident_room}
-                class="channel-fact-note"
-              > · from the incident room</span>
+              <strong>{writable.name}</strong><span class="channel-fact-note">
+                · from the incident room
+              </span>
+            <% {_source, [only]} -> %>
+              <strong>{only.name}</strong>
+            <% {_source, repositories} -> %>
+              <strong>{Enum.map_join(repositories, ", ", & &1.name)}</strong><span class="channel-fact-note">
+                · a task changes the one it needs
+              </span>
           <% end %>
         </.fact>
         <.fact :if={@environment.source != :incident_room} label="Emisar">
@@ -372,12 +374,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
         :if={@empty}
         title="Nothing else applies here yet."
         text="Ryker follows the instructions above and its defaults."
-      >
-        <Kit.ask_hint
-          lead="To add a rule, tell Ryker in this channel:"
-          example="When someone posts a Terraform plan here, review it for risky changes."
-        />
-      </Kit.empty>
+      />
       <.relation id="rules" base={@base} params={@view.params} relation={@view.rules} many="rules">
         <Kit.entity_row
           :for={item <- @view.rules.items}
@@ -600,12 +597,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
     ~H"""
     <section id="schedules" class="channel-section">
       <Kit.section_head title="Schedules" lede="Work Ryker runs on a schedule and posts here." />
-      <Kit.empty :if={@view.schedules.total == 0} title="Nothing is scheduled here.">
-        <Kit.ask_hint
-          lead="To add a schedule, tell Ryker in this channel:"
-          example="Every weekday at 09:00, summarize open incidents here."
-        />
-      </Kit.empty>
+      <Kit.empty :if={@view.schedules.total == 0} title="Nothing is scheduled here." />
       <.relation
         id="schedule-list"
         anchor="schedules"

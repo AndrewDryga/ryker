@@ -214,7 +214,16 @@ defmodule Ryker.EpisodesTest do
         expected_turn_ref: "a-turn-that-never-owned-this-episode"
       })
 
-    assert {:error, {:stale_turn, _details}} = Episodes.apply_batch([input, invalid_wait])
+    # The batch is applied the way every production caller applies one: inside
+    # the caller's transaction, rolled back on the first rejected command.
+    assert {:error, {:stale_turn, _details}} =
+             Ryker.Repo.transaction(fn ->
+               case Episodes.apply_batch_in_transaction([input, invalid_wait]) do
+                 {:ok, transitions} -> transitions
+                 {:error, reason} -> Ryker.Repo.rollback(reason)
+               end
+             end)
+
     assert Episodes.fetch_by_key(input.episode_key) == :error
     assert Episodes.list_events(input.episode_key) == []
   end

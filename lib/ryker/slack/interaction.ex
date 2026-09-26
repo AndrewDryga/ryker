@@ -3,12 +3,8 @@ defmodule Ryker.Slack.Interaction do
   One authenticated Slack control selection normalized from Socket Mode.
 
   Only host-issued action IDs are retained. Arbitrary model-authored Block Kit
-  is never interpreted as a control, and neither is a card posted before the
-  2026-09-13 rename: `retired_control/3` names such a click for an explicit
-  reply and audit row without ever admitting its id as a control.
+  is never interpreted as a control.
   """
-
-  alias Ryker.Retained
 
   @actions ~w(ryker_answer_input ryker_check_publication ryker_close_work ryker_confirm_automation ryker_confirm_behavior ryker_confirm_memory ryker_confirm_schedule ryker_confirm_slack_post ryker_delete_behavior ryker_delete_schedule ryker_resume_behavior ryker_forget_memory ryker_investigate_incident ryker_open_incident ryker_open_publication ryker_publish_draft ryker_resume_work ryker_review_publication ryker_start_engineering_task ryker_stop_work ryker_task_check ryker_task_discard_publication ryker_task_publish ryker_task_retry_publication ryker_task_update_publication ryker_work_record ryker_setup_alerts_automatic ryker_setup_alerts_offer ryker_setup_alerts_reply ryker_setup_audience_none ryker_setup_cancel ryker_setup_environment_none ryker_setup_participation_mentions ryker_setup_participation_proactive ryker_setup_participation_shadow ryker_setup_restart ryker_setup_save ryker_welcome_be_proactive ryker_welcome_configure ryker_welcome_mentions_only ryker_welcome_view_rules ryker_welcome_view_schedules)
   @environment_action ~r/\Aryker_setup_environment_[0-9]{1,3}\z/
@@ -99,76 +95,16 @@ defmodule Ryker.Slack.Interaction do
 
   def from_socket(_envelope, _workspace_ref, _occurred_at), do: :ignore
 
-  @doc """
-  Recognises a click on a card posted before the rename to Ryker.
-
-  Such a card carries an action id with the retained prefix that no current
-  control uses. On a message it is normalized exactly like a control, so the
-  caller can reply that the card is retired and record the exact id; nothing
-  about the click is otherwise trusted. A click inside an App Home view is
-  reported as `:app_home`: the view is republished on open and needs no reply.
-  """
-  @spec retired_control(map(), String.t(), DateTime.t()) :: {:ok, t()} | :app_home | :ignore
-  def retired_control(
-        %{
-          "envelope_id" => envelope_id,
-          "payload" =>
-            %{
-              "actions" => [%{"action_id" => action_id} = action],
-              "container" => %{"type" => container_type} = container,
-              "team" => %{"id" => workspace_ref},
-              "type" => "block_actions",
-              "user" => %{"id" => actor_ref}
-            } = payload,
-          "type" => "interactive"
-        },
-        workspace_ref,
-        %DateTime{} = occurred_at
-      ) do
-    cond do
-      not Retained.retired_slack_action?(action_id) ->
-        :ignore
-
-      container_type == "view" ->
-        :app_home
-
-      container_type == "message" ->
-        with %{"channel_id" => channel_ref, "message_ts" => message_ref} <- container,
-             {:ok, ^action_id, action_value} <- action(action, payload),
-             true <- reference?(action_value) do
-          build_interaction(
-            action_id,
-            action_value,
-            container,
-            %{
-              actor_ref: actor_ref,
-              channel_ref: channel_ref,
-              envelope_id: envelope_id,
-              message_ref: message_ref,
-              occurred_at: occurred_at,
-              workspace_ref: workspace_ref
-            },
-            :retired
-          )
-        else
-          _invalid -> :ignore
-        end
-
-      true ->
-        :ignore
-    end
-  end
-
-  def retired_control(_envelope, _workspace_ref, _occurred_at), do: :ignore
-
-  defp build_interaction(action_id, action_value, container, context, kind \\ :current) do
+  defp build_interaction(action_id, action_value, container, context) do
     thread_ref = container["thread_ts"]
 
     values =
       Map.take(context, [:actor_ref, :channel_ref, :envelope_id, :message_ref, :workspace_ref])
       |> Map.values()
 
-    if admitted?(kind, action_id, action_value) and Enum.all?(values, &reference?/1) and
+    # A control must be a known id with a well-formed value.
+    if action_id?(action_id) and action_value?(action_id, action_value) and
+         Enum.all?(values, &reference?/1) and
          optional_reference?(thread_ref) and utc?(context.occurred_at) do
       {:ok,
        %__MODULE__{
@@ -186,14 +122,6 @@ defmodule Ryker.Slack.Interaction do
       :ignore
     end
   end
-
-  # A current control must be a known id with a well-formed value; a retired
-  # id is admitted only for the reply and audit row, never as a control.
-  defp admitted?(:current, action_id, action_value),
-    do: action_id?(action_id) and action_value?(action_id, action_value)
-
-  defp admitted?(:retired, action_id, _action_value),
-    do: Retained.retired_slack_action?(action_id)
 
   @spec setup_action?(String.t()) :: boolean()
   def setup_action?("ryker_setup_" <> _rest = action_id), do: action_id?(action_id)

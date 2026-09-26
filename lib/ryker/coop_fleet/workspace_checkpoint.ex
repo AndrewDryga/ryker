@@ -57,8 +57,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
 
   def decode_bundle_manifest(_document), do: bundle_error(:document)
 
-  @spec validate_bundle_manifest(term()) :: {:ok, map()} | {:error, term()}
-  def validate_bundle_manifest(%{} = manifest) do
+  defp validate_bundle_manifest(%{} = manifest) do
     with :ok <- manifest_exact_fields(manifest, @manifest_fields, :fields),
          true <- manifest["version"] == @version,
          :ok <- manifest_reference(manifest["checkpoint_ref"]),
@@ -94,7 +93,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
     end
   end
 
-  def validate_bundle_manifest(_manifest), do: bundle_error(:document)
+  defp validate_bundle_manifest(_manifest), do: bundle_error(:document)
 
   @spec validate_pair(map(), map()) :: :ok | {:error, term()}
   def validate_pair(%{} = checkpoint, %{} = manifest) do

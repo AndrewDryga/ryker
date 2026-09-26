@@ -201,7 +201,9 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert fact(html, "Conversations") ==
              "Joins relevant conversations · set for this channel"
 
-    assert fact(html, "Code") == "Changes acme/api · reads acme/docs"
+    # Work here may use every repository of the environment; a task changes the
+    # one it needs, so the page no longer says one is only read.
+    assert fact(html, "Code") == "acme/api, acme/docs · a task changes the one it needs"
     assert fact(html, "Emisar") == "Production approvals"
     assert fact(html, "Alerts") == "Offers to investigate, in the thread or an incident room"
     assert fact(html, "Invites to incident rooms") =~ "U1"
@@ -431,7 +433,8 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert LazyHTML.query(schedules, ".entity-empty-title") |> LazyHTML.text() ==
                "Nothing is scheduled here."
 
-      assert LazyHTML.query(schedules, ".ask-hint q") |> LazyHTML.text() =~ "Every weekday"
+      # How to ask for one is the page's help, not a line under each section.
+      assert Enum.empty?(LazyHTML.query(document, ".ask-hint"))
       assert Enum.empty?(LazyHTML.query(schedules, ".pagination, .result-count, .entity-row"))
 
       applies = LazyHTML.query(document, "#applies .entity-empty-title")
@@ -1332,7 +1335,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
              )
 
       assert has_element?(view, "#channel-environment-choice option[value='']", "No environment")
-      assert fact(html, "Code") == "Changes acme/api · reads acme/docs"
+      assert fact(html, "Code") == "acme/api, acme/docs · a task changes the one it needs"
       assert fact(html, "Emisar") == "Production approvals"
 
       view |> form("#channel-environment", environment: "staging") |> render_submit()
@@ -1350,7 +1353,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
              )
 
       assert has_element?(view, "#channel-environment-choice option[selected][value=staging]")
-      assert fact(render(view), "Code") == "Changes acme/api"
+      assert fact(render(view), "Code") == "acme/api"
       assert fact(render(view), "Emisar") == "None, so Ryker cannot act on running systems here"
 
       view |> form("#channel-environment", environment: "") |> render_submit()

@@ -11,6 +11,8 @@ defmodule Ryker.Evals.Policy do
 
   import Ecto.Query
 
+  require Logger
+
   alias Ryker.Repo
   alias Ryker.Settings.PolicyBinding
 
@@ -101,8 +103,15 @@ defmodule Ryker.Evals.Policy do
 
     if reused?, do: {:error, :model_eval_reuses_production_authority}, else: {:ok, authority}
   rescue
-    # An eval may run before any settings exist; that is isolation, not failure.
-    _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:ok, authority}
+    # Whether production authority is reused is unknown until the database
+    # answers, and unknown is a refusal: this fence once answered "isolated"
+    # exactly when the read failed.
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning(
+        "model eval authority check unavailable: #{inspect(error.__struct__)}: #{Exception.message(error)}"
+      )
+
+      {:error, :model_eval_authority_check_unavailable}
   end
 
   defp distinct(policies) do

@@ -2,8 +2,9 @@ defmodule Ryker.Settings.EnvironmentRepository do
   @moduledoc """
   One repository of an environment and its place in the order.
 
-  Position 0 is the repository work in the environment changes; every other
-  position is mounted read-only under the repository's own ref.
+  Position 0 is the default choice of the repository work changes. Every
+  session in the environment mounts all of its repositories: the one its work
+  changes as the working copy and each other one read-only under its own ref.
   """
   use Ecto.Schema
 

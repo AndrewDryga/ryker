@@ -36,9 +36,10 @@ defmodule Ryker.Admission do
     RoutingDigests
   }
 
-  alias Ryker.Ingress.{Inbox, Input, RecallText}
+  alias Ryker.Ingress.{Inbox, Input, RecallText, WorkProfile}
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
   alias Ryker.Repo
+  alias Ryker.Settings.Repository
 
   alias Ryker.State.{
     Behaviors,
@@ -141,6 +142,7 @@ defmodule Ryker.Admission do
         input: input,
         input_entry: entry,
         custom_instructions: Ryker.Instructions.snapshot(input.destination),
+        repository_choices: repository_choices(entry),
         routing_receipt: routing_receipt,
         slack_addressing: slack_addressing(entry),
         observations: Observations.context(entry, entry.repository_ref, "", 5),
@@ -156,6 +158,38 @@ defmodule Ryker.Admission do
       |> Prompt.fit()
     else
       {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  # The repositories a new episode chooses among: those of the frozen
+  # profile's environment when it has more than one, each with what the
+  # operator wrote about it so the model can tell which the event concerns.
+  # Frozen with the context, the list is what the receipt shows even after
+  # the environment changes.
+  defp repository_choices(%Entry{work_profile: %{} = document}) do
+    with {:ok, profile} <- WorkProfile.restore(document),
+         [_one, _another | _rest] = refs <- WorkProfile.repository_choices(profile) do
+      described =
+        Repo.all(
+          from(repository in Repository,
+            where: repository.ref in ^refs,
+            select: {repository.ref, repository.description, repository.display_name}
+          )
+        )
+        |> Map.new(fn {ref, description, display_name} -> {ref, description || display_name} end)
+
+      Enum.map(refs, &described_choice(&1, described))
+    else
+      _no_choice -> []
+    end
+  end
+
+  defp repository_choices(_entry), do: []
+
+  defp described_choice(ref, described) do
+    case Map.get(described, ref) do
+      nil -> %{"ref" => ref}
+      description -> %{"ref" => ref, "description" => description}
     end
   end
 
@@ -194,6 +228,7 @@ defmodule Ryker.Admission do
          :ok <- allowed_reaction(context.input, decision),
          {:ok, candidate} <- selected_candidate(context, decision.episode_ref),
          :ok <- allowed_relation(candidate, decision.relation),
+         :ok <- allowed_repository(context, decision),
          :ok <- allowed_repository_source(context, decision),
          :ok <- source_owner_selection(context, candidate, decision) do
       {:ok,
@@ -206,6 +241,33 @@ defmodule Ryker.Admission do
   end
 
   def validate(_context, _decision), do: {:error, {:admission_rejected, :context}}
+
+  # The repositories offered are route authority: a new episode on a route
+  # with several names one of them, and no other route may name any. The
+  # parser already keeps every other action from naming one.
+  defp allowed_repository(%Context{repository_choices: []}, %Decision{repository: nil}), do: :ok
+
+  defp allowed_repository(%Context{repository_choices: []}, _decision),
+    do: {:error, {:admission_rejected, :repository_not_available}}
+
+  defp allowed_repository(_context, %Decision{action: action, repository: nil})
+       when action != :start_episode,
+       do: :ok
+
+  defp allowed_repository(%Context{repository_choices: choices}, %Decision{repository: nil}),
+    do: {:error, {:admission_rejected, :repository_required, allowed: choice_refs(choices)}}
+
+  defp allowed_repository(%Context{repository_choices: choices}, %Decision{repository: chosen}) do
+    allowed = choice_refs(choices)
+
+    if chosen in allowed,
+      do: :ok,
+      else:
+        {:error,
+         {:admission_rejected, :repository_not_allowed, allowed: allowed, submitted: chosen}}
+  end
+
+  defp choice_refs(choices), do: Enum.map(choices, & &1["ref"])
 
   # Only a route whose repository the host already selected can carry a source.
   defp allowed_repository_source(_context, %Decision{repository_source: nil}), do: :ok

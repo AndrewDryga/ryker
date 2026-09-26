@@ -77,6 +77,11 @@ defmodule Ryker.Settings.Repository do
     ]
   end
 
-  defp scoped_reference?(binding, repository_ref),
-    do: binding.scope_kind == :repository and binding.scope_ref == repository_ref
+  defp scoped_reference?(%{scope_kind: :repository} = binding, repository_ref),
+    do: binding.scope_ref == repository_ref
+
+  defp scoped_reference?(%{scope_kind: :environment} = binding, repository_ref),
+    do: binding.repository_ref == repository_ref
+
+  defp scoped_reference?(_binding, _repository_ref), do: false
 end

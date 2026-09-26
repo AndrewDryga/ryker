@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     LearningActivity,
     LearningPage,
     MemoryFormat,
+    PageHelp,
     Pages
   }
 
@@ -217,10 +218,16 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
         )
 
       assert LazyHTML.text(forget) == "Forget"
-      assert Enum.empty?(LazyHTML.query(document, "form[method=post], table, details.page-help"))
 
-      assert LazyHTML.query(document, "p.ask-hint q") |> LazyHTML.text() ==
-               "Remember that pay-gw is the payments gateway."
+      # How to add a fact is the page's help, not a line under the list.
+      assert Enum.empty?(
+               LazyHTML.query(document, "form[method=post], table, .ask-hint, .page-help")
+             )
+
+      help = PageHelp.for_path("/memory")
+
+      assert Enum.map_join(help.sections, " ", &Enum.join(&1.paragraphs, " ")) =~
+               "“Remember that pay-gw is the payments gateway.”"
     end
 
     test "a global fact says it applies everywhere and what for, never its internal scope" do
@@ -304,8 +311,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
 
       none = facts(%{memories: [], reviews: [], memory_total: 0, q: ""})
       assert LazyHTML.text(none) =~ "No facts yet"
-      assert Enum.empty?(LazyHTML.query(none, "form.filter-toolbar, .memory-callout"))
-      assert LazyHTML.query(none, "p.ask-hint") |> LazyHTML.text() =~ "It saves the fact"
+      assert Enum.empty?(LazyHTML.query(none, "form.filter-toolbar, .memory-callout, .ask-hint"))
     end
 
     test "a stale fact is corrected in a labelled form that says what it is for" do

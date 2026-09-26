@@ -1,0 +1,24 @@
+# Operator assets copied into the release under share/ryker/. This is the one
+# list: mix.exs copies these into the release, scripts/check-elixir-release.sh
+# requires every one of them in the archive, and the Dockerfile must copy each
+# into the image build.
+README.md
+CHANGELOG.md
+LICENSE
+SECURITY.md
+compose.yml
+install.sh
+Dockerfile
+release-assets.txt
+deploy/compose/entrypoint.sh
+deploy/compose/coop/Box.Dockerfile
+deploy/compose/coop/Dockerfile
+deploy/compose/coop/entrypoint.sh
+deploy/nginx/ryker.conf
+docs/elixir-ingress-admission.md
+docs/elixir-platform-adapters.md
+docs/operations.md
+docs/releasing.md
+docs/slack-app.md
+docs/testing.md
+scripts/compose.sh

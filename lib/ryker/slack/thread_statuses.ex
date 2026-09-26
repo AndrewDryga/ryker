@@ -150,6 +150,65 @@ defmodule Ryker.Slack.ThreadStatuses do
     end
   end
 
+  @doc """
+  Stops writing one status until a person rearms it or a newer desired status
+  replaces it: Slack said the thread or channel is gone, or the write spent
+  every attempt it had.
+  """
+  @spec block(Ecto.UUID.t(), Ecto.UUID.t(), pos_integer(), term()) ::
+          {:ok, ThreadStatus.t()} | {:error, term()}
+  def block(id, lease_ref, generation, reason) do
+    mutate_claim(id, lease_ref, generation, fn status, _now ->
+      {code, detail} = describe_error(reason)
+
+      update!(status, %{
+        last_error_code: code,
+        last_error_detail: detail,
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil,
+        next_attempt_at: nil,
+        status: :blocked
+      })
+    end)
+  end
+
+  @doc """
+  Rearms one exact blocked status after operator inspection: the same desired
+  text is written again, at once, with a fresh attempt budget.
+  """
+  @spec rearm(Ecto.UUID.t()) :: {:ok, ThreadStatus.t()} | {:error, term()}
+  def rearm(id) do
+    with {:ok, id} <- uuid(id, :id) do
+      Repo.transaction(fn -> rearm_locked(id) end)
+      |> transaction_result()
+    end
+  end
+
+  defp rearm_locked(id) do
+    case Repo.one(from(status in ThreadStatus, where: status.id == ^id, lock: "FOR UPDATE")) do
+      nil ->
+        Repo.rollback(:slack_thread_status_not_found)
+
+      %ThreadStatus{status: :blocked} = status ->
+        update!(status, %{
+          attempt_count: 0,
+          last_error_code: nil,
+          last_error_detail: nil,
+          lease_expires_at: nil,
+          lease_owner: nil,
+          lease_ref: nil,
+          next_attempt_at: nil,
+          status: :pending
+        })
+
+      %ThreadStatus{} ->
+        Repo.rollback(:slack_thread_status_not_blocked)
+    end
+  end
+
+  # A new generation is a new write with its own attempt budget, whether the
+  # last one was delivered, is still pending or was blocked.
   defp reconcile_existing!(status, target, now, minimum_interval_ms, refresh_interval_ms) do
     changed =
       status.phase != target.phase or status.desired_text != target.status or
@@ -159,6 +218,7 @@ defmodule Ryker.Slack.ThreadStatuses do
 
     if changed or refresh do
       update!(status, %{
+        attempt_count: 0,
         desired_text: target.status,
         origin_kind: target[:origin_kind],
         origin_id: target[:origin_id],

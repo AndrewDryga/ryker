@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
   """
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{Components, HTML, Pages}
+  alias Ryker.ControlPlane.{Components, HTML, PageHelp, Pages}
 
   @pages [
     {"/rules", "Rules"},
@@ -98,13 +98,16 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
     end
   end
 
-  test "Schedules and Follow-ups say in one line how each comes to exist, not in a help disclosure" do
-    for {path, description, hint} <- [
+  test "Schedules and Follow-ups say how each comes to exist in the page's help, not under the list" do
+    # Until 2026-09-25 each list ended in a line of small print on how to ask
+    # for one. Andrew wanted that taught at more length, out of the way of
+    # the list: it is the "How this page works" panel the shell renders now.
+    for {path, description, example} <- [
           {"/schedules", "Tasks Ryker runs at a set time, once or on repeat.",
-           "To add a schedule, tell Ryker where the results should go: Every Monday at 09:00 Berlin time, summarize unresolved incidents in this channel."},
+           "“Every Monday at 09:00 Berlin time, summarize unresolved incidents in this channel.”"},
           {"/follow-ups",
            "Work Ryker paused and will pick up again at a set time or when something happens.",
-           "Ryker adds follow-ups on its own when work has to wait. You can also ask: Check again tomorrow morning."}
+           "“Check again tomorrow morning.”"}
         ] do
       page = Pages.page(String.split(path, "/", trim: true), %{}, options())
       document = HTML.page(page.title, page.description, page.body) |> LazyHTML.from_document()
@@ -112,8 +115,10 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
       assert LazyHTML.query(document, "main header.page-header p.page-description")
              |> LazyHTML.text() == description
 
-      assert LazyHTML.query(document, "main p.ask-hint") |> LazyHTML.text() == hint
-      assert Enum.empty?(LazyHTML.query(document, "main details.page-help")), path
+      assert Enum.empty?(LazyHTML.query(document, "main .ask-hint, main .page-help")), path
+
+      help = PageHelp.for_path(path)
+      assert Enum.map_join(help.sections, " ", &Enum.join(&1.paragraphs, " ")) =~ example
     end
   end
 

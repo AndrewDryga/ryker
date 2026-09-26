@@ -50,7 +50,7 @@ defmodule Ryker.Admission.OccurrenceClaimTest do
         occurred_at: @now,
         revision: 1,
         thread_ref: nil,
-        workspace_ref: "TROUTE"
+        workspace_ref: "TOCCURRENCE"
       })
 
     assert Occurrences.for_input(input) == []
@@ -167,7 +167,7 @@ defmodule Ryker.Admission.OccurrenceClaimTest do
           }
         },
         destination: %{
-          conversation_ref: "slack:TROUTE:CDEPLOYS",
+          conversation_ref: "slack:TOCCURRENCE:CDEPLOYS",
           thread_ref: nil,
           transport: "slack"
         },

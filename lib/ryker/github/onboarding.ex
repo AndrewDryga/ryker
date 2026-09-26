@@ -8,6 +8,8 @@ defmodule Ryker.GitHub.Onboarding do
   anything new.
   """
 
+  require Logger
+
   alias Ryker.{BundledCoop, Settings}
 
   @actor "github:onboarding"
@@ -136,13 +138,21 @@ defmodule Ryker.GitHub.Onboarding do
     end
   end
 
+  # A block that cannot be saved leaves the repository in the phase it was in,
+  # where the worker takes it up again. That used to be swallowed whole, so a
+  # repository read "cloning" forever and the log said nothing.
   defp block(ref, reason) do
-    transition(ref, %{
-      onboarding_error: failure(reason),
-      onboarding_state: :blocked
-    })
+    case transition(ref, %{onboarding_error: failure(reason), onboarding_state: :blocked}) do
+      :ok -> :ok
+      {:error, error} -> unblocked(ref, inspect(error))
+    end
   rescue
-    _error -> :ok
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      unblocked(ref, inspect(error.__struct__))
+  end
+
+  defp unblocked(ref, cause) do
+    Logger.warning("repository #{ref} setup stopped but could not be marked blocked: #{cause}")
   end
 
   defp failure(:repository_binding_missing), do: "GitHub binding is missing."

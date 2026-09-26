@@ -2,11 +2,12 @@ defmodule Ryker.ControlPlane.SettingsRows do
   @moduledoc """
   How one saved row of a settings collection reads in a list: a name, its
   state, what it does and one line of facts. Identifiers a person needs only
-  for support, such as a pinned policy version, go under a closed Details
-  disclosure instead of the facts line.
+  for support, such as a worker's name for a policy and its pinned version,
+  go under a closed Details disclosure instead of the facts line.
   """
 
-  alias Ryker.ControlPlane.{ExecutionTarget, SettingsSections, SlackNames}
+  alias Ryker.BundledCoop
+  alias Ryker.ControlPlane.{Environments, ExecutionTarget, SettingsSections, SlackNames}
 
   @type row :: %{
           name: String.t(),
@@ -41,6 +42,8 @@ defmodule Ryker.ControlPlane.SettingsRows do
     })
   end
 
+  # The kind of work, then where it applies, what it may do and who offers
+  # it, in words; the worker's own name for the policy is support detail.
   def present(%{key: :policies} = section, binding, view) do
     status = row_status(section, binding, view)
     {state, text} = policy_state(status.tone, binding)
@@ -51,12 +54,13 @@ defmodule Ryker.ControlPlane.SettingsRows do
       text: text,
       meta: [
         policy_scope(view, binding),
-        "Policy #{binding.policy_name}",
+        allows(binding),
         offered(view, binding)
       ],
       details:
         Enum.reject(
           [
+            {"Worker policy", binding.policy_name},
             {"Pinned version", binding.policy_digest},
             {"Authority", binding.authority_digest},
             {"Confirmed by",
@@ -182,14 +186,29 @@ defmodule Ryker.ControlPlane.SettingsRows do
   defp runs_in(view, ref), do: "Runs in " <> named(view.snapshot.environments, ref)
 
   # A policy applies everywhere, to one repository or to one environment; the
-  # kind of scope says which list its ref names.
+  # kind of scope says which list its ref names. An environment binds each
+  # kind of work once per repository, since its work may change any of them,
+  # so the row names that repository too.
   defp policy_scope(_view, %{scope_kind: :installation}), do: "Everywhere"
 
   defp policy_scope(view, %{scope_kind: :repository, scope_ref: ref}),
-    do: "Repository " <> named(view.snapshot.repositories, ref)
+    do: "Only in " <> Environments.repository_name(view.snapshot, ref)
 
-  defp policy_scope(view, %{scope_kind: :environment, scope_ref: ref}),
-    do: "Environment " <> named(view.snapshot.environments, ref)
+  defp policy_scope(view, %{scope_kind: :environment, scope_ref: ref, repository_ref: repository}),
+       do:
+         "Only in #{Environments.repository_name(view.snapshot, repository)} in the " <>
+           "#{named(view.snapshot.environments, ref)} environment"
+
+  # What a policy lets its work do, when that is known. A task changes code,
+  # and the host refuses to start one on a session that cannot, so a task's
+  # policy can whoever wrote it. The bundled worker writes every other policy
+  # read-only. A worker someone runs themselves advertises no more than a
+  # policy's name and digests, so for its other policies the row says nothing.
+  defp allows(%{purpose: :contributor}), do: "Can change code"
+
+  defp allows(%{policy_name: name}) do
+    if BundledCoop.distribution?() and BundledCoop.policy?(name), do: "Read only"
+  end
 
   defp named(items, ref) do
     case Enum.find(items, &(&1.ref == ref)) do

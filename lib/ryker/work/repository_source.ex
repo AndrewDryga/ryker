@@ -67,7 +67,8 @@ defmodule Ryker.Work.RepositorySource do
   def parse_optional(nil), do: {:ok, nil}
   def parse_optional(value), do: parse(value)
 
-  @doc "The single remote ref a selector derives, or `nil` when it names no ref."
+  # The single remote ref a selector derives, or `nil` when it names no ref.
+  @doc false
   @spec derived_ref(request()) :: String.t() | nil
   def derived_ref(%{"kind" => "branch", "name" => name}), do: "refs/heads/" <> name
   def derived_ref(%{"kind" => "pull_request", "number" => number}), do: "refs/pull/#{number}/head"
@@ -94,17 +95,16 @@ defmodule Ryker.Work.RepositorySource do
   def describe(%{"kind" => "pull_request", "number" => number}), do: "pull request ##{number}"
   def describe(%{"kind" => "commit", "sha" => sha}), do: "commit #{sha}"
 
-  @doc """
-  Validates the version-1 immutable binding Coop resolved and journaled.
-
-  Every field is checked against the request it claims to answer: the derived
-  ref, the pinned default and selected commits, the comparison base, the
-  admitted tree, the remote identity, and the resolution time. A trusted
-  expected pull-request head that disagrees with the resolved head fails closed.
-
-  `admitted_tree` is required: every binding Coop resolves under this contract
-  records the tree it admitted.
-  """
+  # Validates the version-1 immutable binding Coop resolved and journaled.
+  #
+  # Every field is checked against the request it claims to answer: the derived
+  # ref, the pinned default and selected commits, the comparison base, the
+  # admitted tree, the remote identity, and the resolution time. A trusted
+  # expected pull-request head that disagrees with the resolved head fails
+  # closed. `admitted_tree` is required: every binding Coop resolves under this
+  # contract records the tree it admitted. Bindings arrive through `parse/1`;
+  # tests parse one directly to check the contract.
+  @doc false
   @spec parse_binding(term()) :: {:ok, binding()} | {:error, term()}
   def parse_binding(%{} = value) do
     with :ok <- exact_binding_fields(value),

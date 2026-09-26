@@ -524,18 +524,35 @@ without production environment, credentials, network mutation tools, or project 
   policy; these names make the frozen model context truthful but confer no authority; and
 - optional bounded polling and receive timeouts.
 
-The Work profile an adapter freezes at ingress comes from an **environment**: the repository work
-in it changes (its first repository), the repositories mounted read-only beside it, its parallel goal
-limit and its optional Emisar account. A session pinned from the profile derives its
-`repository_context` from exactly those fields and records the `environment_ref` it ran in; history
-outlives the settings row, so neither is a foreign key. A Slack channel's work runs in the
-environment the channel chose, or in none; Chat and every conversation without its own choice run in
-the default environment; a webhook source names its own; an incident room keeps the environment of
-the conversation it was opened from; GitHub events for a repository run in the environment whose
-first repository it is, else the first (by ref) that contains it, else on the repository alone. A
-confirmed task changes the repository it names, so it runs where that repository takes changes:
-Chat's own environment when that is its repository, else the first environment (by ref) whose work
-changes it. There are no repository groups and no per-purpose Emisar routes.
+The Work profile an adapter freezes at ingress comes from an **environment** and describes all of
+it: `environment_ref`, its `repositories` in order (the first is the default choice), each
+repository's three class policies (`policies`), its `parallel_goal_limit` and its optional
+`emisar_connection_ref`. Which repository a piece of work changes is chosen per task, from the
+environment's repositories: the routing decision names it on `start_episode` (see
+[elixir-ingress-admission.md](elixir-ingress-admission.md)), a proposed task names it in
+`request_task.repository`, a schedule keeps the one its confirmed offer named, and `reply` and
+`continue_episode` keep whatever their work already pinned. `WorkProfile.policy_for(profile, class,
+repository_ref)` returns that repository's policy for the class with the session's
+`repository_context`: the chosen repository as the working copy and every other repository of the
+environment mounted read-only beside it, so every session in an environment sees all of its
+repositories. A session records the `environment_ref` it ran in; history outlives the settings row,
+so neither is a foreign key. Work outside any environment keeps its single-repository or bare shape.
+
+A Slack channel's work runs in the environment the channel chose, or in none; each Chat conversation
+runs in the environment chosen for it (the default environment when it starts, "No environment", or
+another chosen while it is open, for the messages that follow), and outside any environment while
+its environment cannot run work; a webhook source names its own; an incident room keeps the
+environment of the conversation it was opened from; GitHub events for a repository run in the
+environment whose default repository it is, else the first (by ref) that holds it, else on the
+repository alone, with that repository as the default choice. A confirmed task changes the
+repository it names, under its environment's policy for that repository: the conversation's own
+environment when that holds it, else the first environment (by ref) that does. The bundled Coop
+distribution writes one policy set per repository of a shared environment,
+`ryker-env-<environment>-<repository>-<suffix>`, each declaring that repository as its checkout and
+the others as companions; an environment of one repository runs on that repository's
+`ryker-repo-<repository>-<suffix>` policies. Policy bindings of scope `environment` carry the
+`repository_ref` they are for. GitHub tools accept any repository of the session's environment. There
+are no repository groups and no per-purpose Emisar routes.
 
 The Work runtime does not contain a model router. The adapter freezes a three-class Work profile at
 ingress, admission selects one abstract class, and Coop resolves the selected policy to its immutable

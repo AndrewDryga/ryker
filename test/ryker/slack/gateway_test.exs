@@ -678,86 +678,27 @@ defmodule Ryker.Slack.GatewayTest do
              {:ack, {:ignored, :unsupported_interaction}}
   end
 
-  # Cards posted before the 2026-09-13 rename to Ryker stay in Slack history
-  # with pre-rename action ids that no current control carries. A click on one
-  # must be neither decoded as a control nor dropped as "unsupported": the
-  # operator is told the card is retired, and the exact retired id lands in the
-  # audit ledger, so a click that did nothing is never a mystery.
-  test "a control on a card posted before the rename is answered as retired and audited" do
-    audit = fn interaction, outcome ->
-      send(self(), {:audited_interaction, interaction.action_id, interaction.event_ref, outcome})
-      {:ok, %{status: :recorded}}
-    end
-
-    settings =
-      settings()
-      |> Map.put(:interaction_handler, InteractionHandler)
-      |> Map.put(:interaction_options, %{observer: self(), result: {:ok, %{outcome: :confirmed}}})
-      |> Map.put(:interaction_audit, audit)
-
-    retired =
-      interaction_envelope("env-retired")
-      |> put_in(["payload", "actions", Access.at(0), "action_id"], "responder_confirm_memory")
-      |> put_in(["payload", "actions", Access.at(0), "value"], "memory:abc")
-
-    assert {:ack, {:interaction, :retired}, payload} = Gateway.handle_envelope(retired, settings)
-
-    assert payload == %{
-             "response_type" => "ephemeral",
-             "text" =>
-               "This card predates the rename to Ryker and can no longer be acted on; ask again in the thread."
-           }
-
-    assert_received {:audited_interaction, "responder_confirm_memory", "interaction:env-retired",
-                     :retired}
-
-    refute_received {:handled_interaction, _interaction}
-
-    unavailable =
-      Map.put(settings, :interaction_audit, fn _interaction, _outcome ->
-        {:error, :database_unavailable}
-      end)
-
-    assert Gateway.handle_envelope(retired, unavailable) == {:retry, :database_unavailable}
-  end
-
-  test "a retired App Home control is acknowledged explicitly and the view is left to republish" do
-    retired =
-      interaction_envelope("env-retired-home")
-      |> put_in(["payload", "actions", Access.at(0), "action_id"], "responder_home_open")
-      |> put_in(["payload", "actions", Access.at(0), "value"], "schedule:abc")
-      |> put_in(["payload", "container"], %{"type" => "view", "view_id" => "V1"})
-
-    assert Gateway.handle_envelope(retired, settings()) == {:ack, {:app_home_control, :retired}}
-  end
-
-  test "the pre-rename slash command is answered with the current one instead of silence" do
+  test "a slash command the app does not own is acknowledged without reaching the handler" do
     settings =
       settings()
       |> Map.put(:command_handler, CommandHandler)
       |> Map.put(:command_options, %{observer: self(), result: {:ok, %{}}})
 
-    envelope = put_in(command_envelope(), ["payload", "command"], "/responder")
+    envelope = put_in(command_envelope(), ["payload", "command"], "/foreign")
 
     assert Gateway.handle_envelope(envelope, settings) ==
-             {:ack, {:command, :retired},
-              %{
-                "response_type" => "ephemeral",
-                "text" => "This app is now Ryker and its command is /ryker; use that instead."
-              }}
+             {:ack, {:ignored, :unsupported_command}}
 
     refute_received {:handled_command, _command}
   end
 
-  test "a shortcut still registered under the pre-rename callback id is acknowledged as retired" do
+  test "a shortcut under a callback id the app does not own is acknowledged as unsupported" do
     envelope =
-      put_in(
-        shortcut_envelope("env-retired-shortcut"),
-        ["payload", "callback_id"],
-        "responder_investigate_message"
-      )
+      put_in(shortcut_envelope("env-foreign-shortcut"), ["payload", "callback_id"], "foreign")
 
-    assert Gateway.handle_envelope(envelope, settings()) == {:ack, {:ignored, :retired_shortcut}}
+    assert Gateway.handle_envelope(envelope, settings()) ==
+             {:ack, {:ignored, :unsupported_interaction}}
+
     refute_received {:handled_interaction, _interaction}
   end
 

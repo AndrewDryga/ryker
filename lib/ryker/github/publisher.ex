@@ -74,6 +74,8 @@ defmodule Ryker.GitHub.Publisher do
   def publish_reaction(_request, _binding),
     do: {:error, {:invalid_github_delivery, :reaction}}
 
+  # Tests find a delivered comment by the marker its delivery reference produces.
+  @doc false
   @spec marker(String.t()) :: String.t()
   def marker(delivery_ref) when is_binary(delivery_ref) do
     digest = :crypto.hash(:sha256, delivery_ref) |> Base.encode16(case: :lower)

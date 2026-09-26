@@ -17,14 +17,7 @@ defmodule Ryker.State.LearningSources do
 
   @maximum_sources 10_000
   @maximum_bytes 8 * 1_024 * 1_024
-  # Host-authored system inputs recorded before the 2026-09-13 rename carry the
-  # retained source ref; the classifier sorts them exactly like today's `ryker`.
-  @system_source_refs [
-    "ryker",
-    Ryker.Retained.system_source_ref(),
-    "emisar",
-    "publication-lifecycle"
-  ]
+  @system_source_refs ["ryker", "emisar", "publication-lifecycle"]
   @receipt_fields ~w(observation_id source_input_id revision fingerprint transport workspace_ref conversation_ref repository_ref visibility retained_at)
   @utc_timestamp_pattern ~S/\A[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])[T ]([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.,][0-9]+)?(Z|[+]00(:?00)?|-00(00)?)\Z/
 

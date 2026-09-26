@@ -8,6 +8,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const {createCaptureDirectory} = require('./visual-artifacts.cjs');
+const {liveRoutes} = require('./visual-routes.cjs');
 
 const origin = new URL(process.argv[2] || 'http://127.0.0.1:4321');
 assert(['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname), 'Loopback only');
@@ -17,32 +18,23 @@ let output = path.resolve(process.argv[3]);
 const repository = path.resolve(__dirname, '..');
 assert(output !== repository && !output.startsWith(repository + path.sep), 'Do not commit organization screenshots');
 const filtersOnly = process.argv.includes('--filters');
-const routes = filtersOnly ? [['activity-root', '/'], ['episodes', '/activity?state=complete']] : [
-  ['activity-root', '/'], ['conversations', '/conversations'], ['lab-retired', '/lab'], ['activity', '/activity'],
-  ['incident-rooms', '/incident-rooms'], ['failures', '/failures'], ['usage', '/usage'],
-  ['schedules', '/schedules'], ['subscriptions', '/subscriptions'],
-  ['rules', '/rules'], ['preferences', '/preferences'], ['guidance', '/guidance'], ['instructions', '/instructions'],
-  ['memory', '/memory'], ['decisions', '/decisions'], ['findings', '/findings'],
-  ['calibration', '/calibration'], ['configuration', '/configuration'],
-  ['channels', '/channels'], ['repositories', '/repositories'], ['workspaces', '/workspaces'],
-  ['setup', '/setup'], ['integrations', '/integrations'], ['integrations-slack', '/integrations/slack'],
-  ['integrations-github', '/integrations/github'], ['integrations-emisar', '/integrations/emisar'],
-  ['integrations-webhooks', '/integrations/webhooks'], ['settings-models', '/settings/models'],
-  ['settings-retention', '/settings/retention'], ['settings-prices', '/settings/prices'],
-  ['settings-advanced', '/settings/advanced'],
-  ['journeys', '/manual-tests'], ['card-lab', '/card-lab'],
-  ['card-lab-state', '/card-lab/task-card/working'], ['missing-episode', '/timeline/missing']
+const routeName = route => route === '/' ? 'activity-root' : route.slice(1).replace(/\//g, '-');
+// Every live route the router declares, read from lib/ryker/control_plane/web_router.ex
+// so this list cannot drift from the product; detail routes are discovered from real rows.
+const livePages = liveRoutes().map(route => [routeName(route), route]);
+// Pages removed as clean cuts. They must answer 404 without a redirect and never
+// return to navigation.
+const removedRoutes = [
+  '/audit', '/calibration', '/card-lab', '/card-lab/task-card/working', '/configuration', '/decisions',
+  '/findings', '/guidance', '/lab', '/manual-tests', '/preferences', '/subscriptions', '/workspaces'
 ];
-// Pages removed as clean cuts. They must answer 404 without a redirect.
-const removedPages = ['decisions', 'calibration', 'configuration', 'journeys', 'card-lab', 'card-lab-state', 'lab-retired'];
-const sharedPageGutterPages = new Set([
-  'activity-root', 'activity', 'incident-rooms', 'failures', 'usage', 'schedules',
-  'subscriptions', 'rules', 'preferences', 'guidance', 'instructions', 'memory',
-  'findings', 'channels', 'repositories', 'workspaces', 'setup', 'integrations',
-  'integrations-slack', 'integrations-github', 'integrations-emisar',
-  'integrations-webhooks', 'settings-models', 'settings-retention',
-  'settings-prices', 'settings-advanced'
-]);
+const removedPages = removedRoutes.map(routeName);
+const removedNavigation = [...removedRoutes.map(route => `a[href="${route}"]`), 'a[href^="/card-lab"]'].join(', ');
+const routes = filtersOnly ? [['activity-root', '/'], ['episodes', '/activity?state=complete']] : [
+  ...livePages, ['missing-episode', '/timeline/missing'], ...removedRoutes.map(route => [routeName(route), route])
+];
+// Every live page but the conversation workspace shares the page-title gutter.
+const sharedPageGutterPages = new Set(livePages.map(([name]) => name).filter(name => name !== 'conversations'));
 
 async function connected(page) {
   await page.locator('[data-connection-state="connected"]').waitFor({timeout: 5000});
@@ -234,7 +226,7 @@ async function discover(page) {
               transcriptBottom: document.querySelector('.lab-transcript')?.getBoundingClientRect().bottom
             }));
             assert.equal(result.status, 200);
-            assert.equal(await page.locator('a[href="/audit"]').count(), 0, 'The removed Audit page must not return to navigation');
+            assert.equal(await page.locator(removedNavigation).count(), 0, 'Removed pages must not return to navigation');
             assert.equal(await page.locator('a[href^="/actions/"]').count(), 0, 'Operator actions must be native buttons, not navigation links');
             for (const label of await page.locator('form[action^="/actions/"] button').allTextContents()) {
               assert(!/(?:…|\.\.\.)$/.test(label.trim()), 'Action labels must not end in ellipses');
@@ -245,7 +237,6 @@ async function discover(page) {
             await checkKeyboardFocus(page);
             if (/^(setup|integrations|settings)/.test(name)) await checkSettingsPage(page, name);
             if (name === 'activity-root' || name === 'activity') await checkFilterToolbar(page, width);
-            assert.equal(await page.locator('a[href^="/card-lab"], a[href="/manual-tests"]').count(), 0, 'Retired testing pages must not return to navigation');
             assert.equal(await page.locator('.nav-caption', {hasText: 'Testing'}).count(), 0, 'The Testing navigation group was removed');
             if (name === 'conversation' && width <= 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
             if (name === 'conversation' && width > 800) {
@@ -254,7 +245,7 @@ async function discover(page) {
               const draft = report.captures.find(capture => capture.name === 'conversations' && capture.width === width);
               assert(Math.abs(result.layout.composerBottom - draft?.layout?.composerBottom) < 1, 'The composer must not move between a new and an open conversation');
             }
-            if (['schedules', 'channels', 'repositories', 'workspaces'].includes(name)) {
+            if (['schedules', 'channels', 'repositories', 'working-copies'].includes(name)) {
               // One shell: the title once, then the page's own column with its comparison
               // table stacked into label/value rows on a phone instead of scrolling sideways.
               assert.equal(await page.locator('main h1').count(), 1, `${name}: the title renders once`);
@@ -264,9 +255,9 @@ async function discover(page) {
                 assert.equal(await cell.evaluate(e => getComputedStyle(e).display), width <= 760 ? 'grid' : 'table-cell', `${name}: table rows stack only on narrow screens`);
               }
             }
-            if (name === 'requests') {
+            if (name === 'activity-root' || name === 'activity') {
               const titles = await page.locator('.activity-title').allTextContents();
-              assert(titles.every(title => !/<@[UW][A-Z0-9]+>/.test(title)), 'Slack mentions must be readable in request titles');
+              assert(titles.every(title => !/<@[UW][A-Z0-9]+>/.test(title)), 'Slack mentions must be readable in activity titles');
             }
             assert.equal(errors.length, 0, 'Browser or CSP errors');
           }

@@ -20,7 +20,10 @@ defmodule Ryker.Episodes.Origins do
           transport: String.t()
         }
 
-  @doc "Derives the origin facts of one input document (the admitted command payload)."
+  # Derives the origin facts of one input document (the admitted command
+  # payload). Recording goes through `record_in_transaction/2`; tests call this
+  # directly to check how a root and a thread reply are told apart.
+  @doc false
   @spec from_input_document(map()) :: map()
   def from_input_document(%{"destination" => %{} = destination} = document) do
     source_kind = get_in(document, ["source", "kind"])
@@ -151,18 +154,6 @@ defmodule Ryker.Episodes.Origins do
       thread_ref: origin.thread_ref,
       transport: origin.transport
     }
-  end
-
-  @spec participating_conversations(Ecto.UUID.t()) :: [String.t()]
-  def participating_conversations(episode_id) do
-    Repo.all(
-      from(origin in Origin,
-        where: origin.episode_id == ^episode_id and origin.effective,
-        distinct: true,
-        order_by: [asc: origin.conversation_ref],
-        select: origin.conversation_ref
-      )
-    )
   end
 
   @doc "The effective owner of one exact source item, by highest admitted revision."

@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
   """
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.{Pages, SchedulesPage}
+  alias Ryker.ControlPlane.{PageHelp, Pages, SchedulesPage}
   alias Ryker.Fixtures.ControlPlaneOptions
 
   @now ~U[2026-09-24 10:00:00Z]
@@ -225,15 +225,16 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       assert LazyHTML.query(toolbar, "nav.segmented a[aria-current=page]") |> LazyHTML.text() ==
                "Past"
 
-      assert LazyHTML.query(document, "p.ask-hint") |> LazyHTML.text() =~
-               "To add a schedule, tell Ryker where the results should go:"
+      # How to ask for a schedule is the page's help now, not a line under
+      # the list. Every Monday, not every weekday: a schedule repeats on one
+      # day of the week, so the example is one Ryker can actually save.
+      assert Enum.empty?(LazyHTML.query(document, ".ask-hint, .page-help, table, select, h1"))
 
-      # Every Monday, not every weekday: a schedule repeats on one day of the
-      # week, so the example is one Ryker can actually save.
-      assert LazyHTML.query(document, "p.ask-hint q") |> LazyHTML.text() ==
-               "Every Monday at 09:00 Berlin time, summarize unresolved incidents in this channel."
+      help = PageHelp.for_path("/schedules")
+      text = Enum.map_join(help.sections, " ", &Enum.join(&1.paragraphs, " "))
 
-      assert Enum.empty?(LazyHTML.query(document, "details.page-help, table, select, h1"))
+      assert text =~
+               "“Every Monday at 09:00 Berlin time, summarize unresolved incidents in this channel.”"
     end
 
     test "an unknown view is the current list" do

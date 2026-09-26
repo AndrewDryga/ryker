@@ -46,8 +46,6 @@ defmodule Ryker.ControlPlane.Pages do
   # Every kind the failures page can list, because it links each row it lists
   # and a kind missing here answers 404 to its own link. Publications were
   # listed and unreachable in production for exactly that reason.
-  @failure_kinds ~w(admission delivery emisar publication retention slack_incident slack_interaction stopping work)
-
   @doc """
   The page at `segments`, the request path split as the browser sent it, for
   the decoded query `params`.
@@ -249,7 +247,7 @@ defmodule Ryker.ControlPlane.Pages do
   # One failure is read by its kind and reference, not found in the bounded
   # list, and titled by what stopped rather than a generic "Recovery".
   def page(["failures", kind, resource_ref], _params, options) do
-    with true <- kind in @failure_kinds,
+    with true <- kind in FailureProjection.kinds(),
          {:ok, resource_ref} <- PathRef.decode(resource_ref),
          {:ok, row} <- options.projection.failure.(kind, resource_ref) do
       explanation = FailureExplanation.explain(row)

@@ -26,8 +26,8 @@ It runs on one trusted host and:
   from agent prose;
 - creates one Slack channel and one pinned investigation card per incident occurrence;
 - creates one Coop session and isolated fork under a predeclared repository policy;
-- lets active full workspace members collaborate on contributor tasks for the repository assigned
-  to their channel, without projecting shared MCP tools or environment secrets;
+- lets active full workspace members collaborate on contributor tasks in their channel's
+  environment, without projecting shared MCP tools or environment secrets;
 - keeps operator-capability tasks, incident steering, publication, destructive controls, and
   governed operational actions restricted to configured operators;
 - parks between turns, resumes the same agent conversation, and survives process restarts;
@@ -97,8 +97,8 @@ in [`docs/testing.md`](docs/testing.md#manual-qualification).
 
 The Ryker container runs PostgreSQL migrations before opening listeners. See
 [`docs/elixir-platform-adapters.md`](docs/elixir-platform-adapters.md) for Slack/GitHub/webhook
-bindings, and [`docs/operations.md`](docs/operations.md) for backup, restart, rollback, and live
-acceptance.
+bindings, [`docs/operations.md`](docs/operations.md) for backup, restore and recovery, and
+[`docs/testing.md`](docs/testing.md#live-acceptance) for live acceptance.
 
 ## Webhooks
 
@@ -163,8 +163,8 @@ the publication control before Ryker can push the verified tree and create or up
 Inviting `@Emisar` to a new channel first offers safe one-click defaults: mentions only or
 proactive participation, the deployment repository, in-place app-alert replies, and no additional
 incident invitees. **Customize** starts a four-question setup conversation for participation,
-repository or repository-set context, app-alert escalation, and incident audience. A repository
-set gives one primary writable repository plus exact-commit read-only companion snapshots. The
+environment, app-alert escalation, and incident audience. An environment names the repositories
+work may read (a task changes one of them and reads the rest) and the Emisar account it may use. The
 final card shows the normalized typed values and safety boundary; nothing changes until a
 configured operator confirms it. Typed choices use Slack buttons. Configured operators are always
 invited to incident rooms;
@@ -386,13 +386,14 @@ not rename existing Slack channels.
 Only configured operator user IDs who are full members of the configured workspace can steer an
 incident agent, approve an incident offer, save durable behavior, schedule work, or request an
 operational mutation. Any active full workspace member can start and collaborate on an engineering
-task for the repository assigned to that channel. A configured operator must publish its reviewed
-tree as a draft PR, stop or close the task, or discard retained work. Watched-channel messages can produce only a
+task in the channel's environment. A configured operator must publish its reviewed tree as a draft
+PR, stop or close the task, or discard retained work. Watched-channel messages can produce only a
 host-validated ignore, reply, incident offer, or permitted incident decision; they cannot invoke
-incident controls or invent a repository or policy. Member engineering-task offers expose only the
-channel's configured repository; changing that boundary is an operator-owned channel setting.
-Infrastructure access remains constrained by the selected Coop and Emisar policies. Slack guests
-and external Slack Connect identities are denied. See
+incident controls or invent a repository, environment or policy. A member's engineering-task offer
+stays inside the channel's environment: the task changes one of its repositories, chosen for that
+task, and reads the others. Which environment a channel works in is an operator-owned channel
+setting. Infrastructure access remains constrained by the environment's Emisar account and the
+selected Coop policies. Slack guests and external Slack Connect identities are denied. See
 [`docs/slack-ux.md`](docs/slack-ux.md) for the complete interaction contract.
 
 ## Operations
@@ -461,13 +462,13 @@ retained. Deleting a Slack room does not itself discard work. See
 
 ## V1 scope
 
-V1 supports one Slack workspace and one repository context per incident. A context may be one
-repository or an explicit repository set: one primary writable/publishable repository and up to 32
-operator-configured read-only companion repositories pinned at session creation. Multiple routes
-can select different contexts and Coop policies. Ryker never accepts host paths from Slack or
-model output; the local Coop policy is their only authority. It can publish an explicitly
-authorized reviewed primary tree as a draft GitHub pull request, but cannot publish companion
-changes, merge, deploy from repository changes, or archive Slack channels.
+V1 supports one Slack workspace. Work happens in an **environment**: a set of repositories that
+every piece of work in it can read, and at most one Emisar account. Channels, webhook sources and
+Chat conversations each pick an environment; a task picks which repository of its environment it
+changes, and the others (at most 32) are mounted read-only beside it. Ryker never accepts host
+paths from Slack or model output; the local Coop policy is their only authority. It can publish an
+explicitly authorized reviewed tree as a draft GitHub pull request, but cannot publish changes to
+the read-only repositories, merge, deploy from repository changes, or archive Slack channels.
 Automatic and inferred operational changes remain disabled. In any Slack conversation, a
 configured operator may directly request one exact operational action. Emisar remains authoritative
 for target validation, policy, approval, execution, and audit; Slack only links to the exact pending
@@ -487,10 +488,15 @@ make dev-check
 scripts/deploy.sh
 ```
 
+`scripts/deploy.sh` deploys HEAD to the Docker Compose installation in this checkout: it refuses
+a dirty tree or a HEAD that is not `main`'s, backs the database up into `.ryker/backups/`, builds
+the image from a clean worktree of HEAD, replaces only the `ryker` container, waits for health,
+readiness and the exact version header, and only then pins the version in `.ryker/compose.env`.
+
 `make check` is the full gate, which CI runs on every push; run it locally before a tagged
 release. Use `make customer-check` for the Elixir product journeys and deterministic host replay.
-Use `make model-release-check` (with the `RYKER_EVAL_*` environment set) only when the
-model contract changes. Build and qualify the immutable Elixir release with:
+Use `make eval-world` (with the `RYKER_EVAL_*` environment set) only when the model contract
+changes. Build and inspect the immutable Elixir release archive with:
 
 ```bash
 make release-check

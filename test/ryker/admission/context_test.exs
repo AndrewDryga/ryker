@@ -632,6 +632,119 @@ defmodule Ryker.Admission.ContextTest do
              Context.restore(snapshot, context.input, context.input_entry, :not_an_episode_map)
   end
 
+  # A route in an environment with several repositories lists them for the
+  # router, each with what the operator wrote about it, so the model can name
+  # the one the event concerns; the list is frozen with the context, so the
+  # receipt shows exactly the choices the model had even after the environment
+  # changes. Before, the router never saw the repositories at all, and every
+  # episode in the environment changed its first one.
+  test "the router sees each repository of a shared environment with its description, frozen with the context" do
+    alias Ryker.Admission.Prompt
+    alias Ryker.Settings
+
+    {:ok, initialized} = Settings.initialize("control-plane:local")
+
+    {:ok, with_billing} =
+      Settings.put_repository(
+        %{ref: "billing", description: "Invoices and payment runs"},
+        initialized.installation.revision,
+        "control-plane:local"
+      )
+
+    {:ok, _with_ledger} =
+      Settings.put_repository(
+        %{ref: "ledger", display_name: "General ledger"},
+        with_billing.installation.revision,
+        "control-plane:local"
+      )
+
+    assert {:ok, %{entry: entry}} =
+             Inbox.record(input!([]),
+               work_profile: shared_environment_profile(["billing", "ledger", "runbooks"])
+             )
+
+    assert {:ok, context} = build_context(entry)
+
+    choices = [
+      %{"ref" => "billing", "description" => "Invoices and payment runs"},
+      %{"ref" => "ledger", "description" => "General ledger"},
+      %{"ref" => "runbooks"}
+    ]
+
+    assert context.repository_choices == choices
+    document = Context.for_model(context)
+    assert document["repository_choices"] == choices
+    assert Prompt.build(context)["instructions"] =~ "repository_choices"
+
+    snapshot = Context.snapshot(context)
+    assert snapshot["repository_choices"] == choices
+    assert {:ok, restored} = Context.restore(snapshot, context.input, entry, %{})
+    assert restored.repository_choices == choices
+    assert Context.for_model(restored) == document
+
+    # A snapshot frozen before the choice existed offered none.
+    assert {:ok, older} =
+             Context.restore(
+               Map.delete(snapshot, "repository_choices"),
+               context.input,
+               entry,
+               %{}
+             )
+
+    assert older.repository_choices == []
+    refute Map.has_key?(Context.for_model(older), "repository_choices")
+
+    for malformed <- [
+          %{},
+          ["billing"],
+          [%{"ref" => ""}, %{"ref" => "ledger"}],
+          [%{"ref" => "billing", "extra" => 1}, %{"ref" => "ledger"}],
+          [%{"ref" => "billing"}, %{"ref" => "billing"}],
+          [%{"ref" => "billing"}]
+        ] do
+      assert {:error, {:invalid_admission_context_snapshot, :repository_choices}} =
+               Context.restore(
+                 Map.put(snapshot, "repository_choices", malformed),
+                 context.input,
+                 entry,
+                 %{}
+               )
+    end
+
+    # One repository, or none, leaves nothing to choose.
+    assert {:ok, %{entry: single}} =
+             Inbox.record(input!(event_ref: "Ev-single", message_ref: "1787832000.000200"),
+               work_profile: shared_environment_profile(["billing"])
+             )
+
+    assert {:ok, context} = build_context(single)
+    assert context.repository_choices == []
+    refute Map.has_key?(Context.for_model(context), "repository_choices")
+    refute Prompt.build(context)["instructions"] =~ "repository_choices"
+  end
+
+  # Each repository's three class policies share one execution authority, as
+  # the Coop worker advertises them.
+  defp shared_environment_profile(repositories) do
+    %{
+      environment_ref: "platform",
+      parallel_goal_limit: 2,
+      policies:
+        Map.new(repositories, fn repository ->
+          {repository,
+           Map.new([:conversational, :standard, :deep], fn work_class ->
+             {work_class,
+              %{
+                authority_digest: String.duplicate("e", 64),
+                policy: "#{repository}-#{work_class}",
+                policy_digest: String.duplicate("b", 64)
+              }}
+           end)}
+        end),
+      repositories: repositories
+    }
+  end
+
   defp build_context(entry) do
     Admission.context(Inbox.ref(entry),
       now: @now,

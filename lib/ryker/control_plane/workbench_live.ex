@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     ChannelPage,
     Components,
     ConfigurationGuide,
+    ConversationLab,
     ConversationProjection,
     Endpoint,
     Environments,
@@ -21,6 +22,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     LabControls,
     LabPage,
     Navigation,
+    PageHelp,
     Pages,
     PathRef,
     RequestFilters,
@@ -115,6 +117,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        lab_window: nil,
        lab_draft_id: nil,
        lab_placeholder: nil,
+       lab_environment: nil,
+       lab_environments: [],
        readiness: nil
      )
      |> stream_configure(:activity, dom_id: &dom_id/1)
@@ -781,6 +785,31 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("filter-conversations", %{"q" => query}, socket),
     do: {:noreply, assign(socket, :lab_filter, String.slice(query, 0, 200))}
 
+  # A conversation's environment is its own choice, made in its head the way
+  # a channel's is made on its page: its messages from now on run there, and
+  # "" is no environment. A choice the conversation cannot take (the
+  # environment is gone) leaves the head saying what is true now.
+  def handle_event("select-conversation-environment", %{"environment" => environment}, socket)
+      when is_binary(environment) and socket.assigns.native == :lab and
+             is_map(socket.assigns.lab) do
+    conversation_id = socket.assigns.lab.conversation_id
+    choice = if environment == "", do: nil, else: environment
+
+    case ConversationLab.select_environment(conversation_id, choice) do
+      {:ok, environment_ref} ->
+        {:noreply, assign(socket, :lab_environment, environment_ref)}
+
+      {:error, _reason} ->
+        {:noreply,
+         assign(socket,
+           lab_environment: conversation_environment(conversation_id),
+           lab_environments: chat_environments()
+         )}
+    end
+  end
+
+  def handle_event("select-conversation-environment", _params, socket), do: {:noreply, socket}
+
   def handle_event("load-older", %{"conversation" => id, "before" => before}, socket)
       when is_binary(id) and is_binary(before) do
     case socket.assigns.lab_window do
@@ -1037,8 +1066,28 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         ),
       lab_token: token,
       lab_items: options.projection.lab_index.(),
+      lab_environment: conversation_environment(snapshot.conversation_id),
+      lab_environments: chat_environments(),
       readiness: options.projection.readiness.()
     )
+  end
+
+  # Chat's environment choices, from the settings; none before the settings
+  # exist, when the head says only where the conversation works.
+  defp chat_environments do
+    case Settings.fetch() do
+      {:ok, snapshot} -> LabPage.environment_choices(snapshot)
+      {:error, :settings_not_initialized} -> []
+    end
+  end
+
+  # The conversation's environment: chosen for it, recorded when it started,
+  # or the default for one that has not started yet.
+  defp conversation_environment(conversation_id) do
+    case ConversationLab.environment(conversation_id) do
+      {:ok, environment_ref} -> environment_ref
+      {:error, _reason} -> nil
+    end
   end
 
   defp settings_commands(options) do
@@ -1173,6 +1222,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     do: "That name cannot be used. Use lowercase letters, numbers, dots, dashes and colons."
 
   defp setup_error(:credential_value_invalid), do: "That secret is empty or too long."
+
+  defp setup_error(:credential_value_too_short),
+    do: "That secret is too short. Use at least 8 characters."
+
+  defp setup_error(:webhook_secret_too_short),
+    do: "A signing secret needs at least 32 characters. Leave it empty and Ryker creates one."
+
   defp setup_error(:connection_not_found), do: "That account no longer exists. Reload the page."
 
   defp setup_error(:environment_not_found),
@@ -1630,6 +1686,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           id="operator-page"
           class={if @native, do: "native-page", else: "page-surface"}
         >
+          <PageHelp.panel path={@path} />
           <section :if={@native == :loading && @unavailable} class="document-unavailable">
             <h1>This view is temporarily unavailable</h1><p>
               Retry the view. No content from a different page is shown here.
@@ -1665,6 +1722,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             announcement={@lab_announcement}
             placeholder={@lab_placeholder}
             readiness={@readiness}
+            environments={@lab_environments}
+            environment={@lab_environment}
             now={@observed_at || DateTime.utc_now()}
           />
           <SettingsPage.render

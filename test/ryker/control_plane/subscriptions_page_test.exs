@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
 
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Navigation, Pages, SubscriptionsPage}
+  alias Ryker.ControlPlane.{Navigation, PageHelp, Pages, SubscriptionsPage}
   alias Ryker.Fixtures.ControlPlaneOptions
 
   @now ~U[2026-09-10 10:00:00Z]
@@ -254,17 +254,16 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
     assert LazyHTML.query(toolbar, "nav.segmented a[aria-current=page]") |> LazyHTML.text() ==
              "Current"
 
-    hint = LazyHTML.query(document, "p.ask-hint")
-
-    assert LazyHTML.text(hint) =~
-             "Ryker adds follow-ups on its own when work has to wait. You can also ask:"
-
-    assert LazyHTML.query(hint, "q") |> LazyHTML.text() == "Check again tomorrow morning."
-
-    # Read-only: Ryker owns these, so the page offers no controls.
+    # Read-only: Ryker owns these, so the page offers no controls. How to ask
+    # for one is the page's help, not a line under the list.
     assert Enum.empty?(
-             LazyHTML.query(document, "details.page-help, select, form.action-control, table")
+             LazyHTML.query(document, ".ask-hint, .page-help, select, form.action-control, table")
            )
+
+    help = PageHelp.for_path("/follow-ups")
+    text = Enum.map_join(help.sections, " ", &Enum.join(&1.paragraphs, " "))
+    assert text =~ "Ryker adds follow-ups on its own when work has to wait."
+    assert text =~ "“Check again tomorrow morning.”"
   end
 
   test "an empty list says what would put a follow-up there, and a search miss says it missed" do

@@ -268,15 +268,12 @@ defmodule Ryker.State.Behaviors do
     end
   end
 
-  @spec effective_preferences(map()) :: %{String.t() => map()}
-  def effective_preferences(context) when is_map(context) do
+  defp effective_preferences(context) do
     case retrieval_context(context) do
       {:ok, context} -> preference_context(context)
       {:error, _reason} -> %{}
     end
   end
-
-  def effective_preferences(_context), do: %{}
 
   defp preference_context(context) do
     active_for_context(:preference, context)

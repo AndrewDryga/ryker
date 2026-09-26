@@ -44,7 +44,7 @@ defmodule Ryker.Slack.ChannelSettings do
     with {:ok, attributes} <- attributes(attributes),
          :ok <- validate(attributes),
          {:ok, default} <- default_participation(default_participation, attributes.workspace_ref) do
-      Repo.transaction(fn -> change_locked(attributes, default) end) |> transaction_result()
+      Settings.atomically(fn -> {:ok, change_locked(attributes, default)} end)
     end
   end
 
@@ -279,7 +279,4 @@ defmodule Ryker.Slack.ChannelSettings do
        do: :ok,
        else: {:error, {:invalid_channel_setting, field}}
   end
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

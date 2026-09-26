@@ -22,6 +22,7 @@ defmodule Ryker.Slack.TaskCardChangeset do
     :next_attempt_at,
     :record_id,
     :ref,
+    :status,
     :thread_ref,
     :workspace_ref
   ]
@@ -36,7 +37,8 @@ defmodule Ryker.Slack.TaskCardChangeset do
                        :lease_expires_at,
                        :lease_owner,
                        :lease_ref,
-                       :next_attempt_at
+                       :next_attempt_at,
+                       :status
                      ]
 
   def insert(attributes) do
@@ -68,5 +70,6 @@ defmodule Ryker.Slack.TaskCardChangeset do
     |> foreign_key_constraint(:record_id)
     |> foreign_key_constraint(:episode_id)
     |> check_constraint(:ref, name: :slack_task_card_valid)
+    |> check_constraint(:status, name: :slack_task_card_status_valid)
   end
 end

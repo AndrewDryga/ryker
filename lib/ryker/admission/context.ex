@@ -28,6 +28,7 @@ defmodule Ryker.Admission.Context do
                 context_manifest: nil,
                 routing_receipt: nil,
                 continuation_window: nil,
+                repository_choices: [],
                 fitted?: false
               ]
 
@@ -56,6 +57,7 @@ defmodule Ryker.Admission.Context do
     |> put_knowledge(context.knowledge)
     |> put_slack_addressing(context.slack_addressing)
     |> put_model_custom_instructions(context.custom_instructions)
+    |> put_repository_choices(context.repository_choices)
     |> put_repository_source_kinds(context.input_entry.repository_ref)
   end
 
@@ -173,6 +175,7 @@ defmodule Ryker.Admission.Context do
     |> put_knowledge(context.knowledge)
     |> put_slack_addressing(context.slack_addressing)
     |> put_custom_instructions(context.custom_instructions)
+    |> put_repository_choices(context.repository_choices)
   end
 
   @doc false
@@ -208,13 +211,15 @@ defmodule Ryker.Admission.Context do
                    "source_dependencies",
                    "knowledge_omissions",
                    "slack_addressing",
-                   "custom_instructions"
+                   "custom_instructions",
+                   "repository_choices"
                  ])
                )
              ) ==
                Enum.sort(fields),
          {:ok, slack_addressing} <- restore_slack_addressing(snapshot, input),
          {:ok, custom_instructions} <- restore_custom_instructions(snapshot, input),
+         {:ok, repository_choices} <- restore_repository_choices(snapshot),
          observations when is_list(observations) <-
            Map.get(snapshot, "conversation_observations", []),
          true <- length(observations) <= 5,
@@ -248,6 +253,7 @@ defmodule Ryker.Admission.Context do
          observations: observations,
          knowledge: knowledge,
          knowledge_omissions: omissions,
+         repository_choices: repository_choices,
          source_dependencies: snapshot["source_dependencies"]
        }}
     else
@@ -258,6 +264,45 @@ defmodule Ryker.Admission.Context do
 
   def restore(_snapshot, _input, _entry, _episodes),
     do: {:error, {:invalid_admission_context_snapshot, :document}}
+
+  # The repositories a new episode chooses among, each by ref with what the
+  # operator wrote about it, frozen so the receipt shows the exact choices
+  # the model had. A context frozen before the choice existed offered none;
+  # a present list is a choice only with two or more distinct repositories.
+  @maximum_repository_choices 33
+  defp restore_repository_choices(snapshot) do
+    case Map.fetch(snapshot, "repository_choices") do
+      :error ->
+        {:ok, []}
+
+      {:ok, choices}
+      when is_list(choices) and length(choices) in 2..@maximum_repository_choices ->
+        refs = Enum.map(choices, &choice_ref/1)
+
+        if Enum.all?(choices, &repository_choice?/1) and Enum.uniq(refs) == refs,
+          do: {:ok, choices},
+          else: {:error, {:invalid_admission_context_snapshot, :repository_choices}}
+
+      {:ok, _invalid} ->
+        {:error, {:invalid_admission_context_snapshot, :repository_choices}}
+    end
+  end
+
+  defp choice_ref(%{"ref" => ref}), do: ref
+  defp choice_ref(_choice), do: nil
+
+  defp repository_choice?(%{"ref" => ref} = choice) when is_binary(ref) do
+    String.trim(ref) != "" and byte_size(ref) <= 1_024 and
+      Map.keys(choice) -- ["description", "ref"] == [] and
+      (not Map.has_key?(choice, "description") or is_binary(choice["description"]))
+  end
+
+  defp repository_choice?(_choice), do: false
+
+  defp put_repository_choices(document, []), do: document
+
+  defp put_repository_choices(document, choices),
+    do: Map.put(document, "repository_choices", choices)
 
   defp valid_window?(nil), do: true
   defp valid_window?(seconds), do: is_integer(seconds) and seconds > 0

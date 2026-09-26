@@ -442,7 +442,8 @@ defmodule Ryker.ControlPlane.UsagePage do
             "</td></tr>"
           ]
         end),
-        "</tbody></table></div><p>USD per million tokens. API-equivalent rates, not subscription charges.</p>",
+        "</tbody></table></div><p class=\"usage-rates-note\">USD per million tokens. API-equivalent rates, not subscription charges. ",
+        "<a href=\"/settings/prices\">Change these in Settings › Model prices</a></p>",
         "</details>"
       ]
     end

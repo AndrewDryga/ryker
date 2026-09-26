@@ -73,12 +73,7 @@ defmodule Ryker.ControlPlane.UpdatesTest do
       "platform_actions" => "timeline",
       "delivery_reactions" => "conversations",
       "ryker_operator_actions" => "failures",
-      "future_table" => "configuration",
-      # Retained Card Lab history has no page left to refresh; a late write to
-      # it (there is no writer) falls into the generic readers like any
-      # unknown table, never into a "card-lab" domain nobody subscribes to.
-      "card_lab_posts" => "configuration",
-      "card_lab_feedback" => "configuration"
+      "future_table" => "configuration"
     }
 
     Enum.each(Enum.uniq(Map.values(tables)), fn domain ->

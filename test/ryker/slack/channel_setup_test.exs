@@ -188,7 +188,10 @@ defmodule Ryker.Slack.ChannelSetupTest do
 
     text = explanation["text"]["text"]
     assert text =~ "*2 · Environment*"
-    assert text =~ "*Production* — I'll make changes in `payments` and read `ledger`."
+
+    assert text =~
+             "*Production* — I'll work on `payments` and `ledger`, changing whichever one a task needs."
+
     assert text =~ "*Staging* — It has no repos or Emisar, so I'll answer without them."
     assert text =~ "*No environment* — I'll still answer here, but without any repos or Emisar."
 

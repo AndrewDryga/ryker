@@ -2,9 +2,10 @@ defmodule Ryker.ControlPlane.Environments do
   @moduledoc """
   What each environment holds and who uses it, in words.
 
-  An environment names the repositories work in it may use, in order (work
-  changes the first and only reads the others), and at most one Emisar
-  account. Slack channels and webhook sources choose one; Chat and every
+  An environment names the repositories work in it may use, in order, and at
+  most one Emisar account. Every repository is available to its work, and a
+  task picks the one it changes; the first is only the default. Slack
+  channels and webhook sources choose an environment; Chat and every
   conversation without its own choice use the default. The Environments page,
   a channel's page, the Repositories list and the Emisar page read their words
   from here, so an environment reads the same everywhere. Everything except
@@ -18,17 +19,17 @@ defmodule Ryker.ControlPlane.Environments do
   alias Ryker.Settings.Environment
 
   @doc """
-  How many Slack channels choose each environment, by environment ref.
+  How many Slack channels choose each environment, by environment ref, and
+  under `nil` how many chose none, so work there runs without code.
 
   A channel's choice lives in the Slack tables, not in the settings snapshot,
   so it is counted there, the same way the settings guard counts it before it
   refuses a removal. A channel Ryker has left still holds its choice.
   """
-  @spec channel_counts() :: %{String.t() => non_neg_integer()}
+  @spec channel_counts() :: %{(String.t() | nil) => non_neg_integer()}
   def channel_counts do
     Repo.all(
       from(configuration in "slack_channel_configurations",
-        where: not is_nil(configuration.environment_ref),
         group_by: configuration.environment_ref,
         select: {configuration.environment_ref, count()}
       )
@@ -75,17 +76,17 @@ defmodule Ryker.ControlPlane.Environments do
     |> ordered()
   end
 
-  @doc ~s(How many repositories, then which one takes the changes: ["2 repositories", "changes go to acme/api"].)
+  @doc ~s(How many repositories, then the default one: ["2 repositories", "default acme/api"].)
   @spec repository_facts(map(), Environment.t()) :: [String.t()]
   def repository_facts(snapshot, environment) do
     case Environment.repository_refs(environment) do
       [] ->
         ["No repositories"]
 
-      [writable | _rest] = refs ->
+      [default | _rest] = refs ->
         [
           Integrations.count(length(refs), "repository"),
-          "changes go to " <> repository_name(snapshot, writable)
+          "default " <> repository_name(snapshot, default)
         ]
     end
   end

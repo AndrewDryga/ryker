@@ -49,7 +49,9 @@ defmodule Ryker.Slack.CapabilityTools.Resources do
      }
      |> drop_nil_values()}
   rescue
-    _error -> {:error, :slack_protocol_error}
+    # SourceRef refuses an identity Slack malformed with ArgumentError; anything
+    # else raised here is a host bug and surfaces.
+    ArgumentError -> {:error, :slack_protocol_error}
   end
 
   def normalize_bookmark(_bookmark, _workspace_ref, _channel_ref),
@@ -152,7 +154,7 @@ defmodule Ryker.Slack.CapabilityTools.Resources do
        }
        |> drop_nil_values()}
     rescue
-      _error -> {:error, :slack_protocol_error}
+      ArgumentError -> {:error, :slack_protocol_error}
     end
   end
 

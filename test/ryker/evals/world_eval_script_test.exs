@@ -258,6 +258,7 @@ defmodule Ryker.Evals.WorldEvalScriptTest do
         {"FAKE_SHARD_COUNT", Integer.to_string(Keyword.fetch!(options, :shards))},
         {"PATH", bin <> ":" <> System.fetch_env!("PATH")},
         {"RYKER_STATE_TOOLS_PORT", "44637"},
+        {"RYKER_WORLD_EVAL_MIX", mix},
         {"RYKER_WORKER_PORT", "44636"},
         {"RYKER_WORKER_PUBLIC_URL",
          Keyword.get(options, :public_url, "https://eval.example:44636")}
