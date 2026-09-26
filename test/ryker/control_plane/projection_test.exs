@@ -1603,7 +1603,15 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Projection.episode(:invalid) == :not_found
     assert Projection.episode("missing") == :not_found
 
-    assert Projection.findings(%{}) == %{items: [], total: 0, page: 1, pages: 1}
+    assert Projection.findings(%{}) == %{
+             items: [],
+             q: "",
+             total: 0,
+             unexplained: 0,
+             page: 1,
+             pages: 1
+           }
+
     assert map_size(Projection.callbacks()) == 35
     # One failure callback serves every kind's page and confirmation.
     assert is_function(Projection.callbacks().failure, 2)

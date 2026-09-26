@@ -355,10 +355,13 @@ defmodule Ryker.ControlPlane.UsagePage do
   def kind_name("approval"), do: "Approval"
   def kind_name(value), do: Components.label(value || "unclassified")
 
-  # By channel lists Slack channels only.
-  defp channel(%{conversation_ref: ref}) do
+  # By channel lists Slack channels; a row from anywhere else is named by its
+  # own reference rather than passed off as a Slack channel.
+  defp channel(%{transport: "slack", conversation_ref: ref}) do
     SlackNames.destination(if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref)
   end
+
+  defp channel(row), do: "#{row.transport}:#{row.conversation_ref}"
 
   defp user(%{source: "slack", workspace: workspace, actor: actor}),
     do: SlackNames.name(workspace, actor)

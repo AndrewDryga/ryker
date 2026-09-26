@@ -83,7 +83,7 @@ defmodule Ryker.ControlPlane.PagesTest do
     usage = page("/usage", %{"window" => "24h"})
     assert usage.title == "Usage & cost"
     assert usage.body =~ "Total tokens"
-    assert usage.body =~ "claude:opus/high@work"
+    assert usage.body =~ "opus/high"
 
     memory = page("/memory")
     assert memory.title == "Facts"

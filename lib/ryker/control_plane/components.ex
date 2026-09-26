@@ -539,6 +539,7 @@ defmodule Ryker.ControlPlane.Components do
 
     ~H"""
     <form
+      id={@id <> "-form"}
       class="filter-toolbar"
       method="get"
       action={@path}

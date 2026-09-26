@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
 
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, Batches, InputMembership}
   alias Ryker.Operator.Action
@@ -196,7 +197,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     conversation = "control-plane:lab:" <> Ecto.UUID.generate()
 
     {:ok, input} =
-      Ryker.Ingress.Input.new(%{
+      Input.new(%{
         actor: %{kind: :user, ref: "local-operator"},
         content: %{"text" => "Weekday incident status"},
         destination: %{
@@ -215,7 +216,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
         source_item_ref: "chat-title"
       })
 
-    {:ok, _} = Ryker.Ingress.Inbox.record(input)
+    {:ok, _} = Inbox.record(input)
 
     Repo.insert!(%Batch{
       id: Ecto.UUID.generate(),
