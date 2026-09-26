@@ -177,9 +177,12 @@ defmodule Ryker.State.Cases do
     end)
   end
 
+  # A case is stamped by the database clock, the one a memory search takes its
+  # cutoff from; the host clock running ahead of it hid a case captured a
+  # moment before from the search that followed.
   defp persist(%Episode{} = episode) do
     attributes = attributes(episode)
-    now = DateTime.utc_now()
+    now = Repo.now!()
 
     case Repo.get_by(CaseRecord, case_ref: attributes.case_ref) do
       %CaseRecord{content_fingerprint: same} = record
@@ -195,7 +198,8 @@ defmodule Ryker.State.Cases do
         |> Repo.update()
 
       nil ->
-        Repo.insert(struct!(CaseRecord, attributes),
+        Repo.insert(
+          struct!(CaseRecord, Map.merge(attributes, %{inserted_at: now, updated_at: now})),
           on_conflict: :nothing,
           conflict_target: [:case_ref]
         )
