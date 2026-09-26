@@ -311,6 +311,42 @@ defmodule Ryker.ControlPlane.ActivityTest do
            )
   end
 
+  test "chats with the same title can be told apart in the conversation filter, newest first" do
+    # QA re-test, 2026-09-26: Activity › Filter › Conversation listed four
+    # "Checkout readiness alert and 08:00 deploy" chats with nothing to tell
+    # them apart.
+    for {chat, at} <- [
+          {"chat-a", ~U[2026-09-24 09:15:00.000000Z]},
+          {"chat-b", ~U[2026-09-25 14:02:00.000000Z]}
+        ] do
+      id = Ecto.UUID.generate()
+
+      {:ok, _} =
+        Episodes.apply(
+          Fixtures.admit_input(%{
+            episode_id: id,
+            episode_key: "conversation:#{chat}",
+            native_input_id: "conversation:#{chat}",
+            turn_ref: "conversation-turn:#{chat}",
+            destination: %{conversation_ref: chat, thread_ref: nil, transport: "control_plane"}
+          })
+        )
+
+      Repo.update_all(from(e in Ryker.Episodes.Episode, where: e.id == ^id),
+        set: [updated_at: at]
+      )
+    end
+
+    assert Activity.conversation_filter_options()
+           |> Enum.filter(&(&1.source == "control_plane"))
+           |> Enum.map(&{&1.conversation_ref, &1.conversation_label}) == [
+             {"chat-b",
+              "Direct conversation · Message text no longer available · 25 Sep, 14:02"},
+             {"chat-a",
+              "Direct conversation · Message text no longer available · 24 Sep, 09:15"}
+           ]
+  end
+
   test "activity uses human fallback labels and never passes secrets or shadow traffic as live" do
     {:ok, %{episode: episode}} = Episodes.apply(Fixtures.admit_input())
     assert %{items: [item]} = Activity.list(%{})

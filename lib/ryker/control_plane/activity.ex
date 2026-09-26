@@ -65,7 +65,8 @@ defmodule Ryker.ControlPlane.Activity do
 
   @doc """
   The conversations the Conversation filter offers, each named the way Chat
-  and Slack name it: a chat by its title, a channel by its name.
+  and Slack name it: a chat by its title, a channel by its name. The most
+  recently active come first within each source.
   """
   def conversation_filter_options do
     secrets = InspectionRedactor.configured_secrets()
@@ -77,6 +78,7 @@ defmodule Ryker.ControlPlane.Activity do
         limit: 500
       )
       |> Repo.all()
+      |> Enum.sort_by(&{&1.source, -DateTime.to_unix(&1.updated_at, :microsecond)})
 
     chats =
       rows
@@ -84,13 +86,18 @@ defmodule Ryker.ControlPlane.Activity do
       |> Enum.map(& &1.conversation)
       |> ConversationProjection.titles()
 
-    Enum.map(rows, fn row ->
+    rows
+    |> Enum.map(fn row ->
       label =
         if row.source == "control_plane",
           do:
             "Direct conversation · " <> (chats[row.conversation] || present(row, secrets).title),
           else: SlackNames.destination(row.conversation)
 
+      {row, label}
+    end)
+    |> distinguish_repeats()
+    |> Enum.map(fn {row, label} ->
       %{
         source: row.source,
         transport: row.source,
@@ -100,6 +107,19 @@ defmodule Ryker.ControlPlane.Activity do
         actor_kind: nil,
         workspace: nil
       }
+    end)
+  end
+
+  # Chats often share a title ("What Ryker does"), and four identical entries
+  # could not be told apart; each repeat carries the time of its latest
+  # message, in UTC like every time in the workspace.
+  defp distinguish_repeats(labelled) do
+    counts = Enum.frequencies_by(labelled, &elem(&1, 1))
+
+    Enum.map(labelled, fn {row, label} ->
+      if counts[label] > 1,
+        do: {row, label <> " · " <> Calendar.strftime(row.updated_at, "%-d %b, %H:%M")},
+        else: {row, label}
     end)
   end
 
