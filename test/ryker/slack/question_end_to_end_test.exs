@@ -1,7 +1,12 @@
 defmodule Ryker.Slack.QuestionEndToEndTest do
-  use Ryker.DataCase, async: true
+  # Saving an answer takes the one review-maintenance advisory lock, and so
+  # does every edit or delete ingress records. Under the sandbox a test's
+  # transaction holds it until the test ends, so this suite waited on
+  # whichever async test recorded an edit, and on 2026-09-26 timed out a gate
+  # behind one. It runs alone (2.4 s); production transactions are short.
+  use Ryker.DataCase, async: false
 
-  # A suite-owned workspace keeps conversation locks out of other async fixtures.
+  # A suite-owned workspace keeps conversation locks out of other fixtures.
 
   @moduletag isolation: "REPEATABLE READ"
 
