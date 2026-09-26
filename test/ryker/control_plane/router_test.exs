@@ -1034,6 +1034,45 @@ defmodule Ryker.ControlPlane.RouterTest do
     refute_received {:retried_work, _}
   end
 
+  test "a retry opened from a request's page returns there, on Cancel and after confirming" do
+    # QA re-test, 2026-09-26: Cancel on "Run this task again?" led to
+    # Failures even when the person had opened it from the request's
+    # timeline, dropping them on a list they never came from.
+    path = "/actions/work/episode%3Ablocked/retry"
+
+    for back <- [
+          "/timeline/episode%3Ablocked",
+          "/timeline/task-offer%3Aa.b",
+          "/conversations/c-1"
+        ] do
+      query = "?" <> URI.encode_query(%{"back" => back})
+      confirmation = request(:get, path <> query)
+      assert confirmation.status == 200
+      assert confirmation.resp_body =~ ~s(<a href="#{back}">Cancel</a>)
+      [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
+      [_, action] = Regex.run(~r/<form[^>]* action="([^"]+)"/, confirmation.resp_body)
+      assert action == path <> query
+
+      confirmed = request(:post, action, URI.encode_query(%{"_token" => token}))
+      assert confirmed.status == 303
+      assert get_resp_header(confirmed, "location") == [back]
+    end
+
+    # Opened from Failures it returns to Failures, and a page elsewhere is
+    # never a place to return to.
+    for back <- [
+          nil,
+          "https://example.com/",
+          "//example.com/x",
+          "/settings",
+          "/timeline/a/../b",
+          "/timeline/.."
+        ] do
+      query = if back, do: "?" <> URI.encode_query(%{"back" => back}), else: ""
+      assert request(:get, path <> query).resp_body =~ ~s(<a href="/failures">Cancel</a>)
+    end
+  end
+
   test "a resumable blocked task says where its saved work is going" do
     # The confirmation is the last thing an operator reads before pressing, so
     # it has to name the resume rather than a fresh retry that would restart

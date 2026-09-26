@@ -1393,7 +1393,12 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, "#lab-messages .lab-message-state", "Needs attention")
     assert has_element?(view, "#lab-messages .lab-message-failure", "Model work stopped")
 
-    retry = "/actions/work/#{URI.encode_www_form(episode.key)}/retry"
+    # The retry comes back to this conversation (QA re-test, 2026-09-26:
+    # Cancel led to Failures).
+    retry =
+      "/actions/work/#{URI.encode_www_form(episode.key)}/retry?" <>
+        URI.encode_query(%{"back" => "/conversations/#{id}"})
+
     assert has_element?(view, "#lab-messages .lab-message-failure a[href='#{retry}']", "Retry")
     assert length(find_all(view, ".lab-message-failure")) == 1
 

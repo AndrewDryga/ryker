@@ -199,6 +199,7 @@ defmodule Ryker.ControlPlane.LabPage do
                 message={message}
                 now={@now}
                 progress={@progress}
+                conversation={@snapshot.conversation_id}
               />
             </div>
             <div id="lab-history-latest" phx-update="ignore">
@@ -388,6 +389,7 @@ defmodule Ryker.ControlPlane.LabPage do
   attr(:message, :map, required: true)
   attr(:now, :any, required: true)
   attr(:progress, :map, required: true)
+  attr(:conversation, :string, default: nil)
 
   defp chat_message(assigns) do
     rows = Map.get(assigns.progress, assigns.message[:native_input_id], [])
@@ -396,7 +398,7 @@ defmodule Ryker.ControlPlane.LabPage do
       assigns
       |> assign(:timeline, timeline_href(assigns.message))
       |> assign(:state, message_state(assigns.message))
-      |> assign(:failure, message_failure(assigns.message))
+      |> assign(:failure, message_failure(assigns.message, assigns.conversation))
       |> assign(:rows, rows)
       |> assign(:typing, rows == [] and message_working?(assigns.message))
 
@@ -577,13 +579,20 @@ defmodule Ryker.ControlPlane.LabPage do
   # Model work that stopped is a material failure of this message: it reads
   # beside the message with the same retry /failures offers, not nowhere. The
   # retry opens the HTTP confirmation page, so it is a plain link, not a live
-  # navigation that would fail the socket join first.
-  defp message_failure(%{actor: :operator, execution: %{state: "blocked", key: key}}) do
-    path = "/actions/work/#{URI.encode_www_form(key)}/retry"
+  # navigation that would fail the socket join first, and it comes back to
+  # this conversation.
+  defp message_failure(
+         %{actor: :operator, execution: %{state: "blocked", key: key}},
+         conversation
+       ) do
+    back =
+      if conversation, do: "?" <> URI.encode_query(%{"back" => "/conversations/#{conversation}"})
+
+    path = "/actions/work/#{URI.encode_www_form(key)}/retry#{back}"
     %{label: "Model work stopped", retry: path, inspect: "/failures"}
   end
 
-  defp message_failure(_message), do: nil
+  defp message_failure(_message, _conversation), do: nil
 
   defp message_working?(%{actor: :operator, execution: %{state: "working"}}), do: true
   defp message_working?(_message), do: false

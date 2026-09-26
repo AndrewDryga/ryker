@@ -559,7 +559,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     |> maybe_action(
       recovery != nil and recovery.action == :retry,
       if(recovery, do: recovery.action_label, else: "Retry work"),
-      "/actions/work/#{segment(episode.key)}/retry",
+      "/actions/work/#{segment(episode.key)}/retry?" <>
+        URI.encode_query(%{"back" => "/timeline/#{segment(episode.key)}"}),
       :primary
     )
     |> maybe_action(
