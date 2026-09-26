@@ -312,7 +312,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"How cost is counted",
        [
-         "Cost is what the model provider reported. When a provider reports tokens but no cost, Ryker estimates it from the rates listed under Rates used for estimates. Not measured means nothing was reported."
+         "Cost is what the model provider reported. When a provider reports tokens but no cost, Ryker estimates it from the prices saved in Settings, Model prices, and lists the ones it used under Rates used for estimates. Not measured means nothing was reported."
        ]},
       {"When something looks wrong",
        [

@@ -31,9 +31,10 @@ described work as targets; the documents below describe it as it runs.
   configuration): the control plane as built is [control-plane.md](control-plane.md); its visual
   checks are [control-plane-visual-testing.md](control-plane-visual-testing.md).
 - `docs/control-plane-ux-followup.md` (the 5 September 2026 usability pass): implemented. The accounting
-  limits it recorded still hold — estimates use the rate card verified on 2026-09-05, Codex ACP fresh
-  input excludes cache reads and output already includes reasoning, so reasoning is never charged
-  twice — and the Usage page's own cost-method section states them.
+  limits it recorded still hold — estimates use the saved Model prices, which a new installation
+  starts from the rate card verified on 2026-09-05; Codex ACP fresh input excludes cache reads and
+  output already includes reasoning, so reasoning is never charged twice — and the Usage page's own
+  cost-method section states them.
 - `docs/product-completion.md` (the 2026-09-05 completion checklist): superseded by the manual
   qualification journeys in [testing.md](testing.md#manual-qualification). Its standing rules
   survive elsewhere: Slack acceptance is confined to the joined test channel, and a Ryker deploy

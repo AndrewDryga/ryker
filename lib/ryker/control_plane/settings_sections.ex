@@ -688,7 +688,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :text,
           label: "Model",
           placeholder: "codex:gpt-5.6-sol",
-          help: "The provider and model, joined by a colon."
+          help: "The provider and model, joined by a colon.",
+          errors: %{
+            format: "Write the provider and model joined by a colon, like codex:gpt-5.6-sol."
+          }
         },
         %{
           name: :input_usd_per_million,
@@ -712,7 +715,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :reasoning_usd_per_million,
           kind: :decimal,
           label: "Reasoning",
-          group: "US dollars per million tokens"
+          group: "US dollars per million tokens",
+          help: "Leave empty when output already counts reasoning, as Codex and Claude report it."
         },
         %{
           name: :effective_from,

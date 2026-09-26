@@ -2,9 +2,9 @@ defmodule Ryker.ControlPlane.CallRun do
   @moduledoc """
   What one model call cost and where its time went, from what the call itself
   recorded: the model, the tokens the provider reported, the price (reported,
-  or estimated from the rate card when the provider sent none), whether
-  Ryker's checks passed, and the time from the call starting to its result
-  being saved.
+  or estimated from the price saved in Settings › Model prices for the day
+  the call started when the provider sent none), whether Ryker's checks
+  passed, and the time from the call starting to its result being saved.
 
   Everything here was known when the call ended. Nothing reaches forward to
   work that came after it; the timeline's later cards say that.
@@ -35,7 +35,7 @@ defmodule Ryker.ControlPlane.CallRun do
     %{
       target: target,
       tokens: tokens(usage),
-      cost: cost(usage, target),
+      cost: cost(usage, target, attempt.inserted_at),
       checks: routing_checks(attempt.response),
       segments: segments(timing.before, timing.model, timing.after_model, "Checking and saving"),
       total_ms: timing.total_ms
@@ -103,7 +103,7 @@ defmodule Ryker.ControlPlane.CallRun do
     %{
       target: turn.execution_target,
       tokens: tokens(usage),
-      cost: cost(usage, turn.execution_target),
+      cost: cost(usage, turn.execution_target, turn.inserted_at),
       checks: work_checks(turn),
       segments: segments(before, model, after_model, "Checking the answer"),
       total_ms:
@@ -174,34 +174,24 @@ defmodule Ryker.ControlPlane.CallRun do
 
   defp tokens(_usage), do: nil
 
-  defp cost(%{cost_recorded: true, cost: cost}, _target) when not is_nil(cost),
+  defp cost(%{cost_recorded: true, cost: cost}, _target, _started) when not is_nil(cost),
     do: "$" <> amount(cost)
 
-  defp cost(%{recorded: true, input: input, cached: cached, output: output}, target)
+  # Priced as Usage & cost prices it: the saved price in effect on the UTC day
+  # the call started. A model no saved price covers stays unpriced.
+  defp cost(
+         %{recorded: true, input: input, output: output} = usage,
+         target,
+         %DateTime{} = started
+       )
        when is_integer(input) and is_integer(output) and is_binary(target) do
-    model = target |> String.split("@") |> hd() |> String.split("/") |> hd()
-
-    case Pricing.rates()[model] do
-      {input_rate, cached_rate, output_rate} ->
-        total =
-          [
-            {input, input_rate},
-            {cached || 0, cached_rate},
-            {output, output_rate}
-          ]
-          |> Enum.reduce(Decimal.new(0), fn {count, rate}, sum ->
-            Decimal.add(sum, Decimal.mult(count, Decimal.new(rate)))
-          end)
-          |> Decimal.div(1_000_000)
-
-        "≈ $" <> amount(total)
-
-      nil ->
-        nil
+    case Pricing.in_effect(target, DateTime.to_date(started)) do
+      nil -> nil
+      price -> "≈ $" <> amount(Pricing.estimate(price, usage))
     end
   end
 
-  defp cost(_usage, _target), do: nil
+  defp cost(_usage, _target, _started), do: nil
 
   defp amount(value) do
     value = Decimal.new(value)

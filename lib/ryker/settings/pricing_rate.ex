@@ -6,6 +6,7 @@ defmodule Ryker.Settings.PricingRate do
   @primary_key {:id, :binary_id, autogenerate: false}
   @fields ~w(id execution_target input_usd_per_million cached_input_usd_per_million output_usd_per_million reasoning_usd_per_million effective_from provenance)a
   @maximum Decimal.new(100_000)
+  @execution_target ~r/\A[a-z0-9][a-z0-9._-]*:[a-z0-9._-]+\z/
 
   schema "pricing_rates" do
     field(:execution_target, :string)
@@ -45,7 +46,10 @@ defmodule Ryker.Settings.PricingRate do
         :effective_from,
         :provenance
       ])
-      |> validate_format(:execution_target, ~r/\A[a-z0-9][a-z0-9._:-]{0,255}\z/)
+      # A price covers work by its provider and model, the way every execution
+      # names its model, so it needs both and exactly one colon between them.
+      |> validate_format(:execution_target, @execution_target)
+      |> validate_length(:execution_target, max: 256)
       |> validate_length(:provenance, min: 1, max: 1_024)
 
     changeset =

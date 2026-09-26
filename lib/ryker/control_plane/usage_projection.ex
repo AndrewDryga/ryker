@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.UsageProjection do
   @moduledoc "Comparable usage breakdowns from the same deduplicated execution ledger."
   import Ecto.Query
+  alias Ryker.Accounting.Pricing
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Work.{Measurement, Turn}
@@ -96,6 +97,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
   def since(_), do: DateTime.add(DateTime.utc_now(), -7, :day)
 
   def snapshot(query) do
+    prices = Pricing.used(query)
     query = dimensions(query)
 
     targets =
@@ -117,7 +119,8 @@ defmodule Ryker.ControlPlane.UsageProjection do
       repositories: groups(query, [:repository_ref]),
       kinds: groups(query, [:work_kind]),
       users: groups(people(query), [:source, :workspace, :actor]),
-      days: days(query)
+      days: days(query),
+      prices: prices
     }
   end
 

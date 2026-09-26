@@ -1,13 +1,19 @@
 defmodule Ryker.ControlPlane.CallRunTest do
-  use ExUnit.Case, async: true
+  # An estimate reads the prices saved in Settings, whose writes hold its lock
+  # until the test ends, so these run apart from the asynchronous suites.
+  use Ryker.DataCase, async: false
 
   alias Ryker.ControlPlane.CallRun
+  alias Ryker.Settings
+
+  @actor "control-plane:local"
 
   # Harvested from routing attempt 2 of ingress-input:3edeb6b9 on 2026-09-23.
   # Its card read "Queue 3 ms · Model execution 16.5 s" for a call that took
   # 30.8 s from preparing to saving, and said nothing of its tokens or price.
   @attempt %{
     execution_target: "codex:gpt-5.6-sol/medium@default",
+    inserted_at: ~U[2026-09-23 20:01:29.255316Z],
     milestones: %{
       "committed" => "2026-09-23T20:02:00.023026Z",
       "context_prepared" => "2026-09-23T20:01:29.255316Z",
@@ -91,6 +97,39 @@ defmodule Ryker.ControlPlane.CallRunTest do
            ]
 
     assert CallRun.duration(run.total_ms) == "39.1 s"
+  end
+
+  # Found in manual testing on 2026-09-26: edits to Model prices never changed
+  # any estimate. Each call on the timeline was priced from rates compiled into
+  # Ryker, so it kept the old price after the person corrected it in Settings.
+  test "a call's estimate uses the saved price in effect on the day it ran" do
+    {:ok, snapshot} = Settings.initialize(@actor)
+    terra = Enum.find(snapshot.pricing_rates, &(&1.execution_target == "codex:gpt-5.6-terra"))
+
+    {:ok, snapshot} =
+      Settings.put_pricing_rate(
+        %{id: terra.id, output_usd_per_million: "24"},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    # A price from the day after the call does not reach back to it.
+    {:ok, _snapshot} =
+      Settings.put_pricing_rate(
+        %{
+          execution_target: "codex:gpt-5.6-terra",
+          input_usd_per_million: "100",
+          cached_input_usd_per_million: "100",
+          output_usd_per_million: "100",
+          effective_from: "2026-09-25",
+          provenance: "https://developers.openai.com/api/docs/pricing"
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    # 1,161 fresh × $2 + 21,760 cached × $0.20 + 46 out × $24, per million.
+    assert CallRun.from_turn(@turn).cost == "≈ $0.0078"
   end
 
   test "an answer still being checked has no total and no saving time yet" do
