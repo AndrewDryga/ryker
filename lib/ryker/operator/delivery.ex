@@ -8,7 +8,13 @@ defmodule Ryker.Operator.Delivery do
 
   import Ecto.Query
 
-  alias Ryker.Delivery.{PlatformAction, PlatformActionCustody, Reaction, ReactionCustody}
+  alias Ryker.Delivery.{
+    PlatformAction,
+    PlatformActionCustody,
+    RoutingResponse,
+    RoutingResponseCustody
+  }
+
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Turn}
 
@@ -16,7 +22,7 @@ defmodule Ryker.Operator.Delivery do
   @maximum_list 10_001
 
   @doc """
-  Blocked messages, reactions and model-requested actions, newest first,
+  Blocked messages, routing responses and model-requested actions, newest first,
   `limit` in all.
 
   Each kind was read oldest first, so past `limit` the newest blocked replies,
@@ -34,11 +40,11 @@ defmodule Ryker.Operator.Delivery do
           )
         )
 
-      reactions =
+      responses =
         Repo.all(
-          from(reaction in Reaction,
-            where: reaction.status == :blocked,
-            order_by: [desc: reaction.updated_at, desc: reaction.id],
+          from(response in RoutingResponse,
+            where: response.status == :blocked,
+            order_by: [desc: response.updated_at, desc: response.id],
             limit: ^limit
           )
         )
@@ -54,7 +60,7 @@ defmodule Ryker.Operator.Delivery do
 
       items =
         (Enum.map(messages, &message_item/1) ++
-           Enum.map(reactions, &reaction_item/1) ++ Enum.map(actions, &action_item/1))
+           Enum.map(responses, &response_item/1) ++ Enum.map(actions, &action_item/1))
         |> Enum.sort_by(&{DateTime.to_unix(&1.updated_at, :microsecond), &1.delivery_ref}, :desc)
         |> Enum.take(limit)
 
@@ -83,12 +89,12 @@ defmodule Ryker.Operator.Delivery do
 
   defp lookup(delivery_ref) do
     message = Repo.get_by(Turn, delivery_ref: delivery_ref)
-    reaction = Repo.get_by(Reaction, delivery_ref: delivery_ref)
+    response = Repo.get_by(RoutingResponse, delivery_ref: delivery_ref)
     action = Repo.get_by(PlatformAction, action_ref: delivery_ref)
 
-    case {message, reaction, action} do
+    case {message, response, action} do
       {%Turn{} = turn, nil, nil} -> {:ok, {:message, turn}}
-      {nil, %Reaction{} = reaction, nil} -> {:ok, {:reaction, reaction}}
+      {nil, %RoutingResponse{} = response, nil} -> {:ok, {:routing, response}}
       {nil, nil, %PlatformAction{} = action} -> {:ok, {:action, action}}
       {nil, nil, nil} -> {:error, :delivery_not_found}
       _ambiguous -> {:error, :delivery_ref_ambiguous}
@@ -99,11 +105,11 @@ defmodule Ryker.Operator.Delivery do
     Custody.retry_delivery(turn.episode_id, turn.turn_ref, turn.delivery_ref)
   end
 
-  defp rearm_target({:reaction, reaction}), do: ReactionCustody.retry(reaction.delivery_ref)
+  defp rearm_target({:routing, response}), do: RoutingResponseCustody.retry(response.delivery_ref)
   defp rearm_target({:action, action}), do: PlatformActionCustody.retry(action.action_ref)
 
   defp item(%Turn{} = turn), do: message_item(turn)
-  defp item(%Reaction{} = reaction), do: reaction_item(reaction)
+  defp item(%RoutingResponse{} = response), do: response_item(response)
   defp item(%PlatformAction{} = action), do: action_item(action)
 
   defp message_item(turn) do
@@ -121,17 +127,17 @@ defmodule Ryker.Operator.Delivery do
     }
   end
 
-  defp reaction_item(reaction) do
+  defp response_item(response) do
     %{
-      attempt_count: reaction.attempt_count,
-      delivery_ref: reaction.delivery_ref,
-      error_code: reaction.last_error_code,
-      error_detail: reaction.last_error_detail,
-      input_id: reaction.input_id,
-      kind: :reaction,
-      retry_generation: reaction.retry_generation,
-      status: reaction.status,
-      updated_at: reaction.updated_at
+      attempt_count: response.attempt_count,
+      delivery_ref: response.delivery_ref,
+      error_code: response.last_error_code,
+      error_detail: response.last_error_detail,
+      input_id: response.input_id,
+      kind: if(response.kind == :message, do: :quick_reply, else: :reaction),
+      retry_generation: response.retry_generation,
+      status: response.status,
+      updated_at: response.updated_at
     }
   end
 

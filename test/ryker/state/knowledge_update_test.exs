@@ -41,6 +41,7 @@ defmodule Ryker.State.KnowledgeUpdateTest do
     decision = %{
       "action" => "ignore",
       "episode_ref" => nil,
+      "message" => nil,
       "relation" => "unrelated",
       "repository" => nil,
       "repository_source" => nil,

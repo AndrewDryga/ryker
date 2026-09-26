@@ -10,7 +10,7 @@ defmodule Ryker.Observability.Queues do
 
   import Ecto.Query
 
-  alias Ryker.Delivery.Reaction
+  alias Ryker.Delivery.RoutingResponse
   alias Ryker.Emisar.Approval
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
@@ -39,7 +39,7 @@ defmodule Ryker.Observability.Queues do
       fn -> status_queue(Turn, :work, [:pending], :inserted_at, now) end,
       fn -> status_queue(Turn, :cancellation, [:cancel_pending], :updated_at, now) end,
       fn -> status_queue(Turn, :delivery, [:delivery_pending], :accepted_at, now) end,
-      fn -> status_queue(Reaction, :reaction_delivery, [:pending], :inserted_at, now) end,
+      fn -> status_queue(RoutingResponse, :routing_delivery, [:pending], :inserted_at, now) end,
       fn ->
         status_queue(
           Publication,

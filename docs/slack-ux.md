@@ -413,8 +413,11 @@ incident exists yet and requires a configured full-member operator. The original
 the offered title and repository durably, so a restart does not change what the button approves. Repeated clicks are idempotent.
 
 There are no attention scores or thresholds. The admission decision is one of ignore, react,
-reply, start work or continue existing work, with its reason, the work it relates to, and the kind
-of work (conversational, standard or deep); Ryker validates it before acting on it. Ryker may use
+quick reply, reply, start work or continue existing work, with its reason, the work it relates to,
+and the kind of work (conversational, standard or deep); Ryker validates it before acting on it.
+A quick reply is a short answer routing writes itself for a person in Slack or Chat — "hi",
+"thanks", "are you there?" — sent in the thread without starting work; the thread stays engaged,
+so the person's next message there reaches Ryker without a mention. Ryker may use
 any standard Slack emoji or a workspace custom emoji visible in the supplied message context. The
 host validates the emoji name, adds or removes one reaction per call on an exact current human
 message (removing only reactions Ryker added), and lets Slack reject names that are not available

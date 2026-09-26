@@ -7,7 +7,7 @@ defmodule Ryker.GitHub.EndToEndTest do
   import Plug.Test
 
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
-  alias Ryker.Delivery.{Adapters, Reaction}
+  alias Ryker.Delivery.{Adapters, RoutingResponse}
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.GitHub.{Auth, Binding, Client, Publisher, Router}
   alias Ryker.Ingress.Inbox
@@ -157,17 +157,15 @@ defmodule Ryker.GitHub.EndToEndTest do
 
     assert admitted.result.entry.decision_action == :react
 
-    assert %Reaction{status: :pending} =
-             Repo.get_by!(Reaction, input_id: admitted.result.entry.id)
+    assert %RoutingResponse{status: :pending} =
+             Repo.get_by!(RoutingResponse, input_id: admitted.result.entry.id)
 
     {:ok, requester} = GitHubRequester.start([github_response(201, %{"id" => 77})])
 
-    assert {:ok, {:delivered, :reaction, delivery_ref}} =
-             Ryker.Delivery.Dispatcher.run_once(
-               delivery_options(:reaction, requester, "reaction")
-             )
+    assert {:ok, {:delivered, :routing, delivery_ref}} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options(:routing, requester, "reaction"))
 
-    delivered = Repo.get_by!(Reaction, input_id: admitted.result.entry.id)
+    delivered = Repo.get_by!(RoutingResponse, input_id: admitted.result.entry.id)
     assert delivered.status == :delivered
     assert delivered.delivery_ref == delivery_ref
 

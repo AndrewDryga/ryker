@@ -5,7 +5,7 @@ defmodule Ryker.Delivery.WorkerTest do
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
-  alias Ryker.Delivery.{Adapters, Reaction, Worker}
+  alias Ryker.Delivery.{Adapters, RoutingResponse, Worker}
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
   alias Ryker.Work.DeliveryReceipt
@@ -47,7 +47,7 @@ defmodule Ryker.Delivery.WorkerTest do
          [
            dispatcher_options: [
              adapters: adapters,
-             kind: :reaction,
+             kind: :routing,
              lease_seconds: 60,
              retry_base_seconds: 1,
              retry_max_seconds: 60,
@@ -64,7 +64,7 @@ defmodule Ryker.Delivery.WorkerTest do
     assert eventually(fn ->
              match?(
                %{status: :delivered, lease_ref: nil},
-               Repo.get_by(Reaction, input_id: pending.input_id)
+               Repo.get_by(RoutingResponse, input_id: pending.input_id)
              )
            end)
 
@@ -77,7 +77,7 @@ defmodule Ryker.Delivery.WorkerTest do
       start_supervised!(
         {Worker,
          [
-           dispatcher_options: [kind: :reaction, worker_ref: "delivery-worker:invalid"],
+           dispatcher_options: [kind: :routing, worker_ref: "delivery-worker:invalid"],
            name: __MODULE__.InvalidWorker,
            poll_interval_ms: 10
          ]}
@@ -95,7 +95,7 @@ defmodule Ryker.Delivery.WorkerTest do
          [
            dispatcher_options: [
              adapters: adapters!(self()),
-             kind: :reaction,
+             kind: :routing,
              lease_seconds: 60,
              retry_base_seconds: 1,
              retry_max_seconds: 60,
@@ -150,7 +150,7 @@ defmodule Ryker.Delivery.WorkerTest do
              })
 
     assert {:ok, _result} = Admission.commit(context, decision, "decision:worker-reaction")
-    Repo.get_by!(Reaction, input_id: entry.id)
+    Repo.get_by!(RoutingResponse, input_id: entry.id)
   end
 
   defp adapters!(test_pid) do

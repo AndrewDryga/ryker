@@ -522,6 +522,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       %{"action" => "reply"} -> "Reply requested"
       %{"action" => "ignore"} -> "No reply needed"
       %{"action" => "react"} -> "Reaction selected"
+      %{"action" => "quick_reply"} -> "Answered right away"
       %{"action" => "start_episode"} -> "New work requested"
       %{"action" => "continue_episode"} -> "Continue existing work"
       _ -> "Routing result"
@@ -543,7 +544,8 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           },
           earlier_work_fact(request, candidate),
           source_fact(candidate),
-          reaction_fact(candidate)
+          reaction_fact(candidate),
+          answer_fact(candidate)
         ]
         |> Enum.reject(&is_nil/1)
 
@@ -654,6 +656,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp decision_label("continue_episode"), do: "Continue existing work"
   defp decision_label("reply"), do: "Reply in the conversation"
   defp decision_label("react"), do: "React only"
+  defp decision_label("quick_reply"), do: "Answer right away, no work"
   defp decision_label("ignore"), do: "No response"
   defp decision_label(action) when is_binary(action), do: String.replace(action, "_", " ")
 
@@ -683,6 +686,11 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     do: %{label: "Reaction", value: ":#{emoji}:"}
 
   defp reaction_fact(_candidate), do: nil
+
+  defp answer_fact(%{"action" => "quick_reply", "message" => message}) when is_binary(message),
+    do: %{label: "Answer", value: message}
+
+  defp answer_fact(_candidate), do: nil
 
   defp explanation(%{phase: :submission, source_kind: :admission}),
     do: "Use an AI model to classify this message and choose how to respond."

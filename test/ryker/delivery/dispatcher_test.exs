@@ -12,7 +12,13 @@ defmodule Ryker.Delivery.DispatcherTest do
   alias Ryker.Admission.Decision
   alias Ryker.Artifacts.Outputs
 
-  alias Ryker.Delivery.{Adapters, Dispatcher, PlatformAction, PlatformActionCustody, Reaction}
+  alias Ryker.Delivery.{
+    Adapters,
+    Dispatcher,
+    PlatformAction,
+    PlatformActionCustody,
+    RoutingResponse
+  }
 
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
@@ -249,22 +255,22 @@ defmodule Ryker.Delivery.DispatcherTest do
         %{calls: [], responses: [{:error, {:delivery_uncertain, :closed}}]}
       end)
 
-    assert {:ok, {:deferred, :reaction, delivery_ref, {:delivery_uncertain, :closed}}} =
-             Dispatcher.run_once(dispatcher_options(:reaction, publisher))
+    assert {:ok, {:deferred, :routing, delivery_ref, {:delivery_uncertain, :closed}}} =
+             Dispatcher.run_once(dispatcher_options(:routing, publisher))
 
     assert delivery_ref == pending.delivery_ref
-    deferred = Repo.get_by!(Reaction, input_id: pending.input_id)
+    deferred = Repo.get_by!(RoutingResponse, input_id: pending.input_id)
     assert deferred.status == :pending
     assert deferred.lease_ref == nil
     assert deferred.attempt_count == 1
     assert deferred.last_error_code == "delivery_uncertain"
 
-    Repo.update_all(Ryker.Delivery.Reaction, set: [next_attempt_at: @now])
+    Repo.update_all(Ryker.Delivery.RoutingResponse, set: [next_attempt_at: @now])
 
-    assert {:ok, {:delivered, :reaction, ^delivery_ref}} =
-             Dispatcher.run_once(dispatcher_options(:reaction, publisher))
+    assert {:ok, {:delivered, :routing, ^delivery_ref}} =
+             Dispatcher.run_once(dispatcher_options(:routing, publisher))
 
-    delivered = Repo.get_by!(Reaction, input_id: pending.input_id)
+    delivered = Repo.get_by!(RoutingResponse, input_id: pending.input_id)
     assert delivered.status == :delivered
     assert delivered.attempt_count == 2
 
@@ -515,13 +521,13 @@ defmodule Ryker.Delivery.DispatcherTest do
         %{calls: [], responses: [{:error, {:delivery_transport_unavailable, :closed}}]}
       end)
 
-    options = dispatcher_options(:reaction, publisher, Publisher, max_attempts: 1)
+    options = dispatcher_options(:routing, publisher, Publisher, max_attempts: 1)
 
-    assert {:ok, {:blocked, :reaction, delivery_ref, {:delivery_transport_unavailable, :closed}}} =
+    assert {:ok, {:blocked, :routing, delivery_ref, {:delivery_transport_unavailable, :closed}}} =
              Dispatcher.run_once(options)
 
     assert delivery_ref == pending.delivery_ref
-    blocked = Repo.get_by!(Reaction, input_id: pending.input_id)
+    blocked = Repo.get_by!(RoutingResponse, input_id: pending.input_id)
     assert blocked.status == :blocked
     assert {:ok, :idle} = Dispatcher.run_once(options)
 
@@ -529,14 +535,14 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert rearmed.status == :pending
     assert rearmed.attempt_count == 0
     assert rearmed.retry_generation == 1
-    assert {:ok, {:delivered, :reaction, ^delivery_ref}} = Dispatcher.run_once(options)
+    assert {:ok, {:delivered, :routing, ^delivery_ref}} = Dispatcher.run_once(options)
   end
 
   test "each delivery phase is independently idle" do
     {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
 
     assert {:ok, :idle} = Dispatcher.run_once(dispatcher_options(:message, publisher))
-    assert {:ok, :idle} = Dispatcher.run_once(dispatcher_options(:reaction, publisher))
+    assert {:ok, :idle} = Dispatcher.run_once(dispatcher_options(:routing, publisher))
     assert {:ok, :idle} = Dispatcher.run_once(dispatcher_options(:action, publisher))
   end
 
@@ -692,7 +698,7 @@ defmodule Ryker.Delivery.DispatcherTest do
     invalid = [
       :invalid,
       [],
-      [adapters: %{}, kind: :reaction, worker_ref: "delivery:test"],
+      [adapters: %{}, kind: :routing, worker_ref: "delivery:test"],
       [adapters: %{"slack" => %{}}, kind: :unknown, worker_ref: "delivery:test"],
       [
         adapters: %{"slack" => %{}},
@@ -997,7 +1003,7 @@ defmodule Ryker.Delivery.DispatcherTest do
              })
 
     assert {:ok, _result} = Admission.commit(context, decision, "decision:#{suffix}")
-    Repo.get_by!(Reaction, input_id: entry.id)
+    Repo.get_by!(RoutingResponse, input_id: entry.id)
   end
 
   defp platform_action_pending!(suffix) do

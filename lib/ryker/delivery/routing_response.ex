@@ -1,5 +1,9 @@
-defmodule Ryker.Delivery.Reaction do
-  @moduledoc false
+defmodule Ryker.Delivery.RoutingResponse do
+  @moduledoc """
+  What routing sends by itself, without Work: an emoji reaction on the
+  message, or a short message beside it. One per input, frozen with the
+  routing decision that chose it.
+  """
 
   use Ecto.Schema
 
@@ -9,8 +13,9 @@ defmodule Ryker.Delivery.Reaction do
   @primary_key {:id, :binary_id, autogenerate: false}
   @foreign_key_type :binary_id
 
-  schema "delivery_reactions" do
+  schema "delivery_routing_responses" do
     belongs_to(:input, Entry)
+    field(:kind, Ecto.Enum, values: [:reaction, :message])
     field(:decision_ref, :string)
     field(:delivery_ref, :string)
     field(:transport, :string)

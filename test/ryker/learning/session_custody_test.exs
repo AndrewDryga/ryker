@@ -13,7 +13,7 @@ defmodule Ryker.Learning.SessionCustodyTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
 
-  alias Ryker.Delivery.{PlatformAction, Reaction}
+  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, Batches, Dispatcher, FleetSession}
@@ -406,7 +406,7 @@ defmodule Ryker.Learning.SessionCustodyTest do
     do: Repo.all(from(r in LearningRun, where: r.batch_id == ^batch_id, order_by: r.inserted_at))
 
   defp reply_rows,
-    do: Enum.map([Turn, PlatformAction, Reaction], &Repo.aggregate(&1, :count))
+    do: Enum.map([Turn, PlatformAction, RoutingResponse], &Repo.aggregate(&1, :count))
 
   defp make_due! do
     Repo.update_all(Batch, set: [next_attempt_at: ~U[2000-01-01 00:00:00.000000Z]])

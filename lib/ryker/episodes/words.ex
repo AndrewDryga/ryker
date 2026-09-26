@@ -23,6 +23,7 @@ defmodule Ryker.Episodes.Words do
   def label("cancelled"), do: "Stopped"
   def label("ignore"), do: "No response needed"
   def label("react"), do: "Reaction selected"
+  def label("quick_reply"), do: "Answered right away"
   def label("reply"), do: "Reply selected"
   def label(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
 

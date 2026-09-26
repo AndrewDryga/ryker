@@ -6,9 +6,10 @@ defmodule Ryker.ControlPlane.TranscriptCursor do
 
     * `position` is the microsecond the row entered the transcript, taken from
       a column that never changes afterwards: the first revision of an input,
-      the acceptance of a reply, the delivery of a platform message.
+      the acceptance of a reply, the delivery of a platform message or of a
+      quick reply.
     * `rank` orders sources that share a microsecond: inputs, then replies,
-      then platform messages, then publications.
+      then platform messages, then publications, then quick replies.
     * `identity` names the logical row for the rest of its life. An input keeps
       its identity through every edit, delete and retention prune, so a page
       boundary drawn beside it can never move.
@@ -19,20 +20,21 @@ defmodule Ryker.ControlPlane.TranscriptCursor do
   """
 
   @version 1
-  @ranks %{input: 0, reply: 1, action: 2, publication: 3}
+  @ranks %{input: 0, reply: 1, action: 2, publication: 3, quick_reply: 4}
 
-  @type key :: {integer(), 0..3, String.t()}
+  @type source :: :input | :reply | :action | :publication | :quick_reply
+  @type key :: {integer(), 0..4, String.t()}
 
-  @spec rank(:input | :reply | :action | :publication) :: 0..3
+  @spec rank(source()) :: 0..4
   def rank(kind), do: Map.fetch!(@ranks, kind)
 
-  @spec key(DateTime.t(), :input | :reply | :action | :publication, String.t()) :: key()
+  @spec key(DateTime.t(), source(), String.t()) :: key()
   def key(%DateTime{} = position, kind, identity) when is_binary(identity),
     do: {DateTime.to_unix(position, :microsecond), rank(kind), identity}
 
   @spec encode(String.t(), key()) :: String.t()
   def encode(conversation_id, {micros, rank, identity})
-      when is_binary(conversation_id) and is_integer(micros) and rank in 0..3 and
+      when is_binary(conversation_id) and is_integer(micros) and rank in 0..4 and
              is_binary(identity) do
     %{"v" => @version, "c" => conversation_id, "t" => micros, "k" => rank, "i" => identity}
     |> Jason.encode!()
@@ -44,7 +46,7 @@ defmodule Ryker.ControlPlane.TranscriptCursor do
       when is_binary(cursor) and byte_size(cursor) in 1..2048 and is_binary(conversation_id) do
     with {:ok, json} <- Base.url_decode64(cursor, padding: false),
          {:ok, %{"v" => @version, "c" => ^conversation_id, "t" => micros, "k" => rank, "i" => id}}
-         when is_integer(micros) and rank in 0..3 and is_binary(id) and byte_size(id) in 1..512 <-
+         when is_integer(micros) and rank in 0..4 and is_binary(id) and byte_size(id) in 1..512 <-
            Jason.decode(json),
          # The position must be a moment a calendar can hold, or the page
          # cannot compare anything with it.

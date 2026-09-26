@@ -1,6 +1,6 @@
 defmodule Mix.Tasks.Ryker.Delivery do
   @moduledoc """
-  Inspects or rearms blocked platform messages, reactions, and model-requested actions.
+  Inspects or rearms blocked platform messages, routing responses, and model-requested actions.
 
       mix ryker.delivery list
       mix ryker.delivery show DELIVERY_REF

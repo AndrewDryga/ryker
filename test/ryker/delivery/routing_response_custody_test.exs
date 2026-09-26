@@ -1,4 +1,4 @@
-defmodule Ryker.Delivery.ReactionCustodyTest do
+defmodule Ryker.Delivery.RoutingResponseCustodyTest do
   use Ryker.DataCase, async: true
 
   # Six async suites once shared T123:C456: sandbox transactions held the
@@ -9,7 +9,7 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
-  alias Ryker.Delivery.{Reaction, ReactionCustody}
+  alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
   alias Ryker.Work.DeliveryReceipt
@@ -24,8 +24,9 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
     assert {:ok, applied} = Admission.commit(context, reaction, "decision:reaction-custody")
     assert applied.entry.status == :decided
 
-    pending = Repo.get_by!(Reaction, input_id: entry.id)
+    pending = Repo.get_by!(RoutingResponse, input_id: entry.id)
     assert pending.status == :pending
+    assert pending.kind == :reaction
     assert pending.delivery_ref == "ingress-reaction:#{entry.id}"
     assert pending.decision_ref == "decision:reaction-custody"
     assert pending.document == %{"emoji_name" => "eyes"}
@@ -38,13 +39,13 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
              Admission.commit(context, reaction, "decision:reaction-custody")
 
     assert duplicate.status == :duplicate
-    assert Repo.aggregate(Reaction, :count) == 1
+    assert Repo.aggregate(RoutingResponse, :count) == 1
 
-    assert {:ok, claim} = ReactionCustody.claim_next("delivery:reaction:1", 60)
-    assert claim.reaction.id == pending.id
-    assert claim.reaction.attempt_count == 1
+    assert {:ok, claim} = RoutingResponseCustody.claim_next("delivery:reaction:1", 60)
+    assert claim.response.id == pending.id
+    assert claim.response.attempt_count == 1
 
-    assert {:ok, request} = ReactionCustody.request(claim.reaction)
+    assert {:ok, request} = RoutingResponseCustody.request(claim.response)
     assert request.kind == :reaction
     assert request.ref == pending.delivery_ref
     assert request.document == %{"emoji_name" => "eyes"}
@@ -58,8 +59,8 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
                pending.source_item_ref
              )
 
-    assert {:error, :delivery_reaction_receipt_mismatch} =
-             ReactionCustody.confirm_delivery(
+    assert {:error, :routing_response_receipt_mismatch} =
+             RoutingResponseCustody.confirm_delivery(
                pending.delivery_ref,
                claim.lease_ref,
                crossed
@@ -75,7 +76,7 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
              )
 
     assert {:ok, delivered} =
-             ReactionCustody.confirm_delivery(
+             RoutingResponseCustody.confirm_delivery(
                pending.delivery_ref,
                claim.lease_ref,
                receipt
@@ -86,7 +87,7 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
     assert delivered.delivered_at
 
     assert {:ok, exact_retry} =
-             ReactionCustody.confirm_delivery(
+             RoutingResponseCustody.confirm_delivery(
                pending.delivery_ref,
                claim.lease_ref,
                receipt
@@ -103,14 +104,79 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
                "1787832001.000201"
              )
 
-    assert {:error, :delivery_reaction_receipt_conflict} =
-             ReactionCustody.confirm_delivery(
+    assert {:error, :routing_response_receipt_conflict} =
+             RoutingResponseCustody.confirm_delivery(
                pending.delivery_ref,
                claim.lease_ref,
                conflicting
              )
 
-    assert {:ok, nil} = ReactionCustody.claim_next("delivery:reaction:2", 60)
+    assert {:ok, nil} = RoutingResponseCustody.claim_next("delivery:reaction:2", 60)
+  end
+
+  # Routing answers "hi" itself. Its words are a message of their own in the
+  # thread, so the receipt names the new message, never the one answered; a
+  # reaction's receipt check refused every quick reply ever sent.
+  test "a quick reply is one durable message in the thread, settled by its own receipt" do
+    entry = record_input!("Ev-quick-reply-custody")
+
+    assert {:ok, applied} =
+             Admission.commit(
+               context!(entry),
+               quick_reply!("Hi! What can I help with?"),
+               "decision:quick-reply-custody"
+             )
+
+    assert applied.entry.decision_action == :quick_reply
+    assert applied.episode == nil
+
+    pending = Repo.get_by!(RoutingResponse, input_id: entry.id)
+    assert pending.kind == :message
+    assert pending.delivery_ref == "ingress-message:#{entry.id}"
+    assert pending.document == %{"message" => "Hi! What can I help with?"}
+
+    assert {:ok, claim} = RoutingResponseCustody.claim_next("delivery:routing:quick", 60)
+    assert {:ok, request} = RoutingResponseCustody.request(claim.response)
+    assert request.kind == :message
+    assert request.source_item_ref == nil
+    assert request.thread_ref == "1787832000.000100"
+    assert request.conversation_ref == "slack:TREACTIONCUSTODY:C456"
+    assert request.document == %{"message" => "Hi! What can I help with?"}
+
+    assert {:ok, elsewhere} =
+             DeliveryReceipt.new(
+               pending.delivery_ref,
+               pending.transport,
+               pending.conversation_ref,
+               "1787832000.999999",
+               "1787832002.000300"
+             )
+
+    assert {:error, :routing_response_receipt_mismatch} =
+             RoutingResponseCustody.confirm_delivery(
+               pending.delivery_ref,
+               claim.lease_ref,
+               elsewhere
+             )
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               pending.delivery_ref,
+               pending.transport,
+               pending.conversation_ref,
+               pending.thread_ref,
+               "1787832002.000300"
+             )
+
+    assert {:ok, delivered} =
+             RoutingResponseCustody.confirm_delivery(
+               pending.delivery_ref,
+               claim.lease_ref,
+               receipt
+             )
+
+    assert delivered.status == :delivered
+    assert delivered.external_receipt["message_ref"] == "1787832002.000300"
   end
 
   test "a shadow reaction is audited as a decision but never enters delivery custody" do
@@ -121,8 +187,8 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
 
     assert applied.entry.execution_mode == :shadow
     assert applied.entry.decision_action == :react
-    refute Repo.get_by(Reaction, input_id: entry.id)
-    assert Repo.aggregate(Reaction, :count) == 0
+    refute Repo.get_by(RoutingResponse, input_id: entry.id)
+    assert Repo.aggregate(RoutingResponse, :count) == 0
   end
 
   test "a transient reaction error releases its lease for an exact retry" do
@@ -131,11 +197,11 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
     assert {:ok, _applied} =
              Admission.commit(context!(entry), reaction!("heart"), "decision:retry")
 
-    assert {:ok, first} = ReactionCustody.claim_next("delivery:reaction:first", 60)
+    assert {:ok, first} = RoutingResponseCustody.claim_next("delivery:reaction:first", 60)
 
     assert {:ok, deferred} =
-             ReactionCustody.defer(
-               first.reaction.delivery_ref,
+             RoutingResponseCustody.defer(
+               first.response.delivery_ref,
                first.lease_ref,
                1,
                "delivery_uncertain",
@@ -145,13 +211,13 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
     assert deferred.status == :pending
     assert deferred.lease_ref == nil
     assert deferred.next_attempt_at
-    assert {:ok, nil} = ReactionCustody.claim_next("delivery:reaction:too-early", 60)
+    assert {:ok, nil} = RoutingResponseCustody.claim_next("delivery:reaction:too-early", 60)
 
-    Repo.update_all(Reaction, set: [next_attempt_at: @now])
+    Repo.update_all(RoutingResponse, set: [next_attempt_at: @now])
 
-    assert {:ok, retry} = ReactionCustody.claim_next("delivery:reaction:retry", 60)
-    assert retry.reaction.id == first.reaction.id
-    assert retry.reaction.attempt_count == 2
+    assert {:ok, retry} = RoutingResponseCustody.claim_next("delivery:reaction:retry", 60)
+    assert retry.response.id == first.response.id
+    assert retry.response.attempt_count == 2
     refute retry.lease_ref == first.lease_ref
   end
 
@@ -161,16 +227,16 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
     assert {:ok, _applied} =
              Admission.commit(context!(entry), reaction!("heart"), "decision:renew")
 
-    assert {:ok, claim} = ReactionCustody.claim_next("delivery:reaction:renew", 1)
+    assert {:ok, claim} = RoutingResponseCustody.claim_next("delivery:reaction:renew", 1)
 
     assert {:ok, renewed} =
-             ReactionCustody.renew(claim.reaction.delivery_ref, claim.lease_ref, 60)
+             RoutingResponseCustody.renew(claim.response.delivery_ref, claim.lease_ref, 60)
 
-    assert renewed.attempt_count == claim.reaction.attempt_count
-    assert DateTime.compare(renewed.lease_expires_at, claim.reaction.lease_expires_at) == :gt
+    assert renewed.attempt_count == claim.response.attempt_count
+    assert DateTime.compare(renewed.lease_expires_at, claim.response.lease_expires_at) == :gt
 
-    assert {:error, :delivery_reaction_lease_lost} =
-             ReactionCustody.renew(claim.reaction.delivery_ref, "wrong-lease", 60)
+    assert {:error, :routing_response_lease_lost} =
+             RoutingResponseCustody.renew(claim.response.delivery_ref, "wrong-lease", 60)
   end
 
   test "ignore creates no delivery outbox row" do
@@ -180,15 +246,16 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
              Admission.commit(context!(entry), ignore!(), "decision:ignore-custody")
 
     assert ignored.entry.status == :decided
-    refute Repo.get_by(Reaction, input_id: entry.id)
-    assert Repo.aggregate(Reaction, :count) == 0
+    refute Repo.get_by(RoutingResponse, input_id: entry.id)
+    assert Repo.aggregate(RoutingResponse, :count) == 0
   end
 
   test "invalid custody references are rejected before touching the queue" do
-    assert {:error, {:invalid_delivery_reaction, :worker_ref}} =
-             ReactionCustody.claim_next("", 60)
+    assert {:error, {:invalid_routing_response, :worker_ref}} =
+             RoutingResponseCustody.claim_next("", 60)
 
-    assert {:error, {:invalid_delivery_reaction, :request}} = ReactionCustody.request(:invalid)
+    assert {:error, {:invalid_routing_response, :request}} =
+             RoutingResponseCustody.request(:invalid)
   end
 
   test "the database requires an emoji name in every durable reaction document" do
@@ -197,16 +264,16 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
     assert {:ok, _applied} =
              Admission.commit(context!(entry), reaction!("eyes"), "decision:document-constraint")
 
-    reaction = Repo.get_by!(Reaction, input_id: entry.id)
+    reaction = Repo.get_by!(RoutingResponse, input_id: entry.id)
 
     error =
       assert_raise Postgrex.Error, fn ->
-        Repo.query!("UPDATE delivery_reactions SET document = '{}' WHERE id = $1", [
+        Repo.query!("UPDATE delivery_routing_responses SET document = '{}' WHERE id = $1", [
           Ecto.UUID.dump!(reaction.id)
         ])
       end
 
-    assert error.postgres.constraint == "delivery_reaction_document_valid"
+    assert error.postgres.constraint == "delivery_routing_response_document_valid"
   end
 
   defp record_input!(event_ref, execution_mode \\ :live) do
@@ -252,6 +319,22 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
                "relation" => "unrelated",
                "repository_source" => nil,
                "reason" => "Acknowledge the source item without starting work.",
+               "work_class" => nil
+             })
+
+    decision
+  end
+
+  defp quick_reply!(message) do
+    assert {:ok, decision} =
+             Decision.parse(%{
+               "action" => "quick_reply",
+               "episode_ref" => nil,
+               "message" => message,
+               "reaction" => nil,
+               "relation" => "unrelated",
+               "repository_source" => nil,
+               "reason" => "A greeting needs a short answer, not work.",
                "work_class" => nil
              })
 

@@ -713,7 +713,7 @@ defmodule Ryker.State.Behaviors do
   @doc false
   @spec finalize_assignment_runs_in_transaction(
           String.t(),
-          :start_episode | :continue_episode | :reply | :react | :ignore,
+          :start_episode | :continue_episode | :reply | :quick_reply | :react | :ignore,
           String.t(),
           Episode.t() | nil,
           :decided | :superseded
@@ -725,7 +725,7 @@ defmodule Ryker.State.Behaviors do
         episode,
         outcome
       )
-      when action in [:start_episode, :continue_episode, :reply, :react, :ignore] and
+      when action in [:start_episode, :continue_episode, :reply, :quick_reply, :react, :ignore] and
              outcome in [:decided, :superseded] do
     with true <- Repo.in_transaction?(),
          :ok <- reference(input_ref, :input_ref),
@@ -1270,7 +1270,7 @@ defmodule Ryker.State.Behaviors do
        when action in [:start_episode, :continue_episode, :reply],
        do: :ok
 
-  defp valid_final_episode(action, nil) when action in [:react, :ignore], do: :ok
+  defp valid_final_episode(action, nil) when action in [:quick_reply, :react, :ignore], do: :ok
   defp valid_final_episode(_action, _episode), do: {:error, {:invalid_behavior_run, :episode}}
 
   defp transaction(callback) do

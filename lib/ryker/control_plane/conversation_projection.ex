@@ -22,7 +22,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   }
 
   alias Ryker.Delivery.PlatformAction
-  alias Ryker.Delivery.Reaction
+  alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes.{Episode, Event, RoutingDigest}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
@@ -308,7 +308,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       page = page(conversation_id, nil, @page_size)
 
       blocked =
-        input_queue.blocked > 0 or input_queue.reaction_blocked > 0 or
+        input_queue.blocked > 0 or input_queue.routing_blocked > 0 or
           Enum.any?(episodes, &(&1.work_status == :blocked)) or
           deliveries.actions_blocked
 
@@ -366,6 +366,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   defp identity_value(1, "reply:" <> id), do: Ecto.UUID.cast(id)
   defp identity_value(2, "action:" <> id), do: Ecto.UUID.cast(id)
   defp identity_value(3, "publication:" <> id), do: Ecto.UUID.cast(id)
+  defp identity_value(4, "quick-reply:" <> id), do: Ecto.UUID.cast(id)
   defp identity_value(_rank, _identity), do: :error
 
   # Every source contributes its `limit + 1` newest rows older than the
@@ -384,7 +385,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
           input: inputs_older(page_boundary(boundary, :input)),
           reply: replies_older(page_boundary(boundary, :reply)),
           action: actions_older(page_boundary(boundary, :action)),
-          publication: publications_older(page_boundary(boundary, :publication))
+          publication: publications_older(page_boundary(boundary, :publication)),
+          quick_reply: quick_replies_older(page_boundary(boundary, :quick_reply))
         },
         lookahead
       )
@@ -412,7 +414,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       ref |> page_inputs(filters.input, limit) |> Enum.map(&{:input, &1}),
       ref |> page_replies(filters.reply, limit) |> Enum.map(&{:reply, &1}),
       ref |> page_actions(filters.action, limit) |> Enum.map(&{:action, &1}),
-      ref |> page_publications(filters.publication, limit) |> Enum.map(&{:publication, &1})
+      ref |> page_publications(filters.publication, limit) |> Enum.map(&{:publication, &1}),
+      ref |> page_quick_replies(filters.quick_reply, limit) |> Enum.map(&{:quick_reply, &1})
     ])
     |> Enum.map(fn {kind, row} -> {candidate_key(kind, row), kind, row} end)
     |> Enum.sort_by(&elem(&1, 0), :desc)
@@ -421,8 +424,9 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   @doc """
   The current representation of every transcript row that changed at or
   after `since`: a new or revised input, a reaction on one, an accepted or
-  confirmed reply, a card whose record moved, a delivered platform message or
-  a publication that advanced. Bounded per source; ascending display order.
+  confirmed reply, a card whose record moved, a delivered platform message, a
+  publication that advanced or a delivered quick reply. Bounded per source;
+  ascending display order.
 
   This is how a live window learns about a row it holds that is no longer on
   the latest page, such as an edit to a message the reader scrolled up to.
@@ -443,7 +447,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
               input: changed_inputs(ref, revised, since, limit),
               reply: changed_replies(ref, revised, since, limit),
               action: changed_actions(ref, since, limit),
-              publication: changed_publications(ref, since, limit)
+              publication: changed_publications(ref, since, limit),
+              quick_reply: changed_quick_replies(ref, since, limit)
             },
             limit * 2
           )
@@ -486,10 +491,11 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   defp reacted_item_refs(ref, since, limit) do
     Repo.all(
-      from(reaction in Reaction,
+      from(reaction in RoutingResponse,
         where:
-          reaction.transport == "control_plane" and reaction.conversation_ref == ^ref and
-            reaction.updated_at >= ^since and not is_nil(reaction.source_item_ref),
+          reaction.kind == :reaction and reaction.transport == "control_plane" and
+            reaction.conversation_ref == ^ref and reaction.updated_at >= ^since and
+            not is_nil(reaction.source_item_ref),
         distinct: true,
         select: reaction.source_item_ref,
         limit: ^limit
@@ -620,6 +626,21 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     end
   end
 
+  defp changed_quick_replies(ref, since, limit) do
+    case Repo.all(
+           from(response in RoutingResponse,
+             where:
+               response.kind == :message and response.transport == "control_plane" and
+                 response.conversation_ref == ^ref and response.updated_at >= ^since,
+             select: response.id,
+             limit: ^limit
+           )
+         ) do
+      [] -> dynamic(false)
+      ids -> dynamic([response], response.id in ^ids)
+    end
+  end
+
   defp candidate_key(:input, row),
     do: TranscriptCursor.key(row.position, :input, "input:" <> row.native_input_id)
 
@@ -628,6 +649,9 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   defp candidate_key(:action, row),
     do: TranscriptCursor.key(row.delivered_at, :action, "action:" <> row.id)
+
+  defp candidate_key(:quick_reply, row),
+    do: TranscriptCursor.key(row.delivered_at, :quick_reply, "quick-reply:" <> row.id)
 
   defp candidate_key(:publication, {publication, _record_ref}),
     do:
@@ -762,15 +786,15 @@ defmodule Ryker.ControlPlane.ConversationProjection do
         )
       )
 
-    reactions =
+    responses =
       Repo.one(
-        from(reaction in Reaction,
+        from(response in RoutingResponse,
           where:
-            reaction.transport == "control_plane" and reaction.conversation_ref == ^ref and
-              reaction.thread_ref == ^ref,
+            response.transport == "control_plane" and response.conversation_ref == ^ref and
+              response.thread_ref == ^ref,
           select: %{
-            blocked: filter(count(reaction.id), reaction.status == :blocked),
-            pending: filter(count(reaction.id), reaction.status == :pending)
+            blocked: filter(count(response.id), response.status == :blocked),
+            pending: filter(count(response.id), response.status == :pending)
           }
         )
       )
@@ -778,8 +802,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     %{
       blocked: entries.blocked,
       pending: entries.pending,
-      reaction_blocked: reactions.blocked,
-      reaction_pending: reactions.pending
+      routing_blocked: responses.blocked,
+      routing_pending: responses.pending
     }
   end
 
@@ -998,8 +1022,45 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     )
   end
 
+  # Quick replies routing sent without Work, positioned at delivery like a
+  # platform message.
+  defp page_quick_replies(ref, filter, limit) do
+    Repo.all(
+      from(response in RoutingResponse,
+        where:
+          response.kind == :message and response.transport == "control_plane" and
+            response.conversation_ref == ^ref and response.thread_ref == ^ref and
+            response.status == :delivered and not is_nil(response.delivered_at),
+        where: ^filter,
+        order_by: [desc: response.delivered_at, desc: response.id],
+        limit: ^limit,
+        select: %{
+          delivered_at: response.delivered_at,
+          delivery_ref: response.delivery_ref,
+          document: response.document,
+          id: response.id,
+          input_id: response.input_id
+        }
+      )
+    )
+  end
+
+  defp quick_replies_older(:all), do: dynamic(true)
+
+  defp quick_replies_older({:before_or_at, at}),
+    do: dynamic([response], response.delivered_at <= ^at)
+
+  defp quick_replies_older({:before, at}), do: dynamic([response], response.delivered_at < ^at)
+
+  defp quick_replies_older({:before_or_tie, at, response_id}) do
+    dynamic(
+      [response],
+      response.delivered_at < ^at or (response.delivered_at == ^at and response.id < ^response_id)
+    )
+  end
+
   defp live?(input_queue, episodes, deliveries) do
-    input_queue.pending > 0 or input_queue.reaction_pending > 0 or
+    input_queue.pending > 0 or input_queue.routing_pending > 0 or
       Enum.any?(
         episodes,
         &(&1.next_action in [

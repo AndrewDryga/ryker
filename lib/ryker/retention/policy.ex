@@ -269,9 +269,9 @@ defmodule Ryker.Retention.Policy do
       why: "current operator-authorized worker and certificate registry"
     },
     %{
-      table: "delivery_reactions",
+      table: "delivery_routing_responses",
       class: :operational,
-      why: "one outbound social action and its transport receipt"
+      why: "one reaction or quick reply routing sent without Work, and its transport receipt"
     },
     %{
       table: "episode_emisar_approvals",

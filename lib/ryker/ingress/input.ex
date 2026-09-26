@@ -134,12 +134,26 @@ defmodule Ryker.Ingress.Input do
     }
   end
 
-  @spec allowed_actions(t()) :: [:start_episode | :continue_episode | :reply | :react | :ignore]
-  def allowed_actions(%__MODULE__{source_capabilities: %{"react" => _capability}}),
-    do: [:start_episode, :continue_episode, :reply, :react, :ignore]
+  @doc """
+  What routing may do with this input. Every input may start or join work,
+  or be left alone; a source that can take a reaction may get one; and a
+  person writing in Slack or Chat may get a quick reply, a sentence or two
+  routing writes itself instead of starting work.
+  """
+  @spec allowed_actions(t()) :: [
+          :start_episode | :continue_episode | :reply | :quick_reply | :react | :ignore
+        ]
+  def allowed_actions(%__MODULE__{} = input) do
+    [:start_episode, :continue_episode, :reply] ++
+      if(quick_reply?(input), do: [:quick_reply], else: []) ++
+      if(Map.has_key?(input.source_capabilities, "react"), do: [:react], else: []) ++
+      [:ignore]
+  end
 
-  def allowed_actions(%__MODULE__{}),
-    do: [:start_episode, :continue_episode, :reply, :ignore]
+  defp quick_reply?(%__MODULE__{actor: %{kind: :user}, source: %{kind: kind}}),
+    do: kind in ["slack", "control_plane"]
+
+  defp quick_reply?(_input), do: false
 
   @spec reaction_names(t()) :: :any | [String.t()] | nil
   def reaction_names(%__MODULE__{

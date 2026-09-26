@@ -71,7 +71,7 @@ defmodule Ryker.ControlPlane.UpdatesTest do
       "operator_behaviors" => "configuration",
       "standing_assignment_runs" => "rules",
       "platform_actions" => "timeline",
-      "delivery_reactions" => "conversations",
+      "delivery_routing_responses" => "conversations",
       "ryker_operator_actions" => "failures",
       "future_table" => "configuration"
     }

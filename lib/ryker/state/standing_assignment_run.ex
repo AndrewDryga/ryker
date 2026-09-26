@@ -17,7 +17,7 @@ defmodule Ryker.State.StandingAssignmentRun do
     field(
       :decision_action,
       Ecto.Enum,
-      values: [:start_episode, :continue_episode, :reply, :react, :ignore]
+      values: [:start_episode, :continue_episode, :reply, :quick_reply, :react, :ignore]
     )
 
     field(:decision_ref, :string)

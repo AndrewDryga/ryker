@@ -1281,7 +1281,7 @@ defmodule Ryker.State.ContinuityTest do
 
     assert %{turn: %{delivery_document: nil}} = accept!(work)
     assert Repo.one!(ConversationSummary).state["situation"] == "Observed a keep-service decision"
-    assert Repo.aggregate(Ryker.Delivery.Reaction, :count) == 0
+    assert Repo.aggregate(Ryker.Delivery.RoutingResponse, :count) == 0
   end
 
   test "validated result acceptance atomically publishes the latest staged situation" do

@@ -474,6 +474,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp outcome(%{action: :continue_episode}), do: "Continued earlier work"
   defp outcome(%{action: :reply}), do: "Replied"
   defp outcome(%{action: :react}), do: "Reacted"
+  defp outcome(%{action: :quick_reply}), do: "Answered right away"
   defp outcome(_run), do: "Handled"
 
   defp when_fact(%DateTime{} = at, now), do: rich([{:time, at, ago(at, now)}])
