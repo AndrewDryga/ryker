@@ -25,9 +25,22 @@ defmodule Ryker.Admission.ReadyPool do
   alias Ryker.Settings.Work
   alias Ryker.Work.Session
 
-  @fields [:api, :client, :policy, :policy_digest, :poll_interval_ms, :target]
+  @fields [
+    :api,
+    :client,
+    :operation_polls,
+    :policy,
+    :policy_digest,
+    :poll_interval_ms,
+    :sleep,
+    :target
+  ]
   @required [:api, :client, :policy, :policy_digest, :target]
   @poll_interval_ms 1_000
+  # The worker finishes a create a few seconds after accepting it; waiting up
+  # to 30 s stays well inside `@stranded_seconds`.
+  @operation_polls 60
+  @operation_poll_ms 500
   # With nothing to keep, a pass only has leftovers to retire, and the first
   # pass after the setting changed has already done that.
   @idle_interval_ms 60_000
@@ -122,9 +135,10 @@ defmodule Ryker.Admission.ReadyPool do
         open(session, remote, settings)
 
       {:ok, %{"operation" => operation}} ->
-        case created(operation) do
+        case await_created(operation, key, settings, settings.operation_polls) do
           {:created, coop_session_id} -> fetch(session, coop_session_id, settings)
-          _unfinished -> failed(session, {:coop_operation_unfinished, operation}, settings)
+          :absent -> failed(session, {:coop_operation_failed, operation}, settings)
+          :unknown -> failed(session, {:coop_operation_unfinished, operation}, settings)
         end
 
       {:ok, _response} ->
@@ -132,6 +146,27 @@ defmodule Ryker.Admission.ReadyPool do
 
       {:error, reason} ->
         failed(session, reason, settings)
+    end
+  end
+
+  # The fleet accepts a create and its worker finishes it a few seconds
+  # later, as routing's own create does; the pool waits for it the same way.
+  # Reading the first "running" answer as a failed start fenced and retired
+  # every start on the live install on 2026-09-26, one every five seconds,
+  # while the worker kept creating sessions nobody used.
+  defp await_created(operation, key, settings, polls_left) do
+    case created(operation) do
+      :unknown when polls_left > 0 ->
+        settings.sleep.(@operation_poll_ms)
+
+        case settings.api.operation_by_key(settings.client, key) do
+          {:ok, current} -> await_created(current, key, settings, polls_left - 1)
+          :not_found -> await_created(operation, key, settings, polls_left - 1)
+          {:error, _reason} -> :unknown
+        end
+
+      result ->
+        result
     end
   end
 
@@ -226,6 +261,8 @@ defmodule Ryker.Admission.ReadyPool do
       configuration
       |> Options.normalize!(@fields, @required, "configuration has missing or unknown fields")
       |> Map.put_new(:poll_interval_ms, @poll_interval_ms)
+      |> Map.put_new(:operation_polls, @operation_polls)
+      |> Map.put_new(:sleep, &Process.sleep/1)
 
     case Enum.find(checks(), fn {valid?, _refusal} -> not valid?.(options) end) do
       nil -> {:ok, options}
@@ -246,7 +283,10 @@ defmodule Ryker.Admission.ReadyPool do
       {&(is_integer(&1.target) and &1.target in 0..maximum),
        "target must be between 0 and #{maximum}"},
       {&(is_integer(&1.poll_interval_ms) and &1.poll_interval_ms > 0),
-       "poll_interval_ms must be a positive integer"}
+       "poll_interval_ms must be a positive integer"},
+      {&(is_integer(&1.operation_polls) and &1.operation_polls >= 0),
+       "operation_polls must be a non-negative integer"},
+      {&is_function(&1.sleep, 1), "sleep must be a one-argument function"}
     ]
   end
 
