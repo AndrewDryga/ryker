@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.Kit do
   """
   use Phoenix.Component
 
+  alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, ShortTime}
 
   attr(:id, :string, default: nil)
@@ -208,6 +209,31 @@ defmodule Ryker.ControlPlane.Kit do
       target="_blank"
       rel="noopener noreferrer"
     >{@person.name}</a><span :if={!@person.href} class={["kit-person", @class]}>{@person.name}</span>
+    """
+  end
+
+  @doc "`person/1` for a page built as an HTML string."
+  @spec person_html(map(), String.t() | nil) :: iodata()
+  def person_html(person, class \\ nil),
+    do: Safe.to_iodata(person(%{person: person, class: class, __changed__: nil}))
+
+  attr(:people, :list, required: true, doc: "Slack people from `Ryker.Slack.Names.person/2`")
+  attr(:more, :list, default: [], doc: "Words after the people in the same list, such as groups")
+
+  @doc """
+  Slack people in one line, each shown as `person/1` shows one, then anything
+  else the same list holds: @Ann, @Bo, user group S1.
+  """
+  def people(assigns) do
+    items = Enum.map(assigns.people, &{:person, &1}) ++ Enum.map(assigns.more, &{:words, &1})
+    # Each item but the last carries its comma, so no space ever comes before one.
+    commas = List.duplicate(",", max(length(items) - 1, 0)) ++ [""]
+    assigns = assign(assigns, :items, Enum.zip(items, commas))
+
+    ~H"""
+    <%= for {{kind, item}, comma} <- @items do %>
+      <.person :if={kind == :person} person={item} /><span :if={kind == :words}>{item}</span>{comma}
+    <% end %>
     """
   end
 

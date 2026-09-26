@@ -384,6 +384,20 @@ defmodule Ryker.ControlPlane.UsagePageTest do
       |> Enum.map(&LazyHTML.text/1)
 
     assert sources == ["Slack", "GitHub", "Webhook"]
+
+    # A Slack member reads as a person, never their ID, and "Slack" beneath
+    # the name opens their profile, the way every person links to Slack
+    # (Andrew, 2026-09-26). The name itself still opens their activity.
+    [slack, github, _webhook] =
+      document |> LazyHTML.query("#usage-users tbody td.usage-identity") |> Enum.to_list()
+
+    refute LazyHTML.text(slack) =~ "U123"
+
+    assert slack |> LazyHTML.query(".usage-secondary a") |> LazyHTML.attribute("href") == [
+             "https://slack.com/app_redirect?team=T123&channel=U123"
+           ]
+
+    assert github |> LazyHTML.query(".usage-secondary a") |> Enum.empty?()
   end
 
   test "profile names are escaped and reported and estimated executions contribute one total" do
@@ -587,10 +601,10 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     counted =
       for row <- LazyHTML.query(document, ".usage-breakdown tbody tr"),
-          [href] = row |> LazyHTML.query("td.usage-identity a") |> LazyHTML.attribute("href"),
+          [href] = row |> LazyHTML.query("td.usage-identity > a") |> LazyHTML.attribute("href"),
           String.starts_with?(href, "/activity?") do
         count = row |> LazyHTML.query("td:nth-child(2) strong") |> LazyHTML.text()
-        name = row |> LazyHTML.query("td.usage-identity a") |> LazyHTML.text()
+        name = row |> LazyHTML.query("td.usage-identity > a") |> LazyHTML.text()
         listed = Activity.list(URI.decode_query(URI.parse(href).query)).total
 
         assert String.to_integer(count) == listed,

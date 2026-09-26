@@ -73,6 +73,10 @@ defmodule Ryker.ControlPlane.RelearnSelectionTest do
     assert html =~ "[redacted]"
     refute html =~ "do-not-display"
     refute html =~ "<span>UAUTHOR</span>"
+
+    # The author is a person, linked to their Slack profile like every other
+    # person Ryker shows (Andrew, 2026-09-26).
+    assert html =~ ~s(href="https://slack.com/app_redirect?team=TPICKER&amp;channel=UAUTHOR")
   end
 
   test "rendered source Markdown does not preserve template indentation" do

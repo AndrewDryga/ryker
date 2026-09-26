@@ -503,7 +503,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
           {:workspace, "slack:T123", "everywhere"},
           {:conversation, "slack:T123:C456", "in Slack channel C456"},
           {:repository, "acme/checkout-api", "for acme/checkout-api"},
-          {:operator, "slack:user:U123", "for one person"}
+          {:operator, "slack:user:U123", "for Slack user"}
         ] do
       guidance = %{
         item(:guidance)
@@ -527,7 +527,18 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
       meta = row |> LazyHTML.query(".entity-meta") |> LazyHTML.text() |> squish()
       assert meta =~ "Guidance · #{where}", "#{scope_kind}: #{meta}"
       refute meta =~ "slack:", "#{scope_kind}"
+      refute meta =~ "U123", "#{scope_kind}"
     end
+
+    # Guidance saved for one person names that person, linked to their Slack
+    # profile, where it read "for one person" until Slack had said the name
+    # (Andrew, 2026-09-26: always the name with a link, never an ID).
+    personal = %{item(:guidance) | scope_kind: :operator, scope_ref: "slack:user:U123"}
+    row = instructions_document([], view(:guidance, [personal])) |> LazyHTML.query("article")
+
+    assert row |> LazyHTML.query(".entity-meta a") |> LazyHTML.attribute("href") == [
+             "https://slack.com/app_redirect?team=T123&channel=U123"
+           ]
   end
 
   test "saved entries are filtered by kind and status through linkable segments that keep each other" do

@@ -127,7 +127,7 @@ defmodule Ryker.Runtime.Owner do
   # Setup must be reachable before any product configuration exists, so the
   # console runs from bootstrap alone and nothing else starts.
   defp apply_fresh_setup(state) do
-    case reconcile_children(state, %{control_plane: console(state, nil, %{})}) do
+    case reconcile_children(state, %{control_plane: console(state, nil)}) do
       {state, []} -> {{:ok, :not_initialized}, %{state | revision: nil}}
       {state, [failure | _rest]} -> {{:error, failure}, %{state | revision: nil}}
     end
@@ -183,14 +183,14 @@ defmodule Ryker.Runtime.Owner do
   end
 
   defp child_configuration(state, :control_plane, configuration) do
-    console(state, configuration[:control_plane], configuration)
+    console(state, configuration[:control_plane])
   end
 
   defp child_configuration(_state, key, configuration), do: configuration[key]
 
   # The console is always configured: without settings it has bootstrap's
   # listener, no environment Chat could run in and no Work profile at all.
-  defp console(state, nil, _configuration) do
+  defp console(state, nil) do
     %{
       access: Map.get(state.bootstrap.control_plane, :access, :loopback),
       csrf_secret: state.csrf_secret,
@@ -199,7 +199,7 @@ defmodule Ryker.Runtime.Owner do
     }
   end
 
-  defp console(state, control_plane, _configuration),
+  defp console(state, control_plane),
     do: Map.put(control_plane, :csrf_secret, state.csrf_secret)
 
   # Starts, replaces and stops children in dependency order and reports every

@@ -40,8 +40,18 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     assert LazyHTML.query(message, ".ui-message-title") |> LazyHTML.text() ==
              "Incoming message"
 
-    assert LazyHTML.query(message, ".ui-message-header strong") |> LazyHTML.text() ==
-             "Slack user U123"
+    # The sender is a person: their name, linked to their Slack profile, never
+    # the raw ID (Andrew, 2026-09-26: "Slack user U0BHTNFCW6S" is not
+    # readable). Slack has not named them here yet; the ID stays in Details,
+    # under a label that says it is one.
+    sender = LazyHTML.query(message, ".ui-message-header strong a")
+    assert LazyHTML.text(sender) == "Slack user"
+
+    assert LazyHTML.attribute(sender, "href") == [
+             "https://slack.com/app_redirect?team=TC9F5B40D364C&channel=U123"
+           ]
+
+    refute LazyHTML.query(message, ".ui-message-header") |> LazyHTML.text() =~ "U123"
 
     # The card's time sits in the time column like every other card's (the
     # first card of the page once had an empty one); the message is a reusable

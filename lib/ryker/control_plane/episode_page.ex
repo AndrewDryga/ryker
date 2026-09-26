@@ -1115,6 +1115,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       :if={!@message[:provider]}
       title={message_title(@message)}
       sender={@message[:display_actor] || @message.actor}
+      person={@message[:person]}
       class="case-message"
     >
       <:meta>

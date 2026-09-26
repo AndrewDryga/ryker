@@ -305,9 +305,30 @@ defmodule Ryker.ControlPlane.UsagePage do
         %{actor: row.actor, actor_kind: "user", workspace: row.workspace, source: row.source},
         snapshot
       ),
-      secondary(source_name(row.source))
+      source_line(row)
     ]
   end
+
+  # Where a user comes from, said quietly under the name. A Slack member's
+  # "Slack" opens their profile, the way every person links to Slack; the
+  # name itself opens their activity, like every other row here.
+  defp source_line(%{source: "slack", workspace: workspace, actor: actor} = row) do
+    case Names.person(workspace, actor) do
+      %{href: href} when is_binary(href) ->
+        [
+          "<span class=\"usage-secondary\"><a href=\"",
+          e(href),
+          "\" target=\"_blank\" rel=\"noopener noreferrer\">",
+          e(source_name(row.source)),
+          "</a></span>"
+        ]
+
+      _no_profile ->
+        secondary(source_name(row.source))
+    end
+  end
+
+  defp source_line(row), do: secondary(source_name(row.source))
 
   # Learning spends on batches of conversation inputs, never on an episode.
   defp kind_link("learning", label, _params, _snapshot),

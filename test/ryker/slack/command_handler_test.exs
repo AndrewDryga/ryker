@@ -1,7 +1,7 @@
 defmodule Ryker.Slack.CommandHandlerTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.Slack.{Command, CommandHandler}
+  alias Ryker.Slack.{Command, CommandHandler, Operators}
 
   defmodule Directory do
     def user_allowed(%{observer: observer, users: users}, actor_ref, workspace_ref) do
@@ -388,5 +388,5 @@ defmodule Ryker.Slack.CommandHandlerTest do
 
   # The people chosen to manage Ryker, with the workspace's admins left out.
   defp chosen_operators(people),
-    do: Ryker.Slack.Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
+    do: Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
 end

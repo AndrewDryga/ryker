@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.Components do
   import Phoenix.HTML.Form, only: [options_for_select: 2]
   alias Phoenix.HTML.Safe
   alias Phoenix.LiveView.JS
+  alias Ryker.ControlPlane.Kit
   alias Ryker.Episodes.Words
   alias Ryker.Work.ExecutionTarget
 
@@ -208,6 +209,12 @@ defmodule Ryker.ControlPlane.Components do
 
   attr(:title, :string, default: nil)
   attr(:sender, :string, default: nil)
+
+  attr(:person, :map,
+    default: nil,
+    doc: "A Slack person who sent it, from `Ryker.Slack.Names.person/2`, shown in place of sender"
+  )
+
   attr(:context, :string, default: nil)
   attr(:class, :any, default: nil)
   attr(:rest, :global)
@@ -217,16 +224,18 @@ defmodule Ryker.ControlPlane.Components do
 
   @doc """
   One message, drawn as a message wherever it appears: an optional title, then
-  the sender's name and time, the words in a bubble, and details below.
+  the sender's name and time, the words in a bubble, and details below. A
+  Slack person who sent it reads as `Kit.person/1` shows every person.
   """
   def message_block(assigns) do
-    assigns = assign(assigns, :author, message_author(assigns.sender))
+    assigns = assign(assigns, :author, message_author(assigns.person || assigns.sender))
 
     ~H"""
     <article class={["ui-message", @class]} data-author={@author} {@rest}>
       <h3 :if={@title} class="ui-message-title">{@title}</h3>
-      <header :if={@sender || @context || @meta != []} class="ui-message-header">
-        <strong :if={@sender}>{@sender}</strong>
+      <header :if={@sender || @person || @context || @meta != []} class="ui-message-header">
+        <strong :if={@person}><Kit.person person={@person} /></strong>
+        <strong :if={@sender && !@person}>{@sender}</strong>
         <span :if={@context} class="ui-message-context">{@context}</span>
         <span :if={@meta != []} class="ui-message-meta">{render_slot(@meta)}</span>
       </header>
@@ -246,6 +255,7 @@ defmodule Ryker.ControlPlane.Components do
       __changed__: nil,
       title: options[:title],
       sender: sender,
+      person: options[:person],
       context: options[:context],
       class: options[:class],
       rest: options[:rest] || %{},
@@ -282,7 +292,8 @@ defmodule Ryker.ControlPlane.Components do
             :if={fact[:presentation] == :execution_target}
             target={fact.value}
           />
-          <span :if={!fact[:identifier] && fact[:presentation] != :execution_target}>
+          <Kit.person :if={fact[:presentation] == :person} person={fact.value} />
+          <span :if={!fact[:identifier] && fact[:presentation] not in [:execution_target, :person]}>
             {fact.value}
           </span>
         </dd>

@@ -40,7 +40,10 @@ defmodule Ryker.Slack.NamesTest do
     assert :ok = GenServer.call(Names, :refresh)
 
     html = SlackMarkdown.render("<@U1> ping <#C1>", "T123") |> IO.iodata_to_binary()
-    assert html =~ ~s(<span class="slack-mention" title="U1">@emisar</span>)
+
+    assert html =~
+             ~s(<a class="kit-person slack-mention" href="https://slack.com/app_redirect?team=T123&amp;channel=U1" target="_blank" rel="noopener noreferrer">@emisar</a>)
+
     assert html =~ ~s(<span class="slack-mention" title="C1">#emisar</span>)
     refute html =~ "@@"
 
@@ -201,7 +204,10 @@ defmodule Ryker.Slack.NamesTest do
     assert html =~ "Andrew [redacted]"
   end
 
-  test "mentions use workspace-scoped names while raw identities remain inspectable" do
+  # A mention of a person is shown as every person is: their name, linked to
+  # their Slack profile, with no raw ID even in a tooltip (Andrew,
+  # 2026-09-26). The profile link is how a reader finds out who it is.
+  test "a mentioned person reads as their name linked to Slack, a channel keeps its reference" do
     start_supervised!(
       {Names,
        workspace: "T123",
@@ -222,7 +228,9 @@ defmodule Ryker.Slack.NamesTest do
 
     assert html =~ "@Andrew &lt;admin&gt;"
     assert html =~ "#test"
-    assert html =~ "title=\"U456\""
+    assert html =~ ~s(href="https://slack.com/app_redirect?team=T123&amp;channel=U456")
+    refute html =~ ~s(title="U456")
+    assert html =~ ~s(title="C789")
     assert html =~ "<code>literal &lt;@U456&gt;</code>"
     refute html =~ "<admin>"
     assert Names.destination("control_plane:control-plane:lab:uuid") == "Direct conversation"
@@ -238,7 +246,7 @@ defmodule Ryker.Slack.NamesTest do
       })
 
     context = RequestContextHTML.render(artifact) |> IO.iodata_to_binary()
-    assert context =~ "<strong>@Andrew &lt;admin&gt;</strong>"
+    assert context =~ ~s(>@Andrew &lt;admin&gt;</a></strong>)
     assert context =~ "#test"
 
     title =

@@ -172,6 +172,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       fact("Policy", row[:policy]),
       identifier("Record", row.ref),
       identifier("Request", row[:episode_ref]),
+      person("Pressed by", row[:pressed_by]),
       identifier("Source", source(row[:source])),
       identifier("Conversation", row[:destination]),
       identifier("Diagnostic reference", row[:detail]),
@@ -185,6 +186,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp identifier(_label, nil), do: nil
   defp identifier(label, value), do: %{label: label, value: to_string(value), identifier: true}
+
+  defp person(_label, nil), do: nil
+  defp person(label, person), do: %{label: label, value: person, presentation: :person}
 
   defp source("no repository"), do: nil
   defp source(source), do: source

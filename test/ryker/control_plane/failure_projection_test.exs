@@ -36,6 +36,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   alias Ryker.Learning.FleetSession, as: LearningFleetSession
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Slack.Input, as: SlackInput
+  alias Ryker.Slack.{Interaction, InteractionAudits}
   alias Ryker.Work.{Cancellation, Custody, Session, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -281,6 +282,45 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     detail = exact |> FailuresPage.detail() |> IO.iodata_to_binary()
     assert detail =~ "Grant one more start"
     assert detail =~ path
+  end
+
+  # A button update that stopped listed "Source U0BHTNFCW6S ·
+  # ryker_start_engineering_task" in its technical details: the person who
+  # pressed it only as a raw Slack ID (Andrew, 2026-09-26: always the name,
+  # with a link to Slack).
+  test "the person who pressed a button reads as a linked name in a stopped update's details" do
+    click = %Interaction{
+      action_id: "ryker_start_engineering_task",
+      action_value: "record:task_offer:abc123",
+      actor_ref: "U0BHTNFCW6S",
+      channel_ref: "C456",
+      event_ref: "interaction:pressed-by",
+      message_ref: "1787832001.000200",
+      occurred_at: ~U[2026-09-26 12:00:00.000000Z],
+      thread_ref: "1787832000.000100",
+      workspace_ref: "T0123456789"
+    }
+
+    assert {:ok, %{audit: audit}} = InteractionAudits.record(click, :confirmed)
+
+    audit |> Ecto.Changeset.change(repaint_status: :blocked, attempt_count: 8) |> Repo.update!()
+
+    assert {:ok, row} = FailureProjection.fetch("slack_interaction", click.event_ref)
+
+    details =
+      row
+      |> FailuresPage.detail()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#failure-technical")
+
+    assert details |> LazyHTML.query("a.kit-person") |> LazyHTML.text() == "Slack user"
+
+    assert details |> LazyHTML.query("a.kit-person") |> LazyHTML.attribute("href") == [
+             "https://slack.com/app_redirect?team=T0123456789&channel=U0BHTNFCW6S"
+           ]
+
+    refute LazyHTML.text(details) =~ "U0BHTNFCW6S"
   end
 
   test "learning stopped by a topic that lost its sources points to relearning it" do

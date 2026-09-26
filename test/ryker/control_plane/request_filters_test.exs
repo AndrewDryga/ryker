@@ -87,6 +87,28 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
              ~w(usage_actor usage_actor_kind usage_source usage_workspace)
   end
 
+  # "Slack user U0BHTNFCW6S" is not readable (Andrew, 2026-09-26). A chip for
+  # a person the loaded choices no longer list read as their bare Slack ID.
+  test "a user chip names the person, never their Slack ID" do
+    for params <- [
+          %{"usage_actor" => "U0BHTNFCW6S", "usage_actor_kind" => "user"},
+          %{
+            "usage_actor" => "U0BHTNFCW6S",
+            "usage_actor_kind" => "user",
+            "usage_source" => "slack",
+            "usage_workspace" => "T123"
+          }
+        ] do
+      chip =
+        render_filters(%{params: params})
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query(".filter-chip[data-filter=usage_actor] .filter-chip-value")
+        |> LazyHTML.text()
+
+      assert chip == "Slack user", inspect(params)
+    end
+  end
+
   test "reasoning effort reads in the words Settings uses" do
     # QA, 2026-09-25: the filter offered "Xhigh" where Settings says "Extra high".
     document = render_filters(%{menu: "fields"}) |> LazyHTML.from_fragment()

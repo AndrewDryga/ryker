@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   would show.
   """
   use Ryker.DataCase, async: false
+
   import Ryker.TestHelpers, only: [eventually: 1]
 
   import Phoenix.ConnTest
@@ -26,6 +27,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     ChannelSettings,
     ChannelSetup,
     MembershipTransition,
+    Operators,
     Renderer
   }
 
@@ -233,7 +235,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   # The people chosen to manage Ryker, with the workspace's admins left out.
   defp chosen_operators(people),
     do:
-      Ryker.Slack.Operators.new(
+      Operators.new(
         chosen: people,
         workspace_admins: false,
         workspace_ref: @workspace

@@ -393,15 +393,13 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp where(%{scope_kind: :repository, scope_ref: repository}),
     do: rich(["for ", {:strong, repository}])
 
+  # Guidance for one person names them, linked to their Slack profile.
   defp where(%{
          scope_kind: :operator,
          scope_ref: "slack:user:" <> person,
          workspace_ref: "slack:" <> workspace
-       }) do
-    if Names.named?("slack:#{workspace}:#{person}"),
-      do: rich(["for ", {:strong, Names.name(workspace, person)}]),
-      else: "for one person"
-  end
+       }),
+       do: rich(["for ", {:person, Names.person(workspace, person)}])
 
   defp where(%{scope_kind: :operator}), do: "for one person"
   defp where(_item), do: nil
@@ -593,6 +591,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp rich(parts), do: {:safe, Enum.map(parts, &rich_part/1)}
   defp rich_part({:strong, text}), do: ["<strong>", escape(text), "</strong>"]
   defp rich_part({:code, text}), do: ["<code>", escape(text), "</code>"]
+
+  defp rich_part({:person, person}), do: Kit.person_html(person)
 
   defp rich_part({:time, %DateTime{} = at, text}) do
     [
