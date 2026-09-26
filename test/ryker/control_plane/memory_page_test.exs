@@ -862,8 +862,8 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     assert map_size(learned) == 3
     assert_received {:learning, %{"batch" => "b", "page" => "2"} = learning}
     assert map_size(learning) == 2
-    assert_received {:findings, %{"page" => "2"} = findings}
-    assert map_size(findings) == 1
+    assert_received {:findings, %{"page" => "2", "q" => "deploy"} = findings}
+    assert map_size(findings) == 2
   end
 
   defp facts(snapshot) do

@@ -5,10 +5,12 @@ defmodule Ryker.ControlPlane.ActivityTest do
   alias Ryker.ControlPlane.{Activity, ActivityPage, Projection, SlackNames, UsagePage}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
+  alias Ryker.Fixtures.SavedEntities
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Slack.Input
+  alias Ryker.State.ScheduleOccurrenceChangeset
   alias Ryker.Work.Custody
   alias Ryker.Work.Session
   alias Ryker.Work.Turn
@@ -477,8 +479,8 @@ defmodule Ryker.ControlPlane.ActivityTest do
     # QA, 2026-09-25: every scheduled run in Activity read "Message text no
     # longer available". A run starts from its schedule, not from a message,
     # so there was never text to lose.
-    source = Ryker.Fixtures.SavedEntities.source!("slack:T123:C456")
-    schedule = Ryker.Fixtures.SavedEntities.schedule!(source, "Weekday open incident status", 1)
+    source = SavedEntities.source!("slack:T123:C456")
+    schedule = SavedEntities.schedule!(source, "Weekday open incident status", 1)
     run = counted_episode!("scheduled-run")
 
     %{
@@ -490,7 +492,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
       scheduled_for: DateTime.utc_now(),
       status: :dispatched
     }
-    |> Ryker.State.ScheduleOccurrenceChangeset.insert()
+    |> ScheduleOccurrenceChangeset.insert()
     |> Repo.insert!()
 
     assert %{title: "Weekday open incident status"} =

@@ -211,34 +211,13 @@ defmodule Ryker.ControlPlane.Activity do
         }
       )
 
-    # The repository the latest working copy checked out, for work whose
-    # message named none.
-    checkouts =
-      from(session in Session,
-        where: not is_nil(session.episode_id) and not is_nil(session.repository_ref),
-        distinct: session.episode_id,
-        order_by: [asc: session.episode_id, desc: session.generation],
-        select: %{episode_id: session.episode_id, repository: session.repository_ref}
-      )
-
-    # A scheduled run starts from its schedule, not from a message.
-    schedules =
-      from(occurrence in ScheduleOccurrence,
-        join: schedule in Schedule,
-        on: schedule.id == occurrence.schedule_id,
-        where: not is_nil(occurrence.child_episode_id),
-        distinct: occurrence.child_episode_id,
-        order_by: [asc: occurrence.child_episode_id, asc: occurrence.scheduled_for],
-        select: %{episode_id: occurrence.child_episode_id, title: schedule.title}
-      )
-
     episodes =
       from(episode in Episode,
         left_join: input in subquery(first_inputs),
         on: input.episode_id == episode.id,
-        left_join: checkout in subquery(checkouts),
+        left_join: checkout in subquery(checkouts()),
         on: checkout.episode_id == episode.id,
-        left_join: scheduled in subquery(schedules),
+        left_join: scheduled in subquery(scheduled_runs()),
         on: scheduled.episode_id == episode.id,
         left_join: turn in Turn,
         on:
@@ -327,6 +306,29 @@ defmodule Ryker.ControlPlane.Activity do
       )
 
     union_all(episodes, ^admissions)
+  end
+
+  # The repository the latest working copy checked out, for work whose
+  # message named none.
+  defp checkouts do
+    from(session in Session,
+      where: not is_nil(session.episode_id) and not is_nil(session.repository_ref),
+      distinct: session.episode_id,
+      order_by: [asc: session.episode_id, desc: session.generation],
+      select: %{episode_id: session.episode_id, repository: session.repository_ref}
+    )
+  end
+
+  # A scheduled run starts from its schedule, not from a message.
+  defp scheduled_runs do
+    from(occurrence in ScheduleOccurrence,
+      join: schedule in Schedule,
+      on: schedule.id == occurrence.schedule_id,
+      where: not is_nil(occurrence.child_episode_id),
+      distinct: occurrence.child_episode_id,
+      order_by: [asc: occurrence.child_episode_id, asc: occurrence.scheduled_for],
+      select: %{episode_id: occurrence.child_episode_id, title: schedule.title}
+    )
   end
 
   # An episode reads as the name Work gave it; before any turn has named it,

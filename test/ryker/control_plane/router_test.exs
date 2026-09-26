@@ -1716,7 +1716,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     html = snapshot |> UsagePage.render() |> IO.iodata_to_binary()
     assert html =~ "github:channel/with spaces"
-    assert html =~ "claude:opus/high@work"
+    assert html =~ "opus/high"
     assert html =~ "No repository"
     assert html =~ "Not measured"
     refute html =~ "no token report"

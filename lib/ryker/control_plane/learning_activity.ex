@@ -278,14 +278,19 @@ defmodule Ryker.ControlPlane.LearningActivity do
     |> Map.merge(%{
       relearn: relearn,
       retry_policy: policy,
-      retry_available:
-        row.status == :deferred and relearn == [] and not outstanding and not busy and
-          not is_nil(policy),
+      retry_available: retryable?(row, relearn, outstanding or busy, policy),
       retry_blocked:
         retry_reason(row.status, outstanding, busy) ||
           if(row.status == :deferred, do: configuration_error)
     })
   end
+
+  # One more start is offered only to a stopped batch nothing else holds,
+  # under a working policy, and never while a stale topic would stop it again.
+  defp retryable?(%{status: :deferred}, [], false = _held, policy) when not is_nil(policy),
+    do: true
+
+  defp retryable?(_row, _relearn, _held, _policy), do: false
 
   @doc """
   The learned topics a batch stopped on because they lost the messages they
