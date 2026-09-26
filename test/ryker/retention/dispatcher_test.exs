@@ -694,7 +694,10 @@ defmodule Ryker.Retention.DispatcherTest do
     {1, nil} =
       Repo.update_all(
         from(worker in Ryker.CoopFleet.Worker, where: worker.id == ^worker_id),
-        set: [last_seen_at: DateTime.utc_now()]
+        # A worker's report is stamped by the database clock, as the fleet
+        # control plane stamps it; the host clock ran ~5 ms behind it here
+        # and made the report look older than the deferral it answers.
+        set: [last_seen_at: Repo.now!()]
       )
   end
 
