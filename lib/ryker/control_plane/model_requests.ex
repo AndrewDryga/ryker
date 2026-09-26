@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   }
 
   alias Ryker.ControlPlane.EpisodeTrace.Step
+  alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.{Inbox, InputCustodyTransition}
   alias Ryker.Ingress.Inbox.Entry
@@ -579,6 +580,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
          # second design for the same thing.
          heading: %{
            title: EpisodeTrace.unrouted_title(entry),
+           state: unrouted_state(entry),
            received_at: entry.occurred_at || entry.inserted_at,
            conversation_link:
              Activity.conversation_link(
@@ -589,12 +591,66 @@ defmodule Ryker.ControlPlane.ModelRequests do
          },
          preparation: EpisodeTrace.input_preparation(entry),
          timeline: input_request_events(entry, params, options),
+         answer: routing_answer(entry),
          selected: request
        }}
     else
       _missing -> :not_found
     end
   end
+
+  # What routing sent without work, the last stage of a message it answered
+  # itself or reacted to: the words or the reaction, and whether they went out.
+  defp routing_answer(%Entry{id: id}) do
+    case Repo.get_by(RoutingResponse, input_id: id) do
+      nil -> []
+      %RoutingResponse{} = response -> [routing_answer_step(response)]
+    end
+  end
+
+  defp routing_answer_step(response) do
+    {state, tone} =
+      case response.status do
+        :delivered -> {"Sent", :good}
+        :pending -> {"Sending", nil}
+        :blocked -> {"Stopped", :bad}
+      end
+
+    Step.step(
+      "routing-response-#{response.id}",
+      :answer,
+      response.delivered_at || response.inserted_at,
+      %{
+        actor: "Ryker",
+        details: [],
+        stage: "Answer",
+        state: state,
+        summary: routing_answer_words(response),
+        title: if(response.kind == :message, do: "Quick reply", else: "Reaction"),
+        tone: tone
+      }
+    )
+  end
+
+  defp routing_answer_words(%RoutingResponse{kind: :message, document: %{"message" => message}}),
+    do: message
+
+  defp routing_answer_words(%RoutingResponse{
+         kind: :reaction,
+         document: %{"emoji_name" => emoji}
+       }),
+       do: ":#{emoji}:"
+
+  # Where a message that never became work stands: what routing decided for
+  # it, or where it waits. It "couldn't start" only when nothing decided it.
+  defp unrouted_state(%Entry{status: :decided, decision_action: action})
+       when action in [:quick_reply, :react, :ignore],
+       do: Atom.to_string(action)
+
+  defp unrouted_state(%Entry{status: status}) when status in [:pending, :blocked, :superseded],
+    do: Atom.to_string(status)
+
+  defp unrouted_state(_entry), do: "not_started"
 
   defp input_request_events(entry, params, shared_options) do
     attempts =
