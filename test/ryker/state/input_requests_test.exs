@@ -162,6 +162,30 @@ defmodule Ryker.State.InputRequestsTest do
     assert Repo.get_by!(Response, record_id: fixture.record.id) == accepted.response
   end
 
+  test "a question closes when its work is closed without an answer" do
+    # QA, 2026-09-25, read "Needs your input" as sticking after an answer. The
+    # live episodes were each parked on a question nobody had answered, and
+    # an answer does close its question; but closing that work as no longer
+    # needed left the question open, so its card kept offering answers that
+    # could only be refused as no longer current, and the next turn's checks
+    # would have counted it as a wait the work still owned.
+    fixture = delivered_question!(:control_plane)
+
+    assert {:ok, %{episode: %{state: :cancelled}}} =
+             Episodes.apply(
+               EpisodeFixtures.cancel_episode(%{
+                 episode_key: fixture.episode.key,
+                 expected_owner: %{kind: :input, ref: fixture.record.ref}
+               })
+             )
+
+    assert Repo.get!(Record, fixture.record.id).status == :dismissed
+    refute Map.has_key?(Records.validation_records(fixture.episode.id), fixture.record.ref)
+
+    assert InputRequests.answer(answer(fixture, 0, "after-close")) ==
+             {:error, :input_request_stale}
+  end
+
   defp associate!(fixture, entry) do
     assert {:ok, :ok} =
              Repo.transaction(fn ->

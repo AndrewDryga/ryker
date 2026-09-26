@@ -341,6 +341,31 @@ defmodule Ryker.State.Records do
 
   def resolve_wait_in_transaction(_wait_ref), do: {:error, :state_record_not_found}
 
+  @doc """
+  Closes the questions an episode still holds open once its work has ended.
+
+  A question belongs to the work that asked it: an answer resolves it through
+  `resolve_wait_in_transaction/1`, and work that ends without one, such as
+  work closed as no longer needed, takes its unanswered question with it.
+  """
+  @spec dismiss_open_questions_in_transaction(Ecto.UUID.t()) :: :ok | {:error, term()}
+  def dismiss_open_questions_in_transaction(episode_id) when is_binary(episode_id) do
+    if Repo.in_transaction?() do
+      query =
+        from(record in Record,
+          where:
+            record.episode_id == ^episode_id and record.kind == "input_request" and
+              record.status == :open,
+          update: [set: [status: :dismissed, updated_at: fragment("clock_timestamp()")]]
+        )
+
+      _dismissed = Repo.update_all(query, [])
+      :ok
+    else
+      {:error, :state_record_transaction_required}
+    end
+  end
+
   @doc false
   @spec user_resumable_wait?(String.t()) :: boolean()
   def user_resumable_wait?(wait_ref) when is_binary(wait_ref) do

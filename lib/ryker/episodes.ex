@@ -24,7 +24,7 @@ defmodule Ryker.Episodes do
   }
 
   alias Ryker.Repo
-  alias Ryker.State.Cases
+  alias Ryker.State.{Cases, Records}
   alias Ryker.Work.Turn
 
   @spec apply(Command.t()) :: {:ok, Transition.t()} | {:error, term()}
@@ -209,6 +209,7 @@ defmodule Ryker.Episodes do
          {:ok, event} <- persist_event(repo, transition.event, episode.id),
          :ok <- Origins.record_in_transaction(episode, event),
          :ok <- release_occurrences(episode),
+         :ok <- close_open_questions(episode),
          :ok <- withdraw_retained_sources(event),
          :ok <- RoutingDigests.refresh_in_transaction(episode, event) do
       {:ok, %{transition | episode: episode, event: event}}
@@ -242,6 +243,15 @@ defmodule Ryker.Episodes do
   end
 
   defp release_occurrences(%Episode{}), do: :ok
+
+  # A finished or cancelled episode asks nobody anything. Work that ends
+  # without an answer takes its question with it, so the card stops offering
+  # answers that could only be refused as no longer current.
+  defp close_open_questions(%Episode{state: state, id: id})
+       when state in [:complete, :cancelled],
+       do: Records.dismiss_open_questions_in_transaction(id)
+
+  defp close_open_questions(%Episode{}), do: :ok
 
   defp persist_episode(repo, nil, episode) do
     episode
