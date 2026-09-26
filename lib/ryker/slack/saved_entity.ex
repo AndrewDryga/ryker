@@ -10,7 +10,7 @@ defmodule Ryker.Slack.SavedEntity do
   that the entity does not retain is invented.
   """
 
-  alias Ryker.State.{Behavior, MemoryEntry, Schedule}
+  alias Ryker.State.{Behavior, MemoryEntry, Schedule, ScheduleCadence}
 
   @type event :: :saved | :updated | nil
 
@@ -23,7 +23,7 @@ defmodule Ryker.Slack.SavedEntity do
     %{
       "facts" =>
         facts([
-          {"When", "#{recurrence(schedule.recurrence)} · #{schedule.timezone}"},
+          {"When", ScheduleCadence.describe(schedule.recurrence, schedule.timezone)},
           {"Channel", destination(schedule.destination_conversation_ref)},
           {"Next run", next_run(schedule)},
           {"Expires", expiry(schedule.expires_at, "No expiry")},
@@ -187,23 +187,6 @@ defmodule Ryker.Slack.SavedEntity do
   defp notice(label, "expired", _event), do: "#{label} expired"
   defp notice(label, "deleted", _event), do: "#{label} deleted"
   defp notice(label, "superseded", _event), do: "#{label} replaced by a newer version"
-
-  defp recurrence(%{"kind" => "once", "at" => at}), do: "Once at #{at}"
-
-  defp recurrence(%{"kind" => "interval", "every_seconds" => seconds} = recurrence) do
-    "Every #{seconds} seconds" <>
-      if(recurrence["starts_at"], do: " from #{recurrence["starts_at"]}", else: "")
-  end
-
-  defp recurrence(%{"kind" => "daily", "time" => time}), do: "Daily at #{time}"
-
-  defp recurrence(%{"kind" => "weekly", "weekday" => weekday, "time" => time}),
-    do: "Every #{weekday} at #{time}"
-
-  defp recurrence(%{"kind" => "monthly", "day" => day, "time" => time}),
-    do: "Monthly on day #{day} at #{time}"
-
-  defp recurrence(_recurrence), do: "Not recorded"
 
   defp next_run(%Schedule{status: :active, next_occurrence_at: %DateTime{} = at}),
     do: time(at)

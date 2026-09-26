@@ -213,6 +213,192 @@ defmodule Ryker.ControlPlane.CardTest do
     refute html =~ ">open<"
   end
 
+  # QA, 2026-09-25, Chat 878b84df: the card read "Every weekday at 09:00 UTC"
+  # because its only cadence was the model's own task text, while the offer
+  # under it was Mondays only. Confirming it created "Every Monday".
+  test "a schedule offer says how often from its recurrence, whatever its title claims" do
+    payload = %{
+      "authority" => "read_only",
+      "expires_at" => nil,
+      "recurrence" => %{"kind" => "weekly", "time" => "09:00:00", "weekday" => "monday"},
+      "repository" => nil,
+      "task" => "Every weekday at 09:00 UTC, post a one-line status of open incidents here.",
+      "timezone" => "Etc/UTC",
+      "title" => "Weekday open incident status"
+    }
+
+    assert {:ok, monday} = Card.project(record("schedule_offer", payload))
+    assert {"How often", "Every Monday at 09:00 UTC"} in monday.details
+
+    html = HTML.lab_message_extras(%{cards: [monday]}) |> IO.iodata_to_binary()
+    assert html =~ "<dt>How often</dt><dd>Every Monday at 09:00 UTC</dd>"
+
+    weekdays = put_in(payload, ["recurrence"], %{"kind" => "weekdays", "time" => "09:00:00"})
+    assert {:ok, card} = Card.project(record("schedule_offer", weekdays))
+    assert {"How often", "Every weekday at 09:00 UTC"} in card.details
+  end
+
+  # QA, 2026-09-25: every question card said "Reply below or choose one of the
+  # offered answers." whether it offered answers or not, and kept saying it
+  # after the question had been answered.
+  test "a question card asks for a reply and mentions answers only when it offers some" do
+    question = "Which timezone should I use for the weekday 9:00 status?"
+
+    assert {:ok, open} =
+             Card.project(record("input_request", %{"choices" => [], "question" => question}))
+
+    assert open.summary == "Reply below."
+    assert open.action == nil
+
+    assert {:ok, choosing} =
+             Card.project(
+               record("input_request", %{
+                 "choices" => ["UTC", "Europe/Berlin"],
+                 "question" => question
+               })
+             )
+
+    assert choosing.summary == "Reply below or choose an answer."
+    assert choosing.action == :answer_input
+    assert choosing.choices == ["UTC", "Europe/Berlin"]
+
+    assert {:ok, answered} =
+             Card.project(
+               record("input_request", %{"choices" => [], "question" => question}, :answered)
+             )
+
+    assert answered.summary == nil
+    refute HTML.lab_message_extras(%{cards: [answered]}) |> IO.iodata_to_binary() =~ "Reply"
+  end
+
+  # QA, 2026-09-25: chat cards printed "SOURCE admit_input:63c450cc…", a digest
+  # nobody can open, beside "AUTHORITY read_only", "KIND Entity relationship"
+  # and "SCOPE Workspace": stored values a person can neither read nor act on.
+  test "offer and evidence cards say what matters in words, never stored values" do
+    schedule = %{
+      "authority" => "read_only",
+      "expires_at" => "2026-12-31T17:00:00.000000Z",
+      "recurrence" => %{"kind" => "weekdays", "time" => "09:00:00"},
+      "repository" => nil,
+      "task" => "Post a one-line status of open incidents here.",
+      "timezone" => "Etc/UTC",
+      "title" => "Weekday open incident status"
+    }
+
+    assert {:ok, reading} = Card.project(record("schedule_offer", schedule))
+
+    assert reading.details == [
+             {"How often", "Every weekday at 09:00 UTC"},
+             {"What it may do", "Read-only"},
+             {"Stops", "31 Dec 2026, 17:00 UTC"}
+           ]
+
+    writing = %{schedule | "authority" => "repository_write", "repository" => "checkout-api"}
+    assert {:ok, writer} = Card.project(record("schedule_offer", writing))
+    assert {"What it may do", "Can change code in checkout-api"} in writer.details
+
+    memory = %{
+      "expires_in" => "90d",
+      "kind" => "entity_relationship",
+      "repository" => nil,
+      "scope" => "workspace",
+      "subject" => "Staging Emisar account",
+      "value" => "The staging Emisar account is named acme-staging.",
+      "visibility" => "workspace"
+    }
+
+    assert {:ok, remembered} = Card.project(record("memory_offer", memory))
+
+    assert remembered.details == [
+             {"Applies to", "Everyone in this workspace"},
+             {"Expires", "90 days"}
+           ]
+
+    digest = "admit_input:63c450ccc15dd8fb105ed9574cdec80d95645bc20891a5fdefb3640b230cda46"
+
+    evidence = %{
+      "claim" => "Operator-reported production checkout-api v2.3.1 timeline",
+      "claim_id" => "citation:0f3b7c2a91d44e6b8a5c1d2e3f405162",
+      "confidence" => nil,
+      "dimensions" => %{},
+      "freshness" => nil,
+      "health_effect" => nil,
+      "observation" => "The operator reports the rollout at 08:00 and the alert at 08:04.",
+      "observed_at" => nil,
+      "relation" => "supports",
+      "scope_note" => nil,
+      "source_id" => digest,
+      "source_name" => digest,
+      "source_type" => "other",
+      "supersedes" => [],
+      "target" => "Operator-reported production checkout-api v2.3.1 timeline"
+    }
+
+    assert {:ok, cited} = Card.project(record("evidence", evidence))
+    assert cited.details == []
+
+    trigger = %{
+      "recurrence" => "weekdays",
+      "time" => "09:00:00",
+      "timezone" => "Etc/UTC",
+      "type" => "time"
+    }
+
+    automation = "schedule:5b0c8f0e-2d1c-4b7e-9d53-0d8d2b1c9e41"
+
+    change = %{
+      "action" => "update",
+      "after" => %{"title" => "Weekday open incident status", "trigger" => trigger},
+      "automation_id" => automation,
+      "automation_kind" => "time",
+      "before" => %{"title" => "Weekday open incident status"},
+      "patch" => %{"trigger" => trigger},
+      "revision" => 3
+    }
+
+    assert {:ok, changing} = Card.project(record("automation_change_offer", change))
+
+    assert changing.details == [
+             {"Automation", "Weekday open incident status"},
+             {"How often", "Every weekday at 09:00 UTC"}
+           ]
+
+    conversation = "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+
+    post = %{
+      "conversation_ref" => conversation,
+      "destination_ref" => conversation,
+      "instruction_ref" => "admit_input:lab-message",
+      "message" => "Post this additional message only after I confirm it.",
+      "requested_by_actor_ref" => "control-plane:local",
+      "thread_ref" => conversation,
+      "transport" => "control_plane"
+    }
+
+    assert {:ok, posting} = Card.project(record("slack_post_offer", post))
+    assert posting.details == []
+
+    html =
+      HTML.lab_message_extras(%{cards: [reading, writer, remembered, cited, changing, posting]})
+      |> IO.iodata_to_binary()
+
+    for stored <- [
+          "read_only",
+          "repository_write",
+          "entity_relationship",
+          "admit_input",
+          automation,
+          conversation
+        ] do
+      refute html =~ stored
+    end
+
+    refute html =~ "Entity relationship"
+    refute html =~ ">Workspace<"
+    refute html =~ ">Authority<"
+    refute html =~ ">Revision<"
+  end
+
   test "a confirmed memory card keeps only readable information that helps evaluate it" do
     # A confirmed memory proposal used to spend an entire header column saying
     # CONFIRMED, then repeat conversation as both Scope and Visibility. Neither
@@ -232,8 +418,7 @@ defmodule Ryker.ControlPlane.CardTest do
     assert Card.display_status(card) == nil
 
     assert card.details == [
-             {"Kind", "Entity relationship"},
-             {"Scope", "This conversation"},
+             {"Applies to", "This conversation"},
              {"Expires", "90 days"}
            ]
 
@@ -241,10 +426,11 @@ defmodule Ryker.ControlPlane.CardTest do
     assert html =~ ~s(<dl class="lab-card-details">)
 
     assert html =~
-             ~s(<div class="lab-card-detail"><dt>Kind</dt><dd>Entity relationship</dd></div>)
+             ~s(<div class="lab-card-detail"><dt>Applies to</dt><dd>This conversation</dd></div>)
 
     refute html =~ ">confirmed<"
-    refute html =~ ">Visibility<"
+    refute html =~ ">Shown to<"
+    refute html =~ "Entity relationship"
   end
 
   test "publication review and result cards expose only typed host actions" do

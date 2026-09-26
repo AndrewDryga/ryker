@@ -312,6 +312,31 @@ defmodule Ryker.GitHub.RendererTest do
     refute rendered =~ "<button"
   end
 
+  # QA, 2026-09-25, Chat 878b84df: a schedule offer's words were the model's
+  # own title and task, "Every weekday at 09:00 UTC", over a Monday-only
+  # schedule. A GitHub comment offering a schedule named no cadence at all.
+  test "a schedule offer comment says how often from its recurrence, whatever its title claims" do
+    offer =
+      record("schedule_offer", %{
+        "authority" => "read_only",
+        "expires_at" => nil,
+        "recurrence" => %{"kind" => "weekly", "time" => "09:00:00", "weekday" => "monday"},
+        "repository" => nil,
+        "task" => "Every weekday at 09:00 UTC, post a one-line status of open incidents.",
+        "timezone" => "Etc/UTC",
+        "title" => "Weekday open incident status"
+      })
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Prepared.", "records" => [offer]})
+    assert rendered =~ "When: Every Monday at 09:00 UTC"
+
+    weekdays =
+      put_in(offer, ["payload", "recurrence"], %{"kind" => "weekdays", "time" => "09:00:00"})
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Prepared.", "records" => [weekdays]})
+    assert rendered =~ "When: Every weekday at 09:00 UTC"
+  end
+
   test "rejects crossed record status, excess records, and non-document input" do
     invalid_record =
       record(

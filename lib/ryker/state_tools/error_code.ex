@@ -9,6 +9,8 @@ defmodule Ryker.StateTools.ErrorCode do
   non-retryable reason must get a clause here before it can reach a tool.
   """
 
+  alias Ryker.StateTools.Catalog
+
   @spec code(term()) :: String.t()
   def code(:unauthorized), do: "unauthorized"
   def code(:invalid_arguments), do: "invalid_arguments"
@@ -16,6 +18,18 @@ defmodule Ryker.StateTools.ErrorCode do
   def code(:invalid_automation_source),
     do:
       "invalid_arguments: source_kind must name an authenticated input adapter: github, slack, or webhook. Terraform and Grafana are vendors, not input adapters. A notification posted in Slack uses slack. Read a real matching notification before choosing its exact content filter; do not invent filter fields or silently subscribe to every message."
+
+  # QA, 2026-09-25: propose_automation failed four times on "every weekday at
+  # 9:00" and the model settled for Mondays; a weekly trigger's list of days
+  # was also kept as its one weekday. A day-set error has to say which
+  # recurrence expresses which days, or the model cannot correct it.
+  def code(:invalid_schedule_trigger),
+    do:
+      "invalid_arguments: a time trigger takes one recurrence and only that recurrence's fields. Use recurrence daily for every day, recurrence weekdays for Monday to Friday, and recurrence weekly with one weekday for a single day, each with time; monthly takes day and time, once takes at, and interval takes every_seconds. For any other set of days, such as Monday, Wednesday and Friday, propose one weekly schedule per day in the same call. Nothing was proposed."
+
+  def code(:automation_proposal_limit),
+    do:
+      "invalid_arguments: propose_automation takes at most #{Catalog.maximum_automation_proposals()} proposals per call. Monday to Friday at one time is a single proposal with recurrence weekdays, and every day is one with recurrence daily. Nothing was proposed."
 
   def code(:invalid_final_arguments),
     do:

@@ -148,6 +148,42 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     assert pruned_timeline.items != []
   end
 
+  # The Chat card stopped printing "SOURCE admit_input:63c450cc…" on
+  # 2026-09-25, since nobody can read or open that there. Tracing which source
+  # a citation came from is what the timeline is for, so it keeps it.
+  test "the timeline keeps the reference a citation was made from" do
+    source = "admit_input:63c450ccc15dd8fb105ed9574cdec80d95645bc20891a5fdefb3640b230cda46"
+
+    record = %Ryker.State.Record{
+      id: Ecto.UUID.generate(),
+      inserted_at: @received,
+      kind: "evidence",
+      operation_id: "host:citation",
+      payload: %{
+        "claim" => "Operator-reported rollout timeline",
+        "claim_id" => "citation:0f3b7c2a91d44e6b8a5c1d2e3f405162",
+        "confidence" => nil,
+        "dimensions" => %{},
+        "freshness" => nil,
+        "health_effect" => nil,
+        "observation" => "The operator reports the rollout at 08:00 and the alert at 08:04.",
+        "observed_at" => nil,
+        "relation" => "supports",
+        "scope_note" => nil,
+        "source_id" => source,
+        "source_name" => source,
+        "source_type" => "other",
+        "supersedes" => [],
+        "target" => "Operator-reported rollout timeline"
+      },
+      ref: "record:evidence:timeline-source",
+      status: :open
+    }
+
+    assert [step] = EpisodeTrace.Work.record_steps([record])
+    assert %{label: "Source reference", value: source, identifier: true} in step.details
+  end
+
   test "retrying a task that never started does not invent a briefing for its old attempt" do
     # Retry replaces the stopped disposition, not the retained proof that no
     # model was called. The broken projection resurrected a phantom briefing.

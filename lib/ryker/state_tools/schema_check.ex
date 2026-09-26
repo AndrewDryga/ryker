@@ -6,6 +6,7 @@ defmodule Ryker.StateTools.SchemaCheck do
   # null). The catalog is the one the caller advertised, so a tool it withheld
   # is not configured here either.
 
+  alias Ryker.State.ScheduleRecurrence
   alias Ryker.StateTools.Catalog
 
   @spec exact_schema(String.t(), map(), [map()]) :: :ok | {:error, atom()}
@@ -30,11 +31,23 @@ defmodule Ryker.StateTools.SchemaCheck do
   defp schema_error("validate_final", _arguments, _schema),
     do: {:error, :invalid_final_arguments}
 
+  # Each refusal names the correction: four calls for "every weekday" failed in
+  # a row on 2026-09-25 before the model settled for Mondays.
   defp schema_error("propose_automation", %{"proposals" => proposals}, _schema)
        when is_list(proposals) do
-    if Enum.any?(proposals, &unsupported_automation_source?/1),
-      do: {:error, :invalid_automation_source},
-      else: {:error, :invalid_arguments}
+    cond do
+      length(proposals) > Catalog.maximum_automation_proposals() ->
+        {:error, :automation_proposal_limit}
+
+      Enum.any?(proposals, &unsupported_automation_source?/1) ->
+        {:error, :invalid_automation_source}
+
+      Enum.any?(proposals, &unsupported_time_trigger?/1) ->
+        {:error, :invalid_schedule_trigger}
+
+      true ->
+        {:error, :invalid_arguments}
+    end
   end
 
   defp schema_error(_name, _arguments, _schema), do: {:error, :invalid_arguments}
@@ -43,6 +56,11 @@ defmodule Ryker.StateTools.SchemaCheck do
     do: trigger["source_kind"] not in Catalog.source_kinds()
 
   defp unsupported_automation_source?(_proposal), do: false
+
+  defp unsupported_time_trigger?(%{"trigger" => %{"type" => "time"} = trigger}),
+    do: ScheduleRecurrence.from_trigger(trigger) == {:error, :invalid_schedule_trigger}
+
+  defp unsupported_time_trigger?(_proposal), do: false
 
   defp valid_schema_value?(%{"anyOf" => schemas}, value),
     do: Enum.any?(schemas, &valid_schema_value?(&1, value))

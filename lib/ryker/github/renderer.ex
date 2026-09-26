@@ -9,7 +9,7 @@ defmodule Ryker.GitHub.Renderer do
   """
 
   alias Ryker.Emisar.ApprovalStatus
-  alias Ryker.State.RecordPayload
+  alias Ryker.State.{RecordPayload, ScheduleCadence}
 
   @maximum_records 64
   @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
@@ -197,9 +197,13 @@ defmodule Ryker.GitHub.Renderer do
      "### Publication review offered\n\n**#{escape(payload["title"])}**\n\nNo branch or pull request is published until an operator reviews the committed workspace."}
   end
 
+  # How often is the recurrence a confirmation saves, in the words every
+  # surface uses; the title and task are the model's and may say otherwise.
   defp record_markdown("schedule_offer", payload, ref, "open") do
+    cadence = ScheduleCadence.describe(payload["recurrence"], payload["timezone"])
+
     {:ok,
-     "### Schedule offered\n\n**#{escape(payload["title"])}**\n\nThis is an inert offer.#{confirmation(ref)}"}
+     "### Schedule offered\n\n**#{escape(payload["title"])}**\n\nWhen: #{escape(cadence)}\n\nThis is an inert offer.#{confirmation(ref)}"}
   end
 
   defp record_markdown(kind, payload, ref, "open") when kind in @confirmable_offer_kinds do

@@ -6,6 +6,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
+  alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{FollowupChangeset, Followups}
   alias Ryker.Slack.{Renderer, TaskCardProjection}
   alias Ryker.State.{Record, Records}
@@ -241,6 +242,48 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
 
     assert {:ok, projection} = TaskCardProjection.build(source)
     assert projection.document["task_card"]["publication"]["branch"] == publication.branch_ref
+  end
+
+  # Ryker ends a publication whose worker session closed, because that review
+  # can never run, and records why (2026-09-25). The Slack card read "PR
+  # preparation stopped" for it, the same words as a person's discard.
+  test "a publication Ryker ended for a closed session says so on the task card" do
+    %{episode: episode, publication: publication} =
+      PublicationFixture.review_requested!("closed-session-card")
+
+    assert {:ok, review} = PublicationCustody.claim_next("publication:closed-session-card", 60)
+    assert review.publication.id == publication.id
+
+    assert {:ok, %{status: :discarded}} =
+             PublicationCustody.discard_unreviewable(
+               publication.ref,
+               review.lease_ref,
+               :review_session_closed
+             )
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:closed-session-card",
+      payload: %{
+        "title" => "Implement closed-session-card",
+        "repository" => "ryker",
+        "prompt" => "Implement the change."
+      }
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+
+    assert projection.document["task_card"]["publication"]["discarded_reason"] ==
+             "review_session_closed"
+
+    assert {:ok, rendered} = Renderer.render(projection.document)
+
+    assert Jason.encode!(rendered) =~
+             "the worker session holding these changes closed before they could be checked"
   end
 
   test "a stopped task offers a resume bound to the turn it was rendered against" do

@@ -209,6 +209,12 @@ defmodule Ryker.State.AutomationsTest do
         "weekday" => "friday"
       },
       %{
+        "recurrence" => "weekdays",
+        "time" => "13:00:00",
+        "timezone" => "Etc/UTC",
+        "type" => "time"
+      },
+      %{
         "day" => 15,
         "recurrence" => "monthly",
         "time" => "13:00:00",
@@ -240,7 +246,72 @@ defmodule Ryker.State.AutomationsTest do
                }
              },
              "revision" => 1
-           }) == {:error, :invalid_arguments}
+           }) == {:error, :invalid_schedule_trigger}
+  end
+
+  # QA, 2026-09-25, Chat 878b84df: "every weekday at 9:00" had no recurrence to
+  # land in, and the Monday-only fallback was what confirming created. The
+  # confirmed schedule runs Monday to Friday and lists back as it was offered.
+  test "a confirmed weekdays schedule runs Monday to Friday and lists back as weekdays" do
+    offer = %{
+      schedule_offer()
+      | "recurrence" => %{"kind" => "weekdays", "time" => "09:00:00"},
+        "title" => "Weekday open incident status"
+    }
+
+    source = delivered_record!("weekdays", "schedule_offer", offer)
+    assert {:ok, created} = Schedules.confirm(confirmation(source, "create-weekdays"))
+
+    # Confirmed on Saturday 29 August: the first run is Monday's.
+    assert created.schedule.recurrence == %{"kind" => "weekdays", "time" => "09:00:00"}
+    assert created.schedule.next_occurrence_at == ~U[2026-08-31 09:00:00.000000Z]
+
+    assert [listed] = Automations.list_for_episode(source.episode)
+
+    assert listed["trigger"] == %{
+             "recurrence" => "weekdays",
+             "time" => "09:00:00",
+             "timezone" => "Etc/UTC",
+             "type" => "time"
+           }
+  end
+
+  # QA, 2026-09-25: an edit reads its trigger the way a new offer does. A weekly
+  # trigger carrying a list of days beside its one weekday used to become that
+  # weekday alone, and the change offer would have said nothing about the rest.
+  test "an update to a set of days no recurrence expresses is refused, never narrowed" do
+    source = delivered_record!("narrowed-days", "schedule_offer", schedule_offer())
+    assert {:ok, created} = Schedules.confirm(confirmation(source, "create-narrowed-days"))
+
+    for trigger <- [
+          %{
+            "recurrence" => "weekly",
+            "time" => "09:00:00",
+            "timezone" => "Etc/UTC",
+            "type" => "time",
+            "weekday" => "monday",
+            "weekdays" => ~w(monday wednesday friday)
+          },
+          %{
+            "recurrence" => "weekly",
+            "time" => "09:00:00",
+            "timezone" => "Etc/UTC",
+            "type" => "time",
+            "weekday" => ~w(monday wednesday friday)
+          }
+        ] do
+      assert Automations.prepare_change(source.episode, %{
+               "action" => "update",
+               "automation_id" => created.schedule.ref,
+               "patch" => %{"trigger" => trigger},
+               "revision" => 1
+             }) == {:error, :invalid_schedule_trigger}
+    end
+
+    assert Repo.get!(Schedule, created.schedule.id).recurrence == %{
+             "kind" => "daily",
+             "time" => "13:00:00"
+           }
   end
 
   test "automation mutation boundaries reject malformed proposals and confirmations" do
@@ -343,7 +414,7 @@ defmodule Ryker.State.AutomationsTest do
     assert entity["removable"] == true
     assert entity["title"] == "Daily material service health"
     assert entity["instructions"] == "Inspect service health and report only material changes."
-    assert ["When", "Daily at 13:00:00 · Etc/UTC"] in entity["facts"]
+    assert ["When", "Every day at 13:00 UTC"] in entity["facts"]
 
     assert {:ok, rendered} =
              Renderer.render(%{"message" => "Change saved.", "records" => [document]})

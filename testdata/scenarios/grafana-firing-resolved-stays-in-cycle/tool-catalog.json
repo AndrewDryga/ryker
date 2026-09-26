@@ -663,10 +663,12 @@
                               "type": "object"
                             },
                             "recurrence": {
+                              "description": "daily runs every day and weekdays runs Monday to Friday, both at time; weekly runs on one weekday at time. For any other set of days, propose one weekly schedule per day.",
                               "enum": [
                                 "once",
                                 "interval",
                                 "daily",
+                                "weekdays",
                                 "weekly",
                                 "monthly"
                               ],

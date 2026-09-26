@@ -534,43 +534,16 @@ defmodule Ryker.State.Automations do
 
   defp source_trigger(_trigger), do: {:error, :invalid_arguments}
 
-  defp recurrence_from_trigger(%{"type" => "time", "recurrence" => kind} = trigger) do
-    trigger
-    |> stored_recurrence(kind)
-    |> ScheduleRecurrence.prepare_shape()
-    |> case do
-      {:ok, %{"kind" => ^kind} = recurrence} -> {:ok, recurrence}
-      {:ok, _recurrence} -> {:error, :invalid_arguments}
-      {:error, _reason} -> {:error, :invalid_arguments}
+  # The same reading of a trigger as creation's, so an update can neither
+  # narrow a set of days to one nor save a recurrence a new offer could not.
+  defp recurrence_from_trigger(trigger) do
+    with {:ok, recurrence} <- ScheduleRecurrence.from_trigger(trigger) do
+      case ScheduleRecurrence.prepare_shape(recurrence) do
+        {:ok, prepared} -> {:ok, prepared}
+        {:error, _reason} -> {:error, :invalid_arguments}
+      end
     end
   end
-
-  defp recurrence_from_trigger(_trigger), do: {:error, :invalid_arguments}
-
-  defp stored_recurrence(trigger, "once"),
-    do: %{"at" => trigger["at"], "kind" => "once"}
-
-  defp stored_recurrence(trigger, "interval"),
-    do: %{
-      "every_seconds" => trigger["every_seconds"],
-      "kind" => "interval",
-      "starts_at" => trigger["starts_at"]
-    }
-
-  defp stored_recurrence(trigger, "daily"),
-    do: %{"kind" => "daily", "time" => trigger["time"]}
-
-  defp stored_recurrence(trigger, "weekly"),
-    do: %{
-      "kind" => "weekly",
-      "time" => trigger["time"],
-      "weekday" => trigger["weekday"]
-    }
-
-  defp stored_recurrence(trigger, "monthly"),
-    do: %{"day" => trigger["day"], "kind" => "monthly", "time" => trigger["time"]}
-
-  defp stored_recurrence(_trigger, _kind), do: %{}
 
   defp public_time_trigger(%{"kind" => kind} = recurrence, timezone) do
     recurrence

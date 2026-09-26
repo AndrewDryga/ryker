@@ -211,7 +211,7 @@ defmodule Ryker.State.SchedulesTest do
     assert entity["instructions"] == "Inspect current service health."
     assert entity["saved_by"] == "slack:user:U123"
 
-    assert ["When", "Daily at 13:00:00 · Etc/UTC"] in entity["facts"]
+    assert ["When", "Every day at 13:00 UTC"] in entity["facts"]
     assert ["Channel", %{"channel_ref" => "C456"}] in entity["facts"]
     assert ["Expires", "No expiry"] in entity["facts"]
     assert ["Access", "Read-only"] in entity["facts"]
