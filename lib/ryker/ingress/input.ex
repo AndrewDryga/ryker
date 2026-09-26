@@ -138,11 +138,15 @@ defmodule Ryker.Ingress.Input do
   What routing may do with this input. Every input may start or join work,
   or be left alone; a source that can take a reaction may get one; and a
   person writing in Slack or Chat may get a quick reply, a sentence or two
-  routing writes itself instead of starting work.
+  routing writes itself instead of starting work. A deletion withdraws a
+  message, so it can only reach the work that owns that message, or be left
+  alone: nothing answers, reacts to or starts work for a message that is gone.
   """
   @spec allowed_actions(t()) :: [
           :start_episode | :continue_episode | :reply | :quick_reply | :react | :ignore
         ]
+  def allowed_actions(%__MODULE__{event_kind: :delete}), do: [:continue_episode, :ignore]
+
   def allowed_actions(%__MODULE__{} = input) do
     [:start_episode, :continue_episode, :reply] ++
       if(quick_reply?(input), do: [:quick_reply], else: []) ++

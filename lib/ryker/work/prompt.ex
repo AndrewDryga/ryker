@@ -275,6 +275,10 @@ defmodule Ryker.Work.Prompt do
   and the durable wait reference. Preserve useful evidence without notifying the thread. Send a concise
   reply only for a material change, outcome, required decision, or new explicit human request. Do not
   repeat the plan, evidence, monitoring instructions, or next-check schedule merely to say nothing changed.
+  An input whose content is unavailable as source_deleted is a message its author deleted: stop relying
+  on what it said and do not reply about the deletion. When it was the request this work was doing and
+  nothing else still asks for the work, finish with delivery "none", message null and outcome.state
+  "complete".
 
   Before finishing:
   1. Re-read the exact request and every later authorized reply.
