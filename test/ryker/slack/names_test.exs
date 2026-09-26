@@ -60,18 +60,74 @@ defmodule Ryker.Slack.NamesTest do
        end}
     )
 
-    # An unresolved reference still has to tell one row from another. The
+    # An unresolved channel still has to tell one row from another. The
     # channels page listed five "Slack channel" rows with the id only in a
     # tooltip, so an operator could not tell #test from #test2 at all.
-    assert Names.name("T123", "U789") == "Slack user U789"
+    assert Names.name("T123", "C789") == "Slack channel C789"
+
+    # A person is never their raw ID (Andrew, 2026-09-26: "Slack user
+    # U0BHTNFCW6S" is not readable); their profile link tells two apart.
+    assert Names.name("T123", "U789") == "Slack user"
 
     # A reference Slack would reject is never echoed back into the page.
     assert Names.name("T123", "../../secrets") == "Slack reference"
     assert :ok = GenServer.call(Names, :refresh)
+    assert_receive {:lookup, "C789"}
+    assert :ok = GenServer.call(Names, :refresh)
     assert_receive {:lookup, "U789"}
-    assert Names.name("T123", "U789") == "Slack user U789"
+    assert Names.name("T123", "U789") == "Slack user"
     assert :ok = GenServer.call(Names, :refresh)
     refute_receive {:lookup, _}
+  end
+
+  # "Who can manage Ryker" read "Slack user U0BHTNFCW6S" on 2026-09-26 where
+  # Andrew expected his name. A person is shown one way everywhere: their
+  # name, linked to their Slack profile, and never a raw ID.
+  test "a person reads as their name linked to their Slack profile, never as a raw ID" do
+    start_supervised!(
+      {Names,
+       workspace: "T123",
+       workspace_url: "https://acme.slack.com",
+       fetch: fn _ref -> {:ok, "Andrew"} end}
+    )
+
+    profile = "https://acme.slack.com/team/U456"
+    assert Names.person("T123", "U456") == %{name: "Slack user", href: profile}
+    assert :ok = GenServer.call(Names, :refresh)
+    assert Names.person("T123", "U456") == %{name: "@Andrew", href: profile}
+    assert Names.person("T123", "slack:user:U456") == %{name: "@Andrew", href: profile}
+
+    # Without the workspace's address, Slack itself opens the profile.
+    assert Names.person("T999", "W456").href ==
+             "https://slack.com/app_redirect?team=T999&channel=W456"
+
+    # Nothing Slack would reject is linked or echoed.
+    assert Names.person("T123", "../../secrets") == %{name: "Slack user", href: nil}
+    assert Names.person(nil, "U456") == %{name: "Slack user", href: nil}
+  end
+
+  # The page that asked for a name was drawn before Slack answered, and
+  # nothing drew it again: the name only appeared after a reload.
+  test "a name found in the background redraws the pages showing it, once per change" do
+    :ok = Phoenix.PubSub.subscribe(Ryker.PubSub, "control-plane")
+    start_supervised!({Names, workspace: "T123", fetch: fn _ref -> {:ok, "Andrew"} end})
+
+    Names.name("T123", "U456")
+    assert :ok = GenServer.call(Names, :refresh)
+    assert_receive :control_plane_changed
+
+    # The same name again changes nothing any page shows.
+    assert :ok = Names.remember([{"T123", "U456", "Andrew"}])
+    refute_receive :control_plane_changed, 50
+
+    assert :ok = Names.remember([{"T123", "U456", "Andy"}])
+    assert_receive :control_plane_changed
+    assert Names.name("T123", "U456") == "@Andy"
+
+    # Another workspace's people are not this cache's to keep.
+    assert :ok = Names.remember([{"T999", "U777", "Eve"}])
+    refute_receive :control_plane_changed, 50
+    assert Names.name("T999", "U777") == "Slack user"
   end
 
   test "a late lookup does not refetch a fresh name and rate limits stop queued lookups" do

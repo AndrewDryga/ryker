@@ -20,6 +20,24 @@ defmodule Ryker.Slack.Client.Users do
     end
   end
 
+  @doc """
+  Whether Slack lists someone as an admin or owner of this workspace: an
+  active full member of it whose profile says `is_admin`, `is_owner` or
+  `is_primary_owner`. A profile without those flags, or from another
+  workspace, is no.
+  """
+  @spec workspace_admin(Client.t(), String.t(), String.t()) ::
+          {:ok, boolean()} | {:error, term()}
+  def workspace_admin(client, user_ref, workspace_ref) do
+    with :ok <- Fields.slack_id(user_ref),
+         :ok <- Fields.slack_id(workspace_ref),
+         {:ok, response} <- Transport.request(client, :get, user_path(user_ref), nil),
+         {:ok, body} <- Transport.response(response),
+         {:ok, member} <- allowed_user(body, user_ref, workspace_ref) do
+      {:ok, member and admin_flag?(body["user"])}
+    end
+  end
+
   def user_group_members(client, user_group_ref, workspace_ref) do
     with :ok <- Fields.slack_id(user_group_ref),
          :ok <- Fields.slack_id(workspace_ref),
@@ -112,6 +130,9 @@ defmodule Ryker.Slack.Client.Users do
 
   defp allowed_user(_body, _user_ref, _workspace_ref),
     do: {:error, {:slack_protocol_error, :user}}
+
+  defp admin_flag?(user),
+    do: Enum.any?(["is_admin", "is_owner", "is_primary_owner"], &(user[&1] == true))
 
   defp group_users(%{"users" => users}) when is_list(users) do
     if Enum.uniq(users) == users and Enum.all?(users, &(Fields.slack_id(&1) == :ok)),

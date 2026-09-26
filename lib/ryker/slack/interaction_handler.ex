@@ -7,7 +7,7 @@ defmodule Ryker.Slack.InteractionHandler do
   the click. The button value alone grants nothing.
   """
 
-  alias Ryker.Slack.Interaction
+  alias Ryker.Slack.{Interaction, Operators}
 
   @invalid_offer_errors [
     :input_request_already_answered,
@@ -631,7 +631,7 @@ defmodule Ryker.Slack.InteractionHandler do
          %{payload: %{"kind" => "incident"}},
          options
        ) do
-    if MapSet.member?(options.operators, actor_ref),
+    if Operators.operator?(options.operators, actor_ref),
       do: :ok,
       else: {:error, :operator_required}
   end
@@ -639,7 +639,7 @@ defmodule Ryker.Slack.InteractionHandler do
   defp operator_authority(_interaction, _record, _options), do: :ok
 
   defp configured_operator(%Interaction{actor_ref: actor_ref}, options) do
-    if MapSet.member?(options.operators, actor_ref),
+    if Operators.operator?(options.operators, actor_ref),
       do: :ok,
       else: {:error, :operator_required}
   end

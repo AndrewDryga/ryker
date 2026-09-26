@@ -38,6 +38,8 @@ defmodule Ryker.Settings do
     Work
   }
 
+  alias Ryker.Slack.Operators
+
   @actor "control-plane:local"
   @lock_tag "ryker-settings"
   @pubsub Ryker.PubSub
@@ -709,20 +711,31 @@ defmodule Ryker.Settings do
     do: Phoenix.PubSub.broadcast(@pubsub, @topic, {:settings_saved, revision})
 
   # The local console is trusted by reach. A Slack actor is trusted only when
-  # the saved operator membership already names it; the payload's own claim of
-  # who sent it is never the grant.
+  # the saved settings let that person manage Ryker: chosen by name, or an admin
+  # of the saved workspace while admins may (`Ryker.Slack.Operators`). The
+  # payload's own claim of who sent it is never the grant.
   defp authorize(@actor), do: :ok
   defp authorize("migration:legacy-environment"), do: :ok
   defp authorize("github:webhook"), do: :ok
   defp authorize("github:onboarding"), do: :ok
 
   defp authorize("slack:user:" <> user_ref) when byte_size(user_ref) in 1..255 do
-    case Repo.one(from(slack in Slack, select: slack.operators)) do
-      operators when is_list(operators) ->
-        if user_ref in operators, do: :ok, else: {:error, :settings_forbidden}
+    saved =
+      Repo.one(
+        from(slack in Slack,
+          select: %{
+            chosen: slack.operators,
+            workspace_admins: slack.workspace_admins_manage,
+            workspace_ref: slack.workspace_ref
+          }
+        )
+      )
 
-      nil ->
-        {:error, :settings_forbidden}
+    with %{chosen: chosen} when is_list(chosen) <- saved,
+         true <- saved |> Map.to_list() |> Operators.new() |> Operators.operator?(user_ref) do
+      :ok
+    else
+      _not_an_operator -> {:error, :settings_forbidden}
     end
   end
 

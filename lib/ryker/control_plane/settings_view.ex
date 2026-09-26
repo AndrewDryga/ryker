@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.SettingsView do
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Settings.WorkerPolicies
+  alias Ryker.Slack.Names
   alias Ryker.Work.Turn
 
   @type t :: %{
@@ -37,7 +38,8 @@ defmodule Ryker.ControlPlane.SettingsView do
           workers: WorkerPolicies.catalog(),
           github_connection: :ready | :missing | :invalid,
           environment_channels: %{(String.t() | nil) => non_neg_integer()},
-          slack_channels: [%{workspace_ref: String.t(), channel_ref: String.t()}]
+          slack_channels: [%{workspace_ref: String.t(), channel_ref: String.t()}],
+          slack_managers: [%{name: String.t(), href: String.t() | nil}]
         }
 
   @typedoc """
@@ -105,6 +107,11 @@ defmodule Ryker.ControlPlane.SettingsView do
       setup: setup_status(connections, joined),
       # The channels Ryker is in, the places a webhook source can post to.
       slack_channels: Enum.map(joined, &Map.take(&1, [:workspace_ref, :channel_ref])),
+      # The people chosen to manage Ryker, as the page shows them. Read here
+      # rather than while the page is drawn, so a name Slack gives later
+      # reaches the open page on its next refresh.
+      slack_managers:
+        Enum.map(snapshot.slack.operators, &Names.person(snapshot.slack.workspace_ref, &1)),
       github_callback_url: Application.fetch_env!(:ryker, :github_public_url),
       webhook_base_url: Application.fetch_env!(:ryker, :webhook_public_url),
       webhook_secret_names: registered_secret_names(),

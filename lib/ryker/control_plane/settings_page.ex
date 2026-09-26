@@ -35,7 +35,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   alias Ryker.Settings
   alias Ryker.Settings.Work
-  alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
 
   @doc "The title of one page: the name it has in the sidebar, or Set up Ryker."
@@ -336,7 +335,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
         verified: slack.status != :not_set_up,
         connected: slack.status in [:on, :broken],
         line: slack,
-        operators: operator_names(view.snapshot.slack)
+        admins: view.snapshot.slack.workspace_admins_manage,
+        managers: view.slack_managers
       )
 
     ~H"""
@@ -382,7 +382,17 @@ defmodule Ryker.ControlPlane.SettingsPage do
         lede="These people can change Ryker's settings from Slack."
       />
       <div :if={@slack_members == []} class="settings-people">
-        <p>{people_text(@operators)}</p>
+        <Kit.entity_list :if={@admins or @managers != []} label="People who can manage Ryker">
+          <Kit.entity_row
+            :if={@admins}
+            name="Workspace admins and owners"
+            text="Anyone Slack lists as an admin or owner of the workspace."
+          />
+          <Kit.entity_row :for={person <- @managers} name={person(person)} />
+        </Kit.entity_list>
+        <p :if={!@admins and @managers == []}>
+          Nobody yet. Choose at least one person who can manage Ryker.
+        </p>
         <button
           type="button"
           class={["ui-button", if(@connected, do: "secondary", else: "primary")]}
@@ -408,6 +418,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
           </button>
         </div>
       </form>
+      <.live_component
+        module={SettingsEditor}
+        id="settings-slack-admins"
+        section={section!(:slack_admins)}
+        view={@view}
+        commands={@commands}
+        show_header={false}
+      />
     </section>
 
     <.live_component
@@ -1111,16 +1129,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # "Verify GitHub App" -> "verify-github-app": element ids never carry spaces.
   defp key(label), do: label |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "-")
 
-  defp operator_names(%{operators: []}), do: []
-
-  defp operator_names(%{operators: operators, workspace_ref: workspace})
-       when is_binary(workspace),
-       do: Enum.map(operators, &Names.name(workspace, &1))
-
-  defp operator_names(%{operators: operators}), do: operators
-
-  defp people_text([]), do: "Nobody yet. Choose at least one person who can manage Ryker."
-  defp people_text(names), do: Enum.join(names, ", ")
+  # A person as a row's name: the one rendering every page uses for people.
+  defp person(person), do: Kit.person(%{person: person, class: nil, __changed__: nil})
 
   defp repository_count(0), do: "No repositories yet."
   defp repository_count(count), do: Integrations.count(count, "repository") <> " added."

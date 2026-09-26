@@ -224,7 +224,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     denied = Map.put(options(["U123"]), :configure_channel, callback)
     assert InteractionHandler.handle(interaction, denied) == {:ok, %{outcome: :denied}}
 
-    allowed = %{denied | operators: MapSet.new(["U123"])}
+    allowed = %{denied | operators: chosen_operators(["U123"])}
 
     assert {:ok, %{outcome: :advanced, session_ref: session_ref}} =
              InteractionHandler.handle(interaction, allowed)
@@ -269,7 +269,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert {:ok, %{outcome: :requested, room_ref: "incident-room:1"}} =
              InteractionHandler.handle(
                interaction("ryker_open_incident", "incident"),
-               %{options(["U123"]) | operators: MapSet.new(["U123"])}
+               %{options(["U123"]) | operators: chosen_operators(["U123"])}
              )
 
     assert_receive {:incident_requested, confirmation}
@@ -280,7 +280,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     full =
       %{
         options(["U123"])
-        | operators: MapSet.new(["U123"]),
+        | operators: chosen_operators(["U123"]),
           request_incident_room: fn _attributes -> {:error, :incident_room_capacity} end
       }
 
@@ -300,7 +300,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert {:ok, %{outcome: :confirmed, episode_id: "episode-incident"}} =
              InteractionHandler.handle(
                interaction("ryker_investigate_incident", "incident"),
-               %{options(["U123"]) | operators: MapSet.new(["U123"])}
+               %{options(["U123"]) | operators: chosen_operators(["U123"])}
              )
 
     assert_receive {:incident_investigated, investigation}
@@ -317,7 +317,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert {:ok, %{outcome: :invalid}} =
              InteractionHandler.handle(
                interaction("ryker_investigate_incident", "engineering"),
-               %{options(["U123"]) | operators: MapSet.new(["U123"])}
+               %{options(["U123"]) | operators: chosen_operators(["U123"])}
              )
 
     refute_received {:incident_investigated, _attributes}
@@ -376,7 +376,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert InteractionHandler.handle(review, options(["U123"])) ==
              {:ok, %{outcome: :denied}}
 
-    operator_options = %{options(["U123"]) | operators: MapSet.new(["U123"])}
+    operator_options = %{options(["U123"]) | operators: chosen_operators(["U123"])}
 
     assert InteractionHandler.handle(review, operator_options) ==
              {:ok, %{publication_ref: "publication:1", outcome: :requested}}
@@ -425,7 +425,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert InteractionHandler.handle(schedule, options(["U123"])) ==
              {:ok, %{outcome: :denied}}
 
-    operator_options = %{options(["U123"]) | operators: MapSet.new(["U123"])}
+    operator_options = %{options(["U123"]) | operators: chosen_operators(["U123"])}
 
     assert InteractionHandler.handle(schedule, operator_options) ==
              {:ok, %{outcome: :confirmed, schedule_ref: "schedule:1"}}
@@ -454,7 +454,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert InteractionHandler.handle(automation, options(["U123"])) ==
              {:ok, %{outcome: :denied}}
 
-    operator_options = %{options(["U123"]) | operators: MapSet.new(["U123"])}
+    operator_options = %{options(["U123"]) | operators: chosen_operators(["U123"])}
 
     assert InteractionHandler.handle(automation, operator_options) ==
              {:ok, %{automation_id: "schedule:daily-health", outcome: :confirmed}}
@@ -494,7 +494,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert InteractionHandler.handle(behavior, options(["U123"])) ==
              {:ok, %{outcome: :denied}}
 
-    operator_options = %{options(["U123"]) | operators: MapSet.new(["U123"])}
+    operator_options = %{options(["U123"]) | operators: chosen_operators(["U123"])}
 
     assert InteractionHandler.handle(behavior, operator_options) ==
              {:ok, %{behavior_ref: "behavior:1", outcome: :confirmed}}
@@ -517,7 +517,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert InteractionHandler.handle(memory, options(["U123"])) ==
              {:ok, %{outcome: :denied}}
 
-    operator_options = %{options(["U123"]) | operators: MapSet.new(["U123"])}
+    operator_options = %{options(["U123"]) | operators: chosen_operators(["U123"])}
 
     assert InteractionHandler.handle(memory, operator_options) ==
              {:ok, %{memory_ref: "memory:1", outcome: :confirmed}}
@@ -539,7 +539,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert InteractionHandler.handle(stop, member_options) == {:ok, %{outcome: :denied}}
     refute_received {:work_stopped, _attributes}
 
-    operator_options = %{member_options | operators: MapSet.new(["U123"])}
+    operator_options = %{member_options | operators: chosen_operators(["U123"])}
 
     assert InteractionHandler.handle(stop, operator_options) ==
              {:ok, %{outcome: :stopping, work_ref: "task-card:abc123"}}
@@ -593,7 +593,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
           send(observer, {:memory_forgotten, ref, actor_ref, workspace_ref})
           {:ok, %{ref: ref}}
         end,
-        operators: MapSet.new(["U123"])
+        operators: chosen_operators(["U123"])
       })
 
     delete = %{
@@ -684,7 +684,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     member_options = options(["U123"])
     assert InteractionHandler.handle(publish, member_options) == {:ok, %{outcome: :denied}}
 
-    operator_options = %{member_options | operators: MapSet.new(["U123"])}
+    operator_options = %{member_options | operators: chosen_operators(["U123"])}
 
     assert InteractionHandler.handle(publish, operator_options) ==
              {:ok, %{outcome: :approved, publication_ref: "publication:def456"}}
@@ -732,14 +732,14 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     parent = self()
 
     options =
-      Map.put(%{options(["U123"]) | operators: MapSet.new(["U123"])}, :resume_behavior, fn ref,
-                                                                                           revision,
-                                                                                           actor_ref,
-                                                                                           workspace_ref,
-                                                                                           action_ref ->
-        send(parent, {:resumed, ref, revision, actor_ref, workspace_ref, action_ref})
-        {:ok, %{status: :active}}
-      end)
+      Map.put(
+        %{options(["U123"]) | operators: chosen_operators(["U123"])},
+        :resume_behavior,
+        fn ref, revision, actor_ref, workspace_ref, action_ref ->
+          send(parent, {:resumed, ref, revision, actor_ref, workspace_ref, action_ref})
+          {:ok, %{status: :active}}
+        end
+      )
 
     interaction = %Interaction{
       action_id: "ryker_resume_behavior",
@@ -863,7 +863,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
       end,
       directory: Directory,
       incident_policy: %{digest: String.duplicate("c", 64), name: "incident-investigate"},
-      operators: MapSet.new(),
+      operators: chosen_operators([]),
       records: Records,
       conversation_environment: fn workspace_ref, channel_ref ->
         send(observer, {:environment_resolved, workspace_ref, channel_ref})
@@ -915,4 +915,8 @@ defmodule Ryker.Slack.InteractionHandlerTest do
       }
     }
   end
+
+  # The people chosen to manage Ryker, with the workspace's admins left out.
+  defp chosen_operators(people),
+    do: Ryker.Slack.Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
 end

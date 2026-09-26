@@ -156,6 +156,9 @@ defmodule Ryker.Slack.Client do
   @impl Ryker.Slack.MemberDirectory
   defdelegate user_group_members(client, user_group_ref, workspace_ref), to: Users
 
+  @impl Ryker.Slack.MemberDirectory
+  defdelegate workspace_admin(client, user_ref, workspace_ref), to: Users
+
   # --- views ----------------------------------------------------------------
 
   @impl true

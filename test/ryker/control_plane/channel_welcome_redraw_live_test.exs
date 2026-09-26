@@ -69,7 +69,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
       client: agent,
       configurations: ChannelConfigurations,
       directory: Directory,
-      operators: MapSet.new(["U123"]),
+      operators: chosen_operators(["U123"]),
       settings_overrides: fn workspace_ref, channel_ref ->
         ChannelSettings.effective(
           workspace_ref,
@@ -229,4 +229,13 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     Process.sleep(100)
     assert FakeSlackAPI.state(context.agent).updates == []
   end
+
+  # The people chosen to manage Ryker, with the workspace's admins left out.
+  defp chosen_operators(people),
+    do:
+      Ryker.Slack.Operators.new(
+        chosen: people,
+        workspace_admins: false,
+        workspace_ref: @workspace
+      )
 end

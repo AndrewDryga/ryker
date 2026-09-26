@@ -12,6 +12,7 @@ defmodule Ryker.Slack.RuntimeTest do
     Client,
     FileClient,
     MintSocketTransport,
+    Operators,
     Runtime,
     Supervisor
   }
@@ -75,7 +76,10 @@ defmodule Ryker.Slack.RuntimeTest do
     assert options.handler_settings.home_handler == Ryker.Slack.AppHome
     assert options.handler_settings.home_options.api == Client
     assert options.handler_settings.home_options.client == bot_client
-    assert options.handler_settings.home_options.operators == MapSet.new(["U123"])
+
+    assert options.handler_settings.home_options.operators ==
+             Operators.new(chosen: ["U123"], workspace_admins: false, workspace_ref: "T123")
+
     assert is_function(options.handler_settings.home_options.collection, 4)
     assert is_function(options.handler_settings.home_options.projection, 3)
     assert is_function(options.handler_settings.home_options.shared_conversations, 3)
@@ -96,7 +100,10 @@ defmodule Ryker.Slack.RuntimeTest do
     assert is_function(options.handler_settings.home_interaction_options.set_behavior_status, 6)
     assert is_function(options.handler_settings.home_interaction_options.set_schedule_status, 6)
     assert is_function(options.handler_settings.home_interaction_options.show_collection, 3)
-    assert options.handler_settings.interaction_options.operators == MapSet.new(["U123"])
+
+    assert options.handler_settings.interaction_options.operators ==
+             Operators.new(chosen: ["U123"], workspace_admins: false, workspace_ref: "T123")
+
     assert is_function(options.handler_settings.interaction_audit, 2)
     assert is_function(options.handler_settings.reaction_feedback, 1)
     assert is_function(options.handler_settings.continuation, 1)

@@ -48,6 +48,7 @@ defmodule Ryker.Slack.Runtime do
     MembershipReconciler,
     Mentions,
     MintSocketTransport,
+    Operators,
     Publisher,
     TaskCardWorker,
     ThreadStatusProjection,
@@ -89,7 +90,10 @@ defmodule Ryker.Slack.Runtime do
     :task_card_interval_ms,
     :task_card_reconcile_ms,
     :default_participation,
-    :thread_status_interval_ms
+    :thread_status_interval_ms,
+    :workspace_admins_manage,
+    # Read by the control plane's name cache for profile links, not by Slack.
+    :workspace_url
   ]
   @required_fields [
     :app_http,
@@ -187,19 +191,21 @@ defmodule Ryker.Slack.Runtime do
     default_environment = Map.fetch!(configuration, :default_environment)
     fallback_work_profile = optional_work_profile(Map.get(configuration, :fallback_work_profile))
     identity = Map.fetch!(configuration, :identity)
+    validate_identity!(identity)
     incident_policy = Map.fetch!(configuration, :incident_policy)
     environments = Map.fetch!(configuration, :environments)
-    operators = configuration |> Map.fetch!(:operators) |> references!(:operators)
+    operators = operators(configuration)
 
     default_participation =
       participation!(Map.get(configuration, :default_participation, :mentions))
 
     channel_prefix = configuration |> Map.get(:channel_prefix, "inc") |> channel_prefix!()
 
-    # An incident room invites the operators, who are the people authorized to
-    # act on it, plus whoever the channel named in its own setup thread. There
-    # is no third list to keep in a configuration file.
-    incident_invite_users = operators |> MapSet.to_list() |> Enum.sort()
+    # An incident room invites the people chosen to manage Ryker, who are
+    # authorized to act on it, plus whoever the channel named in its own setup
+    # thread. There is no third list to keep in a configuration file. Workspace
+    # admins may act on it too, but are not all invited to every room.
+    incident_invite_users = Operators.chosen(operators)
 
     incident_private =
       configuration |> Map.get(:incident_private, true) |> boolean!(:incident_private)
@@ -215,7 +221,6 @@ defmodule Ryker.Slack.Runtime do
     unless match?(%Client{}, bot_client),
       do: raise(ArgumentError, "Slack bot_client must be a prepared Slack Client")
 
-    validate_identity!(identity)
     incident_policy = policy!(incident_policy, :incident_policy)
     environments = environments!(environments)
     default_environment = default_environment!(default_environment, environments)
@@ -541,8 +546,29 @@ defmodule Ryker.Slack.Runtime do
       interaction_feedback_worker: interaction_feedback_worker,
       reconciler: reconciler,
       task_card_worker: task_card_worker,
-      thread_status_worker: thread_status_worker
+      thread_status_worker: thread_status_worker,
+      workspace_admins: [
+        workspace: identity.workspace_ref,
+        lookup: &Client.workspace_admin(bot_client, &1, identity.workspace_ref)
+      ]
     }
+  end
+
+  @doc """
+  Who can manage Ryker under this Slack configuration: the people it chose and,
+  when `workspace_admins_manage` is true, the workspace's admins and owners.
+  Every Slack surface and the answers to Ryker's questions decide it here.
+  """
+  @spec operators(map()) :: Operators.t()
+  def operators(configuration) do
+    Operators.new(
+      chosen: configuration |> Map.fetch!(:operators) |> references!(:operators),
+      workspace_admins:
+        configuration
+        |> Map.get(:workspace_admins_manage, false)
+        |> boolean!(:workspace_admins_manage),
+      workspace_ref: configuration.identity.workspace_ref
+    )
   end
 
   defp effective_settings(default_participation) do
@@ -688,7 +714,7 @@ defmodule Ryker.Slack.Runtime do
           {:ok, true}
 
         {:ok, %{channel_state: :active, status: :ready}} ->
-          {:ok, input.actor.kind == :user and MapSet.member?(operators, input.actor.ref)}
+          {:ok, input.actor.kind == :user and Operators.operator?(operators, input.actor.ref)}
 
         {:ok, _inactive_room} ->
           {:ok, false}

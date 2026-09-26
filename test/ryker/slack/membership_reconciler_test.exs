@@ -260,7 +260,7 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
         client: agent,
         configurations: ChannelConfigurations,
         directory: nil,
-        operators: MapSet.new(),
+        operators: chosen_operators([]),
         settings_overrides: fn workspace_ref, channel_ref ->
           ChannelSettings.effective(
             workspace_ref,
@@ -272,4 +272,13 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
       workspace_ref: "T9E23FDA39DE5"
     }
   end
+
+  # The people chosen to manage Ryker, with the workspace's admins left out.
+  defp chosen_operators(people),
+    do:
+      Ryker.Slack.Operators.new(
+        chosen: people,
+        workspace_admins: false,
+        workspace_ref: "T9E23FDA39DE5"
+      )
 end

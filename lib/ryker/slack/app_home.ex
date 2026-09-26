@@ -12,7 +12,7 @@ defmodule Ryker.Slack.AppHome do
   can open Home for the complete list.
   """
 
-  alias Ryker.Slack.{Collections, HomeEvent}
+  alias Ryker.Slack.{Collections, HomeEvent, Operators}
 
   @maximum_attention 8
   @maximum_work 8
@@ -113,10 +113,10 @@ defmodule Ryker.Slack.AppHome do
     operators = Map.get(options, :operators)
 
     cond do
-      not match?(%MapSet{}, operators) ->
+      not match?(%Operators{}, operators) ->
         {:error, {:invalid_app_home, :operators}}
 
-      not MapSet.member?(operators, event.actor_ref) ->
+      not Operators.operator?(operators, event.actor_ref) ->
         {:ok, :restricted, restricted_view()}
 
       true ->

@@ -166,7 +166,7 @@ defmodule Ryker.Slack.CommandHandlerTest do
   end
 
   test "non-operators and non-members are denied before any write" do
-    denied_operator = %{options() | operators: MapSet.new()}
+    denied_operator = %{options() | operators: chosen_operators([])}
 
     assert {:ok, denied} =
              CommandHandler.handle(command("proactive on", "event:denied"), denied_operator)
@@ -382,7 +382,11 @@ defmodule Ryker.Slack.CommandHandlerTest do
         send(observer, {:assignment_changed, ref, status, scope})
         {:ok, %{ref: ref, status: status}}
       end,
-      operators: MapSet.new(["U123"])
+      operators: chosen_operators(["U123"])
     }
   end
+
+  # The people chosen to manage Ryker, with the workspace's admins left out.
+  defp chosen_operators(people),
+    do: Ryker.Slack.Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
 end

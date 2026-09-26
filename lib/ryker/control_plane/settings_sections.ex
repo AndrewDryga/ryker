@@ -150,6 +150,27 @@ defmodule Ryker.ControlPlane.SettingsSections do
         }
       ]
     },
+    # Shown under "Who can manage Ryker" on the Slack page, beside the people
+    # chosen there by name (Andrew, 2026-09-26: admins can by default, with a
+    # switch to turn that off).
+    %{
+      key: :slack_admins,
+      domain: :slack,
+      kind: :singleton,
+      schema: Slack,
+      title: "Workspace admins and owners",
+      description: "Whether the workspace's admins and owners can manage Ryker.",
+      fields: [
+        %{
+          name: :workspace_admins_manage,
+          kind: :boolean,
+          label: "Workspace admins and owners can manage Ryker",
+          help:
+            "Anyone Slack lists as an admin or owner of the workspace, as well as the " <>
+              "people chosen here."
+        }
+      ]
+    },
     %{
       key: :github,
       domain: :github,

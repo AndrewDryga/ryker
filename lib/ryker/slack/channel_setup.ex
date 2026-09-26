@@ -18,7 +18,8 @@ defmodule Ryker.Slack.ChannelSetup do
     ChannelConfiguration,
     Collections,
     ConfigurationSession,
-    MembershipTransition
+    MembershipTransition,
+    Operators
   }
 
   alias Ryker.Slack.Renderer.Fields
@@ -64,7 +65,7 @@ defmodule Ryker.Slack.ChannelSetup do
   def handle_membership(%MembershipTransition{} = transition, options) do
     actor_ref =
       if is_binary(transition.actor_ref) and
-           MapSet.member?(options.operators, transition.actor_ref),
+           Operators.operator?(options.operators, transition.actor_ref),
          do: transition.actor_ref,
          else: nil
 
@@ -126,7 +127,7 @@ defmodule Ryker.Slack.ChannelSetup do
       ) do
     with {:ok, workspace_ref, channel_ref} <- destination(input.destination.conversation_ref),
          request = read_request(audience, input, options),
-         true <- request != nil or MapSet.member?(options.operators, actor_ref),
+         true <- request != nil or Operators.operator?(options.operators, actor_ref),
          {:ok, true} <- options.directory.user_allowed(options.client, actor_ref, workspace_ref) do
       case request do
         :settings ->

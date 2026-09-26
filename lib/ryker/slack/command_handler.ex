@@ -6,7 +6,7 @@ defmodule Ryker.Slack.CommandHandler do
   confirmation-backed; slash commands can inspect, quiet, shadow, or revoke.
   """
 
-  alias Ryker.Slack.{Command, Renderer}
+  alias Ryker.Slack.{Command, Operators, Renderer}
 
   @sources [:channel, :incident_room, :installation]
 
@@ -186,10 +186,9 @@ defmodule Ryker.Slack.CommandHandler do
   end
 
   defp configured_operator(command, options) do
-    if match?(%MapSet{}, options.operators) and
-         MapSet.member?(options.operators, command.actor_ref),
-       do: :ok,
-       else: {:error, :operator_required}
+    if Operators.operator?(options.operators, command.actor_ref),
+      do: :ok,
+      else: {:error, :operator_required}
   end
 
   defp member(command, options),

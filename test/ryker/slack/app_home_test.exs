@@ -540,7 +540,7 @@ defmodule Ryker.Slack.AppHomeTest do
       api: API,
       client: %{allowed: MapSet.new(["U123", "U456"]), calls: calls},
       directory: Directory,
-      operators: MapSet.new(["U123"]),
+      operators: chosen_operators(["U123"]),
       projection: projection,
       shared_conversations: fn _client, _actor_ref, _workspace_ref ->
         {:ok, MapSet.new(["COPS"])}
@@ -568,4 +568,8 @@ defmodule Ryker.Slack.AppHomeTest do
       end)
     end)
   end
+
+  # The people chosen to manage Ryker, with the workspace's admins left out.
+  defp chosen_operators(people),
+    do: Ryker.Slack.Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
 end

@@ -12,6 +12,7 @@ defmodule Ryker.IntegrationSetup do
   alias Ryker.GitHub.AppJWT
   alias Ryker.Settings
   alias Ryker.Settings.{EmisarConnection, Environment}
+  alias Ryker.Slack.Names
 
   @actor "control-plane:local"
   @minimum_signing_secret_bytes 32
@@ -63,17 +64,27 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
+  @doc """
+  The people of the workspace, by name, for choosing who can manage Ryker.
+
+  Their names go to the name cache as well: every page that shows one of them
+  afterwards reads the name at once instead of asking Slack for each (on
+  2026-09-26 the person just chosen read "Slack user U0BHTNFCW6S").
+  """
   @spec slack_members(keyword()) :: {:ok, [map()]} | {:error, term()}
   def slack_members(options \\ []) do
     with {:ok, token} <- Credentials.fetch(:slack_bot, "primary"),
          {:ok, http} <- slack_http(token, options),
          {:ok, %{body: %{"members" => members, "ok" => true}, status: 200}} <-
            request(http, :get, "/users.list?limit=200", nil, [], options) do
-      {:ok,
-       members
-       |> Enum.filter(&human_slack_member?/1)
-       |> Enum.map(&slack_member/1)
-       |> Enum.sort_by(&String.downcase(&1.name))}
+      people = Enum.filter(members, &human_slack_member?/1)
+
+      :ok =
+        people
+        |> Enum.flat_map(&known_name/1)
+        |> Names.remember()
+
+      {:ok, people |> Enum.map(&slack_member/1) |> Enum.sort_by(&String.downcase(&1.name))}
     else
       {:error, _reason} = error -> error
       _invalid -> {:error, {:slack_verification_failed, :members}}
@@ -945,16 +956,24 @@ defmodule Ryker.IntegrationSetup do
 
   defp human_slack_member?(_member), do: false
 
-  defp slack_member(member) do
+  defp slack_member(member), do: %{id: member["id"], name: member_name(member) || "Slack user"}
+
+  defp known_name(%{"id" => id, "team_id" => workspace} = member) when is_binary(workspace) do
+    case member_name(member) do
+      nil -> []
+      name -> [{workspace, id, name}]
+    end
+  end
+
+  defp known_name(_member), do: []
+
+  defp member_name(member) do
     profile = member["profile"] || %{}
 
-    name =
-      Enum.find(
-        [profile["display_name"], profile["real_name"], member["real_name"], member["name"]],
-        &(is_binary(&1) and String.trim(&1) != "")
-      )
-
-    %{id: member["id"], name: name || member["id"]}
+    Enum.find(
+      [profile["display_name"], profile["real_name"], member["real_name"], member["name"]],
+      &(is_binary(&1) and String.trim(&1) != "")
+    )
   end
 
   defp normalize_slack_url(value) when is_binary(value), do: String.trim_trailing(value, "/")

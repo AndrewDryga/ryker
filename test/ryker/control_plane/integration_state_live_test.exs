@@ -90,7 +90,8 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
     # Why the running system left Slack out is what it published when it
     # applied the settings (AssemblyTest), never a guess from what is missing.
     for {running, application, left_out, word, reason} <- [
-          {:ready, :applied, %{}, "Connected", "Acme · @ryker · 1 person can manage Ryker"},
+          {:ready, :applied, %{}, "Connected",
+           "Acme · @ryker · Workspace admins, owners and 1 person can manage Ryker"},
           {:connecting, :applied, %{}, "Connecting", "Ryker is opening its connection to Slack."},
           {:runtime_unavailable, :pending, %{}, "Starting",
            "Ryker is applying the saved settings."},

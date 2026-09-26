@@ -11,7 +11,8 @@ defmodule Ryker.Slack.Supervisor do
     MembershipReconciler,
     Runtime,
     TaskCardWorker,
-    ThreadStatusWorker
+    ThreadStatusWorker,
+    WorkspaceAdmins
   }
 
   def start_link(options), do: Supervisor.start_link(__MODULE__, options, name: __MODULE__)
@@ -24,11 +25,14 @@ defmodule Ryker.Slack.Supervisor do
         interaction_feedback_worker: interaction_feedback_worker,
         reconciler: reconciler,
         task_card_worker: task_card_worker,
-        thread_status_worker: thread_status_worker
+        thread_status_worker: thread_status_worker,
+        workspace_admins: workspace_admins
       }) do
     Supervisor.init(
       [
         {ActionTokens, action_tokens},
+        # Before anything that hears Slack asks who can manage Ryker.
+        {WorkspaceAdmins, workspace_admins},
         {Gateway, gateway},
         {MembershipReconciler, reconciler},
         {IncidentRoomWorker, incident_worker},
