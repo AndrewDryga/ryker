@@ -116,7 +116,7 @@
 
     <h3 id="reading">What it reads</h3>
 
-    <p>Ryker reads the conversation around your message, not just the message: by default up to 20 recent messages from the same thread, including its first message, or from the channel around a top-level message. To point it at another conversation, paste the link and ask; it can read a linked message when it needs to.</p>
+    <p>Ryker reads the conversation around your message, not just the message: by default up to 20 earlier messages from the same thread, including its first message, or from the channel before a top-level message. To point it at another conversation, paste the link and ask; it can read a linked message when it needs to.</p>
 
     <h3 id="window">Staying in the conversation</h3>
 
@@ -147,7 +147,7 @@
       <div><dt>Reply</dt><dd>An answer where the person is speaking.</dd></div>
       <div><dt>Offer an incident room</dt><dd>For a problem that may need coordinated work. Nothing is created until an operator chooses.</dd></div>
       <div><dt>Offer a task</dt><dd>A <strong>Start task</strong> button, when someone explicitly asks for a change to code.</dd></div>
-      <div><dt>Open an incident room</dt><dd>Only for a credible, unresolved alert from a monitoring app, under the channel’s alert setting, or when someone explicitly asks for one.</dd></div>
+      <div><dt>Open an incident room</dt><dd>Only for a credible, unresolved alert from a monitoring app, when the channel’s alert setting says so. Asking for a room in words gets you the offer.</dd></div>
     </dl>
 
     <p>A person’s message never becomes an incident on its own. When you address Ryker, it replies.</p>
@@ -167,9 +167,9 @@
 
     <h2 id="incidents">Incident rooms</h2>
 
-    <p>An incident gets its own Slack channel, named <code>&lt;prefix&gt;-MMDD-&lt;title&gt;-&lt;id&gt;</code> with your configured prefix (<code>ems</code> by default). Rooms are private by default. Configured operators are always invited, plus anyone the channel’s setup adds.</p>
+    <p>An incident gets its own Slack channel, named <code>&lt;prefix&gt;-MMDD-&lt;title&gt;-&lt;id&gt;</code> with your configured prefix (<code>inc</code> by default). Rooms are private by default. Configured operators are always invited, plus anyone the channel’s setup adds.</p>
 
-    <p>A room is opened in one of three ways: an operator presses <strong>Create incident room</strong> on Ryker’s offer, the channel’s alert setting creates one for a credible unresolved app alert, or an operator asks for one in words (“open an incident for elevated checkout latency”). The offer’s other choice, <strong>Investigate</strong>, runs the same investigation in the alert’s thread, with no room and no invitations.</p>
+    <p>A room is opened in one of two ways: a configured operator presses <strong>Create incident room</strong> on Ryker’s offer, or the channel’s alert setting opens one for a credible unresolved app alert. Ryker makes the offer when a problem needs coordinated work, or when someone asks in words (“open an incident for elevated checkout latency”). The offer’s other choice, <strong>Investigate</strong>, runs the same investigation in the thread, with no room and no invitations.</p>
 
     <p>The pinned card is the room’s current state: the alert, what the investigation has established so far, anything that needs a person, and only the controls that work right now. It updates in place. The room keeps the environment of the conversation it was opened from.</p>
 
@@ -191,11 +191,11 @@
 
     <p>Every work card’s menu holds its records: <strong>Timeline</strong>, <strong>Evidence</strong>, <strong>Handoff summary</strong>, and on an incident <strong>Postmortem draft</strong>. On an incident card, <strong>Open evidence</strong> is a button of its own, because there the findings are the point.</p>
 
-    <p>All of them are built from what Ryker recorded: the alert, the runs, what people did, Emisar approvals and their results, and the draft pull request. The model never writes a timeline. Closing an incident posts the same postmortem draft the card can regenerate later, and that draft does not invent impact, root cause, owners or corrective actions.</p>
+    <p>All of them are built from what Ryker recorded: the alert, the runs, what people did, Emisar approvals and their results, and the draft pull request. The model never writes a timeline. The postmortem draft can be built at any time, including after the incident closed, and it does not invent impact, root cause, owners or corrective actions.</p>
 
     <h2 id="progress">Progress, questions and files</h2>
 
-    <p>Long work shows Slack’s own status line with plain milestones until the reply, a decision to stay silent, a handoff, or a clear failure has been posted. When Ryker needs a decision from you, it asks with buttons: up to five choices as buttons, six to ten as a list with <strong>Submit answer</strong>. A typed reply works too.</p>
+    <p>While a request is in progress, Slack’s own status line says where it stands in plain words (queued, deciding how to respond, working, preparing the response) until it is answered, settled silently, handed off, or stopped. When Ryker needs a decision from you, it asks with buttons: up to five choices as buttons, six to ten as a list with <strong>Submit answer</strong>. A typed reply works too.</p>
 
     <p>You can attach up to four files to a message, 8 MiB in all: screenshots (PNG, JPEG, WebP, GIF), text, Markdown, CSV, JSON, YAML, or PDF. Ryker checks each file’s type and size before the model sees it, and refuses content it cannot verify rather than guessing.</p>
 
