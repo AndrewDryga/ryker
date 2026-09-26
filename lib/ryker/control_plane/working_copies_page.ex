@@ -26,6 +26,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   end
 
   attr(:rows, :list, required: true)
+
   attr(:storage, :map, required: true)
   attr(:now, :any, default: nil)
 
@@ -51,7 +52,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
 
     ~H"""
     <div class="working-copies-page">
-      <.storage storage={@storage} now={@now} />
+      <.storage storage={@storage} now={@now} copies?={@current != []} />
       <Kit.entity_list :if={@current != []} label="Working copies">
         <.copy :for={row <- @current} row={row} now={@now} />
       </Kit.entity_list>
@@ -197,6 +198,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
 
   attr(:storage, :map, required: true)
   attr(:now, :any, required: true)
+  attr(:copies?, :boolean, required: true)
 
   defp storage(assigns) do
     assigns =
@@ -231,6 +233,10 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
             worker.allocation == "refused"
           }> · not taking new copies ({refusal(worker.refusal_reason)})</span>
         <% end %>
+      </p>
+      <p :if={not @copies? and space_in_use?(@storage.workers)} class="storage-note">
+        No working copy holds this space: it is the workers' shared checkouts, conversations and
+        their own data.
       </p>
       <p :if={@target} class="storage-note">
         Ryker cleans up copies that are ready within {duration(@target)}.
@@ -279,4 +285,10 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp plural(count, unit), do: "#{count} #{unit}s"
 
   defp encode(value), do: URI.encode(value, &URI.char_unreserved?/1)
+
+  defp space_in_use?(workers),
+    do:
+      Enum.any?(workers, fn worker ->
+        is_integer(worker.bytes["protected_bytes"]) and worker.bytes["protected_bytes"] > 0
+      end)
 end

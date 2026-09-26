@@ -230,6 +230,16 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     assert LazyHTML.query(history, ".state-word") |> LazyHTML.text() == "Removed"
   end
 
+  # QA re-test, 2026-09-26: "0.54 GiB in use" still sat beside "No working
+  # copies right now" with nothing saying what used the space.
+  test "space in use with no working copies says what holds it" do
+    empty = render([]) |> LazyHTML.query("section.working-copies-storage") |> LazyHTML.text()
+    assert squeeze(empty) =~ "No working copy holds this space"
+
+    with_copy = render([@blocked]) |> LazyHTML.query("section.working-copies-storage")
+    refute LazyHTML.text(with_copy) =~ "No working copy holds this space"
+  end
+
   test "storage says plainly what each worker measured, and never invents a byte" do
     # A missing report is unknown, not 0 GiB, and a stale heartbeat is a
     # stale measurement. QA, 2026-09-25: "0.16 GiB kept" sat beside "No
