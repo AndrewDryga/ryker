@@ -250,13 +250,14 @@ defmodule Ryker.Slack.ChannelConfigurations do
   Chooses the environment a channel's work runs in, or none (`nil`): the
   channel's work then runs outside any environment. Saves a new revision
   attributed to `actor_ref`, like the Q&A's save, and leaves every other choice
-  as it was; choosing the current environment again changes nothing. An
-  environment nobody saved is refused with `{:error, :environment_not_found}`,
-  and a channel Ryker holds no configuration for with
-  `{:error, :configuration_not_found}`.
+  as it was; choosing the current environment again changes nothing, and says
+  so (`status: :unchanged`), so a caller redraws nothing. An environment nobody
+  saved is refused with `{:error, :environment_not_found}`, and a channel Ryker
+  holds no configuration for with `{:error, :configuration_not_found}`.
   """
   @spec select_environment(String.t(), String.t(), String.t() | nil, String.t()) ::
-          {:ok, ChannelConfiguration.t()} | {:error, term()}
+          {:ok, %{configuration: ChannelConfiguration.t(), status: :saved | :unchanged}}
+          | {:error, term()}
   def select_environment(workspace_ref, channel_ref, environment_ref, actor_ref) do
     with :ok <- reference(workspace_ref, :workspace_ref, 256),
          :ok <- reference(channel_ref, :channel_ref, 256),
@@ -290,7 +291,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         Repo.rollback(:environment_not_found)
 
       configuration.environment_ref == environment_ref ->
-        configuration
+        %{configuration: configuration, status: :unchanged}
 
       true ->
         configuration
@@ -302,6 +303,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         })
         |> Repo.update()
         |> saved_configuration(:environment_not_found)
+        |> then(&%{configuration: &1, status: :saved})
     end
   end
 

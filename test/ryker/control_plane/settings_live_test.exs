@@ -234,7 +234,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, live, _html} = open("/setup")
     assert has_element?(live, "li[data-state=later] h3", "Choose the channel's environment")
 
-    assert {:ok, _configuration} =
+    assert {:ok, %{status: :saved}} =
              ChannelConfigurations.select_environment(
                "T0123456789",
                "CINFRA",

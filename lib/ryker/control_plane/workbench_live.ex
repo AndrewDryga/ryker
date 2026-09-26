@@ -586,8 +586,22 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     notice =
       case ChannelConfigurations.select_environment(workspace, channel, choice, @actor_ref) do
-        {:ok, _configuration} -> {:success, channel_environment_saved(choice)}
-        {:error, reason} -> {:error, channel_environment_error(reason)}
+        # A change redraws the channel's welcome in Slack the way a save made
+        # there does; until 2026-09-26 the card kept naming the old
+        # environment after a change here.
+        {:ok, %{status: :saved}} ->
+          %{actions: actions} = Endpoint.config(:control_plane)
+
+          welcome_redrawn(
+            channel_environment_saved(choice),
+            actions.redraw_channel_welcome.(workspace, channel)
+          )
+
+        {:ok, %{status: :unchanged}} ->
+          {:success, channel_environment_saved(choice)}
+
+        {:error, reason} ->
+          {:error, channel_environment_error(reason)}
       end
 
     {:noreply, socket |> assign(:channel_notice, notice) |> refresh(true)}
@@ -1232,6 +1246,22 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     "Saved. This channel works in #{name} now."
   end
+
+  defp welcome_redrawn(saved, {:ok, _delivered}), do: {:success, saved}
+
+  defp welcome_redrawn(saved, {:error, :slack_not_running}),
+    do:
+      {:warning,
+       saved <>
+         " Slack is not connected, so Ryker's welcome message in the channel still shows the " <>
+         "old environment."}
+
+  defp welcome_redrawn(saved, {:error, _refused}),
+    do:
+      {:warning,
+       saved <>
+         " Ryker could not update its welcome message in Slack, so it still shows the old " <>
+         "environment."}
 
   defp channel_environment_error(:configuration_not_found),
     do: "Ryker has no settings for this channel yet. Invite Ryker to the channel first."

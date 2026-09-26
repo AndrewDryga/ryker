@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Publication.{Followups, Operator, Publication}
   alias Ryker.Repo
   alias Ryker.Retention.Operator, as: RetentionOperator
+  alias Ryker.Slack.Runtime, as: SlackRuntime
   alias Ryker.Slack.WorkRecord
 
   alias Ryker.State.{
@@ -77,6 +78,7 @@ defmodule Ryker.ControlPlane.Actions do
       send_lab_message: lab_sender(placements),
       set_behavior_status: &Behaviors.set_status/2,
       save_instructions: &InstructionSettings.save/3,
+      redraw_channel_welcome: &SlackRuntime.redraw_welcome/2,
       initialize_settings: &SettingsCommands.initialize/0,
       save_settings: &SettingsCommands.save/3,
       put_settings_item: &SettingsCommands.put_item/3,

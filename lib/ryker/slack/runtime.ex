@@ -118,6 +118,24 @@ defmodule Ryker.Slack.Runtime do
   def options!(configuration), do: supervisor_options!(configuration).gateway
 
   @doc """
+  Redraws a channel's welcome from its saved settings, the way a save made in
+  Slack does, for a change saved elsewhere, such as the channel's page in
+  Ryker. Only a running Slack runtime can post there, so with Slack switched
+  off this says so instead.
+  """
+  @spec redraw_welcome(String.t(), String.t()) :: {:ok, :posted | :updated} | {:error, term()}
+  def redraw_welcome(workspace_ref, channel_ref) do
+    case Application.get_env(:ryker, :slack) do
+      nil ->
+        {:error, :slack_not_running}
+
+      configuration ->
+        setup = options!(configuration).handler_settings.setup_options
+        ChannelSetup.redraw_welcome(workspace_ref, channel_ref, setup)
+    end
+  end
+
+  @doc """
   Builds the trusted Delivery registry entry for the same Slack runtime.
 
   The host-owned incident-room state check is part of the binding, so a

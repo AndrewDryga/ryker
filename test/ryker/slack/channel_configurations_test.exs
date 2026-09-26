@@ -122,7 +122,7 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
 
     assert configuration.environment_ref == nil
 
-    assert {:ok, chosen} =
+    assert {:ok, %{configuration: chosen, status: :saved}} =
              ChannelConfigurations.select_environment(
                "TCE3E523134AD",
                "C456",
@@ -135,8 +135,9 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
     assert chosen.revision == configuration.revision + 1
     assert chosen.actor_ref == "control-plane:local"
 
-    # Choosing the same environment again is not a change.
-    assert {:ok, ^chosen} =
+    # Choosing the same environment again is not a change, and says so, so
+    # nothing is redrawn in Slack for it.
+    assert {:ok, %{configuration: ^chosen, status: :unchanged}} =
              ChannelConfigurations.select_environment(
                "TCE3E523134AD",
                "C456",
@@ -144,7 +145,7 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
                "control-plane:local"
              )
 
-    assert {:ok, none} =
+    assert {:ok, %{configuration: none, status: :saved}} =
              ChannelConfigurations.select_environment("TCE3E523134AD", "C456", nil, "U123")
 
     assert none.environment_ref == nil
