@@ -111,7 +111,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     card = card(rendered(work.episode), work.session)
 
     assert card =~ "Setup selected"
-    assert card =~ "Waiting for a Work claim"
+    assert card =~ "Waiting for a worker to pick it up"
     refute ready?(rendered(work.episode), work.session)
     refute card =~ "Worker"
   end

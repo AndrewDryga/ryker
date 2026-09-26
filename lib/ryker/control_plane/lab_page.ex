@@ -413,9 +413,10 @@ defmodule Ryker.ControlPlane.LabPage do
         }>{directory_time(
           @message.occurred_at,
           @now
-        )}</time><span :if={@state} class="lab-message-state">{@state}</span>{Phoenix.HTML.raw(
-          HTML.lab_message_actions(@message)
-        )}<a
+        )}</time><span :if={@state} class="lab-message-state">{@state}</span><span
+          :if={@message[:answered_earlier]}
+          class="lab-message-state"
+        >Answered your earlier wording</span>{Phoenix.HTML.raw(HTML.lab_message_actions(@message))}<a
           :if={@timeline}
           href={@timeline}
           target="_blank"

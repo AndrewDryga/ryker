@@ -277,11 +277,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   # retention removed, which is not the same as history that was never written.
   defp history(episode, totals, activity_page) do
     windows = [
-      history_window("kernel events", totals.events_shown, totals.events),
+      history_window("request changes", totals.events_shown, totals.events),
       history_window("records", totals.records_shown, totals.records),
-      history_window("sessions", totals.sessions_shown, totals.sessions),
-      history_window("turns", totals.turns_shown, totals.turns),
-      history_window("activity events", activity_page.shown, activity_page.total)
+      history_window("worker sessions", totals.sessions_shown, totals.sessions),
+      history_window("runs", totals.turns_shown, totals.turns),
+      history_window("worker updates", activity_page.shown, activity_page.total)
     ]
 
     %{
@@ -317,7 +317,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
         elapsed(received_at, latest_time(steps, episode.updated_at)),
         "first input to latest change"
       ),
-      metric("Turns", totals.turns, plural(totals.work_claims, "Work claim")),
+      metric("Runs", totals.turns, plural(totals.work_claims, "start attempt")),
       metric(
         "Repairs",
         totals.repairs,
@@ -349,7 +349,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   defp stats(steps, activity_page, totals) do
     [
       %{label: "steps shown", value: length(steps)},
-      %{label: "turns", value: totals.turns},
+      %{label: "runs", value: totals.turns},
       %{label: "records", value: totals.records},
       %{label: "activity", value: activity_page.total}
     ]

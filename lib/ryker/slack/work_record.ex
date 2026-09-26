@@ -9,6 +9,8 @@ defmodule Ryker.Slack.WorkRecord do
 
   import Ecto.Query
 
+  alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.EpisodeTrace.Input
   alias Ryker.ControlPlane.WorkRecovery
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Publication.Publication
@@ -133,7 +135,7 @@ defmodule Ryker.Slack.WorkRecord do
 
     [
       "Timeline for #{snapshot.work_ref}",
-      "Current state: #{snapshot.episode.state}",
+      "Current state: #{state_words(snapshot.episode.state)}",
       if(entries == [],
         do: "No durable timeline entries are recorded.",
         else: Enum.join(entries, "\n")
@@ -185,7 +187,7 @@ defmodule Ryker.Slack.WorkRecord do
 
     [
       "Handoff summary for #{snapshot.work_ref}",
-      "State: #{snapshot.episode.state} · owner: #{owner(snapshot.episode)}",
+      "State: #{state_words(snapshot.episode.state)}",
       progress_line(progress),
       section("Open waits", Enum.map(waits, &wait_line/1), "None recorded."),
       section("Goals", goals, "No durable goals are recorded."),
@@ -272,18 +274,9 @@ defmodule Ryker.Slack.WorkRecord do
     |> Enum.join("\n")
   end
 
+  # The same words the request's timeline uses for each transition.
   defp event_entry(event) do
-    label =
-      case event.kind do
-        :input_admitted -> "Input admitted"
-        :owner_transferred -> "Work owner transferred"
-        :input_wait_started -> "Operator input requested"
-        :event_wait_started -> "Verification wait started"
-        :wait_resumed -> "Wait resumed"
-        :result_accepted -> "Result accepted"
-        :delivery_confirmed -> "Delivery confirmed"
-        :episode_cancelled -> "Episode closed"
-      end
+    label = Input.lifecycle_title(event.kind)
 
     %{
       sort: {DateTime.to_unix(event.occurred_at, :microsecond), 0, event.sequence},
@@ -427,8 +420,9 @@ defmodule Ryker.Slack.WorkRecord do
     do:
       "Publication: #{publication.status}#{if publication.pull_request_url, do: " · #{publication.pull_request_url}", else: ""}"
 
-  defp owner(%{owner_kind: nil}), do: "none"
-  defp owner(episode), do: "#{episode.owner_kind}:#{episode.owner_ref}"
+  # The request's state in the words its timeline header uses; which internal
+  # owner holds it is not something a reader can act on.
+  defp state_words(state), do: Components.label(state)
 
   defp section(_title, [], nil), do: nil
   defp section(title, [], fallback), do: "#{title}:\n#{fallback}"

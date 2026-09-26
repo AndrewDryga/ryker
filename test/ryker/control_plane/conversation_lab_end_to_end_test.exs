@@ -15,6 +15,8 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     ConversationLab,
     EpisodePage,
     HTML,
+    LabControls,
+    LabPage,
     ModelRequests,
     Projection,
     Publisher
@@ -22,7 +24,9 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
 
   alias Ryker.Delivery.{Adapters, PlatformAction, Reaction}
 
-  alias Ryker.Episodes.Episode
+  alias Ryker.ControlPlane.EpisodeTrace.{Input, Maintenance, ToolActivity}
+  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Repo
   alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
@@ -30,6 +34,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
 
   alias Ryker.Work.{
+    ActivityEvent,
     Custody,
     Executor,
     Result,
@@ -44,8 +49,14 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   @reaction_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2e9"
   @artifact_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ea"
   @capability_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2eb"
+  @edit_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ec"
   @now ~U[2026-08-30 18:00:00.000000Z]
   @digest String.duplicate("a", 64)
+  @first_question "Is checkout readiness failing?"
+  @first_reply "Readiness failed for four minutes after 08:00."
+  @follow_up_reply "The deploy is the leading suspect for the 08:04 alert."
+  @edited_follow_up "Did the 08:00 deploy cause the 08:06 alert?"
+  @edited_reply "With the alert at 08:06, the deploy is still the leading suspect."
 
   for {field, value, phrase} <- [
         {"source_kind", String.duplicate("x", 121), "source identifier"},
@@ -647,6 +658,299 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     end
 
     assert document |> LazyHTML.query(".chapter-heading h3") |> LazyHTML.text() =~ "Cleanup"
+  end
+
+  # QA 2026-09-25, conversation e08ccca1: ask, reply, follow-up, reply, then
+  # edit the follow-up. While Ryker worked on the edited question, "Ryker is
+  # working on a reply" sat under the first message as well, because every
+  # message of the request took the request's state. And once the new answer
+  # arrived, the earlier reply still sat under the edited question with nothing
+  # saying it answered the words that were no longer there.
+  test "while Ryker answers an edited message, only that message says Ryker is working" do
+    edited_conversation!()
+
+    articles = chat_articles()
+    working = Enum.filter(articles, &(LazyHTML.query(&1, ".lab-typing-indicator") |> Enum.any?()))
+
+    assert [edited] = working
+    assert LazyHTML.text(edited) =~ @edited_follow_up
+    refute Enum.any?(working, &(LazyHTML.text(&1) =~ @first_question))
+
+    # The same holds when that run stops: "Model work stopped" and its Retry sat
+    # under both questions in the same QA pass.
+    {:ok, claim} = Custody.claim_next("edited-conversation", 60, :work)
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id),
+      set: [status: :blocked, lease_ref: nil, lease_owner: nil, lease_expires_at: nil]
+    )
+
+    stopped = Enum.filter(chat_articles(), &(LazyHTML.text(&1) =~ "Model work stopped"))
+    assert [edited] = stopped
+    assert LazyHTML.text(edited) =~ @edited_follow_up
+  end
+
+  test "a reply to the words a message had before it was edited says so" do
+    work = edited_conversation!()
+
+    # The edit makes the session's history stale, so Work starts a new one. A
+    # real worker names a new session; this double does once the old is closed.
+    Agent.update(work, &put_in(&1, [:session, "state"], "closed"))
+
+    assert {:ok, {:executed, %{status: :accepted}}} =
+             Ryker.Work.Dispatcher.run_once(work_options(work, "after-edit"))
+
+    assert {:ok, {:delivered, :message, _ref}} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options("after-edit"))
+
+    articles = chat_articles()
+    refute Enum.any?(articles, &(LazyHTML.query(&1, ".lab-typing-indicator") |> Enum.any?()))
+
+    marked =
+      Enum.filter(articles, &(LazyHTML.text(&1) =~ "Answered your earlier wording"))
+
+    assert [earlier] = marked
+    assert LazyHTML.text(earlier) =~ @follow_up_reply
+
+    assert Enum.count(articles, &(LazyHTML.text(&1) =~ @edited_reply)) == 1
+  end
+
+  test "an edit reaches the earlier reply on a refresh, though the reply itself did not change" do
+    # A refresh patches the latest page and every row changed since the last
+    # one. The earlier reply's own rows are old; only its message was edited,
+    # so a refresh must still bring it back to say what it answered.
+    edited_conversation!()
+    hour_ago = DateTime.add(DateTime.utc_now(), -3_600, :second)
+    Repo.update_all(Turn, set: [updated_at: hour_ago])
+    Repo.update_all(Record, set: [updated_at: hour_ago])
+
+    since = DateTime.add(DateTime.utc_now(), -60, :second)
+    assert {:ok, changed} = Projection.lab_changes(@conversation_id, since)
+
+    assert [%{text: @follow_up_reply}] =
+             Enum.filter(changed, &(&1.actor == :ryker and &1[:answered_earlier]))
+  end
+
+  # QA 2026-09-25 read a timeline headed "Turn 3 · Selected inputs not
+  # recorded · Continues Turn 2", "Owner transferred", "Wait resumed", "Episode
+  # setup" and "Related episode history": the engine's words, which a person
+  # reading what happened to their request cannot map to anything they did.
+  # Every heading, badge and label a person reads says it in their words; the
+  # engine's names stay in the code and the logs.
+  test "no person-facing timeline heading says turn, owner, episode or lease" do
+    work = edited_conversation!()
+    Agent.update(work, &put_in(&1, [:session, "state"], "closed"))
+
+    assert {:ok, {:executed, %{status: :accepted}}} =
+             Ryker.Work.Dispatcher.run_once(work_options(work, "headings"))
+
+    assert {:ok, {:delivered, :message, _ref}} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options("headings"))
+
+    [entry | _rest] =
+      Repo.all(from(entry in Entry, order_by: entry.inserted_at))
+
+    {:ok, detail} = Projection.episode("ingress-input:" <> entry.id)
+    {:ok, timeline} = ModelRequests.timeline(detail.episode.ref, %{})
+
+    # The real request, and every step the timeline can show that this one
+    # conversation did not produce.
+    snapshot = put_in(detail, [:trace, :steps], detail.trace.steps ++ every_step_kind(detail))
+
+    document =
+      render_component(&EpisodePage.render/1,
+        snapshot: snapshot,
+        timeline: timeline,
+        requests: nil,
+        params: %{}
+      )
+      |> LazyHTML.from_fragment()
+
+    headings =
+      document
+      |> LazyHTML.query(
+        "h1, h2, h3, h4, h5, h6, .turn-association, .timeline-index a, .event-state, " <>
+          ".phase-summary, .ui-eyebrow, .case-card-heading-detail, .lab-message-state"
+      )
+      |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
+      |> Enum.reject(&(&1 == ""))
+
+    assert "Run 3 · Continues Run 2" in headings
+    assert "Handed to a new run" in headings
+    assert "Picked up again after waiting" in headings
+
+    assert Enum.filter(headings, &(&1 =~ ~r/\b(turns?|owners?|episodes?|leases?)\b/i)) == []
+  end
+
+  # One step of every kind the timeline draws that the conversation above did
+  # not record: each kernel transition, the variants of starting again, each
+  # cleanup outcome, and the worker's activity frames.
+  defp every_step_kind(detail) do
+    at = DateTime.add(@now, 400, :second)
+
+    kernel =
+      Enum.with_index(
+        [
+          {:input_admitted, %{}},
+          {:owner_transferred, %{"transfer_ref" => "transfer:resume-blocked:a:v2"}},
+          {:owner_transferred,
+           %{"transfer_ref" => "transfer:resume-blocked:b:v3", "required_input_ref" => "input:b"}},
+          {:owner_transferred, %{"transfer_ref" => "transfer:resume-destination:c:v4"}},
+          {:input_wait_started, %{}},
+          {:event_wait_started, %{}},
+          {:wait_resumed, %{}},
+          {:result_accepted, %{}},
+          {:delivery_confirmed, %{}},
+          {:episode_cancelled, %{}},
+          {:reaction_recorded, %{}}
+        ],
+        1
+      )
+      |> Enum.map(fn {{kind, payload}, index} ->
+        %Event{
+          kind: kind,
+          sequence: 1_000 + index,
+          dedupe_key: "synthetic:#{index}",
+          payload: payload,
+          occurred_at: DateTime.add(at, index, :second)
+        }
+      end)
+      |> Input.kernel_steps(%{})
+
+    sessions =
+      for {status, receipt, reason} <- [
+            {:discarded, "discarded", nil},
+            {:discarded, "never_bound", nil},
+            {:discarded, "already_discarded", nil},
+            {:discarded, "remote_absent", nil},
+            {:discarded, "worker_removed", nil},
+            {:retained, nil, "dirty"},
+            {:blocked, nil, nil}
+          ] do
+        %Session{
+          id: Ecto.UUID.generate(),
+          cleanup_status: status,
+          cleanup_receipt: receipt && %{"kind" => receipt},
+          retained_reason: reason,
+          closed_at: at,
+          discarded_at: at,
+          updated_at: at,
+          repository_ref: "checkout-api"
+        }
+      end
+
+    activity =
+      for {kind, payload, index} <- [
+            {"tool.started", %{"tool_call_id" => "t1", "title" => "Read file"}, 1},
+            {"tool.completed", %{"tool_call_id" => "t1", "status" => "failed"}, 2},
+            {"model.plan", %{"step_count" => 2}, 3},
+            {"model.progress", %{"text" => "Checking the deploy."}, 4},
+            {"permission.decided", %{"outcome" => "cancelled", "tool_call_id" => "t2"}, 5},
+            {"activity.elided", %{"dropped" => 3}, 6},
+            {"provider.backoff", %{"target" => "standard", "retry_after_seconds" => 5}, 7},
+            {"provider.alive", %{"frames" => 3}, 8},
+            {"network", %{"denials" => []}, 9}
+          ] do
+        %ActivityEvent{
+          id: Ecto.UUID.generate(),
+          kind: kind,
+          payload: payload,
+          occurred_at: DateTime.add(at, 100 + index, :second),
+          session_id: "synthetic-session",
+          coop_turn_id: "synthetic-turn",
+          remote_event_id: "synthetic-#{index}"
+        }
+      end
+
+    kernel ++
+      Maintenance.steps(sessions) ++
+      ToolActivity.steps(activity, detail.trace.causality, MapSet.new())
+  end
+
+  # Ask, reply, follow up, reply, then edit the follow-up and route the edit
+  # into the same request, which is left working on it.
+  defp edited_conversation! do
+    assert {:ok, %{status: :recorded}} = send_message(@first_event_id, @now, @first_question)
+    {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
+
+    assert {:ok, {:decided, %{result: %{episode: episode}}}} =
+             AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+    {:ok, work} =
+      FakeWorkCoopAPI.start_link([
+        work_reply(@first_reply),
+        work_reply(@follow_up_reply),
+        work_reply(@edited_reply)
+      ])
+
+    assert {:ok, {:executed, %{status: :accepted}}} =
+             Ryker.Work.Dispatcher.run_once(work_options(work, "first"))
+
+    assert {:ok, {:delivered, :message, _}} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options("first"))
+
+    follow_up_at = DateTime.add(@now, 60, :second)
+
+    assert {:ok, %{status: :recorded}} =
+             send_message(@second_event_id, follow_up_at, "Did the 08:00 deploy cause it?")
+
+    candidate_ref =
+      "candidate:" <>
+        binary_part(CanonicalJSON.digest(["ingress-admission-candidate", episode.id]), 0, 12)
+
+    {:ok, follow_up} = FakeCoopAPI.start_link([decision(:continue_episode, candidate_ref)])
+
+    assert {:ok, {:decided, _}} =
+             AdmissionDispatcher.run_once(admission_options(follow_up, follow_up_at))
+
+    assert {:ok, {:executed, %{status: :accepted}}} =
+             Ryker.Work.Dispatcher.run_once(work_options(work, "second"))
+
+    assert {:ok, {:delivered, :message, _}} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options("second"))
+
+    edited_at = DateTime.add(@now, 120, :second)
+
+    assert {:ok, _receipt} =
+             ConversationLab.edit_message(
+               @conversation_id,
+               @second_event_id,
+               @edited_follow_up,
+               profile(),
+               id_generator: fn -> @edit_event_id end,
+               now: fn -> edited_at end
+             )
+
+    edit_decision =
+      candidate_ref
+      |> then(&decision(:continue_episode, &1))
+      |> Jason.decode!()
+      |> Map.put("reason", "The edit corrects the follow-up this request already answered.")
+      |> Jason.encode!()
+
+    {:ok, edit} = FakeCoopAPI.start_link([edit_decision])
+
+    assert {:ok, {:decided, %{result: %{episode: %{state: :working}}}}} =
+             AdmissionDispatcher.run_once(admission_options(edit, edited_at))
+
+    work
+  end
+
+  defp chat_articles do
+    options = %{projection: Projection.callbacks(), csrf_secret: String.duplicate("s", 32)}
+    {:ok, snapshot, token} = LabControls.snapshot(@conversation_id, options)
+
+    render_component(&LabPage.render/1,
+      snapshot: snapshot,
+      token: token,
+      items: Projection.lab_index(),
+      messages: Enum.map(snapshot.messages, &{"lab-message-#{&1.ref}", &1}),
+      history: %{before: nil, exhausted: true, failed: false, page_size: 50},
+      announcement: "",
+      now: DateTime.add(@now, 300, :second)
+    )
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("article.lab-chat-message")
+    |> Enum.to_list()
   end
 
   defp send_message(event_id, now, message, options \\ []) do

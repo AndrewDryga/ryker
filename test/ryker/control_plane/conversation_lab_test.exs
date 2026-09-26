@@ -1288,7 +1288,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     assert timeline.title == "Task timeline"
-    assert timeline.body =~ "Input admitted"
+    assert timeline.body =~ "Message added"
     assert timeline.navigation == []
 
     assert {:ok, evidence} =
@@ -1312,7 +1312,8 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     assert handoff.title == "Task handoff"
     assert handoff.body =~ task_offer.ref
-    assert handoff.body =~ "State: working"
+    assert handoff.body =~ "State: Working"
+    refute handoff.body =~ "owner"
 
     assert view_actions.view_lab_task_record.(
              @conversation_id,

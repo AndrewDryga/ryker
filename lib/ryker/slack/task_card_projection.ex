@@ -469,7 +469,7 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp unstarted_review(%Episode{state: :complete}, nil, %{"status" => "open"}),
     do:
-      "Prepared changes are saved, but checks have not started. Open the episode to review workspace recovery."
+      "Prepared changes are saved, but checks have not started. Open the request's timeline to review how to recover the working copy."
 
   defp unstarted_review(_episode, _publication, _offer), do: nil
 

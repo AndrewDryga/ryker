@@ -133,7 +133,7 @@ defmodule Ryker.ControlPlane.RequestPage do
         </article>
         <div :if={!@view.selected} class="document-unavailable">
           <.icon name={:book} /><h3>No request recorded</h3><p>
-            This episode may still be preparing its first request. Live updates will show it when it is retained.
+            This request may still be preparing its first model call. It appears here as soon as it is saved.
           </p>
         </div>
       </div>

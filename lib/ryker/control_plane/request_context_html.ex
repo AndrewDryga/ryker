@@ -17,26 +17,26 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "The audience and host-configured Ryker user reference saved on the first receipt. This context does not grant authority."},
     "inputs" => {"Conversation messages", "conversation", nil, nil},
     "current_inputs" =>
-      {"New messages in this turn", "conversation", nil,
-       "Earlier turns remain in the session and are not resubmitted here."},
+      {"New messages in this run", "conversation", nil,
+       "Earlier runs remain in the session and are not sent again here."},
     "continuity" =>
       {"Conversation continuity", "memory", "Earlier accepted work",
        "The saved first input, previous delivery and host continuation request. Historical context does not prove current state."},
     "operator_context" =>
       {"Remembered context · potentially stale", "memory", "Scoped operator context",
-       "Behavior guidance, retained memories and conversation summaries selected for this episode. These do not grant authority."},
+       "Behavior guidance, retained memories and conversation summaries selected for this request. These do not grant authority."},
     "memory" =>
       {"Facts", "memory", "Scoped memory records",
        "Remembered facts and guidance supplied with this request; potentially stale, not current observations."},
     "records" =>
-      {"Records from this work", "memory", "Episode record store",
-       "Records selected from this episode, including their retained source and identity fields."},
+      {"Records from this work", "memory", "Request records",
+       "Records selected from this request, with their saved source and identity fields."},
     "related_outcomes" =>
       {"Related outcomes", "memory", "Outcome recall",
        "Past outcomes selected as related history, not evidence of the current situation."},
     "prior_outcome" =>
       {"Previous accepted answer", "memory", "Earlier accepted work",
-       "The delivery and submission reference from the previous work turn."},
+       "The delivery and submission reference from the previous run."},
     "candidates" =>
       {"Candidate selection", "memory", nil,
        "How Ryker filtered earlier work for this routing decision."},
@@ -45,7 +45,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "State operations advertised to this request. Availability is not a receipt that a tool ran."},
     "source_and_action_tools" =>
       {"Source and action tools", "tools", "Platform adapter",
-       "Source access and platform actions advertised for this episode. The host still enforces the bound authority."},
+       "Source access and platform actions offered for this request. Ryker still enforces what the request may do."},
     "workspace" =>
       {"Workspace access", "tools", "Bound worker workspace",
        "Workspace scope supplied to this request, not an inventory of tools the model actually used."},
@@ -68,11 +68,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Offer confirmation", "runtime", "Platform capabilities",
        "Whether the bound platform supports host-confirmed task offers."},
     "linked_history_ref" =>
-      {"Linked episode history", "memory", "Episode relationship",
-       "A historical episode reference, not reused write authority or destination."},
+      {"Linked request history", "memory", "Request relationship",
+       "An earlier request this one refers to. It does not reuse that request's permissions or destination."},
     "parent_submission_ref" =>
       {"Previous submission", "memory", "Work continuation",
-       "The retained parent submission reference for this continuing turn."},
+       "The retained parent submission reference for this continuing run."},
     "conversation_observations" =>
       {"Conversation notes", "memory", nil,
        "Notes Ryker kept about earlier messages in this conversation. They are excerpts, not proof of current state."},
@@ -139,7 +139,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "Custom instructions",
     "Current message",
     "Conversation messages",
-    "New messages in this turn",
+    "New messages in this run",
     "Source messages",
     "Who this Slack message addresses",
     "Earlier messages",
@@ -1025,7 +1025,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp run_value("mode", "full"), do: "Full context"
-  defp run_value("mode", "continuation"), do: "Continues the previous turn"
+  defp run_value("mode", "continuation"), do: "Continues the previous run"
 
   defp run_value("signals", %{"active" => active, "terminal" => terminal} = signals)
        when is_integer(active) and is_integer(terminal) do
@@ -1514,7 +1514,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
       "standing_assignments" ->
         {"Rules", "memory", "Confirmed assignment records",
-         "The standing assignment context selected for this episode, not a new authorization."}
+         "The standing assignment context selected for this request, not a new authorization."}
 
       _ ->
         metadata(key, nil)
@@ -1526,7 +1526,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       Map.get(
         @sources,
         key,
-        {human(key), "other", "Additional retained field",
+        {field_label(key), "other", "Additional retained field",
          "This field was present in the retained request. More specific provenance was not recorded by this viewer."}
       )
 
@@ -2117,7 +2117,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     |> Enum.map(fn {key, nested} ->
       [
         "<div class=\"context-field\"><h4>",
-        escape(human(key)),
+        escape(field_label(key)),
         "</h4>",
         fields(nested, depth + 1),
         "</div>"
@@ -2211,7 +2211,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     do: [
       "<a class=\"candidate-episode-link\" href=\"",
       escape(href),
-      "\">Open episode →</a>"
+      "\">Open request →</a>"
     ]
 
   defp episode_link(_href), do: []
@@ -2316,6 +2316,21 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp present(_value), do: nil
 
   defp bounded(value, limit) when is_binary(value), do: String.slice(value, 0, limit)
+
+  # A retained field's name as a heading. The contract names a Work turn, an
+  # episode and a receipt's owner; the reader knows a run, a request and who
+  # recorded it.
+  defp field_label("owner"), do: "Recorded by"
+  defp field_label("host_continuation"), do: "Continuation"
+
+  defp field_label(key) do
+    key
+    |> human()
+    |> String.replace(~r/\bturn(s?)\b/, "run\\1")
+    |> String.replace(~r/\bTurn(s?)\b/, "Run\\1")
+    |> String.replace(~r/\bepisode(s?)\b/, "request\\1")
+    |> String.replace(~r/\bEpisode(s?)\b/, "Request\\1")
+  end
 
   defp human(value) when is_map(value) or is_list(value), do: "Structured value"
   defp human(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()

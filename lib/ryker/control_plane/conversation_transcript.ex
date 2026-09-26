@@ -13,7 +13,8 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.ControlPlane.{Card, TranscriptCursor}
   alias Ryker.Delivery.{PlatformAction, Reaction}
-  alias Ryker.Episodes.{Episode, Reactions}
+  alias Ryker.Episodes.{Episode, Event, Reactions}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.State.Record
@@ -55,6 +56,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
     messages
     |> attach_execution()
+    |> mark_earlier_answers()
     |> Enum.map(&put_cursor(&1, conversation_id))
     |> sort_messages()
   end
@@ -66,48 +68,198 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   # state, or "blocked" when its owning turn is, so a message whose model work
   # stopped says so beside the message and offers the same retry /failures
   # does. Complete work carries nothing; the reply already sits below it.
+  #
+  # Every message of a request shares its episode, but only the messages its
+  # current work answers are being worked on. QA 2026-09-25: while Ryker
+  # answered an edited follow-up, "Ryker is working on a reply" also sat under
+  # the first message, which had been answered minutes before.
   defp attach_execution(messages) do
-    episode_ids =
-      messages
-      |> Enum.filter(&(&1.actor == :operator and is_binary(&1[:episode_id])))
-      |> Enum.map(& &1.episode_id)
-      |> Enum.uniq()
+    operator = Enum.filter(messages, &(&1.actor == :operator and is_binary(&1[:episode_id])))
+    episode_ids = operator |> Enum.map(& &1.episode_id) |> Enum.uniq()
+    executions = executions(episode_ids)
 
-    executions =
-      if episode_ids == [] do
-        %{}
-      else
-        Repo.all(
-          from(episode in Episode,
-            left_join: turn in Turn,
-            on:
-              turn.episode_id == episode.id and turn.turn_ref == episode.owner_ref and
-                episode.owner_kind == :turn,
-            where: episode.id in ^episode_ids,
-            select: %{
-              id: episode.id,
-              key: episode.key,
-              state:
-                fragment(
-                  "CASE WHEN ? = 'blocked' THEN 'blocked' ELSE ?::text END",
-                  turn.status,
-                  episode.state
-                )
-            }
+    answering =
+      executions
+      |> Enum.filter(fn {_id, execution} -> execution.state in ["working", "blocked"] end)
+      |> Map.new(fn {id, execution} -> {id, execution.active_input_refs} end)
+      |> admitted_inputs()
+      |> Enum.group_by(fn {{episode_id, _ref}, _input} -> episode_id end, fn {_key, input} ->
+        input.native_input_id
+      end)
+
+    # Work whose inputs are not recorded is still shown, on the request's newest message.
+    newest =
+      operator
+      |> Enum.group_by(& &1.episode_id)
+      |> Map.new(fn {id, owned} -> {id, Enum.max_by(owned, & &1.sort_key).identity} end)
+
+    Enum.map(messages, fn
+      %{actor: :operator, episode_id: id} = message when is_binary(id) ->
+        execution = Map.get(executions, id)
+
+        Map.put(
+          message,
+          :execution,
+          if(answered?(message, execution, answering, newest),
+            do: execution && Map.delete(execution, :active_input_refs)
           )
         )
-        |> Map.new(fn row -> {row.id, %{key: row.key, state: row.state}} end)
-      end
 
-    Enum.map(messages, fn message ->
-      case message do
-        %{actor: :operator, episode_id: id} when is_binary(id) ->
-          Map.put(message, :execution, Map.get(executions, id))
-
-        _other ->
-          message
-      end
+      message ->
+        message
     end)
+  end
+
+  defp executions([]), do: %{}
+
+  defp executions(episode_ids) do
+    Repo.all(
+      from(episode in Episode,
+        left_join: turn in Turn,
+        on:
+          turn.episode_id == episode.id and turn.turn_ref == episode.owner_ref and
+            episode.owner_kind == :turn,
+        where: episode.id in ^episode_ids,
+        select: %{
+          id: episode.id,
+          key: episode.key,
+          active_input_refs: episode.active_input_refs,
+          state:
+            fragment(
+              "CASE WHEN ? = 'blocked' THEN 'blocked' ELSE ?::text END",
+              turn.status,
+              episode.state
+            )
+        }
+      )
+    )
+    |> Map.new(fn row -> {row.id, Map.delete(row, :id)} end)
+  end
+
+  defp answered?(_message, nil, _answering, _newest), do: false
+
+  defp answered?(message, %{state: state}, answering, newest)
+       when state in ["working", "blocked"] do
+    case Map.fetch(answering, message.episode_id) do
+      {:ok, native_ids} -> message.native_input_id in native_ids
+      :error -> newest[message.episode_id] == message.identity
+    end
+  end
+
+  defp answered?(_message, _execution, _answering, _newest), do: true
+
+  # The message and revision each recorded kernel input ref admitted, from the
+  # admission the kernel recorded for it: `%{episode_id => refs}` in,
+  # `%{{episode_id, ref} => %{native_input_id, revision}}` out.
+  defp admitted_inputs(refs_by_episode) do
+    case refs_by_episode |> Map.values() |> List.flatten() |> Enum.uniq() do
+      [] ->
+        %{}
+
+      refs ->
+        refs_by_episode
+        |> admission_events(refs)
+        |> Enum.flat_map(&admitted_input(&1, refs_by_episode))
+        |> Map.new()
+    end
+  end
+
+  defp admission_events(refs_by_episode, refs) do
+    Repo.all(
+      from(event in Event,
+        where:
+          event.episode_id in ^Map.keys(refs_by_episode) and event.kind == :input_admitted and
+            event.dedupe_key in ^refs,
+        select: {event.episode_id, event.dedupe_key, event.payload}
+      )
+    )
+  end
+
+  defp admitted_input({episode_id, ref, payload}, refs_by_episode) do
+    with true <- ref in Map.get(refs_by_episode, episode_id, []),
+         %{"native_input_id" => native_id, "revision" => revision}
+         when is_binary(native_id) and is_integer(revision) <- payload do
+      [{{episode_id, ref}, %{native_input_id: native_id, revision: revision}}]
+    else
+      _other -> []
+    end
+  end
+
+  # A reply that answered words its message no longer has: the message was
+  # edited after the run that wrote the reply chose it. QA 2026-09-25: once
+  # the edited question was answered, the earlier reply still sat directly
+  # under it with nothing saying it answered the text that was replaced.
+  defp mark_earlier_answers(messages) do
+    turn_ids =
+      for %{actor: :ryker, turn_id: id} <- messages, is_binary(id), uniq: true, do: id
+
+    earlier = earlier_answer_turns(turn_ids)
+
+    Enum.map(messages, fn
+      %{actor: :ryker, turn_id: id} = message when is_binary(id) ->
+        if MapSet.member?(earlier, id),
+          do: Map.put(message, :answered_earlier, true),
+          else: message
+
+      message ->
+        message
+    end)
+  end
+
+  defp earlier_answer_turns([]), do: MapSet.new()
+
+  defp earlier_answer_turns(turn_ids) do
+    turns =
+      Repo.all(
+        from(turn in Turn,
+          where: turn.id in ^turn_ids and not is_nil(turn.selected_input_refs),
+          select: {turn.id, turn.episode_id, turn.selected_input_refs}
+        )
+      )
+
+    answered =
+      turns
+      |> Enum.group_by(&elem(&1, 1), &elem(&1, 2))
+      |> Map.new(fn {episode_id, refs} -> {episode_id, List.flatten(refs)} end)
+      |> admitted_inputs()
+
+    current =
+      answered
+      |> Map.values()
+      |> Enum.map(& &1.native_input_id)
+      |> Enum.uniq()
+      |> current_revisions()
+
+    for {turn_id, episode_id, refs} <- turns,
+        Enum.any?(refs, &superseded_by_edit?(answered[{episode_id, &1}], current)),
+        into: MapSet.new(),
+        do: turn_id
+  end
+
+  defp superseded_by_edit?(%{native_input_id: native_id, revision: revision}, current),
+    do: match?({newer, :edit} when newer > revision, current[native_id])
+
+  defp superseded_by_edit?(nil, _current), do: false
+
+  defp current_revisions([]), do: %{}
+
+  defp current_revisions(native_ids) do
+    Repo.all(
+      from(entry in Entry,
+        where:
+          entry.source_kind == "control_plane" and entry.source_ref == "local" and
+            entry.native_input_id in ^native_ids,
+        distinct: entry.native_input_id,
+        order_by: [
+          asc: entry.native_input_id,
+          desc: entry.revision,
+          desc: entry.inserted_at,
+          desc: entry.id
+        ],
+        select: {entry.native_input_id, {entry.revision, entry.event_kind}}
+      )
+    )
+    |> Map.new()
   end
 
   defp delivery_reactions([]), do: %{}

@@ -65,7 +65,7 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
       {:mention, direct_receipt(), "Ryker processed this message because it was mentioned."},
       {:direct, direct_receipt(), "Ryker processed this direct message."},
       {:ambient, receipt([{"direct_or_mention", "no"}, {"existing_episode_thread", "yes"}]),
-       "Ryker processed this message because it continued an existing episode."},
+       "Ryker processed this message because it continued earlier work."},
       {:ambient,
        receipt(
          [

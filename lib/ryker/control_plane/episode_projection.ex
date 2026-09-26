@@ -162,8 +162,8 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
             state: other.state,
             relation:
               if(other.id == episode.linked_episode_id,
-                do: "Previous episode",
-                else: "Follow-up episode"
+                do: "Earlier request",
+                else: "Follow-up request"
               )
           }
         end)

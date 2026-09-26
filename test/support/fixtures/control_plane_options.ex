@@ -117,7 +117,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
              body:
                if(view == :diff,
                  do: "Patch page for #{record_ref}",
-                 else: "Timeline for #{record_ref}\n- Input admitted"
+                 else: "Timeline for #{record_ref}\n- Message added"
                ),
              kind: view,
              navigation: navigation,
@@ -366,7 +366,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                      span: "+0 ms",
                      steps: [
                        %{
-                         actor: "Episode kernel",
+                         actor: "Ryker",
                          at: ~U[2026-08-28 11:00:00Z],
                          details: [
                            %{label: "Source", value: "slack:message:one"},
@@ -376,9 +376,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                          href: nil,
                          id: "kernel-1",
                          stage: "Input",
-                         state: "input admitted",
-                         summary: "Authenticated input joined this episode.",
-                         title: "Input admitted",
+                         state: nil,
+                         summary: "Message added to this request.",
+                         title: "Message added",
                          tone: nil
                        }
                      ],

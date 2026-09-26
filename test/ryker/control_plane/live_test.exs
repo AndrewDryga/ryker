@@ -1793,7 +1793,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     path = "/timeline/" <> URI.encode_www_form(episode.key)
     {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), path)
     assert has_element?(view, "#execution-timeline", "Execution timeline")
-    assert has_element?(view, ".case-event", "Input admitted")
+    assert has_element?(view, ".case-event", "Message added")
     refute has_element?(view, "button.execution-event")
     refute has_element?(view, "nav[aria-label='Episode view']")
     refute has_element?(view, "a", "Model calls")

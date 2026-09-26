@@ -218,7 +218,7 @@ defmodule Ryker.ControlPlane.WorkRecovery do
   defp explanation(turn, false, false, _closed, _saved) do
     case turn.last_error_code do
       code when code in ~w(coop_unavailable coop_transport_error) ->
-        {"The worker connection failed", "The host could not confirm the worker operation.",
+        {"The worker connection failed", "Ryker could not confirm what the worker did.",
          "Restore the worker connection and inspect the last confirmed step before retrying."}
 
       _ ->
@@ -256,12 +256,12 @@ defmodule Ryker.ControlPlane.WorkRecovery do
 
   defp completion_failure("coop_protocol_error"),
     do:
-      {"The worker response did not match the completed turn's recorded state or receipt.",
-       "Inspect the same worker turn and reconcile the state mismatch before continuing."}
+      {"The worker response did not match what Ryker recorded for the completed run.",
+       "Inspect the same worker run and settle the mismatch before continuing."}
 
   defp completion_failure(_code),
     do:
-      {"A host finalization step failed before the completed reply could be released. The recorded error does not establish a more specific cause.",
+      {"A step Ryker takes to finish the answer failed before the completed reply could be sent. The recorded error does not establish a more specific cause.",
        "Inspect the failed finalization step and correct its underlying cause."}
 
   defp stranded_recovery,

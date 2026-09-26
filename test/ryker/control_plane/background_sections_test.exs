@@ -90,16 +90,16 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     assert step.tone == :warn
   end
 
-  test "closing a session is not removing its workspace" do
+  test "closing a session is not removing its working copy" do
     %{episode: episode} = admitted!("closed")
     cleanup!(episode, cleanup_status: :grace, closed_at: @now)
 
-    step = maintenance_step(episode, "Session closed")
-    assert step.summary =~ "Closing is not removing"
-    assert maintenance_step(episode, "Workspace removed") == nil
+    step = maintenance_step(episode, "Worker session closed")
+    assert step.summary =~ "Closing it does not remove its working copy"
+    assert maintenance_step(episode, "Working copy removed") == nil
   end
 
-  test "a kept workspace names why it was kept and is not a failure" do
+  test "a kept working copy names why it was kept and is not a failure" do
     %{episode: episode} = admitted!("kept")
 
     cleanup!(episode,
@@ -108,7 +108,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
       retained_reason: "dirty_worktree"
     )
 
-    step = maintenance_step(episode, "Workspace kept")
+    step = maintenance_step(episode, "Working copy kept")
     assert step.summary =~ "uncommitted changes"
     assert step.tone == nil
   end
@@ -132,7 +132,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
       }
     )
 
-    assert maintenance_step(episode, "Workspace removed") == nil
+    assert maintenance_step(episode, "Working copy removed") == nil
     step = maintenance_step(episode, "Nothing to remove")
     assert step.summary =~ "never learned a worker session"
     refute step.summary =~ "discarded"
@@ -154,7 +154,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
       }
     )
 
-    step = maintenance_step(episode, "Workspace left on a removed worker")
+    step = maintenance_step(episode, "Working copy left on a removed worker")
     assert step.summary =~ "removed from Ryker"
   end
 
