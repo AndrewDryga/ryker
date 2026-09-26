@@ -123,6 +123,14 @@ defmodule Ryker.ControlPlane.Activity do
     end)
   end
 
+  @doc """
+  One page of requests for the Activity list, and how many requests each of
+  its views holds under the same search and filters.
+
+  `views` counts the rows the Needs you (`"attention"`), In progress
+  (`"running"`) and Finished (`"done"`) views list, so a count that links to a
+  view always equals what that view shows.
+  """
   def list(params) do
     mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
     base_query = from(row in subquery(rows()))
@@ -131,7 +139,7 @@ defmodule Ryker.ControlPlane.Activity do
     query = if mode == "all", do: query, else: from(row in query, where: row.mode == ^mode)
 
     query =
-      filter(query, params["filter"])
+      query
       |> criteria_filters(params)
       |> conversation_filters(params)
       |> UsageProjection.filter_activity(params)
@@ -139,7 +147,7 @@ defmodule Ryker.ControlPlane.Activity do
 
     page =
       PagedRelation.read(
-        query,
+        filter(query, params["filter"]),
         [desc: :updated_at, desc: :id],
         "page",
         params,
@@ -154,8 +162,18 @@ defmodule Ryker.ControlPlane.Activity do
       page: page.page,
       pages: page.pages,
       mode: mode,
-      searchable: searchable
+      searchable: searchable,
+      views: view_counts(query)
     }
+  end
+
+  defp view_counts(query) do
+    counted =
+      from(row in query, group_by: row.bucket, select: {row.bucket, count()})
+      |> Repo.all()
+      |> Map.new()
+
+    Map.merge(%{"attention" => 0, "running" => 0, "done" => 0}, counted)
   end
 
   defp rows do

@@ -30,9 +30,7 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
       observability: %{},
       projection:
         Map.merge(Projection.callbacks(), %{
-          overview: fn ->
-            %{counts: %{active: 2, waiting: 0, blocked: 1}, fleet: %{required: false}}
-          end,
+          overview: fn -> %{fleet: %{required: false}} end,
           activity: fn params ->
             list = Agent.get(items, & &1)
 
@@ -42,7 +40,8 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
               page: 1,
               pages: 1,
               mode: params["mode"] || "live",
-              searchable: true
+              searchable: true,
+              views: %{"attention" => 1, "running" => 2, "done" => 0}
             }
           end,
           schedules: fn _params -> [] end
@@ -98,7 +97,7 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
     assert_patch(view, "/?filter=running")
     assert has_element?(view, "nav.segmented a[aria-current=page]", "In progress")
 
-    view |> element("a.kit-count", "blocked") |> render_click()
+    view |> element("a.kit-count", "needs you") |> render_click()
     assert_patch(view, "/?filter=attention")
   end
 

@@ -26,7 +26,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   alias Ryker.ControlPlane.Endpoint
   alias Ryker.Episodes.Reactions
 
-  # Activity's "active" count: the number in the count that opens In progress.
+  # Activity's in-progress count: the number in the count that opens In progress.
   @active_count ".kit-count[href$='?filter=running'] b"
 
   @endpoint Endpoint
@@ -48,12 +48,7 @@ defmodule Ryker.ControlPlane.LiveTest do
       observability: %{},
       projection:
         Map.merge(Projection.callbacks(), %{
-          overview: fn ->
-            counts = Agent.get(counters, & &1)
-            if counts[:fail], do: raise("sensitive provider exception body")
-            send(observer, {:overview_projected, counts.active})
-            %{counts: counts, needs_attention: []}
-          end,
+          overview: fn -> %{fleet: %{required: false}} end,
           lab_index: fn ->
             items = Projection.lab_index()
             send(observer, {:lab_projected, Enum.sum(Enum.map(items, & &1.message_count))})
@@ -83,13 +78,18 @@ defmodule Ryker.ControlPlane.LiveTest do
             end
           end,
           activity: fn params ->
+            counts = Agent.get(counters, & &1)
+            if counts[:fail], do: raise("sensitive provider exception body")
+            send(observer, {:activity_projected, counts.active})
+
             %{
               items: [],
               total: 0,
               page: 1,
               pages: 1,
               mode: params["mode"] || "live",
-              searchable: true
+              searchable: true,
+              views: %{"attention" => 0, "running" => counts.active, "done" => 0}
             }
           end,
           episode: fn ref, params ->
@@ -142,7 +142,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     )
 
     # Same debounce-plus-projection wait as the Lab stream below; same guard.
-    assert_receive {:overview_projected, 7}, 2_000
+    assert_receive {:activity_projected, 7}, 2_000
     assert has_element?(view, @active_count, "7")
   end
 

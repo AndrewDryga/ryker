@@ -23,7 +23,7 @@ There are no compatibility aliases for earlier paths.
 
 | Surface | Route | What it holds |
 | --- | --- | --- |
-| **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. It leads with the active, waiting and blocked counts, each opening its view. One toolbar row holds search, the work mode, a chip per filter, the All · Needs you · In progress · Finished views and the total; "+ Filter" picks a field, then a value, which applies at once. Each request is one row that opens its timeline. A worker problem and the scheduled runs coming up follow the list as sections. `/` is the application root and renders the same list. |
+| **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. It leads with how many requests it lists, then how many are in progress and how many need you, each counted from the rows its view lists and opening that view. One toolbar row holds search, the work included, the All · Needs you · In progress · Finished views, then a chip per filter and "+ Filter", which picks a field, then a value, which applies at once. Each request is one row that opens its timeline. A worker problem and the scheduled runs coming up follow the list as sections. `/` is the application root and renders the same list. |
 | **Timeline** | `/timeline/:ref` | One request's chronological case file, titled by its subject. It includes each model request's retained briefing, response checks and technical identity in place. `:ref` is a durable episode key or `ingress-input:<id>` for an input with no episode yet. |
 
 Live invalidation domains follow the first path segment, so `activity` and

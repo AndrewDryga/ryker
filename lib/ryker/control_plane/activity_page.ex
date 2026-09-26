@@ -48,7 +48,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
         workers: workers(assigns.overview),
         counts: [
           Kit.list_total(assigns.activity.total, {"request", "requests"}, filtered)
-          | counts(assigns.overview, assigns.path)
+          | counts(assigns.activity, assigns.overview, assigns.path, assigns.params)
         ],
         filtered: filtered
       )
@@ -204,24 +204,22 @@ defmodule Ryker.ControlPlane.ActivityPage do
     {tone, Components.label(state)}
   end
 
-  # The workload the page leads with; each count opens the view that lists
-  # it, and a worker problem joins them as a warning that leads to its section.
-  defp counts(overview, path) do
-    counts = overview.counts
-    blocked = Map.get(counts, :blocked, 0)
+  # The workload the page leads with, counted from the same rows the views
+  # list: each count opens its own view under the same search and filters and
+  # equals what that view shows. A worker problem joins them as a warning that
+  # leads to its section.
+  defp counts(activity, overview, path, params) do
+    views = Map.get(activity, :views, %{})
+    running = Map.get(views, "running", 0)
+    attention = Map.get(views, "attention", 0)
 
     [
-      %{value: Map.get(counts, :active, 0), label: "active", href: view_path(path, "running")},
+      %{value: running, label: "in progress", href: filter_path(path, params, "running")},
       %{
-        value: Map.get(counts, :waiting, 0),
-        label: "waiting",
-        href: view_path(path, "attention")
-      },
-      %{
-        value: blocked,
-        label: "blocked",
-        tone: if(blocked > 0, do: :warn),
-        href: view_path(path, "attention")
+        value: attention,
+        label: if(attention == 1, do: "needs you", else: "need you"),
+        tone: if(attention > 0, do: :warn),
+        href: filter_path(path, params, "attention")
       }
     ] ++ worker_count(overview)
   end
@@ -233,8 +231,6 @@ defmodule Ryker.ControlPlane.ActivityPage do
     do: [%{value: 0, label: "workers available", tone: :warn, href: "#workers"}]
 
   defp worker_count(_overview), do: []
-
-  defp view_path(path, view), do: path <> "?" <> URI.encode_query(%{"filter" => view})
 
   defp workers(%{fleet: %{unavailable: true} = fleet}) do
     %{

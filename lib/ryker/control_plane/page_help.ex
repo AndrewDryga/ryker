@@ -124,7 +124,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Find a request",
        [
-         "The counts at the top say how much is active, waiting or blocked, and each one opens that view. Search matches message text and repositories.",
+         "The counts at the top say how many requests the list holds, how many are in progress and how many need you. Each of the last two opens its view. Search matches message text and repositories.",
          "All, Needs you, In progress and Finished narrow the list. + Filter adds a filter, such as a repository or a model."
        ]},
       {"Open a request",
