@@ -599,7 +599,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   episode that no turn has claimed yet gets one card on its session row,
   which proves configuration was selected and nothing more.
   """
-  def setup_steps(sessions, turns) do
+  def setup_steps(sessions, turns, edit_runs) do
     work_sessions = Enum.filter(sessions, &(&1.execution_kind == :work))
     sessions_by_id = Map.new(work_sessions, &{&1.id, &1})
     placements = placements(work_sessions)
@@ -618,7 +618,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
           end)
 
         setup =
-          work_setup(turn, ordinal, session, earlier, Map.get(placements, turn.session_id), now)
+          work_setup(
+            turn,
+            ordinal,
+            session,
+            earlier,
+            Map.get(placements, turn.session_id),
+            now,
+            MapSet.member?(edit_runs, turn.id)
+          )
 
         step("setup-#{turn.id}", :ready, turn.inserted_at, %{
           actor: "Ryker",
@@ -680,8 +688,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # earlier round, and what code it could see. The worker and its execution
   # policy are the same on every card of a one-worker install, so they are
   # named only when setup failed and they are part of the explanation.
-  defp work_setup(turn, ordinal, session, earlier_turns, placement, now) do
-    session_state = session_state(session, earlier_turns)
+  defp work_setup(turn, ordinal, session, earlier_turns, placement, now, edited?) do
+    session_state = session_state(session, earlier_turns, edited?)
     outcome = setup_outcome(turn, session, now)
 
     Map.merge(outcome, %{
@@ -768,15 +776,20 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   end
 
   # New, reused or replaced is read from generations and earlier turns on the
-  # same row. The rotation reason is not retained anywhere, so a replacement
-  # says "Reason not recorded" rather than borrowing today's session state.
-  defp session_state(nil, _earlier_turns),
+  # same row. The rotation reason is not retained anywhere: a replacement for
+  # a run an edited message started was made for the edit, which made the old
+  # session's history stale; any other says the reason was not recorded rather
+  # than borrowing today's session state.
+  defp session_state(nil, _earlier_turns, _edited?),
     do: %{detail: "Not recorded"}
 
-  defp session_state(session, earlier_turns) do
+  defp session_state(session, earlier_turns, edited?) do
     cond do
       earlier_turns != [] ->
         %{detail: "Continued · the model still has what it saw in the previous round"}
+
+      (session.generation > 1 or session.create_generation > 1) and edited? ->
+        %{detail: "New, replacing the earlier session because a message was edited"}
 
       session.generation > 1 or session.create_generation > 1 ->
         %{detail: "New, replacing an earlier session · the reason was not recorded"}

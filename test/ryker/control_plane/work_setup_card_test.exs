@@ -16,6 +16,9 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
   alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.{Custody, Session, Submission, Turn}
 
   @workspace %{
@@ -154,6 +157,40 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     refute card =~ "reached its limit"
   end
 
+  test "a session replaced for an edited message says the edit was why" do
+    # QA re-test, 2026-09-26: after an edit the card said "New, replacing an
+    # earlier session · the reason was not recorded", though the reason was
+    # the edit. Admission names each run after the input that started it, so
+    # a run an edit started is known.
+    entry = edit_entry!("edited")
+
+    work =
+      submitted!("edited", %{
+        native_input_id: entry.native_input_id,
+        turn_ref: "ingress-turn:#{entry.id}"
+      })
+
+    # As admission leaves it: decided into this request.
+    Repo.update_all(from(saved in Entry, where: saved.id == ^entry.id),
+      set: [
+        status: :decided,
+        decision_ref: "decision:edited",
+        decision_fingerprint: String.duplicate("f", 64),
+        decision_action: :continue_episode,
+        decision_document: %{"action" => "continue_episode"},
+        episode_id: work.episode.id
+      ]
+    )
+
+    Repo.update_all(from(session in Session, where: session.id == ^work.session.id),
+      set: [generation: 2, create_generation: 3]
+    )
+
+    card = card(rendered(work.episode), work.turn)
+    assert card =~ "New, replacing the earlier session because a message was edited"
+    refute card =~ "the reason was not recorded"
+  end
+
   test "a later turn on the same session says the session was reused" do
     work = submitted!("reused")
 
@@ -226,17 +263,43 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     )
   end
 
-  defp pinned!(suffix) do
+  # An edit as Slack delivers it: the original message's ref, an edit event
+  # numbered by its own timestamp.
+  defp edit_entry!(suffix) do
+    {:ok, input} =
+      SlackInput.new(%{
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: "C456",
+        content: %{"text" => "What is 5+5? Just the number."},
+        event_kind: :edit,
+        event_ref: "Ev-edit-#{suffix}",
+        message_ref: "1788562304.000100",
+        occurred_at: DateTime.utc_now(),
+        revision: 1_788_562_310_000_100 * 4 + 1,
+        thread_ref: nil,
+        workspace_ref: "TSETUPCARD"
+      })
+
+    {:ok, %{entry: entry}} = Inbox.record(input)
+    entry
+  end
+
+  defp pinned!(suffix, overrides \\ %{}) do
     episode_id = Ecto.UUID.generate()
 
     {:ok, %{episode: episode}} =
       Episodes.apply(
-        EpisodeFixtures.admit_input(%{
-          episode_id: episode_id,
-          episode_key: "work-setup:#{suffix}:#{episode_id}",
-          native_input_id: "source:#{suffix}:#{episode_id}",
-          turn_ref: "turn:#{suffix}:#{episode_id}"
-        })
+        EpisodeFixtures.admit_input(
+          Map.merge(
+            %{
+              episode_id: episode_id,
+              episode_key: "work-setup:#{suffix}:#{episode_id}",
+              native_input_id: "source:#{suffix}:#{episode_id}",
+              turn_ref: "turn:#{suffix}:#{episode_id}"
+            },
+            overrides
+          )
+        )
       )
 
     {:ok, session} =
@@ -251,14 +314,14 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     %{episode: episode, session: session, turn: nil}
   end
 
-  defp claimed!(suffix) do
-    work = pinned!(suffix)
+  defp claimed!(suffix, overrides \\ %{}) do
+    work = pinned!(suffix, overrides)
     {:ok, claim} = Custody.claim_next("setup:#{suffix}", 120, :work)
     %{work | turn: claim.turn} |> Map.put(:claim, claim)
   end
 
-  defp submitted!(suffix) do
-    work = claimed!(suffix)
+  defp submitted!(suffix, overrides \\ %{}) do
+    work = claimed!(suffix, overrides)
     claim = work.claim
 
     {:ok, submission} =

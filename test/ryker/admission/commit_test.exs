@@ -9,6 +9,7 @@ defmodule Ryker.Admission.CommitTest do
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
+  alias Ryker.ControlPlane.Projection
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
@@ -225,6 +226,21 @@ defmodule Ryker.Admission.CommitTest do
       assert {:ok, result} = Admission.commit(context, decision, "question-#{@kind}")
       assert result.episode.state == :working
       assert Repo.get!(Ryker.State.Record, question.id).status == @status
+
+      # The timeline says what ended the wait; an edit read "What Ryker was
+      # waiting for arrived".
+      {:ok, %{trace: trace}} = Projection.episode(original.key)
+      resumed = Enum.find(trace.steps, &(&1.stage == "Wait" and &1.tone == :good))
+
+      assert {resumed.title, resumed.summary} ==
+               if(@kind == :edit,
+                 do:
+                   {"Picked up again after an edit",
+                    "The message was edited while Ryker waited, so the question it asked was replaced and the work started again from the new wording."},
+                 else:
+                   {"Picked up again after waiting",
+                    "What Ryker was waiting for arrived, so the work continues."}
+               )
     end
   end
 
