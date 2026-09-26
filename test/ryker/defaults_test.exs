@@ -62,7 +62,10 @@ defmodule Ryker.DefaultsTest do
   end
 
   test "the build chooses the execution topology, and tests are isolated from the fleet" do
-    assert Defaults.execution() == :direct
-    assert Application.get_env(:ryker, :execution) == :direct
+    # Development and test run one isolated process with no fleet. The value
+    # was once `:direct`, named after a local Coop client that is now eval-only
+    # and gone from the release, so the name no longer said what it selects.
+    assert Defaults.execution() == :isolated
+    assert Application.get_env(:ryker, :execution) == :isolated
   end
 end
