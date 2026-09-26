@@ -267,21 +267,29 @@ defmodule Ryker.Retention.DispatcherTest do
       {:retention_worker_unavailable, "ryker-compose"}
     ]
 
+    # Each case must reach only the session it created. A deferred session is
+    # due again after its one-second retry and, being older, sorts ahead of a
+    # new one; on 2026-09-26 the gate ran this loop past that second under load
+    # and the permanent case blocked an earlier session while its own stayed
+    # active. Retiring each checked session keeps every later case to its own.
     for {reason, index} <- Enum.with_index(transient_reasons, 1) do
       session = terminal_session!("typed-transient-#{index}")
 
       assert {:ok, {:deferred, ^reason}} =
                run_returning(reason, "cleanup:typed-transient:#{index}")
 
+      assert_claimed!(session)
       stored = Repo.get!(Session, session.id)
       assert stored.cleanup_status == :close_pending
       assert %DateTime{} = stored.cleanup_next_attempt_at
+      stop_cleanup!(session.id)
     end
 
     session = terminal_session!("bounded-permanent")
     reason = {:unsafe_cleanup, String.duplicate("é", 3_000)}
 
     assert {:ok, {:blocked, ^reason}} = run_returning(reason, "cleanup:bounded-permanent")
+    assert_claimed!(session)
 
     blocked = Repo.get!(Session, session.id)
     assert blocked.cleanup_status == :blocked
@@ -557,7 +565,19 @@ defmodule Ryker.Retention.DispatcherTest do
   defmodule ReturningExecutor do
     @moduledoc false
 
-    def run(_claim, options), do: Keyword.fetch!(options, :client)
+    # The dispatcher runs the executor in the calling test process, so the test
+    # can check which session a case actually reached before it reads any row.
+    def run(claim, options) do
+      send(self(), {:cleanup_claimed, claim.session.id})
+      Keyword.fetch!(options, :client)
+    end
+  end
+
+  defp assert_claimed!(session) do
+    assert_received {:cleanup_claimed, claimed_id}
+
+    assert claimed_id == session.id,
+           "the dispatcher reached session #{claimed_id}, not #{session.id} created by this case"
   end
 
   defp terminal_session!(suffix) do
