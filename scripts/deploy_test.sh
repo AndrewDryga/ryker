@@ -122,7 +122,11 @@ case " $* " in
   *" exec -T database pg_isready "*) [[ -f $fake/database.down ]] && exit 1 ;;
   *" exec -T database pg_dump "*) printf 'PGDMP fake dump\n' ;;
   *" exec -T database pg_restore --list "*) cat >/dev/null ;;
-  *" up --detach --build --wait "*)
+  *" build ryker "*)
+    printf 'RYKER_VERSION=%s RYKER_IMAGE=%s\n' "${RYKER_VERSION:-}" "${RYKER_IMAGE:-}" >>"$fake/build.env"
+    [[ -f $fake/build.fail ]] && { echo "fake: the image did not build" >&2; exit 1; }
+    ;;
+  *" up --detach --no-build --wait "*)
     printf 'RYKER_VERSION=%s RYKER_IMAGE=%s\n' "${RYKER_VERSION:-}" "${RYKER_IMAGE:-}" >>"$fake/up.env"
     [[ -f $fake/up.fail ]] && { echo "fake: the container did not become healthy" >&2; exit 1; }
     [[ -f $fake/up.stale ]] || printf '%s\n' "${RYKER_VERSION:-}" >"$fake/version"
@@ -143,7 +147,8 @@ export RYKER_INSTALL_STATE="$state" RYKER_DEPLOY_READY_TIMEOUT=3 RYKER_DEPLOY_PO
 seed() {
   # The installation as the previous deploy left it, and a fake project that
   # still serves the previous version until the fake Docker "starts" a new one.
-  rm -f "$fake/calls" "$fake/up.env" "$fake/up.fail" "$fake/up.stale" "$fake/database.down"
+  rm -f "$fake/calls" "$fake/build.env" "$fake/build.fail" "$fake/up.env" "$fake/up.fail" "$fake/up.stale" "$fake/database.down"
+  rm -rf "$state/backups"
   printf '%s\n' "$old_version" >"$fake/version"
   printf '200' >"$fake/readyz.code"
   printf 'ready\n' >"$fake/readyz.body"
@@ -212,7 +217,7 @@ check "the deploy names the running version" "ryker $version is running" "$out"
 check "the deploy says how long it took" "done in " "$out"
 calls=$(cat "$fake/calls")
 dump_line=$(grep -n 'pg_dump' <<<"$calls" | head -n 1 | cut -d: -f1)
-up_line=$(grep -n 'up --detach --build --wait' <<<"$calls" | head -n 1 | cut -d: -f1)
+up_line=$(grep -n 'up --detach --no-build --wait' <<<"$calls" | head -n 1 | cut -d: -f1)
 check "the container is replaced with --no-deps ryker only" "--no-deps ryker" "$calls"
 if [[ -n $dump_line && -n $up_line && $dump_line -lt $up_line ]]; then
   printf 'ok   the database is backed up before the container is replaced\n'
@@ -220,7 +225,9 @@ else
   printf 'FAIL the database is backed up before the container is replaced\n     calls:\n%s\n' "$calls"
   failures=$((failures + 1))
 fi
-check "the build and image carry the commit version" \
+check "the build carries the commit version" \
+  "RYKER_VERSION=$version RYKER_IMAGE=ryker:$version" "$(cat "$fake/build.env")"
+check "the container runs the image just built" \
   "RYKER_VERSION=$version RYKER_IMAGE=ryker:$version" "$(cat "$fake/up.env")"
 check "the deploy pins the new version" "RYKER_VERSION=$version" "$(cat "$state/compose.env")"
 check "the deploy pins the new image" "RYKER_IMAGE=ryker:$version" "$(cat "$state/compose.env")"
@@ -248,6 +255,21 @@ refute "the previous image is kept for a rollback" "image rm ryker:$old_version"
 refute "recent commit images stay" "image rm ryker:0.1.0-g$(printf 'b%.0s' $(seq 1 40))" "$calls"
 refute "a tagged release is never pruned" "image rm ryker:1.0.0" "$calls"
 refute "a hand-made tag is never pruned" "image rm ryker:production-audit" "$calls"
+
+# ---------------------------------------------------------------------------
+# An image that does not build. On 2026-09-26 mix.exs read a file the
+# Dockerfile copied too late, the build failed, and the script blamed the
+# container's health and printed the old container's log.
+seed
+touch "$fake/build.fail"
+out=$(run)
+check "an image that does not build fails the deploy" "exit=1" "$out"
+check "the failure says the image did not build" "did not build" "$out"
+check "the failure says what is still running" "$old_version is still running" "$out"
+refute "no container is replaced after a failed build" "up --detach" "$(cat "$fake/calls")"
+check "no backup is taken for a build that failed" "0" "$(backups)"
+check "the previous version stays pinned after a failed build" "RYKER_VERSION=$old_version" "$(cat "$state/compose.env")"
+check "the worktree is removed after a failed build" "1" "$(worktrees)"
 
 # ---------------------------------------------------------------------------
 # A container that does not come up healthy.

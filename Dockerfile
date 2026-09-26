@@ -12,7 +12,8 @@ RUN test -n "$RYKER_VERSION" \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY mix.exs mix.lock ./
+# mix.exs reads release-assets.txt when it loads, so it is here before mix runs.
+COPY mix.exs mix.lock release-assets.txt ./
 RUN mix local.hex --force \
  && mix local.rebar --force \
  && mix deps.get --only prod \
@@ -22,7 +23,7 @@ COPY config config
 COPY lib lib
 COPY priv priv
 COPY README.md CHANGELOG.md LICENSE SECURITY.md ./
-COPY Dockerfile compose.yml install.sh release-assets.txt ./
+COPY Dockerfile compose.yml install.sh ./
 COPY deploy/compose deploy/compose
 COPY deploy/nginx deploy/nginx
 COPY docs docs

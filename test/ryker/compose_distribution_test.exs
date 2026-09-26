@@ -126,13 +126,37 @@ defmodule Ryker.ComposeDistributionTest do
 
     assert dockerfile =~ "mix release ryker"
     assert dockerfile =~ "RYKER_ELIXIR_VERSION=${RYKER_VERSION}"
-    assert dockerfile =~ "COPY Dockerfile compose.yml install.sh release-assets.txt ./"
+    assert dockerfile =~ "COPY Dockerfile compose.yml install.sh ./"
     assert dockerfile =~ "COPY deploy/nginx deploy/nginx"
     assert dockerfile =~ "FROM debian:bookworm-slim AS runtime"
     assert dockerfile =~ "LANG=C.UTF-8"
     refute dockerfile =~ ~r/^FROM node:/m
     refute dockerfile =~ ~r/apt-get install[^\n]*(nodejs|npm)/
     refute dockerfile =~ "npm install"
+  end
+
+  # mix.exs reads release-assets.txt when it loads, and the image ran its
+  # first mix command with only mix.exs and mix.lock copied in, so the
+  # 2026-09-26 deploy failed at `mix deps.get` and replaced nothing. The gate
+  # never builds the image, so this reads the Dockerfile instead.
+  test "every file mix.exs reads when it loads is in the image before mix first runs" do
+    loaded =
+      ~r/@\w+ Path\.expand\("([^"]+)", __DIR__\)/
+      |> Regex.scan(read("mix.exs"), capture: :all_but_first)
+      |> List.flatten()
+
+    assert "release-assets.txt" in loaded
+
+    [before_mix, _rest] = String.split(read("Dockerfile"), ~r/^RUN mix /m, parts: 2)
+
+    copied =
+      ~r/^COPY ([^\n]+)$/m
+      |> Regex.scan(before_mix, capture: :all_but_first)
+      |> Enum.flat_map(fn [arguments] -> arguments |> String.split() |> Enum.drop(-1) end)
+
+    for file <- ["mix.exs", "mix.lock" | loaded] do
+      assert file in copied, "#{file} reaches the image only after mix first runs"
+    end
   end
 
   test "the shipped release points operators to Compose rather than host service managers" do
