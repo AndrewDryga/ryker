@@ -18,7 +18,7 @@ defmodule Ryker.Application do
       [
         Ryker.Repo,
         {Finch, name: Ryker.CoopFinch},
-        {Phoenix.PubSub, name: Ryker.PubSub},
+        Ryker.PubSub,
         {DynamicSupervisor, name: Ryker.Runtime.Supervisor, strategy: :one_for_one}
       ] ++ bundled_coop_reconciler() ++ runtime_owner()
 

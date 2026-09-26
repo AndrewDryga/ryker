@@ -23,7 +23,6 @@ defmodule Ryker.Slack.Names do
   @ttl 900_000
   @interval 1600
   @maximum_names 2000
-  @pubsub Ryker.PubSub
   @topic "control-plane"
   @workspace_url ~r/\Ahttps:\/\/[a-z0-9-]{1,64}\.slack\.com\z/
 
@@ -298,7 +297,7 @@ defmodule Ryker.Slack.Names do
 
   defp announce do
     :ets.update_counter(@table, :revision, 1, {:revision, 0})
-    Phoenix.PubSub.broadcast(@pubsub, @topic, :control_plane_changed)
+    Ryker.PubSub.broadcast(@topic, :control_plane_changed)
   end
 
   defp clean(label), do: InspectionRedactor.artifact(label, max_bytes: 160).text

@@ -26,7 +26,7 @@ defmodule Ryker.ControlPlane.RouteMapTest do
        [
          server: false,
          secret_key_base: String.duplicate("s", 64),
-         pubsub_server: Ryker.PubSub,
+         pubsub_server: Ryker.PubSub.Server,
          live_view: [signing_salt: "control-plane-test"],
          check_origin: ["//localhost:4321"],
          url: [host: "localhost", port: 4321],
@@ -127,7 +127,7 @@ defmodule Ryker.ControlPlane.RouteMapTest do
     # A renamed route with a stale invalidation table leaves an open Timeline
     # frozen while execution continues, which reads exactly like a stuck run.
     for domain <- ["activity", "timeline"] do
-      Phoenix.PubSub.subscribe(Ryker.PubSub, "control-plane:#{domain}")
+      Ryker.PubSub.subscribe("control-plane:#{domain}")
     end
 
     state = %{connection: self(), reference: make_ref(), pending: MapSet.new(), timer: nil}

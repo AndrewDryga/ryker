@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.Updates do
   A burst is coalesced before projections query their own durable source.
   """
   use GenServer
-  alias Ryker.PubSub
   alias Ryker.Repo
 
   def start_link(options), do: GenServer.start_link(__MODULE__, options)
@@ -51,7 +50,7 @@ defmodule Ryker.ControlPlane.Updates do
 
   def handle_info(:broadcast, state) do
     Enum.each(state.pending, fn domain ->
-      Phoenix.PubSub.broadcast(PubSub, "control-plane:#{domain}", :control_plane_changed)
+      Ryker.PubSub.broadcast("control-plane:#{domain}", :control_plane_changed)
     end)
 
     {:noreply, %{state | pending: MapSet.new(), timer: nil}}

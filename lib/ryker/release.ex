@@ -164,15 +164,10 @@ defmodule Ryker.Release do
   # bootstrap writes settings and therefore needs the event bus long enough to
   # complete the same transaction path used by the running application.
   defp with_settings_pubsub(function) do
-    case Process.whereis(Ryker.PubSub) do
+    case Process.whereis(Ryker.PubSub.Server) do
       nil ->
         {:ok, _started} = Application.ensure_all_started(:phoenix_pubsub)
-
-        {:ok, pubsub} =
-          Supervisor.start_link(
-            [{Phoenix.PubSub, name: Ryker.PubSub}],
-            strategy: :one_for_one
-          )
+        {:ok, pubsub} = Supervisor.start_link([Ryker.PubSub], strategy: :one_for_one)
 
         try do
           function.()
