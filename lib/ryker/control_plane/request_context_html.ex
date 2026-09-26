@@ -42,7 +42,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "How Ryker filtered earlier work for this routing decision."},
     "responder_state_tools" =>
       {"Ryker state tools", "tools", "Host tool catalog",
-       "State operations advertised to this request. Availability is not a receipt that a tool ran."},
+       "Tools Ryker could use for this request. Listed here does not mean it used them."},
     "source_and_action_tools" =>
       {"Source and action tools", "tools", "Platform adapter",
        "Source access and platform actions offered for this request. Ryker still enforces what the request may do."},
@@ -90,6 +90,52 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   }
   @order ~w(custom_instructions input slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
   @instruction_not_recorded :instruction_not_recorded
+  # What each tool a request could use is for, in a line an on-call engineer
+  # reads without the tool's contract. The name stays beside it: the
+  # timeline's tool steps show that name.
+  @tool_descriptions %{
+    "get_work_state" =>
+      "Reads what this request has recorded so far, such as findings, goals and waits.",
+    "cite_source" => "Saves where a piece of evidence came from, so the answer can point to it.",
+    "record_finding" => "Records a conclusion of the investigation and the evidence behind it.",
+    "request_input" => "Asks a person a question and waits for the answer.",
+    "wait_for" => "Pauses the work until an event arrives or a deadline passes.",
+    "list_automations" => "Lists the automations Ryker runs, such as scheduled checks.",
+    "get_automation" => "Reads one automation and its recent runs.",
+    "propose_automation" =>
+      "Suggests a new or changed automation for a person to confirm before it runs.",
+    "plan_goal" => "Adds a goal to the plan for this work, such as a change to make or a check.",
+    "update_goal" => "Marks a planned goal as started, done or given up, with its evidence.",
+    "request_task" =>
+      "Proposes a task, such as a code change, for a person to approve before it starts.",
+    "search_memory" =>
+      "Searches what Ryker remembers: facts, guidance, earlier conversations and past cases.",
+    "propose_memory" =>
+      "Suggests a fact or piece of guidance to remember, for a person to confirm.",
+    "propose_preference" => "Suggests a setting for how Ryker works, for a person to confirm.",
+    "remember_answer" => "Saves a person's answer to a question so Ryker does not ask it again.",
+    "update_conversation_summary" =>
+      "Updates the saved summary of this conversation once the answer is accepted.",
+    "record_feedback" =>
+      "Notes a suggestion to improve Ryker itself, without changing the reply.",
+    "validate_final" => "Checks the answer against Ryker's rules before it is sent.",
+    "record_emisar_approval" =>
+      "Notes that an Emisar action is waiting for approval, so the work resumes once it is decided.",
+    "list_slack_channels" => "Lists the Slack channels Ryker can see.",
+    "search_slack" => "Searches Slack messages Ryker is allowed to read.",
+    "read_slack_source" => "Reads a Slack message, thread, channel, file or canvas in full.",
+    "set_slack_reaction" => "Adds or removes an emoji reaction on a Slack message.",
+    "post_slack_message" =>
+      "Drafts an extra Slack message that a person confirms before it is posted.",
+    "read_github_conversation" => "Reads the GitHub issue or pull request this work is about.",
+    "search_github" => "Searches issues and pull requests in a repository of this environment.",
+    "read_github_pull_request" => "Reads one pull request in a repository of this environment.",
+    "read_github_ci" => "Reads a GitHub Actions run and its jobs, with links to logs.",
+    "rerun_github_ci" => "Reruns the failed jobs of a GitHub Actions run, when allowed.",
+    "cancel_github_ci" => "Cancels a GitHub Actions run that is still going, when allowed.",
+    "submit_github_review" => "Submits a review on a pull request, with inline comments.",
+    "set_github_reaction" => "Adds an emoji reaction to a GitHub issue or comment."
+  }
   @unapplied_instructions ["Not configured", "Not applicable", "Not recorded"]
 
   # Host-bound facts about the run. Each is one line of Run details rather than a
@@ -1252,6 +1298,31 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     ["<dl class=\"context-rows\">", rows, "</dl>"]
   end
 
+  # One line per tool: its name, then what it is for. A tool this view has no
+  # words for, such as one an older request listed, keeps its bare name
+  # rather than an invented description.
+  defp tools(tools) do
+    [
+      "<dl class=\"context-rows context-tools\">",
+      Enum.map(tools, fn tool ->
+        name = tool_name(tool)
+
+        [
+          "<div><dt><code>",
+          escape(name),
+          "</code></dt><dd>",
+          escape(Map.get(@tool_descriptions, name, "")),
+          "</dd></div>"
+        ]
+      end),
+      "</dl>"
+    ]
+  end
+
+  defp tool_name(%{"name" => name}) when is_binary(name), do: name
+  defp tool_name(name) when is_binary(name), do: name
+  defp tool_name(tool), do: Jason.encode!(tool)
+
   defp workspace_repository(%{"name" => name, "path" => path})
        when is_binary(name) and is_binary(path) and path != "." do
     "#{name} at #{path}"
@@ -1621,6 +1692,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp body("workspace", value, _path, _prefix) when is_map(value) and map_size(value) > 0,
     do: workspace(value)
+
+  defp body(key, tools, _path, _prefix)
+       when key in ~w(responder_state_tools source_and_action_tools) and is_list(tools) and
+              tools != [],
+       do: tools(tools)
 
   defp body(key, value, path, _prefix)
        when key in ~w(global channel) and is_map(value) do
