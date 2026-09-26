@@ -154,26 +154,6 @@ defmodule Ryker.State.InputRequestsTest do
     end
   end
 
-  # QA re-test, 2026-09-26: after a person edited their earlier message, the
-  # question Ryker had asked about the old wording showed "answered" although
-  # nobody answered it: the edit was taken as the typed reply. An edit is not
-  # an answer; it replaces the question it made obsolete.
-  test "an edit of an earlier message replaces the open question instead of answering it" do
-    fixture = delivered_question!()
-
-    edit =
-      typed_answer!(fixture, %{
-        content: %{"text" => "And 5+5? Just the number."},
-        message_ref: "1787832000.000200",
-        revision: 2
-      })
-
-    associate!(fixture, edit)
-
-    assert Repo.aggregate(Response, :count) == 0
-    assert Repo.get!(Record, fixture.record.id).status == :superseded
-  end
-
   test "a later typed reply does not overwrite an already accepted button answer" do
     fixture = delivered_question!()
     assert {:ok, accepted} = InputRequests.answer(answer(fixture, 1, "selected"))
@@ -222,7 +202,10 @@ defmodule Ryker.State.InputRequestsTest do
       event_ref: "answer:#{Ecto.UUID.generate()}",
       message_ref: "1787832002.000300",
       occurred_at: DateTime.add(DateTime.utc_now(), 1),
-      revision: 1,
+      # Slack numbers a message by its timestamp; an ordinary answer's
+      # revision is far above 1 (a fixture using 1 hid a bug that took every
+      # Slack answer for an edit).
+      revision: slack_revision("1787832002.000300"),
       thread_ref: fixture.episode.destination_thread_ref,
       workspace_ref: "T123"
     }
@@ -230,6 +213,13 @@ defmodule Ryker.State.InputRequestsTest do
     assert {:ok, input} = SlackInput.new(Map.merge(attributes, overrides))
     assert {:ok, %{entry: entry}} = Inbox.record(input)
     entry
+  end
+
+  # The revision Slack gives a message: its timestamp in microseconds, times
+  # four (an edit adds one).
+  defp slack_revision(timestamp) do
+    [seconds, fraction] = String.split(timestamp, ".")
+    (String.to_integer(seconds) * 1_000_000 + String.to_integer(fraction)) * 4
   end
 
   defp delivered_question!(transport \\ :slack, delivery_thread_ref \\ nil) do

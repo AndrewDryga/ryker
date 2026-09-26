@@ -843,7 +843,8 @@ defmodule Ryker.Admission do
 
       with :ok <- InputRequests.associate_in_transaction(current, context.input_entry),
            {:ok, transitions} <- Episodes.apply_batch_in_transaction([resume]),
-           :ok <- Records.resolve_wait_in_transaction(current.owner_ref) do
+           :ok <-
+             Records.resolve_wait_in_transaction(current.owner_ref, context.input.event_kind) do
         {:ok, transitions}
       end
     else

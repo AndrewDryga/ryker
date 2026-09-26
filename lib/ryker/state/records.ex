@@ -320,16 +320,24 @@ defmodule Ryker.State.Records do
 
   def fetch_for_episode(_episode_id, _refs), do: {:error, :state_record_not_found}
 
-  @doc false
-  @spec resolve_wait_in_transaction(String.t()) :: :ok | {:error, term()}
-  def resolve_wait_in_transaction(wait_ref) when is_binary(wait_ref) do
+  @doc """
+  Resolves the wait `wait_ref` names when an input of `event_kind` resumes
+  its episode. A reply answers it. An edit starts the work again, so the
+  question it made obsolete is replaced rather than answered: the card said
+  "answered" after an edit, though nobody had answered it (QA re-test,
+  2026-09-26).
+  """
+  @spec resolve_wait_in_transaction(String.t(), atom()) :: :ok | {:error, term()}
+  def resolve_wait_in_transaction(wait_ref, event_kind) when is_binary(wait_ref) do
     if Repo.in_transaction?() do
+      status = if event_kind == :edit, do: :superseded, else: :answered
+
       query =
         from(record in Record,
           where:
             record.ref == ^wait_ref and record.kind in ["input_request", "event_wait"] and
               record.status == :open,
-          update: [set: [status: :answered, updated_at: fragment("clock_timestamp()")]]
+          update: [set: [status: ^status, updated_at: fragment("clock_timestamp()")]]
         )
 
       _resolved = Repo.update_all(query, [])
@@ -339,13 +347,13 @@ defmodule Ryker.State.Records do
     end
   end
 
-  def resolve_wait_in_transaction(_wait_ref), do: {:error, :state_record_not_found}
+  def resolve_wait_in_transaction(_wait_ref, _event_kind), do: {:error, :state_record_not_found}
 
   @doc """
   Closes the questions an episode still holds open once its work has ended.
 
   A question belongs to the work that asked it: an answer resolves it through
-  `resolve_wait_in_transaction/1`, and work that ends without one, such as
+  `resolve_wait_in_transaction/2`, and work that ends without one, such as
   work closed as no longer needed, takes its unanswered question with it.
   """
   @spec dismiss_open_questions_in_transaction(Ecto.UUID.t()) :: :ok | {:error, term()}

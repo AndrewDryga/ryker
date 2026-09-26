@@ -163,6 +163,71 @@ defmodule Ryker.Admission.CommitTest do
     end
   end
 
+  for {kind, status} <- [edit: :superseded, message: :answered] do
+    @kind kind
+    @status status
+    test "a question resumed by a #{@kind} is #{@status}" do
+      # QA re-test, 2026-09-26: after a person edited the message Ryker had
+      # asked about, the question card said "answered" though nobody had
+      # answered it. Any input that resumed the wait marked it answered; an
+      # edit starts the work again, so the question it made obsolete is
+      # replaced instead.
+      original =
+        create_episode!(
+          thread_ref: "1787830000.000001",
+          actor: %{kind: :user, ref: "U123"},
+          content: %{"text" => "What is 3+3? Just the number."}
+        )
+
+      assert {:ok, _session} =
+               Custody.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
+
+      assert {:ok, claim} = Custody.claim_next("question-edit", 60, :work)
+
+      assert {:ok, question} =
+               Records.create(Records.token(claim.turn), "question", "input_request", %{
+                 "choices" => ["Six", "Something else"],
+                 "question" => "Did you mean 3+3?"
+               })
+
+      %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+      assert {:ok, _waiting} =
+               Episodes.apply(%Command.StartWait{
+                 episode_key: original.key,
+                 expected_turn_ref: original.owner_ref,
+                 kind: :input,
+                 wait_ref: question.ref,
+                 occurred_at: now
+               })
+
+      # As Slack delivers them: an edit keeps the original message's ref and
+      # is numbered by its own timestamp; a reply is a new message.
+      {message_ref, revision} =
+        if @kind == :edit,
+          do: {"1787830000.000001", 7_151_320_020_000_004 * 4 + 1},
+          else: {"1787830005.000100", 7_151_320_020_000_400 * 4}
+
+      entry =
+        record_input!(
+          content: %{"text" => "What is 5+5? Just the number."},
+          event_kind: @kind,
+          event_ref: "Ev-question-#{@kind}",
+          message_ref: message_ref,
+          occurred_at: DateTime.add(now, 1),
+          revision: revision,
+          thread_ref: original.destination_thread_ref
+        )
+
+      context = context!(entry)
+      candidate = candidate!(context, original.id)
+      decision = decision!(:continue_episode, candidate.ref, :same_work)
+      assert {:ok, result} = Admission.commit(context, decision, "question-#{@kind}")
+      assert result.episode.state == :working
+      assert Repo.get!(Ryker.State.Record, question.id).status == @status
+    end
+  end
+
   test "ignoring keeps an original source excerpt without letting admission write topic memory" do
     # Blitz's real keep-service decision must remain recallable even when the bot
     # has nothing useful to add. Previously ignore retained no conversation memory.
