@@ -103,10 +103,11 @@ defmodule Ryker.State.Cases do
   @doc "One `search_memory` page over retained cases."
   @spec search_page(map(), map()) :: {:ok, map(), list()} | :done
   def search_page(context, page) do
+    # A dynamic filter must be its own `where`: inside the boolean above it,
+    # Ecto refused the query and every memory search failed.
     from(record in CaseRecord,
-      where:
-        record.status == :active and record.workspace_ref == ^context.workspace_ref and
-          ^scope_filter(context, page.scope)
+      where: record.status == :active and record.workspace_ref == ^context.workspace_ref,
+      where: ^scope_filter(context, page.scope)
     )
     |> MemorySearchPage.one(
       page,

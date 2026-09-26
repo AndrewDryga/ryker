@@ -11,6 +11,8 @@ defmodule Ryker.StateTools.Router do
 
   import Plug.Conn
 
+  require Logger
+
   alias Ryker.CanonicalJSON
   alias Ryker.StateTools.{CallLog, LookupContext, Tools, ToolVisibility}
 
@@ -128,7 +130,7 @@ defmodule Ryker.StateTools.Router do
          options
        ) do
     called_at = DateTime.utc_now()
-    answer = call_tool(name, arguments, options)
+    answer = answer_tool(name, arguments, options)
     CallLog.record(options.binding, name, arguments, answer, called_at)
 
     case answer do
@@ -169,6 +171,22 @@ defmodule Ryker.StateTools.Router do
       "isError" => is_error,
       "structuredContent" => result
     }
+  end
+
+  # A raise inside a tool is Ryker's own error, not the model's: the call is
+  # answered with internal_error, recorded like any other failed call, and the
+  # log names the raise. It used to crash the request with HTTP 500 before
+  # the call was recorded, so nobody could see why every memory search failed.
+  defp answer_tool(name, arguments, options) do
+    call_tool(name, arguments, options)
+  rescue
+    error ->
+      Logger.error(
+        "state tool #{name} raised: " <>
+          Exception.format(:error, error, Enum.take(__STACKTRACE__, 5))
+      )
+
+      {:error, "internal_error"}
   end
 
   defp call_tool(name, arguments, options) do

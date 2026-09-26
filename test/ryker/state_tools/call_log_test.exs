@@ -12,7 +12,7 @@ defmodule Ryker.StateTools.CallLogTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.State.Records
-  alias Ryker.StateTools.Router
+  alias Ryker.StateTools.{CallLog, ErrorCode, Router}
   alias Ryker.Work.{Activity, Custody, Turn}
 
   @token "trusted-state-tools-token"
@@ -69,6 +69,71 @@ defmodule Ryker.StateTools.CallLogTest do
     opened_step = Enum.find(opened.trace.steps, &(&1.id == step.id))
     opened_error = Enum.find(opened_step.artifacts, &(&1.label == "Error"))
     assert opened_error.artifact.text =~ "invalid_arguments"
+  end
+
+  # On 2026-09-26 every memory search raised inside Ryker (an invalid query in
+  # the retained-cases lane). The request crashed with HTTP 500 before the call
+  # was recorded, so the model said earlier saved context could not be checked
+  # and the timeline could only say Ryker had no record of the call. A raise is
+  # Ryker's own error: the call is answered, recorded and logged.
+  test "a tool that raises answers the call, records it and names the raise in the log" do
+    work = bound_turn!("raising-tool")
+
+    tool = %{
+      "description" => "A lookup that raises.",
+      "inputSchema" => %{
+        "additionalProperties" => false,
+        "properties" => %{"query" => %{"type" => "string"}},
+        "required" => ["query"],
+        "type" => "object"
+      },
+      "name" => "raising.lookup"
+    }
+
+    options =
+      Router.init(
+        token: @token,
+        binding: %{
+          episode: work.episode,
+          session: work.session,
+          state_token: Records.token(work.turn),
+          turn: work.turn
+        },
+        additional_tools: [tool],
+        additional_call: fn _name, _arguments, _binding -> raise "invalid query" end
+      )
+
+    body = %{
+      "id" => 7,
+      "jsonrpc" => "2.0",
+      "method" => "tools/call",
+      "params" => %{"arguments" => %{"query" => "checkout"}, "name" => "raising.lookup"}
+    }
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        conn =
+          conn(:post, "/mcp", Jason.encode!(body))
+          |> put_req_header("authorization", "Bearer " <> @token)
+          |> put_req_header("content-type", "application/json")
+          |> Router.call(options)
+
+        assert conn.status == 200
+        result = conn.resp_body |> Jason.decode!() |> Map.fetch!("result")
+        assert result["isError"]
+        assert result["structuredContent"] == %{"error" => "internal_error"}
+      end)
+
+    assert log =~ "raising.lookup"
+    assert log =~ "invalid query"
+
+    assert [%{status: "failed", tool: "raising.lookup"} = call] =
+             CallLog.list_for_episode(work.episode.id)
+
+    assert call.error == "internal_error"
+
+    assert ErrorCode.explain("internal_error") =~
+             "Ryker hit an error of its own"
   end
 
   test "a failure without an error body says why there is none instead of calling it older" do
