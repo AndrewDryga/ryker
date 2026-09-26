@@ -136,7 +136,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
              "Reading the repository · since 4 min ago"
   end
 
-  test "a repository that needs a person says what is wrong and what to do, one sentence each" do
+  test "a repository that needs a person says what is wrong and exactly what to do" do
     removed = put_in(@repository, [:configured, :github_access], :removed)
     row = render([removed]) |> LazyHTML.query("article.entity-row")
     assert state(row) == {"Needs attention", ["warn"]}
@@ -152,8 +152,21 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
       |> put_in([:configured, :github_permissions], %{"metadata" => "read"})
       |> render()
 
-    text = document |> LazyHTML.query("p.entity-text") |> LazyHTML.text()
-    assert text =~ "missing permission for contents, pull requests."
+    # Andrew, 2026-09-26, of "missing permission for deployments. Grant it in
+    # the app's settings on GitHub": "completely unclear how to fix it". The
+    # row names each permission with the level to set, where in GitHub that
+    # is, and the approval GitHub then asks for on the installation.
+    text = document |> LazyHTML.query("p.entity-text") |> LazyHTML.text() |> squeeze()
+
+    assert text =~
+             "The Ryker GitHub App cannot use this repository without Contents (Read and write) and Pull requests (Read and write)."
+
+    assert text =~
+             "In GitHub, open Settings › Developer settings › GitHub Apps, choose the Ryker app, and set them under Permissions & events."
+
+    assert text =~
+             "Then approve the new permissions where the app is installed (Settings › Applications › Installed GitHub Apps); Ryker sees the change on its own."
+
     assert state(LazyHTML.query(document, "article.entity-row")) == {"Needs attention", ["warn"]}
   end
 

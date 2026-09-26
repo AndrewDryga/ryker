@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Integrations, Kit, ShortTime}
+  alias Ryker.ControlPlane.{Components, Environments, Integrations, Kit, ShortTime}
   alias Ryker.Episodes.Words
 
   # The App permissions a repository cannot be set up or worked in without;
@@ -177,11 +177,26 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         nil
 
       missing ->
-        "The Ryker GitHub App is missing permission for #{Enum.join(missing, ", ")}. Grant it in the app's settings on GitHub."
+        needed =
+          missing
+          |> Enum.map(&"#{String.capitalize(&1)} (#{permission_level(&1)})")
+          |> Environments.sentence()
+
+        "The Ryker GitHub App cannot use this repository without #{needed}. " <>
+          "In GitHub, open Settings › Developer settings › GitHub Apps, choose the Ryker app, " <>
+          "and set them under Permissions & events. Then approve the new permissions where " <>
+          "the app is installed (Settings › Applications › Installed GitHub Apps); Ryker sees " <>
+          "the change on its own."
     end
   end
 
   defp problem(_item), do: nil
+
+  # The level each permission needs, in GitHub's own words.
+  defp permission_level("metadata"), do: "Read-only"
+  defp permission_level("checks"), do: "Read-only"
+  defp permission_level("deployments"), do: "Read-only"
+  defp permission_level(_write), do: "Read and write"
 
   defp missing_permissions(permissions, wanted \\ @required_permissions) do
     wanted
