@@ -291,7 +291,8 @@ defmodule Ryker.ControlPlane.Activity do
         on:
           current.native_input_id == entry.native_input_id and
             current.execution_mode == entry.execution_mode,
-        where: is_nil(entry.episode_id) and entry.event_kind != :delete,
+        where: is_nil(entry.episode_id),
+        where: entry.event_kind != :delete,
         select: %{
           id: entry.id,
           kind: type(^"admission", :string),
