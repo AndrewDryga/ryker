@@ -28,7 +28,11 @@ defmodule Ryker.MixProject do
     ]
   end
 
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  # evals/ holds the model evaluations, their Mix tasks and the local
+  # Unix-socket Coop client they drive. Product Coop work runs through the
+  # fleet client alone, so none of it compiles into a release.
+  defp elixirc_paths(:test), do: ["lib", "evals", "test/support"]
+  defp elixirc_paths(:dev), do: ["lib", "evals"]
   defp elixirc_paths(_), do: ["lib"]
 
   defp release_version do

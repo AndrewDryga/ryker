@@ -57,8 +57,10 @@ release scripts, not before every deploy.
 
 ## Model evaluation
 
-The evaluation runner is a Mix task. The scenario corpus, with each scenario's exact tool catalog,
-can be compiled without credentials:
+The evaluation runner is a Mix task. It, the `Ryker.Evals` modules and the local Unix-socket Coop
+client they drive live in `evals/`, which compiles only in development and test; the release
+check refuses an archive that carries any of them. The scenario corpus, with each scenario's exact
+tool catalog, can be compiled without credentials:
 
 ```bash
 MIX_ENV=test scripts/elixir-mix.sh ryker.eval world-pack
