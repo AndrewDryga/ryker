@@ -4,9 +4,11 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
   require Ryker.ControlPlane.CurrentInputs
   alias Ryker.Admission.Attempt
   alias Ryker.ControlPlane.CurrentInputs
+  alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
+  alias Ryker.Work.FailureCause
 
   @labels %{
     "context_prepared" => "Starting",
@@ -48,6 +50,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
           phase: attempt.phase,
           observed_at: attempt.updated_at,
           target: attempt.execution_target,
+          error_detail: entry.last_error_detail,
           text:
             CurrentInputs.visible_text(
               current.operational_pruned_at,
@@ -71,7 +74,9 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
         generation: row.generation,
         claims: row.claims,
         retry_at: row.retry_at,
-        href: "/timeline/ingress-input%3A#{row.id}"
+        href: "/timeline/ingress-input%3A#{row.id}",
+        ref: Inbox.ref(%Entry{id: row.id}),
+        cause: stopped_cause(row)
       }
     end)
   end
@@ -81,6 +86,14 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
 
   defp title(text, secrets),
     do: InspectionRedactor.artifact(text, secrets: secrets, max_bytes: 180).text
+
+  # Only what a person in the conversation can act on; the failure's own
+  # page carries the rest.
+  defp stopped_cause(%{status: :blocked, error_detail: detail}) do
+    if FailureCause.account_problem?(detail), do: "the AI model account needs attention"
+  end
+
+  defp stopped_cause(_row), do: nil
 
   defp phase(%{status: :blocked}, _now), do: "Needs attention"
 

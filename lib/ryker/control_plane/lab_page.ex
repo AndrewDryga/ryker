@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.LabPage do
   """
   use Phoenix.Component
   import Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.{Environments, HTML, Kit}
+  alias Ryker.ControlPlane.{Environments, FailureExplanation, HTML, Kit}
   alias Ryker.Episodes.Words
   alias Ryker.Settings.Environment
 
@@ -407,13 +407,15 @@ defmodule Ryker.ControlPlane.LabPage do
 
   defp chat_message(assigns) do
     rows = Map.get(assigns.progress, assigns.message[:native_input_id], [])
+    {stopped, live} = Enum.split_with(rows, &(&1.phase == "Needs attention"))
 
     assigns =
       assigns
       |> assign(:timeline, timeline_href(assigns.message))
       |> assign(:state, message_state(assigns.message))
       |> assign(:failure, message_failure(assigns.message, assigns.conversation))
-      |> assign(:rows, rows)
+      |> assign(:stopped, Enum.map(stopped, &routing_failure(&1, assigns.conversation)))
+      |> assign(:rows, live)
       |> assign(:typing, rows == [] and message_working?(assigns.message))
 
     ~H"""
@@ -449,6 +451,10 @@ defmodule Ryker.ControlPlane.LabPage do
       <p :if={@failure} class="lab-message-failure" role="status">
         <span>{@failure.label}</span> <a href={@failure.retry}>Retry</a>
         <.link navigate={@failure.inspect}>Inspect cause</.link>
+      </p>
+      <p :for={failure <- @stopped} class="lab-message-failure" role="status">
+        <span>{failure.label}</span> <a href={failure.retry}>Retry</a>
+        <.link navigate={failure.inspect}>Inspect cause</.link>
       </p>
       <p
         :for={row <- @rows}
@@ -612,6 +618,23 @@ defmodule Ryker.ControlPlane.LabPage do
 
   defp message_failure(_message, _conversation), do: nil
 
+  # Routing that stopped is a failure of the message like stopped work: its
+  # cause and the retry Failures offers read beside it, and its clock stops.
+  # The live install, 2026-09-26, showed "Routing stopped 260m 45s" for
+  # hours, with nothing to do about it.
+  defp routing_failure(row, conversation) do
+    back =
+      if conversation, do: "?" <> URI.encode_query(%{"back" => "/conversations/#{conversation}"})
+
+    failure = %{action: :rearm, kind: "admission", ref: row.ref}
+
+    %{
+      label: if(row.cause, do: "Routing stopped: " <> row.cause, else: "Routing stopped"),
+      retry: FailureExplanation.action_path(failure) <> (back || ""),
+      inspect: FailureExplanation.path(failure)
+    }
+  end
+
   defp message_working?(%{actor: :operator, execution: %{state: "working"}}), do: true
   defp message_working?(_message), do: false
 
@@ -625,7 +648,6 @@ defmodule Ryker.ControlPlane.LabPage do
   # come from the observed admission attempt.
   defp live_phase("Queued"), do: "Waiting to route your message"
   defp live_phase("Retrying"), do: "Retrying routing"
-  defp live_phase("Needs attention"), do: "Routing stopped"
   defp live_phase(_phase), do: "Routing your message"
 
   attr(:status, :atom, default: nil)
