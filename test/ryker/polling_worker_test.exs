@@ -1,10 +1,10 @@
-defmodule Ryker.PollingTest do
+defmodule Ryker.PollingWorkerTest do
   use Ryker.DataCase, async: false
 
   import ExUnit.CaptureLog
 
   alias Ryker.Observability
-  alias Ryker.Polling
+  alias Ryker.PollingWorker
   alias Ryker.Retention.Worker
 
   defmodule DatabaseDispatcher do
@@ -128,15 +128,15 @@ defmodule Ryker.PollingTest do
   end
 
   test "healthy polling preserves both immediate work and configured idle delays" do
-    assert Polling.run(:retention, 60_000, fn -> 0 end) == 0
-    assert Polling.run(:retention, 60_000, fn -> 60_000 end) == 60_000
+    assert PollingWorker.run(:retention, 60_000, fn -> 0 end) == 0
+    assert PollingWorker.run(:retention, 60_000, fn -> 60_000 end) == 60_000
   end
 
   test "database backoff never shortens the configured interval or retries inside the guard" do
     parent = self()
 
     delay =
-      Polling.run(:retention, 60_000, fn ->
+      PollingWorker.run(:retention, 60_000, fn ->
         send(parent, :cycle_attempted)
         raise DBConnection.ConnectionError, "private SQL and connection details"
       end)
@@ -156,7 +156,7 @@ defmodule Ryker.PollingTest do
     log =
       capture_log(fn ->
         delay =
-          Polling.run(:retention, 60_000, fn ->
+          PollingWorker.run(:retention, 60_000, fn ->
             send(parent, :cycle_attempted)
 
             raise Postgrex.Error,
@@ -180,7 +180,7 @@ defmodule Ryker.PollingTest do
   test "database polling warnings do not expose exception payloads" do
     log =
       capture_log(fn ->
-        assert Polling.run(:retention, 10, fn ->
+        assert PollingWorker.run(:retention, 10, fn ->
                  raise DBConnection.ConnectionError, "private SQL and connection details"
                end) == 1_000
       end)

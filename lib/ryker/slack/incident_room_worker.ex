@@ -7,12 +7,11 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   supplies a usable destination for the linked episode created at settlement.
   """
 
-  use GenServer
+  use Ryker.PollingWorker, lane: :slack_incidents, interval: :interval_ms
 
   require Logger
 
   alias Ryker.Observability.Progress
-  alias Ryker.Polling
 
   alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
   alias Ryker.Delivery.HostNote
@@ -27,42 +26,26 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   @spec start_link(map() | keyword()) :: GenServer.on_start()
   def start_link(options) do
     options = options!(options)
-
-    case options.name do
-      nil -> GenServer.start_link(__MODULE__, options)
-      name -> GenServer.start_link(__MODULE__, options, name: name)
-    end
+    GenServer.start_link(__MODULE__, options, name: options.name)
   end
 
-  @impl GenServer
-  def init(options) do
-    send(self(), :work)
-    {:ok, options}
-  end
-
-  @impl GenServer
-  def handle_info(:work, options) do
+  @impl Ryker.PollingWorker
+  def poll(options) do
     delay =
-      Polling.run(:slack_incidents, options.interval_ms, fn ->
-        delay =
-          case run_once(options) do
-            {:ok, :idle} ->
-              options.interval_ms
+      case run_once(options) do
+        {:ok, :idle} ->
+          options.interval_ms
 
-            {:ok, _result} ->
-              0
+        {:ok, _result} ->
+          0
 
-            {:error, reason} ->
-              Logger.warning("Slack incident-room worker failed: #{inspect(reason)}")
-              options.interval_ms
-          end
+        {:error, reason} ->
+          Logger.warning("Slack incident-room worker failed: #{inspect(reason)}")
+          options.interval_ms
+      end
 
-        _ = Progress.beat(:slack_incidents)
-        delay
-      end)
-
-    Process.send_after(self(), :work, delay)
-    {:noreply, options}
+    _ = Progress.beat(:slack_incidents)
+    delay
   end
 
   @spec run_once(map() | keyword()) ::

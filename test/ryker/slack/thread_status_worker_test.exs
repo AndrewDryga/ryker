@@ -279,8 +279,8 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
 
     log =
       capture_log(fn ->
-        assert {:noreply, ^options} = ThreadStatusWorker.handle_info(:work, options)
-        assert_receive :work, 100
+        assert {:noreply, ^options} = ThreadStatusWorker.handle_info(:poll, options)
+        assert_receive :poll, 100
       end)
 
     assert log =~ "Slack thread-status worker failed: :projection_unavailable"

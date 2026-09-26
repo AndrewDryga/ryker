@@ -1,8 +1,8 @@
 defmodule Ryker.GitHub.OnboardingWorker do
   @moduledoc "Drains durable repository onboarding states without coupling repositories together."
-  use GenServer
+  use Ryker.PollingWorker, lane: :github_onboarding, interval: :interval_ms
 
-  alias Ryker.{BundledCoop, Polling, Settings}
+  alias Ryker.{BundledCoop, Settings}
   alias Ryker.GitHub.Onboarding
 
   @default_interval 2_000
@@ -23,24 +23,14 @@ defmodule Ryker.GitHub.OnboardingWorker do
 
   def options!(options) when is_list(options), do: options |> Map.new() |> options!()
 
-  @impl true
-  def init(options) do
-    state = options!(options)
-    send(self(), :drain)
-    {:ok, state}
-  end
+  @impl Ryker.PollingWorker
+  def setup(options), do: {:ok, options!(options)}
 
   # A database the worker cannot read backs off and says so. Choosing the
   # next repository used to turn every error into "nothing to do", so an
   # outage looked like an idle queue.
-  @impl true
-  def handle_info(:drain, state) do
-    delay = Polling.run(:github_onboarding, state.interval_ms, fn -> drain(state) end)
-    Process.send_after(self(), :drain, delay)
-    {:noreply, state}
-  end
-
-  defp drain(state) do
+  @impl Ryker.PollingWorker
+  def poll(state) do
     case next_repository() do
       nil -> :ok
       {:onboard, ref} -> _ = Onboarding.run(ref, api: state.api)

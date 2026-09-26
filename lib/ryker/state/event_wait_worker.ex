@@ -1,12 +1,11 @@
 defmodule Ryker.State.EventWaitWorker do
   @moduledoc false
 
-  use GenServer
+  use Ryker.PollingWorker, lane: :event_waits, interval: :interval_ms
 
   require Logger
 
   alias Ryker.Observability.Progress
-  alias Ryker.Polling
   alias Ryker.State.EventWaits
 
   @spec start_link(keyword() | map()) :: GenServer.on_start()
@@ -14,27 +13,18 @@ defmodule Ryker.State.EventWaitWorker do
     GenServer.start_link(__MODULE__, interval!(options), name: __MODULE__)
   end
 
-  @impl GenServer
-  def init(interval_ms) do
-    send(self(), :poll)
-    {:ok, %{interval_ms: interval_ms}}
-  end
+  @impl Ryker.PollingWorker
+  def setup(interval_ms), do: {:ok, %{interval_ms: interval_ms}}
 
-  @impl GenServer
-  def handle_info(:poll, state) do
-    delay =
-      Polling.run(:event_waits, state.interval_ms, fn ->
-        case EventWaits.resume_due() do
-          {:ok, _result} -> :ok
-          {:error, reason} -> Logger.error("event wait wakeup failed: #{inspect(reason)}")
-        end
+  @impl Ryker.PollingWorker
+  def poll(state) do
+    case EventWaits.resume_due() do
+      {:ok, _result} -> :ok
+      {:error, reason} -> Logger.error("event wait wakeup failed: #{inspect(reason)}")
+    end
 
-        _ = Progress.beat(:event_waits)
-        state.interval_ms
-      end)
-
-    Process.send_after(self(), :poll, delay)
-    {:noreply, state}
+    _ = Progress.beat(:event_waits)
+    state.interval_ms
   end
 
   defp interval!(options) when is_list(options) do

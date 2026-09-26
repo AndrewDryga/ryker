@@ -5,12 +5,11 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   Reconciles durable lifecycle state into generation-fenced Slack status writes.
   """
 
-  use GenServer
+  use Ryker.PollingWorker, lane: :slack_status, interval: :interval_ms
 
   require Logger
 
   alias Ryker.Observability.Progress
-  alias Ryker.Polling
   alias Ryker.Slack.ThreadStatuses
 
   @default_interval_ms 1_000
@@ -24,39 +23,23 @@ defmodule Ryker.Slack.ThreadStatusWorker do
 
   def start_link(options) do
     options = options!(options)
-
-    case options.name do
-      nil -> GenServer.start_link(__MODULE__, options)
-      name -> GenServer.start_link(__MODULE__, options, name: name)
-    end
+    GenServer.start_link(__MODULE__, options, name: options.name)
   end
 
-  @impl GenServer
-  def init(options) do
-    send(self(), :work)
-    {:ok, options}
-  end
+  @impl Ryker.PollingWorker
+  def poll(options) do
+    outcome =
+      case run_once(options) do
+        {:ok, outcome} ->
+          outcome
 
-  @impl GenServer
-  def handle_info(:work, options) do
-    delay =
-      Polling.run(:slack_status, options.interval_ms, fn ->
-        outcome =
-          case run_once(options) do
-            {:ok, outcome} ->
-              outcome
+        {:error, reason} ->
+          Logger.warning("Slack thread-status worker failed: #{inspect(reason)}")
+          %{failed: 1, written: 0}
+      end
 
-            {:error, reason} ->
-              Logger.warning("Slack thread-status worker failed: #{inspect(reason)}")
-              %{failed: 1, written: 0}
-          end
-
-        _ = Progress.beat(:slack_status, if(outcome.failed == 0, do: :cycle, else: :error))
-        options.interval_ms
-      end)
-
-    Process.send_after(self(), :work, delay)
-    {:noreply, options}
+    _ = Progress.beat(:slack_status, if(outcome.failed == 0, do: :cycle, else: :error))
+    options.interval_ms
   end
 
   @spec run_once(map() | keyword()) ::

@@ -20,7 +20,7 @@ defmodule Ryker.Delivery.DispatcherTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Input, as: IngressInput
   alias Ryker.Operator.Delivery, as: DeliveryOperator
-  alias Ryker.Polling
+  alias Ryker.PollingWorker
   alias Ryker.Slack.Input
   alias Ryker.State.Records
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
@@ -627,7 +627,7 @@ defmodule Ryker.Delivery.DispatcherTest do
         {:monitors, initial_monitors} = Process.info(self(), :monitors)
 
         delay =
-          Polling.run(:delivery, 10, fn ->
+          PollingWorker.run(:delivery, 10, fn ->
             Dispatcher.run_once(
               dispatcher_options(:message, %{observer: parent}, BlockingPublisher,
                 lease_seconds: 1,

@@ -1,48 +1,37 @@
 defmodule Ryker.Emisar.ApprovalWorker do
   @moduledoc false
 
-  use GenServer
+  use Ryker.PollingWorker, lane: :emisar_approval, interval: :poll_interval_ms
 
   require Logger
 
   alias Ryker.Emisar.ApprovalDispatcher
   alias Ryker.Observability.Progress
-  alias Ryker.Polling
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
     {name, options} = Keyword.pop(options, :name)
-
-    if name,
-      do: GenServer.start_link(__MODULE__, options, name: name),
-      else: GenServer.start_link(__MODULE__, options)
+    GenServer.start_link(__MODULE__, options, name: name)
   end
 
-  @impl GenServer
-  def init(options) do
+  @impl Ryker.PollingWorker
+  def setup(options) do
     poll_interval_ms = Keyword.get(options, :poll_interval_ms, 1_000)
     dispatcher_options = Keyword.get(options, :dispatcher_options)
 
     if is_integer(poll_interval_ms) and poll_interval_ms in 1..300_000 and
          is_list(dispatcher_options) and Keyword.keyword?(dispatcher_options) do
-      send(self(), :poll)
       {:ok, %{dispatcher_options: dispatcher_options, poll_interval_ms: poll_interval_ms}}
     else
       {:stop, {:invalid_emisar_approval_worker, :options}}
     end
   end
 
-  @impl GenServer
-  def handle_info(:poll, state) do
-    delay =
-      Polling.run(:emisar_approval, state.poll_interval_ms, fn ->
-        process_once(state.dispatcher_options)
-        _ = Progress.beat(:emisar_approval)
-        state.poll_interval_ms
-      end)
-
-    Process.send_after(self(), :poll, delay)
-    {:noreply, state}
+  @impl Ryker.PollingWorker
+  def poll(state) do
+    process_once(state.dispatcher_options)
+    _ = Progress.beat(:emisar_approval)
+    state.poll_interval_ms
   end
 
   defp process_once(options) do
