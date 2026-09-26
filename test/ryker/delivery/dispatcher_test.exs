@@ -878,23 +878,7 @@ defmodule Ryker.Delivery.DispatcherTest do
           nil
       end
 
-    reaction =
-      if Keyword.get(options, :cited_reaction) do
-        assert {:ok, %{action: action, status: :created}} =
-                 PlatformActionCustody.enqueue(claim, %{
-                   conversation_ref: "slack:T123:C456",
-                   document: %{"action" => "add", "emoji_name" => "thumbsup"},
-                   host_slot: "reaction",
-                   kind: :reaction,
-                   source_item_ref: "1787832000.000100",
-                   thread_ref: "1787832000.000100",
-                   tool: :set_slack_reaction,
-                   transport: "slack"
-                 })
-
-        action
-      end
-
+    reaction = cited_reaction!(claim, options)
     output_artifact = Keyword.get(options, :output_artifact)
 
     assert {:ok, submission} =
@@ -955,9 +939,7 @@ defmodule Ryker.Delivery.DispatcherTest do
                1
              )
 
-    record_refs =
-      if(record, do: [record.ref], else: []) ++
-        if reaction, do: [reaction.action_ref], else: []
+    record_refs = cited_refs(record, reaction)
 
     delivery_document =
       case {record_refs, artifact_refs} do
@@ -1003,6 +985,28 @@ defmodule Ryker.Delivery.DispatcherTest do
 
     Map.put(accepted, :record, record)
   end
+
+  # A reaction the reply cites beside its records, as the Work prompt asks.
+  defp cited_reaction!(claim, options) do
+    if Keyword.get(options, :cited_reaction) do
+      assert {:ok, %{action: action, status: :created}} =
+               PlatformActionCustody.enqueue(claim, %{
+                 conversation_ref: "slack:T123:C456",
+                 document: %{"action" => "add", "emoji_name" => "thumbsup"},
+                 host_slot: "reaction",
+                 kind: :reaction,
+                 source_item_ref: "1787832000.000100",
+                 thread_ref: "1787832000.000100",
+                 tool: :set_slack_reaction,
+                 transport: "slack"
+               })
+
+      action
+    end
+  end
+
+  defp cited_refs(record, reaction),
+    do: Enum.reject([record && record.ref, reaction && reaction.action_ref], &is_nil/1)
 
   defp reaction_pending!(suffix, emoji_name) do
     event_ref = "Ev-#{suffix}"
