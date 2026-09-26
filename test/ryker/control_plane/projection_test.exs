@@ -345,7 +345,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert detail.trace.source == %{
              href: "https://github.com/acme/ryker/pull/42#issuecomment-9001",
-             label: "Open source comment",
+             label: "Open in GitHub",
              transport: "GitHub"
            }
 

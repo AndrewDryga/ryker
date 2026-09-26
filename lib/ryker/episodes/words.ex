@@ -13,6 +13,7 @@ defmodule Ryker.Episodes.Words do
   @spec label(term()) :: String.t()
   def label(value) when is_atom(value) and not is_nil(value), do: label(Atom.to_string(value))
   def label("pending"), do: "Queued"
+  def label("routing"), do: "Routing"
   def label("working"), do: "Working"
   def label("not_started"), do: "Couldn’t start"
   def label("delivery_pending"), do: "Sending reply"

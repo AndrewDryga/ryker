@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.ModelRequests do
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
   import Ecto.Query
+  require Ryker.ControlPlane.CurrentInputs
+  alias Ryker.Accounting.Pricing
   alias Ryker.Admission.Attempt
   alias Ryker.BundledCoop
 
@@ -9,11 +11,15 @@ defmodule Ryker.ControlPlane.ModelRequests do
     CallRun,
     ContextSearch,
     ContextSelection,
+    CurrentInputs,
     EpisodeTrace,
-    PagedRelation
+    PagedRelation,
+    RoutingReason,
+    ThreadContext,
+    UsageProjection
   }
 
-  alias Ryker.ControlPlane.EpisodeTrace.Step
+  alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Step}
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.{Inbox, InputCustodyTransition}
@@ -561,6 +567,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
   defp response_params(%Turn{id: id}, %{"attempt" => id} = params), do: params
   defp response_params(_turn, _params), do: %{}
 
+  @doc """
+  The page of one message that has no request of its own: what it says and
+  who sent it, what routing decided and what Ryker sent, the cards that show
+  how routing got there, and the thread around it. A message that became
+  part of a request answers with that request's reference instead.
+  """
   def project_input(id, params) when is_map(params) do
     with {:ok, id} <- Ecto.UUID.cast(id), %Entry{} = entry <- Repo.get(Entry, id) do
       options = [
@@ -568,7 +580,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
         candidate_episodes: candidate_episodes(entry.admission_context)
       ]
 
-      request = inspect_row(entry, params, options)
+      now = DateTime.utc_now()
+      message = CaseFile.input_message(entry, disclosed(params))
+      response = Repo.get_by(RoutingResponse, input_id: id)
 
       {:ok,
        %{
@@ -577,18 +591,14 @@ defmodule Ryker.ControlPlane.ModelRequests do
              do: Repo.one(from(e in Episode, where: e.id == ^entry.episode_id, select: e.key))
            ),
          input_id: id,
-         kind: :admission,
-         page: 1,
-         pages: 1,
-         total: 1,
-         items: [%{id: id, status: entry.status, at: entry.inserted_at}],
-         # A message waiting on routing is an episode that has not started, so
-         # the page it gets is the episode page's own heading rather than a
-         # second design for the same thing.
+         # The request page's header, for a message: what it says as people
+         # read it, what happened to it in the words Activity uses, and where
+         # to read it where it was sent.
          heading: %{
-           title: EpisodeTrace.unrouted_title(entry),
-           state: unrouted_state(entry),
+           title: CaseFile.message_heading(message),
+           state: input_state(entry, now),
            received_at: entry.occurred_at || entry.inserted_at,
+           source: Input.message_link(entry),
            conversation_link:
              Activity.conversation_link(
                entry.destination_transport,
@@ -596,10 +606,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
                entry.execution_mode
              )
          },
+         message: message,
+         metrics: %{response_ms: response_ms(entry, response), cost: routing_cost(entry)},
          preparation: EpisodeTrace.input_preparation(entry),
          timeline: input_request_events(entry, params, options),
-         answer: routing_answer(entry),
-         selected: request,
+         answer: routing_answer(entry, response, message),
+         thread: ThreadContext.around(entry, now),
+         selected: inspect_row(entry, params, options),
          names: Names.revision()
        }}
     else
@@ -607,14 +620,104 @@ defmodule Ryker.ControlPlane.ModelRequests do
     end
   end
 
-  # What routing sent without work, the last stage of a message it answered
-  # itself or reacted to: the words or the reaction, and whether they went out.
-  defp routing_answer(%Entry{id: id}) do
-    case Repo.get_by(RoutingResponse, input_id: id) do
-      nil -> []
-      %RoutingResponse{} = response -> [routing_answer_step(response)]
+  defp input_state(entry, now) do
+    Repo.one!(
+      from(message in Entry,
+        where: message.id == ^entry.id,
+        select: CurrentInputs.input_state(message, ^now)
+      )
+    )
+  end
+
+  # From the message to the answer or reaction reaching the conversation, as
+  # a request's response time is measured.
+  defp response_ms(%Entry{occurred_at: %DateTime{} = sent}, %RoutingResponse{
+         status: :delivered,
+         delivered_at: %DateTime{} = delivered
+       }),
+       do: max(DateTime.diff(delivered, sent, :millisecond), 0)
+
+  defp response_ms(_entry, _response), do: nil
+
+  # Routing is the only spend a message without a request has.
+  defp routing_cost(%Entry{id: id}) do
+    totals =
+      Ryker.Accounting.Query.executions(nil, "all")
+      |> where([execution], execution.kind == "admission" and execution.source_id == ^id)
+      |> UsageProjection.totals()
+
+    if totals.costed + totals.estimated > 0, do: Pricing.amount(totals)
+  end
+
+  # What Ryker sent without work, the last stage of a message routing handled
+  # itself: the reply as it reached the conversation, the reaction, or why it
+  # stayed quiet.
+  defp routing_answer(
+         entry,
+         %RoutingResponse{kind: :message, status: :delivered} = response,
+         message
+       ) do
+    text = Redactor.artifact(response.document["message"], max_bytes: 12_000)
+
+    [
+      %{
+        id: "routing-response-#{response.id}",
+        kind: :message,
+        at: response.delivered_at,
+        band: :answer,
+        message: %{
+          id: response.id,
+          title: "Quick reply",
+          actor: "Ryker",
+          at: response.delivered_at,
+          status: "Sent",
+          text: text.text,
+          available: text.state == :retained,
+          transport: entry.destination_transport,
+          workspace: message[:workspace]
+        }
+      }
+    ]
+  end
+
+  defp routing_answer(_entry, %RoutingResponse{} = response, _message),
+    do: [event_entry(routing_answer_step(response))]
+
+  defp routing_answer(%Entry{status: :decided, decision_action: :ignore} = entry, nil, _message) do
+    reason =
+      case entry.decision_document do
+        %{"reason" => reason} when is_binary(reason) -> RoutingReason.plain(reason)
+        _none -> nil
+      end
+
+    [
+      event_entry(
+        Step.step("routing-quiet-#{entry.id}", :answer, decided_at(entry), %{
+          actor: "Ryker",
+          details: [],
+          stage: "Answer",
+          summary: reason || "Routing decided the message needed no response.",
+          title: "Ryker stayed quiet"
+        })
+      )
+    ]
+  end
+
+  defp routing_answer(_entry, nil, _message), do: []
+
+  # When routing's decision was saved, from the attempt that made it; the
+  # message row's own timestamp moves whenever the row changes again.
+  defp decided_at(entry) do
+    with %Attempt{milestones: %{"committed" => committed}} <-
+           Repo.get_by(Attempt, input_id: entry.id, generation: entry.execution_generation),
+         {:ok, at, _offset} <- DateTime.from_iso8601(committed) do
+      at
+    else
+      _not_recorded -> entry.updated_at
     end
   end
+
+  defp event_entry(step), do: %{id: "event-#{step.id}", kind: :event, step: step, at: step.at}
 
   defp routing_answer_step(response) do
     {state, tone} =
@@ -648,17 +751,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
          document: %{"emoji_name" => emoji}
        }),
        do: ":#{emoji}:"
-
-  # Where a message that never became work stands: what routing decided for
-  # it, or where it waits. It "couldn't start" only when nothing decided it.
-  defp unrouted_state(%Entry{status: :decided, decision_action: action})
-       when action in [:quick_reply, :react, :ignore],
-       do: Atom.to_string(action)
-
-  defp unrouted_state(%Entry{status: status}) when status in [:pending, :blocked, :superseded],
-    do: Atom.to_string(status)
-
-  defp unrouted_state(_entry), do: "not_started"
 
   defp input_request_events(entry, params, shared_options) do
     attempts =

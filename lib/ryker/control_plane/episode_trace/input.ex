@@ -233,8 +233,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
     end)
   end
 
+  @doc """
+  A link to one message where it was sent, for a message that has no request
+  of its own: the Slack message in its thread, the Chat, or the GitHub comment.
+  """
+  @spec message_link(Entry.t()) :: map() | nil
+  def message_link(%Entry{} = input), do: entry_source_link(input, input)
+
+  # The destination is where the reply went: the episode's, or the message's
+  # own when it started no request.
   defp entry_source_link(
-         %Episode{
+         %{
            destination_conversation_ref: "slack:" <> conversation,
            destination_thread_ref: thread
          },
@@ -251,21 +260,21 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
           do: base <> "?" <> URI.encode_query(%{"cid" => channel, "thread_ts" => thread}),
           else: base
 
-      %{href: href, label: "Open source message", transport: "Slack"}
+      %{href: href, label: "Open in Slack", transport: "Slack"}
     else
       _invalid -> nil
     end
   end
 
   defp entry_source_link(
-         %Episode{destination_conversation_ref: "control-plane:lab:" <> conversation_id},
+         %{destination_conversation_ref: "control-plane:lab:" <> conversation_id},
          _input
        ) do
     case Ecto.UUID.cast(conversation_id) do
       {:ok, id} ->
         %{
           href: "/conversations/#{id}",
-          label: "Open source conversation",
+          label: "Open in Chat",
           transport: "Conversation"
         }
 
@@ -356,7 +365,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
     if github_repository?(repository) and is_integer(number) and is_integer(comment_id) do
       %{
         href: "https://github.com/#{repository}/#{path}/#{number}##{anchor}#{comment_id}",
-        label: "Open source comment",
+        label: "Open in GitHub",
         transport: "GitHub"
       }
     end
@@ -366,7 +375,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
     if github_repository?(repository) and is_integer(number) and is_integer(review_id) do
       %{
         href: "https://github.com/#{repository}/pull/#{number}#pullrequestreview-#{review_id}",
-        label: "Open source review",
+        label: "Open in GitHub",
         transport: "GitHub"
       }
     end

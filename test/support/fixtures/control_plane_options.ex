@@ -401,7 +401,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  review: %{actor_ref: nil, at: nil, awaiting: true, current: false, note: nil},
                  source: %{
                    href: "https://slack.com/archives/C456/p1787832000001000",
-                   label: "Open source message",
+                   label: "Open in Slack",
                    transport: "Slack"
                  },
                  state: "blocked",

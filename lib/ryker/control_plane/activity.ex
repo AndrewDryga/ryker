@@ -213,6 +213,8 @@ defmodule Ryker.ControlPlane.Activity do
   end
 
   defp rows do
+    now = DateTime.utc_now()
+
     first_inputs =
       from(entry in Entry,
         join: current in subquery(CurrentInputs.latest()),
@@ -303,13 +305,7 @@ defmodule Ryker.ControlPlane.Activity do
           thread: entry.destination_thread_ref,
           episode_state: type(^nil, :string),
           mode: fragment("?::text", entry.execution_mode),
-          state:
-            fragment(
-              "CASE WHEN ? = 'decided' THEN COALESCE(?::text, 'decided') ELSE ?::text END",
-              entry.status,
-              entry.decision_action,
-              entry.status
-            ),
+          state: CurrentInputs.input_state(entry, ^now),
           bucket:
             fragment(
               "CASE WHEN ? = 'blocked' THEN 'attention' WHEN ? = 'pending' THEN 'running' ELSE 'done' END",

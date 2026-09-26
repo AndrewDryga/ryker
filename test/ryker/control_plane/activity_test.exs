@@ -569,6 +569,69 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert row.kind == "admission"
   end
 
+  # Andrew, 2026-09-26: Slack delivers a message that mentions Ryker twice, as a
+  # channel message and as a mention, and both copies of "Hi @Ryker" in #test
+  # read "● Queued" on Activity while routing worked on them, the second after
+  # Ryker had already answered "Hi! How can I help?" in the thread. Queued is a
+  # message waiting for routing to pick it up; one routing is deciding says so,
+  # and one routing answered says what it sent.
+  test "a Slack message routing is answering never reads Queued" do
+    [first, second] =
+      for event_ref <- ["Ev-hi-channel-message", "Ev-hi-app-mention"] do
+        {:ok, input} =
+          Input.new(%{
+            actor: %{kind: :user, ref: "U123"},
+            channel_ref: "C456",
+            content: %{"text" => "Hi <@U0C1LCVNF52>"},
+            event_kind: :message,
+            event_ref: event_ref,
+            message_ref: "1788562304.000100",
+            occurred_at: DateTime.utc_now(),
+            revision: 1,
+            thread_ref: nil,
+            workspace_ref: "T123"
+          })
+
+        {:ok, %{entry: entry}} = Inbox.record(input)
+        entry
+      end
+
+    now = DateTime.utc_now()
+    assert {:ok, %{entry: %{id: claimed}}} = Inbox.claim_next("routing:test", now, 300)
+    assert claimed == first.id
+    assert state(first) == "Routing"
+    assert state(second) == "Queued"
+
+    decision = %{
+      "action" => "quick_reply",
+      "message" => "Hi! How can I help?",
+      "reason" => "A greeting needs a short answer."
+    }
+
+    Repo.update_all(from(e in Entry, where: e.id == ^first.id),
+      set: [
+        status: :decided,
+        decision_action: :quick_reply,
+        decision_ref: "decision:#{first.id}",
+        decision_fingerprint: String.duplicate("a", 64),
+        decision_document: decision,
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil
+      ]
+    )
+
+    assert {:ok, %{entry: %{id: claimed}}} = Inbox.claim_next("routing:test", now, 300)
+    assert claimed == second.id
+    assert state(first) == "Answered right away"
+    assert state(second) == "Routing"
+  end
+
+  defp state(entry) do
+    row = Enum.find(Activity.list(%{}).items, &(&1.id == entry.id))
+    row.state |> ActivityPage.state() |> elem(1)
+  end
+
   test "every workload count opens a view that lists exactly that many requests" do
     # QA, 2026-09-25: Activity led with "3 active · 2 waiting · 1 blocked" while
     # In progress listed nothing, and "waiting" and "blocked" both opened the

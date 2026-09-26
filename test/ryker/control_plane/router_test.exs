@@ -868,7 +868,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert html =~ "Work needs operator recovery"
     assert html =~ "3 answers checked"
     assert html =~ "/failures/work/episode%3Aone"
-    assert html =~ "Open source message"
+    assert html =~ "Open in Slack"
     assert html =~ "https://slack.com/archives/C456/p1787832000001000"
     assert html =~ "/actions/episode/episode%3Aone/resolve"
     assert html =~ "/actions/episode/episode%3Aone/review"

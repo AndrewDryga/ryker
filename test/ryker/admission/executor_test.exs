@@ -82,11 +82,7 @@ defmodule Ryker.Admission.ExecutorTest do
     assert request.artifact.state == :retained
     assert request.artifact.text =~ "Please investigate the unfamiliar failure"
 
-    html =
-      render_component(&EpisodePage.getting_ready/1,
-        steps: inspector.preparation,
-        requests: inspector.timeline
-      )
+    html = render_component(&EpisodePage.message_page/1, view: inspector)
 
     # How the search found earlier work is a card of its own before the briefing.
     assert html =~ "Search for earlier work"

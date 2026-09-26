@@ -1249,7 +1249,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     snapshot =
       put_in(snapshot, [:trace, :source], %{
         href: "https://slack.com/archives/C456/p1787832000001000",
-        label: "Open source message",
+        label: "Open in Slack",
         transport: "Slack"
       })
 
@@ -1272,14 +1272,14 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     # page, so there is no "all activity" link to follow.
     assert Enum.map(links, &LazyHTML.text/1) == [
              "Jump to latest outcome ↓",
-             "Open source message →",
+             "Open in Slack →",
              "This Slack thread →"
            ]
 
     blank_links = LazyHTML.query(document, ".episode-location > a[target='_blank']")
 
     assert Enum.map(blank_links, &LazyHTML.text/1) == [
-             "Open source message →",
+             "Open in Slack →",
              "This Slack thread →"
            ]
 

@@ -161,7 +161,8 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How a timeline works", [
       {"What this page shows",
        [
-         "One request from start to finish: the message that started it, how Ryker decided what to do, the work it did and the answer it sent. Steps are in the order they happened."
+         "One request from start to finish: the message that started it, how Ryker decided what to do, the work it did and the answer it sent. Steps are in the order they happened.",
+         "A message Ryker answered, reacted to or left alone without starting work has its own page like this. It shows the message, what Ryker decided and sent, and the rest of its thread."
        ]},
       {"Read the steps",
        [

@@ -34,6 +34,31 @@ defmodule Ryker.ControlPlane.CurrentInputs do
     end
   end
 
+  @doc """
+  What a message that has not become work reads as, as SQL: the decision
+  routing recorded for it, `routing` while a routing worker holds its lease,
+  otherwise where it stands (pending, blocked, superseded). `now` decides
+  whether a lease still holds; one that ran out is waiting to be picked up
+  again, not being routed.
+
+  Activity's rows and a message page's thread read it here, so a message never
+  says one thing in the list and another beside its neighbours.
+  """
+  defmacro input_state(entry, now) do
+    quote do
+      fragment(
+        "CASE WHEN ? = 'decided' THEN COALESCE(?::text, 'decided') WHEN ? = 'pending' AND ? IS NOT NULL AND ? > ? THEN 'routing' ELSE ?::text END",
+        unquote(entry).status,
+        unquote(entry).decision_action,
+        unquote(entry).status,
+        unquote(entry).lease_ref,
+        unquote(entry).lease_expires_at,
+        type(unquote(now), :utc_datetime_usec),
+        unquote(entry).status
+      )
+    end
+  end
+
   def latest do
     from(entry in Entry,
       distinct: [entry.execution_mode, entry.native_input_id],

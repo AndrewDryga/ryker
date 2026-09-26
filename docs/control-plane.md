@@ -23,8 +23,8 @@ There are no compatibility aliases for earlier paths.
 
 | Surface | Route | What it holds |
 | --- | --- | --- |
-| **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. It leads with how many requests it lists, then how many are in progress and how many need you, each counted from the rows its view lists and opening that view. One toolbar row holds search, the work included, the All · Needs you · In progress · Finished views, then a chip per filter and "+ Filter", which picks a field, then a value, which applies at once. Search matches message text, the repository the request's work used and a scheduled run's schedule, and applies as you type, as every list's search does. Each request is one row that opens its timeline. A worker problem and the scheduled runs coming up follow the list as sections. `/` is the application root and renders the same list. |
-| **Timeline** | `/timeline/:ref` | One request's chronological case file, titled by its subject. It includes each model request's retained briefing, response checks and technical identity in place. `:ref` is a durable episode key or `ingress-input:<id>` for an input with no episode yet. |
+| **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. It leads with how many requests it lists, then how many are in progress and how many need you, each counted from the rows its view lists and opening that view. One toolbar row holds search, the work included, the All · Needs you · In progress · Finished views, then a chip per filter and "+ Filter", which picks a field, then a value, which applies at once. Search matches message text, the repository the request's work used and a scheduled run's schedule, and applies as you type, as every list's search does. Each request is one row that opens its timeline; a message that started no work says what routing did with it (Answered right away, Reaction selected, No response needed), Routing while a routing worker holds it, and Queued only while it waits to be picked up. A worker problem and the scheduled runs coming up follow the list as sections. `/` is the application root and renders the same list. |
+| **Timeline** | `/timeline/:ref` | One request's chronological case file, titled by its subject. It includes each model request's retained briefing, response checks and technical identity in place. `:ref` is a durable episode key or `ingress-input:<id>` for a message with no request of its own, which opens that message's page. |
 
 Live invalidation domains follow the first path segment, so `activity` and
 `timeline` are also the PubSub domain names in `ControlPlane.Updates`.
@@ -91,8 +91,22 @@ an earlier pending input in the same transport, conversation and execution
 mode is named and linked as the blocker. Blocked inputs say automatic retries
 stopped and link the existing recovery page; superseded inputs keep their save
 facts and say a newer revision won. No source acknowledgement log exists, so
-that row is always "Not recorded". The standalone input view at
-`/timeline/ingress-input:<id>` carries the same four Getting ready cards.
+that row is always "Not recorded".
+
+A message with no request of its own (a greeting routing answered itself, one
+it reacted to or left alone, or one still waiting for routing) opens a message
+page at `/timeline/ingress-input:<id>`, drawn with the request page's parts: the
+header says what the message says, its Slack mentions named from the names
+cache, what happened to it in Activity's words, when, and where it was sent; the
+summary strip carries its response time and routing cost when they are known
+and leaves out what a single message never has; and one Message band holds the
+message as it was sent, routing's decision, and what Ryker sent (the reply, the
+reaction, or that it stayed quiet and why). The thread or Chat conversation
+around it follows: the 20 messages nearest it, oldest first, each once however
+many times it was edited or delivered, with what came of it and a link to its
+own page or to the request it started or joined. Last come its Routing details,
+the same Participation, Queue, Search for earlier work and Routing briefing
+cards the request page shows.
 
 Each Work run's **Context selection** card, before its briefing, says in a
 sentence which of the request's messages the model was given and why: a new
