@@ -889,7 +889,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
             id="webhook-credential-name"
             type="text"
             name="credential[name]"
-            pattern="[a-z0-9][a-z0-9_.:-]{0,127}"
+            pattern="[a-z0-9][a-z0-9_.:\-]{0,127}"
             required
           />
         </div>
