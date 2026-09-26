@@ -164,6 +164,7 @@ defmodule Ryker.Slack.Names do
       {:ok, workspace, workspace_url, fetch} ->
         :ets.new(@table, [:named_table, :protected, :set, read_concurrency: true])
         :ets.insert(@table, {:origin, workspace, workspace_url})
+        keep_known(workspace, Keyword.get(options, :known, []))
         Process.send_after(self(), :tick, @interval)
 
         {:ok,
@@ -252,6 +253,17 @@ defmodule Ryker.Slack.Names do
     if store(state.workspace, ref, label, ttl), do: announce()
     %{state | blocked_until: now() + backoff}
   end
+
+  # Names Ryker knows before Slack is asked, such as its own bot user's from
+  # its settings: right after a restart, "Hi @Ryker" read "Hi Slack user"
+  # until the cache had looked Ryker up (2026-09-26).
+  defp keep_known(workspace, known) when is_list(known) do
+    for {ref, label} <- known, is_binary(ref), valid_ref?(ref), valid_label?(label) do
+      store(workspace, ref, clean(label), @ttl)
+    end
+  end
+
+  defp keep_known(_workspace, _known), do: []
 
   # This is disposable presentation data, not durable identity or authority.
   # A lookup that failed keeps the name Slack gave before, if any. Whether

@@ -294,6 +294,7 @@ defmodule Ryker.Runtime.Owner do
       {Names,
        workspace: workspace,
        workspace_url: names.workspace_url,
+       known: Map.get(names, :known, []),
        fetch: &SlackUsers.directory_name(client, workspace, &1)}
     ]
 
