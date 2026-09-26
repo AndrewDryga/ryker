@@ -16,6 +16,7 @@ defmodule Ryker.Slack.ReplyRecords do
   alias Ryker.Behaviors.Behavior
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Memories.MemoryEntry
+  alias Ryker.Records
   alias Ryker.Records.SlackPostOffers
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
@@ -25,6 +26,29 @@ defmodule Ryker.Slack.ReplyRecords do
   alias Ryker.Work.{ActivityEvent, ActivityRetention}
 
   @saved_offer_kinds ~w(guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)
+
+  @doc """
+  The durable records a reply's `record_refs` name, in order, for its cards.
+  The Work prompt has the model cite the ref of everything its reply says it
+  did, and a reaction's ref is one of this episode's platform actions, which
+  have no card: those are left out here rather than read as missing records.
+  """
+  @spec fetch(String.t(), [String.t()]) :: {:ok, [Records.Record.t()]} | {:error, term()}
+  def fetch(episode_id, refs) when is_binary(episode_id) and is_list(refs) do
+    actions =
+      Repo.all(
+        from(action in PlatformAction,
+          where:
+            action.episode_id == ^episode_id and
+              action.action_ref in ^Enum.filter(refs, &is_binary/1),
+          select: action.action_ref
+        )
+      )
+
+    Records.fetch_for_episode(episode_id, Enum.reject(refs, &(&1 in actions)))
+  end
+
+  def fetch(episode_id, refs), do: Records.fetch_for_episode(episode_id, refs)
 
   @spec documents(String.t(), String.t(), [map()]) :: [map()]
   def documents(transport, episode_id, records) do

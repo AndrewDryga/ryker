@@ -10,7 +10,6 @@ defmodule Ryker.Delivery.Dispatcher do
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, RoutingResponseCustody}
   alias Ryker.LeasedCall
-  alias Ryker.Records
   alias Ryker.Slack.ReplyRecords
   alias Ryker.Work.Custody
 
@@ -147,7 +146,7 @@ defmodule Ryker.Delivery.Dispatcher do
          {:ok, records} <- delivery_records(claim.episode.id, record_refs),
          {:ok, artifacts} <- Outputs.fetch_many(claim.turn.id, artifact_refs) do
       document =
-        if record_refs == [],
+        if records == [],
           do: %{"message" => message},
           else: %{
             "message" => message,
@@ -200,7 +199,7 @@ defmodule Ryker.Delivery.Dispatcher do
   defp delivery_records(_episode_id, []), do: {:ok, []}
 
   defp delivery_records(episode_id, refs) do
-    case Records.fetch_for_episode(episode_id, refs) do
+    case ReplyRecords.fetch(episode_id, refs) do
       {:ok, records} -> {:ok, records}
       {:error, _reason} -> {:error, {:invalid_delivery_message, :record_refs}}
     end

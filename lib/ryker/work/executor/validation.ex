@@ -68,6 +68,12 @@ defmodule Ryker.Work.Executor.Validation do
           {:reject, [presentation_violation(reason)]},
           nil
         )
+
+      # Anything else is the host's to fix, not the model's. It fails this
+      # attempt with its reason on record instead of crashing the worker,
+      # which left a turn retrying every five minutes with no error saved.
+      {:error, _reason} = error ->
+        error
     end
   end
 
