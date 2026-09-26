@@ -64,6 +64,67 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     assert FindingsPage.html(view) |> IO.iodata_to_binary() =~ "Zero instances are intentional"
   end
 
+  test "findings lead with how many there are and how many are unexplained, and can be searched" do
+    # QA, 2026-09-25: Findings had no counts row and no search, unlike every
+    # other list, so the only way to find one was to scroll.
+    {_claim, options} = claim!()
+
+    assert {:ok, %{"record_ref" => evidence}} =
+             Tools.call(
+               "cite_source",
+               %{
+                 "subject" => "Declared configuration",
+                 "observation" => "The configuration deliberately disables this service.",
+                 "source_ref" => "source:configuration",
+                 "relation" => "supports",
+                 "supersedes" => []
+               },
+               options
+             )
+
+    for {what, status, cause} <- [
+          {"Checkout readiness failed after the deploy", "unexplained", []},
+          {"Zero instances are intentional", "expected", [evidence]}
+        ] do
+      assert {:ok, _} =
+               Tools.call(
+                 "record_finding",
+                 %{
+                   "what" => what,
+                   "status" => status,
+                   "reason" => "Recorded for the Findings list.",
+                   "scope" => nil,
+                   "cause_evidence" => cause
+                 },
+                 options
+               )
+    end
+
+    counts = fn params ->
+      render_component(&FindingsPage.render/1, view: Projection.findings(params))
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".kit-counts .kit-count")
+      |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
+    end
+
+    assert counts.(%{}) == ["2 findings", "1 not explained yet"]
+    assert counts.(%{"q" => "checkout"}) == ["1 matching", "1 not explained yet"]
+    assert counts.(%{"q" => "intentional"}) == ["1 matching"]
+
+    document =
+      render_component(&FindingsPage.render/1, view: Projection.findings(%{"q" => "absent"}))
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(
+             document,
+             ".kit-toolbar form.filter-toolbar input[name=q][value=absent]"
+           )
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(document, ".entity-empty-title") |> LazyHTML.text() ==
+             "No findings match “absent”"
+  end
+
   test "an empty findings page says what puts a finding there and offers no way to make one" do
     html = render_component(&FindingsPage.render/1, view: Projection.findings(%{}))
     assert html =~ "No findings yet"
@@ -78,7 +139,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     # classification ("Explained by evidence"), under a "How findings work"
     # disclosure and a separate count; the conclusion itself was body text.
     empty = render_stub(%{items: [], total: 0, page: 1, pages: 1})
-    assert outline(empty, "div.memory-view > *") == ["div.entity-empty"]
+    assert outline(empty, "div.memory-view > *") == ["p.kit-counts", "div.entity-empty"]
 
     assert Enum.empty?(
              LazyHTML.query(empty, "h1, h2, details.page-help, p.result-count, a[href='/lab']")
@@ -109,7 +170,12 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
         ]
       })
 
-    assert outline(populated, "div.memory-view > *") == ["div.entity-list"]
+    assert outline(populated, "div.memory-view > *") == [
+             "p.kit-counts",
+             "div.kit-toolbar",
+             "div.entity-list"
+           ]
+
     row = LazyHTML.query(populated, "article.entity-row#finding-finding-1")
 
     assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~

@@ -278,9 +278,9 @@ defmodule Ryker.ControlPlane.ActivityPage do
   defp source_tone(%{source: "Direct conversation"}), do: :accent
   defp source_tone(_item), do: :off
 
-  # Under its day's heading a row says only the clock time. A row that
-  # changed since the list was drawn stays under its old day until the reader
-  # shows the latest, so it names its new day too.
+  # Under its day's heading a row says only the clock time, in UTC like every
+  # time Chat shows. A row that changed since the list was drawn stays under
+  # its old day until the reader shows the latest, so it names its new day too.
   defp at(%{updated_at: nil}, _now), do: nil
 
   defp at(%{updated_at: updated_at} = item, now) do
@@ -288,10 +288,10 @@ defmodule Ryker.ControlPlane.ActivityPage do
 
     case Map.get(item, :day) do
       section when section in [nil, day] ->
-        Kit.clock(updated_at)
+        Kit.clock(updated_at) <> " UTC"
 
       _other_day ->
-        Kit.day_label(day, DateTime.to_date(now)) <> " " <> Kit.clock(updated_at)
+        Kit.day_label(day, DateTime.to_date(now)) <> " " <> Kit.clock(updated_at) <> " UTC"
     end
   end
 

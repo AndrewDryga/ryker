@@ -232,11 +232,14 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
 
   test "storage says plainly what each worker measured, and never invents a byte" do
     # A missing report is unknown, not 0 GiB, and a stale heartbeat is a
-    # stale measurement.
+    # stale measurement. QA, 2026-09-25: "0.16 GiB kept" sat beside "No
+    # working copies right now"; the worker's figure also counts its shared
+    # checkouts and its own data, so it is what the worker uses, not copies
+    # kept.
     storage = render([]) |> LazyHTML.query("section.working-copies-storage")
 
     assert storage |> LazyHTML.query("#storage-worker-a") |> LazyHTML.text() |> squeeze() ==
-             "worker-a 20 GiB kept, 9 GiB disposable of 10 GiB · measured 2 min ago · 1 GiB freed so far · not taking new copies (reserve exhausted)"
+             "worker-a 20 GiB in use, 9 GiB can be freed of 10 GiB allowed · measured 2 min ago · 1 GiB freed so far · not taking new copies (reserve exhausted)"
 
     assert LazyHTML.text(storage) =~ "Ryker cleans up copies that are ready within 1 hour."
 
@@ -257,7 +260,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
              "worker-a has not reported storage yet."
 
     stale_line = document |> LazyHTML.query("#storage-worker-b") |> LazyHTML.text() |> squeeze()
-    assert stale_line =~ "unknown kept, 0 GiB disposable of 10 GiB"
+    assert stale_line =~ "unknown in use, 0 GiB can be freed of 10 GiB allowed"
     assert stale_line =~ "this report is out of date"
     refute stale_line =~ "not taking new copies"
 

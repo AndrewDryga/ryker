@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.ActivityDaysTest do
   headings have to survive a refresh the same way the rows do.
   """
   use ExUnit.Case, async: true
+  import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Ryker.ControlPlane.{ActivityPage, Kit}
 
@@ -55,6 +56,39 @@ defmodule Ryker.ControlPlane.ActivityDaysTest do
     assert Kit.day_label(~D[2026-09-18], today) == "18 September"
     assert Kit.day_label(~D[2026-09-18], ~D[2027-01-02]) == "18 September 2026"
     assert Kit.clock(~U[2026-09-25 08:03:59Z]) == "08:03"
+  end
+
+  test "a row's time says it is UTC, as Chat's messages do" do
+    # QA, 2026-09-25: Activity's rows read "08:33" while Chat's messages read
+    # "08:33 UTC", so a reader could not tell whose clock a row used.
+    item =
+      Map.merge(row("a", ~U[2026-09-25 08:33:00Z]), %{
+        kind: "episode",
+        href: "/timeline/a",
+        title: "Is checkout healthy?",
+        source: "Direct conversation",
+        repository: nil,
+        state: "working",
+        bucket: "running",
+        started_at: ~U[2026-09-25 08:30:00Z]
+      })
+
+    [item] = ActivityPage.with_days([item], @now)
+
+    html =
+      render_component(&ActivityPage.render/1,
+        overview: %{},
+        activity: %{total: 1, page: 1, pages: 1, mode: "live", views: %{}},
+        params: %{},
+        path: "/",
+        now: @now,
+        stream: [{"activity-a", item}],
+        new_items: 0,
+        schedules: []
+      )
+
+    assert html |> LazyHTML.from_fragment() |> LazyHTML.query(".entity-at") |> LazyHTML.text() ==
+             "08:33 UTC"
   end
 
   defp row(id, at), do: %{id: id, updated_at: at}

@@ -43,6 +43,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
 
     ~H"""
     <div class="repositories-page">
+      <Kit.counts label="Repositories" items={counts(@items, @view.q)} />
       <Kit.toolbar>
         <Components.filter_toolbar
           id="operator-search"
@@ -131,6 +132,22 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   end
 
   defp state(_observed), do: {:off, "Not added"}
+
+  # How many repositories the list holds, then how many need a person.
+  defp counts(items, query) do
+    attention = Enum.count(items, &problem/1)
+
+    [
+      Kit.list_total(length(items), {"repository", "repositories"}, query != ""),
+      attention > 0 &&
+        %{
+          value: attention,
+          label: if(attention == 1, do: "needs attention", else: "need attention"),
+          tone: :warn
+        }
+    ]
+    |> Enum.filter(& &1)
+  end
 
   # One sentence: what is wrong, then what to do about it.
   defp problem(%{configured: %{github_access: :removed}}),

@@ -9,6 +9,9 @@ export const filterToolbar = control => {
   if (!form || control.tagName !== "SELECT") return null
   if (!form.matches?.("form.filter-toolbar")) return null
   if ((form.method || "get").toLowerCase() !== "get") return null
+  // Once the socket is connected, LiveView patches the page as the toolbar
+  // changes; submitting it as well would reload the page under the reader.
+  if (form.hasAttribute?.("phx-change") && form.closest?.(".phx-connected")) return null
   return form
 }
 

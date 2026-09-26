@@ -167,6 +167,23 @@ defmodule Ryker.ControlPlane.LiveTest do
     refute has_element?(view, ".document-unavailable")
   end
 
+  test "a list page searches as you type, the way Activity does" do
+    # QA, 2026-09-25: Facts searched only when Enter was pressed, while
+    # Activity searched as you typed. A list's search form now patches the
+    # page as it changes; without the socket it is still a plain GET form.
+    source = SavedEntities.source!("slack:T123:C456")
+    SavedEntities.memory!(source, "checkout owner", "The payments team owns checkout.")
+
+    {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), "/memory")
+
+    view
+    |> form(".kit-toolbar form.filter-toolbar", %{q: "payments"})
+    |> render_change()
+
+    assert_patch(view, "/memory?q=payments")
+    assert has_element?(view, ".kit-toolbar form.filter-toolbar input[name=q][value=payments]")
+  end
+
   test "the live shell shows Rules once with its sentence beneath, then one column" do
     # The approved page (2026-09-24): the title, one plain sentence, one row of
     # search and Current/Past, the rules, then recent matches, down one left
@@ -1002,7 +1019,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # time, and the full UTC time is a hover away.
     times = LazyHTML.query(document, ".lab-directory-list time")
     assert Enum.count(times) == 3
-    assert Enum.all?(times, &(LazyHTML.text(&1) =~ ~r/\A\d\d:\d\d\z/))
+    assert Enum.all?(times, &(LazyHTML.text(&1) =~ ~r/\A\d\d:\d\d UTC\z/))
     assert Enum.all?(LazyHTML.attribute(times, "title"), &(&1 =~ "UTC"))
     refute html =~ "inputs ·"
     refute html =~ "RECENT CONVERSATIONS"
@@ -2101,7 +2118,10 @@ defmodule Ryker.ControlPlane.LiveTest do
              "Turn off learning"
            )
 
+    # Turning it off asks first; the switch's own confirmation does it.
     view |> element("#learning-switch button") |> render_click()
+    assert Ryker.Settings.fetch!().learning.enabled
+    view |> element("#learning-switch button.danger", "Turn off learning") |> render_click()
     refute Ryker.Settings.fetch!().learning.enabled
     assert has_element?(view, "#learning-switch button", "Turn on learning")
 
@@ -2123,6 +2143,7 @@ defmodule Ryker.ControlPlane.LiveTest do
              )
 
     view |> element("#learning-switch button", "Turn off learning") |> render_click()
+    view |> element("#learning-switch button.danger", "Turn off learning") |> render_click()
     assert has_element?(view, "#learning-switch [role=alert]", "Settings changed somewhere else")
     assert has_element?(view, "#learning-switch button", "Turn on learning")
     refute Ryker.Settings.fetch!().learning.enabled

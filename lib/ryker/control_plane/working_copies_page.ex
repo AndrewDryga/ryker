@@ -217,7 +217,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
         <%= if worker.measurement == :unknown do %>
           has not reported storage yet.
         <% else %>
-          {gib(worker.bytes["protected_bytes"])} kept, {gib(worker.bytes["disposable_bytes"])} disposable {limit(
+          {gib(worker.bytes["protected_bytes"])} in use, {gib(worker.bytes["disposable_bytes"])} can be freed {limit(
             @limit
           )}<span :if={worker.measured_at}> · <ShortTime.time
             at={worker.measured_at}
@@ -243,8 +243,10 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp worker_tone(%{measurement: :fresh}), do: "on"
   defp worker_tone(_unknown_or_stale), do: "off"
 
+  # What the worker uses counts its shared checkouts and its own data as well
+  # as the copies listed below, so it is never called copies kept.
   defp limit(nil), do: "(no limit set)"
-  defp limit(bytes), do: "of " <> gib(bytes)
+  defp limit(bytes), do: "of " <> gib(bytes) <> " allowed"
 
   defp refusal(nil), do: "reason not reported"
   defp refusal(reason), do: reason |> to_string() |> String.replace("_", " ")

@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.Components do
 
   import Phoenix.HTML.Form, only: [options_for_select: 2]
   alias Phoenix.HTML.Safe
+  alias Phoenix.LiveView.JS
   alias Ryker.ControlPlane.ExecutionTarget
 
   @icons %{
@@ -515,11 +516,14 @@ defmodule Ryker.ControlPlane.Components do
   @doc """
   The one compact filter toolbar of a page that filters.
 
-  A GET form, so the URL stays shareable and back/forward stay honest. Search
-  submits on Enter; a dropdown submits the form as soon as it changes
-  (filter-toolbar.mjs), so there is no Apply button. Labels stay bound to
-  their controls for assistive technology while the placeholder and the
-  chosen option carry the visible meaning.
+  A GET form, so the URL stays shareable and back/forward stay honest. In
+  the live shell it searches as you type, the way Activity does: the shell
+  patches the page to the form's own fields as they change ("search-page").
+  Before the socket connects, and without JavaScript, it is a plain form: a
+  dropdown submits it as soon as it changes (filter-toolbar.mjs) and search
+  submits on Enter, so there is no Apply button. Labels stay bound to their
+  controls for assistive technology while the placeholder and the chosen
+  option carry the visible meaning.
   """
   def filter_toolbar(assigns) do
     assigns =
@@ -534,7 +538,15 @@ defmodule Ryker.ControlPlane.Components do
       |> assign_filter_controls()
 
     ~H"""
-    <form class="filter-toolbar" method="get" action={@path} role="search" aria-label={@label}>
+    <form
+      class="filter-toolbar"
+      method="get"
+      action={@path}
+      role="search"
+      aria-label={@label}
+      phx-change={JS.push("search-page", value: %{path: @path})}
+      phx-submit={JS.push("search-page", value: %{path: @path})}
+    >
       <input :for={{name, value} <- @hidden} type="hidden" name={name} value={value} />
       <div class="search-field filter-control">
         <.icon name={:search} />
@@ -547,6 +559,8 @@ defmodule Ryker.ControlPlane.Components do
           value={@query || ""}
           placeholder={@placeholder}
           disabled={@disabled}
+          phx-debounce="300"
+          autocomplete="off"
         />
       </div>
       <%= if @primary do %>
