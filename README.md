@@ -225,8 +225,9 @@ external-app messages in Slack timestamp order and gives each decision a chronol
 that ends at the target message: up to 20 earlier messages (a code default, not a setting) — for a
 thread reply, the thread's root and the replies before it; for a top-level message, the channel
 messages before it. There is no settling delay and there are no attention scores or thresholds:
-the model chooses whether to stay silent, add a lightweight reaction, reply where the sender is
-speaking, or start or continue work, and Ryker validates that choice. Human messages do not
+the model chooses whether to stay silent, add a lightweight reaction, answer a simple message
+itself at once (a greeting, a thanks, a question the conversation already answers), reply where
+the sender is speaking, or start or continue work, and Ryker validates that choice. Human messages do not
 automatically become incidents: Ryker answers in place and can attach an incident offer
 (**Investigate** or **Create incident room**) when coordinated work would help. Only a configured
 operator can press it. A credible unresolved monitoring-app alert follows the channel's confirmed
