@@ -41,7 +41,8 @@ defmodule Ryker.Admission.Prompt do
   which is why its allowed_relations lack same_work. evidence lists why it was
   offered: "same source occurrence" is the same alert, run or deployment identity; "shares N
   identifiers" counts URLs and IDs named in both; "owns this exact source message" means this event
-  revises a message that work already owns; the rest mean what they say. Compare the evidence, not
+  revises a message that work already owns, so the event stays with that work: choose it with
+  same_work, or history_only when it was cancelled; the rest mean what they say. Compare the evidence, not
   wording or arrival time. A shared service, alert rule, app, deployment, URL or an old incident
   mentioned for comparison is a clue, never proof that two events are the same occurrence. When the
   evidence does not establish the same occurrence or the same request, leave the work separate and

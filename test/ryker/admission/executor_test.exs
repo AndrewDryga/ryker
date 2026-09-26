@@ -823,6 +823,44 @@ defmodule Ryker.Admission.ExecutorTest do
     assert FakeAPI.state(fake).submit_count == 0
   end
 
+  # Manual testing, 2026-09-26: an edit routed as new work was refused with
+  # "The host rejected this decision: {:admission_rejected, :source_item_owner,
+  # [owner_ref: ...]}", an internal term for the model to decode on its one
+  # repair, and the prompt never said an edit stays with the work that owns it.
+  test "an edit routed away from the work that owns its message is corrected in words" do
+    original = record_slack_input!("Ev-edit-owned")
+    {:ok, routed} = FakeAPI.start_link([decision("start_episode")])
+
+    assert {:ok, %{result: %{episode: episode}}} =
+             Executor.run(Inbox.ref(original), executor_options(routed, claim!(original)))
+
+    owner_ref =
+      "candidate:" <>
+        binary_part(
+          Ryker.CanonicalJSON.digest(["ingress-admission-candidate", episode.id]),
+          0,
+          12
+        )
+
+    edit = record_slack_revision!("Ev-edit-owned-edit", :edit, "Please answer the other question")
+
+    {:ok, fake} =
+      FakeAPI.start_link([
+        decision("start_episode"),
+        decision_with_candidate("continue_episode", owner_ref, "same_work")
+      ])
+
+    assert {:ok, execution} = Executor.run(Inbox.ref(edit), executor_options(fake, claim!(edit)))
+    assert execution.result.entry.decision_action == :continue_episode
+
+    assert [%{verdict: :reject, violations: [violation]}, %{verdict: :accept}] =
+             FakeAPI.state(fake).validations
+
+    assert violation =~ "stays with that work"
+    assert violation =~ owner_ref
+    refute violation =~ "admission_rejected"
+  end
+
   test "a crossed Coop turn cannot decide another admission session" do
     entry = record_slack_input!("Ev-executor-crossed-turn")
     lease_ref = claim!(entry)
@@ -866,13 +904,16 @@ defmodule Ryker.Admission.ExecutorTest do
     entry
   end
 
-  defp record_slack_deletion!(event_ref) do
+  defp record_slack_deletion!(event_ref),
+    do: record_slack_revision!(event_ref, :delete, "Please answer")
+
+  defp record_slack_revision!(event_ref, kind, text) do
     assert {:ok, input} =
              SlackInput.new(%{
                actor: %{kind: :user, ref: "U123"},
                channel_ref: "C456",
-               content: %{"text" => "Please answer"},
-               event_kind: :delete,
+               content: %{"text" => text},
+               event_kind: kind,
                event_ref: event_ref,
                message_ref: "1787832001.000100",
                occurred_at: DateTime.add(@now, 1),

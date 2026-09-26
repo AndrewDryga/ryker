@@ -704,6 +704,10 @@ defmodule Ryker.Admission.Executor do
     "The selected relation is unavailable for that candidate. Allowed: #{inspect(details[:allowed])}; submitted: #{inspect(details[:submitted])}."
   end
 
+  defp violation({:admission_rejected, :source_item_owner, details}) do
+    "This event revises a message that earlier work already owns, so it stays with that work: return episode_ref #{details[:owner_ref]} with relation same_work, or history_only when that work was cancelled."
+  end
+
   defp violation({:admission_rejected, :reaction_not_allowed, details}) do
     "The reaction is unavailable for this source. Allowed emoji names: #{inspect(details[:allowed])}; submitted: #{inspect(details[:submitted])}."
   end
