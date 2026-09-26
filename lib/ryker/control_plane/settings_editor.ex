@@ -17,7 +17,16 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   alias Phoenix.LiveView.JS
   alias Ryker.BundledCoop
-  alias Ryker.ControlPlane.{Components, Kit, SettingsRows, SettingsSections, SettingsView}
+
+  alias Ryker.ControlPlane.{
+    Components,
+    Integrations,
+    Kit,
+    SettingsRows,
+    SettingsSections,
+    SettingsView,
+    SlackNames
+  }
 
   @impact_words %{
     "ingress inputs" => "received messages",
@@ -329,7 +338,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         rows: rows,
         open?: open?,
         placement: placement(collection?, open?, assigns.item_key, rows),
-        notice: notice(section, view),
+        notices: notices(section, view),
         noun: noun(section)
       )
 
@@ -348,9 +357,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         <p>{count(@rows, @noun)}</p>
         <.add_button noun={@noun} myself={@myself} expanded={@placement == :above} />
       </div>
-      <p :if={@notice} class="settings-notice">
-        {@notice.text}
-        <.link :if={@notice[:href]} navigate={@notice.href}>{@notice.link}</.link>
+      <p :for={notice <- @notices} class="settings-notice">
+        {notice.text}
+        <.link :if={notice[:href]} navigate={notice.href}>{notice.link}</.link>
       </p>
       <.editor
         :if={@placement == :above}
@@ -758,6 +767,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       aria-invalid={to_string(@invalid)}
     >
       <option :if={!@field[:required]} value="">Not set</option>
+      <option :if={@field[:prompt]} value="" selected={@value == ""}>{@field.prompt}</option>
       <option :for={{value, label} <- @options} value={value} selected={@value == value}>
         {label}
       </option>
@@ -874,7 +884,11 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         id: details[:id],
         lede: details[:lede],
         fields:
-          for(field <- fields, field_visible?(field, draft), do: with_help(section, field, view))
+          for(
+            field <- fields,
+            field_visible?(field, draft),
+            do: adapt(section, field, view, draft)
+          )
       }
     end)
     |> Enum.reject(&(&1.fields == []))
@@ -882,12 +896,59 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   # A source's name is the end of the address its sender posts to, so the
   # form says that address while the name is being chosen.
-  defp with_help(%{key: :webhooks}, %{name: :name} = field, view) do
+  defp adapt(%{key: :webhooks}, %{name: :name} = field, view, _draft) do
     address = SettingsRows.webhook_address(view, "<source name>")
     Map.put(field, :help, "Senders post to #{address}. The name cannot change later.")
   end
 
-  defp with_help(_section, field, _view), do: field
+  # Ryker posts about a source's events in a Slack channel, chosen from the
+  # channels it is in; a source saved with another destination keeps it on
+  # offer, so editing that source cannot lose where it posts. A text box that
+  # showed slack:T0123456789:C0123456789 asked for Slack's internal IDs (QA,
+  # 2026-09-25).
+  defp adapt(%{key: :webhooks}, %{name: :destination_transport} = field, _view, draft) do
+    saved = Map.get(draft, "destination_transport", "")
+    %{field | options: Enum.filter(field.options, &(elem(&1, 0) in ["slack", saved]))}
+  end
+
+  defp adapt(%{key: :webhooks}, %{name: :destination_conversation_ref} = field, view, draft) do
+    if Map.get(draft, "destination_transport") == "slack",
+      do: slack_channel(field, view, Map.get(draft, "destination_conversation_ref", "")),
+      else:
+        Map.put(
+          field,
+          :help,
+          "Where this source posts, as it was saved. Choose A Slack channel above to post in " <>
+            "a channel instead."
+        )
+  end
+
+  defp adapt(_section, field, _view, _draft), do: field
+
+  defp slack_channel(field, view, chosen) do
+    channels = SettingsSections.options(%{options: :slack_channels}, view)
+
+    saved =
+      if chosen == "" or List.keymember?(channels, chosen, 0),
+        do: [],
+        else: [{chosen, SlackNames.destination(chosen)}]
+
+    Map.merge(field, %{
+      kind: :select,
+      label: "Slack channel",
+      options: channels ++ saved,
+      required: true,
+      prompt: "Choose a channel",
+      help:
+        if(channels == [],
+          do:
+            "Ryker is not in any Slack channel yet. Invite it to one with /invite, then " <>
+              "choose it here.",
+          else: "One of the Slack channels Ryker is in."
+        ),
+      errors: %{required: "Choose the Slack channel where Ryker posts about these events."}
+    })
+  end
 
   defp field_visible?(%{kind: :mapping}, draft),
     do: Map.get(draft, "adapter_kind") == "mapped_json"
@@ -911,8 +972,33 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     end
   end
 
-  defp notice(%{key: :webhooks}, %{webhook_secret_names: []}),
-    do: %{text: "Create a signing credential above before adding a webhook source."}
+  # What a webhook source needs that this installation does not have yet,
+  # each with where to get it, before anyone fills in the form.
+  defp notices(%{key: :webhooks}, view) do
+    [
+      view.webhook_secret_names == [] &&
+        %{text: "Create a signing credential above before adding a webhook source."},
+      view.snapshot.environments == [] &&
+        %{
+          text:
+            "Work from a webhook runs in an environment, and there is none yet. Adding a " <>
+              "repository creates one, or add it yourself.",
+          link: "Open Environments",
+          href: "/environments"
+        },
+      Integrations.slack(view).status in [:not_set_up, :off] &&
+        %{
+          text:
+            "Slack is not connected, so Ryker cannot post these events yet. Connect it first: " <>
+              "a source that posts to Slack before then keeps newer settings from being applied.",
+          link: "Open Slack",
+          href: "/integrations/slack"
+        }
+    ]
+    |> Enum.filter(& &1)
+  end
+
+  defp notices(section, view), do: List.wrap(notice(section, view))
 
   defp notice(%{key: :model} = section, view) do
     unpriced =

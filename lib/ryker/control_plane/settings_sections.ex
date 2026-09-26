@@ -23,7 +23,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
     Work
   }
 
-  alias Ryker.ControlPlane.ExecutionTarget
+  alias Ryker.ControlPlane.{Environments, ExecutionTarget, SlackNames}
+  alias Ryker.Settings.Environment
   alias Ryker.Webhooks.Presets
 
   @day 86_400
@@ -47,17 +48,26 @@ defmodule Ryker.ControlPlane.SettingsSections do
     {"contributor", "Contributor work"},
     {"schedule", "Scheduled work"}
   ]
+  # How a sender proves a request is theirs, each said the way it works for
+  # them. A signed request's secret must be at least 32 characters: the
+  # webhook listener refuses a shorter one, and the credential form now
+  # insists on it (QA, 2026-09-25).
   @auth_kinds [
-    {"hmac_sha256", "Signed request (HMAC SHA-256)"},
-    {"bearer", "Bearer token"}
+    {"hmac_sha256", "They sign each request",
+     "The sender signs every request with the signing credential, so Ryker knows it came " <>
+       "from them unchanged. The credential must be at least 32 characters."},
+    {"bearer", "They send a token",
+     "The sender puts the signing credential in each request's Authorization header, as " <>
+       "Grafana does. Anyone who sees a request could send one too."}
   ]
   @transports [
-    {"slack", "Slack"},
-    {"github", "GitHub"},
-    {"control_plane", "Direct conversation"}
+    {"slack", "A Slack channel"},
+    {"github", "A GitHub issue or pull request"},
+    {"control_plane", "A Chat conversation"}
   ]
   @mapping_fields ~w(event_id status title severity summary source_url starts_at ends_at incident_id item_id labels annotations revision)
   @lifecycle_fields ~w(environments kinds repositories targets)
+  # A subfield's label, and for the deployment reports what goes in it.
   @subfield_labels %{
     "event_id" => "Event ID",
     "status" => "Status",
@@ -72,10 +82,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
     "labels" => "Labels",
     "annotations" => "Annotations",
     "revision" => "Revision",
-    "environments" => "Environments",
-    "kinds" => "Kinds",
-    "repositories" => "Repositories",
-    "targets" => "Targets"
+    "environments" => "Deploy environments, such as production",
+    "kinds" => "What it reports: deployment, terraform or both",
+    "repositories" => "Ryker's names for the repositories",
+    "targets" => "The services or stacks it deploys"
   }
   @scope_kinds [
     {"installation", "Everywhere"},
@@ -320,6 +330,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
         %{name: :policy_digest, kind: :evidence, label: "Pinned version"}
       ]
     },
+    # Every field says what it is for in plain words and, when refused, what
+    # to choose (QA, 2026-09-25). A new source starts on what this
+    # installation has: its default environment, its only signing
+    # credential, Grafana's shape, accepting events.
     %{
       key: :webhooks,
       domain: :webhooks,
@@ -341,23 +355,39 @@ defmodule Ryker.ControlPlane.SettingsSections do
           label: "Source name",
           identity: true,
           group: "Source",
-          help: "The end of this source's address. It cannot change later."
+          help: "The end of this source's address. It cannot change later.",
+          errors: %{
+            required: "Name the source, such as grafana. Its address ends in this name.",
+            format:
+              "Start with a lowercase letter, then use lowercase letters, numbers, dashes and " <>
+                "underscores, such as grafana."
+          }
         },
-        %{name: :enabled, kind: :boolean, label: "Accept events", group: "Source"},
+        %{
+          name: :enabled,
+          kind: :boolean,
+          label: "Accept events",
+          group: "Source",
+          default: "true",
+          help: "Turn this off to stop taking events at this address without removing the source."
+        },
         %{
           name: :adapter_kind,
-          kind: :select,
-          label: "Payload shape",
+          kind: :choice,
+          label: "What the sender sends",
           group: "Source",
           options: :webhook_presets,
-          help: "A preset reads the sender's own format. It never chooses where work goes."
+          default: "grafana",
+          errors: %{required: "Choose what the sender sends."}
         },
         %{
           name: :auth_kind,
-          kind: :select,
+          kind: :choice,
           label: "How senders prove who they are",
           options: @auth_kinds,
-          group: "Verification"
+          group: "Verification",
+          default: "bearer",
+          errors: %{required: "Choose how the sender proves a request is theirs."}
         },
         %{
           name: :secret_name,
@@ -365,28 +395,47 @@ defmodule Ryker.ControlPlane.SettingsSections do
           label: "Signing credential",
           group: "Verification",
           options: :webhook_secrets,
-          help: "One of the credentials above. Its secret is never shown again."
+          required: true,
+          default: :only_credential,
+          prompt: "Choose a credential",
+          help: "The shared secret the sender uses, from Signing credentials above.",
+          errors: %{
+            required:
+              "Choose the signing credential this sender uses. Add one under Signing " <>
+                "credentials above if there is none.",
+            unregistered_secret:
+              "That signing credential no longer exists. Choose another, or add one under " <>
+                "Signing credentials above."
+          }
         },
         %{
           name: :destination_transport,
           kind: :select,
-          label: "Send work to",
+          label: "Where Ryker posts about these events",
           options: @transports,
-          group: "Where work goes"
+          group: "Where work goes",
+          required: true,
+          default: "slack",
+          errors: %{required: "Choose where Ryker posts about these events."}
         },
         %{
           name: :destination_conversation_ref,
           kind: :text,
           label: "Conversation",
           group: "Where work goes",
-          placeholder: "slack:T0123456789:C0123456789",
-          help: "For Slack: slack, the workspace ID and the channel ID, joined by colons."
+          errors: %{
+            required: "Choose where Ryker posts about these events.",
+            length: "That is too long to be a conversation Ryker can post in."
+          }
         },
         %{
           name: :destination_thread_ref,
           kind: :text,
           label: "Thread (optional)",
-          group: "Where work goes"
+          group: "Where work goes",
+          help:
+            "Only to post every event into one existing thread. Leave empty and each " <>
+              "situation gets its own message."
         },
         %{
           name: :environment_ref,
@@ -394,31 +443,50 @@ defmodule Ryker.ControlPlane.SettingsSections do
           label: "Environment",
           options: :environments,
           group: "Where work goes",
-          help: "Work from this source runs in this environment."
+          required: true,
+          default: :default_environment,
+          prompt: "Choose an environment",
+          help: "The repositories and Emisar account work from these events may use.",
+          errors: %{
+            required: "Choose the environment the work from these events runs in.",
+            unknown_environment: "That environment no longer exists. Choose another."
+          }
         },
         %{
           name: :group_by_labels,
           kind: :list,
           label: "Group by labels",
           group: "Where work goes",
-          help: "Events with the same values for these labels count as one ongoing situation."
+          help:
+            "Optional. Events with the same values for these labels, such as service and " <>
+              "cluster, count as one ongoing situation."
         },
         %{
           name: :mapping,
           kind: :mapping,
-          label: "Field mapping",
+          label: "Where each field is in the JSON",
           group: "Custom JSON",
           help:
-            "Dotted paths into the payload, for a custom shape only. Event ID, status and " <>
-              "title are required: without them an event cannot be identified, resolved or read."
+            "Dotted paths into the payload, such as details.severity. Event ID, status and " <>
+              "title are required: without them an event cannot be identified, resolved or read.",
+          errors: %{
+            mapping_required: "Fill in where the event ID, status and title are.",
+            mapping_values: "Each path must be filled in and under 1,024 characters."
+          }
         },
         %{
           name: :publication_lifecycle,
           kind: :lifecycle,
-          label: "Deployment filters",
+          label: "Deployment reports",
           help:
-            "Optional. Limits which deployment or Terraform events this source may report, " <>
-              "to repositories that already have reviewed policies."
+            "Lets this sender tell Ryker when a change Ryker opened was deployed or applied, " <>
+              "so Ryker can check it. List exactly what it may report; anything else is " <>
+              "ignored.",
+          errors: %{
+            lifecycle:
+              "Fill in all four, name repositories Ryker has, and report deployment, " <>
+                "terraform or both."
+          }
         }
       ]
     },
@@ -716,7 +784,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
     do: Enum.map(view.snapshot.repositories, &{&1.ref, display_name(&1)})
 
   def options(%{options: :environments}, view),
-    do: Enum.map(view.snapshot.environments, &{&1.ref, &1.display_name})
+    do: Enum.map(Environments.ordered(view.snapshot.environments), &{&1.ref, &1.display_name})
 
   def options(%{options: :scopes}, view) do
     Enum.map(view.snapshot.repositories, &{&1.ref, "Repository " <> display_name(&1)}) ++
@@ -737,7 +805,12 @@ defmodule Ryker.ControlPlane.SettingsSections do
   end
 
   def options(%{options: :webhook_presets}, _view),
-    do: Enum.map(Presets.all(), &{Atom.to_string(&1.adapter_kind), &1.title})
+    do: Enum.map(Presets.all(), &{Atom.to_string(&1.adapter_kind), &1.title, &1.description})
+
+  def options(%{options: :slack_channels}, view) do
+    for %{workspace_ref: workspace, channel_ref: channel} <- view.slack_channels,
+        do: {"slack:#{workspace}:#{channel}", SlackNames.name(workspace, channel)}
+  end
 
   def options(%{options: :webhook_secrets}, %{webhook_secret_names: names}) when is_list(names),
     do: Enum.map(names, &{&1, &1})
@@ -836,7 +909,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   def draft(%{kind: :collection} = section, view, item_key) do
     case current_item(section, view, item_key) do
-      nil -> Map.new(section.fields, &{field_name(&1), form_value(&1, nil)})
+      nil -> Map.new(section.fields, &{field_name(&1), default(&1, view)})
       item -> Map.new(section.fields, &{field_name(&1), form_value(&1, Map.get(item, &1.name))})
     end
   end
@@ -845,6 +918,27 @@ defmodule Ryker.ControlPlane.SettingsSections do
     current = Map.fetch!(view.snapshot, section.domain)
     Map.new(section.fields, &{field_name(&1), form_value(&1, Map.get(current, &1.name))})
   end
+
+  # What a new row starts with: the field's own default, or the one thing
+  # this installation has to choose, such as its default environment or its
+  # only signing credential.
+  defp default(%{default: :default_environment} = field, view) do
+    case {Environment.default(view.snapshot), view.snapshot.environments} do
+      {%{ref: ref}, _environments} -> ref
+      {nil, [%{ref: ref}]} -> ref
+      {nil, _none_or_several} -> form_value(field, nil)
+    end
+  end
+
+  defp default(%{default: :only_credential} = field, view) do
+    case options(field, view) do
+      [{name, _label}] -> name
+      _none_or_several -> form_value(field, nil)
+    end
+  end
+
+  defp default(%{default: value}, _view) when is_binary(value), do: value
+  defp default(field, _view), do: form_value(field, nil)
 
   @doc "The collection row being edited, or nil for a new one."
   @spec current_item(map(), map(), term()) :: struct() | nil
