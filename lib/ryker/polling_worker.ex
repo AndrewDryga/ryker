@@ -20,6 +20,7 @@ defmodule Ryker.PollingWorker do
   require Logger
 
   @minimum_database_retry_ms 1_000
+  @timer {__MODULE__, :timer}
 
   @callback setup(argument :: term()) :: {:ok, state :: map()} | {:stop, reason :: term()}
   @callback poll(state :: map()) :: non_neg_integer()
@@ -43,7 +44,12 @@ defmodule Ryker.PollingWorker do
     end
   end
 
-  @doc "Asks a polling worker to poll now instead of at its next timer."
+  @doc """
+  Asks a polling worker to poll now instead of at its next timer.
+
+  The early poll replaces the timer that was waiting, so asking again and
+  again never leaves more than one poll pending.
+  """
   @spec poll_now(pid() | atom()) :: :ok
   def poll_now(worker) do
     send(worker, :poll)
@@ -64,8 +70,17 @@ defmodule Ryker.PollingWorker do
   @doc false
   def handle_poll(module, lane, interval, state) do
     delay = run(lane, Map.fetch!(state, interval), fn -> module.poll(state) end)
-    Process.send_after(self(), :poll, delay)
+    schedule_poll(delay)
     {:noreply, state}
+  end
+
+  # One pending poll at a time. A poll asked for early used to arm its own
+  # timer beside the one already waiting, and each such loop ran forever.
+  defp schedule_poll(delay) do
+    case Process.put(@timer, Process.send_after(self(), :poll, delay)) do
+      nil -> :ok
+      waiting -> Process.cancel_timer(waiting, async: true, info: false)
+    end
   end
 
   @doc """
