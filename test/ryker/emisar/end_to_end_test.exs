@@ -22,7 +22,7 @@ defmodule Ryker.Emisar.EndToEndTest do
   alias Ryker.Slack.Publisher
   alias Ryker.State.{KnowledgeSnapshot, Record, Records}
   alias Ryker.StateTools.Tools
-  alias Ryker.TestSupport.FakeWorkCoopAPI
+  alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Custody, DeliveryReceipt, Executor, Turn}
 
   @now ~U[2026-08-29 12:00:00.000000Z]
@@ -68,42 +68,6 @@ defmodule Ryker.Emisar.EndToEndTest do
       send(test_pid, {:wait_for_run, run_id})
       {:ok, state}
     end
-  end
-
-  defmodule SlackAPI do
-    @behaviour Ryker.Slack.API
-
-    def start_link(test_pid), do: Agent.start_link(fn -> test_pid end)
-
-    @impl true
-    def update_message(agent, channel, message_ref, document, delivery_ref) do
-      send(Agent.get(agent, & &1), {
-        :approval_status_update,
-        channel,
-        message_ref,
-        document,
-        delivery_ref
-      })
-
-      :ok
-    end
-
-    @impl true
-    def find_message(_client, _channel, _thread, _delivery_ref), do: :not_found
-
-    @impl true
-    def post_message(_client, _channel, _thread, _body, _delivery_ref),
-      do: {:error, :not_used}
-
-    @impl true
-    def find_files(_client, _channel, _thread, _filenames), do: :not_found
-
-    @impl true
-    def upload_files(_client, _channel, _thread, _body, _delivery_ref, _files),
-      do: {:error, :not_used}
-
-    @impl true
-    def add_reaction(_client, _channel, _message_ref, _emoji_name), do: {:error, :not_used}
   end
 
   test "a governed action waits for Emisar and resumes the same episode after the exact run terminates" do
@@ -162,12 +126,12 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert delivered.episode.owner_ref == approval_ref
     assert delivered.turn.status == :settled
 
-    {:ok, slack} = SlackAPI.start_link(self())
+    {:ok, slack} = FakeSlackAPI.start_link(observer: self())
 
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"TEC879C5EE335" => %{api: SlackAPI, client: slack}}},
+                 binding: %{workspaces: %{"TEC879C5EE335" => %{api: FakeSlackAPI, client: slack}}},
                  message_publisher: Publisher,
                  reaction_publisher: Publisher
                }
@@ -190,7 +154,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert_receive {:wait_for_run, "run-e2e"}
 
     assert_receive {
-      :approval_status_update,
+      :slack_updated,
       "C456",
       "1788019200.000100",
       %{"emisar_approval_status" => %{"status" => "success"} = status},
@@ -203,7 +167,7 @@ defmodule Ryker.Emisar.EndToEndTest do
 
     approval = Approvals.get_by_request_id(@connection_ref, "apr-e2e")
     assert :ok = ApprovalPresenter.publish(approval, terminal_run_state(), adapters)
-    refute_receive {:approval_status_update, _, _, _, _}
+    refute_receive {:slack_updated, _, _, _, _}
 
     changed = %{terminal_run_state() | error_message: "governed action failed", status: "failure"}
 
@@ -323,12 +287,12 @@ defmodule Ryker.Emisar.EndToEndTest do
              )
 
     assert delivered.episode.state == :waiting_for_event
-    {:ok, slack} = SlackAPI.start_link(self())
+    {:ok, slack} = FakeSlackAPI.start_link(observer: self())
 
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"TEC879C5EE335" => %{api: SlackAPI, client: slack}}},
+                 binding: %{workspaces: %{"TEC879C5EE335" => %{api: FakeSlackAPI, client: slack}}},
                  message_publisher: Publisher,
                  reaction_publisher: Publisher
                }
@@ -339,7 +303,7 @@ defmodule Ryker.Emisar.EndToEndTest do
 
     # The first receipt is a change: the card gains the tally and the rationale.
     assert :ok = ApprovalPresenter.publish(approval, held, adapters)
-    assert_receive {:approval_status_update, _, _, %{"emisar_approval_status" => shown}, _}
+    assert_receive {:slack_updated, _, _, %{"emisar_approval_status" => shown}, _}
     assert shown["review"]["approved_count"] == 1
 
     approval = Approvals.get_by_request_id(@connection_ref, "apr-e2e")
@@ -347,7 +311,7 @@ defmodule Ryker.Emisar.EndToEndTest do
 
     # The first receipt is a change: the card gains the tally and the rationale.
     assert :ok = ApprovalPresenter.publish(approval, held, adapters)
-    assert_receive {:approval_status_update, _, _, %{"emisar_approval_status" => shown}, _}
+    assert_receive {:slack_updated, _, _, %{"emisar_approval_status" => shown}, _}
     assert shown["review"]["approved_count"] == 1
 
     assert {:ok, %{approval: observed}} =
@@ -358,12 +322,12 @@ defmodule Ryker.Emisar.EndToEndTest do
     # Emisar re-reporting the same review is not news, however often the monitor
     # polls it.
     assert :ok = ApprovalPresenter.publish(observed, held, adapters)
-    refute_receive {:approval_status_update, _, _, _, _}
+    refute_receive {:slack_updated, _, _, _, _}
 
     # A decision is.
     released = %{held | status: "sent", review: review(2, "approved")}
     assert :ok = ApprovalPresenter.publish(observed, released, adapters)
-    assert_receive {:approval_status_update, _, _, %{"emisar_approval_status" => decided}, _}
+    assert_receive {:slack_updated, _, _, %{"emisar_approval_status" => decided}, _}
     assert decided["review"]["status"] == "approved"
 
     # Once that decision is on the card, the released run's own march through
@@ -375,7 +339,7 @@ defmodule Ryker.Emisar.EndToEndTest do
 
     for status <- ~w(running success) do
       assert :ok = ApprovalPresenter.publish(presented, %{released | status: status}, adapters)
-      refute_receive {:approval_status_update, _, _, _, _}
+      refute_receive {:slack_updated, _, _, _, _}
     end
   end
 

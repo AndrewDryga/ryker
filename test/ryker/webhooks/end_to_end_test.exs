@@ -15,67 +15,13 @@ defmodule Ryker.Webhooks.EndToEndTest do
   alias Ryker.Publication.{Followup, LifecycleEvent}
   alias Ryker.Repo
   alias Ryker.Slack.Publisher, as: SlackPublisher
-  alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
+  alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Webhooks.{Route, Router}
   alias Ryker.Work.{Dispatcher, Final, Session, Turn}
 
   @now ~U[2026-08-27 12:00:00.000000Z]
   @old ~U[2020-01-01 00:00:00.000000Z]
   @secret "a-secret-token-long-enough"
-
-  defmodule SlackAPI do
-    @behaviour Ryker.Slack.API
-
-    def start_link(observer) do
-      Agent.start_link(fn ->
-        %{finds: 0, message: nil, observer: observer, posts: 0}
-      end)
-    end
-
-    def state(agent), do: Agent.get(agent, & &1)
-
-    @impl true
-    def find_message(agent, channel, thread, delivery_ref) do
-      Agent.get_and_update(agent, fn state ->
-        result =
-          case state.message do
-            {^channel, ^thread, ^delivery_ref, message_ref} -> {:ok, message_ref}
-            _missing -> :not_found
-          end
-
-        {result, %{state | finds: state.finds + 1}}
-      end)
-    end
-
-    @impl true
-    def post_message(agent, channel, thread, document, delivery_ref) do
-      Agent.get_and_update(agent, fn state ->
-        message_ref = "1787832002.000300"
-        send(state.observer, {:slack_posted, channel, thread, document, delivery_ref})
-
-        {{:error, :socket_closed},
-         %{
-           state
-           | message: {channel, thread, delivery_ref, message_ref},
-             posts: state.posts + 1
-         }}
-      end)
-    end
-
-    @impl true
-    def update_message(_client, _channel, _message_ref, _document, _delivery_ref),
-      do: {:error, :not_used}
-
-    @impl true
-    def find_files(_client, _channel, _thread, _filenames), do: :not_found
-
-    @impl true
-    def upload_files(_client, _channel, _thread, _body, _delivery_ref, _files),
-      do: {:error, :not_used}
-
-    @impl true
-    def add_reaction(_client, _channel, _message_ref, _emoji_name), do: {:error, :not_used}
-  end
 
   test "an unknown authenticated webhook reaches validated work and a durable delivery intent" do
     body = Jason.encode!(%{"vendor_we_have_never_seen" => %{"severity" => 17, "state" => "odd"}})
@@ -126,12 +72,17 @@ defmodule Ryker.Webhooks.EndToEndTest do
     assert [work_input] = work_execution.turn.submission["context"]["inputs"]["items"]
     assert work_input["content"]["content"]["payload"] == Jason.decode!(body)
 
-    {:ok, slack} = SlackAPI.start_link(self())
+    {:ok, slack} =
+      FakeSlackAPI.start_link(
+        observer: self(),
+        lose: [:post_message],
+        message_ref: fn _n -> "1787832002.000300" end
+      )
 
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"T6E06DA3564B2" => %{api: SlackAPI, client: slack}}},
+                 binding: %{workspaces: %{"T6E06DA3564B2" => %{api: FakeSlackAPI, client: slack}}},
                  message_publisher: SlackPublisher,
                  reaction_publisher: SlackPublisher
                }
@@ -152,7 +103,8 @@ defmodule Ryker.Webhooks.EndToEndTest do
       "C456",
       nil,
       %{"message" => "The unknown vendor event was accepted for investigation."},
-      ^delivery_ref
+      ^delivery_ref,
+      _message_ref
     }
 
     Repo.update_all(
@@ -170,8 +122,10 @@ defmodule Ryker.Webhooks.EndToEndTest do
                worker_ref: "webhook-delivery-e2e:reconcile"
              )
 
-    assert %{finds: 2, posts: 1} = SlackAPI.state(slack)
-    refute_receive {:slack_posted, _, _, _, _}
+    state = FakeSlackAPI.state(slack)
+    assert state.finds == 2
+    assert length(state.posts) == 1
+    refute_receive {:slack_posted, _, _, _, _, _}
 
     assert %Turn{status: :settled, external_receipt: receipt} =
              Repo.get!(Turn, work_execution.turn.id)
@@ -260,7 +214,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
     refute inspect(conversation) =~ "private-webhook-payload-marker"
 
     assert Enum.any?(Projection.lab_index(), &(&1.id == conversation_id))
-    refute_receive {:slack_posted, _, _, _, _}
+    refute_receive {:slack_posted, _, _, _, _, _}
   end
 
   test "a scoped lifecycle webhook records only an exactly authorized merged publication signal" do

@@ -19,7 +19,7 @@ defmodule Ryker.Slack.EndToEndTest do
     Publisher
   }
 
-  alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
+  alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Final, Session, Turn}
 
   @now ~U[2026-08-27 12:00:01.000200Z]
@@ -30,37 +30,6 @@ defmodule Ryker.Slack.EndToEndTest do
 
     @impl true
     def user_allowed(_client, "U123", "TSLACKENDTOEND"), do: {:ok, true}
-  end
-
-  defmodule SlackAPI do
-    @behaviour Ryker.Slack.API
-
-    def start_link(test_pid), do: Agent.start_link(fn -> test_pid end)
-
-    @impl true
-    def find_message(_client, _channel, _thread, _delivery_ref), do: :not_found
-
-    @impl true
-    def post_message(agent, channel, thread, document, delivery_ref) do
-      send(Agent.get(agent, & &1), {:posted, channel, thread, document, delivery_ref})
-      {:ok, "1787832002.000300"}
-    end
-
-    @impl true
-    def update_message(agent, channel, message_ref, document, delivery_ref) do
-      send(Agent.get(agent, & &1), {:updated, channel, message_ref, document, delivery_ref})
-      :ok
-    end
-
-    @impl true
-    def find_files(_client, _channel, _thread, _filenames), do: :not_found
-
-    @impl true
-    def upload_files(_client, _channel, _thread, _body, _delivery_ref, _files),
-      do: {:error, :not_used}
-
-    @impl true
-    def add_reaction(_client, _channel, _message_ref, _emoji_name), do: {:error, :not_used}
   end
 
   test "an authorized Slack mention reaches one validated turn and exactly its bound thread" do
@@ -106,12 +75,18 @@ defmodule Ryker.Slack.EndToEndTest do
     assert current["content"]["content"]["text"] ==
              "<@UBOT> investigate checkout errors"
 
-    {:ok, slack} = SlackAPI.start_link(self())
+    {:ok, slack} =
+      FakeSlackAPI.start_link(
+        observer: self(),
+        message_ref: fn _n -> "1787832002.000300" end
+      )
 
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"TSLACKENDTOEND" => %{api: SlackAPI, client: slack}}},
+                 binding: %{
+                   workspaces: %{"TSLACKENDTOEND" => %{api: FakeSlackAPI, client: slack}}
+                 },
                  message_publisher: Publisher,
                  reaction_publisher: Publisher
                }
@@ -128,11 +103,12 @@ defmodule Ryker.Slack.EndToEndTest do
              )
 
     assert_receive {
-      :posted,
+      :slack_posted,
       "C456",
       "1787832001.000200",
       %{"message" => "Checkout is healthy; the transient errors cleared after the rollout."},
-      ^delivery_ref
+      ^delivery_ref,
+      "1787832002.000300"
     }
 
     assert %Turn{status: :settled, external_receipt: receipt} =
@@ -149,10 +125,10 @@ defmodule Ryker.Slack.EndToEndTest do
       message_ref: "1787832002.000300"
     }
 
-    assert :ok = InteractionRepaint.repaint(audit, %{api: SlackAPI, client: slack})
+    assert :ok = InteractionRepaint.repaint(audit, %{api: FakeSlackAPI, client: slack})
 
     assert_receive {
-      :updated,
+      :slack_updated,
       "C456",
       "1787832002.000300",
       %{"message" => "Checkout is healthy; the transient errors cleared after the rollout."},
@@ -166,10 +142,10 @@ defmodule Ryker.Slack.EndToEndTest do
              |> Ecto.Changeset.change(delivery_document: %{"message" => "Rebuilt reply."})
              |> Repo.update!()
 
-    assert :ok = InteractionRepaint.repaint(audit, %{api: SlackAPI, client: slack})
+    assert :ok = InteractionRepaint.repaint(audit, %{api: FakeSlackAPI, client: slack})
 
     assert_receive {
-      :updated,
+      :slack_updated,
       "C456",
       "1787832002.000300",
       %{"message" => "Rebuilt reply."},
@@ -181,7 +157,7 @@ defmodule Ryker.Slack.EndToEndTest do
              |> Ecto.Changeset.change(delivery_document: %{"unexpected" => true})
              |> Repo.update!()
 
-    assert InteractionRepaint.repaint(audit, %{api: SlackAPI, client: slack}) ==
+    assert InteractionRepaint.repaint(audit, %{api: FakeSlackAPI, client: slack}) ==
              {:error, :slack_interaction_repaint_document_invalid}
 
     assert {:ack, {:recorded, followup_ref}} =
@@ -235,11 +211,12 @@ defmodule Ryker.Slack.EndToEndTest do
              )
 
     assert_receive {
-      :posted,
+      :slack_posted,
       "C456",
       "1787832001.000200",
       %{"message" => "Yes — I also checked the worker pool, and it has remained stable."},
-      ^continuation_delivery_ref
+      ^continuation_delivery_ref,
+      _message_ref
     }
 
     assert %Turn{status: :settled, external_receipt: continuation_receipt} =
@@ -258,7 +235,7 @@ defmodule Ryker.Slack.EndToEndTest do
                worker_ref: "slack-delivery-e2e-second"
              )
 
-    refute_receive {:posted, _channel, _thread, _document, _ref}
+    refute_receive {:slack_posted, _channel, _thread, _document, _ref, _message_ref}
   end
 
   defp gateway_settings do

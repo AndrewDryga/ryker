@@ -11,41 +11,10 @@ defmodule Ryker.Slack.WorkControlsTest do
 
   alias Ryker.Slack.{TaskCardChangeset, WorkControls, WorkRecord, WorkTarget}
   alias Ryker.State.Records
+  alias Ryker.TestSupport.FakeSlackAPI
   alias Ryker.Work.{Cancellation, Custody, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
-
-  defmodule SlackAPI do
-    def find_message(agent, channel_ref, thread_ref, delivery_ref) do
-      Agent.get(agent, fn state ->
-        Map.get(state.messages, {channel_ref, thread_ref, delivery_ref}, :not_found)
-      end)
-    end
-
-    def post_message(agent, channel_ref, thread_ref, document, delivery_ref) do
-      Agent.get_and_update(agent, fn state ->
-        message_ref = "1787832999.000100"
-
-        next =
-          state
-          |> put_in(
-            [:messages, {channel_ref, thread_ref, delivery_ref}],
-            {:ok, message_ref}
-          )
-          |> update_in([:posts], &[{channel_ref, thread_ref, document, delivery_ref} | &1])
-
-        {{:ok, message_ref}, next}
-      end)
-    end
-
-    def update_message(agent, channel_ref, message_ref, document, delivery_ref) do
-      Agent.update(agent, fn state ->
-        update_in(state, [:updates], &[{channel_ref, message_ref, document, delivery_ref} | &1])
-      end)
-
-      :ok
-    end
-  end
 
   test "a copied control cannot stop work and the exact operator control keeps the task resumable" do
     fixture = task_fixture!("stop")
@@ -319,8 +288,8 @@ defmodule Ryker.Slack.WorkControlsTest do
 
   test "timeline and evidence controls publish one recoverable thread message" do
     fixture = task_fixture!("record-control", rich_records: true)
-    slack = start_supervised!({Agent, fn -> %{messages: %{}, posts: [], updates: []} end})
-    options = %{slack_api: SlackAPI, slack_client: slack}
+    slack = start_supervised!({FakeSlackAPI, message_ref: fn _n -> "1787832999.000100" end})
+    options = %{slack_api: FakeSlackAPI, slack_client: slack}
 
     timeline =
       fixture.card.ref
@@ -332,8 +301,14 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert first.record_kind == :timeline
     assert first.work_ref == fixture.card.ref
 
-    assert [{"C456", "1787832000.000100", %{"message" => message}, delivery_ref}] =
-             Agent.get(slack, & &1.posts)
+    assert [
+             %{
+               channel: "C456",
+               delivery_ref: delivery_ref,
+               document: %{"message" => message},
+               thread: "1787832000.000100"
+             }
+           ] = FakeSlackAPI.state(slack).posts
 
     assert message =~ "Message added"
     assert delivery_ref == "work-record:#{fixture.card.ref}:timeline"
@@ -341,8 +316,14 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert {:ok, second} = WorkControls.show_record(timeline, options)
     assert second.message_ref == first.message_ref
 
-    assert [{"C456", message_ref, %{"message" => updated}, ^delivery_ref}] =
-             Agent.get(slack, & &1.updates)
+    assert [
+             %{
+               channel: "C456",
+               delivery_ref: ^delivery_ref,
+               document: %{"message" => updated},
+               message_ref: message_ref
+             }
+           ] = FakeSlackAPI.state(slack).updates
 
     assert message_ref == first.message_ref
     assert updated =~ "Evidence recorded"

@@ -3,119 +3,15 @@ defmodule Ryker.Slack.PublisherTest do
 
   alias Ryker.Delivery.Request
   alias Ryker.Slack.Publisher
-
-  defmodule FakeAPI do
-    @behaviour Ryker.Slack.API
-
-    def start(options \\ %{}), do: Agent.start_link(fn -> Map.merge(initial(), options) end)
-
-    @impl true
-    def find_message(agent, channel, thread, delivery_ref) do
-      Agent.get_and_update(agent, fn state ->
-        key = {channel, thread, delivery_ref}
-
-        result =
-          state.messages
-          |> Map.fetch(key)
-          |> case do
-            {:ok, message_ref} -> {:ok, message_ref}
-            :error -> :not_found
-          end
-
-        {result, %{state | finds: state.finds + 1}}
-      end)
-    end
-
-    @impl true
-    def post_message(agent, channel, thread, body, delivery_ref) do
-      Agent.get_and_update(agent, fn state ->
-        key = {channel, thread, delivery_ref}
-        message_ref = "1787832001.000200"
-        messages = Map.put(state.messages, key, message_ref)
-        state = %{state | messages: messages, posts: [{channel, thread, body, delivery_ref}]}
-
-        cond do
-          state.lose_post_response ->
-            {{:error, :socket_closed}, %{state | lose_post_response: false}}
-
-          state.refuse_post ->
-            {{:error, {:slack_api_error, state.refuse_post}}, state}
-
-          true ->
-            {{:ok, message_ref}, state}
-        end
-      end)
-    end
-
-    @impl true
-    def update_message(agent, channel, message_ref, body, delivery_ref) do
-      Agent.update(agent, fn state ->
-        %{state | updates: [{channel, message_ref, body, delivery_ref} | state.updates]}
-      end)
-    end
-
-    @impl true
-    def add_reaction(agent, channel, message_ref, emoji_name) do
-      Agent.update(agent, fn state ->
-        %{state | reactions: MapSet.put(state.reactions, {channel, message_ref, emoji_name})}
-      end)
-    end
-
-    @impl true
-    def find_files(agent, channel, thread, filenames) do
-      Agent.get_and_update(agent, fn state ->
-        key = {channel, thread, filenames}
-
-        result =
-          case Map.fetch(state.files, key) do
-            {:ok, message_ref} -> {:ok, message_ref}
-            :error -> :not_found
-          end
-
-        {result, %{state | file_finds: state.file_finds + 1}}
-      end)
-    end
-
-    @impl true
-    def upload_files(agent, channel, thread, body, delivery_ref, files) do
-      Agent.get_and_update(agent, fn state ->
-        filenames = Enum.map(files, & &1.filename)
-        key = {channel, thread, filenames}
-        message_ref = "1787832001.000300"
-
-        next = %{
-          state
-          | files: Map.put(state.files, key, message_ref),
-            uploads: [{channel, thread, body, delivery_ref, files} | state.uploads]
-        }
-
-        if state.lose_upload_response,
-          do: {{:error, :socket_closed}, %{next | lose_upload_response: false}},
-          else: {{:ok, message_ref}, next}
-      end)
-    end
-
-    def state(agent), do: Agent.get(agent, & &1)
-
-    defp initial do
-      %{
-        file_finds: 0,
-        files: %{},
-        finds: 0,
-        lose_post_response: false,
-        lose_upload_response: false,
-        refuse_post: nil,
-        messages: %{},
-        posts: [],
-        reactions: MapSet.new(),
-        updates: [],
-        uploads: []
-      }
-    end
-  end
+  alias Ryker.TestSupport.FakeSlackAPI
 
   test "a lost Slack post response reconciles the metadata marker exactly once" do
-    {:ok, api} = FakeAPI.start(%{lose_post_response: true})
+    {:ok, api} =
+      FakeSlackAPI.start_link(
+        lose: [:post_message],
+        message_ref: fn _n -> "1787832001.000200" end
+      )
+
     request = message_request()
     binding = publisher_binding(api)
 
@@ -126,7 +22,7 @@ defmodule Ryker.Slack.PublisherTest do
     assert receipt["message_ref"] == "1787832001.000200"
     assert receipt["delivery_ref"] == request.ref
 
-    state = FakeAPI.state(api)
+    state = FakeSlackAPI.state(api)
     assert length(state.posts) == 1
     assert state.finds == 2
   end
@@ -137,7 +33,11 @@ defmodule Ryker.Slack.PublisherTest do
     # dispatcher always retries: an invalid_blocks or missing_scope reply
     # spent all eight attempts, each walking up to a hundred history pages
     # for a message that was never there, before the delivery blocked.
-    {:ok, api} = FakeAPI.start(%{refuse_post: "invalid_blocks"})
+    {:ok, api} =
+      FakeSlackAPI.start_link(
+        refuse: %{"delivery:slack:1" => {:slack_api_error, "invalid_blocks"}}
+      )
+
     request = message_request()
 
     assert Publisher.publish_message(request, publisher_binding(api)) ==
@@ -145,7 +45,7 @@ defmodule Ryker.Slack.PublisherTest do
   end
 
   test "passes only the host-materialized document to Slack rendering" do
-    {:ok, api} = FakeAPI.start()
+    {:ok, api} = FakeSlackAPI.start_link()
 
     assert {:ok, request} =
              Request.new(%{
@@ -170,12 +70,12 @@ defmodule Ryker.Slack.PublisherTest do
 
     assert {:ok, _receipt} = Publisher.publish_message(request, publisher_binding(api))
 
-    assert [{_channel, _thread, document, _ref}] = FakeAPI.state(api).posts
+    assert [%{document: document}] = FakeSlackAPI.state(api).posts
     assert document == request.document
   end
 
   test "typed Slack entities receive only the delivery-bound host authority" do
-    {:ok, api} = FakeAPI.start()
+    {:ok, api} = FakeSlackAPI.start_link()
 
     assert {:ok, request} =
              Request.new(%{
@@ -200,13 +100,13 @@ defmodule Ryker.Slack.PublisherTest do
 
     assert {:ok, _receipt} = Publisher.publish_message(request, binding)
 
-    assert [{_channel, _thread, document, _ref}] = FakeAPI.state(api).posts
+    assert [%{document: document}] = FakeSlackAPI.state(api).posts
     assert document["message"] == request.document["message"]
     assert document["slack_mentions"] == authority
   end
 
   test "typed Slack entities cannot be delivered without host authority" do
-    {:ok, api} = FakeAPI.start()
+    {:ok, api} = FakeSlackAPI.start_link()
 
     assert {:ok, request} =
              Request.new(%{
@@ -219,11 +119,16 @@ defmodule Ryker.Slack.PublisherTest do
     assert Publisher.publish_message(request, publisher_binding(api)) ==
              {:error, {:slack_mention_authority_not_configured, :delivery}}
 
-    assert FakeAPI.state(api).posts == []
+    assert FakeSlackAPI.state(api).posts == []
   end
 
   test "a lost Slack file completion response reconciles every artifact exactly once" do
-    {:ok, api} = FakeAPI.start(%{lose_upload_response: true})
+    {:ok, api} =
+      FakeSlackAPI.start_link(
+        lose: [:upload_files],
+        message_ref: fn _n -> "1787832001.000300" end
+      )
+
     request = artifact_message_request()
     binding = publisher_binding(api)
 
@@ -234,12 +139,21 @@ defmodule Ryker.Slack.PublisherTest do
     assert receipt["message_ref"] == "1787832001.000300"
     assert receipt["delivery_ref"] == request.ref
 
-    state = FakeAPI.state(api)
+    state = FakeSlackAPI.state(api)
     assert state.file_finds == 2
     assert length(state.uploads) == 1
     assert state.posts == []
 
-    [{"C456", "1787832000.000100", document, delivery_ref, files}] = state.uploads
+    [
+      %{
+        channel: "C456",
+        delivery_ref: delivery_ref,
+        document: document,
+        files: files,
+        thread: "1787832000.000100"
+      }
+    ] = state.uploads
+
     assert document == request.document
     assert delivery_ref == request.ref
 
@@ -262,7 +176,7 @@ defmodule Ryker.Slack.PublisherTest do
   end
 
   test "Slack emoji reactions use the exact source message and are safe to replay" do
-    {:ok, api} = FakeAPI.start()
+    {:ok, api} = FakeSlackAPI.start_link()
     request = reaction_request()
     binding = publisher_binding(api)
 
@@ -270,12 +184,12 @@ defmodule Ryker.Slack.PublisherTest do
     assert {:ok, retry} = Publisher.publish_reaction(request, binding)
     assert retry == first
 
-    assert FakeAPI.state(api).reactions ==
+    assert FakeSlackAPI.state(api).reactions ==
              MapSet.new([{"C456", "1787832001.000200", "white_check_mark"}])
   end
 
   test "a Slack workspace cannot be selected by request content" do
-    {:ok, api} = FakeAPI.start()
+    {:ok, api} = FakeSlackAPI.start_link()
 
     assert Publisher.publish_message(message_request(), %{workspaces: %{}}) ==
              {:error, {:slack_workspace_not_configured, "T123"}}
@@ -292,7 +206,7 @@ defmodule Ryker.Slack.PublisherTest do
   end
 
   test "a host-owned inactive incident destination is checked before any Slack write" do
-    {:ok, api} = FakeAPI.start()
+    {:ok, api} = FakeSlackAPI.start_link()
 
     binding =
       api
@@ -307,12 +221,12 @@ defmodule Ryker.Slack.PublisherTest do
     assert Publisher.publish_reaction(reaction_request(), binding) ==
              {:error, {:slack_incident_room_inactive, :archived}}
 
-    assert FakeAPI.state(api).posts == []
-    assert FakeAPI.state(api).reactions == MapSet.new()
+    assert FakeSlackAPI.state(api).posts == []
+    assert FakeSlackAPI.state(api).reactions == MapSet.new()
   end
 
   test "a governed status refresh updates only the exact delivered Slack message" do
-    {:ok, api} = FakeAPI.start()
+    {:ok, api} = FakeSlackAPI.start_link()
     request = message_request()
 
     status = %{
@@ -328,12 +242,17 @@ defmodule Ryker.Slack.PublisherTest do
              )
 
     assert [
-             {"C456", "1787832001.000200", ^status, "delivery:slack:1"}
-           ] = FakeAPI.state(api).updates
+             %{
+               channel: "C456",
+               delivery_ref: "delivery:slack:1",
+               document: ^status,
+               message_ref: "1787832001.000200"
+             }
+           ] = FakeSlackAPI.state(api).updates
   end
 
   defp publisher_binding(api) do
-    %{workspaces: %{"T123" => %{api: FakeAPI, client: api}}}
+    %{workspaces: %{"T123" => %{api: FakeSlackAPI, client: api}}}
   end
 
   defp message_request do

@@ -15,7 +15,7 @@ defmodule Ryker.GitHub.EndToEndTest do
   alias Ryker.Repo
   alias Ryker.Slack.Publisher, as: SlackPublisher
   alias Ryker.State.Records
-  alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
+  alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Custody, Dispatcher, Executor, Final, Session, SubmissionBuilder, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -33,38 +33,6 @@ defmodule Ryker.GitHub.EndToEndTest do
     end
 
     def requests(agent), do: Agent.get(agent, & &1.requests)
-  end
-
-  defmodule SlackAPI do
-    @behaviour Ryker.Slack.API
-
-    def start_link(observer), do: Agent.start_link(fn -> %{count: 0, observer: observer} end)
-
-    @impl true
-    def find_message(_client, _channel, _thread, _delivery_ref), do: :not_found
-
-    @impl true
-    def post_message(agent, channel, thread, document, delivery_ref) do
-      Agent.get_and_update(agent, fn state ->
-        count = state.count + 1
-        send(state.observer, {:slack_posted, channel, thread, document, delivery_ref})
-        {{:ok, "1787918400.000#{count}"}, %{state | count: count}}
-      end)
-    end
-
-    @impl true
-    def update_message(_client, _channel, _message_ref, _document, _delivery_ref),
-      do: {:error, :not_used}
-
-    @impl true
-    def find_files(_client, _channel, _thread, _filenames), do: :not_found
-
-    @impl true
-    def upload_files(_client, _channel, _thread, _body, _delivery_ref, _files),
-      do: {:error, :not_used}
-
-    @impl true
-    def add_reaction(_client, _channel, _message_ref, _emoji_name), do: {:error, :not_used}
   end
 
   defmodule FollowupStatusAPI do
@@ -204,7 +172,12 @@ defmodule Ryker.GitHub.EndToEndTest do
     assert episode_id == episode.id
     assert publication_id == publication.id
 
-    {:ok, slack} = SlackAPI.start_link(self())
+    {:ok, slack} =
+      FakeSlackAPI.start_link(
+        observer: self(),
+        message_ref: fn n -> "1787918400.000#{n}" end
+      )
+
     adapters = slack_adapters(slack)
 
     assert {:ok, {:executed, %{phase: :delivery}}} =
@@ -226,7 +199,8 @@ defmodule Ryker.GitHub.EndToEndTest do
       "C456",
       "1787832001.000200",
       %{"message" => lifecycle_message},
-      _lifecycle_delivery_ref
+      _lifecycle_delivery_ref,
+      _lifecycle_message_ref
     }
 
     assert lifecycle_message =~ "Authenticated GitHub review feedback"
@@ -324,7 +298,8 @@ defmodule Ryker.GitHub.EndToEndTest do
       "C456",
       "1787832001.000200",
       %{"message" => "Handled the nil case, added coverage, and updated the review branch."},
-      ^final_delivery_ref
+      ^final_delivery_ref,
+      _final_message_ref
     }
 
     assert %Turn{status: :settled, external_receipt: receipt} =
@@ -437,7 +412,7 @@ defmodule Ryker.GitHub.EndToEndTest do
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"TB14ADAF3E1AF" => %{api: SlackAPI, client: slack}}},
+                 binding: %{workspaces: %{"TB14ADAF3E1AF" => %{api: FakeSlackAPI, client: slack}}},
                  message_publisher: SlackPublisher,
                  reaction_publisher: SlackPublisher
                }

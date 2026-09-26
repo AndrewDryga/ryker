@@ -26,7 +26,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   }
 
   alias Ryker.State.{KnowledgeSnapshot, Record, Records, TaskOffers}
-  alias Ryker.TestSupport.FakeWorkCoopAPI
+  alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Custody, Executor, Session, SubmissionBuilder, Turn}
 
   @now ~U[2026-08-31 13:00:00.000000Z]
@@ -41,59 +41,6 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     @impl true
     def user_allowed(_client, "U123", "T123"), do: {:ok, true}
     def user_allowed(_client, _actor_ref, "T123"), do: {:ok, false}
-  end
-
-  defmodule SlackAPI do
-    @behaviour Ryker.Slack.API
-
-    def start_link(test_pid) do
-      Agent.start_link(fn -> %{posts: [], test_pid: test_pid, updates: []} end)
-    end
-
-    def state(agent), do: Agent.get(agent, & &1)
-
-    @impl true
-    def find_message(_client, _channel, _thread, _delivery_ref), do: :not_found
-
-    @impl true
-    def post_message(agent, channel, thread, document, delivery_ref) do
-      {:ok, rendered} = Renderer.render(document)
-
-      message_ref =
-        Agent.get_and_update(agent, fn state ->
-          message_ref =
-            "1788268001.#{state.posts |> length() |> Kernel.+(200) |> Integer.to_string() |> String.pad_leading(6, "0")}"
-
-          send(state.test_pid, {:posted, channel, thread, rendered, delivery_ref, message_ref})
-
-          {message_ref,
-           %{state | posts: state.posts ++ [{channel, thread, rendered, delivery_ref}]}}
-        end)
-
-      {:ok, message_ref}
-    end
-
-    @impl true
-    def update_message(agent, channel, message_ref, document, delivery_ref) do
-      {:ok, rendered} = Renderer.render(document)
-
-      Agent.update(agent, fn state ->
-        send(state.test_pid, {:updated, channel, message_ref, rendered, delivery_ref})
-        %{state | updates: state.updates ++ [{channel, message_ref, rendered, delivery_ref}]}
-      end)
-
-      :ok
-    end
-
-    @impl true
-    def find_files(_client, _channel, _thread, _filenames), do: :not_found
-
-    @impl true
-    def upload_files(_client, _channel, _thread, _body, _delivery_ref, _files),
-      do: {:error, :not_used}
-
-    @impl true
-    def add_reaction(_client, _channel, _message_ref, _emoji_name), do: {:error, :not_used}
   end
 
   defmodule PublicationCoop do
@@ -170,13 +117,21 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert {:ok, accepted} = Executor.run(claim, executor_options(work_api))
     assert accepted.turn.status == :delivery_pending
 
-    {:ok, slack_api} = SlackAPI.start_link(self())
+    {:ok, slack_api} =
+      FakeSlackAPI.start_link(
+        observer: self(),
+        render: true,
+        message_ref: fn n ->
+          "1788268001." <> String.pad_leading(Integer.to_string(n + 199), 6, "0")
+        end
+      )
+
     adapters = adapters!(slack_api)
 
     assert {:ok, {:delivered, :message, delivery_ref}} = deliver_once(adapters)
 
     assert_receive {
-      :posted,
+      :slack_posted,
       "C456",
       "1788268000.000100",
       offer_document,
@@ -242,7 +197,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert {:ok, {:updated, ^card_ref}} = TaskCardWorker.run_once(card_options(slack_api))
 
     assert_receive {
-      :updated,
+      :slack_updated,
       "C456",
       "1788268001.000200",
       updated_document,
@@ -268,8 +223,8 @@ defmodule Ryker.Slack.TaskEndToEndTest do
            } = card
 
     assert task_episode_id == task_episode.id
-    assert length(SlackAPI.state(slack_api).posts) == 1
-    assert length(SlackAPI.state(slack_api).updates) == 1
+    assert length(FakeSlackAPI.state(slack_api).posts) == 1
+    assert length(FakeSlackAPI.state(slack_api).updates) == 1
 
     # A subtask must refresh the original card while the model turn is still
     # pending, without waiting for final delivery or posting another message.
@@ -297,7 +252,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
                )
 
       _ = refresh_card!(card, slack_api)
-      assert_receive {:updated, "C456", "1788268001.000200", live_card, ^card_ref}
+      assert_receive {:slack_updated, "C456", "1788268001.000200", live_card, ^card_ref}
       rendered = Jason.encode!(live_card)
 
       # The worker has not bound its Coop session yet, so Workspace setup is the
@@ -308,11 +263,11 @@ defmodule Ryker.Slack.TaskEndToEndTest do
         do: assert(rendered =~ "✓ Implementation · 1/1 subtasks"),
         else: assert(rendered =~ "▸ Implementation · 0/1 subtasks")
 
-      assert length(SlackAPI.state(slack_api).posts) == 1
+      assert length(FakeSlackAPI.state(slack_api).posts) == 1
     end
 
     _ = refresh_card!(card, slack_api)
-    assert length(SlackAPI.state(slack_api).updates) == 3
+    assert length(FakeSlackAPI.state(slack_api).updates) == 3
 
     {:ok, task_api} =
       FakeWorkCoopAPI.start_link([writable_task_reply()],
@@ -372,7 +327,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert {:ok, {:delivered, :message, _task_delivery_ref}} = deliver_once(adapters)
 
     assert_receive {
-      :posted,
+      :slack_posted,
       "C456",
       "1788268000.000100",
       _task_result_document,
@@ -520,7 +475,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
              )
 
     assert {
-             :posted,
+             :slack_posted,
              "C456",
              "1788268000.000100",
              _lifecycle_document,
@@ -590,7 +545,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert {:ok, {:delivered, :message, final_delivery_ref}} = deliver_once(adapters)
 
     assert {
-             :posted,
+             :slack_posted,
              "C456",
              "1788268000.000100",
              _final_document,
@@ -763,7 +718,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"T123" => %{api: SlackAPI, client: slack_api}}},
+                 binding: %{workspaces: %{"T123" => %{api: FakeSlackAPI, client: slack_api}}},
                  message_publisher: Publisher,
                  reaction_publisher: Publisher
                }
@@ -811,7 +766,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
 
   defp card_options(slack_api) do
     %{
-      api: SlackAPI,
+      api: FakeSlackAPI,
       check_interval_seconds: 60,
       client: slack_api,
       interval_ms: 1_000,
@@ -924,7 +879,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
 
   defp receive_post_containing!(expected) do
     receive do
-      {:posted, _channel, _thread, document, _delivery_ref, _message_ref} = message ->
+      {:slack_posted, _channel, _thread, document, _delivery_ref, _message_ref} = message ->
         if Jason.encode!(document) =~ expected,
           do: message,
           else: receive_post_containing!(expected)
