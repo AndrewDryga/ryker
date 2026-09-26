@@ -2595,7 +2595,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert html =~ "worker-silent</strong>"
     assert html =~ "has not reported storage yet."
     assert html =~ "not taking new copies (reserve exhausted)"
-    assert html =~ "Nothing is ready for cleanup right now."
+    assert html =~ "Nothing is ready for cleanup right now"
     refute html =~ "Keep it briefly for follow-up questions"
   end
 

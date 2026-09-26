@@ -50,9 +50,13 @@ defmodule Ryker.ControlPlane.RelearnPanel do
           query={Map.get(@preview, :q, "")}
           hidden={[{"item", @preview.topic_id}]}
         />
-        <p :if={@sources == []} class="empty-state">
-          No eligible current messages match. Try another search or wait for new source messages.
-        </p>
+        <Kit.empty
+          :if={@sources == []}
+          variant={:hint}
+          icon={:search}
+          title="No current messages match"
+          text="Try another search, or wait for new messages in this conversation."
+        />
         <form
           method="post"
           action={@submission.path}

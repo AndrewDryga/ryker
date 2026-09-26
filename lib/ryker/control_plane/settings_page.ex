@@ -181,6 +181,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         view={@view}
         commands={@commands}
         show_header={@section == :system}
+        frame={frame(@section)}
       />
       <div :if={@section == :system} class="settings-running">
         {Phoenix.HTML.raw(@body)}
@@ -351,54 +352,64 @@ defmodule Ryker.ControlPlane.SettingsPage do
           phx-value-ref="slack"
         >{if @connected, do: "Disconnect", else: "Remove the tokens"}</button>
       </:action>
+      <%!-- Slack that was never switched on is not running, so removing its
+      tokens stops nothing: the question says only what it deletes. --%>
+      <:question :if={@confirm == {"disconnect-slack", "slack"}}>
+        <.confirmation
+          title={if @connected, do: "Disconnect Slack?", else: "Remove the Slack tokens?"}
+          text={
+            if @connected,
+              do:
+                "Ryker stops reading and replying in Slack, and the saved tokens are deleted. Channels, instructions and history stay.",
+              else: "The saved tokens are deleted. Channels, instructions and history stay."
+          }
+          label={if @connected, do: "Disconnect Slack", else: "Remove the tokens"}
+          phx-click="disconnect-integration"
+          phx-value-kind="slack"
+        />
+      </:question>
     </.connection>
-    <%!-- Slack that was never switched on is not running, so removing its
-    tokens stops nothing: the question says only what it deletes. --%>
-    <.confirmation
-      :if={@confirm == {"disconnect-slack", "slack"}}
-      title={if @connected, do: "Disconnect Slack?", else: "Remove the Slack tokens?"}
-      text={
-        if @connected,
-          do:
-            "Ryker stops reading and replying in Slack, and the saved tokens are deleted. Channels, instructions and history stay.",
-          else: "The saved tokens are deleted. Channels, instructions and history stay."
-      }
-      label={if @connected, do: "Disconnect Slack", else: "Remove the tokens"}
-      phx-click="disconnect-integration"
-      phx-value-kind="slack"
-    />
 
-    <section :if={!@verified} class="settings-section" aria-label="Connect Slack">
-      <Kit.section_head
-        title="Connect Slack"
-        lede="Paste the two tokens from your Slack app. Ryker finds the workspace and the bot for you."
-      />
+    <Kit.section_card
+      :if={!@verified}
+      class="settings-section"
+      title="Connect Slack"
+      lede="Paste the two tokens from your Slack app. Ryker finds the workspace and the bot for you."
+    >
       <.slack_form label="Verify Slack" />
-    </section>
+    </Kit.section_card>
 
-    <section :if={@verified} class="settings-section" aria-label="Who can manage Ryker">
-      <Kit.section_head
-        title="Who can manage Ryker"
-        lede="These people can change Ryker's settings from Slack."
-      />
-      <div :if={@slack_members == []} class="settings-people">
-        <Kit.entity_list :if={@admins or @managers != []} label="People who can manage Ryker">
-          <Kit.entity_row
-            :if={@admins}
-            name="Workspace admins and owners"
-            text="Anyone Slack lists as an admin or owner of the workspace."
-          />
-          <Kit.entity_row :for={person <- @managers} name={person(person)} />
-        </Kit.entity_list>
-        <p :if={!@admins and @managers == []}>
-          Nobody yet. Choose at least one person who can manage Ryker.
-        </p>
+    <Kit.section_card
+      :if={@verified}
+      class="settings-section"
+      title="Who can manage Ryker"
+      lede="These people can change Ryker's settings from Slack."
+    >
+      <:actions :if={@slack_members == []}>
         <button
           type="button"
           class={["ui-button", if(@connected, do: "secondary", else: "primary")]}
           phx-click="load-slack-members"
         >Choose people</button>
-      </div>
+      </:actions>
+      <Kit.entity_list
+        :if={@slack_members == [] and (@admins or @managers != [])}
+        label="People who can manage Ryker"
+      >
+        <Kit.entity_row
+          :if={@admins}
+          name="Workspace admins and owners"
+          text="Anyone Slack lists as an admin or owner of the workspace."
+        />
+        <Kit.entity_row :for={person <- @managers} name={person(person)} />
+      </Kit.entity_list>
+      <Kit.empty
+        :if={@slack_members == [] and !@admins and @managers == []}
+        variant={:hint}
+        icon={:chat}
+        title="Nobody can manage Ryker yet"
+        text="Choose at least one person who can change Ryker's settings from Slack."
+      />
       <form :if={@slack_members != []} phx-submit="save-slack-choices" class="settings-people-form">
         <div class="settings-people-list" role="group" aria-label="People who can manage Ryker">
           <label :for={member <- @slack_members} class="settings-option">
@@ -425,26 +436,28 @@ defmodule Ryker.ControlPlane.SettingsPage do
         view={@view}
         commands={@commands}
         show_header={false}
+        frame={:none}
       />
-    </section>
+    </Kit.section_card>
 
     <.live_component
+      :for={key <- [:new_channels, :incident_rooms]}
       :if={@verified}
       module={SettingsEditor}
-      id="settings-slack"
-      section={section!(:slack)}
+      id={"settings-" <> String.replace(Atom.to_string(key), "_", "-")}
+      section={section!(key)}
       view={@view}
       commands={@commands}
-      show_header={false}
     />
 
-    <section :if={@verified} class="settings-section" aria-label="Slack tokens">
-      <Kit.section_head
-        title="Slack tokens"
-        lede="Replace them only when they changed in your Slack app."
-      />
+    <Kit.section_card
+      :if={@verified}
+      class="settings-section"
+      title="Slack tokens"
+      lede="Replace them only when they changed in your Slack app."
+    >
       <.slack_form label="Replace tokens" />
-    </section>
+    </Kit.section_card>
     """
   end
 
@@ -515,54 +528,67 @@ defmodule Ryker.ControlPlane.SettingsPage do
           phx-value-ref="github"
         >Disconnect</button>
       </:action>
+      <:question :if={@confirm == {"disconnect-github", "github"}}>
+        <.confirmation
+          title="Disconnect GitHub?"
+          text="Ryker stops receiving GitHub events and starting GitHub work, and the App's private key and webhook secret are deleted. Repositories and history stay."
+          label="Disconnect GitHub"
+          phx-click="disconnect-integration"
+          phx-value-kind="github"
+        />
+      </:question>
     </.connection>
-    <.confirmation
-      :if={@confirm == {"disconnect-github", "github"}}
-      title="Disconnect GitHub?"
-      text="Ryker stops receiving GitHub events and starting GitHub work, and the App's private key and webhook secret are deleted. Repositories and history stay."
-      label="Disconnect GitHub"
-      phx-click="disconnect-integration"
-      phx-value-kind="github"
-    />
 
-    <section :if={!@ready} class="settings-section" aria-label="GitHub App">
-      <Kit.section_head
-        id="github-app"
-        title={
-          if @view.github_connection == :invalid,
-            do: "Repair GitHub connection",
-            else: "Connect the GitHub App"
-        }
-        lede={
-          if @view.github_connection == :invalid,
-            do: "Verify the App again with its current private key. Repositories stay as they are.",
-            else:
-              "Ryker checks the App ID and private key, and creates a webhook secret if you leave it empty."
-        }
-      />
+    <Kit.section_card
+      :if={!@ready}
+      class="settings-section"
+      label="GitHub App"
+      anchor="github-app"
+      title={
+        if @view.github_connection == :invalid,
+          do: "Repair GitHub connection",
+          else: "Connect the GitHub App"
+      }
+      lede={
+        if @view.github_connection == :invalid,
+          do: "Verify the App again with its current private key. Repositories stay as they are.",
+          else:
+            "Ryker checks the App ID and private key, and creates a webhook secret if you leave it empty."
+      }
+    >
       <.github_form label="Verify GitHub App" />
-    </section>
+    </Kit.section_card>
 
-    <section :if={@ready} class="settings-section" aria-label="Repositories">
-      <Kit.section_head
-        title="Repositories"
-        lede="Anyone with write access to an added repository can ask Ryker to work there. GitHub checks that access on every request."
-      >
-        <:actions>
-          <.link
-            navigate="/repositories"
-            class={["ui-button", if(@repositories == 0, do: "primary", else: "secondary")]}
-          >{if @repositories == 0, do: "Add repositories", else: "Manage repositories"}</.link>
-        </:actions>
-      </Kit.section_head>
-      <p class="settings-lede">{repository_count(@repositories)}</p>
-    </section>
-
-    <section :if={@ready} class="settings-section" aria-label="Webhook">
-      <Kit.section_head
-        title="Webhook"
-        lede="Paste this callback URL into your GitHub App's webhook settings."
+    <Kit.section_card
+      :if={@ready}
+      class="settings-section"
+      title="Repositories"
+      lede="Anyone with write access to an added repository can ask Ryker to work there. GitHub checks that access on every request."
+    >
+      <:actions>
+        <.link
+          navigate="/repositories"
+          class={["ui-button", if(@repositories == 0, do: "primary", else: "secondary")]}
+        >{if @repositories == 0, do: "Add repositories", else: "Manage repositories"}</.link>
+      </:actions>
+      <p :if={@repositories > 0} class="settings-lede">
+        {Integrations.count(@repositories, "repository")} added.
+      </p>
+      <Kit.empty
+        :if={@repositories == 0}
+        variant={:hint}
+        icon={:repository}
+        title="No repositories yet"
+        text="Add the repositories Ryker may work in. The App can only reach the ones it is installed on."
       />
+    </Kit.section_card>
+
+    <Kit.section_card
+      :if={@ready}
+      class="settings-section"
+      title="Webhook"
+      lede="Paste this callback URL into your GitHub App's webhook settings."
+    >
       <Components.copy_block label="Copy the callback URL">
         <pre>{@view.github_callback_url}</pre>
       </Components.copy_block>
@@ -584,7 +610,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           rel="noopener noreferrer"
         >Install the App in another organization</a>
       </p>
-    </section>
+    </Kit.section_card>
 
     <.live_component
       :if={@ready}
@@ -595,13 +621,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
       commands={@commands}
     />
 
-    <section :if={@ready} class="settings-section" aria-label="App credentials">
-      <Kit.section_head
-        title="App credentials"
-        lede="Replace them only when the App ID, private key or webhook secret changed."
-      />
+    <Kit.section_card
+      :if={@ready}
+      class="settings-section"
+      title="App credentials"
+      lede="Replace them only when the App ID, private key or webhook secret changed."
+    >
       <.github_form label="Replace credentials" />
-    </section>
+    </Kit.section_card>
     """
   end
 
@@ -700,29 +727,30 @@ defmodule Ryker.ControlPlane.SettingsPage do
       </:facts>
     </.connection>
 
-    <section :if={@accounts == []} class="settings-section" aria-label="Connect an account">
-      <Kit.section_head
-        title="Connect an account"
-        lede="Create an API token in your Emisar account and paste it here. Ryker starts watching it for approval decisions at once, and the first account serves every environment that has none."
-      />
+    <Kit.section_card
+      :if={@accounts == []}
+      class="settings-section"
+      title="Connect an account"
+      lede="Create an API token in your Emisar account and paste it here. Ryker starts watching it for approval decisions at once, and the first account serves every environment that has none."
+    >
       <.emisar_form />
-    </section>
+    </Kit.section_card>
 
-    <section :if={@accounts != []} class="settings-section" aria-label="Accounts">
-      <Kit.section_head
-        title="Accounts"
-        lede="Pause an account to stop sending it new work. Its history stays."
-      >
-        <:actions>
-          <button
-            type="button"
-            class="ui-button secondary"
-            phx-click={if @edit_ref == "new", do: "hide-emisar-form", else: "show-emisar-form"}
-            phx-value-ref="new"
-            aria-expanded={to_string(@edit_ref == "new")}
-          ><Components.icon name={:plus} />Add account</button>
-        </:actions>
-      </Kit.section_head>
+    <Kit.section_card
+      :if={@accounts != []}
+      class="settings-section"
+      title="Accounts"
+      lede="Pause an account to stop sending it new work. Its history stays."
+    >
+      <:actions>
+        <button
+          type="button"
+          class="ui-button secondary"
+          phx-click={if @edit_ref == "new", do: "hide-emisar-form", else: "show-emisar-form"}
+          phx-value-ref="new"
+          aria-expanded={to_string(@edit_ref == "new")}
+        ><Components.icon name={:plus} />Add account</button>
+      </:actions>
       <div :if={@edit_ref == "new"} class="settings-editor">
         <h3 class="settings-editor-heading">Add an account</h3>
         <.emisar_form cancel={true} />
@@ -775,7 +803,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           </:details>
         </Kit.entity_row>
       </Kit.entity_list>
-    </section>
+    </Kit.section_card>
     """
   end
 
@@ -920,24 +948,23 @@ defmodule Ryker.ControlPlane.SettingsPage do
       <:facts :if={@line.facts != []}>{facts(@line.facts)}</:facts>
     </.connection>
 
-    <section class="settings-section" aria-label="Signing credentials">
-      <Kit.section_head
-        title="Signing credentials"
-        lede="Senders sign each request with a shared secret, so Ryker knows it is theirs."
-      >
-        <:actions :if={@credentials != []}>
-          <button
-            type="button"
-            class="ui-button secondary"
-            phx-click={
-              if @editing, do: "hide-webhook-credential-form", else: "show-webhook-credential-form"
-            }
-            aria-expanded={to_string(@editing)}
-          >
-            <Components.icon name={:plus} />Add signing credential
-          </button>
-        </:actions>
-      </Kit.section_head>
+    <Kit.section_card
+      class="settings-section"
+      title="Signing credentials"
+      lede="Senders sign each request with a shared secret, so Ryker knows it is theirs."
+    >
+      <:actions :if={@credentials != []}>
+        <button
+          type="button"
+          class="ui-button secondary"
+          phx-click={
+            if @editing, do: "hide-webhook-credential-form", else: "show-webhook-credential-form"
+          }
+          aria-expanded={to_string(@editing)}
+        >
+          <Components.icon name={:plus} />Add signing credential
+        </button>
+      </:actions>
       <.webhook_credential_form :if={@credentials == [] or @editing} cancel={@credentials != []} />
       <Kit.entity_list :if={@credentials != []} label="Signing credentials">
         <Kit.entity_row
@@ -970,7 +997,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           </:details>
         </Kit.entity_row>
       </Kit.entity_list>
-    </section>
+    </Kit.section_card>
 
     <.live_component
       module={SettingsEditor}
@@ -1043,19 +1070,24 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:text, :string, default: nil)
   slot(:facts, doc: "What is connected, on one line under the sentence")
   slot(:action)
+  slot(:question, doc: "What an action that disconnects asks before it does")
 
-  # The page's connection: a dot and a word, what it means when that is not
-  # obvious, what is connected, and the one action that fits it.
+  # The page's first card, its connection: a dot and a word, what it means
+  # when that is not obvious, what is connected, the one action that fits it
+  # and the question that action asks first.
   defp connection(assigns) do
     ~H"""
-    <div class="settings-connection">
-      <div class="settings-connection-body">
-        <Kit.state tone={elem(@state, 0)} word={elem(@state, 1)} />
-        <p :if={@text}>{@text}</p>
-        <p :if={@facts != []}>{render_slot(@facts)}</p>
+    <Kit.section_card class="settings-section" title="Connection">
+      <div class="settings-connection">
+        <div class="settings-connection-body">
+          <Kit.state tone={elem(@state, 0)} word={elem(@state, 1)} />
+          <p :if={@text}>{@text}</p>
+          <p :if={@facts != []}>{render_slot(@facts)}</p>
+        </div>
+        <div :if={@action != []} class="settings-connection-action">{render_slot(@action)}</div>
       </div>
-      <div :if={@action != []} class="settings-connection-action">{render_slot(@action)}</div>
-    </div>
+      {render_slot(@question)}
+    </Kit.section_card>
     """
   end
 
@@ -1132,14 +1164,16 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # A person as a row's name: the one rendering every page uses for people.
   defp person(person), do: Kit.person(%{person: person, class: nil, __changed__: nil})
 
-  defp repository_count(0), do: "No repositories yet."
-  defp repository_count(count), do: Integrations.count(count, "repository") <> " added."
-
   defp editors(:model), do: [:model]
   defp editors(:retention), do: [:retention]
   defp editors(:pricing), do: [:pricing]
   defp editors(:system), do: [:work, :policies]
   defp editors(_section), do: []
+
+  # Model prices is one list, a page of its own like Channels. Models keeps
+  # its own layout until its form is rewritten.
+  defp frame(section) when section in [:model, :pricing], do: :none
+  defp frame(_section), do: :card
 
   defp section!(key) do
     {:ok, section} = SettingsSections.fetch(key)

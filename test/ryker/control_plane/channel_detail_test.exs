@@ -487,15 +487,15 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       document = page("/channels/T123/C456") |> LazyHTML.from_document()
       schedules = LazyHTML.query(document, "#schedules")
 
-      assert LazyHTML.query(schedules, ".entity-empty-title") |> LazyHTML.text() ==
-               "Nothing is scheduled here."
+      assert LazyHTML.query(schedules, ".kit-empty-title") |> LazyHTML.text() ==
+               "Nothing is scheduled here"
 
       # How to ask for one is the page's help, not a line under each section.
       assert Enum.empty?(LazyHTML.query(document, ".ask-hint"))
       assert Enum.empty?(LazyHTML.query(schedules, ".pagination, .result-count, .entity-row"))
 
-      applies = LazyHTML.query(document, "#applies .entity-empty-title")
-      assert LazyHTML.text(applies) == "Nothing else applies here yet."
+      applies = LazyHTML.query(document, "#applies .kit-empty-title")
+      assert LazyHTML.text(applies) == "Nothing else applies here yet"
     end
 
     test "a related episode is named by what was asked and links to its timeline, never by its key" do
@@ -681,7 +681,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert length(view.summaries.items) == @page_size
 
       html = page("/channels/T123/C456?summary_page=2")
-      refute html =~ "Ryker has not learned anything here yet."
+      refute html =~ "Ryker has not learned anything here yet"
 
       assert html
              |> LazyHTML.from_document()
@@ -693,7 +693,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       membership!("T123", "C456", private: false, external_shared: false)
       summary!("slack:T123", "slack:T123:C456", [])
       html = page("/channels/T123/C456?summary_page=9")
-      refute html =~ "Ryker has not learned anything here yet."
+      refute html =~ "Ryker has not learned anything here yet"
 
       assert html
              |> LazyHTML.from_document()
@@ -889,7 +889,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
                "href"
              )
 
-      assert LazyHTML.text(section) =~ "Ryker has not learned anything here yet."
+      assert LazyHTML.text(section) =~ "Ryker has not learned anything here yet"
       refute html =~ "must-not-render-draft"
 
       assert {:ok, quiet} = Projection.channel("T123", "C999", %{})
@@ -1253,7 +1253,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       now = DateTime.utc_now()
 
       quiet = page("/channels/T123/C456") |> usage_text()
-      assert quiet =~ "No model work here in this window."
+      assert quiet =~ "No model work here in this window"
       refute quiet =~ "$0"
       refute quiet =~ "not recorded"
 

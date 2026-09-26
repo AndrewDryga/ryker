@@ -100,11 +100,15 @@ defmodule Ryker.ControlPlane.LearningPage do
           </Kit.entity_list>
           <Kit.empty
             :if={@activity.recent.items == [] and @activity.recent.outcome != ""}
+            variant={:hint}
+            icon={:search}
             title="Nothing with this outcome yet"
             text="Choose All to see every recent pass."
           />
           <Kit.empty
             :if={@activity.recent.items == [] and @activity.recent.outcome == ""}
+            variant={:hint}
+            icon={:book}
             title="Nothing learned yet"
             text={
               if @activity.state == :off,
@@ -297,6 +301,8 @@ defmodule Ryker.ControlPlane.LearningPage do
       </Kit.entity_list>
       <Kit.empty
         :if={@batch.attempts == []}
+        variant={:hint}
+        icon={:activity}
         title="No attempts yet"
         text="Ryker has not prepared a model request for this batch."
       />

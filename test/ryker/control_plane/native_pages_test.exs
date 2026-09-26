@@ -185,7 +185,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     # The list's size is the first count, never a second number in the toolbar.
     refute LazyHTML.text(toolbar) =~ ~r/\d+ (items?|requests?)/
 
-    assert LazyHTML.query(html, ".entity-empty .entity-empty-title") |> LazyHTML.text() ==
+    assert LazyHTML.query(html, ".kit-empty .kit-empty-title") |> LazyHTML.text() ==
              "No activity yet"
 
     assert LazyHTML.query(html, "#activity-filters-search[disabled]") |> Enum.count() == 1

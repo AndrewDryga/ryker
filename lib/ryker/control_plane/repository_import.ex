@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.RepositoryImport do
   """
   use Phoenix.Component
 
-  alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.{Components, Kit}
 
   attr(:view, :map, required: true)
   attr(:repositories, :list, required: true)
@@ -46,21 +46,21 @@ defmodule Ryker.ControlPlane.RepositoryImport do
           phx-click="discover-github-repositories"
           phx-disable-with="Finding repositories…"
         >Find repositories</button>
-        <div
+        <Kit.empty
           :if={@discovery == :complete && @repositories == []}
-          class="repository-discovery-result"
+          id="repository-discovery-empty"
+          variant={:hint}
+          icon={:repository}
+          title="No repositories found"
+          text="Give the GitHub App access to at least one repository, then try again."
         >
-          <div>
-            <strong>No repositories found</strong>
-            <p>Give the GitHub App access to at least one repository, then try again.</p>
-          </div>
           <button
             type="button"
             class="ui-button secondary"
             phx-click="discover-github-repositories"
             phx-disable-with="Checking again…"
           >Try again</button>
-        </div>
+        </Kit.empty>
         <div
           :if={match?({:error, _}, @discovery)}
           class="repository-discovery-result repository-discovery-error"

@@ -391,9 +391,9 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
            ) == "See what stopped"
 
     assert {"Channel", "Not created yet"} in facts(document, "#incident-room-facts")
-    assert text(document, "#now .entity-empty-title") == "No update yet"
+    assert text(document, "#now .kit-empty-title") == "No update yet"
 
-    assert text(document, "#investigation .entity-empty-title") ==
+    assert text(document, "#investigation .kit-empty-title") ==
              "The investigation has not started"
 
     # When setup stopped is the room's last step, not when it was requested.

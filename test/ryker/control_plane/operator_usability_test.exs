@@ -610,8 +610,8 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
   test "an empty Failures page says nothing needs you and what would put something here" do
     document = [] |> FailuresPage.list(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
 
-    assert LazyHTML.query(document, ".entity-empty-title") |> LazyHTML.text() ==
-             "Nothing needs you."
+    assert LazyHTML.query(document, ".kit-empty-title") |> LazyHTML.text() ==
+             "Nothing needs you"
 
     assert LazyHTML.text(document) =~ "When Ryker cannot finish something on its own"
     assert Enum.empty?(LazyHTML.query(document, ".kit-counts"))

@@ -1,6 +1,15 @@
 defmodule Ryker.ControlPlane.UsageChart do
   @moduledoc "An accessible daily series. Missing dates keep their position, not a false adjacency."
-  def render([]), do: "<p class=\"empty\">No executions recorded in this window.</p>"
+  alias Ryker.ControlPlane.Kit
+
+  def render([]),
+    do:
+      Kit.empty_html(
+        variant: :bare,
+        icon: :usage,
+        title: "No model work in this window",
+        text: "The daily tokens show here once Ryker works."
+      )
 
   def render(days) do
     days = Enum.sort_by(days, &Date.to_gregorian_days(&1.date))

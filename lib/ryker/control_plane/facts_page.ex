@@ -58,11 +58,13 @@ defmodule Ryker.ControlPlane.FactsPage do
       </Kit.entity_list>
       <Kit.empty
         :if={@view.facts == [] and @view.q != ""}
+        icon={:search}
         title={"No facts match “#{@view.q}”"}
         text="Try other words, or clear the search to see every fact."
       />
       <Kit.empty
         :if={@view.total == 0}
+        icon={:book}
         title="No facts yet"
         text="A fact appears here after someone asks Ryker to remember something and confirms what it proposes to save."
       />

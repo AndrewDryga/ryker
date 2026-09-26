@@ -149,10 +149,10 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
       RunningSystem.html(%{rows: [], grants: [], source: @source, integrations: []})
       |> LazyHTML.from_fragment()
 
-    assert LazyHTML.query(none, ".configuration-grants .entity-empty") |> LazyHTML.text() =~
+    assert LazyHTML.query(none, ".configuration-grants .kit-empty") |> LazyHTML.text() =~
              "This installation names no tools"
 
-    assert LazyHTML.query(none, ".configuration-values .entity-empty") |> LazyHTML.text() =~
+    assert LazyHTML.query(none, ".configuration-values .kit-empty") |> LazyHTML.text() =~
              "The running Ryker published no settings"
   end
 

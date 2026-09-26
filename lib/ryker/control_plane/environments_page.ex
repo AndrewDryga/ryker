@@ -126,7 +126,8 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
       <.first_environment :if={@environments == [] and @edit != "new"} view={@view} />
       <Kit.empty
         :if={@environments != [] and @rows == []}
-        title={"No environments match “#{@query}”."}
+        icon={:search}
+        title={"No environments match “#{@query}”"}
         text="Try another name or clear the search."
       />
     </div>
@@ -194,7 +195,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
     assigns = assign(assigns, :github, Integrations.github(assigns.view))
 
     ~H"""
-    <Kit.empty title="No environments yet" text={first_step(@github)}>
+    <Kit.empty icon={:grid} title="No environments yet" text={first_step(@github)}>
       <.link navigate={first_action(@github).href} class="ui-button secondary">
         {first_action(@github).label}
       </.link>

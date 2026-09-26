@@ -47,7 +47,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, view, html} = open()
     assert html =~ "Start setup"
     assert html =~ "Ryker has no settings yet"
-    refute has_element?(view, "#settings-slack-form")
+    refute has_element?(view, ".settings-block form")
 
     view |> element("button[phx-click=initialize-settings]") |> render_click()
 
@@ -720,11 +720,16 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
       assert has_element?(view, ".settings-option small", description)
     end
 
-    refute has_element?(view, "#settings-slack-form input[name=enabled]")
+    refute has_element?(view, "#settings-new-channels-form input[name=enabled]")
 
     view
-    |> form("#settings-slack-form", %{
-      "default_participation" => "shadow",
+    |> form("#settings-new-channels-form", %{"default_participation" => "shadow"})
+    |> render_submit()
+
+    assert has_element?(view, "#settings-new-channels [role=status]", "Saved.")
+
+    view
+    |> form("#settings-incident-rooms-form", %{
       "channel_prefix" => "inc",
       "incident_private" => "false"
     })
@@ -734,7 +739,61 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert slack.default_participation == :shadow
     assert slack.channel_prefix == "inc"
     refute slack.incident_private
-    assert has_element?(view, "#settings-slack [role=status]", "Saved.")
+    assert has_element?(view, "#settings-incident-rooms [role=status]", "Saved.")
+  end
+
+  # Andrew, 2026-09-26, on Integrations › Slack: "we need some vertical rhythm
+  # and better design so long multi-section pages like that do not look like
+  # a huge blob of text". Each part of a long page is its own card, with its
+  # controls and the button that saves them, as on the Emisar portal's
+  # settings. New channels and Incident rooms shared one Save under both;
+  # each card saves its own now. The Channels page links to New channels by
+  # its anchor.
+  test "each part of a long settings page is its own card with its own actions" do
+    initialize!()
+    connect_slack!()
+    connect_github!()
+
+    {:ok, _view, html} = open("/integrations/slack")
+    slack = LazyHTML.from_document(html)
+
+    assert LazyHTML.query(slack, "main section.kit-card > header.section-head h2") |> texts() ==
+             [
+               "Connection",
+               "Who can manage Ryker",
+               "New channels",
+               "Incident rooms",
+               "Slack tokens"
+             ]
+
+    assert LazyHTML.query(slack, "section.kit-card > header.section-head#new-channels h2")
+           |> LazyHTML.text() == "New channels"
+
+    for {card, action} <- [
+          {"Who can manage Ryker", "Save changes"},
+          {"New channels", "Save changes"},
+          {"Incident rooms", "Save changes"},
+          {"Slack tokens", "Replace tokens"}
+        ] do
+      assert slack
+             |> LazyHTML.query("section.kit-card[aria-label='#{card}'] form button[type=submit]")
+             |> texts() == [action],
+             card
+    end
+
+    for path <-
+          ~w(/integrations/slack /integrations/github /integrations/emisar /integrations/webhooks /settings/retention /settings/advanced) do
+      {:ok, _view, html} = open(path)
+      document = LazyHTML.from_document(html)
+
+      assert LazyHTML.query(document, "main .section-head") |> Enum.count() ==
+               LazyHTML.query(document, "main .kit-card > .section-head") |> Enum.count(),
+             "#{path} has a part outside a card"
+
+      assert LazyHTML.query(document, "main form") |> Enum.count() ==
+               LazyHTML.query(document, "main .kit-card form") |> Enum.count(),
+             "#{path} has a form outside a card"
+    end
   end
 
   test "instructions typed before setup do not stop the console from creating settings" do
@@ -999,12 +1058,12 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, view, _html} = open("/integrations/slack")
 
     view
-    |> form("#settings-slack-form", %{"channel_prefix" => "Inc Rooms"})
+    |> form("#settings-incident-rooms-form", %{"channel_prefix" => "Inc Rooms"})
     |> render_submit()
 
     assert has_element?(
              view,
-             "#settings-slack .settings-error",
+             "#settings-incident-rooms .settings-error",
              "Use 1 to 20 lowercase letters, numbers, dashes or underscores, such as inc."
            )
   end
@@ -1300,7 +1359,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, view, html} = open()
 
     assert html =~ "Settings unavailable"
-    refute has_element?(view, "#settings-slack-form")
+    refute has_element?(view, ".settings-block form")
     refute html =~ "Start setup"
     assert Repo.aggregate(Installation, :count) == 1
   end
@@ -1323,7 +1382,11 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     initialize!()
 
     assert {:error, {:invalid_settings, [{:channel_prefix, :invalid}]}} =
-             Actions.callbacks().save_settings.(:slack, %{"channel_prefix" => %{"a" => "b"}}, 1)
+             Actions.callbacks().save_settings.(
+               :incident_rooms,
+               %{"channel_prefix" => %{"a" => "b"}},
+               1
+             )
 
     assert {:error, {:invalid_settings, [{:section, :unknown}]}} =
              Actions.callbacks().save_settings.(:not_a_section, %{}, 1)

@@ -214,16 +214,16 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   test "an empty list says how to add one, and a search miss says so" do
     bare = render([])
 
-    assert LazyHTML.query(bare, ".entity-empty-title") |> LazyHTML.text() ==
-             "No repositories yet."
+    assert LazyHTML.query(bare, ".kit-empty-title") |> LazyHTML.text() ==
+             "No repositories yet"
 
     assert LazyHTML.query(bare, "form.filter-toolbar input[type=search][disabled]")
            |> Enum.count() == 1
 
     miss = render([], %{"q" => "absent"})
 
-    assert LazyHTML.query(miss, ".entity-empty-title") |> LazyHTML.text() ==
-             "No repositories match “absent”."
+    assert LazyHTML.query(miss, ".kit-empty-title") |> LazyHTML.text() ==
+             "No repositories match “absent”"
   end
 
   test "without a working GitHub App the page offers no Add repositories action" do
@@ -240,7 +240,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     refute Map.has_key?(page, :action)
 
     assert LazyHTML.from_fragment(page.body)
-           |> LazyHTML.query(".entity-empty")
+           |> LazyHTML.query(".kit-empty")
            |> LazyHTML.text() =~ "Once GitHub is connected"
   end
 

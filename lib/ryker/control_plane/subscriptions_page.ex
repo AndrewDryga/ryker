@@ -101,6 +101,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   defp list_empty(%{query: query} = assigns) when query != "" do
     ~H"""
     <Kit.empty
+      icon={:search}
       title={"No follow-ups match “#{@query}”"}
       text={"Try other words, or look under #{if @view == "past", do: "Current", else: "Past"}."}
     />
@@ -110,6 +111,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   defp list_empty(%{view: "past"} = assigns) do
     ~H"""
     <Kit.empty
+      icon={:bell}
       title="No past follow-ups"
       text="Follow-ups move here once the work continues, the deadline passes or they are cancelled."
     />
@@ -119,6 +121,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   defp list_empty(assigns) do
     ~H"""
     <Kit.empty
+      icon={:bell}
       title="Nothing is waiting"
       text="When Ryker has to pause a request until a set time or an update, it shows here."
     />

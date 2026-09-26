@@ -205,6 +205,7 @@ defmodule Ryker.ControlPlane.LearnedPage do
       <LearningReceipt.render :if={@view.learning} receipt={@view.learning} />
     <% else %>
       <Kit.empty
+        icon={:book}
         title="This topic is not available"
         text="It may have been removed when the messages it came from expired. All topics shows what Ryker knows now."
       />
@@ -298,11 +299,13 @@ defmodule Ryker.ControlPlane.LearnedPage do
     ~H"""
     <Kit.empty
       :if={@view.items == [] and @view.q != ""}
+      icon={:search}
       title={"Nothing matches “#{@view.q}”"}
       text="Try other words, or clear the search."
     />
     <Kit.empty
       :if={@view.items == [] and @view.q == ""}
+      icon={:book}
       title={empty_title(@view.kind)}
       text={empty_text(@view.kind)}
     />

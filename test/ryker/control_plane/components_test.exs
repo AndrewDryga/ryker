@@ -540,6 +540,121 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert LazyHTML.query(html, "dl.kit-facts dd") |> LazyHTML.text() == "#incidents"
   end
 
+  # Andrew, 2026-09-26: an empty table drawn as a bold line and a grey line
+  # "looks like a text blob, and you can't tell it's an empty state without
+  # reading it all". The Kit's empty state is the portal's: an icon, a title,
+  # one sentence and the action that fills it, in a dashed box for an empty
+  # page, a smaller one for an empty part of a page, or no box in a frame.
+  test "a Kit empty state shows an icon, a title and one sentence, in the box its place needs" do
+    html =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Kit.empty id="page" icon={:clock} title="Nothing is scheduled" text="Ask Ryker for one.">
+            <a class="ui-button primary" href="/conversations">New conversation</a>
+          </Kit.empty>
+          <Kit.empty variant={:hint} icon={:book} title="Nothing learned yet" text="It reads on." />
+          <Kit.empty variant={:bare} icon={:chat} title="No update yet" />
+          """
+        end,
+        []
+      )
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(html, ".kit-empty")
+           |> Enum.flat_map(&LazyHTML.attribute(&1, "data-variant")) == ["boxed", "hint", "bare"]
+
+    assert LazyHTML.query(html, ".kit-empty > .kit-empty-icon[aria-hidden=true] > svg")
+           |> Enum.count() == 3
+
+    assert LazyHTML.query(html, ".kit-empty > .kit-empty-title") |> Enum.count() == 3
+
+    assert LazyHTML.query(html, "#page > .kit-empty-title") |> LazyHTML.text() ==
+             "Nothing is scheduled"
+
+    assert LazyHTML.query(html, "#page > .kit-empty-text") |> LazyHTML.text() ==
+             "Ask Ryker for one."
+
+    assert LazyHTML.query(html, "#page > .kit-empty-actions > a[href='/conversations']")
+           |> Enum.count() == 1
+
+    # No sentence, no empty paragraph; no action, no empty row for one.
+    assert Enum.empty?(
+             LazyHTML.query(
+               html,
+               ".kit-empty[data-variant=bare] > :is(.kit-empty-text, .kit-empty-actions)"
+             )
+           )
+
+    # A page built as a string draws the same markup.
+    string =
+      [variant: :hint, icon: :book, title: "Nothing learned yet", text: "It reads on."]
+      |> Kit.empty_html()
+      |> IO.iodata_to_binary()
+
+    component =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Kit.empty variant={:hint} icon={:book} title="Nothing learned yet" text="It reads on." />
+          """
+        end,
+        []
+      )
+
+    assert String.trim(string) == String.trim(component)
+  end
+
+  # Andrew, 2026-09-26: Integrations › Slack and a channel's page read as "a
+  # huge blob of text". Each part of a long page is its own card: its title,
+  # one sentence, its controls and its actions.
+  test "a Kit section card holds one part of a page: its title, sentence, actions and controls" do
+    html =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Kit.section_card
+            id="slack-new-channels"
+            class="settings-section"
+            title="New channels"
+            lede="Used in every channel that has not made its own choice."
+            anchor="new-channels"
+          >
+            <:actions><button type="button">Change</button></:actions>
+            <form><button type="submit">Save changes</button></form>
+          </Kit.section_card>
+          <Kit.section_card label="Data retention">
+            <p>Kept for 30 days</p>
+          </Kit.section_card>
+          """
+        end,
+        []
+      )
+      |> LazyHTML.from_fragment()
+
+    card = "section#slack-new-channels.kit-card.settings-section"
+
+    assert LazyHTML.query(html, card) |> Enum.flat_map(&LazyHTML.attribute(&1, "aria-label")) ==
+             ["New channels"]
+
+    assert LazyHTML.query(html, "#{card} > header.section-head#new-channels:first-child h2")
+           |> LazyHTML.text() == "New channels"
+
+    assert LazyHTML.query(html, "#{card} > header.section-head p") |> LazyHTML.text() ==
+             "Used in every channel that has not made its own choice."
+
+    assert LazyHTML.query(html, "#{card} > header .section-actions > button")
+           |> LazyHTML.text() == "Change"
+
+    assert LazyHTML.query(html, "#{card} > form button[type=submit]") |> LazyHTML.text() ==
+             "Save changes"
+
+    # The one card a page's title already names goes without a title of its own.
+    untitled = "section.kit-card[aria-label='Data retention']"
+    assert Enum.empty?(LazyHTML.query(html, "#{untitled} header"))
+    assert LazyHTML.query(html, "#{untitled} > p") |> LazyHTML.text() == "Kept for 30 days"
+  end
+
   test "a string-rendered list page uses the same Kit row markup as the component" do
     # The Channels list is prepared as a string by Pages; it must produce the
     # rows the Kit component produces, so one stylesheet rule covers both.

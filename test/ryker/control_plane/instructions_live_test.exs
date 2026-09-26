@@ -223,7 +223,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     assert has_element?(
              view,
-             "section.instructions-saved .entity-empty-title",
+             "section.instructions-saved .kit-empty-title",
              "No past preferences or guidance"
            )
   end
@@ -295,7 +295,8 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     # title and everything the page leads with. On 2026-09-24 the page became
     # Kit sections in the order a person asks about a channel: how Ryker takes
     # part, what it was told here, what else applies, what it knows, then its
-    # schedules, recent work and usage.
+    # schedules, recent work and usage. On 2026-09-26 each became its own
+    # card, the instructions editor drawing the Instructions card.
     join!()
     start_supervised!({Names, workspace: "TINSTRUCTIONS", fetch: fn _ -> {:ok, "test"} end})
     Names.name("TINSTRUCTIONS", "CTEST")
@@ -306,9 +307,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     outline =
       page
-      |> LazyHTML.query(
-        "header.page-header, p.channel-state, section.channel-section, header.section-head#channel-instructions, section.instructions-editor"
-      )
+      |> LazyHTML.query("header.page-header, p.channel-state, section.kit-card")
       |> Enum.map(fn node ->
         [tag] = LazyHTML.tag(node)
         [class | _] = LazyHTML.attribute(node, "class") |> hd() |> String.split()
@@ -319,15 +318,21 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert outline == [
              "header.page-header",
              "p.channel-state",
-             "section.channel-section#taking-part",
-             "header.section-head#channel-instructions",
-             "section.instructions-editor#instructions-slack:TINSTRUCTIONS:CTEST",
-             "section.channel-section#applies",
-             "section.channel-section#knows",
-             "section.channel-section#schedules",
-             "section.channel-section#episodes",
-             "section.channel-section#usage"
+             "section.kit-card#taking-part",
+             "section.kit-card#instructions-slack:TINSTRUCTIONS:CTEST",
+             "section.kit-card#applies",
+             "section.kit-card#knows",
+             "section.kit-card#schedules",
+             "section.kit-card#episodes",
+             "section.kit-card#usage"
            ]
+
+    # The Instructions card opens with its title.
+    assert page
+           |> LazyHTML.query(
+             "section.instructions-editor > header.section-head#channel-instructions:first-child h2"
+           )
+           |> LazyHTML.text() == "Instructions"
 
     assert page |> LazyHTML.query("header.page-header h1") |> LazyHTML.text() == "#test"
     assert page |> LazyHTML.query("p.channel-state") |> LazyHTML.text() =~ "Connected"

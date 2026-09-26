@@ -94,7 +94,12 @@ defmodule Ryker.ControlPlane.ChannelsPage do
           meta={meta(item, @now)}
         />
       </Kit.entity_list>
-      <Kit.empty :if={@items == []} title={empty_title(@view)} text={empty_text(@view)} />
+      <Kit.empty
+        :if={@items == []}
+        icon={if @view.q != "", do: :search, else: :hash}
+        title={empty_title(@view)}
+        text={empty_text(@view)}
+      />
     </div>
     """
   end
@@ -197,9 +202,9 @@ defmodule Ryker.ControlPlane.ChannelsPage do
     if query == [], do: "/channels", else: "/channels?" <> URI.encode_query(query)
   end
 
-  defp empty_title(%{q: q}) when q != "", do: "No channels match “#{q}”."
-  defp empty_title(%{show: "in_use"}), do: "Ryker is not in any channel now."
-  defp empty_title(_view), do: "No channels yet."
+  defp empty_title(%{q: q}) when q != "", do: "No channels match “#{q}”"
+  defp empty_title(%{show: "in_use"}), do: "Ryker is not in any channel now"
+  defp empty_title(_view), do: "No channels yet"
 
   defp empty_text(%{q: q, show: "in_use"}) when q != "",
     do: "Try another name, or look under All for channels Ryker has left."

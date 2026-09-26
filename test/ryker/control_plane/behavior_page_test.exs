@@ -165,8 +165,8 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
                params: %{"q" => "", "view" => "past", "show" => "all"}
            }, "No past rules", "after they expire"}
         ] do
-      empty = rules_document(snapshot) |> LazyHTML.query(".entity-empty")
-      assert LazyHTML.query(empty, ".entity-empty-title") |> LazyHTML.text() == title
+      empty = rules_document(snapshot) |> LazyHTML.query(".kit-empty")
+      assert LazyHTML.query(empty, ".kit-empty-title") |> LazyHTML.text() == title
       assert LazyHTML.text(empty) =~ text
     end
 
@@ -177,9 +177,9 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     }
 
     document = rules_document(searched)
-    empty = LazyHTML.query(document, ".entity-empty")
+    empty = LazyHTML.query(document, ".kit-empty")
 
-    assert LazyHTML.query(empty, ".entity-empty-title") |> LazyHTML.text() ==
+    assert LazyHTML.query(empty, ".kit-empty-title") |> LazyHTML.text() ==
              "No rules match “missing”"
 
     # Clearing the search keeps the view the reader chose.
@@ -587,7 +587,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
     empty = instructions_document([], %{view(:preference, []) | kinds: [:preference, :guidance]})
 
-    assert LazyHTML.query(empty, "section.instructions-saved .entity-empty-title")
+    assert LazyHTML.query(empty, "section.instructions-saved .kit-empty-title")
            |> LazyHTML.text() ==
              "Nothing saved yet"
   end
@@ -639,7 +639,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     empty =
       instructions_document([], saved([])) |> LazyHTML.query("section.instructions-channels")
 
-    assert LazyHTML.query(empty, ".entity-empty-title") |> LazyHTML.text() ==
+    assert LazyHTML.query(empty, ".kit-empty-title") |> LazyHTML.text() ==
              "No channel has its own instructions yet"
 
     assert LazyHTML.query(empty, "a.behavior-add") |> LazyHTML.attribute("href") == ["/channels"]

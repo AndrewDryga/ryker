@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
   shows what was saved meanwhile.
   """
   use Phoenix.LiveComponent
-  alias Ryker.ControlPlane.{Components, Kit}
+  alias Ryker.ControlPlane.{ChannelPage, Components, Kit}
   alias Ryker.Instructions
 
   @impl true
@@ -176,15 +176,22 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
   @impl true
   def render(assigns) do
     ~H"""
-    <%!-- On /instructions this is the "For every conversation" section; a
-    channel's page gives the channel editor its own heading around it. --%>
+    <%!-- On /instructions this is the "For every conversation" section. On a
+    channel's page it is that page's Instructions card (a live component's
+    root must be a plain tag, so the root carries the Kit card). --%>
     <section
       id={@id}
-      class="instructions-editor"
+      class={[@scope != :global && "kit-card", "instructions-editor"]}
       aria-labelledby={if @scope == :global, do: @id <> "-head"}
       aria-label={if @scope != :global, do: label(@scope)}
     >
       <Kit.section_head :if={@scope == :global} id={@id <> "-head"} title="For every conversation" />
+      <Kit.section_head
+        :if={@scope != :global}
+        id="channel-instructions"
+        title="Instructions"
+        lede={ChannelPage.instructions_lede()}
+      />
       <div :if={@view.global} class="inherited-instructions">
         <p class="inherited-head">
           <span>For every conversation</span>

@@ -279,10 +279,10 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     assert LazyHTML.query(none, "section.working-copies-storage") |> LazyHTML.text() =~
              "No worker has reported storage yet"
 
-    assert LazyHTML.query(none, ".entity-empty-title") |> LazyHTML.text() =~
-             "No working copies right now."
+    assert LazyHTML.query(none, ".kit-empty-title") |> LazyHTML.text() =~
+             "No working copies right now"
 
-    assert LazyHTML.text(none) =~ "Nothing is ready for cleanup right now."
+    assert LazyHTML.text(none) =~ "Nothing is ready for cleanup right now"
   end
 
   test "the help names a worker's storage in the words its storage line uses" do

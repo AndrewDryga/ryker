@@ -8,9 +8,15 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   a retention limit takes a second step that names what would age out, and
   removing a row takes a second step that says what removing it does.
 
-  A list section reads as rows on the page (see `Kit`); a row is edited in
-  place, under that row. Add opens the form for a new row right under the
-  button, above the list, and pressed again closes it, as Cancel does.
+  Each section is a Kit section card (see `Kit.section_card/1`): a live
+  component's root must be a plain tag, so its root section carries the
+  card and its first child is the card's head. A page whose only part is the
+  section shows the card without a title, under the page's own. A section
+  that is part of another card, or a list that is a page of its own, draws
+  no card (`frame: :none`). A list section's rows sit in its card; a row is
+  edited in place, under that row. Add opens the form for a new row right
+  under the button, above the list, and pressed again closes it, as Cancel
+  does.
   """
 
   use Phoenix.LiveComponent
@@ -43,7 +49,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   @impl true
   def update(assigns, socket) do
-    socket = assign(socket, Map.put_new(assigns, :show_header, true))
+    socket =
+      assign(socket, assigns |> Map.put_new(:show_header, true) |> Map.put_new(:frame, :card))
 
     cond do
       not Map.has_key?(socket.assigns, :draft) -> {:ok, reset(socket)}
@@ -346,15 +353,27 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     ~H"""
     <section
       id={@id}
-      class={["settings-block", @collection? && "settings-collection"]}
+      class={[
+        @frame == :card && "kit-card",
+        "settings-block",
+        @collection? && "settings-collection"
+      ]}
       aria-label={@section.title}
     >
-      <Kit.section_head :if={@show_header} title={@section.title} lede={@section.description}>
+      <Kit.section_head
+        :if={@show_header}
+        id={@section[:anchor]}
+        title={@section.title}
+        lede={@section.description}
+      >
         <:actions :if={@collection?}>
           <.add_button noun={@noun} myself={@myself} expanded={@placement == :above} />
         </:actions>
       </Kit.section_head>
-      <div :if={!@show_header and @collection?} class="settings-collection-bar">
+      <div
+        :if={!@show_header and @collection? and (@rows != [] or @open?)}
+        class="settings-collection-bar"
+      >
         <p>{count(@rows, @noun)}</p>
         <.add_button noun={@noun} myself={@myself} expanded={@placement == :above} />
       </div>
@@ -482,9 +501,19 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       </Kit.entity_list>
       <Kit.empty
         :if={@collection? and @rows == [] and !@open? and @section[:empty]}
-        title={elem(@section.empty, 0)}
-        text={elem(@section.empty, 1)}
-      />
+        variant={if @frame == :card, do: :hint, else: :boxed}
+        icon={elem(@section.empty, 0)}
+        title={elem(@section.empty, 1)}
+        text={elem(@section.empty, 2)}
+      >
+        <.add_button
+          :if={!@show_header}
+          noun={@noun}
+          myself={@myself}
+          expanded={false}
+          primary={true}
+        />
+      </Kit.empty>
       <.editor
         :if={@placement == :below}
         id={@id}
@@ -510,12 +539,13 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   attr(:noun, :string, required: true)
   attr(:myself, :any, required: true)
   attr(:expanded, :boolean, required: true, doc: "Whether the form for a new row is open")
+  attr(:primary, :boolean, default: false, doc: "The one action of an empty list")
 
   defp add_button(assigns) do
     ~H"""
     <button
       type="button"
-      class="ui-button secondary settings-editor-add"
+      class={["ui-button settings-editor-add", if(@primary, do: "primary", else: "secondary")]}
       phx-click="new-item"
       phx-target={@myself}
       aria-expanded={to_string(@expanded)}

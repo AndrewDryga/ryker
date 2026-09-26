@@ -53,11 +53,12 @@ defmodule Ryker.ControlPlane.RunningSystem do
 
   defp render(assigns) do
     ~H"""
-    <section id="code-editing" class="code-editing-setup" aria-label="Tasks that change code">
-      <Kit.section_head
-        title="Tasks that change code"
-        lede="Whether Ryker can run tasks that change code."
-      />
+    <Kit.section_card
+      id="code-editing"
+      class="code-editing-setup"
+      title="Tasks that change code"
+      lede="Whether Ryker can run tasks that change code."
+    >
       <p class="settings-state-line">
         <Kit.state
           tone={if @supported, do: :on, else: :bad}
@@ -95,13 +96,13 @@ defmodule Ryker.ControlPlane.RunningSystem do
           </p>
         </details>
       </div>
-    </section>
+    </Kit.section_card>
 
-    <section class="configuration-evidence" aria-label="What is running">
-      <Kit.section_head
-        title="What is running"
-        lede="What the running Ryker loaded, for support and troubleshooting."
-      />
+    <Kit.section_card
+      class="configuration-evidence"
+      title="What is running"
+      lede="What the running Ryker loaded, for support and troubleshooting."
+    >
       <details class="system-evidence">
         <summary>Show what is loaded</summary>
         <div class="configuration-values">
@@ -114,6 +115,8 @@ defmodule Ryker.ControlPlane.RunningSystem do
           <p class="settings-lede">Loaded from <code>{@source}</code>.</p>
           <Kit.empty
             :if={@groups == []}
+            variant={:hint}
+            icon={:settings}
             title="Nothing loaded"
             text="The running Ryker published no settings."
           />
@@ -139,6 +142,8 @@ defmodule Ryker.ControlPlane.RunningSystem do
           </p>
           <Kit.empty
             :if={@grants == []}
+            variant={:hint}
+            icon={:code}
             title="No tools"
             text="This installation names no tools."
           />
@@ -152,7 +157,7 @@ defmodule Ryker.ControlPlane.RunningSystem do
           </Kit.entity_list>
         </div>
       </details>
-    </section>
+    </Kit.section_card>
     """
   end
 

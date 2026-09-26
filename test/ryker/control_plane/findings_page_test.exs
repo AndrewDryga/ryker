@@ -121,7 +121,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
            )
            |> Enum.count() == 1
 
-    assert LazyHTML.query(document, ".entity-empty-title") |> LazyHTML.text() ==
+    assert LazyHTML.query(document, ".kit-empty-title") |> LazyHTML.text() ==
              "No findings match “absent”"
   end
 
@@ -139,7 +139,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     # classification ("Explained by evidence"), under a "How findings work"
     # disclosure and a separate count; the conclusion itself was body text.
     empty = render_stub(%{items: [], total: 0, page: 1, pages: 1})
-    assert outline(empty, "div.memory-view > *") == ["p.kit-counts", "div.entity-empty"]
+    assert outline(empty, "div.memory-view > *") == ["p.kit-counts", "div.kit-empty"]
 
     assert Enum.empty?(
              LazyHTML.query(empty, "h1, h2, details.page-help, p.result-count, a[href='/lab']")

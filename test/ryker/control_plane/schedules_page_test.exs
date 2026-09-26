@@ -278,8 +278,8 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
              "Try other words, or look under Current."}
           ] do
         page = Pages.page(["schedules"], params, %{projection: %{schedules: fn _ -> [] end}})
-        empty = page.body |> LazyHTML.from_fragment() |> LazyHTML.query(".entity-empty")
-        assert LazyHTML.query(empty, ".entity-empty-title") |> LazyHTML.text() == title
+        empty = page.body |> LazyHTML.from_fragment() |> LazyHTML.query(".kit-empty")
+        assert LazyHTML.query(empty, ".kit-empty-title") |> LazyHTML.text() == title
         assert LazyHTML.text(empty) =~ text
       end
     end
@@ -409,8 +409,8 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
 
     test "a schedule with no runs says when the first one is due" do
       document = detail(%{snapshot() | occurrences: []})
-      empty = LazyHTML.query(document, ".schedule-runs .entity-empty")
-      assert LazyHTML.query(empty, ".entity-empty-title") |> LazyHTML.text() == "No runs yet"
+      empty = LazyHTML.query(document, ".schedule-runs .kit-empty")
+      assert LazyHTML.query(empty, ".kit-empty-title") |> LazyHTML.text() == "No runs yet"
       assert LazyHTML.text(empty) =~ "The first run is due tomorrow 09:00."
     end
 

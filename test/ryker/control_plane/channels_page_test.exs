@@ -140,24 +140,24 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       # QA re-test, 2026-09-26: In use said "Ryker is not in any channel yet"
       # while All listed a channel. It says Ryker is in none now, and where
       # the others are.
-      assert LazyHTML.query(in_use, ".entity-empty-title") |> LazyHTML.text() ==
-               "Ryker is not in any channel now."
+      assert LazyHTML.query(in_use, ".kit-empty-title") |> LazyHTML.text() ==
+               "Ryker is not in any channel now"
 
-      assert LazyHTML.query(in_use, ".entity-empty") |> LazyHTML.text() =~ "/invite"
+      assert LazyHTML.query(in_use, ".kit-empty") |> LazyHTML.text() =~ "/invite"
 
-      assert LazyHTML.query(in_use, ".entity-empty") |> LazyHTML.text() =~
+      assert LazyHTML.query(in_use, ".kit-empty") |> LazyHTML.text() =~
                "Channels Ryker is not in are under All."
 
       all = render([], %{"show" => "all"})
-      assert LazyHTML.query(all, ".entity-empty-title") |> LazyHTML.text() == "No channels yet."
+      assert LazyHTML.query(all, ".kit-empty-title") |> LazyHTML.text() == "No channels yet"
 
       assert LazyHTML.query(all, "form.filter-toolbar input[type=search][disabled]")
              |> Enum.count() == 1
 
       miss = render([], %{"q" => "absent"})
 
-      assert LazyHTML.query(miss, ".entity-empty-title") |> LazyHTML.text() ==
-               "No channels match “absent”."
+      assert LazyHTML.query(miss, ".kit-empty-title") |> LazyHTML.text() ==
+               "No channels match “absent”"
 
       assert Enum.empty?(LazyHTML.query(miss, "form.filter-toolbar input[disabled]"))
     end

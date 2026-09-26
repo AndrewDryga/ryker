@@ -1033,7 +1033,6 @@
 /* Configuration pages */
 /* The eight remaining Configuration pages (approved 2026-09-09, slice 3) compose the shared shell — help, one toolbar, quiet count, content, related history — down one left edge with 24px between sections. Each body has one wrapper, so the framed-section rule that still boxes a record view (incident room, schedule, confirmation) never reaches these pages. Comparison tables are unframed: a 13px/18px header row, 15px cells, row lines only. */
 .memory-page, .findings-view, .configuration-evidence { max-width:1160px; min-width:0; }
-.ryker-app .empty-state { margin:0 0 24px; max-width:70ch; font-size:16px; line-height:1.5; color:var(--secondary); }
 /* Section headings inside a page body: smaller than the 28px title, 24px above, no panel. */
 .memory-page > section > h2, .configuration-evidence > section > h2 { font-size:20px; line-height:1.3; letter-spacing:-.3px; margin:0 0 8px; color:var(--ink); }
 .memory-page section, .configuration-evidence section { margin:24px 0 0; }
@@ -1707,16 +1706,14 @@
 .section-head { position:static; top:auto; z-index:auto; display:flex; align-items:flex-end; gap:16px; max-width:1040px; margin:32px 0 8px; padding:0; border:0; background:none; backdrop-filter:none; }
 .ryker-app .section-head h2 { margin:0; font-size:16px; line-height:24px; font-weight:600; }
 .section-head p { margin:2px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); max-width:720px; }
-.section-actions { margin-left:auto; display:flex; gap:8px; }
+/* The title and its sentence wrap; the controls beside them keep their width. */
+.section-actions { flex:none; margin-left:auto; display:flex; gap:8px; }
 /* A segmented control is a <nav>; the global nav spacing must not reach it. */
 .segmented { display:inline-flex; flex-wrap:nowrap; gap:0; margin:0; border:1px solid var(--ryker-stroke); border-radius:8px; overflow:hidden; }
 .segmented a { display:inline-flex; align-items:center; min-height:calc(var(--ryker-control-height) - 2px); padding:0 12px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); white-space:nowrap; }
 .segmented a + a { border-left:1px solid var(--ryker-stroke); }
 .segmented a[aria-current] { background:var(--ryker-surface-emphasis); color:var(--ryker-text); font-weight:600; }
 .ryker-app .segmented a:hover { color:var(--ryker-text); text-decoration:none; }
-.entity-empty { max-width:720px; padding:8px 0 16px; }
-.entity-empty p { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
-.ryker-app .entity-empty .entity-empty-title { color:var(--ryker-text); font-weight:600; margin-bottom:4px; }
 @media (max-width:800px) {
   .entity-row { grid-template-columns:[icon] auto [body] minmax(0,1fr) [side] auto; align-items:start; }
   .entity-icon { width:32px; height:32px; margin-right:12px; }
@@ -1951,7 +1948,7 @@
 .ryker-app .settings-page .ui-button { min-height:36px; padding:7px 14px; border-radius:8px; font-size:13px; line-height:20px; }
 /* A form, list of people or block of text under a section title gets the
    same breathing room a list's first row has. */
-.settings-page .section-head + :is(.settings-form, .settings-editor, .settings-people, .settings-people-form, .settings-disclosure, .copy-block, .settings-lede, .settings-state-line, .settings-problem) { margin-top:16px; }
+.settings-page .section-head + :is(.settings-form, .settings-editor, .settings-people-form, .settings-disclosure, .copy-block, .settings-lede, .settings-state-line, .settings-problem) { margin-top:16px; }
 .settings-lede a, .settings-notice a { color:var(--ryker-text); text-decoration:underline; text-decoration-color:var(--ryker-stroke-strong); text-underline-offset:3px; }
 .settings-lede code, .settings-problem code { font-size:13px; }
 
@@ -2047,8 +2044,6 @@
 .ryker-app .settings-address { display:flex; align-items:center; flex-wrap:wrap; gap:4px 8px; margin:6px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .settings-address code { font:12px/18px var(--ryker-font-mono); color:var(--ryker-text); overflow-wrap:anywhere; }
 
-.settings-people { display:flex; align-items:center; flex-wrap:wrap; gap:12px 16px; max-width:1040px; }
-.settings-people > p { flex:1 1 320px; margin:0; font-size:14px; line-height:20px; color:var(--ryker-text); }
 .settings-people-form { display:grid; gap:16px; max-width:720px; }
 .settings-people-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:0 16px; max-height:360px; overflow:auto; }
 .settings-manage { display:grid; gap:20px; max-width:720px; }
@@ -2086,6 +2081,8 @@
   .ryker-app .native-page > .settings-page { padding:20px 16px 40px; }
   .settings-page .section-head { flex-wrap:wrap; align-items:flex-start; }
   .settings-page .section-actions { margin-left:0; }
+  /* The connection's words keep the card's width; its action goes under them. */
+  .settings-connection { flex-direction:column; align-items:flex-start; gap:12px; }
 }
 
 /* Environments (2026-09-25): an environment's repositories in order, as rows
@@ -2227,7 +2224,6 @@
 .ryker-app .entity-meta a { color:var(--ryker-text); font-weight:500; }
 .ryker-app .section-actions > a:not(.ui-button) { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .ryker-app .section-actions > a:not(.ui-button):hover { color:var(--ryker-text); }
-.entity-empty .ui-button { margin-top:12px; }
 .ryker-app .kit-status-line { display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; max-width:1040px; margin:-16px 0 20px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .kit-status-line .state-word:is([data-tone=on], [data-tone=busy], [data-tone=off]), .kit-facts .state-word:is([data-tone=on], [data-tone=busy], [data-tone=off]) { color:var(--ryker-text); }
 .ryker-app :is(.kit-status-line, .kit-facts dd) a { color:var(--ryker-text); text-decoration:underline; text-decoration-color:color-mix(in srgb, var(--ryker-text) 30%, transparent); text-underline-offset:3px; }
@@ -2238,6 +2234,48 @@
 .ryker-app .kit-facts dt, .ryker-app .kit-facts dd { margin:0; padding:0; border:0; }
 .ryker-app .kit-facts dt { font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
 .ryker-app .kit-facts dd { font-size:14px; line-height:20px; color:var(--ryker-text); overflow-wrap:anywhere; }
+/* Kit: the empty state (Andrew, 2026-09-26: an empty table that is a bold
+   line and a grey line reads as more text, and "you can't tell it's an empty
+   state without reading it all"). The portal's empty state: an icon for what
+   would be there, a title, one sentence and the action that fills it,
+   centred. Boxed is an empty page, list or table in a dashed box; hint is an
+   empty part of a longer page in a smaller one; bare draws no box inside a
+   frame that already holds it. */
+.kit-empty { box-sizing:border-box; max-width:1040px; text-align:center; }
+.kit-empty[data-variant=boxed] { margin-top:16px; padding:48px 24px; border:1px dashed var(--ryker-stroke); border-radius:12px; background:color-mix(in srgb, var(--ryker-surface-sunken) 40%, transparent); }
+.kit-empty[data-variant=hint] { padding:24px; border:1px dashed var(--ryker-stroke); border-radius:8px; }
+.kit-empty[data-variant=bare] { max-width:448px; margin:0 auto; padding:8px 0; }
+.kit-empty-icon { display:flex; justify-content:center; color:var(--ryker-stroke-strong); }
+.kit-empty-icon .ui-icon { width:40px; height:40px; stroke-width:1.4; }
+.kit-empty[data-variant=hint] .kit-empty-icon .ui-icon { width:24px; height:24px; stroke-width:1.6; }
+.kit-empty[data-variant=bare] .kit-empty-icon .ui-icon { width:32px; height:32px; }
+.ryker-app .kit-empty-title { margin:16px 0 0; font-size:16px; line-height:24px; font-weight:600; color:var(--ryker-text); }
+.ryker-app .kit-empty-text { max-width:512px; margin:8px auto 0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
+.ryker-app .kit-empty:is([data-variant=hint], [data-variant=bare]) .kit-empty-title { margin-top:10px; font-size:14px; line-height:20px; }
+.ryker-app .kit-empty:is([data-variant=hint], [data-variant=bare]) .kit-empty-text { margin-top:2px; font-size:13px; line-height:20px; }
+.kit-empty-actions { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin-top:24px; }
+.kit-empty:is([data-variant=hint], [data-variant=bare]) .kit-empty-actions { margin-top:16px; }
+/* Kit: one part of a long page in its own card (Andrew, 2026-09-26:
+   Integrations › Slack and a channel's page read as "a huge blob of text";
+   "we need some vertical rhythm"). As on the portal's settings: a rounded,
+   bordered card per part with its title, one sentence, its controls and
+   their actions, 24px inside and 24px between cards. A form's closing
+   actions sit under a hairline across the card, as in the portal's policy
+   editor, so a card's controls read apart from what saves them. */
+.kit-card { box-sizing:border-box; max-width:1040px; min-width:0; margin:24px 0 0; padding:24px; border:1px solid var(--ryker-stroke); border-radius:12px; background:var(--ryker-surface-raised); }
+.ryker-app .kit-card > .section-head { margin:0 0 20px; align-items:flex-start; }
+.ryker-app .kit-card > .section-head p { font-size:14px; line-height:20px; }
+.kit-card > :first-child { margin-top:0; }
+.kit-card > :last-child { margin-bottom:0; }
+.kit-card :is(.settings-form, .settings-editor, .settings-editor > form), .kit-card > :is(.settings-notice, .settings-confirm) { max-width:none; }
+.kit-card form > .settings-actions:last-child { padding-top:20px; border-top:1px solid var(--ryker-stroke); }
+@media (max-width:600px) {
+  .kit-card { padding:16px; border-radius:10px; }
+  /* A card's controls go under its title rather than squeeze it. */
+  .ryker-app .kit-card > .section-head { flex-wrap:wrap; }
+  .kit-card > .section-head > .section-actions { margin-left:0; }
+  .kit-empty[data-variant=boxed] { padding:32px 16px; }
+}
 @media (max-width:800px) {
   .kit-toolbar > .filter-toolbar { flex:1 1 100%; }
   .kit-toolbar > .filter-toolbar .search-field { flex:1 1 240px; width:auto; }
@@ -2576,7 +2614,7 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .incident-room-now-state .state-word[data-tone=warn] { background:var(--ryker-warning-soft); color:var(--ryker-warning); }
 .ryker-app .incident-room-now-text { max-width:760px; margin:12px 0 0; font-size:17px; line-height:26px; color:var(--ryker-text); white-space:pre-line; overflow-wrap:anywhere; }
 .ryker-app .incident-room-now-note { max-width:720px; margin:10px 0 0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
-.incident-room-now > .entity-empty { padding:8px 0 0; }
+.incident-room-now > .kit-empty { margin-top:12px; }
 /* "Open the timeline" stays one phrase beside a lede that wraps. */
 .incident-room-view .section-actions > a { white-space:nowrap; }
 /* A record's words keep their line breaks; a long one shows three lines until opened. */

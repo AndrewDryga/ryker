@@ -122,13 +122,17 @@ defmodule Ryker.ControlPlane.WebhookPreview do
   @impl true
   def render(assigns) do
     ~H"""
-    <section id={@id} class="webhook-preview" aria-label="Check a payload">
+    <%!-- A card on the Webhooks page; a live component's root must be a
+    plain tag, so the root carries the Kit card. --%>
+    <section id={@id} class="kit-card webhook-preview" aria-label="Check a payload">
       <Kit.section_head
         title="Check a payload"
         lede="Paste one delivery to see the event Ryker would record. Nothing is saved or sent."
       />
       <Kit.empty
         :if={sources(@view) == []}
+        variant={:hint}
+        icon={:code}
         title="Nothing to check yet"
         text="Add a webhook source first, then paste one of its deliveries here."
       />

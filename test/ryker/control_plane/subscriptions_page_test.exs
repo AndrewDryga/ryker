@@ -276,8 +276,8 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
            "Try other words, or look under Past."}
         ] do
       page = Pages.page(["follow-ups"], params, %{projection: %{subscriptions: fn _ -> [] end}})
-      empty = page.body |> LazyHTML.from_fragment() |> LazyHTML.query(".entity-empty")
-      assert LazyHTML.query(empty, ".entity-empty-title") |> LazyHTML.text() == title
+      empty = page.body |> LazyHTML.from_fragment() |> LazyHTML.query(".kit-empty")
+      assert LazyHTML.query(empty, ".kit-empty-title") |> LazyHTML.text() == title
       assert LazyHTML.text(empty) =~ text
     end
   end
