@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.RequestPage do
           <p class="ui-eyebrow">THE MODEL'S DESK</p><h2>What the model received</h2><p>
             Read the retained request, then follow the response through host validation.
           </p>
-        </div><span class="ui-label">SECRETS REDACTED</span>
+        </div>
       </div>
       <div class="inspector-layout">
         <aside class="request-directory">
@@ -438,7 +438,6 @@ defmodule Ryker.ControlPlane.RequestPage do
     [
       kind,
       response_size(response.bytes),
-      response.redacted && "Secrets redacted",
       response.truncated && "Display truncated"
     ]
     |> Enum.reject(&(&1 in [nil, false]))
@@ -564,6 +563,5 @@ defmodule Ryker.ControlPlane.RequestPage do
 
   defp artifact_label(%{state: :expired}), do: "Expired"
   defp artifact_label(%{state: :not_recorded}), do: "Not recorded"
-  defp artifact_label(%{redacted: true}), do: "Retained · redacted"
   defp artifact_label(_), do: "Retained"
 end

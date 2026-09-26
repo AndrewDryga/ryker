@@ -100,7 +100,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
                   {Phoenix.HTML.raw(source.html)}
                 </div>
                 <details :if={source.expanded}>
-                  <summary>Read full message · secrets redacted</summary>
+                  <summary>Read full message</summary>
                   <div class="relearn-full-message markdown-preview">
                     {Phoenix.HTML.raw(source.html)}
                   </div>

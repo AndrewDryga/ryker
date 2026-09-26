@@ -135,6 +135,19 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     assert normalized =~ "Terraform plan"
   end
 
+  test "a raw input that carried a credential shows it removed, with no secrets disclaimer" do
+    # Andrew, 2026-09-26: no "Secrets redacted" disclaimers anywhere. The raw
+    # body's summary said so beside its size; the value is still removed.
+    envelope = Map.put(@envelope, "token", "slack-verification-token-value")
+    {entry, episode} = admitted!(source_envelope: envelope)
+    html = rendered(episode, ["input-#{entry.id}-raw"])
+    raw = LazyHTML.from_document(html) |> LazyHTML.query("#input-raw-#{entry.id}")
+
+    assert raw |> LazyHTML.query("pre") |> LazyHTML.text() =~ "[redacted]"
+    refute html =~ "slack-verification-token-value"
+    refute LazyHTML.text(raw) =~ ~r/secrets redacted/i
+  end
+
   test "an input recorded without an envelope says the raw record is absent" do
     {entry, episode} = admitted!([])
     html = rendered(episode, ["input-#{entry.id}-raw"])

@@ -302,7 +302,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       id,
       path,
       artifact.text,
-      {title, "policy", nil, submitted_provenance(id, artifact)},
+      {title, "policy", nil, nil},
       case artifact.state do
         :retained when id == "request" -> PromptDocument.render(artifact, prefix <> "-document")
         :retained -> PromptDocument.formatted(artifact)
@@ -319,11 +319,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       revoked: artifact.state in [:expired, :not_recorded]
     )
   end
-
-  defp submitted_provenance("request", %{redacted: true}),
-    do: "Sensitive values are hidden in this view."
-
-  defp submitted_provenance(_id, _artifact), do: nil
 
   defp artifact_availability(%{state: :expired}), do: "Expired"
   defp artifact_availability(%{state: :not_recorded}), do: "Not recorded"

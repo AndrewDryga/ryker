@@ -293,7 +293,6 @@
 .inspector-intro { display:flex; justify-content:space-between; align-items:start; gap:30px; margin:20px 0 27px; }
 .inspector-intro h2 { font-size:24px; font-weight:500; color:var(--ryker-text-secondary); letter-spacing:-.6px; margin:0 0 10px; }
 .inspector-intro p:not(.ui-eyebrow) { color:var(--ryker-text-secondary); font-size:14px; margin-bottom:0; }
-.inspector-intro .ui-label { flex-shrink:0; margin-top:5px; }
 .inspector-layout { display:grid; grid-template-columns:190px minmax(0,1fr); border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface-raised); overflow:hidden; }
 .request-directory { background:var(--ryker-surface-raised); border-right:1px solid var(--ryker-stroke); padding:0 14px 20px; }
 .request-directory .ui-tabs { justify-content:space-around; border-bottom:1px solid var(--ryker-stroke); gap:15px; }
@@ -331,7 +330,7 @@
 .readable-model-context .context-field h4 { color:var(--ryker-text-secondary); }
 .readable-model-context pre { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
 @media (max-width:1000px) { .episode-workbench { padding:25px; } }
-@media (max-width:640px) { .episode-workbench { padding:20px; } .episode-title-row { flex-direction:column; gap:0; } .episode-title-row h1 { font-size:23px; } .episode-title-actions { justify-content:flex-start; margin-bottom:12px; } .inspector-layout { grid-template-columns:1fr; } .request-directory { display:flex; flex-wrap:wrap; gap:8px; border-bottom:1px solid var(--ryker-stroke); border-right:0; padding:14px; } .request-directory .ui-tabs { width:100%; justify-content:start; } .request-directory .request-count { width:100%; margin:5px 0 0; } .request-directory-item { margin:0; padding:10px; } .request-reader { padding:17px; } .inspector-intro .ui-label { display:none; } .model-document-text { padding:15px; font-size:14px; } }
+@media (max-width:640px) { .episode-workbench { padding:20px; } .episode-title-row { flex-direction:column; gap:0; } .episode-title-row h1 { font-size:23px; } .episode-title-actions { justify-content:flex-start; margin-bottom:12px; } .inspector-layout { grid-template-columns:1fr; } .request-directory { display:flex; flex-wrap:wrap; gap:8px; border-bottom:1px solid var(--ryker-stroke); border-right:0; padding:14px; } .request-directory .ui-tabs { width:100%; justify-content:start; } .request-directory .request-count { width:100%; margin:5px 0 0; } .request-directory-item { margin:0; padding:10px; } .request-reader { padding:17px; } .model-document-text { padding:15px; font-size:14px; } }
 
 /* Conversations: a readable directory beside the conversation, no runtime rail.
    Directory 340–380px by viewport (360px on a wide desktop), same on the index and an
