@@ -6,6 +6,8 @@ defmodule Ryker.IntegrationSetup do
   encrypted custody. Returned documents contain identities and status only.
   """
 
+  require Logger
+
   alias Ryker.Credentials
   alias Ryker.Delivery.JSONClient
   alias Ryker.Emisar.Approvals
@@ -145,7 +147,7 @@ defmodule Ryker.IntegrationSetup do
       )
       |> case do
         {:ok, repositories} ->
-          known = MapSet.new(snapshot.repositories, & &1.github_repository)
+          known = set_up_repositories(snapshot)
 
           {:ok,
            repositories
@@ -164,6 +166,17 @@ defmodule Ryker.IntegrationSetup do
       {:error, _reason} = error -> error
       _invalid -> {:error, {:github_verification_failed, :installations}}
     end
+  end
+
+  # A repository saved without its GitHub binding is not set up, so the picker
+  # offers it again and adding it finishes it.
+  defp set_up_repositories(snapshot) do
+    bound = MapSet.new(snapshot.github_bindings, & &1.repository_ref)
+
+    for repository <- snapshot.repositories,
+        MapSet.member?(bound, repository.ref),
+        into: MapSet.new(),
+        do: repository.github_repository
   end
 
   defp repositories_for_installations(installations, app_http, api_url, options) do
@@ -185,31 +198,45 @@ defmodule Ryker.IntegrationSetup do
           import_repository(repository, ryker_actor_id, totals)
         end)
 
-      if added != [] or Keyword.has_key?(options, :auto_add_repositories) do
-        latest = Settings.fetch!()
-
-        _ =
-          Settings.save_github(
-            %{
-              enabled: true,
-              auto_add_repositories:
-                Keyword.get(
-                  options,
-                  :auto_add_repositories,
-                  latest.github.auto_add_repositories
-                )
-            },
-            latest.installation.revision,
-            @actor
-          )
+      with :ok <- switch_github_on(added, options) do
+        {:ok,
+         %{
+           added: Enum.reverse(added),
+           already_present: Enum.reverse(present),
+           failed: Enum.reverse(failed)
+         }}
       end
+    end
+  end
 
-      {:ok,
-       %{
-         added: Enum.reverse(added),
-         already_present: Enum.reverse(present),
-         failed: Enum.reverse(failed)
-       }}
+  # Adding a repository is what switches GitHub on. The save used to be
+  # ignored: on 2026-09-26 it did not happen, and GitHub read "Add a repository
+  # to start" with two repositories added. It is written against the current
+  # settings, and a refusal is the import's answer.
+  defp switch_github_on(added, options) do
+    if added != [] or Keyword.has_key?(options, :auto_add_repositories) do
+      auto_add =
+        Keyword.get_lazy(options, :auto_add_repositories, fn ->
+          Settings.fetch!().github.auto_add_repositories
+        end)
+
+      case Settings.save_github(
+             %{enabled: true, auto_add_repositories: auto_add},
+             :current,
+             @actor
+           ) do
+        {:ok, _snapshot} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "GitHub was not switched on after adding repositories: #{inspect(reason)}"
+          )
+
+          {:error, {:github_not_switched_on, reason}}
+      end
+    else
+      :ok
     end
   end
 
@@ -744,61 +771,78 @@ defmodule Ryker.IntegrationSetup do
 
   defp import_repository(repository, ryker_actor_id, {added, present, failed}) do
     full_name = repository_value(repository, :full_name)
-    existing = Enum.find(Settings.fetch!().repositories, &(&1.github_repository == full_name))
+    snapshot = Settings.fetch!()
+    existing = Enum.find(snapshot.repositories, &(&1.github_repository == full_name))
 
-    if existing do
+    if existing && Enum.any?(snapshot.github_bindings, &(&1.repository_ref == existing.ref)) do
       {added, [full_name | present], failed}
     else
-      case persist_repository(repository, ryker_actor_id) do
+      case persist_repository(repository, ryker_actor_id, existing) do
         :ok ->
           {[full_name | added], present, failed}
 
         {:error, reason} ->
+          Logger.warning("repository #{full_name} was not added: #{inspect(reason)}")
           {added, present, [%{repository: full_name, reason: reason} | failed]}
       end
     end
   rescue
-    _error ->
+    error ->
       name = repository_value(repository, :full_name) || "unknown"
+      Logger.warning("repository #{name} was not added: #{Exception.message(error)}")
       {added, present, [%{repository: name, reason: :invalid_repository} | failed]}
   end
 
-  defp persist_repository(repository, ryker_actor_id) do
+  # The repository, its GitHub binding and its place in the default
+  # environment are one change: they commit together or not at all. Saved
+  # one by one, a failure between them left AndrewDryga/andrewdryga.github.com
+  # saved without a binding on 2026-09-26, "Waiting to start" for good. A
+  # repository saved half-way before is finished here instead of added again.
+  defp persist_repository(repository, ryker_actor_id, existing) do
     full_name = repository_value(repository, :full_name)
-    ref = repository_ref(full_name)
+    ref = if existing, do: existing.ref, else: repository_ref(full_name)
 
-    with {:ok, snapshot} <- Settings.fetch(),
-         {:ok, _snapshot} <-
-           Settings.put_repository(
-             %{
-               ref: ref,
-               display_name: full_name,
-               github_repository: full_name,
-               base_branch: repository_value(repository, :default_branch)
-             },
-             snapshot.installation.revision,
-             @actor
-           ),
-         {:ok, snapshot} <- Settings.fetch(),
-         {:ok, _snapshot} <-
-           Settings.put_github_binding(
-             %{
-               name: ref,
-               repository_ref: ref,
-               installation_id: repository_value(repository, :installation_id),
-               repository_id: repository_value(repository, :repository_id),
-               ryker_actor_id: ryker_actor_id,
-               action_grants: github_action_grants(repository_value(repository, :permissions)),
-               granted_permissions:
-                 normalize_github_permissions(repository_value(repository, :permissions))
-             },
-             snapshot.installation.revision,
-             @actor
-           ),
-         {:ok, _snapshot} <- join_default_environment(ref) do
-      :ok
+    Settings.atomically(fn ->
+      with {:ok, _snapshot} <- put_imported_repository(existing, ref, repository),
+           {:ok, _snapshot} <-
+             Settings.put_github_binding(
+               %{
+                 name: ref,
+                 repository_ref: ref,
+                 installation_id: repository_value(repository, :installation_id),
+                 repository_id: repository_value(repository, :repository_id),
+                 ryker_actor_id: ryker_actor_id,
+                 action_grants: github_action_grants(repository_value(repository, :permissions)),
+                 granted_permissions:
+                   normalize_github_permissions(repository_value(repository, :permissions))
+               },
+               :current,
+               @actor
+             ),
+           do: join_default_environment(ref)
+    end)
+    |> case do
+      {:ok, _snapshot} -> :ok
+      {:error, _reason} = error -> error
     end
   end
+
+  defp put_imported_repository(nil, ref, repository) do
+    full_name = repository_value(repository, :full_name)
+
+    Settings.put_repository(
+      %{
+        ref: ref,
+        display_name: full_name,
+        github_repository: full_name,
+        base_branch: repository_value(repository, :default_branch)
+      },
+      :current,
+      @actor
+    )
+  end
+
+  defp put_imported_repository(_existing, _ref, _repository), do: {:ok, :kept}
 
   @doc false
   def github_action_grants(permissions) do
