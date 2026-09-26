@@ -1996,13 +1996,22 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     }
   end
 
+  # Where it went, in one line: the place a person can open, not "the alert
+  # thread the room was opened from".
   defp room_reply(%{incident_room: %{reply: :moved, channel_name: name}} = row, now) do
     story = delivery(row, now)
 
     moved =
-      "It was written for the incident room ##{name}, which was deleted in Slack, so Ryker posts it in the alert thread the room was opened from instead."
+      "Moved from the incident room ##{name}, which was deleted in Slack, to the alert thread#{alert_thread_words(row)}."
 
     %{story | happened: List.insert_at(story.happened, 1, moved)}
+  end
+
+  defp alert_thread_words(row) do
+    case place_words(row) do
+      "" -> " the room was opened from"
+      words -> words
+    end
   end
 
   # --- Approvals -------------------------------------------------------------

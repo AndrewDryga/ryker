@@ -191,12 +191,12 @@ defmodule Ryker.State.BehaviorsTest do
              1
 
     assert BehaviorLibrary.list(:standing_assignment, %{"page" => "oops"}).page == 1
-    assert BehaviorLibrary.list(:standing_assignment, %{"status" => "past"}).items == []
+    assert BehaviorLibrary.list(:standing_assignment, %{"view" => "past"}).items == []
     assert %{items: [%{status: "disabled"}]} = BehaviorLibrary.list(:preference, %{})
     assert %{items: [], counts: %{"expired" => 1}} = BehaviorLibrary.list(:guidance, %{})
 
     assert %{items: [%{status: "expired"}]} =
-             BehaviorLibrary.list(:guidance, %{"status" => "past"})
+             BehaviorLibrary.list(:guidance, %{"view" => "past"})
 
     # An unknown view is Current, never everything.
     assert %{items: []} = BehaviorLibrary.list(:guidance, %{"status" => "all"})
@@ -214,12 +214,12 @@ defmodule Ryker.State.BehaviorsTest do
     assert %{items: []} = BehaviorLibrary.list(saved, %{"show" => "guidance"})
 
     assert %{items: [%{kind: :guidance, status: "expired"}]} =
-             BehaviorLibrary.list(saved, %{"show" => "guidance", "status" => "past"})
+             BehaviorLibrary.list(saved, %{"show" => "guidance", "view" => "past"})
 
     assert %{items: [], params: %{"show" => "all"}} =
              BehaviorLibrary.list(:standing_assignment, %{
                "show" => "guidance",
-               "status" => "past"
+               "view" => "past"
              })
 
     assert Repo.get!(Behavior, guidance.behavior.id).status == :active

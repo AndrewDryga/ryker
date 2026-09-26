@@ -65,7 +65,8 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
 
   @doc """
   One page of confirmed entries of `kinds` (one kind or several) for a page's
-  query `params`: "status" is current (the default) or past, "q" searches
+  query `params`: "view" is current (the default) or past, as on Schedules
+  and Follow-ups, "q" searches
   their stored text, "show" narrows several kinds to one of them
   ("preferences" or "guidance"), and "page" pages. `counts` holds every
   status of the shown kinds before search, so an empty page can tell "nothing
@@ -82,12 +83,12 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
       Repo.all(from(b in subquery(base), group_by: b.status, select: {b.status, count(b.id)}))
       |> Map.new()
 
-    status = if params["status"] == "past", do: "past", else: "current"
+    view = if params["view"] == "past", do: "past", else: "current"
     q = params |> scalar("q") |> String.trim() |> String.slice(0, 160)
 
     filtered =
       from(b in subquery(base))
-      |> filter_status(status)
+      |> filter_status(view)
       |> filter_search(q)
 
     page = PagedRelation.read(filtered, [desc: :updated_at, desc: :id], "page", params)
@@ -100,7 +101,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
       page: page.page,
       pages: page.pages,
       runs: if(kinds == [:standing_assignment], do: runs(page.items), else: []),
-      params: %{"status" => status, "q" => q, "show" => show}
+      params: %{"view" => view, "q" => q, "show" => show}
     }
   end
 

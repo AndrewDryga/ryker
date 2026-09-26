@@ -271,7 +271,7 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
 
   defp rules do
     view = %{
-      params: %{"q" => "", "status" => "current"},
+      params: %{"q" => "", "view" => "current"},
       counts: %{},
       items: [],
       page: 1,

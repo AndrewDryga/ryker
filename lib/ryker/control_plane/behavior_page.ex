@@ -22,7 +22,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       assign(assigns,
         now: assigns[:now] || DateTime.utc_now(),
         q: assigns.view.params["q"] || "",
-        past: assigns.view.params["status"] == "past"
+        past: assigns.view.params["view"] == "past"
       )
 
     ~H"""
@@ -35,14 +35,14 @@ defmodule Ryker.ControlPlane.BehaviorPage do
           placeholder="Search rules"
           query={@q}
           filtered={@q != ""}
-          hidden={if @past, do: [{"status", "past"}], else: []}
+          hidden={if @past, do: [{"view", "past"}], else: []}
           clear={rules_url(@view, q: "")}
         />
         <Kit.segmented
           label="Show current or past rules"
           options={[
-            {"Current", rules_url(@view, status: "current"), !@past},
-            {"Past", rules_url(@view, status: "past"), @past}
+            {"Current", rules_url(@view, view: "current"), !@past},
+            {"Past", rules_url(@view, view: "past"), @past}
           ]}
         />
       </Kit.toolbar>
@@ -158,8 +158,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
           <Kit.segmented
             label="Show current or past entries"
             options={[
-              {"Current", saved_url(@saved, status: "current"), @saved.params["status"] != "past"},
-              {"Past", saved_url(@saved, status: "past"), @saved.params["status"] == "past"}
+              {"Current", saved_url(@saved, view: "current"), @saved.params["view"] != "past"},
+              {"Past", saved_url(@saved, view: "past"), @saved.params["view"] == "past"}
             ]}
           />
         </Kit.toolbar>
@@ -482,7 +482,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp rules_empty(%{params: params, counts: counts}) do
     cond do
       counts == %{} -> "No rules yet"
-      params["status"] == "past" -> "No past rules"
+      params["view"] == "past" -> "No past rules"
       true -> "No rules are on or paused"
     end
   end
@@ -494,7 +494,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       counts == %{} ->
         "A rule shows up here once someone asks Ryker for one and confirms it."
 
-      params["status"] == "past" ->
+      params["view"] == "past" ->
         "Rules show up here after they expire, are deleted or are replaced."
 
       true ->
@@ -513,7 +513,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     cond do
       counts == %{} and params["show"] == "all" -> "Nothing saved yet"
       counts == %{} -> "No #{noun} yet"
-      params["status"] == "past" -> "No past #{noun}"
+      params["view"] == "past" -> "No past #{noun}"
       true -> "No current #{noun}"
     end
   end
@@ -523,7 +523,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       counts == %{} ->
         "Entries show up here once someone asks Ryker to remember one and confirms it."
 
-      params["status"] == "past" ->
+      params["view"] == "past" ->
         "Entries show up here after they expire, are deleted or are replaced."
 
       true ->
@@ -532,10 +532,10 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   end
 
   defp rules_url(view, changes),
-    do: url("/rules", Map.take(view.params, ["q", "status"]), changes, "")
+    do: url("/rules", Map.take(view.params, ["q", "view"]), changes, "")
 
   defp saved_url(view, changes),
-    do: url("/instructions", Map.take(view.params, ["show", "status"]), changes, "#saved")
+    do: url("/instructions", Map.take(view.params, ["show", "view"]), changes, "#saved")
 
   # A shareable address holding only what differs from the page's defaults.
   # Changing a filter starts again at page one.
@@ -544,7 +544,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       params
       |> Map.merge(Map.new(changes, fn {key, value} -> {Atom.to_string(key), value} end))
       |> Enum.reject(fn {key, value} ->
-        value in [nil, "", 1] or {key, value} in [{"status", "current"}, {"show", "all"}]
+        value in [nil, "", 1] or {key, value} in [{"view", "current"}, {"show", "all"}]
       end)
       |> Enum.sort()
       |> URI.encode_query()

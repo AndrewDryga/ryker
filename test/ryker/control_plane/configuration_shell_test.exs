@@ -190,7 +190,7 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
             page: 1,
             pages: 1,
             runs: [],
-            params: %{"q" => params["q"] || "", "scope" => "", "status" => "current"}
+            params: %{"q" => params["q"] || "", "scope" => "", "view" => "current"}
           }
         end,
         schedules: fn _params -> [] end,

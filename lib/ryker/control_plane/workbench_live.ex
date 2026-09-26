@@ -1014,7 +1014,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     saved =
       options.projection.behaviors.(
         [:preference, :guidance],
-        Map.take(socket.assigns.params, ["show", "status", "page"])
+        Map.take(socket.assigns.params, ["show", "view", "page"])
       )
 
     assign(socket,
