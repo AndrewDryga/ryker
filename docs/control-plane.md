@@ -317,19 +317,32 @@ help, written for someone who has never seen Ryker, as a title and two to five
 short sections (what the page shows, what can be done there, how Ryker uses it,
 what to do when something looks wrong, and how to ask Ryker in chat or Slack
 where that applies). `ControlPlane.PageHelp` keys the help by route and the
-shell renders it once per page as one `<aside class="page-help">` holding a
-`<details>` headed "How this page works". `PageHelpTest` fails on a routed page
-without help, on help that outlives its page, and on Ryker's internal words
-("episode", "custody", "digest", …) in the help.
+shell renders it once per page as one `<aside id="page-help">`, with no
+collapsible heading, and one quiet 44px button at the top right of the page
+(a question mark; a cross while the help shows) that shows or hides all of it.
+`PageHelpTest` fails on a routed page without help, on help that outlives its
+page, and on Ryker's internal words ("episode", "custody", "digest", …) in the
+help.
 
-From 1600px wide the help is a sticky 272px column at the right of the page,
-open, and the page keeps its own width beside it; below that it is a quiet
-disclosure above the page, closed until the reader opens it. `page-help.mjs`
-opens it when the page loads wide or the window is widened past 1600px, keeps
-the reader's choice across live updates, and never closes it. The panel replaced
-the one-line how-to hints that sat under a few lists ("To open one, ask Ryker in
-the alert's Slack thread…"): no page explains itself in its body, while an empty
-state still says what would put something in the list.
+From 1280px wide the help is a sticky 272px column at the right of the page and
+the page keeps its own width beside it; hidden, the page takes the full width.
+Below 1280px it opens as a panel over the page from the right edge, the whole
+screen on a phone, and the same button (or Escape) closes it. From 801px every
+page keeps a 64px gutter at its right edge for the button, so it never covers a
+page's own actions; on a phone it sits in the top bar, opposite the mark.
+
+The browser remembers the choice in localStorage, separately for the wide
+layout and the narrow one, so hiding the column on a laptop never covers a
+phone's page with help; a first visit shows it on a wide screen and keeps it
+closed on a narrow one. The state is `data-page-help` on `<html>`, outside
+anything LiveView patches, so it holds across live navigation.
+`page-help-early.js`, a classic script in the root layout's `<head>`, sets it
+from the stored choice before the first paint, so the page never flashes the
+other way; `page-help.mjs` owns the button and keeps its label through live
+updates. The panel replaced the one-line how-to hints that sat under a few lists
+("To open one, ask Ryker in the alert's Slack thread…"): no page explains itself
+in its body, while an empty state still says what would put something in the
+list.
 
 ## Why this exists
 
@@ -879,9 +892,13 @@ its assessor could not start.
 without Slack. It is an ordinary way to use the same agent: enter here, receive
 replies here, inspect the exact execution from each message. The page is a
 directory of retained conversations (grouped by recency, times in UTC) beside
-the conversation. The index is an empty draft: its composer is bound to a fresh
+the conversation; each row says where the conversation stands and, once any
+environment exists, the environment it works in (the one its head shows, or "No
+environment"). The index is an empty draft: its composer is bound to a fresh
 identity and nothing is written until the first message, after which the browser
-opens that conversation; `New` in the directory header returns to the index. The
+opens that conversation; `New` in the directory header returns to the index. A
+draft is not a conversation yet: it has no title and no row, and its head holds
+only the environment select, when there is an environment to choose. The
 composer sits at the bottom of the conversation column in both, a hint line's
 height above the window's edge, so the first message does not move it; the index
 shows the ten authored examples in the free space above it, in quiet columns

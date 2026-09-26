@@ -106,6 +106,28 @@ defmodule Ryker.ControlPlane.UpdatesTest do
              "conversations"
   end
 
+  # Andrew, 2026-09-26: every row of the Chat list names the environment its
+  # conversation works in. The choice lives in control_plane_conversations
+  # and the names in environment_settings, and neither refreshed Chat: a row
+  # kept the old environment beside a head showing the new one until the
+  # next five-second reconcile, and so did every other open tab.
+  test "a conversation's environment and a renamed environment refresh the Chat list" do
+    for table <- ~w(control_plane_conversations environment_settings) do
+      state = %{connection: self(), reference: make_ref(), pending: MapSet.new(), timer: nil}
+
+      {:noreply, pending} =
+        Updates.handle_info(
+          {:notification, self(), state.reference, "ryker_control_plane", table},
+          state
+        )
+
+      Process.cancel_timer(pending.timer)
+
+      assert MapSet.member?(pending.pending, Updates.domain("/conversations")),
+             "#{table} must refresh Chat"
+    end
+  end
+
   test "room list and detail receive every invalidation for their displayed state" do
     for table <-
           ~w(slack_incident_rooms slack_channel_memberships episode_state_records episode_publications),

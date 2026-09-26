@@ -78,11 +78,36 @@ defmodule Ryker.ControlPlane.ConversationLab do
   @spec environment(String.t()) :: {:ok, String.t() | nil} | {:error, term()}
   def environment(conversation_id) do
     with {:ok, conversation_id} <- conversation_id(conversation_id) do
-      case Repo.one(stored_environment_query(conversation_id)) do
-        %{environment_ref: environment_ref} -> {:ok, environment_ref}
-        nil -> {:ok, Repo.one(default_environment_query())}
-      end
+      {:ok, Map.fetch!(environments([conversation_id]), conversation_id)}
     end
+  end
+
+  @doc """
+  The environment of each conversation, by id, read as `environment/1` reads
+  one; the Chat list names it on every row. A conversation from before
+  conversations kept their environment (2026-09-25) has no row, and works in
+  the default like one that has not started. Ids that are not conversation
+  ids are left out.
+  """
+  @spec environments([String.t()]) :: %{String.t() => String.t() | nil}
+  def environments(conversation_ids) do
+    ids = for id <- conversation_ids, {:ok, id} <- [conversation_id(id)], uniq: true, do: id
+
+    stored =
+      Repo.all(
+        from(conversation in "control_plane_conversations",
+          where: conversation.id in type(^ids, {:array, Ecto.UUID}),
+          select: {type(conversation.id, Ecto.UUID), conversation.environment_ref}
+        )
+      )
+      |> Map.new()
+
+    default =
+      if Enum.all?(ids, &Map.has_key?(stored, &1)),
+        do: nil,
+        else: Repo.one(default_environment_query())
+
+    Map.new(ids, &{&1, Map.get(stored, &1, default)})
   end
 
   @doc """
@@ -419,13 +444,6 @@ defmodule Ryker.ControlPlane.ConversationLab do
       {:error, reason} ->
         Repo.rollback({:conversation_lab_persistence_failed, :environment, reason})
     end
-  end
-
-  defp stored_environment_query(conversation_id) do
-    from(conversation in "control_plane_conversations",
-      where: conversation.id == type(^conversation_id, Ecto.UUID),
-      select: %{environment_ref: conversation.environment_ref}
-    )
   end
 
   defp default_environment_query do

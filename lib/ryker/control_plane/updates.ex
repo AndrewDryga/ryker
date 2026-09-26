@@ -93,7 +93,11 @@ defmodule Ryker.ControlPlane.Updates do
     do:
       ~w(activity channels environments incident-rooms timeline conversations failures configuration repositories)
 
-  defp domains("environment_" <> _), do: ~w(environments channels repositories configuration)
+  # Chat names each conversation's environment in its list and its head.
+  defp domains("environment_" <> _),
+    do: ~w(environments channels repositories configuration conversations)
+
+  defp domains("control_plane_conversations"), do: ~w(conversations)
 
   defp domains("coop_" <> _),
     do: ~w(activity workspaces timeline conversations repositories configuration failures)

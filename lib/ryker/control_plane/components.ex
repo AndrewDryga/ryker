@@ -23,6 +23,7 @@ defmodule Ryker.ControlPlane.Components do
     check: "m5 12 4 4L19 6",
     usage: "M4 20h17 M6 16v-5 M12 16V4 M18 16V8",
     book: "M12 5v16 M3 3l9 2 9-2v16l-9 2-9-2V3Z",
+    help: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3 M12 17h.01",
     settings: "M4 6h16 M4 12h16 M4 18h16 M8 3v6 M16 9v6 M10 15v6",
     grid: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
     arrow_up: "M12 19V5 M6 11l6-6 6 6",

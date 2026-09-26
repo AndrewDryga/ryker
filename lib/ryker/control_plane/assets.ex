@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.Assets do
     "instruction-draft.mjs" => {:ryker, "priv/static/instruction-draft.mjs", "text/javascript"},
     "leave-guard.mjs" => {:ryker, "priv/static/leave-guard.mjs", "text/javascript"},
     "page-help.mjs" => {:ryker, "priv/static/page-help.mjs", "text/javascript"},
+    "page-help-early.js" => {:ryker, "priv/static/page-help-early.js", "text/javascript"},
     "tooltips.mjs" => {:ryker, "priv/static/tooltips.mjs", "text/javascript"},
     "prompt-parts.mjs" => {:ryker, "priv/static/prompt-parts.mjs", "text/javascript"},
     "reading-state.mjs" => {:ryker, "priv/static/reading-state.mjs", "text/javascript"},

@@ -10,7 +10,7 @@ import {ElapsedTime} from "/assets/elapsed-time.mjs"
 import {copyValueFromEvent} from "/assets/copy-value.mjs"
 import {setupTooltips} from "/assets/tooltips.mjs"
 import {setupPromptParts} from "/assets/prompt-parts.mjs"
-import {createPageHelp, wideQuery} from "/assets/page-help.mjs"
+import {createToggleHook, setupPageHelp, wideQuery} from "/assets/page-help.mjs"
 
 // The shell: one LiveView socket and the hooks that keep a reader's place,
 // drafts and unsaved edits across patches. Each hook's behaviour lives in its
@@ -22,6 +22,7 @@ document.addEventListener("change", applyFilterChange)
 document.addEventListener("click", copyValueFromEvent)
 setupTooltips()
 setupPromptParts()
+setupPageHelp(document, window.matchMedia(wideQuery), () => window.localStorage)
 
 const PreserveReadingState = createReadingStateHook()
 const InstructionDraft = {
@@ -33,14 +34,7 @@ const SettingsDraft = {
   mounted() { this.guard = createSettingsGuard(this.el) },
   destroyed() { this.guard.destroy() }
 }
-const PageHelp = {
-  mounted() {
-    const keepOpenState = element => this.js().ignoreAttributes(element, ["open"])
-    this.help = createPageHelp(this.el, window.matchMedia(wideQuery), keepOpenState)
-    this.help.mounted()
-  },
-  destroyed() { this.help.destroyed() }
-}
+const PageHelp = createToggleHook(document)
 const PrivateKeyFile = {
   mounted() {
     this.read = async () => {

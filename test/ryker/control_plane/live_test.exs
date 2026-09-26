@@ -187,8 +187,8 @@ defmodule Ryker.ControlPlane.LiveTest do
     # The approved page (2026-09-24): the title, one plain sentence, one row of
     # search and Current/Past, the rules, then recent matches, down one left
     # edge. How to add a rule moved from a line under the list into the
-    # shell's closed "How this page works" panel on 2026-09-25. A routine
-    # reconcile must not disturb any of it.
+    # shell's help panel on 2026-09-25, which one button shows or hides since
+    # 2026-09-26. A routine reconcile must not disturb any of it.
     source = SavedEntities.source!("slack:T123:C456")
 
     SavedEntities.behavior!(
@@ -232,7 +232,9 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, "main .behavior-page > .entity-list h3", "Triage alerts")
     assert has_element?(view, "main .behavior-page > .entity-list", "Watch Terraform applies")
     refute has_element?(view, ".ask-hint, p.result-count, .behavior-counts")
-    assert has_element?(view, "main > aside.page-help details#page-help:not([open])")
+    assert has_element?(view, "main > button#page-help-toggle[aria-controls=page-help]")
+    assert has_element?(view, "main > aside#page-help.page-help")
+    refute has_element?(view, "main details#page-help, main .page-help summary")
 
     send(view.pid, :reconcile)
     assert has_element?(view, "main header.page-header h1", "Rules")
@@ -1105,25 +1107,27 @@ defmodule Ryker.ControlPlane.LiveTest do
     name = &Environments.repository_name(snapshot, &1)
     conn = build_conn() |> Map.put(:host, "localhost")
 
-    # A new conversation starts in the default environment.
+    # A new conversation starts in the default environment. It is not a
+    # conversation yet, so its head holds only that choice (2026-09-26: its
+    # "New conversation" line read as one more conversation in the list).
     {:ok, draft, _} = live(conn, "/conversations")
-    assert has_element?(draft, "header.lab-chat-head h2.lab-chat-title", "New conversation")
+    refute has_element?(draft, ".lab-chat-title, .lab-chat-place")
 
     assert has_element?(
              draft,
-             "form.lab-environment option[selected][value=production]",
+             "header.lab-chat-head form.lab-environment option[selected][value=production]",
              "Production"
-           )
-
-    assert has_element?(
-             draft,
-             "header.lab-chat-head .lab-chat-place",
-             "Works in Production: #{name.("acme-api")}, #{name.("acme-web")}"
            )
 
     id = Ecto.UUID.generate()
     {:ok, view, html} = live(conn, "/conversations/#{id}")
     assert has_element?(view, "form.lab-environment option[selected][value=production]")
+
+    assert has_element?(
+             view,
+             "header.lab-chat-head .lab-chat-place",
+             "Works in Production: #{name.("acme-api")}, #{name.("acme-web")}"
+           )
 
     assert html
            |> LazyHTML.from_document()
