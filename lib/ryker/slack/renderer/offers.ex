@@ -8,6 +8,7 @@ defmodule Ryker.Slack.Renderer.Offers do
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
 
+  alias Ryker.Delivery.OfferWords
   alias Ryker.State.ScheduleCadence
 
   # A task brief shows this many checks and limits, each cut to this length,
@@ -185,9 +186,9 @@ defmodule Ryker.Slack.Renderer.Offers do
           "Review changes",
           ref,
           "primary",
-          "Review committed changes",
-          "Run the trusted read-only Coop review for this exact committed workspace? This does not publish a branch or pull request.",
-          "Run review"
+          "Review these changes",
+          "Ryker checks the committed changes without changing anything. Nothing is published.",
+          "Review"
         )
       )
     ]
@@ -224,30 +225,33 @@ defmodule Ryker.Slack.Renderer.Offers do
           "Schedule this",
           ref,
           "primary",
-          "Create recurring work",
-          "Create this exact schedule at the shown destination and authority ceiling? Each occurrence rechecks current policy.",
+          "Create this schedule",
+          "Ryker starts each run on its own, where and with the access this card shows. You can pause or delete it later.",
           "Schedule this"
         )
       )
     ]
   end
 
+  # A change is said in words: what it changes, with what it was, and the
+  # whole new instructions when those change. The JSON before and after it
+  # used to show meant nothing to the person confirming it.
   defp automation_change_offer(ref, payload) do
-    review =
-      [
-        "Automation #{payload["action"]} · #{payload["automation_id"]} · revision #{payload["revision"]}",
-        "",
-        "Before",
-        Jason.encode!(payload["before"], pretty: true),
-        "",
-        "After",
-        Jason.encode!(payload["after"], pretty: true),
-        "",
-        "Nothing changes until an operator confirms this exact revision."
-      ]
-      |> Enum.join("\n")
+    before = payload["before"] || %{}
+    changed = payload["after"] || %{}
 
-    plain_message_blocks(review) ++
+    summary =
+      [
+        "*#{automation_change_label(payload["action"])} · #{escape(changed["title"] || before["title"] || "Automation")}*",
+        "_Nothing changes until you confirm._"
+      ]
+      |> compact_lines()
+
+    facts = automation_facts(payload["action"], before, changed)
+
+    [section(summary)] ++
+      if(facts == [], do: [], else: [fact_fields(facts)]) ++
+      automation_instructions(before, changed) ++
       [
         actions(
           ref,
@@ -256,13 +260,82 @@ defmodule Ryker.Slack.Renderer.Offers do
             automation_change_label(payload["action"]),
             ref,
             automation_change_style(payload["action"]),
-            "Confirm automation change",
-            "Apply this exact before/after change? The host will reject it if the automation revision or destination changed.",
+            "Confirm this change",
+            "Ryker makes this change only if the automation is still as this card shows it.",
             "Apply change"
           )
         )
       ]
   end
+
+  # Each fact the change touches, as it will be and as it was; a fact the
+  # change leaves alone is shown once, for context, when it is how often.
+  defp automation_facts(action, before, changed) do
+    [
+      change(
+        "How often",
+        OfferWords.cadence(changed["trigger"]),
+        OfferWords.cadence(before["trigger"]),
+        :always
+      ),
+      change("Name", changed["title"], before["title"], :changed),
+      change(
+        "Posts in",
+        channel(changed["delivery_channel"]),
+        channel(before["delivery_channel"]),
+        :changed
+      ),
+      change("Repository", changed["repository"], before["repository"], :changed),
+      change("Stops", stops(changed["expires_at"]), stops(before["expires_at"]), :changed),
+      if(action == "delete", do: {"After this", "It stops for good; its past runs stay listed."})
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp change(_label, nil, _was, _show), do: nil
+  defp change(label, value, value, :always), do: {label, value}
+  defp change(_label, value, value, :changed), do: nil
+  defp change(label, value, nil, _show), do: {label, value}
+  defp change(label, %{} = value, %{} = was, _show), do: {label, [value, {:markup, "_was_"}, was]}
+  defp change(label, value, was, _show) when is_map(value), do: {label, [value, "was " <> was]}
+  defp change(label, value, %{} = was, _show), do: {label, [value, {:markup, "_was_"}, was]}
+
+  defp change("How often" = label, value, was, _show),
+    do: {label, value <> " (was " <> lowercase_first(was) <> ")"}
+
+  defp change(label, value, was, _show), do: {label, value <> " (was " <> was <> ")"}
+
+  defp lowercase_first(<<first::utf8, rest::binary>>),
+    do: String.downcase(<<first::utf8>>) <> rest
+
+  defp channel("slack:" <> rest) do
+    case String.split(rest, ":") do
+      [_workspace, channel | _thread] -> %{"channel_ref" => channel}
+      _other -> nil
+    end
+  end
+
+  defp channel(_conversation), do: nil
+
+  defp stops(value) when is_binary(value), do: OfferWords.stamp(value)
+  defp stops(_never), do: "Never"
+
+  # New instructions are shown whole, and the old ones under them, so a
+  # person confirms the words the automation will act on.
+  defp automation_instructions(%{"prompt" => was}, %{"prompt" => now})
+       when is_binary(now) and now != was do
+    [section("*What it will do*")] ++
+      plain_message_blocks(now) ++
+      if(is_binary(was),
+        do: [section("*What it did before*")] ++ plain_message_blocks(was),
+        else: []
+      )
+  end
+
+  defp automation_instructions(_before, %{"prompt" => now}) when is_binary(now),
+    do: [section("*What it does*")] ++ plain_message_blocks(now)
+
+  defp automation_instructions(_before, _changed), do: []
 
   defp automation_change_label("update"), do: "Update automation"
   defp automation_change_label("pause"), do: "Pause automation"
@@ -274,19 +347,17 @@ defmodule Ryker.Slack.Renderer.Offers do
 
   @spec slack_post_offer(String.t(), map(), String.t()) :: [map()]
   def slack_post_offer(ref, payload, "open") do
-    destination = payload["destination_ref"]
-
     summary =
       [
-        "*Additional Slack post requires confirmation*",
-        "Destination: `#{escape(destination)}`",
+        "*Post another message*",
         escape(payload["message"]),
-        "_No message has been posted. Only the original requester can authorize this exact destination and message._"
+        "_Nothing is posted until the person who asked confirms._"
       ]
       |> compact_lines()
 
     [
       section(summary),
+      fact_fields([{"Where", post_place(payload)}]),
       actions(
         ref,
         button(
@@ -294,8 +365,8 @@ defmodule Ryker.Slack.Renderer.Offers do
           "Post this message",
           ref,
           "primary",
-          "Confirm additional Slack post",
-          "Post this exact message to #{destination}?",
+          "Post this message",
+          "Ryker posts this message as written, where this card says.",
           "Post message"
         )
       )
@@ -303,97 +374,142 @@ defmodule Ryker.Slack.Renderer.Offers do
   end
 
   def slack_post_offer(_ref, payload, "confirmed") do
-    [section(confirmed_slack_post_summary(payload))]
+    [
+      section(confirmed_slack_post_summary(payload)),
+      fact_fields([{"Where", post_place(payload)}])
+    ]
   end
+
+  # The channel by Slack's own mention, which Slack shows as its name, and
+  # whether the message goes in a thread there.
+  defp post_place(%{"conversation_ref" => conversation} = payload) do
+    thread? = is_binary(payload["thread_ref"])
+
+    case channel(conversation) do
+      nil -> "The conversation Ryker was asked about"
+      place when thread? -> [place, "in a thread"]
+      place -> place
+    end
+  end
+
+  defp post_place(_payload), do: "The conversation Ryker was asked about"
 
   # Until the host could build a message link this card said the worker was
   # "sending or reconciling" the post forever, even long after it had landed.
   # The link is the only honest way to say it is sent.
-  defp confirmed_slack_post_summary(%{"message_url" => url} = payload) when is_binary(url) do
-    "*Additional Slack post sent*\nDestination: `#{escape(payload["destination_ref"])}` · #{link(url, "Open message")}"
-  end
+  defp confirmed_slack_post_summary(%{"message_url" => url}) when is_binary(url),
+    do: "*Message posted* · #{link(url, "Open message")}"
 
-  defp confirmed_slack_post_summary(payload) do
-    "*Additional Slack post confirmed*\nDestination: `#{escape(payload["destination_ref"])}`\n_The durable delivery worker is sending or reconciling this exact message._"
-  end
+  defp confirmed_slack_post_summary(_payload),
+    do: "*Message confirmed*\n_Ryker is posting it._"
 
   defp behavior_offer("preference_offer", ref, payload) do
     summary =
       [
-        "*Behavior preference*",
-        "`#{payload["key"]}=#{payload["value"]}`",
-        "Scope: `#{payload["scope"]}`#{repository_suffix(payload["repository"])} · Expires: `#{payload["expires_in"]}`",
-        "_This is only an offer; behavior has not changed._"
-      ]
-      |> compact_lines()
-
-    [section(summary), behavior_actions(ref, "Confirm preference")]
-  end
-
-  defp behavior_offer("guidance_offer", ref, payload) do
-    summary =
-      [
-        "*Remember guidance · #{escape(payload["subject"])}*",
-        escape(payload["text"]),
-        "Scope: `#{payload["scope"]}`#{repository_suffix(payload["repository"])} · Visibility: `#{payload["visibility"]}` · Expires: `#{payload["expires_in"]}`",
-        "_Advisory only: this cannot trigger work, prove a fact, or grant authority._"
-      ]
-      |> compact_lines()
-
-    [section(summary), behavior_actions(ref, "Remember this")]
-  end
-
-  defp behavior_offer(
-         "standing_assignment_offer",
-         ref,
-         %{"source_kind" => source_kind} = payload
-       ) do
-    repository = payload["repository"] || "no repository binding"
-    expiry = payload["expires_at"] || "until disabled"
-
-    summary =
-      [
-        "*Source-event automation · #{escape(payload["title"])}*",
-        escape(payload["task"]),
-        "Source event: `#{escape(source_kind)}` · Filter: `#{escape(Jason.encode!(payload["filter"]))}`",
-        "Context/delivery: `#{escape(payload["context_channel"])}` · Repository: `#{escape(repository)}`",
-        "Expires: `#{escape(expiry)}`",
-        "_Read-only initiative in this channel; it cannot approve, publish, deploy, or mutate infrastructure._"
-      ]
-      |> compact_lines()
-
-    [section(summary), behavior_actions(ref, "Enable automation")]
-  end
-
-  defp behavior_offer("standing_assignment_offer", ref, payload) do
-    repository = payload["repository"] || "no repository binding"
-
-    summary =
-      [
-        "*Standing assignment*",
-        escape(payload["task"]),
-        "Trigger: `#{payload["trigger"]}` → `#{payload["action"]}`",
-        "Source: `#{payload["source_filter"]}` · Repository: `#{escape(repository)}` · Expires: `#{payload["expires_in"]}`",
-        "_Read-only initiative in this channel; it cannot approve, publish, deploy, or mutate infrastructure._"
-      ]
-      |> compact_lines()
-
-    [section(summary), behavior_actions(ref, "Enable assignment")]
-  end
-
-  defp memory_offer(ref, payload) do
-    summary =
-      [
-        "*Remember operational mapping · #{escape(payload["subject"])}*",
-        escape(payload["value"]),
-        "Kind: `#{payload["kind"]}` · Scope: `#{payload["scope"]}`#{repository_suffix(payload["repository"])}",
-        "Visibility: `#{payload["visibility"]}` · Expires: `#{payload["expires_in"]}`",
-        "_Potentially stale hint only: live evidence, current repositories, and host policy take precedence._"
+        "*Preference · #{escape(OfferWords.humanize(payload["key"]))}*",
+        escape(OfferWords.humanize(payload["value"])),
+        "_Nothing changes until you confirm._"
       ]
       |> compact_lines()
 
     [
       section(summary),
+      facts([
+        {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
+        {"Expires", OfferWords.duration(payload["expires_in"])}
+      ]),
+      behavior_actions(ref, "Confirm preference")
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp behavior_offer("guidance_offer", ref, payload) do
+    summary =
+      [
+        "*Guidance · #{escape(payload["subject"])}*",
+        escape(payload["text"]),
+        "_Guidance only: it cannot start work, prove a fact or give Ryker more access._"
+      ]
+      |> compact_lines()
+
+    [
+      section(summary),
+      facts([
+        {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
+        {"Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"])},
+        {"Expires", OfferWords.duration(payload["expires_in"])}
+      ]),
+      behavior_actions(ref, "Remember this")
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp behavior_offer(
+         "standing_assignment_offer",
+         ref,
+         %{"source_kind" => _source_kind} = payload
+       ) do
+    summary =
+      [
+        "*Automation · #{escape(payload["title"])}*",
+        escape(payload["task"]),
+        "_It only reads and replies here; it cannot approve, publish, deploy or change systems._"
+      ]
+      |> compact_lines()
+
+    [
+      section(summary),
+      facts([
+        {"Listens to", OfferWords.listens_to(payload)},
+        {"Takes", OfferWords.only_when(payload["filter"])},
+        {"Posts in", channel(payload["delivery_channel"])},
+        {"Repository", payload["repository"]},
+        {"Stops", OfferWords.stamp(payload["expires_at"]) || "When you turn it off"}
+      ]),
+      behavior_actions(ref, "Enable automation")
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp behavior_offer("standing_assignment_offer", ref, payload) do
+    summary =
+      [
+        "*Standing assignment*",
+        escape(payload["task"]),
+        "_It only reads and replies here; it cannot approve, publish, deploy or change systems._"
+      ]
+      |> compact_lines()
+
+    [
+      section(summary),
+      facts([
+        {"Listens to", OfferWords.listens_to(payload)},
+        {"When", OfferWords.humanize(payload["trigger"])},
+        {"It will", payload["action"] |> OfferWords.humanize() |> String.downcase()},
+        {"Repository", payload["repository"]},
+        {"Expires", OfferWords.duration(payload["expires_in"])}
+      ]),
+      behavior_actions(ref, "Enable assignment")
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp memory_offer(ref, payload) do
+    summary =
+      [
+        "*Remember · #{escape(payload["subject"])}*",
+        escape(payload["value"]),
+        "_A hint for later: Ryker still checks live evidence and your repositories first._"
+      ]
+      |> compact_lines()
+
+    [
+      section(summary),
+      facts([
+        {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
+        {"Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"])},
+        {"Expires", OfferWords.duration(payload["expires_in"])}
+      ]),
       actions(
         ref,
         button(
@@ -401,16 +517,22 @@ defmodule Ryker.Slack.Renderer.Offers do
           "Remember this",
           ref,
           "primary",
-          "Remember operational mapping",
-          "Store this exact scoped mapping with its shown visibility, provenance, and expiry?",
+          "Remember this",
+          "Ryker saves it as written, for the people and the time this card shows.",
           "Remember this"
         )
       )
     ]
+    |> Enum.reject(&is_nil/1)
   end
 
-  defp repository_suffix(nil), do: ""
-  defp repository_suffix(repository), do: " · `#{escape(repository)}`"
+  # The facts a card has, as one fields section, or nothing when it has none.
+  defp facts(pairs) do
+    case Enum.reject(pairs, fn {_label, value} -> value in [nil, ""] end) do
+      [] -> nil
+      present -> fact_fields(present)
+    end
+  end
 
   defp behavior_actions(ref, label) do
     actions(
@@ -421,7 +543,7 @@ defmodule Ryker.Slack.Renderer.Offers do
         ref,
         "primary",
         label,
-        "Confirm this exact bounded behavior, scope, and expiry?",
+        "Ryker saves this as the card shows it, for the people and the time it names.",
         label
       )
     )
