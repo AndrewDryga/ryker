@@ -2,9 +2,10 @@
    One hand-written stylesheet. No framework, no CDN, no runtime request: the
    site must render with the network off, from file:// or any static host.
 
-   The system is the control plane's own (internal/webui/static/app.css) —
-   the zinc scale, the emerald logo green, and the rules that surface learned
-   by screenshotting itself:
+   The system began as a port of an earlier control plane — the zinc scale,
+   Ryker mint, and the rules that surface learned by screenshotting itself.
+   The product's own tokens now live in priv/static/ryker-tokens.css (graphite,
+   ivory, mint, IBM Plex); this site has not moved to them yet:
 
    - Accent means "you can go somewhere or do something". Nothing else is
      allowed to glow, or nothing reads as actionable.
@@ -75,7 +76,7 @@
 /* Tokens ------------------------------------------------------------------ */
 
 :root {
-  /* Palette — reused exactly from the control plane. */
+  /* Palette — the zinc scale of the earlier control plane, with Ryker mint. */
   --bg: #09090b;          /* zinc-950 */
   --panel: #131316;       /* between 950 and 900: cards barely lift off the page */
   --panel-2: #18181b;     /* zinc-900, hover */
@@ -411,7 +412,8 @@ time, .num, .mono, .tag, table td.num, table th.num { font-variant-numeric: tabu
 }
 .wordmark:hover { color: var(--ink); text-decoration: none; }
 .wordmark:active { transform: translateY(1px); }
-.wordmark svg { display: block; }
+/* The supplied lockup, never retyped; 160px is its minimum size. */
+.wordmark img { display: block; width: 160px; height: auto; }
 
 .nav-links {
   display: flex;
