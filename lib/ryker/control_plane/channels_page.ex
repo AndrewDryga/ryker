@@ -162,13 +162,19 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   end
 
   defp empty_title(%{q: q}) when q != "", do: "No channels match “#{q}”."
-  defp empty_title(%{show: "in_use"}), do: "Ryker is not in any channel yet."
+  defp empty_title(%{show: "in_use"}), do: "Ryker is not in any channel now."
   defp empty_title(_view), do: "No channels yet."
 
   defp empty_text(%{q: q, show: "in_use"}) when q != "",
     do: "Try another name, or look under All for channels Ryker has left."
 
   defp empty_text(%{q: q}) when q != "", do: "Try another name or clear the search."
+
+  # All can hold channels Ryker left or never joined, such as an incident
+  # room nobody recorded it in, so In use never claims there are none.
+  defp empty_text(%{show: "in_use"}),
+    do:
+      "Invite Ryker to a Slack channel with /invite, and the channel appears here with how Ryker takes part in it. Channels Ryker is not in are under All."
 
   defp empty_text(_view),
     do:

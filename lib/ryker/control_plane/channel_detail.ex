@@ -272,10 +272,15 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   defp none(source),
     do: %{emisar: nil, name: nil, ref: nil, repositories: [], source: source, writable: nil}
 
-  defp repository(ref, nil), do: %{ref: ref, name: ref}
+  # Whether the repository is still set up is known only once settings are.
+  defp repository(ref, nil), do: %{ref: ref, name: ref, set_up: nil}
 
   defp repository(ref, settings),
-    do: %{ref: ref, name: Environments.repository_name(settings, ref)}
+    do: %{
+      ref: ref,
+      name: Environments.repository_name(settings, ref),
+      set_up: Enum.any?(settings.repositories, &(&1.ref == ref))
+    }
 
   defp default_ref(settings) do
     case Environment.default(settings) do

@@ -141,7 +141,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
     <section id="taking-part" class="channel-section">
       <Kit.section_head
         title="How Ryker takes part"
-        lede="Choose the environment here. The rest is set from Slack."
+        lede={taking_part_lede(@configuration, @environment)}
       />
       <dl class="channel-facts">
         <.fact label="Conversations">
@@ -173,6 +173,10 @@ defmodule Ryker.ControlPlane.ChannelPage do
           <%= case {@environment.source, @environment.repositories} do %>
             <% {_source, []} -> %>
               None, so Ryker does not read code here
+            <% {:incident_room, [%{set_up: false} = writable | _read_only]} -> %>
+              <strong>{writable.name}</strong><span class="channel-fact-note">
+                · from the incident room, and no longer set up in Ryker, so work there cannot read it
+              </span>
             <% {:incident_room, [writable | _read_only]} -> %>
               Changes
               <strong>{writable.name}</strong><span class="channel-fact-note">
@@ -229,6 +233,20 @@ defmodule Ryker.ControlPlane.ChannelPage do
     </section>
     """
   end
+
+  # What the section lets a person do here. An instruction never stands
+  # without its control: the QA re-test (2026-09-26) found "Choose the
+  # environment here." above an incident room that has none to choose.
+  defp taking_part_lede(configuration, _environment) when is_map(configuration),
+    do: "Choose the environment here. The rest is set from Slack."
+
+  defp taking_part_lede(nil, %{source: :incident_room}),
+    do:
+      "An incident room works in the code it was opened with, so there is no environment to choose."
+
+  defp taking_part_lede(nil, _environment),
+    do:
+      "Ryker keeps settings only for channels it is in. Once it joins this one, choose its environment here."
 
   attr(:view, :map, required: true)
   attr(:environment, :map, required: true)
