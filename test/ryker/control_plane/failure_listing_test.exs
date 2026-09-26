@@ -2,10 +2,11 @@ defmodule Ryker.ControlPlane.FailureListingTest do
   use Ryker.DataCase, async: true
 
   alias Ryker.ControlPlane.{Pages, Projection}
-  alias Ryker.Delivery.{Operator, PlatformAction}
+  alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Work.Custody
 
   # Blocked replies were read oldest first, a hundred of each kind, and the page
@@ -24,7 +25,7 @@ defmodule Ryker.ControlPlane.FailureListingTest do
     newest = List.last(refs)
     oldest = hd(refs)
 
-    assert {:ok, [first | _rest]} = Operator.list_blocked(100)
+    assert {:ok, [first | _rest]} = DeliveryOperator.list_blocked(100)
     assert first.delivery_ref == newest
 
     assert {:ok, page_one} = Projection.failures(%{})

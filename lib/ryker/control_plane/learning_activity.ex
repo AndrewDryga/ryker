@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.LearningActivity do
     Activity,
     ConversationMemory,
     ConversationProjection,
-    InspectionRedactor,
     LearningReceipt,
     PagedRelation,
     SlackNames
@@ -19,6 +18,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.InspectionRedactor
   alias Ryker.Learning.{Batch, Batches, InputMembership, Runtime}
   alias Ryker.Repo
   alias Ryker.Settings.Installation

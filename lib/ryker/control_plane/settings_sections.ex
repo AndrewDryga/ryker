@@ -23,9 +23,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
     Work
   }
 
-  alias Ryker.ControlPlane.{Environments, ExecutionTarget, SlackNames}
+  alias Ryker.ControlPlane.{Environments, SlackNames}
   alias Ryker.Settings.Environment
   alias Ryker.Webhooks.Presets
+  alias Ryker.Work.ExecutionTarget
 
   @day 86_400
   @longest_days 3_650

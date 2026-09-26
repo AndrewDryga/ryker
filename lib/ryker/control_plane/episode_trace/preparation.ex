@@ -9,9 +9,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.ControlPlane.InspectionRedactor
   alias Ryker.CoopFleet.Placement
   alias Ryker.Ingress.InputCustodyTransition
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.State.Behaviors
   alias Ryker.Work.{FailureCause, Session, Turn}

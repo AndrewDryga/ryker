@@ -1,7 +1,7 @@
-defmodule Ryker.ControlPlane.Card do
+defmodule Ryker.Delivery.ChatCard do
   @moduledoc false
 
-  alias Ryker.ControlPlane.InspectionRedactor
+  alias Ryker.InspectionRedactor
   alias Ryker.Publication.Card, as: PublicationCard
   alias Ryker.Publication.{Publication, Review}
   alias Ryker.Repo

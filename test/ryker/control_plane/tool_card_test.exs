@@ -1,7 +1,8 @@
 defmodule Ryker.ControlPlane.ToolCardTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{InspectionRedactor, ToolCard}
+  alias Ryker.ControlPlane.ToolCard
+  alias Ryker.InspectionRedactor
 
   test "raw tool evidence uses the same disclosure and preserves lazy loading and expiry" do
     # Native raw-tool summaries drifted from every other timeline disclosure;

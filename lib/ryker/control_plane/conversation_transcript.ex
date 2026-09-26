@@ -11,8 +11,8 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   import Ecto.Query
 
   alias Ryker.Artifacts.OutputArtifact
-  alias Ryker.ControlPlane.{Card, TranscriptCursor}
-  alias Ryker.Delivery.{PlatformAction, Reaction}
+  alias Ryker.ControlPlane.TranscriptCursor
+  alias Ryker.Delivery.{ChatCard, PlatformAction, Reaction}
   alias Ryker.Episodes.{Episode, Event, Reactions}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Publication.Publication
@@ -355,7 +355,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp put_projected_card(record, key, cards) do
-    case Card.project(record) do
+    case ChatCard.project(record) do
       {:ok, card} -> Map.put(cards, key, card)
       :ignore -> cards
     end
@@ -598,7 +598,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp publication_message(_not_delivered), do: []
 
   defp project_publication_message(publication, record_ref, receipt, message) do
-    case Card.project_publication(publication, record_ref) do
+    case ChatCard.project_publication(publication, record_ref) do
       {:ok, card} -> [build_publication_message(publication, receipt, card, message)]
       :ignore -> []
     end

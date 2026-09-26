@@ -256,7 +256,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </p>
         <p :if={@snapshot.trace.review[:note] not in [nil, ""]}>
           {@snapshot.trace.review[:note]
-          |> Ryker.ControlPlane.InspectionRedactor.artifact(max_bytes: 2_048)
+          |> Ryker.InspectionRedactor.artifact(max_bytes: 2_048)
           |> Map.fetch!(:text)}
         </p>
         <.fact_list facts={review_identity(@snapshot)} />

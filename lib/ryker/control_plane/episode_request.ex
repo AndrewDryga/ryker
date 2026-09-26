@@ -4,9 +4,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   alias Ryker.ControlPlane.CallRun
   alias Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.ExecutionTarget
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.RequestPage
+  alias Ryker.Work.ExecutionTarget
 
   def render(assigns) do
     request = assigns.request

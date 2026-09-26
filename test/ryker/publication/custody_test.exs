@@ -6,10 +6,10 @@ defmodule Ryker.Publication.CustodyTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Observability
+  alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Publication.Changeset, as: PublicationChangeset
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, Publication, Review}
-  alias Ryker.Publication.Operator, as: PublicationOperator
   alias Ryker.Repo
   alias Ryker.State.Records
 

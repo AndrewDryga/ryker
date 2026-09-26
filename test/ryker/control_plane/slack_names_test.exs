@@ -1,9 +1,9 @@
 defmodule Ryker.ControlPlane.SlackNamesTest do
-  alias Ryker.ControlPlane.InspectionRedactor
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.SlackMarkdown
   use ExUnit.Case, async: false
   alias Ryker.ControlPlane.SlackNames
+  alias Ryker.InspectionRedactor
 
   test "names are scoped to the configured workspace and unavailable names do not block rendering" do
     parent = self()

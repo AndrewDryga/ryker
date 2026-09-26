@@ -364,7 +364,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   def portable_workspace(%Turn{status: :blocked, session_id: session_id})
       when is_binary(session_id) do
     with %Session{} = session <- Repo.get(Session, session_id),
-         workspace_ref when is_binary(workspace_ref) <- Settings.work_workspace_ref() do
+         workspace_ref when is_binary(workspace_ref) <- Settings.worker_workspace_ref() do
       FleetControlPlane.portable_workspace(session, %{
         capability_names: Defaults.fetch!(:work).capability_names,
         capability_versions: %{},

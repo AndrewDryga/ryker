@@ -1,4 +1,4 @@
-defmodule Ryker.Retention.Operator do
+defmodule Ryker.Operator.Retention do
   @moduledoc """
   Audited local-operator recovery for retained Coop cleanup custody.
 
@@ -11,9 +11,9 @@ defmodule Ryker.Retention.Operator do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Operator.RetentionAction
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Retention.OperatorAction
   alias Ryker.Work.Session
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
@@ -81,16 +81,16 @@ defmodule Ryker.Retention.Operator do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [action_ref])
 
     case Repo.one(
-           from(entry in OperatorAction,
+           from(entry in RetentionAction,
              where: entry.action_ref == ^action_ref,
              lock: "FOR UPDATE"
            )
          ) do
-      %OperatorAction{request_fingerprint: ^fingerprint} = entry ->
+      %RetentionAction{request_fingerprint: ^fingerprint} = entry ->
         session = Repo.get!(Session, entry.session_id)
         %{action: entry, outcome: :duplicate, session: session}
 
-      %OperatorAction{} ->
+      %RetentionAction{} ->
         Repo.rollback(:retention_operator_action_conflict)
 
       nil ->
@@ -211,7 +211,7 @@ defmodule Ryker.Retention.Operator do
        ) do
     occurred_at = Repo.now!()
 
-    %OperatorAction{}
+    %RetentionAction{}
     |> Ecto.Changeset.cast(
       %{
         id: Ecto.UUID.generate(),

@@ -1,7 +1,8 @@
-defmodule Ryker.ControlPlane.CardTest do
+defmodule Ryker.Delivery.ChatCardTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.{Card, HTML}
+  alias Ryker.ControlPlane.HTML
+  alias Ryker.Delivery.ChatCard
   alias Ryker.Publication.Publication
   alias Ryker.State.{Record, RecordPayload}
 
@@ -21,7 +22,7 @@ defmodule Ryker.ControlPlane.CardTest do
     }
 
     source = record("event_wait", payload) |> Map.put(:wait_error, "timer_deadline")
-    assert {:ok, card} = Card.project(source)
+    assert {:ok, card} = ChatCard.project(source)
     assert card.wait_warning =~ "cannot run before its deadline"
     assert card.wait_warning =~ "2026-09-07T12:00:00Z"
     assert card.summary == nil
@@ -33,7 +34,7 @@ defmodule Ryker.ControlPlane.CardTest do
 
   test "a scheduling diagnostic never prints an invalid retained deadline as diagnostic prose" do
     warning =
-      Card.wait_warning(%Record{
+      ChatCard.wait_warning(%Record{
         kind: "event_wait",
         wait_error: "deadline",
         payload: %{"deadline_at" => "password=retained-secret"}
@@ -49,7 +50,9 @@ defmodule Ryker.ControlPlane.CardTest do
     for error <- ~w(timer_deadline poll_after),
         deadline <- [nil, 42, "password=retained-secret", %{"password" => "retained-secret"}] do
       source = record("event_wait", %{"deadline_at" => deadline}) |> Map.put(:wait_error, error)
-      assert Card.wait_warning(source) == "Wait scheduling failed: its saved deadline is invalid."
+
+      assert ChatCard.wait_warning(source) ==
+               "Wait scheduling failed: its saved deadline is invalid."
     end
   end
 
@@ -67,7 +70,7 @@ defmodule Ryker.ControlPlane.CardTest do
         record(kind, %{"deadline_at" => "2099-09-07T12:00:00Z"})
         |> Map.put(:wait_error, error)
 
-      assert Card.wait_warning(source) == nil
+      assert ChatCard.wait_warning(source) == nil
     end
   end
 
@@ -80,7 +83,7 @@ defmodule Ryker.ControlPlane.CardTest do
         record("event_wait", %{"deadline_at" => "2099-09-07T12:00:00Z"})
         |> Map.put(:wait_error, error)
 
-      warning = Card.wait_warning(source)
+      warning = ChatCard.wait_warning(source)
       assert warning =~ phrase
       assert warning =~ "2099-09-07T12:00:00Z"
     end
@@ -103,7 +106,7 @@ defmodule Ryker.ControlPlane.CardTest do
         })
         |> Map.put(:wait_error, unquote(error))
 
-      assert {:ok, card} = Card.project(source)
+      assert {:ok, card} = ChatCard.project(source)
       assert card.wait_warning =~ unquote(phrase)
       assert card.action == nil
       assert card.choices == []
@@ -125,7 +128,7 @@ defmodule Ryker.ControlPlane.CardTest do
         record("event_wait", %{"deadline_at" => deadline})
         |> Map.put(:wait_error, "timer_deadline")
 
-      assert {:ok, card} = Card.project(source)
+      assert {:ok, card} = ChatCard.project(source)
       refute inspect(card) =~ "retained-secret"
       refute {"Deadline", deadline} in card.details
     end
@@ -135,7 +138,7 @@ defmodule Ryker.ControlPlane.CardTest do
           {"event_wait", "unknown-secret"},
           {"finding", "source_kind"}
         ] do
-      assert :ignore = Card.project(record(kind, %{}) |> Map.put(:wait_error, error))
+      assert :ignore = ChatCard.project(record(kind, %{}) |> Map.put(:wait_error, error))
     end
   end
 
@@ -149,7 +152,7 @@ defmodule Ryker.ControlPlane.CardTest do
     }
 
     source = record("finding", payload)
-    assert {:ok, card} = Card.project(source)
+    assert {:ok, card} = ChatCard.project(source)
 
     for secret <- ~w(finding-body-secret finding-reason-secret finding-scope-secret) do
       refute inspect(card) =~ secret
@@ -176,7 +179,7 @@ defmodule Ryker.ControlPlane.CardTest do
       "successor_of" => "verify-workers"
     }
 
-    assert {:ok, card} = Card.project(record("goal", payload))
+    assert {:ok, card} = ChatCard.project(record("goal", payload))
     assert {"Stage", "Self review"} in card.details
     assert {"Replaces attempt", "verify-workers"} in card.details
   end
@@ -191,7 +194,7 @@ defmodule Ryker.ControlPlane.CardTest do
       "state" => "completed"
     }
 
-    assert {:ok, card} = Card.project(record("goal_state", payload))
+    assert {:ok, card} = ChatCard.project(record("goal_state", payload))
     assert {"Evidence", "record:evidence:aa11, record:evidence:bb22"} in card.details
   end
 
@@ -204,9 +207,9 @@ defmodule Ryker.ControlPlane.CardTest do
       "state" => "completed"
     }
 
-    assert {:ok, card} = Card.project(record("goal_state", payload))
+    assert {:ok, card} = ChatCard.project(record("goal_state", payload))
     assert card.title == "Completed"
-    assert Card.display_status(card) == nil
+    assert ChatCard.display_status(card) == nil
     assert card.label == "Goal updated"
     html = HTML.lab_message_extras(%{cards: [card]}) |> IO.iodata_to_binary()
     assert html =~ "Completed"
@@ -227,14 +230,14 @@ defmodule Ryker.ControlPlane.CardTest do
       "title" => "Weekday open incident status"
     }
 
-    assert {:ok, monday} = Card.project(record("schedule_offer", payload))
+    assert {:ok, monday} = ChatCard.project(record("schedule_offer", payload))
     assert {"How often", "Every Monday at 09:00 UTC"} in monday.details
 
     html = HTML.lab_message_extras(%{cards: [monday]}) |> IO.iodata_to_binary()
     assert html =~ "<dt>How often</dt><dd>Every Monday at 09:00 UTC</dd>"
 
     weekdays = put_in(payload, ["recurrence"], %{"kind" => "weekdays", "time" => "09:00:00"})
-    assert {:ok, card} = Card.project(record("schedule_offer", weekdays))
+    assert {:ok, card} = ChatCard.project(record("schedule_offer", weekdays))
     assert {"How often", "Every weekday at 09:00 UTC"} in card.details
   end
 
@@ -245,13 +248,13 @@ defmodule Ryker.ControlPlane.CardTest do
     question = "Which timezone should I use for the weekday 9:00 status?"
 
     assert {:ok, open} =
-             Card.project(record("input_request", %{"choices" => [], "question" => question}))
+             ChatCard.project(record("input_request", %{"choices" => [], "question" => question}))
 
     assert open.summary == "Reply below."
     assert open.action == nil
 
     assert {:ok, choosing} =
-             Card.project(
+             ChatCard.project(
                record("input_request", %{
                  "choices" => ["UTC", "Europe/Berlin"],
                  "question" => question
@@ -263,7 +266,7 @@ defmodule Ryker.ControlPlane.CardTest do
     assert choosing.choices == ["UTC", "Europe/Berlin"]
 
     assert {:ok, answered} =
-             Card.project(
+             ChatCard.project(
                record("input_request", %{"choices" => [], "question" => question}, :answered)
              )
 
@@ -285,7 +288,7 @@ defmodule Ryker.ControlPlane.CardTest do
       "title" => "Weekday open incident status"
     }
 
-    assert {:ok, reading} = Card.project(record("schedule_offer", schedule))
+    assert {:ok, reading} = ChatCard.project(record("schedule_offer", schedule))
 
     assert reading.details == [
              {"How often", "Every weekday at 09:00 UTC"},
@@ -294,7 +297,7 @@ defmodule Ryker.ControlPlane.CardTest do
            ]
 
     writing = %{schedule | "authority" => "repository_write", "repository" => "checkout-api"}
-    assert {:ok, writer} = Card.project(record("schedule_offer", writing))
+    assert {:ok, writer} = ChatCard.project(record("schedule_offer", writing))
     assert {"What it may do", "Can change code in checkout-api"} in writer.details
 
     memory = %{
@@ -307,7 +310,7 @@ defmodule Ryker.ControlPlane.CardTest do
       "visibility" => "workspace"
     }
 
-    assert {:ok, remembered} = Card.project(record("memory_offer", memory))
+    assert {:ok, remembered} = ChatCard.project(record("memory_offer", memory))
 
     assert remembered.details == [
              {"Applies to", "Everyone in this workspace"},
@@ -334,7 +337,7 @@ defmodule Ryker.ControlPlane.CardTest do
       "target" => "Operator-reported production checkout-api v2.3.1 timeline"
     }
 
-    assert {:ok, cited} = Card.project(record("evidence", evidence))
+    assert {:ok, cited} = ChatCard.project(record("evidence", evidence))
     assert cited.details == []
 
     trigger = %{
@@ -356,7 +359,7 @@ defmodule Ryker.ControlPlane.CardTest do
       "revision" => 3
     }
 
-    assert {:ok, changing} = Card.project(record("automation_change_offer", change))
+    assert {:ok, changing} = ChatCard.project(record("automation_change_offer", change))
 
     assert changing.details == [
              {"Automation", "Weekday open incident status"},
@@ -375,7 +378,7 @@ defmodule Ryker.ControlPlane.CardTest do
       "transport" => "control_plane"
     }
 
-    assert {:ok, posting} = Card.project(record("slack_post_offer", post))
+    assert {:ok, posting} = ChatCard.project(record("slack_post_offer", post))
     assert posting.details == []
 
     html =
@@ -414,8 +417,8 @@ defmodule Ryker.ControlPlane.CardTest do
       "visibility" => "conversation"
     }
 
-    assert {:ok, card} = Card.project(record("memory_offer", payload, :confirmed))
-    assert Card.display_status(card) == nil
+    assert {:ok, card} = ChatCard.project(record("memory_offer", payload, :confirmed))
+    assert ChatCard.display_status(card) == nil
 
     assert card.details == [
              {"Applies to", "This conversation"},
@@ -451,7 +454,9 @@ defmodule Ryker.ControlPlane.CardTest do
       title: "Finish Conversation Lab parity"
     }
 
-    assert {:ok, review} = Card.project_publication(publication, "record:publication_offer:one")
+    assert {:ok, review} =
+             ChatCard.project_publication(publication, "record:publication_offer:one")
+
     assert review.kind == "publication_review"
     assert review.action == :approve_publication
     assert review.ref == "record:publication_offer:one"
@@ -471,7 +476,7 @@ defmodule Ryker.ControlPlane.CardTest do
         status: :published
     }
 
-    assert {:ok, result} = Card.project_publication(published, "record:publication_offer:one")
+    assert {:ok, result} = ChatCard.project_publication(published, "record:publication_offer:one")
     assert result.kind == "publication_result"
     assert result.action == :check_publication
     assert result.status == :published
@@ -479,7 +484,7 @@ defmodule Ryker.ControlPlane.CardTest do
     assert {"Pull request", "#42"} in result.details
 
     unsafe = put_in(published.publication_receipt["pull_request_url"], "javascript:alert(1)")
-    assert {:ok, safe} = Card.project_publication(unsafe, "record:publication_offer:one")
+    assert {:ok, safe} = ChatCard.project_publication(unsafe, "record:publication_offer:one")
     assert safe.url == nil
 
     blocked = %{
@@ -493,18 +498,18 @@ defmodule Ryker.ControlPlane.CardTest do
     }
 
     assert {:ok, blocked_card} =
-             Card.project_publication(blocked, "record:publication_offer:one")
+             ChatCard.project_publication(blocked, "record:publication_offer:one")
 
     assert blocked_card.action == nil
     assert blocked_card.summary == "The focused gate failed."
 
     no_reasons = put_in(blocked.review_document["not_publishable_reasons"], [])
-    assert {:ok, no_reasons_card} = Card.project_publication(no_reasons, publication.ref)
+    assert {:ok, no_reasons_card} = ChatCard.project_publication(no_reasons, publication.ref)
     assert no_reasons_card.summary == "The candidate is not publishable."
 
     invalid_review = %{publication | review_document: %{}, status: :reviewed}
-    assert Card.project_publication(invalid_review, publication.ref) == :ignore
-    assert Card.project_publication(%Publication{}, publication.ref) == :ignore
+    assert ChatCard.project_publication(invalid_review, publication.ref) == :ignore
+    assert ChatCard.project_publication(%Publication{}, publication.ref) == :ignore
   end
 
   test "every source-neutral Slack-equivalent record has a typed Lab card" do
@@ -658,7 +663,7 @@ defmodule Ryker.ControlPlane.CardTest do
     ]
 
     Enum.each(cases, fn {kind, payload, label, action} ->
-      assert {:ok, card} = Card.project(record(kind, payload))
+      assert {:ok, card} = ChatCard.project(record(kind, payload))
       assert card.kind == kind
       assert card.label == label
       assert card.action == action
@@ -670,7 +675,7 @@ defmodule Ryker.ControlPlane.CardTest do
              RecordPayload.kinds() |> MapSet.new()
 
     assert {:ok, closed} =
-             Card.project(
+             ChatCard.project(
                record(
                  "publication_offer",
                  %{"body" => "Already handled.", "title" => "Handled"},
@@ -682,10 +687,10 @@ defmodule Ryker.ControlPlane.CardTest do
   end
 
   test "malformed, unsupported, and unprojectable task records stay inert" do
-    assert Card.project(record("unknown", %{})) == :ignore
-    assert Card.project(record("task_offer", %{"kind" => "engineering"})) == :ignore
+    assert ChatCard.project(record("unknown", %{})) == :ignore
+    assert ChatCard.project(record("task_offer", %{"kind" => "engineering"})) == :ignore
 
-    assert Card.project(
+    assert ChatCard.project(
              record("slack_post_offer", %{
                "conversation_ref" => "slack:T123:C789",
                "destination_ref" => "slack-source:v1:T123:C789:thread:1787832888.000300",
@@ -697,7 +702,7 @@ defmodule Ryker.ControlPlane.CardTest do
              })
            ) == :ignore
 
-    assert Card.project(
+    assert ChatCard.project(
              record(
                "task_offer",
                %{

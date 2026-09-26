@@ -1,4 +1,4 @@
-defmodule Ryker.Ingress.HTTP do
+defmodule Ryker.Ingress.InboundHTTP do
   @moduledoc false
 
   import Plug.Conn

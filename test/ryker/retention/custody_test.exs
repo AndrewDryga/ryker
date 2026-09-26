@@ -7,7 +7,9 @@ defmodule Ryker.Retention.CustodyTest do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Retention.{Custody, Operator, OperatorAction, Plan}
+  alias Ryker.Operator.Retention, as: RetentionOperator
+  alias Ryker.Operator.RetentionAction
+  alias Ryker.Retention.{Custody, Plan}
   alias Ryker.Work.Session
 
   @now ~U[2026-08-29 10:00:00.000000Z]
@@ -266,7 +268,7 @@ defmodule Ryker.Retention.CustodyTest do
     assert blocked.discard_plan_expected_revision == frozen.discard_plan_expected_revision
 
     assert {:ok, %{action: rearm_action, outcome: :rearmed, session: rearmed}} =
-             Operator.rearm(
+             RetentionOperator.rearm(
                session.external_ref,
                "operator:local",
                "retention-action:rearm:one"
@@ -286,16 +288,16 @@ defmodule Ryker.Retention.CustodyTest do
     assert rearmed.discard_plan_expected_revision == 8
 
     assert {:ok, %{outcome: :duplicate}} =
-             Operator.rearm(
+             RetentionOperator.rearm(
                session.external_ref,
                "operator:local",
                "retention-action:rearm:one"
              )
 
-    assert Repo.aggregate(Ryker.Retention.OperatorAction, :count) == 1
+    assert Repo.aggregate(Ryker.Operator.RetentionAction, :count) == 1
 
     assert {:error, :retention_operator_action_conflict} =
-             Operator.discard_unmerged(
+             RetentionOperator.discard_unmerged(
                session.external_ref,
                "operator:local",
                "retention-action:rearm:one"
@@ -307,7 +309,7 @@ defmodule Ryker.Retention.CustodyTest do
     dirty = retained_session!("operator-dirty", true, false)
 
     assert {:ok, %{action: discard_action, outcome: :discard_requested, session: replanning}} =
-             Operator.discard_unmerged(
+             RetentionOperator.discard_unmerged(
                unmerged.external_ref,
                "operator:local",
                "retention-action:discard:unmerged"
@@ -328,14 +330,14 @@ defmodule Ryker.Retention.CustodyTest do
     assert replanning.retained_reason == nil
 
     assert {:ok, %{outcome: :duplicate}} =
-             Operator.discard_unmerged(
+             RetentionOperator.discard_unmerged(
                unmerged.external_ref,
                "operator:local",
                "retention-action:discard:unmerged"
              )
 
     assert {:error, :retention_dirty_workspace} =
-             Operator.discard_unmerged(
+             RetentionOperator.discard_unmerged(
                dirty.external_ref,
                "operator:local",
                "retention-action:discard:dirty"
@@ -388,13 +390,13 @@ defmodule Ryker.Retention.CustodyTest do
                  [:discard_requested, :duplicate]
 
         assert Repo.aggregate(
-                 from(action in OperatorAction, where: action.action_ref == ^action_ref),
+                 from(action in RetentionAction, where: action.action_ref == ^action_ref),
                  :count
                ) == 1
       after
         send(blocker.pid, :release)
         task_key |> Process.delete() |> Ryker.ConcurrencyCase.stop_tasks()
-        Repo.delete_all(from(action in OperatorAction, where: action.session_id == ^session.id))
+        Repo.delete_all(from(action in RetentionAction, where: action.session_id == ^session.id))
         Repo.delete_all(from(row in Session, where: row.id == ^session.id))
 
         Repo.delete_all(
@@ -528,7 +530,7 @@ defmodule Ryker.Retention.CustodyTest do
   defp operator_action_task(parent, session_ref, action_ref, label) do
     Ryker.ConcurrencyCase.unboxed_task(fn ->
       send(parent, {:operator_started, label, Ryker.ConcurrencyCase.backend_pid()})
-      Operator.discard_unmerged(session_ref, "operator:local", action_ref)
+      RetentionOperator.discard_unmerged(session_ref, "operator:local", action_ref)
     end)
   end
 

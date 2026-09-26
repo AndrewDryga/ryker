@@ -361,7 +361,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   # receipt when the worker was removed from Ryker or no longer knows the
   # session, retries a step the worker keeps changing under it eight times,
   # and stops at the first refusal a retry cannot change. Nothing re-arms a
-  # blocked cleanup but a person (Retention.Operator.rearm/3).
+  # blocked cleanup but a person (Operator.Retention.rearm/3).
   defp retention(row, now) do
     thing = retained_thing(row)
     cause = retention_cause(row)

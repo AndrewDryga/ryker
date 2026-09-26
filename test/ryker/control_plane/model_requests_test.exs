@@ -3,9 +3,10 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   import Phoenix.LiveViewTest
   alias Ryker.Admission.Attempt
   alias Ryker.ControlPlane.ConversationLab
-  alias Ryker.ControlPlane.{EpisodePage, EpisodeRequest, InspectionRedactor, Projection}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeRequest, Projection}
   alias Ryker.ControlPlane.{ModelRequests, RequestPage}
   alias Ryker.Ingress.{InputCustodyTransition, WorkProfile}
+  alias Ryker.InspectionRedactor
   alias Ryker.Work.{Custody, Submission, Turn}
 
   test "inspection reads the frozen request and distinguishes instructions from provider-owned context" do

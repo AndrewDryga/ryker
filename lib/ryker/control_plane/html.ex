@@ -3,7 +3,8 @@ defmodule Ryker.ControlPlane.HTML do
 
   alias Phoenix.HTML.Safe
 
-  alias Ryker.ControlPlane.{Card, ConversationLab, Layouts}
+  alias Ryker.ControlPlane.{ConversationLab, Layouts}
+  alias Ryker.Delivery.ChatCard
 
   # The title and description are the shell's header; the body owns the rest.
   @spec page(String.t(), String.t() | nil, iodata()) :: binary()
@@ -430,8 +431,8 @@ defmodule Ryker.ControlPlane.HTML do
       "\"><div class=\"lab-card-head\"><span>",
       escape(card.label),
       "</span>",
-      if(Card.display_status(card),
-        do: ["<span class=\"lab-card-status\">", escape(Card.display_status(card)), "</span>"],
+      if(ChatCard.display_status(card),
+        do: ["<span class=\"lab-card-status\">", escape(ChatCard.display_status(card)), "</span>"],
         else: ""
       ),
       "</div><h3>",

@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.Components do
   import Phoenix.HTML.Form, only: [options_for_select: 2]
   alias Phoenix.HTML.Safe
   alias Phoenix.LiveView.JS
-  alias Ryker.ControlPlane.ExecutionTarget
+  alias Ryker.Work.ExecutionTarget
 
   @icons %{
     activity: "M3 12h4l3-8 4 16 3-8h4",

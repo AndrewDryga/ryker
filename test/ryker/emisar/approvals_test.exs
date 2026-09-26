@@ -3,11 +3,12 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
   alias Ryker.ControlPlane.{FailureExplanation, Pages, Projection}
   alias Ryker.{Credentials, IntegrationSetup}
-  alias Ryker.Emisar.{Approval, ApprovalDispatcher, Approvals, Connections, Operator, RunState}
+  alias Ryker.Emisar.{Approval, ApprovalDispatcher, Approvals, Connections, RunState}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Operator.Emisar, as: EmisarOperator
   alias Ryker.Settings
   alias Ryker.State.{Record, Records}
   alias Ryker.Work.Custody
@@ -179,7 +180,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
                {:emisar_http_error, 403, "forbidden"}
              )
 
-    assert {:ok, blocked} = Operator.fetch("production/apr-operator")
+    assert {:ok, blocked} = EmisarOperator.fetch("production/apr-operator")
     assert blocked.request_id == "apr-operator"
     assert blocked.run_id == "run-operator"
     assert blocked.last_error =~ "forbidden"
@@ -192,7 +193,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert %{kind: "emisar", ref: "production/apr-operator"} =
              Enum.find(failures, &(&1.kind == "emisar"))
 
-    assert {:ok, rearmed} = Operator.rearm("production/apr-operator")
+    assert {:ok, rearmed} = EmisarOperator.rearm("production/apr-operator")
     assert rearmed.status == :monitoring
     assert rearmed.failure_count == 0
     assert rearmed.last_error == nil
@@ -204,9 +205,11 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert {:ok, waiting} = Episodes.fetch_by_key(claim.episode.key)
     assert waiting.state == :waiting_for_event
 
-    assert Operator.rearm("production/apr-operator") == {:error, :emisar_approval_not_blocked}
-    assert Operator.fetch("production/missing") == {:error, :emisar_approval_not_found}
-    assert Operator.failures(0) == {:error, {:invalid_emisar_approval_operator, :limit}}
+    assert EmisarOperator.rearm("production/apr-operator") ==
+             {:error, :emisar_approval_not_blocked}
+
+    assert EmisarOperator.fetch("production/missing") == {:error, :emisar_approval_not_found}
+    assert EmisarOperator.failures(0) == {:error, {:invalid_emisar_approval_operator, :limit}}
   end
 
   # A stopped watch whose task was then closed could only stay blocked: "Watch
@@ -242,8 +245,11 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert closed.closed_reason == "wait_ended"
     assert %DateTime{} = closed.closed_at
     assert closed.last_error =~ "403"
-    assert {:ok, %{status: :closed}} = Operator.fetch("production/apr-closed-task")
-    assert Operator.rearm("production/apr-closed-task") == {:error, :emisar_approval_not_blocked}
+    assert {:ok, %{status: :closed}} = EmisarOperator.fetch("production/apr-closed-task")
+
+    assert EmisarOperator.rearm("production/apr-closed-task") ==
+             {:error, :emisar_approval_not_blocked}
+
     assert {:ok, :idle} = ApprovalDispatcher.run_once(dispatcher())
   end
 

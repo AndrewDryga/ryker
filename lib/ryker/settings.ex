@@ -148,8 +148,8 @@ defmodule Ryker.Settings do
   settings snapshot for one string would make a failures page pay fourteen
   queries a row for it.
   """
-  @spec work_workspace_ref() :: String.t() | nil
-  def work_workspace_ref, do: Repo.one(from(work in Work, select: work.workspace_ref))
+  @spec worker_workspace_ref() :: String.t() | nil
+  def worker_workspace_ref, do: Repo.one(from(work in Work, select: work.workspace_ref))
 
   @doc "Creates the single installation identity and typed defaults exactly once."
   def initialize(actor_ref) do

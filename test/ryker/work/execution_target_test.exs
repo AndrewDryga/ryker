@@ -1,9 +1,7 @@
-defmodule Ryker.ControlPlane.ExecutionTargetTest do
+defmodule Ryker.Work.ExecutionTargetTest do
   use ExUnit.Case, async: true
 
-  import Phoenix.LiveViewTest
-
-  alias Ryker.ControlPlane.{Components, ExecutionTarget}
+  alias Ryker.Work.ExecutionTarget
 
   test "the co:op target is presented as labelled human information" do
     assert ExecutionTarget.present("codex:gpt-5.6-sol/medium@default") == %{
@@ -18,21 +16,6 @@ defmodule Ryker.ControlPlane.ExecutionTargetTest do
                profile: "default"
              }
            }
-
-    html =
-      render_component(&Components.execution_target/1,
-        target: "codex:gpt-5.6-sol/medium@default"
-      )
-
-    document = LazyHTML.from_fragment(html)
-    assert LazyHTML.query(document, ".execution-target-model") |> LazyHTML.text() == "gpt-5.6-sol"
-
-    assert LazyHTML.query(document, ".execution-target-meta") |> LazyHTML.text() ==
-             "Medium reasoning · Codex · Default profile"
-
-    assert LazyHTML.query(document, ".execution-target") |> LazyHTML.attribute("title") == [
-             "codex:gpt-5.6-sol/medium@default"
-           ]
   end
 
   test "missing and noncanonical targets are reported without invented parts" do

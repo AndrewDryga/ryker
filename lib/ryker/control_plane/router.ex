@@ -29,8 +29,8 @@ defmodule Ryker.ControlPlane.Router do
     RelearnPanel
   }
 
-  alias Ryker.Learning.Operator, as: LearningOperator
   alias Ryker.Observability
+  alias Ryker.Operator.Learning, as: LearningOperator
 
   @behaviour Plug
   @maximum_form_bytes 4_096

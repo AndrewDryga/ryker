@@ -1,4 +1,4 @@
-defmodule Ryker.Delivery.Operator do
+defmodule Ryker.Operator.Delivery do
   @moduledoc """
   Trusted inspection and rearm surface for blocked delivery custody.
 

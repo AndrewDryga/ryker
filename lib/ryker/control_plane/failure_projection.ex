@@ -8,16 +8,16 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Activity, LearningActivity, ProductReadiness, WorkRecovery}
+  alias Ryker.ControlPlane.{Activity, LearningActivity, ProductReadiness}
   alias Ryker.CoopFleet.{Placement, Worker}
   alias Ryker.Credentials
-  alias Ryker.Delivery.Operator, as: DeliveryOperator
-  alias Ryker.Emisar.Operator, as: EmisarOperator
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.Batch, as: LearningBatch
   alias Ryker.Observability
+  alias Ryker.Operator.Delivery, as: DeliveryOperator
+  alias Ryker.Operator.Emisar, as: EmisarOperator
   alias Ryker.Operator.FailureDetail
   alias Ryker.Publication.Publication
   alias Ryker.Repo
@@ -32,7 +32,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   }
 
   alias Ryker.State.LearningRun
-  alias Ryker.Work.{Cancellation, FailureCause, Session, Turn}
+  alias Ryker.Work.{Cancellation, FailureCause, Recovery, Session, Turn}
 
   # The phases Ryker is still retrying. A recorded failure there is a stuck
   # publication; a reviewed change waiting for a person, a review verdict and a
@@ -374,7 +374,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   # A blocked watch is a failure while its task could still continue from it;
   # a watching one only while a task waits for it and nothing can make
-  # progress on it (`Ryker.Emisar.Operator.failures/1`).
+  # progress on it (`Ryker.Operator.Emisar.failures/1`).
   def emisar(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case EmisarOperator.fetch(ref) do
       {:ok, %{status: :blocked, wait: wait} = item} when wait != :ended ->
@@ -482,7 +482,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   end
 
   defp work_item({%Turn{} = turn, %Episode{} = episode}) do
-    recovery = WorkRecovery.brief(turn)
+    recovery = Recovery.brief(turn)
     stop_code = stop_code(turn)
     paused_room = paused_room(stop_code, episode)
 

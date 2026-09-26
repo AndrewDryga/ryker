@@ -12,20 +12,14 @@ defmodule Ryker.Delivery.DispatcherTest do
   alias Ryker.Admission.Decision
   alias Ryker.Artifacts.Outputs
 
-  alias Ryker.Delivery.{
-    Adapters,
-    Dispatcher,
-    Operator,
-    PlatformAction,
-    PlatformActionCustody,
-    Reaction
-  }
+  alias Ryker.Delivery.{Adapters, Dispatcher, PlatformAction, PlatformActionCustody, Reaction}
 
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Input, as: IngressInput
+  alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Polling
   alias Ryker.Slack.Input
   alias Ryker.State.Records
@@ -317,12 +311,12 @@ defmodule Ryker.Delivery.DispatcherTest do
               kind: :platform_action,
               status: :blocked,
               tool: :set_slack_reaction
-            }} = Operator.fetch(action_ref)
+            }} = DeliveryOperator.fetch(action_ref)
 
-    assert {:ok, blocked} = Operator.list_blocked()
+    assert {:ok, blocked} = DeliveryOperator.list_blocked()
     assert Enum.any?(blocked, &(&1.delivery_ref == action_ref and &1.kind == :platform_action))
 
-    assert {:ok, %{status: :pending, retry_generation: 1}} = Operator.rearm(action_ref)
+    assert {:ok, %{status: :pending, retry_generation: 1}} = DeliveryOperator.rearm(action_ref)
   end
 
   test "a publisher receipt for another destination never settles this intent" do
@@ -360,7 +354,7 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert blocked.delivery_retry_generation == 0
     assert {:ok, :idle} = Dispatcher.run_once(dispatcher_options(:message, publisher))
 
-    assert {:ok, [listed]} = Operator.list_blocked()
+    assert {:ok, [listed]} = DeliveryOperator.list_blocked()
     assert listed.delivery_ref == delivery_ref
     assert listed.episode_id == accepted.episode.id
     assert listed.turn_ref == accepted.turn.turn_ref
@@ -531,7 +525,7 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert blocked.status == :blocked
     assert {:ok, :idle} = Dispatcher.run_once(options)
 
-    assert {:ok, rearmed} = Operator.rearm(delivery_ref)
+    assert {:ok, rearmed} = DeliveryOperator.rearm(delivery_ref)
     assert rearmed.status == :pending
     assert rearmed.attempt_count == 0
     assert rearmed.retry_generation == 1

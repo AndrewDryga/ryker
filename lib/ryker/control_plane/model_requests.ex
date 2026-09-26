@@ -10,18 +10,17 @@ defmodule Ryker.ControlPlane.ModelRequests do
     ContextSearch,
     ContextSelection,
     EpisodeTrace,
-    PagedRelation,
-    WorkRecovery
+    PagedRelation
   }
 
   alias Ryker.ControlPlane.EpisodeTrace.Step
-  alias Ryker.ControlPlane.InspectionRedactor, as: Redactor
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.{Inbox, InputCustodyTransition}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Repo
   alias Ryker.Settings.PolicyBinding
-  alias Ryker.Work.{ActivityEvent, ActivityRetention, CandidateResponse, Session, Turn}
+  alias Ryker.Work.{ActivityEvent, ActivityRetention, CandidateResponse, Recovery, Session, Turn}
   alias Ryker.Work.FailureCause
 
   @page_size 20
@@ -187,7 +186,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     work =
       turns
-      |> Enum.reject(&WorkRecovery.retained_absent_submission?/1)
+      |> Enum.reject(&Recovery.retained_absent_submission?/1)
       |> Enum.flat_map(fn turn ->
         request = inspect_row(turn, response_params(turn, params), options)
 

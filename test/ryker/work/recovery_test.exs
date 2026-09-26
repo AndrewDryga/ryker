@@ -1,13 +1,14 @@
-defmodule Ryker.ControlPlane.WorkRecoveryTest do
+defmodule Ryker.Work.RecoveryTest do
   use ExUnit.Case, async: true
-  alias Ryker.ControlPlane.{FailuresPage, WorkRecovery}
+  alias Ryker.ControlPlane.FailuresPage
+  alias Ryker.Work.Recovery
   alias Ryker.Work.Turn
 
   test "a confirmed task that never started explains setup without implying lost changes" do
     # The second runner request showed Working and suggested blind retries even
     # though the checkpoint guard stopped it before creating a coding session.
     turn = not_started_turn()
-    brief = WorkRecovery.project(turn, :ok)
+    brief = Recovery.project(turn, :ok)
     assert brief.headline == "I couldn’t start the code changes"
     assert brief.cause =~ "save a recoverable copy"
     assert brief.next_step =~ "administrator"
@@ -15,7 +16,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     assert brief.model_output == nil
     assert brief.action == nil
     assert brief.setup_href == "/settings/advanced#code-editing"
-    assert WorkRecovery.not_started?(turn)
+    assert Recovery.not_started?(turn)
   end
 
   test "missing or expired evidence never proves that code work did not start" do
@@ -29,15 +30,15 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
           %{turn | remote_started_at: DateTime.utc_now()},
           %{turn | completion_receipt: %{}}
         ] do
-      refute WorkRecovery.not_started?(changed)
-      refute WorkRecovery.project(changed, :ok).workspace =~ "No files changed"
+      refute Recovery.not_started?(changed)
+      refute Recovery.project(changed, :ok).workspace =~ "No files changed"
     end
   end
 
   test "the setup blocker stops hiding retry only after the running connection is corrected" do
     turn = not_started_turn()
-    assert WorkRecovery.project(turn, :ok, false).action == nil
-    ready = WorkRecovery.project(turn, :ok, true)
+    assert Recovery.project(turn, :ok, false).action == nil
+    ready = Recovery.project(turn, :ok, true)
     assert ready.action == :retry
     assert ready.action_label == "Start the task"
     assert ready.next_step =~ "compatible coding worker"
@@ -51,12 +52,12 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     # the work — while the host was holding a checkpoint that the next placement
     # would have restored. The operator has to know which of the two it is.
     turn = %{incident_turn() | last_error_detail: "{:coop_protocol_error, :turn}"}
-    plain = WorkRecovery.project(turn, :ok, true)
+    plain = Recovery.project(turn, :ok, true)
     assert plain.action == :retry
     assert plain.action_label == "Run the task again"
     assert plain.retry_effect =~ "preserve any unfinished changes"
 
-    resumable = WorkRecovery.project(turn, :ok, true, snapshot())
+    resumable = Recovery.project(turn, :ok, true, snapshot())
     assert resumable.action == :retry
     assert resumable.action_label == "Continue on another worker"
     assert resumable.retry_effect =~ "ryker"
@@ -68,7 +69,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     assert resumable.retry_effect =~ "4.0 KB"
 
     # A state with no action of its own is not given one by a snapshot.
-    held = WorkRecovery.project(incident_turn(), :ok, false, snapshot())
+    held = Recovery.project(incident_turn(), :ok, false, snapshot())
     assert held.action == nil
     assert held.action_label == "Run the task again"
   end
@@ -91,7 +92,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
   test "recovery explains the host failure separately from the retained worker answer" do
     # The runner's actionable Docker question was hidden behind work_execution_blocked.
     turn = incident_turn()
-    brief = WorkRecovery.project(turn, {:error, :work_completed_workspace_recovery_required})
+    brief = Recovery.project(turn, {:error, :work_completed_workspace_recovery_required})
     assert brief.headline == "The worker finished, but its workspace could not be saved"
     assert brief.next_step =~ "Preserve the existing working copy"
     assert brief.model_output =~ "lacks Docker"
@@ -128,11 +129,11 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
           %{turn | operational_pruned_at: DateTime.utc_now()},
           %{turn | validation_intent: %{"verdict" => "reject"}}
         ] do
-      brief = WorkRecovery.project(changed, :ok)
+      brief = Recovery.project(changed, :ok)
       assert brief.model_output == nil
     end
 
-    brief = WorkRecovery.project(%{turn | last_error_detail: "Authorization: secret-token"}, :ok)
+    brief = Recovery.project(%{turn | last_error_detail: "Authorization: secret-token"}, :ok)
     refute inspect(brief) =~ "secret-token"
 
     turn =
@@ -141,7 +142,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
         "Preserved <script>unsafe()</script> response"
       )
 
-    brief = WorkRecovery.project(turn, :ok)
+    brief = Recovery.project(turn, :ok)
 
     row = %{
       kind: "work",
@@ -166,7 +167,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
         "The request used Bearer private-recovery-token and https://example.test/run?token=private-url-token"
       )
 
-    brief = WorkRecovery.project(turn, :ok)
+    brief = Recovery.project(turn, :ok)
     refute brief.model_output =~ "private-recovery-token"
     refute brief.model_output =~ "private-url-token"
     assert brief.model_output =~ "[redacted]"
@@ -182,14 +183,14 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
         last_error_detail: "{:coop_unavailable, :offline}"
     }
 
-    brief = WorkRecovery.project(turn, :ok)
+    brief = Recovery.project(turn, :ok)
     assert brief.cause =~ "connection"
     assert brief.next_step =~ "connection"
     refute brief.next_step =~ "storage"
     refute brief.workspace =~ "snapshot is required"
 
     unknown =
-      WorkRecovery.project(
+      Recovery.project(
         %{turn | last_error_code: "work_execution_failed", last_error_detail: "unknown failure"},
         :ok
       )
@@ -211,7 +212,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
 
     for {code, cause} <- explanations do
       brief =
-        WorkRecovery.project(
+        Recovery.project(
           %{
             incident_turn()
             | completion_receipt: %{},
@@ -237,7 +238,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
         last_error_detail: "delivery failure"
     }
 
-    refute WorkRecovery.project(turn, :ok).kind == :completion
+    refute Recovery.project(turn, :ok).kind == :completion
   end
 
   test "only a finished worker's unsaved workspace or unreleased reply is a hold" do
@@ -245,13 +246,13 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     # separately, the card said "Task work is blocked and needs operator
     # attention. Open the episode for details." over a page that already knew the
     # working copy was stranded, the session closed and the answer retained.
-    held = WorkRecovery.workspace_hold(incident_turn())
+    held = Recovery.workspace_hold(incident_turn())
     assert held.held == :workspace
     assert held.closed
     assert held.report =~ "lacks Docker"
 
     open_session =
-      WorkRecovery.workspace_hold(%{
+      Recovery.workspace_hold(%{
         incident_turn()
         | cancellation_receipt: %{"remote_state" => "completed", "session_state" => "open"}
       })
@@ -259,7 +260,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     refute open_session.closed
 
     stopped_finalization =
-      WorkRecovery.workspace_hold(%{
+      Recovery.workspace_hold(%{
         incident_turn()
         | completion_receipt: %{},
           last_error_code: "coop_unavailable",
@@ -269,21 +270,21 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     assert stopped_finalization.held == :reply
 
     # Nothing was edited and nothing was answered, so nothing is being held.
-    assert WorkRecovery.workspace_hold(not_started_turn()) == nil
+    assert Recovery.workspace_hold(not_started_turn()) == nil
 
     # Neither is an ordinary failure with no retained completion behind it.
-    assert WorkRecovery.workspace_hold(%{
+    assert Recovery.workspace_hold(%{
              incident_turn()
              | last_error_detail: "{:coop_protocol_error, :turn}"
            }) == nil
 
-    assert WorkRecovery.workspace_hold(%Turn{status: :settled}) == nil
-    assert WorkRecovery.workspace_hold(nil) == nil
+    assert Recovery.workspace_hold(%Turn{status: :settled}) == nil
+    assert Recovery.workspace_hold(nil) == nil
   end
 
   test "recovery names what happened before a collapsed safely formatted worker report" do
     brief =
-      WorkRecovery.project(incident_turn(), {:error, :work_completed_workspace_recovery_required})
+      Recovery.project(incident_turn(), {:error, :work_completed_workspace_recovery_required})
 
     row = %{
       kind: "work",
@@ -379,7 +380,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
   end
 
   defp blocked(detail) do
-    WorkRecovery.project(
+    Recovery.project(
       %{incident_turn() | last_error_code: "work_execution_blocked", last_error_detail: detail},
       :ok
     )

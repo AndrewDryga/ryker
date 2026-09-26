@@ -8,8 +8,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.ControlPlane.InspectionRedactor
   alias Ryker.Delivery.PlatformAction
+  alias Ryker.InspectionRedactor
   alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.Slack.IncidentRoom

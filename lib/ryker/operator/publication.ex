@@ -1,4 +1,4 @@
-defmodule Ryker.Publication.Operator do
+defmodule Ryker.Operator.Publication do
   @moduledoc """
   Audited operator recovery for publication custody.
 

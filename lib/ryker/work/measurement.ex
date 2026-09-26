@@ -1,7 +1,7 @@
 defmodule Ryker.Work.Measurement do
   @moduledoc false
 
-  alias Ryker.ControlPlane.ExecutionTarget
+  alias Ryker.Work.ExecutionTarget
 
   @maximum_target_bytes 512
   @maximum_cost_usd Decimal.new("1000000000")

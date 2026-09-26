@@ -22,7 +22,8 @@ defmodule Ryker.ControlPlane.RunningSystem do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{CodeEditingSetup, ConfigurationHelp, Integrations, Kit}
+  alias Ryker.ControlPlane.{ConfigurationHelp, Integrations, Kit}
+  alias Ryker.Work.CodeEditingSetup
 
   @integrations ~w(slack github emisar webhooks)
 

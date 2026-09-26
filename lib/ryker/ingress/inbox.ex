@@ -10,12 +10,12 @@ defmodule Ryker.Ingress.Inbox do
 
   alias Ryker.Artifacts.References, as: ArtifactReferences
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.InspectionRedactor
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
   alias Ryker.Ingress.Input
   alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.Ingress.Projections
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.State.{Memories, Observations}
 

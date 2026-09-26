@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   use ExUnit.Case, async: true
-  alias Ryker.ControlPlane.{CallRun, InspectionRedactor, RequestContextHTML}
+  alias Ryker.ControlPlane.{CallRun, RequestContextHTML}
+  alias Ryker.InspectionRedactor
 
   test "retained Work history exposes its messages, limits and summary availability" do
     # The live Work card hid all eleven retained messages and both summaries

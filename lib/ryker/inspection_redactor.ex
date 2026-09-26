@@ -1,4 +1,4 @@
-defmodule Ryker.ControlPlane.InspectionRedactor do
+defmodule Ryker.InspectionRedactor do
   @moduledoc "Sanitized inspection artifacts. Original bytes never cross the browser boundary."
   alias Ryker.CanonicalJSON
 

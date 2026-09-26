@@ -8,12 +8,13 @@ defmodule Ryker.ControlPlane.RelearnPanel do
   alias Ryker.ControlPlane.{
     ConversationMemory,
     CSRF,
-    InspectionRedactor,
     LearningActivity,
     SlackMarkdown,
     SlackNames,
     SourceText
   }
+
+  alias Ryker.InspectionRedactor
 
   def render(assigns) do
     assigns =

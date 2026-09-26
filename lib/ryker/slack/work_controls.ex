@@ -9,8 +9,9 @@ defmodule Ryker.Slack.WorkControls do
 
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
+  alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Followups, Operator, Publication, Review}
+  alias Ryker.Publication.{Followups, Publication, Review}
   alias Ryker.Repo
   alias Ryker.Slack.{WorkRecord, WorkTarget}
   alias Ryker.Work.{Custody, Turn}
@@ -155,7 +156,7 @@ defmodule Ryker.Slack.WorkControls do
          {:ok, publication} <-
            publication(resolved.episode.id, attributes.publication_ref),
          {:ok, receipt} <-
-           Operator.recover(
+           PublicationOperator.recover(
              publication.ref,
              action,
              attributes.expected_generation,

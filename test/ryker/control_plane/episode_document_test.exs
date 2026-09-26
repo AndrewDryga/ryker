@@ -2,9 +2,10 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   use Ryker.DataCase, async: true
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Activity, EpisodePage, EpisodeRequest, InspectionRedactor, Projection}
+  alias Ryker.ControlPlane.{Activity, EpisodePage, EpisodeRequest, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.InspectionRedactor
 
   test "opaque routing candidate references never become nonexistent timeline links" do
     # The live follow-up routed correctly but its 'Joins' link opened a 404:

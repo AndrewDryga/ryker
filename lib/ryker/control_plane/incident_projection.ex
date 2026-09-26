@@ -8,7 +8,8 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Card, Environments, EpisodeProjection, Search}
+  alias Ryker.ControlPlane.{Environments, EpisodeProjection, Search}
+  alias Ryker.Delivery.ChatCard
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.FailureDetail
   alias Ryker.Publication.Publication
@@ -240,7 +241,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   # what was observed — beside its identity for support.
   defp record(%Record{} = record) do
     card =
-      case Card.project(record) do
+      case ChatCard.project(record) do
         {:ok, card} -> card
         :ignore -> %{}
       end
