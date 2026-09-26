@@ -120,6 +120,7 @@ defmodule Ryker.Runtime.AssemblyTest do
   test "a fully connected installation assembles one lane per saved connection" do
     settings = connected!()
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
+    assert configuration.work.connected == %{github: true, slack: true}
 
     # Every lane an enabled setting asks for, and nothing the settings did not.
     assert Enum.sort(Map.keys(configuration)) ==
@@ -220,6 +221,9 @@ defmodule Ryker.Runtime.AssemblyTest do
     for absent <- [:slack, :github, :emisar, :learning, :webhooks] do
       assert configuration[absent] == nil, "#{absent} started from a credential, not a setting"
     end
+
+    # The model is told what is connected from what actually runs.
+    assert configuration[:work].connected == %{github: false, slack: false}
 
     # The lanes that need no integration still run, and publication follows
     # GitHub out rather than publishing through nothing.

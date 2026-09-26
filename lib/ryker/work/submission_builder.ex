@@ -85,7 +85,7 @@ defmodule Ryker.Work.SubmissionBuilder do
          {:ok, contract} <- Contract.select(episode.execution_mode),
          :ok <- Contract.authorize_continuation(contract, previous, session),
          records <- Records.model_records(episode, session.repository_ref),
-         {:ok, metadata} <- context_metadata(episode, contract.mode, options),
+         {:ok, metadata} <- context_metadata(episode, session, contract.mode, options),
          {:ok, context, eligible} <-
            submission_context(episode, session, snapshot, records, previous, metadata),
          {:ok, submission} <-
@@ -178,7 +178,7 @@ defmodule Ryker.Work.SubmissionBuilder do
     }
   end
 
-  defp context_metadata(episode, mode, options) do
+  defp context_metadata(episode, session, mode, options) do
     with {:ok, state_tools} <- state_tool_names(episode, options),
          {:ok, platform_tools} <- platform_tool_names(episode, mode, options),
          {:ok, workspace} <- workspace(options) do
@@ -195,8 +195,34 @@ defmodule Ryker.Work.SubmissionBuilder do
         "source_and_action_tools" => platform_tools
       }
 
-      {:ok, maybe_put_workspace(metadata, workspace)}
+      {:ok,
+       metadata
+       |> maybe_put_workspace(workspace)
+       |> maybe_put_connected(session, Keyword.get(options, :connected))}
     end
+  end
+
+  # What Ryker can reach from this conversation, so the model can say "GitHub
+  # isn't connected here" instead of guessing from tool names and describing
+  # its own machinery. Slack and GitHub are what the running system connected;
+  # the Emisar account and repositories are this work's environment.
+  defp maybe_put_connected(context, _session, nil), do: context
+
+  defp maybe_put_connected(context, session, %{github: github, slack: slack}) do
+    repository_context = session.repository_context || %{}
+
+    repositories =
+      [repository_context["primary_repository"] || session.repository_ref]
+      |> Enum.concat(List.wrap(repository_context["read_only_repositories"]))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    Map.put(context, "connected", %{
+      "emisar" => not is_nil(session.emisar_connection_ref),
+      "github" => github,
+      "repositories" => repositories,
+      "slack" => slack
+    })
   end
 
   defp workspace(options) do

@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
 
       Enum.all?(lines, &Regex.match?(~r/^\s*\d+\. /u, &1)) ->
         [
-          "<ol>",
+          ordered_list_open(hd(lines)),
           Enum.map(
             lines,
             &["<li>", render(Regex.replace(~r/^\s*\d+\. /u, &1, ""), workspace), "</li>"]
@@ -86,6 +86,19 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
 
       true ->
         ["<p>", render(text, workspace), "</p>"]
+    end
+  end
+
+  # Items separated by blank lines arrive as separate paragraphs; each list
+  # starts at the number its first item was written with, so they still count
+  # 1, 2, 3 instead of starting over.
+  defp ordered_list_open(first_line) do
+    case Regex.run(~r/^\s*(\d+)\. /u, first_line) do
+      [_match, "1"] ->
+        "<ol>"
+
+      [_match, number] ->
+        ["<ol start=\"", number |> String.to_integer() |> Integer.to_string(), "\">"]
     end
   end
 

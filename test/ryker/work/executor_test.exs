@@ -1072,6 +1072,56 @@ defmodule Ryker.Work.ExecutorTest do
     assert is_nil(turn.usage_queued_ms)
   end
 
+  # QA, 2026-09-25: asked "what does this system do?" in Chat, with no Slack,
+  # GitHub or Emisar connected, the model answered that "Slack lookup tools are
+  # available" and that "the host controls its access": it could only guess
+  # what was connected from tool names. The work context now says it.
+  test "the work context says what Ryker can reach from this conversation" do
+    claim = claim_episode!("connected-context")
+    {:ok, fake} = FakeAPI.start_link([reply("Nothing is connected yet.")])
+
+    run_options = Keyword.put(options(fake), :connected, %{github: false, slack: false})
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
+
+    [submitted] = FakeAPI.state(fake).submissions
+    work = submitted.prompt |> Jason.decode!() |> Map.fetch!("work")
+
+    assert work["connected"] == %{
+             "emisar" => false,
+             "github" => false,
+             "repositories" => [],
+             "slack" => false
+           }
+
+    # The environment's repositories, the one this work changes first, and its
+    # Emisar account.
+    session = %{
+      claim.session
+      | emisar_connection_ref: "production",
+        repository_context: %{
+          "context_ref" => "production",
+          "parallel_goal_limit" => 2,
+          "primary_repository" => "ryker",
+          "read_only_repositories" => ["docs"]
+        }
+    }
+
+    assert {:ok, submission} =
+             SubmissionBuilder.build(%{claim | session: session},
+               connected: %{github: true, slack: false}
+             )
+
+    assert %{"emisar" => true, "github" => true, "repositories" => ["ryker", "docs"]} =
+             submission["context"]["connected"]
+
+    # Nothing is claimed when the running system did not say.
+    unsaid = claim_episode!("connected-context-unsaid")
+    {:ok, fake} = FakeAPI.start_link([reply("Done.")])
+    assert {:ok, %{status: :accepted}} = Executor.run(unsaid, options(fake))
+    [submitted] = FakeAPI.state(fake).submissions
+    refute Map.has_key?(Jason.decode!(submitted.prompt)["work"], "connected")
+  end
+
   test "one Work session freezes and sends its dedicated state-tools binding" do
     claim = claim_episode!("state-tools-binding")
     candidate = reply("Bound work complete.")

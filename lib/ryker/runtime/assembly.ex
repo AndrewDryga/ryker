@@ -127,6 +127,9 @@ defmodule Ryker.Runtime.Assembly do
       })
 
     {work, gateway} = bind_state_tools(work, gateway, state_tools)
+    # What work may tell a person is connected: what actually runs, not what is saved.
+    work =
+      work && Map.put(work, :connected, %{github: not is_nil(github), slack: not is_nil(slack)})
 
     %{
       execution_mode: Defaults.execution(),

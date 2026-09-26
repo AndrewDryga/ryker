@@ -32,6 +32,20 @@ defmodule Ryker.ControlPlane.SlackMarkdownTest do
     refute html =~ ~s(href="javascript:)
   end
 
+  # QA, 2026-09-25: a follow-up's numbered list read 1, 1, 1 in Chat. A list
+  # whose items are separated by blank lines is split into paragraphs, and
+  # each became its own list starting at 1. Each keeps the number it was
+  # written with.
+  test "a numbered list keeps its numbers when blank lines separate the items" do
+    html =
+      "Check these first:\n\n1. Probe errors\n\n2. Pod events\n3. Release changes"
+      |> SlackMarkdown.preview()
+      |> IO.iodata_to_binary()
+
+    assert html =~ "<ol><li>Probe errors</li></ol>"
+    assert html =~ ~s(<ol start="2"><li>Pod events</li><li>Release changes</li></ol>)
+  end
+
   test "unmatched formatting delimiters do not remove any source text" do
     Enum.each(
       ["*unfinished", "_unfinished", "~unfinished", "`unfinished", "```unfinished"],

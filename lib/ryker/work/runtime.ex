@@ -17,6 +17,7 @@ defmodule Ryker.Work.Runtime do
     :api,
     :client,
     :concurrency,
+    :connected,
     :platform_tools,
     :poll_interval_ms,
     :receive_timeout_ms,
@@ -60,6 +61,7 @@ defmodule Ryker.Work.Runtime do
             executor_options: [
               client: options.client,
               api: options.api,
+              connected: options.connected,
               max_block_ms: options.receive_timeout_ms,
               platform_tools: options.platform_tools,
               poll_interval_ms: options.poll_interval_ms,
@@ -95,6 +97,7 @@ defmodule Ryker.Work.Runtime do
     worker_ref = Map.fetch!(configuration, :worker_ref)
     concurrency = Map.get(configuration, :concurrency, @default_concurrency)
     platform_tools = Map.get(configuration, :platform_tools)
+    connected = Map.get(configuration, :connected)
     poll_interval_ms = Map.get(configuration, :poll_interval_ms, 250)
     receive_timeout_ms = Map.get(configuration, :receive_timeout_ms, 30_000)
     state_tools_endpoint = Map.get(configuration, :state_tools_endpoint)
@@ -108,6 +111,7 @@ defmodule Ryker.Work.Runtime do
       )
 
     validate_concurrency!(concurrency)
+    validate_connected!(connected)
     validate_platform_tools!(platform_tools)
     validate_positive!(poll_interval_ms, :poll_interval_ms)
     validate_positive!(receive_timeout_ms, :receive_timeout_ms)
@@ -121,6 +125,7 @@ defmodule Ryker.Work.Runtime do
       api: api,
       client: client,
       concurrency: concurrency,
+      connected: connected,
       platform_tools: platform_tools,
       poll_interval_ms: poll_interval_ms,
       receive_timeout_ms: receive_timeout_ms,
@@ -247,6 +252,15 @@ defmodule Ryker.Work.Runtime do
       {:error, _reason} -> raise ArgumentError, "work state-tools binding is invalid"
     end
   end
+
+  defp validate_connected!(nil), do: :ok
+
+  defp validate_connected!(%{github: github, slack: slack} = connected)
+       when map_size(connected) == 2 and is_boolean(github) and is_boolean(slack),
+       do: :ok
+
+  defp validate_connected!(_connected),
+    do: raise(ArgumentError, "Work runtime connected integrations are invalid")
 
   defp validate_state_tool_capabilities!(nil, nil), do: :ok
 
