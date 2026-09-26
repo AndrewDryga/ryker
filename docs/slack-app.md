@@ -74,20 +74,20 @@ Slack displays only the manifest's static slash-command usage hint; it does not 
 dynamic subcommand completions. Keep the hint short, and keep it to verbs that exist. The hint names
 the emergency kit — `status`, `proactive`, `shadow`, and `help` — and the full guide comes from
 `/ryker` or `/ryker help` rather than from the picker. `assignments` is the one verb the
-guide carries that the hint does not: it reads a channel's standing grants and pauses, resumes or
-deletes one. Creating one is `offer_assignment` and its confirmation card, not a verb. Anything else the command used to do is
-now on App Home, on a pinned card's buttons, in the web control plane, or in
-the saved Slack connection; a
-retired verb answers with the one line naming which.
+guide carries that the hint does not: it lists a channel's standing rules and pauses, resumes or
+deletes one. Creating one is a conversation: the model's `propose_automation` offer and its
+confirmation card, not a verb. Anything else the command used to do is now on App Home, on a pinned
+card's buttons, in the web control plane, or in the saved Slack connection; a retired verb answers
+"Unknown `/ryker` subcommand" followed by the guide.
 
-Inviting `@Ryker` to a channel first offers safe mention-only and proactive defaults plus a
-**Customize** path. Customize starts a four-question setup conversation. A configured operator chooses
+Inviting `@Ryker` to a channel saves safe defaults at once, and its welcome offers **Be proactive**
+or **Mentions only** plus a **Customize** path. Customize starts a four-question setup conversation. A configured operator chooses
 mention-only, proactive, or shadow participation; the channel's environment, or No environment,
 which answers without any repos or Emisar and is never the default; app-alert escalation; and the
 incident audience. Answers may be replies in the setup thread or top-level messages from
 the setup initiator while the 30-minute session is active. The final card shows the normalized
-typed configuration and safety boundary. No setting changes until an operator selects **Save
-configuration**. Slack user mentions are membership-checked, user groups are resolved through
+typed configuration and safety boundary. No setting changes until the operator who started the
+setup selects **Save settings**. Slack user mentions are membership-checked, user groups are resolved through
 Slack, and action payloads contain only the stored setup ID.
 
 The conversational surface is primary. Operators ask in their own words; the model classifies the
@@ -112,16 +112,18 @@ The `message.channels` and `message.groups` subscriptions let Ryker participate 
 created incident room and triage configured operational feeds. Configured incident operators do not
 need to mention the bot in incident rooms. Human messages in effectively proactive channels are
 classified as ignore or a reply that follows the human's channel or thread location; a reply can
-offer an operator-confirmed incident without creating it. Credible unresolved external-app alerts
-and explicit human incident requests can create an incident directly. The installation participation default
+offer an operator-confirmed incident without creating it. A credible unresolved external-app alert
+can create an incident room directly where the channel's alert setting says so; an explicit human
+incident request gets the offer. The installation participation default
 decides channels that never chose for themselves; `/ryker proactive` saves an explicit choice
 for one channel, or moves the installation default when it is given `global`. Current-state questions can use policy-authorized read-only
 Emisar investigation before that decision. Slack sends mentioned messages through both event
 subscriptions, so Ryker admits only `app_mention` for messages containing its bot mention.
 
 Operators can ask Ryker to remember only typed behavior. A supported preference changes
-investigation depth or response detail; a supported standing rule subscribes one channel to
-read-only Terraform-plan review, deployment verification, or alert triage. Ryker first renders
+investigation depth, response detail or where Ryker replies; a supported standing rule is a
+source-event automation that watches one source (Slack, GitHub or a webhook) for events matching an
+exact filter and does read-only work on them. Ryker first renders
 the normalized behavior, scope, expiry, source filter, and safety boundary for confirmation.
 App Home and the web control plane provide state-aware management. Matching rules can
 operate when broad proactive triage is off, but never create an incident or authorize a mutation.
@@ -132,8 +134,8 @@ inferred repository diff.
 
 The Messages tab is an Agent surface whose suggested prompts come from the app manifest, plus
 native progress indicators.
-Direct messages always start read-only triage even when normal-channel proactive mode
-is off. The **Investigate message** shortcut does the same for one selected message.
+Direct messages are always read, even when normal-channel proactive mode is off, and go through
+the same admission as any other message. The **Investigate message** shortcut does the same for one selected message.
 App Home summarizes current incidents, active sessions, failed durable work, current channel
 situations, and the commitments Ryker owes the team; the web control plane shows the same records
 with more history. Each bounded destination-backed Home row links back to its exact Slack location;

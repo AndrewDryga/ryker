@@ -19,17 +19,18 @@ It runs on one trusted host and:
 - handles GitHub issue comments, pull-request reviews, inline review comments, and GitHub's native
   reaction set through a repository-scoped App adapter;
 - triages human and monitoring-app messages in configured Slack alert feeds, answering human
-  questions in place and opening incidents only from credible app alerts, explicit requests, or
-  operator-confirmed offers;
+  questions in place and opening incident rooms only from operator-confirmed offers or, where a
+  channel is set to, credible app alerts;
 - correlates related signals and deduplicates webhook delivery;
 - records source-attributed evidence, health-layer coverage, and an incident timeline separately
   from agent prose;
 - creates one Slack channel and one pinned investigation card per incident occurrence;
 - creates one Coop session and isolated fork under a predeclared repository policy;
-- lets active full workspace members collaborate on contributor tasks in their channel's
-  environment, without projecting shared MCP tools or environment secrets;
-- keeps operator-capability tasks, incident steering, publication, destructive controls, and
-  governed operational actions restricted to configured operators;
+- lets active full workspace members start and collaborate on contributor tasks in their channel's
+  environment;
+- keeps operator-capability tasks, incident steering, the publication and destructive controls, and
+  saved behavior restricted to configured operators, and leaves every change to running systems to
+  Emisar's own policy and approvals;
 - parks between turns, resumes the same agent conversation, and survives process restarts;
 - tracks every accepted investigation or engineering promise as durable work, and exposes it in
   the App Home and the web control plane;
@@ -39,13 +40,15 @@ It runs on one trusted host and:
   retained-work disposal, stop, and close;
 - can return bounded generated images and evidence-backed charts in the same Slack conversation,
   when the configured agent has an appropriate image or chart tool;
-- investigates live infrastructure through Emisar and can submit an exact, directly requested
-  incident action to Emisar's policy and approval workflow.
+- investigates live infrastructure through Emisar and, when someone in the conversation asks for
+  an exact change, submits it to Emisar, whose policy decides whether it runs and who approves it.
 
 Ryker does not merge, deploy, sign commits, or grant infrastructure authority. Coop owns the
-fork and agent boundary. A contributor can prepare and review code in an isolated fork; a configured
-operator must authorize Ryker to reproduce the exact approved tree, push a lease-protected
-Ryker branch, and create or update a draft GitHub pull request. Emisar owns infrastructure
+fork and agent boundary. A contributor can prepare and review code in an isolated fork. Publishing
+is off until **Let Ryker open pull requests** is turned on under Integrations › GitHub; then Ryker
+reproduces the exact approved tree, pushes a lease-protected Ryker branch, and creates or updates a
+draft GitHub pull request, either because a configured operator pressed **Create draft PR** or
+because the confirmed task named that repository (its draft grant). Emisar owns infrastructure
 policy, approval, execution, and audit.
 
 The adapter and delivery boundary is documented in
@@ -57,16 +60,18 @@ patterns, pragmatic design decisions, and acceptance criteria. It is research, n
 
 ## Quick start
 
-Ryker’s supported installation is Docker Compose. Install Docker with Compose v2, download one
-release directory, then run:
+Ryker’s supported installation is Docker Compose. Install Docker with Compose v2, check out this
+repository (a release tag, for a release), then run:
 
 ```bash
 ./install.sh
 ```
 
 The installer creates owner-only state in `.ryker/`, generates the database password and Ryker’s
-cryptographic roots once, starts PostgreSQL and the pinned Ryker image, verifies health, readiness
-and the exact running version, then prints the local setup URL. Running it again keeps the same
+cryptographic roots once, builds the Ryker and bundled Coop worker images from the checkout, starts
+them with PostgreSQL and the worker's private Docker daemon, signs the worker in to its model account
+(it reuses an existing Codex sign-in on the host, or asks), verifies health, readiness and the exact
+running version, then prints the local setup URL. Running it again keeps the same
 keys and volumes.
 
 Slack, GitHub, Emisar and webhook credentials are entered in the setup UI and encrypted in
@@ -102,8 +107,8 @@ bindings, [`docs/operations.md`](docs/operations.md) for backup, restore and rec
 
 ## Webhooks
 
-The service listens on loopback. Publish only `/v1/hooks/` through a TLS reverse proxy. Health and
-metrics can remain local.
+The service listens on loopback. Publish only `/v1/github` (GitHub App events) and `/v1/hooks/`
+through a TLS reverse proxy (`deploy/nginx/ryker.conf` is an example); keep health and metrics local.
 
 Grafana route:
 
@@ -115,10 +120,10 @@ curl -f \
   http://127.0.0.1:4320/v1/hooks/grafana
 ```
 
-Grafana's alert fingerprint is the stable signal identity. Its `groupKey` is the preferred incident
-correlation key; configured labels are the fallback. A resolved, unclosed incident can reactivate
-in its existing channel. A firing signal after manual close creates a new occurrence, channel, and
-fork.
+Grafana's alert fingerprint and start time identify each alert, so its firing and resolved updates
+are revisions of one item; `groupKey`, then the configured labels, is recorded as its grouping. A
+webhook alert goes to the conversation its source names and never opens an incident room by itself:
+rooms are opened from Slack.
 
 Generic routes use deliberately small dot-path mappings. See
 [`docs/webhooks.md`](docs/webhooks.md). There is no embedded scripting language.
@@ -129,12 +134,13 @@ Mention the bot in any channel where it has been invited to ask a question or re
 work:
 
 ```text
-@Emisar investigate elevated checkout latency in production
+@Ryker investigate elevated checkout latency in production
 ```
 
-Ryker investigates and replies in that thread without creating an incident. An operator can ask
-it to `open an incident for elevated checkout latency` to create one directly, or approve an
-`Open incident room` offer after seeing the findings. In an incident channel, configured operators
+Ryker investigates and replies in that thread without creating an incident. Asking it to `open an
+incident for elevated checkout latency`, or a problem that needs coordination, gets an incident
+offer: **Create incident room** (only a configured operator can press it) creates the room, and
+**Investigate** keeps the work in the thread without one. In an incident channel, configured operators
 can talk to Ryker anywhere without repeating an `@mention`. Outside incident rooms, a delivered
 triage answer opens a bounded 30-minute conversation window for nearby follow-ups in the same
 channel or thread location. It reads top-level messages and threads, replies in the originating
@@ -143,39 +149,44 @@ chatter. The pinned card updates in place with alert evidence,
 investigation state, and only currently valid controls. Incident channels are private by default,
 and all configured operators are invited automatically.
 
-Alerts, ambient conversation, and inferred intent remain read-only. A configured operator can ask
-for one exact operational change in the current Slack conversation; Ryker calls Emisar there,
-without requiring an incident room. Emisar still owns target validation, policy, approval,
-execution, and audit. A pending decision appears in the same conversation as a **Review approval in
-Emisar** link. Ryker watches that exact run in the background, updates the existing card as it
-progresses, and automatically posts the terminal result plus read-only verification in the same
-conversation. Waiting consumes no model turn and survives a Ryker restart. When an active full
+Changes to running systems go only through Emisar, and Emisar decides them. Anyone in a
+conversation Ryker serves can ask for an exact change; Ryker adds no operator check of its own, and
+every work session in an environment with an Emisar account can use Emisar's tools. Emisar owns
+target validation, policy, approval, execution, and audit, and no incident room is required. The
+model is told not to treat an alert, ambient conversation or an inferred intent as a request to
+act; that is an instruction, not a check. A pending decision appears in the same conversation as an
+**Emisar review** card with a **Review in Emisar** link. Ryker watches that exact run in the
+background, updates the card as it progresses, and continues the same conversation when it
+finishes, verifying the effect with read-only evidence where it can. Waiting consumes no model turn
+and survives a Ryker restart. When an active full
 workspace member explicitly asks Ryker to change repository files, the reply can include a
 concise **Start task** button instead of sending the teammate to another client. Confirmation by
 any active full workspace member keeps the task in that Slack thread and creates an isolated
 writable Coop fork, where Ryker can inspect, edit, test, and commit under the configured
 repository policy. Later replies in the same thread continue the same session without an
 `@mention`; unrelated channel messages remain in read-only triage. It does not create an incident,
-and it does not merge, deploy, sign, or mutate infrastructure. Any active full workspace member can
-collaborate in the task thread and inspect or review its changes. A configured operator must press
-the publication control before Ryker can push the verified tree and create or update a draft PR.
+and it does not merge, deploy or sign; any change to running systems still goes through Emisar. Any
+active full workspace member can collaborate in the task thread and inspect or review its changes.
+Publishing needs **Let Ryker open pull requests**; then the confirmed task opens its own draft PR
+once its review is clean, or a configured operator presses **Create draft PR**.
 
-Inviting `@Emisar` to a new channel first offers safe one-click defaults: mentions only or
-proactive participation, the deployment repository, in-place app-alert replies, and no additional
-incident invitees. **Customize** starts a four-question setup conversation for participation,
+Inviting `@Ryker` to a new channel saves safe defaults at once: the installation's participation
+default (mentions only unless changed), the default environment, alerts investigated in their own
+thread, and no additional incident invitees. The welcome offers **Be proactive** or **Mentions
+only**, and **Customize** starts a four-question setup conversation for participation,
 environment, app-alert escalation, and incident audience. An environment names the repositories
 work may read (a task changes one of them and reads the rest) and the Emisar account it may use. The
-final card shows the normalized typed values and safety boundary; nothing changes until a
-configured operator confirms it. Typed choices use Slack buttons. Configured operators are always
+final card shows the normalized typed values and safety boundary; nothing changes until the
+configured operator who started the setup saves it. Typed choices use Slack buttons. Configured operators are always
 invited to incident rooms;
 the audience step either adds no one else or accepts member and user-group mentions for additional
-invitees. Emisar follows the operator between the channel and known setup threads, including
-explicit `switch to a thread` and `back to the channel` requests, throughout the 30-minute setup.
+invitees. Setup is one message in its thread that updates in place, and it expires after 30
+minutes.
 
-The conversational surface is primary: ask `@Emisar` in your own words and the model classifies what
+The conversational surface is primary: ask `@Ryker` in your own words and the model classifies what
 you meant, then the host executes it deterministically. Nothing is matched on substrings — a plain
 sentence in a channel is never a command, whichever words are in it. The one exception is
-`@Emisar reconfigure this channel`, which is read from text so it still works when the model is
+`@Ryker reconfigure this channel`, which is read from text so it still works when the model is
 unavailable, and it is read only when Ryker is addressed. The installation participation default
 covers channels that never chose, and `/ryker` remains the recovery surface:
 
@@ -198,49 +209,42 @@ is private to whoever typed it. Everything else is a conversation, a button on a
 App Home, or the web control plane — all of which can reach a task thread, which a command typed
 into the channel composer cannot.
 
-`assignments` is the exception, and it is now half an exception. Reading a channel's standing grants
-and taking one back are things an operator wants reachable when the conversational path is what is
-broken, so `list`, `pause`, `resume` and `delete` stay. Creating one left on 2026-08-15: say what you
-want watched — "review every terraform plan here and open PRs for the drift, 2 a day, for 30 days" —
-and Ryker answers with a confirmation card showing the normalized bounds it would grant. The
-typed `create` still answers, with a pointer to that conversation.
+`assignments` is the exception, and it is now half an exception. A standing assignment is a
+confirmed standing rule (the control plane's Rules page lists the same records). Reading a channel's
+rules and taking one back are things an operator wants reachable when the conversational path is
+what is broken, so `list`, `pause`, `resume` and `delete` stay. Creating one left on 2026-08-15: say
+what you want watched — "review every Terraform plan posted here" — and Ryker answers with a card
+showing the rule it would save. The typed `create` still answers, with a pointer to that
+conversation.
 
 The effective setting is the channel's own saved participation, or the installation default when it
 never chose. Global `on`
 therefore watches every channel where Ryker is a member and receives events, while a channel
 setting can opt in or out. `inherit` clears the channel's own setting so it follows the default. Ryker reads human and
 external-app messages in Slack timestamp order and gives each decision a chronological transcript
-centered on the target message. The default 20-message window includes the thread root, nearest
-preceding replies, the target, and up to three immediately following messages; top-level requests
-receive the equivalent channel window. It waits for a two-second quiet period so nearby human
-replies are visible, then scores addressee, urgency, confidence, novelty, and ownership. It chooses
-whether to stay silent, add a lightweight reaction, reply where the sender is speaking, or
-escalate. Ambient replies and reactions have separate configurable attention thresholds, while
-direct requests remain eligible regardless of those thresholds. Human messages do not
-automatically become incidents: Ryker answers in place and can
-attach an `Open incident room` button when coordinated work would help. Only a configured operator
-can approve that button. A credible unresolved monitoring-app alert follows the channel's
-confirmed policy: reply in place, offer an incident button, or open automatically. An explicit
-human request to open, create, start, or declare an incident is honored directly. Both the
-context size and settling delay are configurable. An explicit repository-change request can instead
-offer a **Start task** transition in the same thread to a writable isolated fork. A configured summon
-mention starts the same read-only triage conversation; explicit incident wording remains
-deterministic.
+that ends at the target message: up to 20 earlier messages (a code default, not a setting) — for a
+thread reply, the thread's root and the replies before it; for a top-level message, the channel
+messages before it. There is no settling delay and there are no attention scores or thresholds:
+the model chooses whether to stay silent, add a lightweight reaction, reply where the sender is
+speaking, or start or continue work, and Ryker validates that choice. Human messages do not
+automatically become incidents: Ryker answers in place and can attach an incident offer
+(**Investigate** or **Create incident room**) when coordinated work would help. Only a configured
+operator can press it. A credible unresolved monitoring-app alert follows the channel's confirmed
+policy: investigate in the alert's thread, offer a room, or always open one. An explicit human
+request to open, create, start, or declare an incident gets the offer; no phrase is matched. An
+explicit repository-change request can instead offer a **Start task** transition in the same thread
+to a writable isolated fork. A mention starts the same read-only triage conversation.
 
-When a decision-ready diagnosis establishes a narrow repository fix, Ryker may also show
-**Prepare code fix** beside **Open incident room**. The choices are independent: the incident room
-coordinates operations, while the engineering task edits and validates code in the source thread.
-The fix button creates no PR by itself; after a real diff exists, the task card exposes the separate
-**Create draft PR** review control.
-
-The Agent Messages tab supplies suggested health, alert, incident, and handoff prompts. The
-message shortcut **Investigate message** starts the same read-only triage for a selected
-message even when ordinary proactive listening is off. Long checks keep a native Slack progress
-indicator with semantic milestones until the reply or a clear failure is posted.
+The Agent Messages tab supplies the manifest's suggested prompts: production health, explaining an
+alert, and open work. The message shortcut **Investigate message** starts the same read-only triage
+for a selected message even when ordinary proactive listening is off. While a request is in
+progress, Slack's native status line names its stage (queued, deciding how to respond, working,
+preparing the response), refreshed every 90 seconds and cleared once the request settles.
 
 ### What Ryker remembers
 
-Reading and replying are separate decisions. With `learning` configured, Ryker learns from
+Reading and replying are separate decisions. With background learning on (the default; its switch
+is on the control plane's Memory › Learning page), Ryker learns from
 retained messages even when admission chooses silence or the bot runs in shadow mode. Admission
 only routes the message; it does not write a model-generated note. A small background learning
 pool groups related inputs and maintains useful subjects such as a rollout decision, an intended
@@ -258,8 +262,9 @@ Memory has distinct jobs:
   They are available before background learning catches up; they are not another model summary.
 - **Topics** keep the current source-linked understanding of a useful subject, including corrections
   and uncertainty. Related updates extend that subject instead of producing one note per message.
-- **Conversation handovers** summarize accepted work so a later session can pick it up. Older
-  handovers may be grouped into bounded rollups; that compaction itself does not call a model.
+- **Conversation summaries** (handovers) summarize accepted work so a later session can pick it up.
+  Older summaries are grouped into bounded weekly rollups; that compaction itself does not call a
+  model.
 - **Confirmed facts, preferences, and guidance** retain explicit operator choices. Background
   learning cannot silently change them or turn them into operational authority.
 
@@ -270,20 +275,20 @@ of current health, deployment, or approval. Private-channel context stays in its
 public cross-channel context requires current membership checks. A hot Coop session is not the
 memory database: episodes own execution sessions, while PostgreSQL owns retained knowledge.
 
-Derived conversation memory expires under `retention.conversation_memory_seconds` (90 days in
-the Elixir example configuration). Source edits, deletion, expiry, or lost visibility can make
+Derived conversation memory expires after the Conversation memory limit under Settings › Data
+retention (90 days by default). Source edits, deletion, expiry, or lost visibility can make
 derived content unavailable sooner. Reading it again does not renew the original source lifetime.
 The memory pages show the source, change time, and expiry separately. Learning receipts distinguish
-a useful update, a deliberate no-change result, and a failed or deferred batch. If `learning` is
-absent from configuration, background learning is disabled; retaining messages alone is not learning.
+a useful update, a deliberate no-change result, and a failed or deferred batch. Turning learning off
+stops background learning; retaining messages alone is not learning.
 
 The exact matching, retry, and recall boundaries are in
 [the memory runtime contract](docs/elixir-work-runtime.md#memory-and-background-learning) and the
 [implementation specification](docs/memory-implementation-spec.md).
 
 An operator can ask
-Ryker to remember an alias, channel-to-repository binding, evidence route, entity relationship
-correction, or open-ended guidance such as `when explaining a fix to me, start with a simple
+Ryker to remember a fact (what a service is called, which repository holds it) or open-ended
+guidance such as `when explaining a fix to me, start with a simple
 summary`. Ryker shows the normalized value, scope, and expiry in a confirmation card; nothing
 is saved until an operator confirms it. Personal guidance can follow that operator across channels,
 while channel and workspace guidance can encode explicit team conventions. Saved entries are
@@ -297,8 +302,8 @@ current-health proof.
 
 Ryker records when confirmed memory and continuity rollups are recalled. A scheduled review
 flags confirmed entries that have not been used or reviewed recently and identifies exact duplicate
-guidance, but it never silently edits operator-confirmed memory. Memory health plus keep, merge, and
-forget controls live in App Home; the control plane provides those controls and explicit edit.
+guidance, but it never silently edits operator-confirmed memory. Memory health plus keep, edit,
+merge and forget controls live in App Home and on the control plane's Memory › Facts page.
 Removed or superseded values are redacted to their digest rather than copied into review audit
 state. These mechanisms are
 inspired by the freshness, continuity, and reviewability goals in OpenAI's
@@ -308,18 +313,19 @@ retaining Ryker's stricter operational evidence and approval boundaries.
 Ryker also supports two operator-confirmed behavior catalogs. Preferences are typed defaults
 such as `health_check_depth=deep`, `response_detail=concise`, or
 `response_location=prefer_thread`; their precedence is operator, channel, repository, then
-workspace. Standing rules are typed channel subscriptions such as
-`terraform_plan -> review_terraform_plan`, restricted to human, app, or any matching message. A
-request such as `when I ask about infrastructure health, always do a deep check` or `when you see a
-Terraform plan here, report its main diff and red flags` produces a confirmation card showing the
-normalized behavior, scope, expiry, source filter, and fixed read-only safety boundary. Open-ended
+workspace. Standing rules are source-event automations: a source (Slack, GitHub or a webhook), an
+exact filter on its events, the task, the channels Ryker reads and replies in, an optional
+repository and an optional end. A request such as `when I ask about infrastructure health, always
+do a deep check` or `when someone posts a Terraform plan here, review it for risky changes`
+produces a confirmation card showing the normalized preference or rule and its fixed read-only
+boundary. Open-ended
 guidance may be remembered as advisory model context, but arbitrary prose is never stored as an
 executable trigger or authority. A configured operator can make this explicit
 setup request in any channel where Ryker is invited, even when that channel is not otherwise a
 summon or proactive channel.
 
-App Home and the control plane list active and disabled entries with enable,
-disable, edit, and delete controls. An enabled standing rule may admit only its deterministic
+App Home and the control plane's Rules and Instructions pages list current and past entries with
+pause, resume and delete controls. An enabled standing rule may admit only its deterministic
 message type even when broad proactive triage is off. A match asks the model to evaluate the event;
 it does not force a reply. The model may ignore an intermediate or duplicate event, react when that
 is sufficient, or reply in the source thread when it has a useful result. Later lifecycle updates
@@ -335,17 +341,17 @@ durable behavior state.
 
 Configured operators can also create one-time and recurring tasks in ordinary language: `remind me
 in 4 hours`, `every weekday at 09:00 check production health`, or `on the first of each month prepare
-an SRE review`. Emisar replies with a confirmation card containing the normalized task, destination,
-repository, recurrence, timezone, next run, expiry, and safety boundary. Nothing runs until an
-operator confirms it. App Home and the control plane list the current channel's tasks with run-now,
-pause/resume, replace, and delete controls.
+an SRE review`. Ryker replies with a confirmation card showing the task, when it runs (with its
+timezone), what its runs may do and in which repository, and when it ends. Nothing runs until an
+operator confirms it. App Home and the control plane's Schedules page list schedules with run-now,
+pause/resume and delete controls; to change one, ask Ryker where it was set up.
 
 Schedules are durable wake-ups, not stored authority. Each occurrence enters the normal Slack/Coop
 agent pipeline with fresh repository, tool, memory, authorization, and Emisar policy context. The
 scheduler records each occurrence before dispatch, never overlaps two copies of the same task, and
-uses IANA timezone calendar arithmetic so local times follow daylight-saving changes. `catch_up`
-can run only the latest missed occurrence after downtime or skip it after the configured grace
-period. One-time tasks complete after their occurrence; run-now remains available for an explicit
+uses IANA timezone calendar arithmetic so local times follow daylight-saving changes. An occurrence
+that cannot start within 15 minutes of its time is recorded as missed, and the next one still runs
+on time. One-time tasks complete after their occurrence; run-now remains available for an explicit
 manual repeat. Expired tasks and old run records are removed by normal retention maintenance.
 
 Source-event waits are durable subscriptions. They retain a bounded matcher, source kind, opaque
@@ -353,41 +359,42 @@ cursor, optional schedule, and terminal resolution in PostgreSQL. Reliable lifec
 can use an event-only wait with no polling or deadline. Authenticated Slack, GitHub, and generic
 webhook inputs resume the exact episode; when loss protection is needed, a deadline and optional
 earlier `poll_after` wake it with host-authored verification evidence. Unchanged observations can
-retain the wait without posting. The control plane exposes subscription state and digests without
-rendering source payloads.
+retain the wait without posting. The control plane's Follow-ups page lists each wait, what it waits
+for and the request it continues, without rendering source payloads.
 `/ryker shadow` runs the classifier and records its decision, evidence, and coverage without
 posting or creating an incident.
 
-Every accepted model-backed request also creates a durable commitment before execution. The
-commitment follows the underlying run through queued, working, finishing, done, blocked, or
-cancelled state and survives restart. Ask `what are you working on?` or
-open App Home to see the exact request, current status, and next operator action. This is distinct
-from memory: a commitment is work Emisar owes the team, not a fact to reuse later.
+Every accepted model-backed request is durable work before execution: it is recorded in
+PostgreSQL, follows its run through working, waiting, complete or cancelled, and survives restart.
+App Home's **In flight** section and the control plane's Activity page show the exact request, its
+current status and what it waits for. This is distinct from memory: open work is what Ryker owes
+the team, not a fact to reuse later.
 
 App Home and the control plane list open incidents with native Slack channel mentions and label
 retained channel names when a room is archived, deleted, or unavailable, including closed
-history. `/ryker help` explains the emergency command kit and provides read-only buttons for current-channel status and incident directories.
+history. `/ryker help` explains the emergency command kit as plain text.
 Slack exposes only one static usage hint for a slash command, so the manifest keeps that picker text
-short and moves detailed guidance into this interactive response. The same command also exposes
-`timeline`, `evidence`, `handoff`, `postmortem`, `update`, `changes`, `review`, `publish`, `stop`, and
-`close` in an incident room. The remediation timeline is derived from the alert, agent runs,
-evidence, Emisar approvals, and draft-PR publication state instead of copying those
-facts into a second incident system. Closing posts the same evidence-grounded post-incident draft
-that the pinned card's postmortem control can regenerate from the durable record. Ryker automatically
-allocates more Coop session capacity as authorized requests arrive. The `coop.turn_limit` deployment setting shows
-or changes the channel or workspace lifetime safety ceiling; operators do not estimate how many
-turns an investigation needs. Commands are deterministic, operator-authorized, durably processed,
+short and moves detailed guidance into this response. Records and controls for incidents and tasks
+live on their cards, not in the command: the remediation timeline is derived from the alert, agent
+runs, evidence, Emisar approvals, and draft-PR publication state instead of copying those facts
+into a second incident system, and the pinned card's **Postmortem draft** builds the
+evidence-grounded post-incident draft from the durable record at any time, including after close.
+When a session is exhausted, Ryker continues in a fresh one; the worker's own policy bounds a
+session (the bundled worker allows 100 turns), and operators do not estimate how many turns an
+investigation needs. Commands are deterministic, operator-authorized, durably processed,
 and never interpreted by the model.
 
-New incident channels use the validated `slack.channel_prefix` setting, which defaults to `ems`.
-For example, `channel_prefix: sre` produces names beginning with `sre-`. Changing the setting does
+New incident channels use the validated channel prefix set under Integrations › Slack (the
+`channel_prefix` setting), which defaults to `inc`. For example, the prefix `sre` produces names
+beginning with `sre-`. Changing the setting does
 not rename existing Slack channels.
 
 Only configured operator user IDs who are full members of the configured workspace can steer an
-incident agent, approve an incident offer, save durable behavior, schedule work, or request an
-operational mutation. Any active full workspace member can start and collaborate on an engineering
-task in the channel's environment. A configured operator must publish its reviewed tree as a draft
-PR, stop or close the task, or discard retained work. Watched-channel messages can produce only a
+incident agent, approve an incident offer, save durable behavior, or schedule work in Slack. Any
+active full workspace member can start and collaborate on an engineering task in the channel's
+environment. Only a configured operator can press **Create draft PR**, stop or close the task, or
+discard retained work; the confirmed task's own draft grant can publish without a click. Changes to
+running systems are Emisar's decision, not a Ryker permission. Watched-channel messages can produce only a
 host-validated ignore, reply, incident offer, or permitted incident decision; they cannot invoke
 incident controls or invent a repository, environment or policy. A member's engineering-task offer
 stays inside the channel's environment: the task changes one of its repositories, chosen for that
@@ -398,7 +405,9 @@ selected Coop policies. Slack guests and external Slack Connect identities are d
 
 ## Operations
 
-These commands operate the current Elixir/PostgreSQL service.
+These Mix tasks run from a source checkout with Mix. The Docker Compose install publishes neither
+PostgreSQL nor Mix, so they need a database you can reach with the installation's `DATABASE_URL`
+and keys; routine recovery on a Compose install is the control plane's Failures page.
 
 ```bash
 MIX_ENV=prod mix ryker.doctor
@@ -408,7 +417,7 @@ MIX_ENV=prod mix ryker.retry delivery 'delivery:...' \
   --operator U123 --action-ref retry-delivery-20260904-1
 MIX_ENV=prod mix ryker.replay slack 'ingress-input:...' 'post-fix-check-1' \
   --operator U123 --action-ref replay-slack-20260904-1
-MIX_ENV=prod mix ryker.replay show 'ingress-input:...' \
+MIX_ENV=prod mix ryker.replay show 'ingress-input:...'
 
 curl -f http://127.0.0.1:4321/healthz
 curl -f http://127.0.0.1:4321/readyz
@@ -423,9 +432,9 @@ release at `/readyz`.
 
 `ryker.status` emits lifecycle, queue, fleet, preflight, and failure counts as JSON.
 `ryker.failures` lists stable error codes, diagnostic hashes, and retryability for blocked
-admission, Work, delivery, Slack interaction repaint, Slack incident room, Emisar monitoring, and
-cleanup custody.
-`ryker.retry` dispatches only those seven typed recovery paths; semantic publication review is
+admission, Work, delivery, Slack interaction repaint, Slack incident room, Slack task card, Slack
+thread status, Emisar monitoring, and cleanup custody.
+`ryker.retry` dispatches only those nine typed recovery paths; semantic publication review is
 not a generic infrastructure failure. Every mutation requires a configured Slack operator ID and
 an operator-chosen action reference; the action, prior safe state, and outcome are committed in the
 same PostgreSQL transaction so repeating that reference reconciles a lost response.
@@ -450,11 +459,12 @@ describing what the model would have done. Pruned or non-Slack sources fail clos
 PostgreSQL owns Slack inputs, webhook events, outgoing deliveries, Work, incident mappings,
 channel lifecycle, structured evidence, memory, Emisar approval holds, timelines, evaluation
 decisions, audit records, and scheduler custody. Normal release restart recovers pending work from
-those rows; deployment backup and restore checks are described below.
-Bounded retention removes expired operational payloads and closed work, and expires finished episode
-history on a separate, much longer horizon because that record is what the replay-fixture corpus is
-built from. No horizon deletes an episode a pending correction, open feedback, a live wakeup, an
-unfinished run, or an open incident still depends on. Coop cleanup is restricted
+those rows; backup and restore are in [`docs/operations.md`](docs/operations.md).
+Bounded retention removes expired operational payloads and closed work, and expires finished request
+history on its own horizon; each limit is 30 days by default (Settings › Data retention), and
+operational data can never outlive request history. Only finished requests are pruned, and nothing
+is pruned while an open wait, an unsettled run, a pending Emisar approval, a schedule, an
+unpublished change, an incident room or open state still depends on it. Coop cleanup is restricted
 to exact session IDs recorded by Ryker: clean closed sessions and sessions whose reviewed tree
 is durable in a draft PR are discarded after a grace period, while dirty or unpublished work is
 retained. Deleting a Slack room does not itself discard work. See
@@ -469,11 +479,12 @@ changes, and the others (at most 32) are mounted read-only beside it. Ryker neve
 paths from Slack or model output; the local Coop policy is their only authority. It can publish an
 explicitly authorized reviewed tree as a draft GitHub pull request, but cannot publish changes to
 the read-only repositories, merge, deploy from repository changes, or archive Slack channels.
-Automatic and inferred operational changes remain disabled. In any Slack conversation, a
-configured operator may directly request one exact operational action. Emisar remains authoritative
-for target validation, policy, approval, execution, and audit; Slack only links to the exact pending
-approval returned by Emisar. Ryker monitors and reports that exact run but cannot approve it,
-substitute another run, or repeat the mutation during terminal verification.
+Anyone in a conversation Ryker serves may ask for one exact operational action; Ryker adds no
+operator check of its own and sends it to Emisar, which remains authoritative for target validation,
+policy, approval, execution, and audit. Slack only links to the exact pending approval returned by
+Emisar. Ryker monitors and reports that exact run and cannot approve it; the model is told not to
+act on alerts or inferred intent, and not to repeat the action or substitute another run while it
+verifies one.
 
 Run the owning Elixir test while editing:
 

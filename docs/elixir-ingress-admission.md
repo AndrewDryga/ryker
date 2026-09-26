@@ -193,15 +193,16 @@ the existing resource. Cross-thread, stale, malformed, incident-task, and public
 closed without creating model work. This syntax cannot approve reviews, merge, deploy, or write
 repository content.
 
-This is durable settings, edited under **Settings**, not a configuration file:
+These are durable settings, edited in the control plane rather than a configuration file:
 
-- **Repositories** holds one row per repository — its reference, display metadata, GitHub
+- **Work › Repositories** holds one row per repository — its reference, display metadata, GitHub
   repository slug, base branch and optional publication checkout path.
-- **Execution policies** binds each purpose (conversational, standard, deep, contributor,
-  schedule) to a reviewed worker policy for that repository or context. The digest and authority
-  digest are copied from the authenticated worker advertisement; nothing types one.
-- **GitHub** holds the App identity, and **GitHub repository bindings** holds one verified
-  binding per repository: installation ID, repository ID and the Ryker actor ID. For each
+- Execution policies, under **Settings › Advanced**, bind each purpose (conversational, standard,
+  deep, contributor, schedule) to a reviewed worker policy for that repository or context. The
+  digest and authority digest are copied from the authenticated worker advertisement; nothing
+  types one.
+- **Integrations › GitHub** holds the App identity, and each added repository keeps one verified
+  GitHub binding: installation ID, repository ID and the Ryker actor ID. For each
   conversational webhook, Ryker asks GitHub for the sender's effective repository permission;
   `write` and `admin` may request work, while `read`, `none` and failed checks do not.
 - GitHub's private key and webhook secret are entered once through guided setup and kept in encrypted

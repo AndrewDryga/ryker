@@ -397,14 +397,14 @@ Direct-conversation search uses signed, caller/query-bound keyset continuation o
 originals and includes nonmatching neighbors inside the requested date bounds. It rechecks the live
 session, ownership and lease before local reads or effects. Its coverage names
 the retained-conversation basis and 200-message retention window; it is not proof of full Slack history.
-Queued inputs for the active Lab episode cannot enter source reads or neighbors. Current revision
+Queued inputs for the active Chat episode cannot enter source reads or neighbors. Current revision
 selection happens before that exclusion, so withholding a queued edit does not resurrect its old text.
 
 Slack file and canvas reads retain available creation/edit dates and up to four known shares in the
 authorized channel. Each known share can expand through the existing original reader. Shares are
 not proof of a unique originating thread, and other channels' shares are not disclosed. File search
 keeps the same provenance plus a document-reader descriptor. A provider preview is explicitly partial;
-external bookmarks remain link metadata. Lab files retain their authenticated checksum, input date,
+external bookmarks remain link metadata. Chat files retain their authenticated checksum, input date,
 conversation and a working descriptor for the original supplying message.
 
 GitHub discussion/review reads add the bound subject body. Review replies reuse parents on the page
@@ -413,10 +413,10 @@ Deleted and budget-omitted parents have explicit coverage. Repository search add
 items only for a hit matching the current subject; other subjects keep their body and an honest
 current-subject-reader limitation. Files and subject-only reads stay focused. Through Work MCP, these
 GitHub lookups also recheck the active caller after provider I/O and obey the 128-KiB response cap.
-Lab source reads start with a centered window, then use signed source/range/turn-bound cursors to
+Chat source reads start with a centered window, then use signed source/range/turn-bound cursors to
 expand beyond its consumed interval without repeating originals. The exact anchor remains available
 on later pages. Retained native source-item receipts resolve to the admitted local original; they are
-not treated as an interchangeable reader ID. Memory navigation stays inside the same Lab conversation.
+not treated as an interchangeable reader ID. Memory navigation stays inside the same Chat conversation.
 Observation custody compares exact original text and source identity separately from optional
 navigation metadata, and still rejects altered prose or a different supplied thread.
 The Work MCP response rechecks the active binding after provider I/O, even for an empty lookup.
@@ -519,8 +519,8 @@ without production environment, credentials, network mutation tools, or project 
 
 - `socket`: local Coop Unix socket;
 - `worker_ref`: stable identity prefix for this local worker pool;
-- `concurrency`: optional local slot count, from 1 through 32 (default 4); and
-- `source_and_action_tools`: optional exact names from the MCP catalog exposed by the pinned Coop
+- `concurrency`: optional local slot count, from 1 through 32 (default 4);
+- `platform_tools`: optional exact names from the MCP catalog exposed by the pinned Coop
   policy; these names make the frozen model context truthful but confer no authority; and
 - optional bounded polling and receive timeouts.
 
@@ -577,18 +577,18 @@ config :ryker, :work,
   receive_timeout_ms: 30_000
 ```
 
-The YAML field is named `work.source_and_action_tools`; the internal runtime option is
-`platform_tools`. The configured names must exactly match tools actually supplied to that Coop
+There is no YAML field; the runtime option is `platform_tools` (the evaluation settings pass the
+same list as `source_and_action_tools`). The configured names must exactly match tools actually supplied to that Coop
 policy by its owner-private MCP configuration. Ryker never reads MCP credentials, and an
 incoming Slack, GitHub, webhook, or direct-conversation message cannot add a tool or change this list.
 All of those sources share the same trusted Work runtime. Direct conversations also install a loopback
 implementation of the exact Slack chat capability schemas: `list_slack_channels`, `search_slack`,
-`read_slack_source`, `set_slack_reaction`, and `post_slack_message`. In a Lab turn those tools expose
-one virtual workspace scoped to the current Lab conversation. Reads return only its durable messages;
+`read_slack_source`, `set_slack_reaction`, and `post_slack_message`. In a Chat turn those tools expose
+one virtual workspace scoped to the current Chat conversation. Reads return only its durable messages;
 reactions and confirmed additional posts use the ordinary platform-action outbox but settle back into
 the local timeline. Human feedback reactions on delivered replies are passive ordered episode events:
 they do not wake work, but both the bounded add/remove history and current counts are frozen into the
-next logical turn. Lab message edits and deletes use the same stable-item revision contract as provider
+next logical turn. Chat message edits and deletes use the same stable-item revision contract as provider
 adapters. Every result identifies the adapter as emulated with external effects disabled.
 This lets the model make the same chat/tool/card choices without generating Slack test traffic or
 receiving a Slack credential. Configured repository and Emisar tools remain real and retain the exact
