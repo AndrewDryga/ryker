@@ -162,6 +162,21 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       assert Enum.empty?(LazyHTML.query(list_row(@item), ".schedule-warning"))
     end
 
+    # Manual testing, 2026-09-26: a schedule the scheduler had not started
+    # for a month still read "next run 28 Aug" on 26 Sep, as if it were
+    # coming up; a run that did not start when due is a problem to notice.
+    test "a run that did not start when due reads as overdue, not as coming up" do
+      overdue = %{
+        @item
+        | next_local: ~N[2026-08-28 09:00:00],
+          next_occurrence_at: ~U[2026-08-28 07:00:00Z],
+          repository: nil
+      }
+
+      assert words(LazyHTML.query(list_row(overdue), ".entity-meta")) ==
+               "Every day at 09:00 Berlin time · in Slack channel C456 · was due 28 Aug, 09:00 Berlin time"
+    end
+
     test "a direct conversation, a thread and a stop date read as words" do
       direct = %{
         @item

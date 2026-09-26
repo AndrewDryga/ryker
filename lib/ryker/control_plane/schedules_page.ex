@@ -137,7 +137,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
       place(item),
       if(item.status == :active and item.next_local,
         do:
-          moment("next run ", item.next_local, item.now_local, item.next_occurrence_at, :time,
+          moment(next_lead(item), item.next_local, item.now_local, item.next_occurrence_at, :time,
             zone: item.timezone
           )
       ),
@@ -460,6 +460,14 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   # hover: "today 09:00", "tomorrow 09:00", "25 Sep, 09:00", or just "31 Oct".
   # A clock time names its zone ("tomorrow 09:00 Berlin time"); a bare date
   # needs none.
+  # A run that did not start when due is something to notice, not a run
+  # coming up (manual testing, 2026-09-26: "next run 28 Aug" on 26 Sep).
+  defp next_lead(%{next_local: %NaiveDateTime{} = next, now_local: %NaiveDateTime{} = now}) do
+    if NaiveDateTime.compare(next, now) == :lt, do: "was due ", else: "next run "
+  end
+
+  defp next_lead(_item), do: "next run "
+
   defp moment(lead, local, now_local, utc, style, options) do
     text =
       case style do

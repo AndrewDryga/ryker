@@ -648,7 +648,11 @@ defmodule Ryker.ControlPlane.ChannelPage do
                   __changed__: nil,
                   at: item.next_occurrence_at,
                   now: @now,
-                  prefix: "next run "
+                  prefix:
+                    if(DateTime.compare(item.next_occurrence_at, @now) == :lt,
+                      do: "was due ",
+                      else: "next run "
+                    )
                 })
             )
           ]}
