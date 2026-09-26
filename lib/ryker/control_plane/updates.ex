@@ -65,53 +65,61 @@ defmodule Ryker.ControlPlane.Updates do
   def domain("/"), do: "activity"
   def domain(path), do: path |> String.split("/", trim: true) |> List.first()
 
-  defp domains("execution_usage"), do: ~w(activity admission timeline conversations usage)
-  defp domains("episode_operator_reviews"), do: ~w(activity timeline findings)
+  @doc """
+  The pages whose live views a change to this table can alter, by the first
+  segment of their path. Every settings-like table without a rule of its own
+  reaches the pages that show configuration.
+  """
+  @spec domains(String.t()) :: [String.t()]
+  def domains("execution_usage"), do: ~w(activity timeline conversations usage)
+  def domains("episode_operator_reviews"), do: ~w(activity timeline memory)
 
-  defp domains("episode_schedule" <> _),
+  def domains("episode_schedule" <> _),
     do: ~w(activity schedules channels timeline conversations)
 
-  defp domains("episode_event_subscriptions"),
-    do: ~w(activity subscriptions timeline conversations)
+  def domains("episode_event_subscriptions"),
+    do: ~w(activity follow-ups timeline conversations)
 
-  defp domains("episode_state_" <> _),
-    do: ~w(activity timeline incident-rooms conversations findings memory)
+  def domains("episode_state_" <> _),
+    do: ~w(activity timeline incident-rooms conversations memory)
 
-  defp domains("episode_" <> _),
-    do: ~w(activity timeline incident-rooms conversations usage workspaces failures)
+  def domains("episode_" <> _),
+    do: ~w(activity timeline incident-rooms conversations usage working-copies failures)
 
-  defp domains("ingress_" <> _),
-    do: ~w(activity admission timeline conversations usage failures channels)
+  def domains("ingress_" <> _),
+    do: ~w(activity timeline conversations usage failures channels)
 
-  defp domains("admission_" <> _),
-    do: ~w(activity admission timeline conversations usage failures)
+  def domains("admission_" <> _),
+    do: ~w(activity timeline conversations usage failures)
 
-  defp domains("slack_incident_" <> _),
+  def domains("slack_incident_" <> _),
     do: ~w(activity incident-rooms timeline conversations channels failures)
 
-  defp domains("slack_" <> _),
+  def domains("slack_" <> _),
     do:
-      ~w(activity channels environments incident-rooms timeline conversations failures configuration repositories)
+      ~w(activity channels environments incident-rooms timeline conversations failures integrations setup repositories)
 
   # Chat names each conversation's environment in its list and its head.
-  defp domains("environment_" <> _),
-    do: ~w(environments channels repositories configuration conversations)
+  def domains("environment_" <> _),
+    do: ~w(environments channels repositories integrations setup conversations)
 
-  defp domains("control_plane_conversations"), do: ~w(conversations)
+  def domains("control_plane_conversations"), do: ~w(conversations)
 
-  defp domains("coop_" <> _),
-    do: ~w(activity workspaces timeline conversations repositories configuration failures)
+  def domains("coop_" <> _),
+    do: ~w(activity working-copies timeline conversations repositories settings setup failures)
 
-  defp domains("conversation_" <> _), do: ~w(memory conversations channels timeline)
-  defp domains("operational_memory_" <> _), do: ~w(memory conversations timeline)
-  defp domains("memory_" <> _), do: ~w(memory conversations timeline)
+  def domains("conversation_" <> _), do: ~w(memory conversations channels timeline)
+  def domains("operational_memory_" <> _), do: ~w(memory conversations timeline)
+  def domains("memory_" <> _), do: ~w(memory conversations timeline)
 
-  defp domains("operator_behaviors"),
-    do: ~w(rules instructions memory configuration channels timeline)
+  def domains("operator_behaviors"),
+    do: ~w(rules instructions memory setup channels timeline)
 
-  defp domains("standing_assignment_runs"), do: ~w(rules timeline)
-  defp domains("platform_actions"), do: ~w(activity timeline conversations failures)
-  defp domains("delivery_" <> _), do: ~w(activity timeline conversations failures)
-  defp domains("ryker_operator_actions"), do: ~w(activity failures)
-  defp domains(_table), do: ~w(activity usage configuration)
+  def domains("standing_assignment_runs"), do: ~w(rules timeline)
+  def domains("platform_actions"), do: ~w(activity timeline conversations failures)
+  def domains("delivery_" <> _), do: ~w(activity timeline conversations failures)
+  def domains("ryker_operator_actions"), do: ~w(activity failures)
+
+  def domains(_table),
+    do: ~w(activity usage settings integrations setup environments channels repositories)
 end
