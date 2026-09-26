@@ -540,7 +540,7 @@ defmodule Ryker.Ingress.Inbox do
   defp record_locked(input, settings) do
     dedupe_key = Input.dedupe_key(input)
 
-    with {:ok, receipt} <- reconcile_record(input, load(dedupe_key), settings),
+    with {:ok, receipt} <- admit(input, load(dedupe_key), settings),
          :ok <- attach_artifacts(input, receipt),
          :ok <- revoke_answer_memory(receipt),
          :ok <- receive_observation(receipt),
@@ -579,6 +579,33 @@ defmodule Ryker.Ingress.Inbox do
 
   defp attach_artifacts(input, %{entry: %Entry{id: input_id}}),
     do: ArtifactReferences.attach_input(input, input_id)
+
+  # One message can reach Ryker as several source events: Slack sends a
+  # message that mentions Ryker as app_mention and as a channel message, under
+  # different event ids. A source that says so (`one_input_per_revision`)
+  # makes a later event for a revision already recorded the same input.
+  defp admit(input, nil, %{one_input_per_revision: true} = settings) do
+    case same_revision(input) do
+      %Entry{} = entry -> {:ok, %{entry: entry, status: :duplicate}}
+      nil -> reconcile_record(input, nil, settings)
+    end
+  end
+
+  defp admit(input, entry, settings), do: reconcile_record(input, entry, settings)
+
+  defp same_revision(input) do
+    Repo.one(
+      from(entry in Entry,
+        where:
+          entry.source_kind == ^input.source.kind and entry.source_ref == ^input.source.ref and
+            entry.native_input_id == ^input.native_input_id and
+            entry.revision == ^input.revision and entry.event_kind == ^input.event_kind,
+        order_by: [asc: entry.inserted_at],
+        limit: 1,
+        lock: "FOR UPDATE"
+      )
+    )
+  end
 
   defp reconcile_record(input, nil, %{revision_ties: :exact} = settings),
     do: reconcile(input, nil, settings)
@@ -664,9 +691,10 @@ defmodule Ryker.Ingress.Inbox do
     |> Enum.flat_map(fn input ->
       keys = [Input.dedupe_key(input)]
 
-      if settings.revision_ties in [:receipt_order, :receipt_order_unbounded],
-        do: [revision_lock(input) | keys],
-        else: keys
+      if settings.revision_ties in [:receipt_order, :receipt_order_unbounded] or
+           settings.one_input_per_revision,
+         do: [revision_lock(input) | keys],
+         else: keys
     end)
     |> Enum.uniq()
     |> Enum.sort()
@@ -678,7 +706,10 @@ defmodule Ryker.Ingress.Inbox do
     end)
   end
 
-  defp revision_lock(input) do
+  @doc false
+  # The lock every event of one source item takes, so two copies of one
+  # message cannot both be recorded (InboxConcurrencyTest holds it).
+  def revision_lock(input) do
     "ingress-revision:" <>
       CanonicalJSON.digest([input.source.kind, input.source.ref, input.native_input_id])
   end
@@ -846,6 +877,7 @@ defmodule Ryker.Ingress.Inbox do
          Keyword.keys(options) --
            [
              :execution_mode,
+             :one_input_per_revision,
              :revision_ties,
              :work_profile,
              :slack_audience,
@@ -855,12 +887,14 @@ defmodule Ryker.Ingress.Inbox do
            ] ==
            [] do
       revision_ties = Keyword.get(options, :revision_ties, :exact)
+      one_input_per_revision = Keyword.get(options, :one_input_per_revision, false)
       execution_mode = Keyword.get(options, :execution_mode, :live)
       work_profile = Keyword.get(options, :work_profile)
       source_envelope = Keyword.get(options, :source_envelope)
       engagement_receipt = Keyword.get(options, :engagement_receipt)
 
       with true <- revision_ties in [:exact, :receipt_order, :receipt_order_unbounded],
+           true <- is_boolean(one_input_per_revision),
            true <- execution_mode in [:live, :shadow],
            true <- is_nil(source_envelope) or is_map(source_envelope),
            true <- is_nil(engagement_receipt) or is_map(engagement_receipt),
@@ -869,6 +903,7 @@ defmodule Ryker.Ingress.Inbox do
         {:ok,
          %{
            execution_mode: execution_mode,
+           one_input_per_revision: one_input_per_revision,
            revision_ties: revision_ties,
            slack_addressing: slack_addressing,
            source_envelope: source_envelope,
