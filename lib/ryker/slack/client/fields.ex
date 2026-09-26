@@ -87,30 +87,22 @@ defmodule Ryker.Slack.Client.Fields do
 
   def utc_datetime(_value), do: {:error, {:invalid_slack_api_request, :requested_at}}
 
-  @doc "A view Slack publishes to the App Home: exactly `blocks` and `type`, bounded."
-  @spec home_view(term()) :: :ok | {:error, {:invalid_slack_api_request, :home_view}}
-  def home_view(%{"blocks" => blocks, "type" => "home"} = view)
-      when is_list(blocks) and length(blocks) <= 100 do
-    if Map.keys(view) |> Enum.sort() == ["blocks", "type"] and
-         Enum.all?(blocks, &is_map/1) and byte_size(Jason.encode!(view)) <= 256 * 1_024,
-       do: :ok,
-       else: {:error, {:invalid_slack_api_request, :home_view}}
-  end
+  # --- listing documents ----------------------------------------------------
+  #
+  # A value a caller's listing document may carry, as `{:ok, value}` for the
+  # query; the listing's own check names the refused request.
 
-  def home_view(_view), do: {:error, {:invalid_slack_api_request, :home_view}}
+  @spec listing_cursor(term()) :: {:ok, String.t() | nil} | {:error, :cursor}
+  def listing_cursor(nil), do: {:ok, nil}
 
-  @spec modal_view(term()) :: :ok | {:error, {:invalid_slack_api_request, :modal_view}}
-  def modal_view(%{"blocks" => blocks, "type" => "modal"} = view)
-      when is_list(blocks) and length(blocks) <= 100 do
-    required = ~w(blocks callback_id close private_metadata submit title type)
+  def listing_cursor(value) when is_binary(value) and byte_size(value) in 1..4_096,
+    do: {:ok, value}
 
-    if Map.keys(view) |> Enum.sort() == Enum.sort(required) and
-         Enum.all?(blocks, &is_map/1) and byte_size(Jason.encode!(view)) <= 256 * 1_024,
-       do: :ok,
-       else: {:error, {:invalid_slack_api_request, :modal_view}}
-  end
+  def listing_cursor(_value), do: {:error, :cursor}
 
-  def modal_view(_view), do: {:error, {:invalid_slack_api_request, :modal_view}}
+  @spec listing_boolean(term()) :: {:ok, boolean()} | {:error, :boolean}
+  def listing_boolean(value) when is_boolean(value), do: {:ok, value}
+  def listing_boolean(_value), do: {:error, :boolean}
 
   # --- what Slack sent back -------------------------------------------------
 

@@ -1,243 +1,138 @@
 defmodule Ryker.Slack.Client.Conversations do
   @moduledoc """
-  What the client sends to and reads from Slack's conversation, bookmark and
-  user endpoints: the listing documents it accepts, the pages it parses and
-  the shapes it refuses.
+  The conversations Ryker reads: the ones it is in, the ones it shares with a
+  person, one conversation's details and state, and its bookmarks.
 
   Every page reader returns `{:ok, items, next_cursor}` for the pagination
-  walk, and every refusal is a `{:slack_protocol_error, field}` because the
-  request was well-formed and the reply was not.
+  walk, and every refusal of a reply is a `{:slack_protocol_error, field}`
+  because the request was well-formed and the reply was not. Creating a
+  conversation and setting it up is `Client.Rooms`.
   """
 
-  alias Ryker.Slack.Client.{Fields, Pagination}
+  alias Ryker.Slack.Client.{Fields, Pagination, Transport}
 
+  @conversation_page_size 200
   @maximum_bookmarks 100
 
-  # --- documents ------------------------------------------------------------
+  def list_conversations(client, document) do
+    with {:ok, parameters} <- list_document(document),
+         path <- "/users.conversations?" <> URI.encode_query(parameters),
+         {:ok, response} <- Transport.request(client, :get, path, nil),
+         {:ok, body} <- Transport.response(response),
+         {:ok, channels, cursor} <- listing_page(body) do
+      {:ok, %{"conversations" => channels, "cursor" => cursor}}
+    end
+  end
 
-  @doc "The users.conversations query for a caller-supplied listing document."
-  @spec list_document(term()) ::
-          {:ok, [{String.t(), term()}]} | {:error, {:invalid_slack_api_request, :conversations}}
-  def list_document(%{} = document) do
-    allowed = ~w(cursor exclude_archived limit types)
-    keys = Map.keys(document)
-
-    with true <- Enum.all?(keys, &is_binary/1) and keys -- allowed == [],
-         {:ok, cursor} <- list_cursor(Map.get(document, "cursor")),
-         {:ok, exclude_archived} <- list_boolean(Map.get(document, "exclude_archived", true)),
-         {:ok, limit} <- conversation_limit(Map.get(document, "limit", 100)),
-         {:ok, types} <- conversation_types(Map.get(document, "types", ["public_channel"])) do
-      {:ok,
-       [
-         {"exclude_archived", exclude_archived},
-         {"limit", limit},
-         {"types", Enum.join(types, ",")}
-       ]
-       |> maybe_query_cursor(cursor)}
+  def conversation_info(client, channel_ref) do
+    with :ok <- Fields.slack_id(channel_ref),
+         {:ok, response} <- Transport.request(client, :get, info_path(channel_ref), nil),
+         {:ok, %{"channel" => %{"id" => ^channel_ref} = channel}} <- Transport.response(response),
+         :ok <- Fields.bounded_result(channel, :conversation) do
+      {:ok, channel}
     else
-      _invalid -> {:error, {:invalid_slack_api_request, :conversations}}
+      {:ok, _invalid} -> {:error, {:slack_protocol_error, :conversation}}
+      {:error, _reason} = error -> error
     end
   end
 
-  def list_document(_document), do: {:error, {:invalid_slack_api_request, :conversations}}
-
-  @doc "The conversations.history or conversations.replies query for a source read."
-  @spec history_document(term()) ::
-          {:ok, [{String.t(), term()}]} | {:error, {:invalid_slack_api_request, :history}}
-  def history_document(%{} = document) do
-    allowed = ~w(cursor inclusive latest limit oldest)
-    keys = Map.keys(document)
-    oldest = Map.get(document, "oldest")
-    latest = Map.get(document, "latest")
-
-    with true <- Enum.all?(keys, &is_binary/1) and keys -- allowed == [],
-         {:ok, cursor} <- list_cursor(Map.get(document, "cursor")),
-         {:ok, inclusive} <- list_boolean(Map.get(document, "inclusive", false)),
-         {:ok, limit} <- source_limit(Map.get(document, "limit", 100)),
-         :ok <- Fields.optional_message_timestamp(oldest),
-         :ok <- Fields.optional_message_timestamp(latest) do
-      {:ok,
-       [
-         {"inclusive", inclusive},
-         {"limit", limit}
-       ]
-       |> maybe_query_parameter("cursor", cursor)
-       |> maybe_query_parameter("latest", latest)
-       |> maybe_query_parameter("oldest", oldest)}
-    else
-      _invalid -> {:error, {:invalid_slack_api_request, :history}}
+  def conversation_state(client, channel_ref) do
+    with :ok <- Fields.slack_id(channel_ref),
+         {:ok, response} <- Transport.request(client, :get, info_path(channel_ref), nil) do
+      conversation_state_response(response, channel_ref)
     end
   end
 
-  def history_document(_document), do: {:error, {:invalid_slack_api_request, :history}}
-
-  defp list_cursor(nil), do: {:ok, nil}
-
-  defp list_cursor(value) when is_binary(value) and byte_size(value) in 1..4_096,
-    do: {:ok, value}
-
-  defp list_cursor(_value), do: {:error, :cursor}
-
-  defp list_boolean(value) when is_boolean(value), do: {:ok, value}
-  defp list_boolean(_value), do: {:error, :boolean}
-
-  defp conversation_limit(value) when is_integer(value) and value in 1..200, do: {:ok, value}
-  defp conversation_limit(_value), do: {:error, :limit}
-
-  defp source_limit(value) when is_integer(value) and value in 1..100, do: {:ok, value}
-  defp source_limit(_value), do: {:error, :limit}
-
-  defp conversation_types(values) when is_list(values) and length(values) in 1..2 do
-    allowed = ["public_channel", "private_channel"]
-
-    if values == Enum.uniq(values) and Enum.all?(values, &(&1 in allowed)),
-      do: {:ok, values},
-      else: {:error, :types}
-  end
-
-  defp conversation_types(_values), do: {:error, :types}
-
-  defp maybe_query_cursor(parameters, nil), do: parameters
-  defp maybe_query_cursor(parameters, cursor), do: parameters ++ [{"cursor", cursor}]
-
-  defp maybe_query_parameter(parameters, _key, nil), do: parameters
-  defp maybe_query_parameter(parameters, key, value), do: parameters ++ [{key, value}]
-
-  # --- pages ----------------------------------------------------------------
-
-  @doc "A users.conversations page as the joined, unarchived channels with their privacy."
-  @spec joined_page(map()) :: {:ok, [map()], String.t()} | {:error, term()}
-  def joined_page(%{"channels" => channels} = body) when is_list(channels) do
-    with {:ok, cursor} <- Pagination.next_cursor(body),
-         {:ok, refs} <- conversation_refs(channels) do
-      {:ok, refs, cursor}
-    else
-      _invalid -> {:error, {:slack_protocol_error, :conversations}}
+  def list_bookmarks(client, channel_ref) do
+    with :ok <- Fields.slack_id(channel_ref),
+         {:ok, response} <-
+           Transport.request(client, :post, "/bookmarks.list", %{"channel_id" => channel_ref}),
+         {:ok, body} <- Transport.response(response) do
+      bookmarks(body, channel_ref)
     end
   end
 
-  def joined_page(_body), do: {:error, {:slack_protocol_error, :conversations}}
+  def joined_conversations(client) do
+    parameters = [
+      {"exclude_archived", true},
+      {"limit", @conversation_page_size},
+      {"types", "public_channel,private_channel"}
+    ]
 
-  @doc "A users.conversations page for another user, as the channel refs Ryker shares with them."
-  @spec shared_page(map()) :: {:ok, [String.t()], String.t()} | {:error, term()}
-  def shared_page(%{"channels" => channels} = body) when is_list(channels) do
-    with {:ok, cursor} <- Pagination.next_cursor(body),
-         {:ok, refs} <- shared_conversation_refs(channels) do
-      {:ok, refs, cursor}
-    else
-      _invalid -> {:error, {:slack_protocol_error, :conversations}}
+    with {:ok, channels} <-
+           Pagination.collect(
+             client,
+             &Pagination.query("/users.conversations", parameters, &1),
+             &joined_page/1,
+             @conversation_page_size
+           ) do
+      {:ok, channels |> Enum.uniq_by(& &1.channel_ref) |> Enum.sort_by(& &1.channel_ref)}
     end
   end
 
-  def shared_page(_body), do: {:error, {:slack_protocol_error, :conversations}}
+  def shared_conversations(client, user_ref, workspace_ref) do
+    parameters = [
+      {"exclude_archived", true},
+      {"limit", @conversation_page_size},
+      {"team_id", workspace_ref},
+      {"types", "public_channel,private_channel,mpim,im"},
+      {"user", user_ref}
+    ]
 
-  @doc "A users.conversations page as the normalized conversations a capability tool lists."
-  @spec listing_page(map()) :: {:ok, [map()], String.t()} | {:error, term()}
-  def listing_page(%{"channels" => channels} = body) when is_list(channels) do
-    with {:ok, cursor} <- Pagination.next_cursor(body),
-         {:ok, conversations} <- normalize_conversations(channels) do
-      {:ok, conversations, cursor}
-    else
-      _invalid -> {:error, {:slack_protocol_error, :conversations}}
+    with :ok <- Fields.slack_id(user_ref),
+         :ok <- Fields.slack_id(workspace_ref),
+         {:ok, channel_refs} <-
+           Pagination.collect(
+             client,
+             &Pagination.query("/users.conversations", parameters, &1),
+             &shared_page/1,
+             @conversation_page_size
+           ) do
+      {:ok, MapSet.new(channel_refs)}
     end
   end
 
-  def listing_page(_body), do: {:error, {:slack_protocol_error, :conversations}}
+  # --- one conversation -----------------------------------------------------
 
-  @doc "A conversations.list page, raw, for finding one channel by name."
-  @spec search_page(map()) :: {:ok, [map()], String.t()} | {:error, term()}
-  def search_page(%{"channels" => channels} = body) when is_list(channels) do
-    case Pagination.next_cursor(body) do
-      {:ok, cursor} -> {:ok, channels, cursor}
-      {:error, _reason} -> {:error, {:slack_protocol_error, :conversations}}
-    end
+  defp info_path(channel_ref),
+    do:
+      "/conversations.info?" <> URI.encode_query(channel: channel_ref, include_num_members: false)
+
+  defp conversation_state_response(
+         %{body: %{"error" => "channel_not_found", "ok" => false}, status: 200},
+         _channel_ref
+       ),
+       do: :not_found
+
+  defp conversation_state_response(response, channel_ref) do
+    with {:ok, body} <- Transport.response(response),
+         do: conversation_state_reply(body, channel_ref)
   end
 
-  def search_page(_body), do: {:error, {:slack_protocol_error, :conversations}}
-
-  @doc """
-  The channel on a page that `ensure_conversation` created or would have:
-  same name, privacy and creator, created within the request's window.
-  """
-  @spec matching_conversation([map()], String.t(), boolean(), String.t(), DateTime.t()) ::
-          {:ok, String.t()} | :not_found | {:error, term()}
-  def matching_conversation(channels, name, private, creator_ref, requested_at) do
-    earliest = DateTime.add(requested_at, -300, :second) |> DateTime.to_unix()
-    latest = DateTime.add(requested_at, 3_600, :second) |> DateTime.to_unix()
-
-    Enum.reduce_while(channels, :not_found, fn
-      %{
-        "created" => created,
-        "creator" => ^creator_ref,
-        "id" => channel_ref,
-        "is_private" => ^private,
-        "name" => ^name
-      },
-      :not_found
-      when is_integer(created) and created >= earliest and created <= latest ->
-        if Fields.slack_id(channel_ref) == :ok,
-          do: {:halt, {:ok, channel_ref}},
-          else: {:halt, {:error, {:slack_protocol_error, :conversation}}}
-
-      %{}, :not_found ->
-        {:cont, :not_found}
-
-      _invalid, :not_found ->
-        {:halt, {:error, {:slack_protocol_error, :conversation}}}
-    end)
-  end
-
-  @doc "The channel ref of a conversations.create reply that matches what was asked for."
-  @spec created_conversation(map(), String.t(), boolean(), String.t()) ::
-          {:ok, String.t()} | {:error, term()}
-  def created_conversation(
-        %{
-          "channel" => %{
-            "creator" => creator_ref,
-            "id" => channel_ref,
-            "is_private" => private,
-            "name" => name
-          }
-        },
-        name,
-        private,
-        creator_ref
-      ) do
-    case Fields.slack_id(channel_ref) do
-      :ok -> {:ok, channel_ref}
-      {:error, _reason} -> {:error, {:slack_protocol_error, :conversation}}
-    end
-  end
-
-  def created_conversation(_body, _name, _private, _creator_ref),
-    do: {:error, {:slack_protocol_error, :conversation}}
-
-  @spec conversation_state(map(), String.t()) :: {:ok, :active | :archived} | {:error, term()}
-  def conversation_state(
-        %{"channel" => %{"id" => channel_ref, "is_archived" => archived}},
-        channel_ref
-      )
-      when is_boolean(archived) do
+  defp conversation_state_reply(
+         %{"channel" => %{"id" => channel_ref, "is_archived" => archived}},
+         channel_ref
+       )
+       when is_boolean(archived) do
     case Fields.slack_id(channel_ref) do
       :ok -> {:ok, if(archived, do: :archived, else: :active)}
       {:error, _reason} -> {:error, {:slack_protocol_error, :conversation}}
     end
   end
 
-  def conversation_state(_body, _channel_ref),
+  defp conversation_state_reply(_body, _channel_ref),
     do: {:error, {:slack_protocol_error, :conversation}}
 
-  @doc "A bookmarks.list reply, every bookmark checked to belong to the channel asked about."
-  @spec bookmarks(map(), String.t()) :: {:ok, [map()]} | {:error, term()}
-  def bookmarks(%{"bookmarks" => bookmarks}, channel_ref)
-      when is_list(bookmarks) and length(bookmarks) <= @maximum_bookmarks do
+  # A bookmarks.list reply, every bookmark checked to belong to the channel asked about.
+  defp bookmarks(%{"bookmarks" => bookmarks}, channel_ref)
+       when is_list(bookmarks) and length(bookmarks) <= @maximum_bookmarks do
     if Enum.all?(bookmarks, &valid_bookmark?(&1, channel_ref)) and
          Fields.bounded_result(bookmarks, :bookmarks) == :ok,
        do: {:ok, bookmarks},
        else: {:error, {:slack_protocol_error, :bookmarks}}
   end
 
-  def bookmarks(_body, _channel_ref), do: {:error, {:slack_protocol_error, :bookmarks}}
+  defp bookmarks(_body, _channel_ref), do: {:error, {:slack_protocol_error, :bookmarks}}
 
   defp valid_bookmark?(
          %{
@@ -256,47 +151,60 @@ defmodule Ryker.Slack.Client.Conversations do
 
   defp valid_bookmark?(_bookmark, _channel_ref), do: false
 
-  @doc "Whether a users.info reply describes an active full member of this workspace."
-  @spec allowed_user(map(), String.t(), String.t()) :: {:ok, boolean()} | {:error, term()}
-  def allowed_user(
-        %{
-          "user" => %{
-            "deleted" => deleted,
-            "id" => user_ref,
-            "is_bot" => is_bot,
-            "is_restricted" => is_restricted,
-            "is_ultra_restricted" => is_ultra_restricted,
-            "team_id" => workspace_ref
-          }
-        },
-        user_ref,
-        workspace_ref
-      )
-      when is_boolean(deleted) and is_boolean(is_bot) and is_boolean(is_restricted) and
-             is_boolean(is_ultra_restricted) do
-    {:ok, not deleted and not is_bot and not is_restricted and not is_ultra_restricted}
+  # --- the listing a capability tool asks for -------------------------------
+
+  # The users.conversations query for a caller-supplied listing document.
+  defp list_document(%{} = document) do
+    allowed = ~w(cursor exclude_archived limit types)
+    keys = Map.keys(document)
+
+    with true <- Enum.all?(keys, &is_binary/1) and keys -- allowed == [],
+         {:ok, cursor} <- Fields.listing_cursor(Map.get(document, "cursor")),
+         {:ok, exclude_archived} <-
+           Fields.listing_boolean(Map.get(document, "exclude_archived", true)),
+         {:ok, limit} <- conversation_limit(Map.get(document, "limit", 100)),
+         {:ok, types} <- conversation_types(Map.get(document, "types", ["public_channel"])) do
+      {:ok,
+       [
+         {"exclude_archived", exclude_archived},
+         {"limit", limit},
+         {"types", Enum.join(types, ",")}
+       ]
+       |> maybe_query_cursor(cursor)}
+    else
+      _invalid -> {:error, {:invalid_slack_api_request, :conversations}}
+    end
   end
 
-  def allowed_user(
-        %{"user" => %{"id" => _id, "team_id" => _actual_workspace}},
-        _user_ref,
-        _expected_workspace
-      ),
-      do: {:ok, false}
+  defp list_document(_document), do: {:error, {:invalid_slack_api_request, :conversations}}
 
-  def allowed_user(_body, _user_ref, _workspace_ref),
-    do: {:error, {:slack_protocol_error, :user}}
+  defp conversation_limit(value) when is_integer(value) and value in 1..200, do: {:ok, value}
+  defp conversation_limit(_value), do: {:error, :limit}
 
-  @spec group_users(map()) :: {:ok, [String.t()]} | {:error, term()}
-  def group_users(%{"users" => users}) when is_list(users) do
-    if Enum.uniq(users) == users and Enum.all?(users, &(Fields.slack_id(&1) == :ok)),
-      do: {:ok, Enum.sort(users)},
-      else: {:error, {:slack_protocol_error, :user_group}}
+  defp conversation_types(values) when is_list(values) and length(values) in 1..2 do
+    allowed = ["public_channel", "private_channel"]
+
+    if values == Enum.uniq(values) and Enum.all?(values, &(&1 in allowed)),
+      do: {:ok, values},
+      else: {:error, :types}
   end
 
-  def group_users(_body), do: {:error, {:slack_protocol_error, :user_group}}
+  defp conversation_types(_values), do: {:error, :types}
 
-  # --- normalization --------------------------------------------------------
+  defp maybe_query_cursor(parameters, nil), do: parameters
+  defp maybe_query_cursor(parameters, cursor), do: parameters ++ [{"cursor", cursor}]
+
+  # A users.conversations page as the normalized conversations a capability tool lists.
+  defp listing_page(%{"channels" => channels} = body) when is_list(channels) do
+    with {:ok, cursor} <- Pagination.next_cursor(body),
+         {:ok, conversations} <- normalize_conversations(channels) do
+      {:ok, conversations, cursor}
+    else
+      _invalid -> {:error, {:slack_protocol_error, :conversations}}
+    end
+  end
+
+  defp listing_page(_body), do: {:error, {:slack_protocol_error, :conversations}}
 
   defp normalize_conversations(channels) do
     Enum.reduce_while(channels, {:ok, []}, fn
@@ -356,6 +264,20 @@ defmodule Ryker.Slack.Client.Conversations do
     end
   end
 
+  # --- the conversations Ryker is in ----------------------------------------
+
+  # A users.conversations page as the joined, unarchived channels with their privacy.
+  defp joined_page(%{"channels" => channels} = body) when is_list(channels) do
+    with {:ok, cursor} <- Pagination.next_cursor(body),
+         {:ok, refs} <- conversation_refs(channels) do
+      {:ok, refs, cursor}
+    else
+      _invalid -> {:error, {:slack_protocol_error, :conversations}}
+    end
+  end
+
+  defp joined_page(_body), do: {:error, {:slack_protocol_error, :conversations}}
+
   defp conversation_refs(channels) do
     Enum.reduce_while(channels, {:ok, []}, fn
       %{"id" => channel_ref, "is_archived" => false, "is_private" => private} = channel,
@@ -406,6 +328,20 @@ defmodule Ryker.Slack.Client.Conversations do
 
   defp conversation_ref(_channel_ref, _member, _private, _external_shared, _refs),
     do: {:halt, {:error, {:slack_protocol_error, :conversations}}}
+
+  # --- the conversations Ryker shares with a person -------------------------
+
+  # A users.conversations page for another user, as the channel refs Ryker shares with them.
+  defp shared_page(%{"channels" => channels} = body) when is_list(channels) do
+    with {:ok, cursor} <- Pagination.next_cursor(body),
+         {:ok, refs} <- shared_conversation_refs(channels) do
+      {:ok, refs, cursor}
+    else
+      _invalid -> {:error, {:slack_protocol_error, :conversations}}
+    end
+  end
+
+  defp shared_page(_body), do: {:error, {:slack_protocol_error, :conversations}}
 
   defp shared_conversation_refs(channels) do
     Enum.reduce_while(channels, {:ok, []}, fn channel, {:ok, refs} ->
