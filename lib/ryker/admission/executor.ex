@@ -10,6 +10,8 @@ defmodule Ryker.Admission.Executor do
   committed through `Ryker.Admission`.
   """
 
+  require Logger
+
   alias Ryker.Admission
   alias Ryker.Admission.{Attempts, Context, Decision, Prompt}
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
@@ -179,7 +181,6 @@ defmodule Ryker.Admission.Executor do
          {:ok, turn} <- ensure_turn(entry, session, context, settings),
          {:ok, decision, candidate_sha256} <- await_decision(turn, context, entry, settings),
          {:ok, work_policy} <- work_policy(entry, decision, settings),
-         :ok <- close_session(session, entry, settings),
          :ok <- reauthorize_context(entry, context),
          {:ok, result} <-
            Admission.commit(context, decision, decision_ref(turn, candidate_sha256),
@@ -188,7 +189,7 @@ defmodule Ryker.Admission.Executor do
            ) do
       {:ok,
        %{
-         cleanup: :closed,
+         cleanup: close_decided(session, entry, settings),
          decision: decision,
          result: result,
          session_id: session["id"],
@@ -817,9 +818,33 @@ defmodule Ryker.Admission.Executor do
 
   defp violation(reason), do: "The host rejected this decision: #{inspect(reason)}"
 
+  # The decision is saved before the session closes, so the person waits for
+  # neither the close nor its bookkeeping: validating, closing and saving took
+  # 6.4 s of a 28.6 s "hi" on the live install on 2026-09-26. The saved input
+  # holds no lease any more, and closing its generation's own session needs
+  # none. A close that fails changes nothing: retention cleanup closes the
+  # session of every decided input (`Ryker.Retention.Custody`).
+  defp close_decided(session, entry, settings) do
+    case close_owned_session(session, entry, settings) do
+      :ok ->
+        :closed
+
+      {:error, reason} ->
+        Logger.info(
+          "routing session #{session["id"]} left for cleanup after its decision: " <>
+            inspect(reason, limit: 5)
+        )
+
+        :pending
+    end
+  end
+
   defp close_session(session, entry, settings) do
-    with :ok <- renew_lease(settings),
-         {:ok, current} <- settings.api.get_session(settings.client, session["id"]),
+    with :ok <- renew_lease(settings), do: close_owned_session(session, entry, settings)
+  end
+
+  defp close_owned_session(session, entry, settings) do
+    with {:ok, current} <- settings.api.get_session(settings.client, session["id"]),
          {:ok, current} <-
            validate_session_state(
              current,

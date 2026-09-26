@@ -194,26 +194,29 @@ defmodule Ryker.Admission.ReadySessionsTest do
              Repo.get!(Session, ready.id)
   end
 
-  # Routing closes its session before it saves the decision. When a run
-  # stops after its turn finished and the session closed, the next run must
-  # read that finished turn back from the closed session, as it does from a
-  # session it created, rather than pay for the model a second time.
+  # A run can stop after Coop accepted the answer and closed the session but
+  # before the decision is saved; here its lease runs out at that moment. The
+  # next run of the same message must read that finished turn back from the
+  # closed session, as it does from a session it created, rather than pay for
+  # the model a second time.
   test "a claimed session's finished turn is read back when the run stopped before saving" do
-    {:ok, fake} = FakeAPI.start_link(replies(1))
+    {:ok, fake} = FakeAPI.start_link(replies(1), close_after_validation: true)
     assert {:ok, %{started: 1}} = keep(fake, 1)
     entry = record_slack_input!("Ev-ready-save-lost", "C700")
-    options = executor_options(fake, claim!(entry))
+    later = DateTime.add(@now, 301, :second)
+    stalled = fn -> if FakeAPI.state(fake).validations == [], do: @now, else: later end
+    options = entry |> claim!() |> then(&executor_options(fake, &1)) |> Keyword.put(:now, stalled)
 
-    # The run stops right after Coop closed the session, before the save.
-    stopped =
-      Keyword.put(options, :settle_execution_session, fn _entry, _session_id ->
-        {:error, :simulated_stop}
-      end)
+    assert {:error, :admission_attempt_lease_lost} = Executor.run(Inbox.ref(entry), options)
+    assert FakeAPI.sessions(fake)["ready_1"]["state"] == "closed"
 
-    assert {:error, :simulated_stop} = Executor.run(Inbox.ref(entry), stopped)
-    assert FakeAPI.state(fake).closed_sessions == ["ready_1"]
+    assert {:ok, %{entry: %{id: id}, lease_ref: retry_lease}} =
+             Inbox.claim_next("executor:test", later, 300)
 
-    assert {:ok, execution} = Executor.run(Inbox.ref(entry), options)
+    assert id == entry.id
+    retry = fake |> executor_options(retry_lease) |> Keyword.put(:now, fn -> later end)
+
+    assert {:ok, execution} = Executor.run(Inbox.ref(entry), retry)
     assert execution.result.entry.decision_action == :reply
     assert execution.session_id == "ready_1"
     assert FakeAPI.state(fake).submit_count == 1
