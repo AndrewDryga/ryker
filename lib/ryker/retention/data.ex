@@ -242,6 +242,24 @@ defmodule Ryker.Retention.Data do
   WHERE session.id = candidates.id
   """
 
+  # A delivery is kept for de-duplication while GitHub may still redeliver it,
+  # and a repository's newest one for connection health however old; one not
+  # yet processed is still custody.
+  @processed_github_events %{
+    table: "github_repository_events",
+    as: "event",
+    where: """
+    event.disposition <> 'received'
+    AND EXISTS (
+      SELECT 1 FROM github_repository_events AS newer
+      WHERE newer.binding_ref = event.binding_ref
+        AND (newer.occurred_at, newer.id) > (event.occurred_at, event.id)
+    )
+    """,
+    age: "inserted_at",
+    horizon: :operational_data_seconds
+  }
+
   @delivered_routing_responses %{
     table: "delivery_routing_responses",
     where: "status = 'delivered'",
@@ -485,6 +503,7 @@ defmodule Ryker.Retention.Data do
     worker_events = prune_aged(@discarded_worker_events, settings)
     _non_work_sessions = execute_count(@prune_non_work_sessions, [cutoff])
     routing_responses = prune_aged(@delivered_routing_responses, settings)
+    _github_events = prune_aged(@processed_github_events, settings)
 
     configuration_sessions =
       execute_count(@prune_configuration_sessions, [~w(saved cancelled expired), cutoff])

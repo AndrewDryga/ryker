@@ -818,6 +818,32 @@ defmodule Ryker.Retention.DataTest do
     assert Actions.fetch("operator-action:old-operator-action") == :error
   end
 
+  # The retention audit, 2026-09-26: the policy called GitHub deliveries
+  # operational, but nothing ever removed one, so every webhook since
+  # 2026-09-20 was still held. De-duplication needs only recent deliveries and
+  # connection health only the newest, so those and anything still waiting to
+  # be processed are what stays.
+  test "processed GitHub deliveries leave after the horizon, but not the newest or unprocessed" do
+    old_processed = insert_github_event!("github-main", "old-processed", "routed", @old)
+    newest = insert_github_event!("github-main", "newest", "routed", DateTime.add(@old, 60))
+    waiting = insert_github_event!("github-main", "waiting", "received", @old)
+    superseded = insert_github_event!("github-other", "superseded", "metadata", @old)
+    recent = insert_github_event!("github-other", "recent", "routed", DateTime.utc_now())
+    quiet = insert_github_event!("github-quiet", "quiet", "routed", @old)
+
+    assert {:ok, _result} = Data.prune(settings())
+
+    refute Repo.get(Ryker.GitHub.Event, old_processed)
+    refute Repo.get(Ryker.GitHub.Event, superseded)
+    assert Repo.get(Ryker.GitHub.Event, newest)
+    assert Repo.get(Ryker.GitHub.Event, waiting)
+    assert Repo.get(Ryker.GitHub.Event, recent)
+
+    # A repository that went quiet keeps its one old delivery: health says
+    # when Ryker last heard from GitHub, not "never".
+    assert Repo.get(Ryker.GitHub.Event, quiet)
+  end
+
   test "each maintenance transaction mutates only one bounded row batch" do
     for index <- 1..101, do: insert_setting_audit!("batch-#{index}")
 
@@ -1630,6 +1656,27 @@ defmodule Ryker.Retention.DataTest do
     |> File.read!()
     |> Jason.decode!()
     |> Map.put("session_id", session.coop_session_id)
+  end
+
+  defp insert_github_event!(binding_ref, delivery_ref, disposition, at) do
+    id = Ecto.UUID.generate()
+
+    Repo.insert!(%Ryker.GitHub.Event{
+      id: id,
+      delivery_ref: delivery_ref,
+      binding_ref: binding_ref,
+      repository_id: 42,
+      event_name: "issue_comment",
+      action: "created",
+      event_ref: "github:#{delivery_ref}",
+      payload_digest: digest(delivery_ref),
+      disposition: disposition,
+      occurred_at: at,
+      processed_at: if(disposition != "received", do: at),
+      inserted_at: at
+    })
+
+    id
   end
 
   defp settings(overrides \\ []) do
