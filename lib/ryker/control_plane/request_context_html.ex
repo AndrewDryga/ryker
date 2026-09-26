@@ -437,7 +437,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         group(
           title,
           description,
-          [Enum.map(entries, &assembled_source(&1, prefix, counts)), extra, absent],
+          [Enum.map(entries, &assembled_source(&1, prefix, counts, context)), extra, absent],
           group: group
         )
       end
@@ -808,7 +808,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp context_part({key, value}, root), do: [{key, value, root}]
 
-  defp assembled_source({key, value, parent}, prefix, counts) do
+  defp assembled_source({key, value, parent}, prefix, counts, context) do
     path = field_path(parent, key)
 
     options =
@@ -836,7 +836,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           path,
           value,
           source_metadata(key, parent, value),
-          body(key, value, path, prefix),
+          source_body(key, value, path, prefix, context),
           prefix,
           options
         )
@@ -1270,34 +1270,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp context_row(label, value),
     do: ["<div><dt>", escape(label), "</dt><dd>", escape(to_string(value)), "</dd></div>"]
 
-  # The generic field dumper turned this into an alphabetised tree — Companions,
-  # Freshness, Owner, Repositories, Fetched at, Name, Remote identity, Requested
-  # revision, Resolved revision, Stale base revision, Stale base status,
-  # Version, Workspace base revision — thirteen labels before the reader learns
-  # which repository the model could see or whether it could write to it.
-  defp workspace(value) do
-    primary = value["primary"] || %{}
-    # `source` is a sibling of `primary`, not its child — the alphabetised dump
-    # made that unreadable, which is why it was unreadable.
-    source = value["source"] || %{}
-    companions = value["companions"] || []
-
-    rows =
-      Enum.reject(
-        [
-          context_row("Repository", workspace_repository(primary)),
-          context_row("Access", workspace_access(primary)),
-          context_row("Checked out", workspace_revision(source)),
-          context_row("Freshness", workspace_freshness(value)),
-          context_row("Companions", workspace_companions(companions)),
-          context_row("Status", value["status"])
-        ],
-        &(&1 == [])
-      )
-
-    ["<dl class=\"context-rows\">", rows, "</dl>"]
-  end
-
   # One line per tool: its name, then what it is for. A tool this view has no
   # words for, such as one an older request listed, keeps its bare name
   # rather than an invented description.
@@ -1323,76 +1295,106 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp tool_name(name) when is_binary(name), do: name
   defp tool_name(tool), do: Jason.encode!(tool)
 
-  defp workspace_repository(%{"name" => name, "path" => path})
-       when is_binary(name) and is_binary(path) and path != "." do
-    "#{name} at #{path}"
+  # The generic field dumper turned this into an alphabetised tree — Companions,
+  # Freshness, Owner, Repositories, Fetched at, Name, Remote identity, Requested
+  # revision, Resolved revision, Stale base revision, Stale base status,
+  # Version, Workspace base revision — thirteen labels before the reader learns
+  # which repository the model could see or whether it could write to it. Then
+  # "Repository: primary" and "Companions: none" (Andrew, 2026-09-26): an
+  # environment can hold several repositories, so each is a row of its own,
+  # named, with whether the run could change it and how fresh it was.
+  defp workspace(value, repository_ref) do
+    primary = map_value(value["primary"])
+    receipts = freshness_receipts(value)
+
+    companions =
+      for %{"name" => name} = companion when is_binary(name) <- List.wrap(value["companions"]),
+          do: repository_row(name, [access(companion), freshness(receipts[name])])
+
+    rows =
+      [
+        primary_row(primary, repository_ref, map_value(value["source"]), receipts["primary"])
+        | companions
+      ] ++ [context_row("Status", value["status"])]
+
+    ["<dl class=\"context-rows\">", rows, "</dl>"]
   end
 
-  defp workspace_repository(%{"name" => name}) when is_binary(name), do: name
-  defp workspace_repository(_primary), do: nil
+  # A session without a repository gets Coop's empty scratch folder, which
+  # it names "primary"; that is not a repository a reader would recognise.
+  # A request that recorded no repository reference is read by that name.
+  defp primary_row(primary, repository_ref, source, receipt) do
+    cond do
+      primary == %{} ->
+        []
 
-  defp workspace_access(%{"read_only" => true}), do: "read-only"
-  defp workspace_access(%{"read_only" => false}), do: "writable"
-  defp workspace_access(_primary), do: nil
+      is_nil(repository_ref) or (repository_ref == :not_sent and primary["name"] == "primary") ->
+        context_row("No repository", join_words(["An empty working folder", access(primary)]))
 
-  # A forty-character object id twice over says less than the ref plus a short
-  # id, and the reader is checking "which commit", not reading the hash.
-  defp workspace_revision(%{"selected_ref" => ref, "selected_commit" => commit})
+      true ->
+        repository_row(primary["name"], [access(primary), revision(source), freshness(receipt)])
+    end
+  end
+
+  defp repository_row(name, words) when is_binary(name) do
+    case join_words(words) do
+      nil -> []
+      text -> context_row(name, capitalize_first(text))
+    end
+  end
+
+  defp repository_row(_name, _words), do: []
+
+  defp join_words(words) do
+    case Enum.filter(words, &is_binary/1) do
+      [] -> nil
+      words -> Enum.join(words, " · ")
+    end
+  end
+
+  defp capitalize_first(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest
+
+  defp access(%{"read_only" => true}), do: "read only"
+  defp access(%{"read_only" => false}), do: "can change"
+  defp access(_repository), do: nil
+
+  # "main at 92c952f7": the reader is checking which commit, not reading the
+  # hash, and a branch reads by its name.
+  defp revision(%{"selected_ref" => ref, "selected_commit" => commit})
        when is_binary(ref) and is_binary(commit),
-       do: "#{ref} · #{String.slice(commit, 0, 8)}"
+       do: "#{branch(ref)} at #{String.slice(commit, 0, 8)}"
 
-  defp workspace_revision(%{"selected_commit" => commit}) when is_binary(commit),
+  defp revision(%{"selected_commit" => commit}) when is_binary(commit),
     do: String.slice(commit, 0, 8)
 
-  # The default selection carries the default ref and commit under their own
-  # names; a "default" kind with nothing selected still checked something out.
-  defp workspace_revision(%{"default_ref" => ref, "default_commit" => commit})
+  defp revision(%{"default_ref" => ref, "default_commit" => commit})
        when is_binary(ref) and is_binary(commit),
-       do: "#{ref} · #{String.slice(commit, 0, 8)} (default)"
+       do: "#{branch(ref)} at #{String.slice(commit, 0, 8)}"
 
-  defp workspace_revision(_source), do: nil
+  defp revision(_source), do: nil
 
-  defp workspace_freshness(value) do
-    stale = get_in(value, ["freshness", "repositories"]) || []
+  defp branch("refs/heads/" <> name), do: name
+  defp branch(ref), do: ref
 
-    status =
-      Enum.find_value(stale, fn entry ->
-        if is_map(entry), do: entry["stale_base_status"]
-      end)
-
-    fetched =
-      Enum.find_value(stale, fn entry ->
-        if is_map(entry), do: entry["fetched_at"]
-      end)
-
-    [status, fetched && "fetched #{compact_time(fetched)}"]
-    |> Enum.filter(&is_binary/1)
-    |> Enum.join(" · ")
-    |> case do
-      "" -> nil
-      text -> text
-    end
+  defp freshness_receipts(value) do
+    for %{"name" => name} = receipt when is_binary(name) <-
+          List.wrap(get_in(value, ["freshness", "repositories"])),
+        into: %{},
+        do: {name, receipt}
   end
 
-  defp workspace_companions([]), do: "none"
+  defp freshness(%{"stale_base_status" => "current", "fetched_at" => at}),
+    do: "up to date as of #{readable_candidate_time(at)}"
 
-  defp workspace_companions(companions) when is_list(companions) do
-    Enum.map_join(companions, ", ", fn
-      %{"name" => name} -> name
-      other -> to_string(other)
-    end)
-  end
+  defp freshness(%{"stale_base_status" => "stale", "fetched_at" => at}),
+    do: "behind its remote as of #{readable_candidate_time(at)}"
 
-  defp workspace_companions(_companions), do: nil
+  defp freshness(%{"stale_base_status" => "unknown"}), do: "not checked against its remote"
+  defp freshness(%{"stale_base_status" => "not_applicable"}), do: "a local copy with no remote"
+  defp freshness(_receipt), do: nil
 
-  defp compact_time(value) when is_binary(value) do
-    case String.split(value, "T") do
-      [date, rest] -> "#{date} #{String.slice(rest, 0, 5)} UTC"
-      _other -> value
-    end
-  end
-
-  defp compact_time(value), do: value
+  defp map_value(value) when is_map(value), do: value
+  defp map_value(_value), do: %{}
 
   # The routing choices ride on the row itself: all five, with the ones this
   # input did not allow marked, because a restriction explains a decision the
@@ -1542,7 +1544,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           path,
           value,
           metadata(key, root),
-          body(key, value, path, prefix),
+          source_body(key, value, path, prefix, context),
           prefix
         )
       end),
@@ -1677,6 +1679,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     end)
   end
 
+  # The workspace names the session's repository as its working copy, so it
+  # is read beside the repository the request was bound to.
+  defp source_body("workspace", value, _path, _prefix, context)
+       when is_map(value) and map_size(value) > 0,
+       do: workspace(value, Map.get(context, "repository_ref", :not_sent))
+
+  defp source_body(key, value, path, prefix, _context), do: body(key, value, path, prefix)
+
   defp body(key, value, _path, _prefix)
        when key in ~w(input inputs current_inputs) and (is_map(value) or is_list(value)),
        do: messages(%{key => value})
@@ -1689,9 +1699,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp body("candidates", value, _path, prefix) when is_list(value) and value != [],
     do: candidates(value, %{}, prefix)
-
-  defp body("workspace", value, _path, _prefix) when is_map(value) and map_size(value) > 0,
-    do: workspace(value)
 
   defp body(key, tools, _path, _prefix)
        when key in ~w(responder_state_tools source_and_action_tools) and is_list(tools) and
