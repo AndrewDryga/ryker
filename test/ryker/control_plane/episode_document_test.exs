@@ -1442,9 +1442,34 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       html = render_request(:work, :result, [section("validation", "Host validation", value)])
       text = LazyHTML.from_fragment(html) |> LazyHTML.text()
       assert text =~ expected
-      if rejected, do: assert(text =~ "was returned for correction")
+      if rejected, do: assert(text =~ "Try 1 was sent back to be fixed.")
+      if value == accepted, do: assert(text =~ "Try 1 passed Ryker's checks.")
+      refute text =~ "Candidate 1"
+      refute text =~ "host's checks"
       refute text =~ "Delivery confirmed"
     end
+  end
+
+  test "a routing decision's stored reason reads in plain words on its card" do
+    # QA re-test, 2026-09-26: 26 timelines showed "no candidate episode is
+    # available" under "Model's reason". The stored decision keeps its words.
+    reason =
+      "The user explicitly requests investigation of whether yesterday's checkout readiness probe alert is related to the 08:00 deployment. This requires operational evidence and correlation; no candidate episode is available."
+
+    html =
+      render_request(:admission, :result, [
+        section("candidate", "Committed admission decision", %{
+          "action" => "start_episode",
+          "reason" => reason
+        })
+      ])
+
+    rationale =
+      html |> LazyHTML.from_fragment() |> LazyHTML.query(".request-rationale") |> LazyHTML.text()
+
+    assert rationale =~ "This requires operational evidence and correlation."
+    refute rationale =~ "candidate"
+    refute rationale =~ "episode"
   end
 
   test "continuations and unavailable prompt components remain distinguishable" do

@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.RequestPage
+  alias Ryker.ControlPlane.RoutingReason
   alias Ryker.Work.ExecutionTarget
 
   def render(assigns) do
@@ -700,7 +701,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp explanation(%{source_kind: :admission} = request) do
     case {document(request, "candidate"), document(request, "response")} do
       {%{"reason" => reason}, _response} when is_binary(reason) ->
-        reason
+        RoutingReason.plain(reason)
 
       {nil, %{"state" => "failed"} = response} ->
         failure_explanation(request[:failure], response)
@@ -714,10 +715,10 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     case if(is_nil(document(request, "candidate")), do: document(request, "validation")) do
       %{"candidate_attempt" => attempt, "verdict" => %{"verdict" => verdict}}
       when is_integer(attempt) and verdict in ~w(accept reject) ->
-        "Candidate #{attempt} " <>
+        "Try #{attempt} " <>
           if(verdict == "accept",
-            do: "passed the host's checks.",
-            else: "was returned for correction."
+            do: "passed Ryker's checks.",
+            else: "was sent back to be fixed."
           )
 
       _ ->
