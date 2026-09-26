@@ -99,6 +99,26 @@ the Ryker and bundled-worker images from the checkout, starts the replacements, 
 through the container entrypoint, and verifies health, readiness and the exact version header.
 Enrolled remote workers are not restarted or modified.
 
+## The schema baseline
+
+Every Ryker schema starts from one migration, `20260926100000_baseline`: it creates the schema
+that the 116 migrations before it built until 2026-09-26 (`priv/repo/schema/baseline.sql`), and
+newer migrations follow it. There is nothing before it to roll back to; going back means
+restoring a backup.
+
+A database migrated through those earlier migrations already has that schema, so it records the
+baseline as applied instead of running it, once, before its first upgrade past 2026-09-26:
+
+```bash
+scripts/compose.sh backup
+docker exec ryker-database-1 sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "INSERT INTO schema_migrations (version, inserted_at) VALUES (20260926100000, now())"'
+```
+
+The Compose installation in this checkout was re-baselined this way on 2026-09-26. Its older
+rows in `schema_migrations` stay, so an earlier image started against it still finds nothing to
+run.
+
 ## Backup and restore
 
 Create a backup while the project is running:
