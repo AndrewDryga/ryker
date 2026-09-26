@@ -1431,6 +1431,64 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert length(find_all(view, ".lab-typing-indicator")) == 1
   end
 
+  # The live install, 2026-09-26: with the model account out of usage, a
+  # Chat "hi" read "Needs attention · Routing stopped 260m 45s" for hours, a
+  # clock still counting for something that had stopped, with no reason and
+  # no Retry or cause beside it, though Failures had both.
+  test "a message whose routing stopped says why beside it, with the retry, and no running clock" do
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    id = Ecto.UUID.generate()
+    {:ok, %{entry: entry}} = ConversationLab.send_message(id, "hi", profile)
+
+    # Harvested from the live install's blocked input on 2026-09-26.
+    detail =
+      ~s|{:coop_turn_failed, "failed", "rate_limited", "provider rate limited the turn: | <>
+        ~s|You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to | <>
+        ~s|purchase more credits or try again at Sep 29th, 2026 8:59 PM."}|
+
+    Repo.get!(Ryker.Ingress.Inbox.Entry, entry.id)
+    |> Ecto.Changeset.change(
+      status: :blocked,
+      last_error_code: "rate_limited",
+      last_error_detail: detail,
+      lease_ref: nil,
+      lease_owner: nil,
+      lease_expires_at: nil,
+      next_attempt_at: nil
+    )
+    |> Repo.update!()
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _} = live(conn, "/conversations/#{id}")
+
+    ref = URI.encode("ingress-input:#{entry.id}", &URI.char_unreserved?/1)
+
+    retry =
+      "/actions/admission/#{ref}/rearm?" <> URI.encode_query(%{"back" => "/conversations/#{id}"})
+
+    assert has_element?(
+             view,
+             "#lab-messages .lab-message-failure",
+             "Routing stopped: the AI model account needs attention"
+           )
+
+    assert has_element?(view, "#lab-messages .lab-message-failure a[href='#{retry}']", "Retry")
+
+    assert has_element?(
+             view,
+             "#lab-messages .lab-message-failure a[href='/failures/admission/#{ref}']",
+             "Inspect cause"
+           )
+
+    refute has_element?(view, "#lab-messages .lab-message-progress")
+  end
+
   test "a conversation keeps its identity, history and links across the URL rename" do
     # Stored conversations are keyed by control-plane:lab:<uuid>; the rename
     # changes only the URL. Every retained message must open at
