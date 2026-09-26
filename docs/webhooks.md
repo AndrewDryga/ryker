@@ -69,6 +69,10 @@ execution.
 
 ## Authentication
 
+The signature and event header names below predate the Ryker name and keep it, so senders that are
+already configured keep working (see the names kept for other parties in
+[operations](operations.md)).
+
 Bearer routes accept exactly one header:
 
 ```text
@@ -78,8 +82,8 @@ Authorization: Bearer <secret>
 HMAC-SHA256 routes accept exactly one timestamp and signature:
 
 ```text
-X-Ryker-Timestamp: <Unix seconds>
-X-Ryker-Signature: v1=<hex HMAC-SHA256>
+x-responder-timestamp: <Unix seconds>
+x-responder-signature: v1=<hex HMAC-SHA256>
 ```
 
 The signed bytes are these newline-separated values, including empty lines:
@@ -95,8 +99,8 @@ revision value
 raw request body
 ```
 
-The metadata values are the exact `X-Ryker-Event-ID`, `X-Ryker-Item-ID`,
-`X-Ryker-Event-Type`, `X-Ryker-Occurred-At`, and `X-Ryker-Revision` request headers.
+The metadata values are the exact `x-responder-event-id`, `x-responder-item-id`,
+`x-responder-event-type`, `x-responder-occurred-at`, and `x-responder-revision` request headers.
 The timestamp must be within the route's configured clock-skew window. Universal routes require an
 event ID. Grafana and mapped-JSON routes derive identity from the authenticated body, so those five
 headers may be absent and are signed as empty strings. Changing either body or headers invalidates
@@ -107,14 +111,14 @@ Webhook secrets must contain at least 16 bytes for bearer authentication and 32 
 ## Universal JSON
 
 `adapter.kind: universal` accepts any JSON value, including arrays and scalars, without interpreting
-provider fields. The sender must supply a stable `X-Ryker-Event-ID` for each occurrence.
+provider fields. The sender must supply a stable `x-responder-event-id` for each occurrence.
 
 ```text
-X-Ryker-Event-ID: <required unique occurrence ID>
-X-Ryker-Item-ID: <optional stable item shared by revisions; defaults to event ID>
-X-Ryker-Event-Type: <optional bounded hint>
-X-Ryker-Occurred-At: <optional UTC ISO-8601 timestamp>
-X-Ryker-Revision: <optional positive integer; defaults to 1>
+x-responder-event-id: <required unique occurrence ID>
+x-responder-item-id: <optional stable item shared by revisions; defaults to event ID>
+x-responder-event-type: <optional bounded hint>
+x-responder-occurred-at: <optional UTC ISO-8601 timestamp>
+x-responder-revision: <optional positive integer; defaults to 1>
 ```
 
 Universal input has reply capability only. Payload fields cannot grant reactions or choose a
@@ -208,7 +212,7 @@ repositories and targets it may report — for example deployment environments `
 
 The route is projected as a system actor. Its environment, kind, repository, and target lists are
 an allowlist, not hints. Only such a route may wake merged publication follow-up. Send the version
-in the `X-Ryker-Event-Type: responder.publication_lifecycle.v1` header and use this exact JSON
+in the `x-responder-event-type: responder.publication_lifecycle.v1` header and use this exact JSON
 request body:
 
 ```json

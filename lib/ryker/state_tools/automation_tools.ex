@@ -34,7 +34,7 @@ defmodule Ryker.StateTools.AutomationTools do
     proposals = arguments["proposals"]
 
     Repo.transaction(fn ->
-      Enum.with_index(proposals)
+      proposals
       |> Enum.reduce_while([], &prepare_automation_record(&1, &2, binding))
       |> Enum.reverse()
     end)
@@ -44,8 +44,10 @@ defmodule Ryker.StateTools.AutomationTools do
     end
   end
 
-  defp prepare_automation_record({proposal, index}, records, binding) do
-    case automation_record(binding, proposal, index) do
+  # Each proposal is its own offer, keyed by its content: repeating one returns
+  # the same offer, and a corrected one in the same turn is a new offer.
+  defp prepare_automation_record(proposal, records, binding) do
+    case automation_record(binding, proposal) do
       {:ok, record} -> {:cont, [record | records]}
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -53,8 +55,7 @@ defmodule Ryker.StateTools.AutomationTools do
 
   defp automation_record(
          binding,
-         %{"action" => "create", "trigger" => %{"type" => "source_event"} = trigger} = proposal,
-         index
+         %{"action" => "create", "trigger" => %{"type" => "source_event"} = trigger} = proposal
        ) do
     with :ok <- automation_capability("source_event", binding),
          {:ok, context_channel} <- automation_channel(proposal["context_channel"], binding),
@@ -74,7 +75,7 @@ defmodule Ryker.StateTools.AutomationTools do
 
       RecordWriter.create_public_record(
         binding,
-        "propose_automation:#{index}",
+        "propose_automation",
         proposal,
         "standing_assignment_offer",
         payload,
@@ -83,7 +84,7 @@ defmodule Ryker.StateTools.AutomationTools do
     end
   end
 
-  defp automation_record(binding, %{"action" => "create"} = proposal, index) do
+  defp automation_record(binding, %{"action" => "create"} = proposal) do
     with :ok <- automation_capability("time", binding),
          {:ok, recurrence} <- ScheduleRecurrence.from_trigger(proposal["trigger"]) do
       payload = %{
@@ -98,7 +99,7 @@ defmodule Ryker.StateTools.AutomationTools do
 
       RecordWriter.create_public_record(
         binding,
-        "propose_automation:#{index}",
+        "propose_automation",
         proposal,
         "schedule_offer",
         payload,
@@ -107,13 +108,13 @@ defmodule Ryker.StateTools.AutomationTools do
     end
   end
 
-  defp automation_record(binding, %{"action" => action} = proposal, index)
+  defp automation_record(binding, %{"action" => action} = proposal)
        when action in ~w(update pause resume delete) do
     with {:ok, payload} <- Automations.prepare_change(binding.episode, proposal),
          :ok <- automation_capability(payload["automation_kind"], binding) do
       RecordWriter.create_public_record(
         binding,
-        "propose_automation:#{index}",
+        "propose_automation",
         proposal,
         "automation_change_offer",
         payload,
@@ -122,7 +123,7 @@ defmodule Ryker.StateTools.AutomationTools do
     end
   end
 
-  defp automation_record(_binding, _proposal, _index), do: {:error, :not_configured}
+  defp automation_record(_binding, _proposal), do: {:error, :not_configured}
 
   defp automation_capability("source_event", _binding), do: :ok
 

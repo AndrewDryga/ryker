@@ -113,19 +113,21 @@ defmodule Ryker.GitHub.Renderer do
   end
 
   defp record_markdown("input_request", payload, _ref, "open") do
-    choices = payload["choices"] |> Enum.map_join("\n", &"- #{escape(&1)}")
+    reply =
+      case payload["choices"] do
+        [] -> "Reply in this thread with your answer."
+        _choices -> "Reply in this thread with one of these or your own answer."
+      end
 
     {:ok,
-     """
-     ### Input needed
-
-     #{escape(payload["question"])}
-
-     #{choices}
-
-     Reply in this thread with the choice or answer. The question does not grant new authority.
-     """
-     |> String.trim()}
+     [
+       "### Input needed",
+       escape(payload["question"]),
+       payload["choices"] |> Enum.map_join("\n", &"- #{escape(&1)}"),
+       reply
+     ]
+     |> Enum.reject(&(&1 == ""))
+     |> Enum.join("\n\n")}
   end
 
   defp record_markdown("event_wait", %{"deadline_at" => nil}, _ref, "open"), do: {:ok, ""}

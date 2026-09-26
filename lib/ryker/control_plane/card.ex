@@ -223,7 +223,7 @@ defmodule Ryker.ControlPlane.Card do
     details =
       [
         {"How often", ScheduleCadence.describe(payload["recurrence"], payload["timezone"])},
-        {"What it may do", may_do(payload["authority"], payload["repository"])}
+        {"What it may do", ScheduleCadence.access(payload["authority"], payload["repository"])}
       ]
       |> optional_detail("Stops", stamp(payload["expires_at"]))
 
@@ -671,14 +671,6 @@ defmodule Ryker.ControlPlane.Card do
     do: String.downcase(<<first::utf8>>) <> rest
 
   defp lowercase_first(text), do: text
-
-  defp may_do("read_only", _repository), do: "Read-only"
-
-  defp may_do("repository_write", repository) when is_binary(repository),
-    do: "Can change code in " <> repository
-
-  defp may_do("governed_operation", _repository), do: "Can run approved operations"
-  defp may_do(_authority, _repository), do: nil
 
   # A time automation's change names the cadence it leaves the schedule on, in
   # the same words as the schedule itself.

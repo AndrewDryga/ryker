@@ -55,6 +55,31 @@ defmodule Ryker.State.ScheduleCadence do
 
   def describe(_recurrence, _timezone, _options), do: "On a custom timing"
 
+  @doc """
+  What each run may do, in words, from the schedule's stored authority:
+  "Read-only", "Can change code in checkout-api", "Can run approved
+  operations". Offers show this instead of the stored value.
+  """
+  @spec access(String.t() | nil, String.t() | nil) :: String.t() | nil
+  def access("read_only", _repository), do: "Read-only"
+
+  def access("repository_write", repository) when is_binary(repository),
+    do: "Can change code in " <> repository
+
+  def access("governed_operation", _repository), do: "Can run approved operations"
+  def access(_authority, _repository), do: nil
+
+  @doc "When a schedule stops running, or nil when it runs until someone stops it."
+  @spec ends(String.t() | nil) :: String.t() | nil
+  def ends(expires_at) when is_binary(expires_at) do
+    case utc_naive(expires_at) do
+      %NaiveDateTime{} = at -> "Ends on #{day(at, nil)} at #{clock(at)} UTC"
+      nil -> nil
+    end
+  end
+
+  def ends(_expires_at), do: nil
+
   defp period(seconds) do
     [{604_800, "week"}, {86_400, "day"}, {3_600, "hour"}, {60, "minute"}, {1, "second"}]
     |> Enum.find(fn {unit, _name} -> rem(seconds, unit) == 0 end)

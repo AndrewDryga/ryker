@@ -71,6 +71,33 @@ defmodule Ryker.GitHub.RendererTest do
     assert rendered =~ "Reply in this thread"
   end
 
+  # The Chat card said "Reply below or choose one of the offered answers." over
+  # a question with no answers, and the GitHub comment said the same in its own
+  # words: a reader looked for choices that were never offered.
+  test "a question offers choices only when it has some" do
+    question = fn choices ->
+      Renderer.render(%{
+        "message" => "One question first.",
+        "records" => [
+          %{
+            "kind" => "input_request",
+            "payload" => %{"choices" => choices, "question" => "Which region is primary?"},
+            "ref" => "record:input_request:region",
+            "status" => "open"
+          }
+        ]
+      })
+    end
+
+    assert {:ok, open} = question.([])
+    assert open =~ "Reply in this thread with your answer."
+    refute open =~ "choice"
+
+    assert {:ok, choices} = question.(["eu-west-1", "us-east-1"])
+    assert choices =~ "- eu-west-1"
+    assert choices =~ "Reply in this thread with one of these or your own answer."
+  end
+
   test "fails closed on malformed or unsupported record projections" do
     assert Renderer.render(%{
              "message" => "Waiting.",

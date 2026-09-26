@@ -38,11 +38,11 @@ The optional listener exposes:
 ```text
 POST /v1/hooks/<configured-route>
 Content-Type: application/json or application/*+json
-X-Ryker-Event-ID: <required unique occurrence ID>
-X-Ryker-Item-ID: <optional stable item ID shared by revisions; defaults to event ID>
-X-Ryker-Event-Type: <optional hint>
-X-Ryker-Occurred-At: <optional UTC ISO-8601 timestamp>
-X-Ryker-Revision: <optional positive integer, default 1>
+x-responder-event-id: <required unique occurrence ID>
+x-responder-item-id: <optional stable item ID shared by revisions; defaults to event ID>
+x-responder-event-type: <optional hint>
+x-responder-occurred-at: <optional UTC ISO-8601 timestamp>
+x-responder-revision: <optional positive integer, default 1>
 ```
 
 The body may be any JSON value: object, array, string, number, boolean, or null. A `202` response means
@@ -98,8 +98,8 @@ Internet exposure belongs behind the normal authenticated ingress proxy; the lis
 public interface.
 
 Bearer routes send one `Authorization: Bearer <secret>` header. HMAC routes send
-`X-Ryker-Timestamp: <Unix seconds>` and
-`X-Ryker-Signature: v1=<hex HMAC-SHA256>`. The signed bytes are these newline-separated values in
+`x-responder-timestamp: <Unix seconds>` and
+`x-responder-signature: v1=<hex HMAC-SHA256>`. The signed bytes are these newline-separated values in
 order:
 
 ```text
