@@ -109,10 +109,11 @@ export const createFilterMenu = (el, env = {}) => {
         }
         return false
       }
-      // Escape or ArrowLeft inside the values steps back to the field; the
-      // window Escape that closes the whole menu must not also fire.
+      // ArrowLeft inside the values steps back to the field, except while
+      // typing. Escape is left to the window, which closes the whole menu:
+      // stepping back one level on Escape read as the menu ignoring it.
       const typing = event.target?.tagName === "INPUT"
-      if (event.target?.closest?.(".filter-values") && (event.key === "Escape" || (event.key === "ArrowLeft" && !typing))) {
+      if (event.target?.closest?.(".filter-values") && event.key === "ArrowLeft" && !typing) {
         event.preventDefault()
         event.stopPropagation()
         back()

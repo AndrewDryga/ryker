@@ -10,12 +10,29 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
     )
   end
 
-  test "every supported usage dimension can be added from the filter menu" do
-    assert UsageProjection.filter_keys() -- RequestFilters.keys() == []
-    html = render_filters(%{menu: "fields"})
+  test "the menu offers only the filters a person uses, each in plain words" do
+    # QA, 2026-09-25: "+ Filter" listed 21 fields, most of them Ryker's own
+    # machinery: Execution target, Thread, Conversation platform beside
+    # Delivery platform, Profile, Provider, Usage repository beside Repository,
+    # Sender type, Source workspace, Token report, Exact usage target and Usage
+    # period.
+    document = render_filters(%{menu: "fields"}) |> LazyHTML.from_fragment()
+    fields = LazyHTML.query(document, "#filter-popover .filter-fields")
 
-    for key <- RequestFilters.keys(),
-        do: assert(html =~ ~s(data-field="#{key}"), key)
+    groups =
+      for section <- LazyHTML.query(fields, "section") do
+        {LazyHTML.query(section, "h3") |> LazyHTML.text(),
+         LazyHTML.query(section, "button.filter-field") |> Enum.map(&LazyHTML.text/1)}
+      end
+
+    assert groups == [
+             {"Request", ["Conversation", "Source", "Repository", "State"]},
+             {"Usage", ["Model", "Reasoning effort", "Work type", "User"]}
+           ]
+
+    # A filter another page links with still reads as a chip that can be
+    # removed, even when the menu does not offer it.
+    assert UsageProjection.filter_keys() -- RequestFilters.keys() == []
   end
 
   test "choosing a value applies it at once and keeps search, mode and the other filters" do
@@ -26,8 +43,12 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
     assert RequestFilters.set(params, "transport", "slack") ==
              %{"q" => "health", "mode" => "all", "state" => "complete", "transport" => "slack"}
 
-    # A usage filter is always bounded by a visible usage period.
-    assert RequestFilters.set(params, "usage_profile", "emisar")["usage_window"] == "7d"
+    # QA, 2026-09-25: choosing a model also added "Usage period Last 7 days",
+    # a filter nobody chose. A usage filter adds no period of its own; one a
+    # Usage link carried stays.
+    assert RequestFilters.set(%{}, "usage_model", "gpt-5.6-sol") == %{
+             "usage_model" => "gpt-5.6-sol"
+           }
 
     assert RequestFilters.set(%{"usage_window" => "30d"}, "usage_profile", "emisar") ==
              %{"usage_window" => "30d", "usage_profile" => "emisar"}
@@ -36,7 +57,66 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
   test "selecting a user does not also select a bot with the same account name" do
     # GitHub users and bots can retain the same actor string in separate inputs.
     assert RequestFilters.set(%{}, "usage_actor", "andrew") ==
-             %{"usage_actor" => "andrew", "usage_actor_kind" => "user", "usage_window" => "7d"}
+             %{"usage_actor" => "andrew", "usage_actor_kind" => "user"}
+  end
+
+  test "a filter that narrows another reads as one chip and leaves with it" do
+    # A Usage link to one person carries who, what kind of sender, and which
+    # workspace and source: four chips for one choice ("Sender type User",
+    # "Source workspace T123"). They are one filter, removed together.
+    params = %{
+      "usage_actor" => "U123",
+      "usage_actor_kind" => "user",
+      "usage_workspace" => "T123",
+      "usage_source" => "slack",
+      "usage_model" => "gpt-5.6-sol",
+      "usage_provider" => "codex"
+    }
+
+    document = render_filters(%{params: params}) |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(document, ".filter-chip") |> LazyHTML.attribute("data-filter") ==
+             ~w(usage_model usage_actor)
+
+    assert RequestFilters.remove(params, "usage_actor") == %{
+             "usage_model" => "gpt-5.6-sol",
+             "usage_provider" => "codex"
+           }
+
+    assert RequestFilters.remove(params, "usage_model") |> Map.keys() |> Enum.sort() ==
+             ~w(usage_actor usage_actor_kind usage_source usage_workspace)
+  end
+
+  test "reasoning effort reads in the words Settings uses" do
+    # QA, 2026-09-25: the filter offered "Xhigh" where Settings says "Extra high".
+    document = render_filters(%{menu: "fields"}) |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(document, "#filter-values-usage_effort button[phx-click=set-filter]")
+           |> Enum.map(&String.trim(LazyHTML.text(&1))) ==
+             ["No reasoning", "Minimal", "Low", "Medium", "High", "Extra high", "Max"]
+
+    assert render_filters(%{params: %{"usage_effort" => "xhigh"}})
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query(".filter-chip-value")
+           |> LazyHTML.text() == "Extra high"
+  end
+
+  test "a conversation chip names the conversation, not only where it happened" do
+    # QA, 2026-09-25: filtering by a chat read only "Direct conversation", the
+    # same words for every chat.
+    ref = "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+
+    values = [
+      %{
+        conversation_ref: ref,
+        conversation_label: "Direct conversation · Weekday incident status"
+      }
+    ]
+
+    assert render_filters(%{params: %{"conversation" => ref}, values: values})
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query(".filter-chip-value")
+           |> LazyHTML.text() == "Direct conversation · Weekday incident status"
   end
 
   test "removing a filter, or saving an empty value, keeps every other filter" do
@@ -67,8 +147,6 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
       "state" => "complete",
       "transport" => "github",
       "usage_window" => "7d",
-      "usage_measurement" => "measured",
-      "usage_actor_kind" => "user",
       "usage_profile" => "emisar"
     }
 
@@ -78,14 +156,13 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
 
     assert Enum.map(chips, fn chip ->
              {LazyHTML.attribute(chip, "data-filter") |> hd(),
+              LazyHTML.query(chip, ".filter-chip-key") |> LazyHTML.text(),
               LazyHTML.query(chip, ".filter-chip-value") |> LazyHTML.text()}
            end) == [
-             {"state", "Completed"},
-             {"transport", "GitHub"},
-             {"usage_profile", "emisar"},
-             {"usage_actor_kind", "User"},
-             {"usage_measurement", "Recorded"},
-             {"usage_window", "Last 7 days"}
+             {"transport", "Source", "GitHub"},
+             {"state", "State", "Completed"},
+             {"usage_profile", "Profile", "emisar"},
+             {"usage_window", "Usage period", "Last 7 days"}
            ]
 
     assert LazyHTML.query(
@@ -93,7 +170,7 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
              ".filter-chip button.filter-chip-remove[phx-click=remove-filter]"
            )
            |> LazyHTML.attribute("phx-value-key") ==
-             ~w(state transport usage_profile usage_actor_kind usage_measurement usage_window)
+             ~w(transport state usage_profile usage_window)
 
     # The add control comes after every chip, not before them.
     {last_chip, _} = :binary.matches(html, ~s(data-filter=)) |> List.last()
@@ -150,7 +227,7 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
 
     # The field list stays in the same popover as every submenu.
     assert Enum.count(LazyHTML.query(menu, ".filter-fields")) == 1
-    assert Enum.count(LazyHTML.query(menu, ".filter-values")) == length(RequestFilters.keys())
+    assert Enum.count(LazyHTML.query(menu, ".filter-values")) == 8
   end
 
   test "editing a chip opens that filter's values with the current one marked" do

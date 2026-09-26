@@ -502,7 +502,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, ".filter-toolbar-controls a", "Back to Usage")
 
     view |> element("#filter-add") |> render_click()
-    assert has_element?(view, "#filter-popover .filter-field[data-field=state]", "Request state")
+    assert has_element?(view, "#filter-popover .filter-field[data-field=state]", "State")
     assert has_element?(view, "#filter-popover .filter-field[data-field=usage_actor]", "User")
     refute has_element?(view, "#filter-popover .filter-field[data-field=usage_profile]")
 
@@ -2005,19 +2005,22 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   test "activity search and status links preserve existing Usage drill-down filters" do
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/activity?target=sol%2Fmedium&repository=emisar&state=active")
+
+    {:ok, view, _} =
+      live(conn, "/activity?usage_model=gpt-5.6-sol&repository=emisar&state=active")
+
     view |> element("a", "Needs you") |> render_click()
 
     assert_patch(
       view,
-      "/activity?filter=attention&repository=emisar&state=active&target=sol%2Fmedium"
+      "/activity?filter=attention&repository=emisar&state=active&usage_model=gpt-5.6-sol"
     )
 
     view |> form("#activity-filters", %{q: "investigate", mode: "live"}) |> render_change()
 
     assert_patch(
       view,
-      "/activity?filter=attention&mode=live&q=investigate&repository=emisar&state=active&target=sol%2Fmedium"
+      "/activity?filter=attention&mode=live&q=investigate&repository=emisar&state=active&usage_model=gpt-5.6-sol"
     )
   end
 

@@ -90,21 +90,30 @@ test("clicking or pressing ArrowRight on a field moves focus into its values", (
   assert.equal(m.focused.at(-1), m.panels.repository.first)
 })
 
-test("Escape or Back in the values returns to the field and keeps the menu open", () => {
+test("Escape anywhere in the menu closes it, while Back and ArrowLeft return to the field", () => {
+  // QA, 2026-09-25: Escape pressed in a field's values closed only those
+  // values, so the menu stayed open and read as ignoring Escape. Escape now
+  // reaches the window, which closes the whole menu; Back and ArrowLeft step
+  // back to the field.
   const m = menu()
   m.controls.click(m.event(m.fields.transport))
   const escape = m.event(m.panels.transport.first, {key: "Escape"})
-  assert.equal(m.controls.keydown(escape), true)
-  assert.equal(escape.stopped, true, "the window Escape that closes the whole menu never fires")
-  assert.equal(m.panels.transport.hidden, true)
-  assert.equal(m.focused.at(-1), m.fields.transport)
+  assert.equal(m.controls.keydown(escape), false)
+  assert.equal(escape.stopped, false, "the window Escape that closes the whole menu fires")
 
   m.controls.click(m.event(m.fields.state))
   assert.equal(m.controls.click(m.event(m.panels.state.back)), true)
   assert.equal(m.panels.state.hidden, true)
   assert.equal(m.focused.at(-1), m.fields.state)
 
-  // ArrowLeft goes back too, except while typing in a text field.
+  m.controls.click(m.event(m.fields.transport))
+  const left = m.event(m.panels.transport.first, {key: "ArrowLeft"})
+  assert.equal(m.controls.keydown(left), true)
+  assert.equal(left.stopped, true)
+  assert.equal(m.panels.transport.hidden, true)
+  assert.equal(m.focused.at(-1), m.fields.transport)
+
+  // ArrowLeft moves the caret, not the menu, while typing in a text field.
   m.controls.click(m.event(m.fields.repository))
   assert.equal(m.controls.keydown(m.event(m.panels.repository.first, {key: "ArrowLeft"})), false)
   assert.equal(m.panels.repository.hidden, false)

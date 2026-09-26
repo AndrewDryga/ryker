@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.Activity do
   require Ryker.ControlPlane.CurrentInputs
 
   alias Ryker.ControlPlane.{
+    ConversationProjection,
     CurrentInputs,
     InspectionRedactor,
     PagedRelation,
@@ -16,7 +17,7 @@ defmodule Ryker.ControlPlane.Activity do
   alias Ryker.Episodes.{Episode, RoutingDigest}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Work.Turn
+  alias Ryker.Work.{Session, Turn}
 
   @page_size 30
 
@@ -61,19 +62,32 @@ defmodule Ryker.ControlPlane.Activity do
     "/activity?" <> URI.encode_query(params)
   end
 
+  @doc """
+  The conversations the Conversation filter offers, each named the way Chat
+  and Slack name it: a chat by its title, a channel by its name.
+  """
   def conversation_filter_options do
     secrets = InspectionRedactor.configured_secrets()
 
-    from(row in subquery(rows()),
-      distinct: [row.source, row.conversation],
-      order_by: [row.source, row.conversation, desc: row.updated_at],
-      limit: 500
-    )
-    |> Repo.all()
-    |> Enum.map(fn row ->
+    rows =
+      from(row in subquery(rows()),
+        distinct: [row.source, row.conversation],
+        order_by: [row.source, row.conversation, desc: row.updated_at],
+        limit: 500
+      )
+      |> Repo.all()
+
+    chats =
+      rows
+      |> Enum.filter(&(&1.source == "control_plane"))
+      |> Enum.map(& &1.conversation)
+      |> ConversationProjection.titles()
+
+    Enum.map(rows, fn row ->
       label =
         if row.source == "control_plane",
-          do: "Direct conversation · " <> present(row, secrets).title,
+          do:
+            "Direct conversation · " <> (chats[row.conversation] || present(row, secrets).title),
           else: SlackNames.destination(row.conversation)
 
       %{
@@ -196,10 +210,22 @@ defmodule Ryker.ControlPlane.Activity do
         }
       )
 
+    # The repository the latest working copy checked out, for work whose
+    # message named none.
+    checkouts =
+      from(session in Session,
+        where: not is_nil(session.episode_id) and not is_nil(session.repository_ref),
+        distinct: session.episode_id,
+        order_by: [asc: session.episode_id, desc: session.generation],
+        select: %{episode_id: session.episode_id, repository: session.repository_ref}
+      )
+
     episodes =
       from(episode in Episode,
         left_join: input in subquery(first_inputs),
         on: input.episode_id == episode.id,
+        left_join: checkout in subquery(checkouts),
+        on: checkout.episode_id == episode.id,
         left_join: turn in Turn,
         on:
           turn.episode_id == episode.id and turn.turn_ref == episode.owner_ref and
@@ -230,13 +256,12 @@ defmodule Ryker.ControlPlane.Activity do
               episode.state
             ),
           source: episode.destination_transport,
-          repository: input.repository,
+          repository: fragment("COALESCE(?, ?)", input.repository, checkout.repository),
           source_available:
             not is_nil(input.content) and is_nil(input.pruned_at) and input.event_kind != :delete,
           text: CurrentInputs.visible_preview(input.pruned_at, input.event_kind, input.content),
           started_at: fragment("LEAST(?, ?)", episode.inserted_at, input.inserted_at),
-          updated_at: episode.updated_at,
-          target: turn.execution_target
+          updated_at: episode.updated_at
         }
       )
 
@@ -281,8 +306,7 @@ defmodule Ryker.ControlPlane.Activity do
               current.content
             ),
           started_at: entry.inserted_at,
-          updated_at: entry.updated_at,
-          target: type(^nil, :string)
+          updated_at: entry.updated_at
         }
       )
 
@@ -351,7 +375,7 @@ defmodule Ryker.ControlPlane.Activity do
   end
 
   defp criteria_filters(query, params) do
-    Enum.reduce(~w(state target repository), query, fn key, query ->
+    Enum.reduce(~w(state repository), query, fn key, query ->
       case params[key] do
         value when is_binary(value) and value != "" -> criteria_filter(query, key, value)
         _ -> query
@@ -361,11 +385,6 @@ defmodule Ryker.ControlPlane.Activity do
 
   defp criteria_filter(query, "state", value),
     do: from(row in query, where: row.episode_state == ^value)
-
-  defp criteria_filter(query, "target", value) do
-    ids = from(turn in Turn, where: turn.execution_target == ^value, select: turn.episode_id)
-    from(row in query, where: row.kind == "episode" and row.id in subquery(ids))
-  end
 
   defp criteria_filter(query, "repository", value) do
     ids =

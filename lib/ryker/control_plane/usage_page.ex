@@ -272,15 +272,10 @@ defmodule Ryker.ControlPlane.UsagePage do
   end
 
   defp identity(row, snapshot, :model) do
-    params =
-      if Map.has_key?(row, :target),
-        do: %{target: row.target},
-        else: %{model: row.model, provider: row.provider, effort: Map.get(row, :effort)}
-
     [
       entity_link(
         Enum.join(Enum.reject([row.model, Map.get(row, :effort)], &is_nil/1), "/"),
-        params,
+        %{model: row.model, provider: row.provider, effort: Map.get(row, :effort)},
         snapshot
       ),
       secondary(row.provider || "Provider not saved")
@@ -319,8 +314,6 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp kind_link(_kind, label, params, snapshot), do: entity_link(label, params, snapshot)
 
   defp entity_link(label, params, snapshot) do
-    title = Map.get(params, :target, label)
-
     params =
       Map.new(params, fn {k, v} -> {"usage_#{k}", v || ""} end)
       |> Map.merge(%{
@@ -330,7 +323,7 @@ defmodule Ryker.ControlPlane.UsagePage do
 
     [
       "<a title=\"",
-      e(title),
+      e(label),
       "\" href=\"/activity?",
       e(URI.encode_query(params)),
       "\">",

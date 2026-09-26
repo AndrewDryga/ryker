@@ -18,7 +18,6 @@ defmodule Ryker.ControlPlane.NativePagesTest do
            title: "Investigate <unsafe> #{index}",
            source: if(index == 1, do: "Direct conversation", else: "GitHub"),
            repository: "ryker",
-           target: "configured-target",
            state: state,
            bucket: if(state == "complete", do: "done", else: "running"),
            updated_at: @now,
@@ -279,7 +278,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     assert LazyHTML.query(toolbar, ".filter-add-wrap > #filter-popover") |> Enum.count() == 1
 
     assert LazyHTML.query(toolbar, "#filter-popover .filter-field[data-field=state]")
-           |> LazyHTML.text() == "Request state"
+           |> LazyHTML.text() == "State"
   end
 
   # QA, 2026-09-25, at 390px: Learning's outcome views scrolled "Sources

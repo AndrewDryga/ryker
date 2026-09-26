@@ -363,7 +363,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     end
   end
 
-  test "usage drill-down filters preserve episode identity, historical target and repository" do
+  test "usage drill-down filters preserve episode identity and repository" do
     # Replacing the episode directory must not turn cost drill-downs into unrelated activity.
     {:ok, %{episode: episode}} = Episodes.apply(Fixtures.admit_input())
 
@@ -383,8 +383,6 @@ defmodule Ryker.ControlPlane.ActivityTest do
 
     assert Activity.list(%{"q" => episode.key}).total == 1
     assert Activity.list(%{"q" => episode.destination_conversation_ref}).total == 1
-    assert Activity.list(%{"target" => "sol/medium"}).total == 1
-    assert Activity.list(%{"target" => "terra/medium"}).total == 0
     assert Activity.list(%{"repository" => "repo:emisar"}).total == 1
     assert Activity.list(%{"repository" => "repo:other"}).total == 0
     assert Activity.list(%{"state" => "complete"}).total == 0
@@ -429,6 +427,50 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert length(detail.trace.case_file.messages) == 20
     assert List.first(detail.trace.case_file.messages).text == "Request message 186"
     assert List.last(detail.trace.case_file.messages).text == "Request message 205"
+  end
+
+  test "search finds a request by the repository its work used, and the row names it" do
+    # QA, 2026-09-25: the search box promised repositories, but only the
+    # repository a message arrived with was searched, and a request's work
+    # names its repository on the working copy it checks out.
+    {:ok, %{episode: episode}} = Episodes.apply(Fixtures.admit_input())
+
+    {:ok, session} =
+      Custody.pin_episode(episode.id, "search-repository", String.duplicate("a", 64))
+
+    Repo.update_all(from(s in Session, where: s.id == ^session.id),
+      set: [repository_ref: "acme/checkout-api"]
+    )
+
+    assert %{total: 1, items: [item]} = Activity.list(%{"q" => "acme/checkout-api"})
+    assert item.id == episode.id
+    assert item.repository == "acme/checkout-api"
+    assert Activity.list(%{"q" => "acme/billing-api"}).total == 0
+  end
+
+  test "a usage filter chosen without a period covers all of a request's history" do
+    # QA, 2026-09-25: choosing a model also added "Usage period Last 7 days";
+    # without that chip the filter would still have quietly dropped older work.
+    {:ok, %{episode: episode}} = Episodes.apply(Fixtures.admit_input())
+
+    Repo.insert!(%Ryker.Accounting.Execution{
+      kind: "work",
+      source_id: Ecto.UUID.generate(),
+      generation: "1",
+      episode_id: episode.id,
+      transport: "slack",
+      conversation_ref: episode.destination_conversation_ref,
+      execution_mode: "live",
+      remote_ref: "usage-all-time",
+      status: "completed",
+      execution_target: "codex:gpt-5.6-terra/high@default",
+      usage_recorded: true,
+      usage_input_tokens: 10,
+      recorded_at: DateTime.add(DateTime.utc_now(), -40, :day)
+    })
+
+    assert Activity.list(%{"usage_model" => "gpt-5.6-terra"}).total == 1
+    assert Activity.list(%{"usage_model" => "gpt-5.6-terra", "usage_window" => "7d"}).total == 0
   end
 
   test "every workload count opens a view that lists exactly that many requests" do

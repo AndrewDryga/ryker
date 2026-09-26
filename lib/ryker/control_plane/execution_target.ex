@@ -63,8 +63,16 @@ defmodule Ryker.ControlPlane.ExecutionTarget do
 
   defp effort(nil), do: nil
   defp effort("none"), do: "No reasoning"
-  defp effort("xhigh"), do: "Extra high reasoning"
-  defp effort(value), do: human(value) <> " reasoning"
+  defp effort(value), do: effort_name(value) <> " reasoning"
+
+  @doc """
+  A reasoning effort in the words Settings and every filter use: "Extra
+  high", never the configuration's "xhigh".
+  """
+  @spec effort_name(String.t()) :: String.t()
+  def effort_name("none"), do: "No reasoning"
+  def effort_name("xhigh"), do: "Extra high"
+  def effort_name(value), do: human(value)
 
   defp provider("codex"), do: "Codex"
   defp provider("openai"), do: "OpenAI"

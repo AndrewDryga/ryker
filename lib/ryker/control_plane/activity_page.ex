@@ -348,7 +348,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
           Map.merge(
             Map.take(
               UsageProjection.link_params(params),
-              ~w(q mode target repository state conversation thread transport) ++
+              ~w(q mode repository state conversation thread transport) ++
                 UsageProjection.filter_keys()
             ),
             %{"filter" => filter}
@@ -363,7 +363,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
           Map.put(
             Map.take(
               UsageProjection.link_params(params),
-              ~w(q mode filter target repository state conversation thread transport) ++
+              ~w(q mode filter repository state conversation thread transport) ++
                 UsageProjection.filter_keys()
             ),
             "page",
@@ -374,7 +374,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
   defp filtered?(params),
     do:
       Enum.any?(
-        ~w(q target repository state conversation thread transport),
+        ~w(q repository state conversation thread transport),
         &(params[&1] not in [nil, ""])
       ) or
         params["filter"] not in [nil, "all"] or UsageProjection.filtered?(params)
