@@ -297,12 +297,6 @@ defmodule Ryker.Retention.Policy do
         "the compact record of finished work: problem, evidence-backed cause, attempted actions, outcome and links, captured before the raw episode is reclaimed and expiring only by explicit deletion"
     },
     %{
-      table: "episode_association_corrections",
-      class: :kept,
-      why:
-        "immutable record of one operator-confirmed membership change; every corrected origin points at it, so the effective owner of an input can always be explained"
-    },
-    %{
       table: "episode_correlation_claims",
       class: :cascade,
       why:

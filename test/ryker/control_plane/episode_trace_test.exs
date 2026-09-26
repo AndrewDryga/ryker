@@ -800,10 +800,9 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     Repo.get!(Turn, turn.id)
   end
 
-  test "the trace says where cross-conversation evidence came from and how membership was corrected" do
-    # A merged episode used to look like it had simply lost its messages, and
-    # an episode gathering evidence from three channels looked like one thread.
-    # An operator has to be able to read both from the trace itself.
+  test "the trace says where cross-conversation evidence came from" do
+    # An episode gathering evidence from three channels looked like one thread.
+    # An operator has to be able to read where it came from in the trace itself.
     {_entry, episode} = admitted_input!()
 
     Repo.insert!(%Ryker.Episodes.Origin{
@@ -826,29 +825,12 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       effective: true
     })
 
-    correction =
-      Repo.insert!(%Ryker.Episodes.AssociationCorrection{
-        actor_ref: "slack:user:UOPERATOR",
-        applied_at: @received,
-        confirmation_ref: "operator-confirmation:trace",
-        input_refs: ["admit_input:joined"],
-        kind: :reassign,
-        reason: "The database question belongs to the outage, not the release.",
-        source_episode_id: Ecto.UUID.generate(),
-        target_episode_id: episode.id
-      })
-
     trace = EpisodeTrace.project(episode, [], [])
 
     gathered = Enum.find(trace.steps, &(&1.id == "origins-#{episode.id}"))
     assert gathered.title == "Evidence joined from 2 conversations"
     assert inspect(gathered.details) =~ "CENGINEERING"
     assert inspect(gathered.details) =~ "slack:TC9F5B40D364C:C456"
-
-    moved = Enum.find(trace.steps, &(&1.id == "association-#{correction.id}"))
-    assert moved.title == "Messages moved into this request by a person's correction"
-    assert moved.summary == correction.reason
-    assert inspect(moved.details) =~ "operator-confirmation:trace"
   end
 
   defp admitted_input! do

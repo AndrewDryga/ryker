@@ -293,9 +293,7 @@ values behind each option, and why the cutoff fell where it did. The control pla
 receipt beside the frozen context as "Routing evidence", so an operator can tell a bounded search
 from a missing one without reading the shortlist and guessing. The episode trace says the rest: an
 episode whose evidence arrived in more than one conversation names those conversations, its one
-progress home, how many of its trusted signals are still firing and its retained case, and every
-audited merge, split or reassignment appears as its own step with the actor, the confirmation and
-the reason.
+progress home, how many of its trusted signals are still firing and its retained case.
 
 Thread identity is the full transport, conversation and thread triple. The same Slack thread
 timestamp in two channels is two different threads and carries no shared gravity.
