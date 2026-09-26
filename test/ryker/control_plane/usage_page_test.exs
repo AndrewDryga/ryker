@@ -578,10 +578,10 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     refute LazyHTML.text(document) =~ "No activity in this period"
 
     assert document |> LazyHTML.query("#usage-channels .empty") |> LazyHTML.text() =~
-             "Chat is not a channel"
+             "Chat is not listed by channel"
 
     assert document |> LazyHTML.query("#usage-users .empty") |> LazyHTML.text() =~
-             "Chat messages are not counted by user"
+             "Chat is not listed by user"
   end
 
   test "a chart or table wider than a phone shows that it scrolls" do

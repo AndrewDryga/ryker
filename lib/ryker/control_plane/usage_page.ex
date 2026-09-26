@@ -238,11 +238,11 @@ defmodule Ryker.ControlPlane.UsagePage do
   # people in Slack or GitHub, so either is empty while Chat work ran; "No
   # activity in this period" there contradicted the totals above it.
   defp empty(:channel),
-    do: "No work from a Slack channel in this period. Chat is not a channel."
+    do: "No work came from a Slack channel in this period. Chat is not listed by channel."
 
   defp empty(:user),
     do:
-      "No work for a person in Slack or GitHub in this period. Chat messages are not counted by user."
+      "No work came from a person in Slack or GitHub in this period. Chat is not listed by user."
 
   defp empty(_kind), do: "No activity in this period."
 
