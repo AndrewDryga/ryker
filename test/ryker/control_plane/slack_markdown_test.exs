@@ -46,6 +46,19 @@ defmodule Ryker.ControlPlane.SlackMarkdownTest do
     assert html =~ ~s(<ol start="2"><li>Pod events</li><li>Release changes</li></ol>)
   end
 
+  # QA re-test, 2026-09-26: "```sh" showed "sh" as the first line of the code.
+  # The fence's first word names the language; it is not code.
+  test "a fenced block's language names the block instead of becoming its first line" do
+    html = "```sh\nls -la\n```" |> SlackMarkdown.preview() |> IO.iodata_to_binary()
+    assert html == ~s(<pre class="md-code" data-language="sh"><code>ls -la</code></pre>)
+
+    bare = "```\nmix test\n```" |> SlackMarkdown.preview() |> IO.iodata_to_binary()
+    assert bare == ~s(<pre class="md-code"><code>mix test</code></pre>)
+
+    inline = "```ls -la```" |> SlackMarkdown.preview() |> IO.iodata_to_binary()
+    assert inline == ~s(<pre class="md-code"><code>ls -la</code></pre>)
+  end
+
   test "unmatched formatting delimiters do not remove any source text" do
     Enum.each(
       ["*unfinished", "_unfinished", "~unfinished", "`unfinished", "```unfinished"],
@@ -78,7 +91,7 @@ defmodule Ryker.ControlPlane.SlackMarkdownTest do
       )
       |> IO.iodata_to_binary()
 
-    assert html =~ "<pre><code>*literal* &lt;img src=x&gt;</code></pre>"
+    assert html =~ "<pre class=\"md-code\"><code>*literal* &lt;img src=x&gt;</code></pre>"
     refute html =~ "<strong>literal</strong>"
     refute html =~ ~s(href="javascript:)
     refute html =~ "<img"

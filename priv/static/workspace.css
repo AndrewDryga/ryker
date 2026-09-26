@@ -694,6 +694,7 @@
 .markdown-preview p:last-child { margin-bottom:0; }
 .markdown-preview ul, .markdown-preview ol { margin:10px 0 16px; padding-left:24px; }
 .markdown-preview li { margin:4px 0; }
+.md-code { max-width:100%; overflow-x:auto; box-sizing:border-box; white-space:pre; }
 .markdown-preview a { text-decoration:underline; text-underline-offset:3px; color:var(--ryker-text-secondary); }
 .final-prompt { margin-top:20px; }
 /* Same reset .prompt-group > header carries: the page's global header rule

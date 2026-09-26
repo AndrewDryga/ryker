@@ -91,7 +91,7 @@ defmodule Ryker.State.ObservationsTest do
 
     assert length(Regex.scan(~r/class="slack-mention"/, html)) == 2
     assert html =~ "<code>U03EPT4RP5M</code>"
-    assert html =~ "<pre><code>U03EPT4RP5M</code></pre>"
+    assert html =~ ~s(<pre class="md-code"><code>U03EPT4RP5M</code></pre>)
     assert html =~ "href=\"https://example.test/U03EPT4RP5M\""
     refute html =~ "&lt;@"
   end
