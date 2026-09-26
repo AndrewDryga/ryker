@@ -3,8 +3,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.PromptDocument
   alias Ryker.ControlPlane.SlackMarkdown
-  alias Ryker.ControlPlane.SlackNames
   alias Ryker.ControlPlane.SourceText
+  alias Ryker.Slack.Names
   @moduledoc "Readable context derived only from an already sanitized inspection artifact."
 
   @sources %{
@@ -1051,7 +1051,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     if Regex.match?(~r/^[a-z]+(_[a-z]+)*$/, value), do: human(value), else: value
   end
 
-  defp place(ref) when is_binary(ref), do: SlackNames.destination(ref)
+  defp place(ref) when is_binary(ref), do: Names.destination(ref)
   defp place(_ref), do: "None"
 
   defp other_fields_source([], _root, _prefix), do: []
@@ -2060,7 +2060,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
     case {slack_workspace(input), ref} do
       {workspace, ref} when is_binary(workspace) and is_binary(ref) ->
-        SlackNames.name(
+        Names.name(
           workspace,
           String.replace_prefix(ref, "slack:user:", "")
         )

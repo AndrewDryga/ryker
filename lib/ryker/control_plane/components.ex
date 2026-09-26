@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.Components do
   import Phoenix.HTML.Form, only: [options_for_select: 2]
   alias Phoenix.HTML.Safe
   alias Phoenix.LiveView.JS
+  alias Ryker.Episodes.Words
   alias Ryker.Work.ExecutionTarget
 
   @icons %{
@@ -344,7 +345,7 @@ defmodule Ryker.ControlPlane.Components do
     {label, tone} =
       cond do
         assigns.lifecycle != nil -> lifecycle(assigns.lifecycle)
-        assigns.state != nil -> {label(assigns.state), tone(assigns.state)}
+        assigns.state != nil -> {Words.label(assigns.state), tone(assigns.state)}
         true -> {nil, nil}
       end
 
@@ -372,7 +373,7 @@ defmodule Ryker.ControlPlane.Components do
       "paused" -> {"Paused", "quiet"}
       "disabled" -> {"Paused", "quiet"}
       "completed" -> {"Completed", "done"}
-      other -> {label(other), "quiet"}
+      other -> {Words.label(other), "quiet"}
     end
   end
 
@@ -752,22 +753,7 @@ defmodule Ryker.ControlPlane.Components do
   end
 
   # States arrive as the strings the projections cast and as the atoms the
-  # schemas hold; both name the same word and tone.
-  def label(value) when is_atom(value) and not is_nil(value), do: label(Atom.to_string(value))
-  def label("pending"), do: "Queued"
-  def label("working"), do: "Working"
-  def label("not_started"), do: "Couldn’t start"
-  def label("delivery_pending"), do: "Sending reply"
-  def label("waiting_for_input"), do: "Needs your input"
-  def label("waiting_for_event"), do: "Waiting for an event"
-  def label("blocked"), do: "Needs attention"
-  def label("complete"), do: "Completed"
-  def label("cancelled"), do: "Stopped"
-  def label("ignore"), do: "No response needed"
-  def label("react"), do: "Reaction selected"
-  def label("reply"), do: "Reply selected"
-  def label(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
-
+  # schemas hold; both name the same tone. Their words are Episodes.Words.
   def tone(value) when is_atom(value) and not is_nil(value), do: tone(Atom.to_string(value))
   def tone(value) when value in ["blocked", "waiting_for_input", "not_started"], do: "attention"
   def tone(value) when value in ["working", "pending", "delivery_pending"], do: "active"

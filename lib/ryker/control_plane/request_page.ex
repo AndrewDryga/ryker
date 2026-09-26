@@ -3,6 +3,7 @@ defmodule Ryker.ControlPlane.RequestPage do
   use Phoenix.Component
   import Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.RequestContextHTML
+  alias Ryker.Episodes.Words
 
   def render(assigns) do
     assigns =
@@ -37,7 +38,7 @@ defmodule Ryker.ControlPlane.RequestPage do
             patch={path(@path, @params, %{attempt: request.id})}
             class="request-directory-item"
             aria-current={if @view.selected && request.id == @view.selected.id, do: "page"}
-          ><span>Model call {@view.total - ((@view.page - 1) * 20 + index)}</span><strong>{label(
+          ><span>Model call {@view.total - ((@view.page - 1) * 20 + index)}</span><strong>{Words.label(
             request.status
           )}</strong><time>{timestamp(request.at)}</time></.link>
           <.paging path={@path} params={@params} page={@view.page} pages={@view.pages} key="page" />
@@ -57,7 +58,7 @@ defmodule Ryker.ControlPlane.RequestPage do
           </div>
           <p class="coverage-note">{@view.selected.coverage}</p>
           <section :if={@view.selected[:recovery]} class="admission-recovery story-stop">
-            <h3>Admission needs attention</h3><p>{label(@view.selected.recovery.summary)}</p>
+            <h3>Admission needs attention</h3><p>{Words.label(@view.selected.recovery.summary)}</p>
             <p>The input is retained. Review recovery to reconcile the same model call.</p>
             <.action_button path={@view.selected.recovery.href} label="Review recovery" />
           </section>
@@ -110,7 +111,7 @@ defmodule Ryker.ControlPlane.RequestPage do
               }
               data-revoked={if tool.artifact.state in [:expired, :not_recorded], do: "true"}
             >
-              <summary>{label(tool.kind)} <time>{timestamp(tool.at)}</time></summary><pre class="model-document-text">{tool.artifact.text ||
+              <summary>{Words.label(tool.kind)} <time>{timestamp(tool.at)}</time></summary><pre class="model-document-text">{tool.artifact.text ||
                 if(tool.artifact.state == :collapsed,
                   do: "Loading…",
                   else: "Not recorded"
@@ -512,7 +513,7 @@ defmodule Ryker.ControlPlane.RequestPage do
   defp paging(assigns) do
     ~H"""
     <div :if={@pages > 1} class="ui-pagination">
-      <span>{label(@key)} {@page} / {@pages}</span><.link
+      <span>{Words.label(@key)} {@page} / {@pages}</span><.link
         :if={@page > 1}
         patch={path(@path, @params, %{@key => @page - 1})}
       >Previous</.link><.link :if={@page < @pages} patch={path(@path, @params, %{@key => @page + 1})}>Next</.link>

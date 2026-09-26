@@ -14,7 +14,6 @@ defmodule Ryker.ControlPlane.LiveTest do
     LabPage,
     LiveSocket,
     Projection,
-    PubSub,
     WorkbenchLive
   }
 
@@ -111,7 +110,7 @@ defmodule Ryker.ControlPlane.LiveTest do
        [
          server: false,
          secret_key_base: String.duplicate("s", 64),
-         pubsub_server: Ryker.ControlPlane.PubSub,
+         pubsub_server: Ryker.PubSub,
          live_view: [signing_salt: "control-plane-test"],
          check_origin: ["//localhost:4321"],
          url: [host: "localhost", port: 4321],
@@ -136,7 +135,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     Agent.update(counters, &Map.put(&1, :active, 7))
 
     Phoenix.PubSub.broadcast(
-      Ryker.ControlPlane.PubSub,
+      Ryker.PubSub,
       "control-plane",
       :control_plane_changed
     )
@@ -1349,7 +1348,7 @@ defmodule Ryker.ControlPlane.LiveTest do
              Projection.lab_conversation(id)
 
     Phoenix.PubSub.broadcast(
-      PubSub,
+      Ryker.PubSub,
       "control-plane:conversations",
       :control_plane_changed
     )
@@ -1851,7 +1850,7 @@ defmodule Ryker.ControlPlane.LiveTest do
              ConversationLab.send_message(id, "Inspect the request behind this answer", profile)
 
     Phoenix.PubSub.broadcast(
-      Ryker.ControlPlane.PubSub,
+      Ryker.PubSub,
       "control-plane",
       :control_plane_changed
     )
@@ -1898,7 +1897,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     Agent.update(counters, &Map.put(&1, :active, 9))
 
     Phoenix.PubSub.broadcast(
-      Ryker.ControlPlane.PubSub,
+      Ryker.PubSub,
       "control-plane",
       :control_plane_changed
     )

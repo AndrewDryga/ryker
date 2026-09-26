@@ -3,12 +3,13 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   import Plug.Conn, only: [get_resp_header: 2]
-  alias Ryker.ControlPlane.{Actions, Endpoint, InstructionSettings, Projection, SlackNames}
+  alias Ryker.ControlPlane.{Actions, Endpoint, InstructionSettings, Projection}
   alias Ryker.ControlPlane.Updates
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Instructions
   alias Ryker.Slack.{ChannelConfigurationChangeset, ChannelMembership}
+  alias Ryker.Slack.Names
 
   @endpoint Endpoint
   @scope {:channel, "TINSTRUCTIONS", "CTEST"}
@@ -40,7 +41,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
       {Endpoint,
        server: false,
        secret_key_base: String.duplicate("s", 64),
-       pubsub_server: Ryker.ControlPlane.PubSub,
+       pubsub_server: Ryker.PubSub,
        live_view: [signing_salt: "instructions-test"],
        check_origin: ["//localhost:4321"],
        url: [host: "localhost", port: 4321],
@@ -255,9 +256,9 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
   test "channel page has its own editor and inherited preview without leaking text into the roster" do
     join!()
-    start_supervised!({SlackNames, workspace: "TINSTRUCTIONS", fetch: fn _ -> {:ok, "test"} end})
-    SlackNames.name("TINSTRUCTIONS", "CTEST")
-    GenServer.call(SlackNames, :refresh)
+    start_supervised!({Names, workspace: "TINSTRUCTIONS", fetch: fn _ -> {:ok, "test"} end})
+    Names.name("TINSTRUCTIONS", "CTEST")
+    GenServer.call(Names, :refresh)
 
     assert {:ok, _} =
              Instructions.save(:global, "Global <script>plain text</script>", 0, "operator:test")
@@ -296,9 +297,9 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     # part, what it was told here, what else applies, what it knows, then its
     # schedules, recent work and usage.
     join!()
-    start_supervised!({SlackNames, workspace: "TINSTRUCTIONS", fetch: fn _ -> {:ok, "test"} end})
-    SlackNames.name("TINSTRUCTIONS", "CTEST")
-    GenServer.call(SlackNames, :refresh)
+    start_supervised!({Names, workspace: "TINSTRUCTIONS", fetch: fn _ -> {:ok, "test"} end})
+    Names.name("TINSTRUCTIONS", "CTEST")
+    GenServer.call(Names, :refresh)
 
     {:ok, _view, html} = open("/channels/TINSTRUCTIONS/CTEST")
     page = LazyHTML.from_document(html) |> LazyHTML.query(".instructions-page")

@@ -2,7 +2,8 @@ defmodule Ryker.ControlPlane.RelearnSelectionTest do
   use ExUnit.Case, async: false
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Assets, RelearnPanel, SlackNames}
+  alias Ryker.ControlPlane.{Assets, RelearnPanel}
+  alias Ryker.Slack.Names
 
   test "every local control-plane module import has a served JavaScript asset" do
     # One missing helper makes the browser reject the whole entry module,
@@ -60,12 +61,12 @@ defmodule Ryker.ControlPlane.RelearnSelectionTest do
 
   test "source authors use the workspace name cache and remain redacted" do
     start_supervised!(
-      {SlackNames,
+      {Names,
        workspace: "TPICKER", fetch: fn _ -> {:ok, "Andrew <admin> password=do-not-display"} end}
     )
 
-    SlackNames.name("TPICKER", "UAUTHOR")
-    GenServer.call(SlackNames, :refresh)
+    Names.name("TPICKER", "UAUTHOR")
+    GenServer.call(Names, :refresh)
     html = render(preview())
 
     assert html =~ "Andrew &lt;admin&gt;"

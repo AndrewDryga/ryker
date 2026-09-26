@@ -4,6 +4,7 @@ defmodule Ryker.Runtime.OwnerTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.{Bootstrap, Repo, Settings}
   alias Ryker.Runtime.{Assembly, Owner}
+  alias Ryker.Slack.Names
 
   @actor "control-plane:local"
   @digest String.duplicate("a", 64)
@@ -194,7 +195,7 @@ defmodule Ryker.Runtime.OwnerTest do
 
     assert applied(owner, connected)
     assert is_map(Application.get_env(:ryker, :slack))
-    assert is_pid(Process.whereis(Ryker.ControlPlane.SlackNames))
+    assert is_pid(Process.whereis(Ryker.Slack.Names))
   end
 
   # The Card Lab delivery worker polled card_lab_posts every second beside the

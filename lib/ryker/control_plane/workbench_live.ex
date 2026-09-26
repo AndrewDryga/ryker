@@ -58,7 +58,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Ryker.ControlPlane.PubSub, "control-plane")
+      Phoenix.PubSub.subscribe(Ryker.PubSub, "control-plane")
       Process.send_after(self(), :reconcile, 5_000)
     end
 
@@ -181,11 +181,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       if socket.assigns.domain,
         do:
           Phoenix.PubSub.unsubscribe(
-            Ryker.ControlPlane.PubSub,
+            Ryker.PubSub,
             "control-plane:#{socket.assigns.domain}"
           )
 
-      Phoenix.PubSub.subscribe(Ryker.ControlPlane.PubSub, "control-plane:#{domain}")
+      Phoenix.PubSub.subscribe(Ryker.PubSub, "control-plane:#{domain}")
     end
   end
 

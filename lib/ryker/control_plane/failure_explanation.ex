@@ -30,7 +30,8 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   protocol facts and a digest of the stored diagnostic.
   """
 
-  alias Ryker.ControlPlane.{ShortTime, SlackNames}
+  alias Ryker.ControlPlane.ShortTime
+  alias Ryker.Slack.Names
 
   @type outlook :: :ready | :unknown | :fix_first | :stuck | :automatic
 
@@ -111,7 +112,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   def place(row) do
     case Map.get(row, :destination) do
       "slack:" <> _ = destination ->
-        destination |> String.split(" / ", parts: 2) |> hd() |> SlackNames.destination()
+        destination |> String.split(" / ", parts: 2) |> hd() |> Names.destination()
 
       "control_plane:" <> _ ->
         "Direct conversation"

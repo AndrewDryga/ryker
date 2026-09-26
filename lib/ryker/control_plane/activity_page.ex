@@ -23,9 +23,11 @@ defmodule Ryker.ControlPlane.ActivityPage do
     RequestFilters,
     SchedulesPage,
     SlackMarkdown,
-    SlackNames,
     UsageProjection
   }
+
+  alias Ryker.Episodes.Words
+  alias Ryker.Slack.Names
 
   @views [
     {"all", "All"},
@@ -187,7 +189,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
   """
   @spec state(String.t() | atom()) :: {atom(), String.t()}
   def state(state) when is_atom(state) and not is_nil(state), do: state(Atom.to_string(state))
-  def state("waiting_for_event"), do: {:busy, Components.label("waiting_for_event")}
+  def state("waiting_for_event"), do: {:busy, Words.label("waiting_for_event")}
   def state("superseded"), do: {:off, "Replaced by an edit"}
   def state("start_episode"), do: {:busy, "Starting"}
   def state("continue_episode"), do: {:off, "Added to earlier work"}
@@ -201,7 +203,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
         _finished -> :off
       end
 
-    {tone, Components.label(state)}
+    {tone, Words.label(state)}
   end
 
   # The workload the page leads with, counted from the same rows the views
@@ -336,7 +338,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
   defp utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")
 
   defp where(%{source: "Slack", conversation: conversation}) when is_binary(conversation),
-    do: SlackNames.destination(conversation)
+    do: Names.destination(conversation)
 
   defp where(item), do: item.source
 
@@ -380,7 +382,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
         params["filter"] not in [nil, "all"] or UsageProjection.filtered?(params)
 
   defp title(%{source: "Slack"} = item) do
-    workspace = SlackNames.workspace_from_destination(item[:conversation])
+    workspace = Names.workspace_from_destination(item[:conversation])
     item.title |> SlackMarkdown.mentions(workspace) |> Phoenix.HTML.raw()
   end
 

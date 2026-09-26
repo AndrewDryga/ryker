@@ -1,8 +1,8 @@
 defmodule Ryker.ControlPlane.EpisodeTraceTest do
   alias Ryker.ControlPlane.EpisodeTrace
   alias Ryker.ControlPlane.ModelRequests
-  alias Ryker.ControlPlane.SlackNames
-  # Starts the globally named `SlackNames` cache, so it cannot share the VM
+  alias Ryker.Slack.Names
+  # Starts the globally named `Names` cache, so it cannot share the VM
   # with other running suites the way an async module would.
   use Ryker.DataCase, async: false
 
@@ -479,13 +479,11 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     # check…" while the message under it read "@Emisar": the title took the
     # message text verbatim. The case message already knows its workspace;
     # the title resolves the same way the body does.
-    start_supervised!(
-      {SlackNames, workspace: "TC9F5B40D364C", fetch: fn _ref -> {:ok, "emisar"} end}
-    )
+    start_supervised!({Names, workspace: "TC9F5B40D364C", fetch: fn _ref -> {:ok, "emisar"} end})
 
     {entry, episode} = admitted_input!()
-    SlackNames.name("TC9F5B40D364C", "U1")
-    assert :ok = GenServer.call(SlackNames, :refresh)
+    Names.name("TC9F5B40D364C", "U1")
+    assert :ok = GenServer.call(Names, :refresh)
 
     Repo.update_all(from(i in Entry, where: i.id == ^entry.id),
       set: [content: %{"text" => "<@U1> is checkout healthy?"}]

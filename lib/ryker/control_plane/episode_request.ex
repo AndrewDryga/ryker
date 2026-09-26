@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.RequestPage
   alias Ryker.ControlPlane.RoutingReason
+  alias Ryker.Episodes.Words
   alias Ryker.Work.ExecutionTarget
 
   def render(assigns) do
@@ -401,8 +402,8 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       {key, %{"value" => value}} when is_binary(value) ->
         [
           %{
-            title: Components.label(key),
-            text: Components.label(value)
+            title: Words.label(key),
+            text: Words.label(value)
           }
         ]
 

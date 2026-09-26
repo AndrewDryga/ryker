@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.UpdatesTest do
 
   test "rolled-back writes are invisible and committed changes invalidate live projections" do
     start_supervised!({Updates, []})
-    Phoenix.PubSub.subscribe(Ryker.ControlPlane.PubSub, "control-plane:usage")
+    Phoenix.PubSub.subscribe(Ryker.PubSub, "control-plane:usage")
 
     task =
       unboxed_task(fn ->
@@ -77,7 +77,7 @@ defmodule Ryker.ControlPlane.UpdatesTest do
     }
 
     Enum.each(Enum.uniq(Map.values(tables)), fn domain ->
-      Phoenix.PubSub.subscribe(Ryker.ControlPlane.PubSub, "control-plane:#{domain}")
+      Phoenix.PubSub.subscribe(Ryker.PubSub, "control-plane:#{domain}")
     end)
 
     for {table, reader} <- tables do

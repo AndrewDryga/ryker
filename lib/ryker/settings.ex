@@ -40,7 +40,7 @@ defmodule Ryker.Settings do
 
   @actor "control-plane:local"
   @lock_tag "ryker-settings"
-  @pubsub Ryker.ControlPlane.PubSub
+  @pubsub Ryker.PubSub
   @topic "settings"
   @day 86_400
   @retention_defaults %{

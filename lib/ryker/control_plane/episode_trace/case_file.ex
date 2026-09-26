@@ -9,12 +9,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   import Ryker.ControlPlane.EpisodeTrace.Step
 
   alias Ryker.ControlPlane.{CurrentInputs, ProviderMessage, SlackMarkdown}
-  alias Ryker.ControlPlane.SlackNames
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Episodes.{Episode, RoutingDigests}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
+  alias Ryker.Slack.Names
   alias Ryker.State.Record
   alias Ryker.Work.{Session, Turn}
 
@@ -238,7 +238,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       actor: actor_label(input),
       display_actor:
         if(input.source_kind == "slack",
-          do: SlackNames.name(input.source_ref, input.actor_ref)
+          do: Names.name(input.source_ref, input.actor_ref)
         ),
       actor_ref: input.actor_ref,
       workspace: if(input.source_kind == "slack", do: input.source_ref),

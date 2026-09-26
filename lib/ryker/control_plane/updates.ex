@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.Updates do
   A burst is coalesced before projections query their own durable source.
   """
   use GenServer
-  alias Ryker.ControlPlane.PubSub
+  alias Ryker.PubSub
   alias Ryker.Repo
 
   def start_link(options), do: GenServer.start_link(__MODULE__, options)

@@ -14,7 +14,8 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, ShortTime, SlackNames, UsageProjection}
+  alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, ShortTime, UsageProjection}
+  alias Ryker.Slack.Names
 
   @statuses ~w(requested ready blocked closed)
 
@@ -383,9 +384,8 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
 
   defp source(room) do
     text =
-      if SlackNames.named?("slack:#{room.workspace_ref}:#{room.source_channel_ref}"),
-        do:
-          "The alert thread in " <> SlackNames.name(room.workspace_ref, room.source_channel_ref),
+      if Names.named?("slack:#{room.workspace_ref}:#{room.source_channel_ref}"),
+        do: "The alert thread in " <> Names.name(room.workspace_ref, room.source_channel_ref),
         else: "The alert thread"
 
     case room[:source_episode_ref] do

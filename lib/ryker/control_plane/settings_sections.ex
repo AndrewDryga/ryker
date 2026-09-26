@@ -23,8 +23,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
     Work
   }
 
-  alias Ryker.ControlPlane.{Environments, SlackNames}
+  alias Ryker.ControlPlane.Environments
   alias Ryker.Settings.Environment
+  alias Ryker.Slack.Names
   alias Ryker.Webhooks.Presets
   alias Ryker.Work.ExecutionTarget
 
@@ -810,7 +811,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   def options(%{options: :slack_channels}, view) do
     for %{workspace_ref: workspace, channel_ref: channel} <- view.slack_channels,
-        do: {"slack:#{workspace}:#{channel}", SlackNames.name(workspace, channel)}
+        do: {"slack:#{workspace}:#{channel}", Names.name(workspace, channel)}
   end
 
   def options(%{options: :webhook_secrets}, %{webhook_secret_names: names}) when is_list(names),

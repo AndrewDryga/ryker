@@ -12,7 +12,7 @@ defmodule Ryker.Credentials do
   alias Ryker.Repo
 
   @key_version 1
-  @pubsub Ryker.ControlPlane.PubSub
+  @pubsub Ryker.PubSub
   @topic "credentials"
   @nonce_bytes 12
   @tag_bytes 16

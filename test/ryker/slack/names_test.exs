@@ -1,15 +1,15 @@
-defmodule Ryker.ControlPlane.SlackNamesTest do
+defmodule Ryker.Slack.NamesTest do
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.SlackMarkdown
   use ExUnit.Case, async: false
-  alias Ryker.ControlPlane.SlackNames
   alias Ryker.InspectionRedactor
+  alias Ryker.Slack.Names
 
   test "names are scoped to the configured workspace and unavailable names do not block rendering" do
     parent = self()
 
     start_supervised!(
-      {SlackNames,
+      {Names,
        workspace: "T123",
        fetch: fn ref ->
          send(parent, {:lookup, ref})
@@ -17,27 +17,27 @@ defmodule Ryker.ControlPlane.SlackNamesTest do
        end}
     )
 
-    assert SlackNames.name("T123", "C456") == "Slack channel C456"
-    assert SlackNames.name("T999", "C456") == "Slack channel C456"
-    assert :ok = GenServer.call(SlackNames, :refresh)
+    assert Names.name("T123", "C456") == "Slack channel C456"
+    assert Names.name("T999", "C456") == "Slack channel C456"
+    assert :ok = GenServer.call(Names, :refresh)
     assert_receive {:lookup, "C456"}
-    assert SlackNames.name("T123", "C456") == "#test"
-    assert SlackNames.name("T999", "C456") == "Slack channel C456"
-    assert SlackNames.destination("slack:T123:C456") == "#test"
+    assert Names.name("T123", "C456") == "#test"
+    assert Names.name("T999", "C456") == "Slack channel C456"
+    assert Names.destination("slack:T123:C456") == "#test"
     refute_receive {:lookup, "C456"}
   end
 
   test "a resolved user mention carries one sigil, from the directory, not two" do
     # The first Slack episode after the rename rendered its opening message as
-    # "@@Emisar": SlackNames already prefixes a resolved user with "@" (and a
+    # "@@Emisar": Names already prefixes a resolved user with "@" (and a
     # channel with "#"), and the mention renderer added its own "@" on top.
     # The directory owns the sigil; the renderer only wraps the name.
-    start_supervised!({SlackNames, workspace: "T123", fetch: fn _ref -> {:ok, "emisar"} end})
-    SlackNames.name("T123", "U1")
-    SlackNames.name("T123", "C1")
+    start_supervised!({Names, workspace: "T123", fetch: fn _ref -> {:ok, "emisar"} end})
+    Names.name("T123", "U1")
+    Names.name("T123", "C1")
     # refresh resolves one queued reference per call
-    assert :ok = GenServer.call(SlackNames, :refresh)
-    assert :ok = GenServer.call(SlackNames, :refresh)
+    assert :ok = GenServer.call(Names, :refresh)
+    assert :ok = GenServer.call(Names, :refresh)
 
     html = SlackMarkdown.render("<@U1> ping <#C1>", "T123") |> IO.iodata_to_binary()
     assert html =~ ~s(<span class="slack-mention" title="U1">@emisar</span>)
@@ -52,7 +52,7 @@ defmodule Ryker.ControlPlane.SlackNamesTest do
     parent = self()
 
     start_supervised!(
-      {SlackNames,
+      {Names,
        workspace: "T123",
        fetch: fn ref ->
          send(parent, {:lookup, ref})
@@ -63,14 +63,14 @@ defmodule Ryker.ControlPlane.SlackNamesTest do
     # An unresolved reference still has to tell one row from another. The
     # channels page listed five "Slack channel" rows with the id only in a
     # tooltip, so an operator could not tell #test from #test2 at all.
-    assert SlackNames.name("T123", "U789") == "Slack user U789"
+    assert Names.name("T123", "U789") == "Slack user U789"
 
     # A reference Slack would reject is never echoed back into the page.
-    assert SlackNames.name("T123", "../../secrets") == "Slack reference"
-    assert :ok = GenServer.call(SlackNames, :refresh)
+    assert Names.name("T123", "../../secrets") == "Slack reference"
+    assert :ok = GenServer.call(Names, :refresh)
     assert_receive {:lookup, "U789"}
-    assert SlackNames.name("T123", "U789") == "Slack user U789"
-    assert :ok = GenServer.call(SlackNames, :refresh)
+    assert Names.name("T123", "U789") == "Slack user U789"
+    assert :ok = GenServer.call(Names, :refresh)
     refute_receive {:lookup, _}
   end
 
@@ -78,7 +78,7 @@ defmodule Ryker.ControlPlane.SlackNamesTest do
     parent = self()
 
     start_supervised!(
-      {SlackNames,
+      {Names,
        fetch: fn ref ->
          send(parent, {:lookup, ref})
 
@@ -89,25 +89,25 @@ defmodule Ryker.ControlPlane.SlackNamesTest do
        workspace: "T123"}
     )
 
-    SlackNames.name("T123", "C456")
-    GenServer.call(SlackNames, :refresh)
+    Names.name("T123", "C456")
+    GenServer.call(Names, :refresh)
     assert_receive {:lookup, "C456"}
-    GenServer.cast(SlackNames, {:resolve, "T123", "C456"})
-    GenServer.call(SlackNames, :refresh)
+    GenServer.cast(Names, {:resolve, "T123", "C456"})
+    GenServer.call(Names, :refresh)
     refute_receive {:lookup, _}
-    SlackNames.name("T123", "C429")
-    SlackNames.name("T123", "U789")
-    GenServer.call(SlackNames, :refresh)
+    Names.name("T123", "C429")
+    Names.name("T123", "U789")
+    GenServer.call(Names, :refresh)
     assert_receive {:lookup, "C429"}
-    GenServer.call(SlackNames, :refresh)
+    GenServer.call(Names, :refresh)
     refute_receive {:lookup, _}
   end
 
   test "a directory transport exit cannot take down the console" do
-    start_supervised!({SlackNames, workspace: "T123", fetch: fn _ -> exit(:timeout) end})
-    SlackNames.name("T123", "C456")
-    assert :ok = GenServer.call(SlackNames, :refresh)
-    assert SlackNames.name("T123", "C456") == "Slack channel C456"
+    start_supervised!({Names, workspace: "T123", fetch: fn _ -> exit(:timeout) end})
+    Names.name("T123", "C456")
+    assert :ok = GenServer.call(Names, :refresh)
+    assert Names.name("T123", "C456") == "Slack channel C456"
   end
 
   test "resolved names cannot reintroduce credentials into sanitized request inspection" do
@@ -120,13 +120,13 @@ defmodule Ryker.ControlPlane.SlackNamesTest do
     on_exit(fn -> Application.delete_env(:ryker, :directory_redaction_test) end)
 
     start_supervised!(
-      {SlackNames,
+      {Names,
        workspace: "T123",
        fetch: fn _ -> {:ok, "Andrew configured-private-value password=hunter2"} end}
     )
 
-    SlackNames.name("T123", "U456")
-    GenServer.call(SlackNames, :refresh)
+    Names.name("T123", "U456")
+    GenServer.call(Names, :refresh)
 
     html =
       %{
@@ -147,15 +147,15 @@ defmodule Ryker.ControlPlane.SlackNamesTest do
 
   test "mentions use workspace-scoped names while raw identities remain inspectable" do
     start_supervised!(
-      {SlackNames,
+      {Names,
        workspace: "T123",
        fetch: fn ref -> {:ok, if(ref == "U456", do: "Andrew <admin>", else: "test")} end}
     )
 
-    SlackNames.name("T123", "U456")
-    SlackNames.name("T123", "C789")
-    GenServer.call(SlackNames, :refresh)
-    GenServer.call(SlackNames, :refresh)
+    Names.name("T123", "U456")
+    Names.name("T123", "C789")
+    GenServer.call(Names, :refresh)
+    GenServer.call(Names, :refresh)
 
     html =
       SlackMarkdown.render(
@@ -169,8 +169,8 @@ defmodule Ryker.ControlPlane.SlackNamesTest do
     assert html =~ "title=\"U456\""
     assert html =~ "<code>literal &lt;@U456&gt;</code>"
     refute html =~ "<admin>"
-    assert SlackNames.destination("control_plane:control-plane:lab:uuid") == "Direct conversation"
-    assert SlackNames.destination("control-plane:lab:uuid") == "Direct conversation"
+    assert Names.destination("control_plane:control-plane:lab:uuid") == "Direct conversation"
+    assert Names.destination("control-plane:lab:uuid") == "Direct conversation"
 
     artifact =
       InspectionRedactor.artifact(%{

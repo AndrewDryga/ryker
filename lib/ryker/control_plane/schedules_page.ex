@@ -17,7 +17,8 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, ShortTime, SlackNames}
+  alias Ryker.ControlPlane.{Components, Kit, ShortTime}
+  alias Ryker.Slack.Names
   alias Ryker.State.ScheduleCadence
 
   @list_limit 100
@@ -380,7 +381,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   end
 
   defp destination(%{destination_transport: "slack"} = schedule) do
-    name = SlackNames.destination(schedule.destination_conversation_ref)
+    name = Names.destination(schedule.destination_conversation_ref)
 
     channel =
       case channel_path(schedule.destination_conversation_ref) do
@@ -400,12 +401,12 @@ defmodule Ryker.ControlPlane.SchedulesPage do
     end
   end
 
-  defp destination(schedule), do: SlackNames.destination(schedule.destination_conversation_ref)
+  defp destination(schedule), do: Names.destination(schedule.destination_conversation_ref)
 
   # Where a list row's results go: "in #incidents", "in a thread in
   # #incidents", "in a direct conversation".
   defp place(%{destination_transport: "slack"} = item) do
-    name = SlackNames.destination(item.destination_conversation_ref)
+    name = Names.destination(item.destination_conversation_ref)
     lead = if item.destination_thread_ref, do: "in a thread in ", else: "in "
     labelled(lead, name)
   end
@@ -413,7 +414,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   defp place(%{destination_conversation_ref: "control-plane:lab:" <> _id}),
     do: "in a direct conversation"
 
-  defp place(item), do: "in " <> SlackNames.destination(item.destination_conversation_ref)
+  defp place(item), do: "in " <> Names.destination(item.destination_conversation_ref)
 
   # Only a Slack channel has a page of its own here; a direct message has not.
   defp channel_path("slack:" <> rest) do

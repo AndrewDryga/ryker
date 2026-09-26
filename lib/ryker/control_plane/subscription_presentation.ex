@@ -5,8 +5,8 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
   every label comes from the saved matcher or the host's own timestamps.
   """
 
-  alias Ryker.ControlPlane.SlackNames
   alias Ryker.InspectionRedactor
+  alias Ryker.Slack.Names
   alias Ryker.Slack.ReplyRecords
 
   @doc """
@@ -102,7 +102,7 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
   defp context(episode, true, secrets) do
     place =
       case episode.source do
-        "Slack" -> SlackNames.destination(episode.conversation)
+        "Slack" -> Names.destination(episode.conversation)
         "Direct conversation" -> :direct
         _other -> nil
       end

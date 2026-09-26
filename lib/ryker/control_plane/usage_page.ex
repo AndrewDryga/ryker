@@ -1,7 +1,9 @@
 defmodule Ryker.ControlPlane.UsagePage do
   @moduledoc "Usage as an operator's ledger: totals, subscriptions, and the work behind them."
   alias Ryker.Accounting.Pricing
-  alias Ryker.ControlPlane.{Components, SlackNames, UsageChart}
+  alias Ryker.ControlPlane.UsageChart
+  alias Ryker.Episodes.Words
+  alias Ryker.Slack.Names
 
   # Every work type the projection can name; anything else is a missing identity.
   @work_kinds ~w(admission learning conversational standard deep continuation resumed task event_wait schedule publication approval)
@@ -353,18 +355,18 @@ defmodule Ryker.ControlPlane.UsagePage do
   def kind_name("schedule"), do: "Scheduled run"
   def kind_name("publication"), do: "Publication follow-up"
   def kind_name("approval"), do: "Approval"
-  def kind_name(value), do: Components.label(value || "unclassified")
+  def kind_name(value), do: Words.label(value || "unclassified")
 
   # By channel lists Slack channels; a row from anywhere else is named by its
   # own reference rather than passed off as a Slack channel.
   defp channel(%{transport: "slack", conversation_ref: ref}) do
-    SlackNames.destination(if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref)
+    Names.destination(if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref)
   end
 
   defp channel(row), do: "#{row.transport}:#{row.conversation_ref}"
 
   defp user(%{source: "slack", workspace: workspace, actor: actor}),
-    do: SlackNames.name(workspace, actor)
+    do: Names.name(workspace, actor)
 
   defp user(row), do: row.actor
 
@@ -372,7 +374,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp source_name("slack"), do: "Slack"
   defp source_name("github"), do: "GitHub"
   defp source_name("webhook"), do: "Webhook"
-  defp source_name(source), do: Components.label(source)
+  defp source_name(source), do: Words.label(source)
 
   defp timing(totals) do
     segments = [

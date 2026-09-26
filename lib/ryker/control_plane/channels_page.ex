@@ -9,7 +9,8 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Integrations, Kit, ShortTime, SlackNames}
+  alias Ryker.ControlPlane.{Components, Integrations, Kit, ShortTime}
+  alias Ryker.Slack.Names
 
   @doc """
   A channel's name: Slack's, or, until Slack has named an incident room's
@@ -20,9 +21,9 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   def channel_name(workspace, channel, room) do
     given = if is_map(room), do: room[:channel_name]
 
-    if is_binary(given) and given != "" and not SlackNames.named?("slack:#{workspace}:#{channel}"),
+    if is_binary(given) and given != "" and not Names.named?("slack:#{workspace}:#{channel}"),
       do: "#" <> given,
-      else: SlackNames.name(workspace, channel)
+      else: Names.name(workspace, channel)
   end
 
   @doc "The search phrase and which channels to show, from the page's query."

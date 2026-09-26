@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.LabPage do
   use Phoenix.Component
   import Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.{Environments, HTML, Kit}
+  alias Ryker.Episodes.Words
   alias Ryker.Settings.Environment
 
   # Authored UI examples approved on 2026-09-09, grouped on 2026-09-19 by what
@@ -574,7 +575,7 @@ defmodule Ryker.ControlPlane.LabPage do
   defp message_state(%{actor: :integration}), do: nil
   defp message_state(%{status: :delivery_pending}), do: "Sending"
   defp message_state(%{status: status}) when status in [:settled, :delivered], do: nil
-  defp message_state(%{status: status}), do: label(status)
+  defp message_state(%{status: status}), do: Words.label(status)
 
   # Model work that stopped is a material failure of this message: it reads
   # beside the message with the same retry /failures offers, not nowhere. The
