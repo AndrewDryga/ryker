@@ -208,6 +208,20 @@ defmodule Ryker.Work.PromptTest do
              "An explicit human request or trusted configured assignment is different"
   end
 
+  # Routing now always brings a deletion to the work that owns the message
+  # (manual testing, 2026-09-26). Work sees only "source_deleted", and with no
+  # word on it a turn could reply about the deletion or keep answering it.
+  test "a deleted message is let go without a reply about it" do
+    instructions =
+      Prompt.build(%{})
+      |> Jason.decode!()
+      |> Map.fetch!("instructions")
+      |> String.replace(~r/\s+/, " ")
+
+    assert instructions =~ "source_deleted is a message its author deleted"
+    assert instructions =~ "do not reply about the deletion"
+  end
+
   test "universal instructions require owning-tool receipts and final preflight" do
     document = Prompt.build(%{"episode_ref" => "episode-1"}) |> Jason.decode!()
     instructions = document["instructions"]

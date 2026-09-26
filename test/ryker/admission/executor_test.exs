@@ -779,6 +779,50 @@ defmodule Ryker.Admission.ExecutorTest do
     assert FakeAPI.state(fake).submit_count == 0
   end
 
+  # Manual testing, 2026-09-26: deleting a message sent it through a routing
+  # model turn that was free to answer it, react to it or start work for it,
+  # and while the model account was out the deletion sat "Retrying routing",
+  # holding every later message in its conversation behind it.
+  test "a deleted message no work owns is settled without a model turn" do
+    original = record_slack_input!("Ev-deleted-unowned")
+    {:ok, routed} = FakeAPI.start_link([decision("ignore")])
+
+    assert {:ok, _execution} =
+             Executor.run(Inbox.ref(original), executor_options(routed, claim!(original)))
+
+    deletion = record_slack_deletion!("Ev-deleted-unowned-delete")
+    {:ok, fake} = FakeAPI.start_link([])
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(deletion), executor_options(fake, claim!(deletion)))
+
+    assert execution.result.entry.decision_action == :ignore
+    assert execution.result.entry.lease_ref == nil
+    assert FakeAPI.state(fake).create_keys == []
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
+  # Admitting the deletion into its work is what withdraws everything derived
+  # from the deleted text; a model that chose to ignore it left those in place.
+  test "a deleted message joins the work that owns it without a model turn" do
+    original = record_slack_input!("Ev-deleted-owned")
+    {:ok, routed} = FakeAPI.start_link([decision("start_episode")])
+
+    assert {:ok, %{result: %{episode: episode}}} =
+             Executor.run(Inbox.ref(original), executor_options(routed, claim!(original)))
+
+    deletion = record_slack_deletion!("Ev-deleted-owned-delete")
+    {:ok, fake} = FakeAPI.start_link([])
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(deletion), executor_options(fake, claim!(deletion)))
+
+    assert execution.result.entry.decision_action == :continue_episode
+    assert execution.result.episode.id == episode.id
+    assert FakeAPI.state(fake).create_keys == []
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
   test "a crossed Coop turn cannot decide another admission session" do
     entry = record_slack_input!("Ev-executor-crossed-turn")
     lease_ref = claim!(entry)
@@ -814,6 +858,25 @@ defmodule Ryker.Admission.ExecutorTest do
                message_ref: "1787832001.000100",
                occurred_at: @now,
                revision: 1,
+               thread_ref: nil,
+               workspace_ref: "TE5D7C8842D32"
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+    entry
+  end
+
+  defp record_slack_deletion!(event_ref) do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Please answer"},
+               event_kind: :delete,
+               event_ref: event_ref,
+               message_ref: "1787832001.000100",
+               occurred_at: DateTime.add(@now, 1),
+               revision: 2,
                thread_ref: nil,
                workspace_ref: "TE5D7C8842D32"
              })

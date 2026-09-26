@@ -697,6 +697,15 @@ defmodule Ryker.Admission do
     )
   end
 
+  @doc "The episode whose work owns this input's source message now, if any."
+  @spec source_owner(Context.t()) :: Episode.t() | nil
+  def source_owner(%Context{} = context) do
+    case current_source_owner(context) do
+      {episode, _revision} -> episode
+      nil -> nil
+    end
+  end
+
   # An edit or delete follows its source item's effective owner even when that
   # episode now lives in another conversation, so a revision can never be
   # reassigned by rank or split across two episodes.

@@ -27,8 +27,19 @@ defmodule Ryker.Admission.Executor do
          {:ok, settings} <- start_deadline(settings),
          :ok <- renew_lease(settings),
          {:ok, entry} <- Inbox.fetch(input_ref),
-         {:ok, entry, context} <- execution_context(input_ref, entry, settings),
-         {:ok, attempt} <- Attempts.prepare(entry, settings),
+         {:ok, entry, context} <- execution_context(input_ref, entry, settings) do
+      case deletion_decision(context) do
+        %Decision{} = decision -> settle_deletion(entry, context, decision, settings)
+        nil -> run_model(entry, context, settings)
+      end
+    else
+      :error -> {:error, {:admission_execution_failed, :input_not_found}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp run_model(entry, context, settings) do
+    with {:ok, attempt} <- Attempts.prepare(entry, settings),
          settings <-
            Map.merge(settings, %{policy: attempt.policy, policy_digest: attempt.policy_digest}),
          :ok <- Attempts.observe(entry, "execution_requested", %{}, settings),
@@ -44,9 +55,61 @@ defmodule Ryker.Admission.Executor do
              settings
            ) do
       run_context(entry, session, context, settings)
-    else
-      :error -> {:error, {:admission_execution_failed, :input_not_found}}
-      {:error, _reason} = error -> error
+    end
+  end
+
+  # A deletion leaves a model nothing to weigh, so routing never spends a turn
+  # on one. A deleted message that work owns joins that work, which withdraws
+  # everything derived from it and shows Work the message is gone; one no work
+  # owns is left alone. A model turn here once risked a reply, a reaction or
+  # new work for a message that no longer exists, could leave derived records
+  # in place by choosing to ignore it, and while the model account was out it
+  # held every later message in the conversation behind it (manual testing,
+  # 2026-09-26).
+  defp deletion_decision(%Context{input: %Input{event_kind: :delete}} = context) do
+    case Admission.source_owner(context) do
+      nil ->
+        deletion(:ignore, nil, :unrelated, nil, "The person deleted a message no work was using.")
+
+      owner ->
+        case Enum.find(context.candidates, &(&1.episode.id == owner.id)) do
+          nil ->
+            nil
+
+          candidate ->
+            deletion(
+              :continue_episode,
+              candidate.ref,
+              :same_work,
+              :standard,
+              "The person deleted a message this work was using."
+            )
+        end
+    end
+  end
+
+  defp deletion_decision(_context), do: nil
+
+  defp deletion(action, episode_ref, relation, work_class, reason) do
+    %Decision{
+      action: action,
+      episode_ref: episode_ref,
+      reaction: nil,
+      relation: relation,
+      reason: reason,
+      repository_source: nil,
+      work_class: work_class
+    }
+  end
+
+  defp settle_deletion(entry, context, decision, settings) do
+    with {:ok, work_policy} <- work_policy(entry, decision, settings),
+         {:ok, result} <-
+           Admission.commit(context, decision, "host:deletion:#{entry.id}",
+             lease_ref: settings.lease_ref,
+             work_policy: work_policy
+           ) do
+      {:ok, %{cleanup: :none, decision: decision, result: result, session_id: nil, turn_id: nil}}
     end
   end
 
