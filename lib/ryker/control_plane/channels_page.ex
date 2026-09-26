@@ -11,6 +11,20 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Integrations, Kit, ShortTime, SlackNames}
 
+  @doc """
+  A channel's name: Slack's, or, until Slack has named an incident room's
+  channel, the name Ryker gave that channel. The list, the channel's page and
+  the room's page all say the same.
+  """
+  @spec channel_name(String.t(), String.t(), map() | nil) :: String.t()
+  def channel_name(workspace, channel, room) do
+    given = if is_map(room), do: room[:channel_name]
+
+    if is_binary(given) and given != "" and not SlackNames.named?("slack:#{workspace}:#{channel}"),
+      do: "#" <> given,
+      else: SlackNames.name(workspace, channel)
+  end
+
   @doc "The search phrase and which channels to show, from the page's query."
   @spec view(map()) :: %{q: String.t(), show: String.t()}
   def view(params) do
@@ -71,7 +85,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
           id={"channel-" <> item.workspace_ref <> "-" <> item.channel_ref}
           icon={:hash}
           icon_tone={:info}
-          name={SlackNames.name(item.workspace_ref, item.channel_ref)}
+          name={channel_name(item.workspace_ref, item.channel_ref, item.incident_room)}
           href={path(item.workspace_ref, item.channel_ref)}
           state={
             state(item.membership, match?(%{open: true}, item[:incident_room]), item.channel_ref)

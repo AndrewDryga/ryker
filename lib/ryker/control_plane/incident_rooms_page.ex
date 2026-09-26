@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, ShortTime, SlackNames, UsageProjection}
+  alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, ShortTime, SlackNames, UsageProjection}
 
   @statuses ~w(requested ready blocked closed)
 
@@ -374,15 +374,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
     do: ~H|<a href={@href}>{@text}</a>{if @state, do: " · " <> @state}|
 
   # A channel Slack has not named for Ryker yet keeps the name Ryker gave it.
-  defp channel(room) do
-    name = SlackNames.name(room.workspace_ref, room.channel_ref)
-
-    cond do
-      SlackNames.named?("slack:#{room.workspace_ref}:#{room.channel_ref}") -> name
-      is_binary(room[:channel_name]) and room[:channel_name] != "" -> "#" <> room.channel_name
-      true -> name
-    end
-  end
+  defp channel(room), do: ChannelsPage.channel_name(room.workspace_ref, room.channel_ref, room)
 
   # The alert thread the room was opened from, by its channel's name once
   # Slack has named it and never by the channel's ID, leading to that

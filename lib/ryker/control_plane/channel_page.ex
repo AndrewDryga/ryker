@@ -86,10 +86,19 @@ defmodule Ryker.ControlPlane.ChannelPage do
     |> then(&assign(&1, now: &1.now || DateTime.utc_now(), base: base_path(&1.view.scope)))
   end
 
+  @doc """
+  The channel's name for the page heading: Slack's name for it, or, until
+  Slack has named an incident room's channel, the name Ryker gave that
+  channel, as the room's own page shows it.
+  """
+  @spec title(map()) :: String.t()
+  def title(%{scope: %{workspace_ref: workspace, channel_ref: channel}} = view),
+    do: ChannelsPage.channel_name(workspace, channel, view.channel.incident_room)
+
   @doc "The one-sentence description the route hands to the shared page header."
   @spec description(map()) :: String.t()
   def description(view) do
-    workspace = SlackNames.name(view.scope.workspace_ref, view.scope.workspace_ref)
+    workspace = workspace_words(view.scope.workspace_ref)
     membership = view.channel.membership || %{}
 
     shared =
@@ -104,6 +113,14 @@ defmodule Ryker.ControlPlane.ChannelPage do
       kind ->
         "#{kind_words(Map.get(membership, :private), kind)} in #{workspace}#{shared}."
     end
+  end
+
+  # The workspace by the name Slack gave it, or just "Slack" until it has:
+  # the page never shows a workspace's ID outside Details.
+  defp workspace_words(workspace) do
+    if SlackNames.named?("slack:#{workspace}:#{workspace}"),
+      do: SlackNames.name(workspace, workspace),
+      else: "Slack"
   end
 
   defp kind_words(true, kind), do: "A private " <> kind_word(kind)

@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Search, SlackNames}
+  alias Ryker.ControlPlane.{ChannelsPage, Search, SlackNames}
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.Settings
@@ -134,11 +134,14 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
         where: not is_nil(room.channel_ref),
         order_by: [desc: room.updated_at, desc: room.id],
         limit: 500,
-        select: {{room.workspace_ref, room.channel_ref}, room.status, room.channel_state}
+        select:
+          {{room.workspace_ref, room.channel_ref}, room.status, room.channel_state,
+           room.channel_name}
       )
     )
-    |> Enum.reduce(%{}, fn {key, status, channel_state}, found ->
+    |> Enum.reduce(%{}, fn {key, status, channel_state, channel_name}, found ->
       Map.put_new(found, key, %{
+        channel_name: channel_name,
         status: status,
         open: status != :closed and channel_state not in [:archived, :deleted]
       })
@@ -216,7 +219,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
     Enum.filter(rows, fn row ->
       Enum.any?(
         [
-          SlackNames.name(row.workspace_ref, row.channel_ref),
+          ChannelsPage.channel_name(row.workspace_ref, row.channel_ref, row.incident_room),
           SlackNames.name(row.workspace_ref, row.workspace_ref),
           row.workspace_ref,
           row.channel_ref,

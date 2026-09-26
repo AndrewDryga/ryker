@@ -30,7 +30,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     RunningSystem,
     SettingsPage,
     SettingsView,
-    SlackNames,
     Updates,
     UsageProjection
   }
@@ -1081,7 +1080,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          {:ok, view} <- options.projection.instructions.({:channel, workspace, channel}) do
       assign(socket,
         native: :instructions,
-        page_title: SlackNames.name(workspace, channel),
+        page_title: ChannelPage.title(snapshot),
         page_description: ChannelPage.description(snapshot),
         body_lead:
           ChannelPage.lead(%{

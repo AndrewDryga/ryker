@@ -332,9 +332,28 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       room!("T123", "CARCHIVED", :blocked, :archived)
 
       rooms = Map.new(ChannelDirectory.list(%{}), &{&1.channel_ref, &1.incident_room})
-      assert rooms["COPEN"] == %{status: :requested, open: true}
-      assert rooms["CCLOSED"] == %{status: :closed, open: false}
-      assert rooms["CARCHIVED"] == %{status: :blocked, open: false}
+      assert rooms["COPEN"] == %{status: :requested, open: true, channel_name: "ems-copen"}
+      assert rooms["CCLOSED"] == %{status: :closed, open: false, channel_name: "ems-cclosed"}
+      assert rooms["CARCHIVED"] == %{status: :blocked, open: false, channel_name: "ems-carchived"}
+    end
+
+    test "an incident room's channel Slack has not named yet goes by the name Ryker gave it" do
+      # QA re-test, 2026-09-26: the room's channel read "Slack channel
+      # C0DEMOROOM1" while the room's own page called it
+      # #inc-checkout-readiness-probes.
+      item = %{
+        @channel
+        | channel_ref: "CUNNAMEDROOM",
+          incident_room: %{status: :investigating, open: true, channel_name: "inc-checkout"}
+      }
+
+      assert render([item]) |> LazyHTML.query(".entity-name") |> LazyHTML.text() =~
+               "#inc-checkout"
+
+      assert ChannelsPage.channel_name("T123", "CUNNAMEDROOM", item.incident_room) ==
+               "#inc-checkout"
+
+      assert ChannelsPage.channel_name("T123", "CUNNAMEDROOM", nil) =~ "CUNNAMEDROOM"
     end
   end
 
