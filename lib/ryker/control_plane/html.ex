@@ -30,6 +30,20 @@ defmodule Ryker.ControlPlane.HTML do
   end
 
   @doc false
+  # A confirmed action that did not go through: why, in words, and the way
+  # back to the page it came from.
+  @spec action_refused(String.t(), String.t()) :: iodata()
+  def action_refused(explanation, back_path) do
+    [
+      "<section class=\"document-unavailable\"><p>",
+      escape(explanation),
+      "</p><a class=\"ui-button secondary\" href=\"",
+      escape(back_path),
+      "\">Go back</a></section>"
+    ]
+  end
+
+  @doc false
   # A record action that did not go through: what happened, in words, and the
   # way back to the conversation it came from.
   @spec lab_record_failure(String.t(), String.t()) :: iodata()

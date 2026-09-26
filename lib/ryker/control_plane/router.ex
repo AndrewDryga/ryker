@@ -17,6 +17,7 @@ defmodule Ryker.ControlPlane.Router do
   alias Ryker.CanonicalJSON
 
   alias Ryker.ControlPlane.{
+    ActionRefusal,
     BehaviorLibrary,
     BehaviorPage,
     BrowserGuard,
@@ -395,9 +396,14 @@ defmodule Ryker.ControlPlane.Router do
       |> send_resp(303, "")
       |> halt()
     else
-      false -> text(conn, 403, "Invalid confirmation token")
-      {:error, :form} -> text(conn, 400, "Invalid form")
-      {:error, _reason} -> text(conn, 409, "Action is no longer available")
+      false ->
+        text(conn, 403, "Invalid confirmation token")
+
+      {:error, :form} ->
+        text(conn, 400, "Invalid form")
+
+      {:error, reason} ->
+        html(conn, 409, "Not done", HTML.action_refused(ActionRefusal.explain(reason), "/memory"))
     end
   end
 
@@ -446,9 +452,20 @@ defmodule Ryker.ControlPlane.Router do
       |> send_resp(303, "")
       |> halt()
     else
-      false -> text(conn, 403, "Invalid confirmation token")
-      {:error, :form} -> text(conn, 400, "Invalid form")
-      {:error, _reason} -> text(conn, 409, "Action is no longer available")
+      false ->
+        text(conn, 403, "Invalid confirmation token")
+
+      {:error, :form} ->
+        text(conn, 400, "Invalid form")
+
+      {:error, reason} ->
+        back =
+          case PathRef.decode(resource_ref) do
+            {:ok, ref} -> back(conn) || action_return_path(kind, ref, action, options)
+            {:error, _invalid} -> "/"
+          end
+
+        html(conn, 409, "Not done", HTML.action_refused(ActionRefusal.explain(reason), back))
     end
   end
 
