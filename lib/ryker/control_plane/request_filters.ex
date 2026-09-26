@@ -302,7 +302,6 @@ defmodule Ryker.ControlPlane.RequestFilters do
         phx-value-key={@key}
         phx-value-choice={value}
         aria-pressed={to_string(value == @current)}
-        title={value}
       >
         {name}
       </button>

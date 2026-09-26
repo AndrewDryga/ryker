@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.ShortTime do
   @moduledoc """
   Times the way people say them: "just now", "2 h ago", "yesterday",
-  "12 Sep", "tomorrow 09:00". The exact UTC instant stays one hover away,
+  "12 Sep", "tomorrow 09:00 UTC". The exact UTC instant stays one hover away,
   in the `<time>` element's `datetime` and `title`.
 
   Every time is read in UTC, the zone the rest of the workspace shows, so a
@@ -58,8 +58,9 @@ defmodule Ryker.ControlPlane.ShortTime do
   defp words(_at, seconds, _day, _today) when seconds > -60, do: "in a moment"
   defp words(_at, seconds, _day, _today) when seconds > -3_600, do: "in #{div(-seconds, 60)} min"
 
+  # A clock time to come names its zone; how long ago something was needs none.
   defp words(at, _seconds, day, today) do
-    clock = Calendar.strftime(at, "%H:%M")
+    clock = Calendar.strftime(at, "%H:%M UTC")
 
     case Date.diff(day, today) do
       0 -> "today " <> clock
