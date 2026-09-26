@@ -59,7 +59,7 @@ defmodule Ryker.Slack.Event do
       {:ok,
        %{
          action_token: action_token(event),
-         audience: audience(details),
+         audience: audience(details, identity),
          input: input,
          platform_thread_ref: details.thread_ref,
          # The event object as Slack delivered it, for the input's raw record,
@@ -215,9 +215,23 @@ defmodule Ryker.Slack.Event do
   defp not_self(%{"bot_id" => ref}, %{bot_ref: ref}), do: :ignore
   defp not_self(_event, _identity), do: :ok
 
-  defp audience(%{audience: :mention}), do: :mention
-  defp audience(%{channel_ref: "D" <> _rest}), do: :direct
-  defp audience(_details), do: :ambient
+  defp audience(%{audience: :mention}, _identity), do: :mention
+  defp audience(%{channel_ref: "D" <> _rest}, _identity), do: :direct
+
+  # Slack sends a new message that mentions Ryker as app_mention and as a
+  # channel message. The channel message is a mention too, so the input says
+  # why Ryker took it up whichever copy arrives first.
+  defp audience(
+         %{event_kind: :message, content: %{"text" => text}},
+         %{bot_user_ref: bot_user_ref}
+       )
+       when is_binary(text) and is_binary(bot_user_ref) do
+    if String.contains?(text, ["<@#{bot_user_ref}>", "<@#{bot_user_ref}|"]),
+      do: :mention,
+      else: :ambient
+  end
+
+  defp audience(_details, _identity), do: :ambient
 
   defp timestamp(value) do
     case Regex.run(~r/\A([0-9]{10,})\.([0-9]{1,6})\z/, value || "") do

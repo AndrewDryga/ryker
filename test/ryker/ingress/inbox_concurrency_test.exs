@@ -53,6 +53,56 @@ defmodule Ryker.Ingress.InboxConcurrencyTest do
     end)
   end
 
+  # Slack sends a message that mentions Ryker as app_mention and as a channel
+  # message, under different event ids, and the two can be handled at once.
+  # Both were recorded on 2026-09-26, and "Hi @Ryker" got two replies.
+  test "two events for one message recorded at the same time are one input" do
+    Sandbox.unboxed_run(Repo, fn ->
+      refs = Enum.map(["mention", "message"], &"Ev-#{&1}-#{Ecto.UUID.generate()}")
+      message_ref = unique_message_ref()
+      [first, second] = Enum.map(refs, &input!(&1, message_ref: message_ref))
+      parent = self()
+      blocker = lock_task(Inbox.revision_lock(first), parent)
+      assert_receive {:source_locked, blocker_backend}, 5_000
+
+      contenders =
+        Enum.map([first, second], fn input ->
+          unboxed_task(fn ->
+            send(parent, {:contender_ready, self(), backend_pid()})
+            Inbox.record(input, one_input_per_revision: true)
+          end)
+        end)
+
+      contender_backends =
+        Enum.map(contenders, fn contender ->
+          contender_pid = contender.pid
+          assert_receive {:contender_ready, ^contender_pid, backend}, 5_000
+          backend
+        end)
+
+      try do
+        Enum.each(contender_backends, &await_blocked_by(&1, blocker_backend))
+        send(blocker.pid, :release)
+
+        receipts = Enum.map(contenders, &Task.await(&1, 5_000))
+
+        assert receipts |> Enum.map(fn {:ok, receipt} -> receipt.status end) |> Enum.sort() ==
+                 [:duplicate, :recorded]
+
+        assert receipts
+               |> Enum.map(fn {:ok, receipt} -> receipt.entry.id end)
+               |> Enum.uniq()
+               |> length() == 1
+
+        assert Repo.aggregate(from(entry in Entry, where: entry.event_ref in ^refs), :count) == 1
+      after
+        send(blocker.pid, :release)
+        stop_tasks([blocker | contenders])
+        delete_inputs!(refs)
+      end
+    end)
+  end
+
   test "simultaneous executors cannot claim the same input" do
     Sandbox.unboxed_run(Repo, fn ->
       event_ref = "Ev-claim-#{Ecto.UUID.generate()}"
@@ -173,7 +223,10 @@ defmodule Ryker.Ingress.InboxConcurrencyTest do
   defp delete_inputs!(refs),
     do: delete_entries!(from(entry in Entry, where: entry.event_ref in ^refs))
 
-  defp input!(event_ref) do
+  defp unique_message_ref,
+    do: "1787832000." <> String.pad_leading("#{System.unique_integer([:positive])}", 6, "0")
+
+  defp input!(event_ref, options \\ []) do
     assert {:ok, input} =
              SlackInput.new(%{
                actor: %{kind: :app, ref: "A123"},
@@ -181,7 +234,7 @@ defmodule Ryker.Ingress.InboxConcurrencyTest do
                content: %{"text" => "A concurrently delivered Slack event"},
                event_kind: :message,
                event_ref: event_ref,
-               message_ref: "1787832000.000100",
+               message_ref: Keyword.get(options, :message_ref, "1787832000.000100"),
                occurred_at: ~U[2026-08-27 12:00:00Z],
                revision: 1,
                thread_ref: nil,

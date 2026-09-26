@@ -95,6 +95,37 @@ defmodule Ryker.Slack.GatewayTest do
              Gateway.handle_envelope(envelope, settings)
   end
 
+  # Slack sends a message that mentions Ryker twice, as app_mention and as a
+  # channel message, under different event ids. In a channel where Ryker joins
+  # relevant conversations both were admitted, so "Hi @Ryker" in #test got
+  # "Hi! How can I help?" twice, and Activity listed the message twice
+  # (2026-09-26).
+  test "a message that mentions Ryker is one input, whichever of its two events comes first" do
+    settings = Map.put(settings(), :effective_settings, &participation(&1, &2, :proactive))
+
+    for {{first, second}, index} <-
+          Enum.with_index([{"app_mention", "message"}, {"message", "app_mention"}]) do
+      ts = "178783200#{index}.000300"
+
+      assert {:ack, {:recorded, input_ref}} =
+               Gateway.handle_envelope(
+                 at(message_envelope("Ev-first-#{index}", first), ts, "Hi <@UBOT>"),
+                 settings
+               )
+
+      assert {:ack, {:duplicate, ^input_ref}} =
+               Gateway.handle_envelope(
+                 at(message_envelope("Ev-second-#{index}", second), ts, "Hi <@UBOT>"),
+                 settings
+               )
+
+      # Read as a mention whichever copy came first, so the input says why
+      # Ryker took it up.
+      assert {:ok, entry} = Inbox.fetch(input_ref)
+      assert entry.slack_audience == :mention
+    end
+  end
+
   test "the advertised investigate shortcut is durable before Slack is acknowledged" do
     envelope = shortcut_envelope()
 
@@ -818,7 +849,7 @@ defmodule Ryker.Slack.GatewayTest do
   test "an exact confirmed standing assignment can admit only its ambient match" do
     matching =
       Map.put(settings(), :standing_matcher, fn input ->
-        input.content["text"] == "<@UBOT> investigate"
+        input.content["text"] == "investigate"
       end)
 
     assert {:ack, {:recorded, _ref}} =
@@ -924,12 +955,17 @@ defmodule Ryker.Slack.GatewayTest do
     }
   end
 
+  # Each event is its own message, as in Slack: its own ts, and a mention
+  # only when it is an app_mention. One message delivered as two events is
+  # built explicitly with `at/2`.
   defp message_envelope(event_ref, type) do
+    ts = "1787832001." <> String.pad_leading("#{:erlang.phash2(event_ref, 999_999) + 1}", 6, "0")
+
     event = %{
       "channel" => "C456",
-      "event_ts" => "1787832001.000200",
-      "text" => "<@UBOT> investigate",
-      "ts" => "1787832001.000200",
+      "event_ts" => ts,
+      "text" => if(type == "app_mention", do: "<@UBOT> investigate", else: "investigate"),
+      "ts" => ts,
       "type" => type,
       "user" => "U123"
     }
@@ -945,6 +981,14 @@ defmodule Ryker.Slack.GatewayTest do
       },
       "type" => "events_api"
     }
+  end
+
+  # One Slack message: the same ts and text, whichever event carries it.
+  defp at(envelope, ts, text) do
+    envelope
+    |> put_in(["payload", "event", "ts"], ts)
+    |> put_in(["payload", "event", "event_ts"], ts)
+    |> put_in(["payload", "event", "text"], text)
   end
 
   defp reaction_envelope do

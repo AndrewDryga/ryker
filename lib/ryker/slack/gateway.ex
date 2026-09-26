@@ -331,6 +331,7 @@ defmodule Ryker.Slack.Gateway do
          {:ok, receipt} <-
            settings.inbox.record(enriched.input,
              execution_mode: execution_mode,
+             one_input_per_revision: true,
              slack_audience: normalized.audience,
              slack_bot_user_ref: settings.identity.bot_user_ref,
              source_envelope: normalized[:source_envelope],
