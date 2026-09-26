@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.UpdatesTest do
 
   alias Ecto.Adapters.SQL.Sandbox
 
-  alias Ryker.ControlPlane.Updates
+  alias Ryker.ControlPlane.{Updates, WebRouter}
   alias Ryker.Repo
 
   test "rolled-back writes are invisible and committed changes invalidate live projections" do
@@ -52,28 +52,55 @@ defmodule Ryker.ControlPlane.UpdatesTest do
     refute definition =~ "row_to_json"
   end
 
+  # QA, 2026-09-26: Working copies, Follow-ups, Settings, Integrations and
+  # Setup never refreshed when what they show changed. The table map still
+  # named the pages they replaced ("workspaces", "subscriptions",
+  # "configuration"), so those changes went to topics nothing listened to,
+  # and the pages waited for their five-second reconcile.
+  test "every change reaches only pages that exist, and every page hears the changes it shows" do
+    pages =
+      WebRouter.__routes__()
+      |> Enum.filter(&(&1.plug == Phoenix.LiveView.Plug))
+      |> MapSet.new(&Updates.domain(&1.path))
+
+    %{rows: rows} =
+      Sandbox.unboxed_run(Repo, fn ->
+        Repo.query!("""
+        SELECT DISTINCT event_object_table FROM information_schema.triggers
+        WHERE trigger_name = 'ryker_control_plane_changed'
+          AND event_object_schema = current_schema()
+        """)
+      end)
+
+    assert rows != []
+    heard = rows |> Enum.flat_map(fn [table] -> Updates.domains(table) end) |> MapSet.new()
+
+    assert MapSet.difference(heard, pages) == MapSet.new()
+    assert MapSet.difference(pages, heard) == MapSet.new()
+  end
+
   test "each retained domain can invalidate its reader without publishing row contents" do
     tables = %{
       "execution_usage" => "usage",
       "episode_operator_reviews" => "timeline",
       "episode_schedules" => "schedules",
-      "episode_event_subscriptions" => "subscriptions",
+      "episode_event_subscriptions" => "follow-ups",
       "episode_state_records" => "memory",
       "episode_work_turns" => "timeline",
-      "ingress_inbox_entries" => "admission",
-      "admission_attempts" => "admission",
+      "ingress_inbox_entries" => "activity",
+      "admission_attempts" => "timeline",
       "slack_incident_rooms" => "incident-rooms",
       "slack_channel_memberships" => "channels",
-      "coop_workers" => "workspaces",
+      "coop_workers" => "working-copies",
       "conversation_summaries" => "conversations",
       "operational_memory_entries" => "memory",
       "memory_review_items" => "memory",
-      "operator_behaviors" => "configuration",
+      "operator_behaviors" => "rules",
       "standing_assignment_runs" => "rules",
       "platform_actions" => "timeline",
       "delivery_routing_responses" => "conversations",
       "ryker_operator_actions" => "failures",
-      "future_table" => "configuration"
+      "future_table" => "settings"
     }
 
     Enum.each(Enum.uniq(Map.values(tables)), fn domain ->
