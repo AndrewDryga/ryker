@@ -448,6 +448,95 @@ defmodule Ryker.IntegrationSetupTest do
            |> Environment.repository_refs() == ["acme-widget", "acme-gadget"]
   end
 
+  # On 2026-09-26 Andrew added AndrewDryga/AndrewDryga and
+  # AndrewDryga/andrewdryga.github.com in one go. Only the first got its
+  # GitHub binding and joined Default; the second was saved half-way and sat
+  # "Waiting to start", and GitHub itself stayed off ("Add a repository to
+  # start") with two repositories added.
+  test "repositories added together are each bound, all in Default, and GitHub is on" do
+    connect_github!()
+
+    repositories = [
+      %{github_repository("AndrewDryga/AndrewDryga", 601) | default_branch: "main"},
+      %{github_repository("AndrewDryga/andrewdryga.github.com", 602) | default_branch: "master"}
+    ]
+
+    assert {:ok, %{added: added, failed: []}} =
+             IntegrationSetup.import_github_repositories(repositories, requester: Requester)
+
+    assert Enum.sort(added) == ["AndrewDryga/AndrewDryga", "AndrewDryga/andrewdryga.github.com"]
+
+    snapshot = Settings.fetch!()
+
+    assert snapshot.github_bindings |> Enum.map(& &1.repository_ref) |> Enum.sort() ==
+             ["andrewdryga-andrewdryga", "andrewdryga-andrewdryga-github-com"]
+
+    assert [%Environment{ref: "default"} = default] = snapshot.environments
+
+    assert Environment.repository_refs(default) ==
+             ["andrewdryga-andrewdryga", "andrewdryga-andrewdryga-github-com"]
+
+    assert snapshot.github.enabled
+  end
+
+  # The live state on 2026-09-26: AndrewDryga/AndrewDryga went in whole,
+  # AndrewDryga/andrewdryga.github.com was saved without its GitHub binding or
+  # a place in Default, and GitHub stayed off ("Add a repository to start")
+  # with two repositories added. Both sat "Waiting to start", and the picker
+  # listed the half-saved one as already added, so nothing could finish it.
+  test "a repository saved half-way is finished by adding it again, and GitHub is switched on" do
+    connect_github!()
+
+    assert {:ok, %{added: ["acme/widget"]}} =
+             IntegrationSetup.import_github_repositories([github_repository("acme/widget", 501)])
+
+    {:ok, _snapshot} =
+      Settings.save_github(%{enabled: false}, Settings.fetch!().installation.revision, @actor)
+
+    {:ok, _snapshot} =
+      Settings.put_repository(
+        %{
+          ref: "acme-site",
+          display_name: "acme/site",
+          github_repository: "acme/site",
+          base_branch: "master"
+        },
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    assert {:ok, %{added: ["acme/site"], already_present: [], failed: []}} =
+             IntegrationSetup.import_github_repositories([github_repository("acme/site", 602)])
+
+    snapshot = Settings.fetch!()
+
+    assert snapshot.github_bindings |> Enum.map(& &1.repository_ref) |> Enum.sort() ==
+             ["acme-site", "acme-widget"]
+
+    assert [%Environment{ref: "default"} = default] = snapshot.environments
+    assert Environment.repository_refs(default) == ["acme-widget", "acme-site"]
+    assert snapshot.github.enabled
+  end
+
+  test "the picker offers a repository that was saved without its GitHub binding" do
+    connect_github!()
+
+    {:ok, _snapshot} =
+      Settings.put_repository(
+        %{
+          ref: "acme-widget",
+          display_name: "acme/widget",
+          github_repository: "acme/widget",
+          base_branch: "main"
+        },
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    assert {:ok, [%{full_name: "acme/widget", already_present: false}]} =
+             IntegrationSetup.github_repositories(requester: Requester)
+  end
+
   test "installation events refresh permissions and auto-add with verified identities" do
     key = :public_key.generate_key({:rsa, 2_048, 65_537})
     pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])

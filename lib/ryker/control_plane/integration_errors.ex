@@ -80,6 +80,11 @@ defmodule Ryker.ControlPlane.IntegrationErrors do
       "Your Slack app is missing these permissions: #{Enum.join(scopes, ", ")}. Add them " <>
         "under OAuth & Permissions, reinstall the app, then verify again."
 
+  def message({:github_not_switched_on, _reason}),
+    do:
+      "The repositories were added, but GitHub could not be switched on. Add repositories " <>
+        "again to retry; the log says what refused it."
+
   def message({:github_verification_failed, :app_not_installed}),
     do:
       "The GitHub App is not installed anywhere yet. Install it on your organization or " <>
