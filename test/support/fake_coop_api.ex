@@ -10,6 +10,8 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
     Agent.start_link(fn ->
       %{
         async_create: Keyword.get(options, :async_create, false),
+        # Ready-session creates still running on the worker: key => {operation, checks left}.
+        pending_operations: %{},
         async_operations_running: Keyword.get(options, :async_operations_running, false),
         async_submit: Keyword.get(options, :async_submit, false),
         candidates: candidates,
@@ -137,17 +139,29 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
           create_sources: state.create_sources ++ [source]
       }
 
-      if state.fail_create do
-        {{:error, {:coop_unavailable, :simulated}}, state}
-      else
-        operation = succeeded_operation("CreateRemoteSession", "session", id)
+      operation = succeeded_operation("CreateRemoteSession", "session", id)
 
-        {{:ok, %{"session" => session}},
-         %{
-           state
-           | known_operations: Map.put(state.known_operations, key, operation),
-             sessions: Map.put(state.sessions, id, session)
-         }}
+      cond do
+        state.fail_create ->
+          {{:error, {:coop_unavailable, :simulated}}, state}
+
+        # Like the fleet: the create is accepted and the worker finishes it
+        # a moment later, so the first answer is an operation still running.
+        state.async_create ->
+          {{:ok, %{"operation" => Map.put(operation, "state", "running")}},
+           %{
+             state
+             | pending_operations: Map.put(state.pending_operations, key, {operation, 2}),
+               sessions: Map.put(state.sessions, id, session)
+           }}
+
+        true ->
+          {{:ok, %{"session" => session}},
+           %{
+             state
+             | known_operations: Map.put(state.known_operations, key, operation),
+               sessions: Map.put(state.sessions, id, session)
+           }}
       end
     end)
   end
@@ -477,6 +491,24 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
     cond do
       Map.has_key?(state.known_operations, key) ->
         {{:ok, state.known_operations[key]}, state}
+
+      Map.has_key?(state.pending_operations, key) ->
+        case Map.fetch!(state.pending_operations, key) do
+          {operation, 0} ->
+            {{:ok, operation},
+             %{
+               state
+               | pending_operations: Map.delete(state.pending_operations, key),
+                 known_operations: Map.put(state.known_operations, key, operation)
+             }}
+
+          {operation, left} ->
+            {{:ok, Map.put(operation, "state", "running")},
+             %{
+               state
+               | pending_operations: Map.put(state.pending_operations, key, {operation, left - 1})
+             }}
+        end
 
       state.fail_first_operation and is_nil(state.failed_operation_key) ->
         operation = failed_operation(operation_method(key))

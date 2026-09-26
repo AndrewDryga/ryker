@@ -19,6 +19,18 @@ defmodule Ryker.Admission.ReadySessionsTest do
   @digest String.duplicate("a", 64)
   @new_digest String.duplicate("b", 64)
 
+  # Live install, 2026-09-26, minutes after the pool shipped: the worker
+  # answers a create with an operation still running and finishes it a few
+  # seconds later, and the pool read that as a failed start. It fenced and
+  # retired every start and began another every five seconds, so no session
+  # was ever ready while the worker kept creating ones nobody used.
+  test "a ready session the worker starts a moment later becomes ready, not retired" do
+    {:ok, fake} = FakeAPI.start_link([], async_create: true)
+    assert {:ok, %{started: 1, retired: 0}} = keep(fake, 1)
+    assert [_ready] = ready_sessions()
+    assert Repo.aggregate(from(s in Session, where: s.ready_state == :retired), :count) == 0
+  end
+
   # Live install, 2026-09-26: routing a plain "hi" took 28.6 s end to end, and
   # 5.6 s of it was Coop creating the routing session before anything else
   # could start. A message that finds a session already started must go
@@ -283,6 +295,7 @@ defmodule Ryker.Admission.ReadySessionsTest do
       client: fake,
       policy: @policy,
       policy_digest: digest,
+      sleep: fn _milliseconds -> :ok end,
       target: target
     )
   end
