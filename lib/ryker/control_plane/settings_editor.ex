@@ -985,18 +985,18 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   end
 
   # What a webhook source needs that this installation does not have yet,
-  # each with where to get it, before anyone fills in the form.
+  # each with where to get it, before anyone fills in the form. A sender needs
+  # no repository, so the way to its first environment is adding one, which
+  # works whatever state GitHub is in.
   defp notices(%{key: :webhooks}, view) do
     [
       view.webhook_secret_names == [] &&
         %{text: "Create a signing credential above before adding a webhook source."},
       view.snapshot.environments == [] &&
         %{
-          text:
-            "Work from a webhook runs in an environment, and there is none yet. Adding a " <>
-              "repository creates one, or add it yourself.",
-          link: "Open Environments",
-          href: "/environments"
+          text: "Work from a webhook runs in an environment, and there is none yet.",
+          link: "Add an environment",
+          href: "/environments?edit=new"
         },
       slack_notice(Integrations.slack(view))
     ]

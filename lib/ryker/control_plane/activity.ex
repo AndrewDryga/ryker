@@ -118,7 +118,7 @@ defmodule Ryker.ControlPlane.Activity do
 
     Enum.map(labelled, fn {row, label} ->
       if counts[label] > 1,
-        do: {row, label <> " · " <> Calendar.strftime(row.updated_at, "%-d %b, %H:%M")},
+        do: {row, label <> " · " <> Calendar.strftime(row.updated_at, "%-d %b, %H:%M UTC")},
         else: {row, label}
     end)
   end
