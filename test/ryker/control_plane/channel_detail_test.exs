@@ -276,7 +276,20 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
     html = page("/channels/T123/CINCIDENT")
     assert html =~ "href=\"/incident-rooms/incident-room%3Aoperator\""
-    assert html =~ "A private incident room in"
+
+    # QA re-test, 2026-09-26: the room's channel page was titled "Slack
+    # channel C0DEMOROOM1 — An incident room in Slack workspace T0DEMOWORK"
+    # while the room's page named the channel. Until Slack names them, the
+    # channel takes the name Ryker gave it and the workspace is said in words.
+    assert html
+           |> LazyHTML.from_document()
+           |> LazyHTML.query("h1")
+           |> LazyHTML.text()
+           |> String.trim() ==
+             "#ems-operator-incident"
+
+    assert html =~ "A private incident room in Slack."
+    refute html =~ "Slack workspace T123"
     assert fact(html, "Incident room") =~ "Operator incident · needs attention"
     assert fact(html, "Code") == "Changes ryker · from the incident room"
     refute "Environment" in fact_labels(html)

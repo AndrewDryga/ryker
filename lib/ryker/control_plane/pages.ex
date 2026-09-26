@@ -29,7 +29,6 @@ defmodule Ryker.ControlPlane.Pages do
     PathRef,
     RepositoriesPage,
     SchedulesPage,
-    SlackNames,
     SubscriptionsPage,
     UsagePage,
     WorkingCopiesPage
@@ -133,7 +132,7 @@ defmodule Ryker.ControlPlane.Pages do
              Map.take(params, ChannelDetail.query_keys())
            ) do
       ok(
-        SlackNames.name(workspace_ref, channel_ref),
+        ChannelPage.title(snapshot),
         ChannelPage.description(snapshot),
         [
           Safe.to_iodata(

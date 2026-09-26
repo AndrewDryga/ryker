@@ -212,6 +212,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
         order_by: [desc: room.updated_at, desc: room.id],
         limit: 1,
         select: %{
+          channel_name: room.channel_name,
           channel_state: room.channel_state,
           episode_ref: episode.key,
           private: room.private,
