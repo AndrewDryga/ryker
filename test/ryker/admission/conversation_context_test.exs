@@ -5,6 +5,7 @@ defmodule Ryker.Admission.ConversationContextTest do
 
   alias Ryker.Admission.{ConversationContext, ConversationSummaries}
   alias Ryker.CanonicalJSON
+  alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
@@ -143,6 +144,30 @@ defmodule Ryker.Admission.ConversationContextTest do
     assert Enum.map(bundle["messages"], &{&1["actor_ref"] == "ryker", &1["content"]["text"]}) == [
              {false, "Database is unavailable"},
              {true, "Looking at the primary now."}
+           ]
+  end
+
+  # Routing answered "hi" itself and the person replied in the thread. The
+  # context held their "hi" and their follow-up but not what Ryker had said
+  # between them, so the follow-up was decided as if Ryker had never answered.
+  test "Ryker's quick replies sit in the thread they answered" do
+    root = record!("hi", ts: "1789000040.000100")
+    quick_reply!(root, "Hi! What can I help with?", "1789000041.000100")
+
+    elsewhere = record!("hello", ts: "1789000042.000100")
+    quick_reply!(elsewhere, "Hello! Anything I can do?", "1789000043.000100")
+
+    current =
+      record!("Can you check the deploy?",
+        ts: "1789000044.000100",
+        thread_ref: root.source_item_ref
+      )
+
+    %{bundle: bundle} = ConversationContext.capture(current)
+
+    assert Enum.map(bundle["messages"], &{&1["actor_ref"] == "ryker", &1["content"]["text"]}) == [
+             {false, "hi"},
+             {true, "Hi! What can I help with?"}
            ]
   end
 
@@ -315,6 +340,39 @@ defmodule Ryker.Admission.ConversationContextTest do
         delivered_at: slack_time(ts)
       ]
     )
+  end
+
+  # A quick reply routing delivered in the thread of the message it answered.
+  defp quick_reply!(entry, text, ts) do
+    id = Ecto.UUID.generate()
+    document = %{"message" => text}
+
+    receipt = %{
+      "conversation_ref" => entry.destination_conversation_ref,
+      "delivery_ref" => "ingress-message:#{entry.id}",
+      "message_ref" => ts,
+      "thread_ref" => entry.destination_thread_ref,
+      "transport" => "slack"
+    }
+
+    Repo.insert!(%RoutingResponse{
+      id: id,
+      input_id: entry.id,
+      kind: :message,
+      decision_ref: "decision:#{id}",
+      delivery_ref: "ingress-message:#{entry.id}",
+      transport: "slack",
+      conversation_ref: entry.destination_conversation_ref,
+      thread_ref: entry.destination_thread_ref,
+      source_item_ref: entry.source_item_ref,
+      document: document,
+      document_fingerprint: CanonicalJSON.digest(document),
+      status: :delivered,
+      attempt_count: 1,
+      external_receipt: receipt,
+      external_receipt_fingerprint: CanonicalJSON.digest(receipt),
+      delivered_at: slack_time(ts)
+    })
   end
 
   defp summary!(entry, thread_ref, source_message_ref, updated_at) do

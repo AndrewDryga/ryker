@@ -24,7 +24,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
   alias Ryker.CoopFleet.{Placement, WorkerLifecycle}
 
-  alias Ryker.Delivery.ReactionCustody
+  alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
@@ -82,18 +82,18 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
              })
 
     assert {:ok, _applied} = Admission.commit(context, decision, "decision:blocked-reaction")
-    assert {:ok, claim} = ReactionCustody.claim_next("delivery:reaction:blocked", 60)
+    assert {:ok, claim} = RoutingResponseCustody.claim_next("delivery:reaction:blocked", 60)
 
     assert {:ok, _blocked} =
-             ReactionCustody.block(
-               claim.reaction.delivery_ref,
+             RoutingResponseCustody.block(
+               claim.response.delivery_ref,
                claim.lease_ref,
                "slack_reaction_rejected",
                "private reaction diagnostic"
              )
 
     assert {:ok, failures} = Projection.failures(%{})
-    assert %{} = row = Enum.find(failures, &(&1.ref == claim.reaction.delivery_ref))
+    assert %{} = row = Enum.find(failures, &(&1.ref == claim.response.delivery_ref))
     assert row.kind == "delivery"
     assert row.destination == "slack:TBLOCKEDREACTION:C456 / 1787832000.000100"
     assert row.source == "slack:TBLOCKEDREACTION · Ev-blocked-reaction"

@@ -13,7 +13,7 @@ defmodule Ryker.Observability do
   happens, so a probe reports it instead of crashing.
   """
 
-  alias Ryker.Delivery.Reaction
+  alias Ryker.Delivery.RoutingResponse
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Observability.{Fleet, Metrics, Progress, Query, Queues, Readiness, Retention}
   alias Ryker.Publication.Publication
@@ -104,7 +104,7 @@ defmodule Ryker.Observability do
     with {:ok, incidents} <- Query.counts(IncidentRoom, :status),
          {:ok, ingress} <- Query.counts(Entry, :status),
          {:ok, publications} <- Query.counts(Publication, :status),
-         {:ok, reactions} <- Query.counts(Reaction, :status),
+         {:ok, routing_responses} <- Query.counts(RoutingResponse, :status),
          {:ok, schedules} <- Query.counts(Schedule, :status),
          {:ok, task_cards} <- Query.count(TaskCard),
          {:ok, work} <- Query.counts(Turn, :status) do
@@ -113,7 +113,7 @@ defmodule Ryker.Observability do
          incidents: incidents,
          ingress: ingress,
          publications: publications,
-         reactions: reactions,
+         routing_responses: routing_responses,
          schedules: schedules,
          task_cards: %{total: task_cards},
          work: work

@@ -22,7 +22,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     Publisher
   }
 
-  alias Ryker.Delivery.{Adapters, PlatformAction, Reaction}
+  alias Ryker.Delivery.{Adapters, PlatformAction, RoutingResponse}
 
   alias Ryker.ControlPlane.EpisodeTrace.{Input, Maintenance, ToolActivity}
   alias Ryker.Episodes.{Episode, Event}
@@ -50,6 +50,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   @artifact_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ea"
   @capability_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2eb"
   @edit_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ec"
+  @quick_reply_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ed"
   @now ~U[2026-08-30 18:00:00.000000Z]
   @digest String.duplicate("a", 64)
   @first_question "Is checkout readiness failing?"
@@ -317,14 +318,18 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
 
     assert admitted.result.entry.decision_action == :react
 
-    assert %Reaction{status: :pending, document: %{"emoji_name" => "eyes"}} =
-             Repo.get_by!(Reaction, input_id: admitted.result.entry.id)
+    assert %RoutingResponse{
+             kind: :reaction,
+             status: :pending,
+             document: %{"emoji_name" => "eyes"}
+           } =
+             Repo.get_by!(RoutingResponse, input_id: admitted.result.entry.id)
 
-    assert {:ok, {:delivered, :reaction, delivery_ref}} =
-             Ryker.Delivery.Dispatcher.run_once(delivery_options("reaction", :reaction))
+    assert {:ok, {:delivered, :routing, delivery_ref}} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options("reaction", :routing))
 
-    assert %Reaction{status: :delivered} =
-             Repo.get_by!(Reaction, input_id: admitted.result.entry.id)
+    assert %RoutingResponse{status: :delivered} =
+             Repo.get_by!(RoutingResponse, input_id: admitted.result.entry.id)
 
     assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
     assert [message] = Enum.filter(conversation.messages, &(&1.actor == :operator))
@@ -334,6 +339,42 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
            ]
 
     refute conversation.live
+  end
+
+  # "hi" used to start a whole Work session, a minute of model time to say
+  # hello back. Routing now answers a simple message itself; the answer must
+  # reach the Chat as Ryker's message under the one it answered, with no
+  # request behind it, and link the decision that wrote it.
+  test "routing answers a simple Chat message itself and the answer shows under it" do
+    assert {:ok, %{status: :recorded}} = send_message(@quick_reply_event_id, @now, "hi")
+
+    {:ok, admission} =
+      FakeCoopAPI.start_link([decision(:quick_reply, "Hi! What can I help with?")])
+
+    assert {:ok, {:decided, admitted}} =
+             AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+    assert admitted.result.entry.decision_action == :quick_reply
+    assert admitted.result.episode == nil
+
+    assert {:ok, waiting} = Projection.lab_conversation(@conversation_id)
+    assert waiting.live
+
+    assert {:ok, {:delivered, :routing, delivery_ref}} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options("quick-reply", :routing))
+
+    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+
+    assert [
+             %{actor: :operator, text: "hi"},
+             %{actor: :ryker, text: "Hi! What can I help with?", ref: ^delivery_ref} = answer
+           ] = conversation.messages
+
+    assert conversation.episodes == []
+    refute conversation.live
+
+    assert LabPage.timeline_href(answer) ==
+             "/timeline/ingress-input%3A#{admitted.result.entry.id}"
   end
 
   test "a generated artifact is delivered and retrievable only through its exact Lab turn" do
@@ -1077,6 +1118,19 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
       "relation" => "unrelated",
       "repository_source" => nil,
       "reason" => "A nonverbal acknowledgement is sufficient for this local message.",
+      "work_class" => nil
+    })
+  end
+
+  defp decision(:quick_reply, message) do
+    Jason.encode!(%{
+      "action" => "quick_reply",
+      "episode_ref" => nil,
+      "message" => message,
+      "reaction" => nil,
+      "relation" => "unrelated",
+      "repository_source" => nil,
+      "reason" => "A greeting needs a short answer, not work.",
       "work_class" => nil
     })
   end

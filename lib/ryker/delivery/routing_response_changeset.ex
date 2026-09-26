@@ -1,29 +1,31 @@
-defmodule Ryker.Delivery.ReactionChangeset do
+defmodule Ryker.Delivery.RoutingResponseChangeset do
   @moduledoc false
 
   import Ecto.Changeset
 
-  alias Ryker.Delivery.Reaction
+  alias Ryker.Delivery.RoutingResponse
   alias Ryker.Ingress.Inbox.Entry
 
-  @spec insert(Entry.t(), Ecto.UUID.t(), map(), String.t()) :: Ecto.Changeset.t()
-  def insert(%Entry{} = entry, id, document, document_fingerprint) do
+  @spec insert(Entry.t(), Ecto.UUID.t(), :reaction | :message, map(), String.t()) ::
+          Ecto.Changeset.t()
+  def insert(%Entry{} = entry, id, kind, document, document_fingerprint) do
     attributes = %{
       attempt_count: 0,
       conversation_ref: entry.destination_conversation_ref,
       decision_ref: entry.decision_ref,
-      delivery_ref: "ingress-reaction:#{entry.id}",
+      delivery_ref: "ingress-#{kind}:#{entry.id}",
       document: document,
       document_fingerprint: document_fingerprint,
       id: id,
       input_id: entry.id,
+      kind: kind,
       source_item_ref: entry.source_item_ref,
       status: :pending,
       thread_ref: entry.destination_thread_ref,
       transport: entry.destination_transport
     }
 
-    %Reaction{}
+    %RoutingResponse{}
     |> cast(attributes, Map.keys(attributes))
     |> validate_required(Map.keys(attributes) -- [:thread_ref])
     |> validate_length(:decision_ref, min: 1, max: 1_024)
@@ -36,12 +38,12 @@ defmodule Ryker.Delivery.ReactionChangeset do
     |> unique_constraint(:input_id)
     |> unique_constraint(:delivery_ref)
     |> foreign_key_constraint(:input_id)
-    |> reaction_constraints()
+    |> response_constraints()
   end
 
-  @spec claim(Reaction.t(), map()) :: Ecto.Changeset.t()
-  def claim(%Reaction{} = reaction, attributes) do
-    reaction
+  @spec claim(RoutingResponse.t(), map()) :: Ecto.Changeset.t()
+  def claim(%RoutingResponse{} = response, attributes) do
+    response
     |> cast(attributes, [
       :attempt_count,
       :last_error_code,
@@ -55,12 +57,12 @@ defmodule Ryker.Delivery.ReactionChangeset do
     |> validate_number(:attempt_count, greater_than: 0)
     |> validate_length(:lease_owner, min: 1, max: 1_024)
     |> validate_length(:lease_ref, min: 1, max: 1_024)
-    |> reaction_constraints()
+    |> response_constraints()
   end
 
-  @spec defer(Reaction.t(), map()) :: Ecto.Changeset.t()
-  def defer(%Reaction{} = reaction, attributes) do
-    reaction
+  @spec defer(RoutingResponse.t(), map()) :: Ecto.Changeset.t()
+  def defer(%RoutingResponse{} = response, attributes) do
+    response
     |> cast(attributes, [
       :last_error_code,
       :last_error_detail,
@@ -72,20 +74,20 @@ defmodule Ryker.Delivery.ReactionChangeset do
     |> validate_required([:last_error_code, :last_error_detail, :next_attempt_at])
     |> validate_length(:last_error_code, min: 1, max: 128)
     |> validate_length(:last_error_detail, min: 1, max: 4_096)
-    |> reaction_constraints()
+    |> response_constraints()
   end
 
-  @spec renew(Reaction.t(), DateTime.t()) :: Ecto.Changeset.t()
-  def renew(%Reaction{} = reaction, lease_expires_at) do
-    reaction
+  @spec renew(RoutingResponse.t(), DateTime.t()) :: Ecto.Changeset.t()
+  def renew(%RoutingResponse{} = response, lease_expires_at) do
+    response
     |> cast(%{lease_expires_at: lease_expires_at}, [:lease_expires_at])
     |> validate_required([:lease_expires_at, :lease_owner, :lease_ref])
-    |> reaction_constraints()
+    |> response_constraints()
   end
 
-  @spec block(Reaction.t(), map()) :: Ecto.Changeset.t()
-  def block(%Reaction{} = reaction, attributes) do
-    reaction
+  @spec block(RoutingResponse.t(), map()) :: Ecto.Changeset.t()
+  def block(%RoutingResponse{} = response, attributes) do
+    response
     |> cast(attributes, [
       :last_error_code,
       :last_error_detail,
@@ -98,12 +100,12 @@ defmodule Ryker.Delivery.ReactionChangeset do
     |> validate_required([:last_error_code, :last_error_detail, :status])
     |> validate_length(:last_error_code, min: 1, max: 128)
     |> validate_length(:last_error_detail, min: 1, max: 4_096)
-    |> reaction_constraints()
+    |> response_constraints()
   end
 
-  @spec retry(Reaction.t()) :: Ecto.Changeset.t()
-  def retry(%Reaction{} = reaction) do
-    reaction
+  @spec retry(RoutingResponse.t()) :: Ecto.Changeset.t()
+  def retry(%RoutingResponse{} = response) do
+    response
     |> cast(
       %{
         attempt_count: 0,
@@ -113,7 +115,7 @@ defmodule Ryker.Delivery.ReactionChangeset do
         lease_owner: nil,
         lease_ref: nil,
         next_attempt_at: nil,
-        retry_generation: reaction.retry_generation + 1,
+        retry_generation: response.retry_generation + 1,
         status: :pending
       },
       [
@@ -131,12 +133,12 @@ defmodule Ryker.Delivery.ReactionChangeset do
     |> validate_required([:attempt_count, :retry_generation, :status])
     |> validate_number(:attempt_count, equal_to: 0)
     |> validate_number(:retry_generation, greater_than: 0)
-    |> reaction_constraints()
+    |> response_constraints()
   end
 
-  @spec deliver(Reaction.t(), map(), String.t(), DateTime.t()) :: Ecto.Changeset.t()
-  def deliver(%Reaction{} = reaction, receipt, fingerprint, delivered_at) do
-    reaction
+  @spec deliver(RoutingResponse.t(), map(), String.t(), DateTime.t()) :: Ecto.Changeset.t()
+  def deliver(%RoutingResponse{} = response, receipt, fingerprint, delivered_at) do
+    response
     |> cast(
       %{
         delivered_at: delivered_at,
@@ -170,13 +172,13 @@ defmodule Ryker.Delivery.ReactionChangeset do
       :status
     ])
     |> validate_length(:external_receipt_fingerprint, is: 64)
-    |> reaction_constraints()
+    |> response_constraints()
   end
 
-  defp reaction_constraints(changeset) do
+  defp response_constraints(changeset) do
     changeset
-    |> check_constraint(:document, name: :delivery_reaction_document_valid)
-    |> check_constraint(:status, name: :delivery_reaction_custody_valid)
-    |> check_constraint(:delivery_ref, name: :delivery_reaction_identity_valid)
+    |> check_constraint(:document, name: :delivery_routing_response_document_valid)
+    |> check_constraint(:status, name: :delivery_routing_response_custody_valid)
+    |> check_constraint(:delivery_ref, name: :delivery_routing_response_identity_valid)
   end
 end

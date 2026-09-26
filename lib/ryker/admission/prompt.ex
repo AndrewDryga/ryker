@@ -62,6 +62,9 @@ defmodule Ryker.Admission.Prompt do
     actual request, lifecycle, or conversation, not merely similar wording or the same sender.
   - reply: Ryker can answer directly without starting a longer investigation. It may be unrelated,
     continue the same work, or start from linked history as allowed by the candidate.
+  - quick_reply: when offered, you answer the person yourself, briefly, and no work starts: a
+    greeting, thanks, "are you there?", or a question the conversation in front of you already
+    answers. Anything that needs a tool, a lookup or checking something is reply or start_episode.
   - react: when offered, a nonverbal acknowledgement is sufficient. Supply the exact emoji name.
   - ignore: no Ryker action would help. Give a short factual reason. Never ignore a request directed
     at Ryker.
@@ -70,7 +73,7 @@ defmodule Ryker.Admission.Prompt do
   - conversational: only with reply, for ordinary questions, chat, or a small focused lookup.
   - standard: the default for investigation and normal tool-backed work.
   - deep: only when materially harder reasoning, ambiguity, or consequence justifies the extra cost.
-  - null: only with react or ignore.
+  - null: only with quick_reply, react or ignore.
   The class chooses compute from a host-owned profile. It never changes repository, tools, credentials,
   or write authority. Do not choose deep merely because the message is long, urgent, or asks for edits.
 
@@ -137,6 +140,14 @@ defmodule Ryker.Admission.Prompt do
   mounted read-only beside it. Choose from the evidence in the event: the service, component, path
   or repository it names. repository is required on start_episode and null on every other action;
   continuing, replying, reacting and ignoring keep the repository their work already pinned.
+  """
+
+  @quick_reply """
+  When quick_reply is offered, message is the whole answer, written to the person in plain words and
+  in the conversation's language. Keep it short. It is sent exactly as written: never say you checked
+  or will do something, and never state a fact about systems, incidents or deployments that the
+  conversation does not show. If you are unsure whether a quick answer is enough, it is not; choose
+  reply or start_episode. message is null on every other action.
   """
 
   @reaction """
@@ -208,6 +219,7 @@ defmodule Ryker.Admission.Prompt do
            Map.has_key?(document, "conversation_knowledge")) && @memory,
         Map.has_key?(document, "repository_choices") && @repository_choices,
         Map.has_key?(document, "repository_source_kinds") && @repository_source,
+        "quick_reply" in document["allowed_actions"] && @quick_reply,
         "react" in document["allowed_actions"] && @reaction
       ]
       |> Enum.filter(&is_binary/1)

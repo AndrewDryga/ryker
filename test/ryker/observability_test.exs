@@ -184,7 +184,7 @@ defmodule Ryker.ObservabilityTest do
   defp expected_probe_metrics do
     queues =
       Enum.flat_map(
-        ~w(ingress work cancellation delivery reaction_delivery publication emisar_approval
+        ~w(ingress work cancellation delivery routing_delivery publication emisar_approval
            publication_followup publication_lifecycle retention schedule),
         fn queue ->
           label = ~s({queue="#{queue}"})
@@ -214,7 +214,7 @@ defmodule Ryker.ObservabilityTest do
         incidents: [],
         ingress: [~s(ryker_ingress_total{status="pending"} 1)],
         publications: [],
-        reactions: [],
+        routing_responses: [],
         schedules: [],
         task_cards: ["ryker_task_cards_total 0"],
         work: [~s(ryker_work_total{status="pending"} 1)]

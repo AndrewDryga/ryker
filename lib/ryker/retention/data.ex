@@ -28,7 +28,7 @@ defmodule Ryker.Retention.Data do
           closed_work: non_neg_integer(),
           configuration_sessions: non_neg_integer(),
           conversation_memory: non_neg_integer(),
-          delivery_reactions: non_neg_integer(),
+          routing_responses: non_neg_integer(),
           episode_histories: non_neg_integer(),
           input_artifacts: non_neg_integer(),
           operational_inputs: non_neg_integer(),
@@ -312,19 +312,19 @@ defmodule Ryker.Retention.Data do
     WHERE session.id = candidates.id
   """
 
-  @prune_reactions """
+  @prune_routing_responses """
     WITH candidates AS (
       SELECT id
-      FROM delivery_reactions
+      FROM delivery_routing_responses
       WHERE status = 'delivered'
         AND updated_at < clock_timestamp() - ($1 * interval '1 second')
       ORDER BY updated_at, id
       LIMIT 100
       FOR UPDATE SKIP LOCKED
     )
-    DELETE FROM delivery_reactions AS reaction
+    DELETE FROM delivery_routing_responses AS response
     USING candidates
-    WHERE reaction.id = candidates.id
+    WHERE response.id = candidates.id
   """
 
   @prune_configuration_sessions """
@@ -356,8 +356,8 @@ defmodule Ryker.Retention.Data do
         AND input.status = ANY($1)
         AND input.updated_at < clock_timestamp() - ($2 * interval '1 second')
         AND NOT EXISTS (
-          SELECT 1 FROM delivery_reactions reaction
-          WHERE reaction.input_id = input.id AND reaction.status <> 'delivered'
+          SELECT 1 FROM delivery_routing_responses response
+          WHERE response.input_id = input.id AND response.status <> 'delivered'
         )
         AND (
           input.episode_id IS NULL
@@ -569,7 +569,7 @@ defmodule Ryker.Retention.Data do
 
     _non_work_sessions = execute_count(@prune_non_work_sessions, [cutoff])
 
-    reactions = execute_count(@prune_reactions, [cutoff])
+    routing_responses = execute_count(@prune_routing_responses, [cutoff])
 
     configuration_sessions =
       execute_count(@prune_configuration_sessions, [~w(saved cancelled expired), cutoff])
@@ -601,7 +601,7 @@ defmodule Ryker.Retention.Data do
       result
       | configuration_sessions: configuration_sessions,
         conversation_memory: result.conversation_memory + learning_artifacts,
-        delivery_reactions: reactions,
+        routing_responses: routing_responses,
         input_artifacts: input_artifacts,
         operational_inputs: operational_inputs,
         operational_turns: operational_turns,
@@ -876,8 +876,8 @@ defmodule Ryker.Retention.Data do
       )
       AND NOT EXISTS (
         SELECT 1 FROM ingress_inbox_entries input
-        JOIN delivery_reactions reaction ON reaction.input_id = input.id
-        WHERE input.episode_id = episode.id AND reaction.status <> 'delivered'
+        JOIN delivery_routing_responses response ON response.input_id = input.id
+        WHERE input.episode_id = episode.id AND response.status <> 'delivered'
       )
       AND NOT EXISTS (
         SELECT 1 FROM platform_actions action
@@ -1064,7 +1064,7 @@ defmodule Ryker.Retention.Data do
           WHERE input.episode_id IS NULL
             AND input.operational_pruned_at IS NOT NULL
             AND input.updated_at < clock_timestamp() - ($1 * interval '1 second')
-            AND NOT EXISTS (SELECT 1 FROM delivery_reactions reaction WHERE reaction.input_id = input.id)
+            AND NOT EXISTS (SELECT 1 FROM delivery_routing_responses routed WHERE routed.input_id = input.id)
             AND NOT EXISTS (SELECT 1 FROM episode_state_record_responses response WHERE response.inbox_entry_id = input.id)
           ORDER BY input.updated_at, input.id
           LIMIT 100
@@ -1173,7 +1173,7 @@ defmodule Ryker.Retention.Data do
     )
 
     execute_count(
-      "DELETE FROM delivery_reactions WHERE input_id IN (SELECT id FROM ingress_inbox_entries WHERE episode_id IN (SELECT unnest($1::text[])::uuid)) AND status = 'delivered'",
+      "DELETE FROM delivery_routing_responses WHERE input_id IN (SELECT id FROM ingress_inbox_entries WHERE episode_id IN (SELECT unnest($1::text[])::uuid)) AND status = 'delivered'",
       params
     )
 
@@ -1232,7 +1232,7 @@ defmodule Ryker.Retention.Data do
       closed_work: 0,
       configuration_sessions: 0,
       conversation_memory: 0,
-      delivery_reactions: 0,
+      routing_responses: 0,
       episode_histories: 0,
       input_artifacts: 0,
       operational_inputs: 0,

@@ -334,7 +334,7 @@ When the route already selected a repository, the context carries `repository_so
 `{"kind":"commit","sha":"<full lowercase 40- or 64-character object id>"}`. The selector names only
 a source inside that repository; it never names a repository, remote, URL, path, tag or raw ref, and
 it grants no publication authority. Every other action, and every route without a repository, must
-send `null`: `continue_episode`, `reply`, `react` and `ignore` keep whatever source their work
+send `null`: `continue_episode`, `reply`, `quick_reply`, `react` and `ignore` keep whatever source their work
 already pinned (`invalid_decision: repository_source`), and a selector on a route without a
 repository is rejected before an episode exists (`admission_rejected:
 repository_source_not_available`). A malformed selector is refused, never repaired. The host

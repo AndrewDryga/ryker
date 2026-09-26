@@ -18,7 +18,7 @@ defmodule Ryker.Admission.ConversationContext do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.PlatformAction
+  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
@@ -119,11 +119,13 @@ defmodule Ryker.Admission.ConversationContext do
   end
 
   # What Ryker itself said in the same place before the cutoff: delivered Work
-  # replies and delivered message posts, under the same conversation, thread
-  # and execution-mode rules as the inputs. Only a delivery receipt proves a
-  # message was sent; accepted-but-undelivered answers never enter a context.
+  # replies, message posts and quick replies, under the same conversation,
+  # thread and execution-mode rules as the inputs. Only a delivery receipt
+  # proves a message was sent; accepted-but-undelivered answers never enter a
+  # context.
   defp ryker_messages(entry, kind, limit) do
-    (delivered_replies(entry, kind, limit) ++ delivered_posts(entry, kind, limit))
+    (delivered_replies(entry, kind, limit) ++
+       delivered_posts(entry, kind, limit) ++ delivered_quick_replies(entry, kind, limit))
     |> Enum.flat_map(&ryker_message(&1, entry))
   end
 
@@ -170,6 +172,29 @@ defmodule Ryker.Admission.ConversationContext do
       document: action.document,
       receipt: action.external_receipt,
       thread_ref: action.thread_ref
+    })
+    |> Repo.all()
+  end
+
+  defp delivered_quick_replies(entry, kind, limit) do
+    from(response in RoutingResponse,
+      join: input in Entry,
+      on: input.id == response.input_id,
+      where:
+        response.kind == :message and response.status == :delivered and
+          response.delivered_at < ^entry.occurred_at and
+          input.execution_mode == ^entry.execution_mode and
+          response.transport == ^entry.destination_transport and
+          response.conversation_ref == ^entry.destination_conversation_ref
+    )
+    |> post_scope(entry, kind)
+    |> order_by([response], desc: response.delivered_at)
+    |> limit(^limit)
+    |> select([response], %{
+      at: response.delivered_at,
+      document: response.document,
+      receipt: response.external_receipt,
+      thread_ref: response.thread_ref
     })
     |> Repo.all()
   end

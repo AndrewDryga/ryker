@@ -1,6 +1,6 @@
 defmodule Ryker.Delivery.Dispatcher do
   @moduledoc """
-  Delivers one host-routed message, admission reaction, or model-requested action under durable custody.
+  Delivers one host-routed message, routing response, or model-requested action under durable custody.
 
   Platform publishers receive immutable requests without credentials or
   routing authority. Any ambiguous provider result releases the exact intent
@@ -8,7 +8,7 @@ defmodule Ryker.Delivery.Dispatcher do
   """
 
   alias Ryker.Artifacts.Outputs
-  alias Ryker.Delivery.{Adapters, PlatformActionCustody, ReactionCustody, Request}
+  alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, RoutingResponseCustody}
   alias Ryker.LeasedCall
   alias Ryker.Slack.ReplyRecords
   alias Ryker.State.Records
@@ -20,9 +20,9 @@ defmodule Ryker.Delivery.Dispatcher do
   @type result ::
           {:ok,
            :idle
-           | {:delivered, :message | :reaction | :action, String.t()}
-           | {:deferred, :message | :reaction | :action, String.t(), term()}
-           | {:blocked, :message | :reaction | :action, String.t(), term()}}
+           | {:delivered, :message | :routing | :action, String.t()}
+           | {:deferred, :message | :routing | :action, String.t(), term()}
+           | {:blocked, :message | :routing | :action, String.t(), term()}}
           | {:error, term()}
 
   @spec run_once(keyword()) :: result()
@@ -37,8 +37,8 @@ defmodule Ryker.Delivery.Dispatcher do
     Custody.claim_next(settings.worker_ref, settings.lease_seconds, :delivery)
   end
 
-  defp claim_next(%{kind: :reaction} = settings) do
-    ReactionCustody.claim_next(settings.worker_ref, settings.lease_seconds)
+  defp claim_next(%{kind: :routing} = settings) do
+    RoutingResponseCustody.claim_next(settings.worker_ref, settings.lease_seconds)
   end
 
   defp claim_next(%{kind: :action} = settings) do
@@ -81,19 +81,25 @@ defmodule Ryker.Delivery.Dispatcher do
     }
   end
 
-  defp custody(%{reaction: reaction, lease_ref: lease_ref}, %{kind: :reaction} = settings) do
+  defp custody(%{response: response, lease_ref: lease_ref}, %{kind: :routing} = settings) do
     %{
-      attempt_count: reaction.attempt_count,
-      kind: :reaction,
-      ref: reaction.delivery_ref,
+      attempt_count: response.attempt_count,
+      kind: :routing,
+      ref: response.delivery_ref,
       renew: fn ->
-        ReactionCustody.renew(reaction.delivery_ref, lease_ref, settings.lease_seconds)
+        RoutingResponseCustody.renew(response.delivery_ref, lease_ref, settings.lease_seconds)
       end,
       defer: fn retry_seconds, code, detail ->
-        ReactionCustody.defer(reaction.delivery_ref, lease_ref, retry_seconds, code, detail)
+        RoutingResponseCustody.defer(
+          response.delivery_ref,
+          lease_ref,
+          retry_seconds,
+          code,
+          detail
+        )
       end,
       block: fn code, detail ->
-        ReactionCustody.block(reaction.delivery_ref, lease_ref, code, detail)
+        RoutingResponseCustody.block(response.delivery_ref, lease_ref, code, detail)
       end
     }
   end
@@ -116,7 +122,7 @@ defmodule Ryker.Delivery.Dispatcher do
   end
 
   defp request(claim, :message), do: message_request(claim)
-  defp request(claim, :reaction), do: ReactionCustody.request(claim.reaction)
+  defp request(claim, :routing), do: RoutingResponseCustody.request(claim.response)
   defp request(claim, :action), do: PlatformActionCustody.request(claim.action)
 
   defp confirm(claim, _request, receipt, :message) do
@@ -129,8 +135,8 @@ defmodule Ryker.Delivery.Dispatcher do
     )
   end
 
-  defp confirm(claim, request, receipt, :reaction),
-    do: ReactionCustody.confirm_delivery(request.ref, claim.lease_ref, receipt)
+  defp confirm(claim, request, receipt, :routing),
+    do: RoutingResponseCustody.confirm_delivery(request.ref, claim.lease_ref, receipt)
 
   defp confirm(claim, request, receipt, :action),
     do: PlatformActionCustody.confirm_delivery(request.ref, claim.lease_ref, receipt)
@@ -298,7 +304,7 @@ defmodule Ryker.Delivery.Dispatcher do
     do: status in [408, 409, 425, 429] or (is_integer(status) and status >= 500)
 
   defp lease_error?(:work_lease_lost), do: true
-  defp lease_error?(:delivery_reaction_lease_lost), do: true
+  defp lease_error?(:routing_response_lease_lost), do: true
   defp lease_error?(:platform_action_lease_lost), do: true
   defp lease_error?(_reason), do: false
 
@@ -369,7 +375,7 @@ defmodule Ryker.Delivery.Dispatcher do
 
   defp validate_settings(settings) do
     with :ok <- setting(is_map(settings.adapters) and map_size(settings.adapters) > 0, :adapters),
-         :ok <- setting(settings.kind in [:message, :reaction, :action], :kind),
+         :ok <- setting(settings.kind in [:message, :routing, :action], :kind),
          :ok <- setting(positive?(settings.lease_seconds), :lease_seconds),
          :ok <- setting(positive?(settings.max_attempts), :max_attempts),
          :ok <- setting(positive?(settings.retry_base_seconds), :retry_base_seconds),

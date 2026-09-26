@@ -96,6 +96,7 @@ defmodule Ryker.Admission.DecisionTest do
              [
                "action",
                "episode_ref",
+               "message",
                "reaction",
                "relation",
                "reason",
@@ -105,7 +106,7 @@ defmodule Ryker.Admission.DecisionTest do
              ]
 
     assert schema["properties"]["action"]["enum"] ==
-             ~w(start_episode continue_episode reply react ignore)
+             ~w(start_episode continue_episode reply quick_reply react ignore)
 
     assert schema["properties"]["relation"]["enum"] ==
              ~w(same_work history_only unrelated)
@@ -117,7 +118,57 @@ defmodule Ryker.Admission.DecisionTest do
              ]
            }
 
-    assert length(schema["oneOf"]) == 8
+    assert length(schema["oneOf"]) == 9
+  end
+
+  test "routing answers a simple message itself, with the words it sends" do
+    # Andrew, 2026-09-26: routing may give quick, simple replies without
+    # starting the work model ("hi" gets "hi" back), while it still decides
+    # every time whether a message starts or continues work. Routing took
+    # about 27 s of a 66 s first reply before the work model even started.
+    greeting = "Hi! What can I help with?"
+
+    assert {:ok, decision} =
+             Decision.parse(quick_reply(greeting))
+
+    assert decision.action == :quick_reply
+    assert decision.message == greeting
+    assert Decision.document(decision)["message"] == greeting
+
+    # Only a quick reply carries words, and it always does; it continues no
+    # work and needs no class of work.
+    for document <- [
+          quick_reply(nil),
+          quick_reply("   "),
+          quick_reply(String.duplicate("a", 1_001)),
+          decision_document(action: "reply", message: greeting),
+          decision_document(action: "ignore", work_class: nil, message: greeting),
+          Map.put(quick_reply(greeting), "work_class", "conversational"),
+          Map.merge(quick_reply(greeting), %{
+            "episode_ref" => "candidate-1",
+            "relation" => "same_work"
+          })
+        ] do
+      assert {:error, {:invalid_decision, _field}} = Decision.parse(document)
+    end
+
+    # A decision recorded before quick replies has no message and still reads.
+    assert {:ok, %{message: nil}} =
+             decision_document([]) |> Map.delete("message") |> Decision.parse()
+
+    # A retry that only rephrases the reply is the same decision.
+    assert {:ok, rephrased} = Decision.parse(quick_reply("Hello! How can I help?"))
+    assert Decision.fingerprint(decision) == Decision.fingerprint(rephrased)
+
+    # The published schema offers it with its words, and only where offered.
+    schema = Decision.json_schema([:quick_reply, :ignore])
+    assert schema["properties"]["action"]["enum"] == ~w(quick_reply ignore)
+
+    assert [%{"properties" => %{"message" => message}} | _rest] =
+             Enum.filter(schema["oneOf"], &(&1["properties"]["action"]["const"] == "quick_reply"))
+
+    assert message["type"] == "string"
+    assert message["maxLength"] == 1_000
   end
 
   test "schema-valid Unicode and text boundaries are accepted by the host parser" do
@@ -478,6 +529,7 @@ defmodule Ryker.Admission.DecisionTest do
     defaults = %{
       "action" => "reply",
       "episode_ref" => nil,
+      "message" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
       "reason" => "Answer directly.",
@@ -490,6 +542,9 @@ defmodule Ryker.Admission.DecisionTest do
       Map.put(document, Atom.to_string(key), value)
     end)
   end
+
+  defp quick_reply(message),
+    do: decision_document(action: "quick_reply", work_class: nil, message: message)
 
   defp work_class(action) when action in [:react, :ignore], do: nil
   defp work_class(:reply), do: "conversational"

@@ -83,6 +83,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @state_tool_calls_version 20_260_926_001_100
   @retired_association_corrections_version 20_260_926_001_300
   @forgotten_knowledge_version 20_260_926_001_400
+  @routing_responses_version 20_260_926_001_500
   @unwritten_tables ~w(card_lab_feedback card_lab_posts episode_case_lessons slack_channel_setting_overrides)
   @integration_versions [
     20_260_919_000_100,
@@ -117,7 +118,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @unwritten_tables_version,
     @state_tool_calls_version,
     @retired_association_corrections_version,
-    @forgotten_knowledge_version
+    @forgotten_knowledge_version,
+    @routing_responses_version
   ]
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
@@ -4130,6 +4132,96 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     end
   end
 
+  # Routing answers a simple message itself as well as reacting to one, so
+  # the reaction custody became routing responses of two kinds. Every reaction
+  # must survive the rename in both directions, and a rollback must refuse
+  # while a quick reply exists, since the old table has nowhere to keep one.
+  test "routing responses keep every reaction and refuse rollback while a quick reply exists" do
+    repo = start_migration_repo!()
+    prefix = "routing_responses_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @forgotten_knowledge_version,
+        prefix: prefix,
+        log: false
+      )
+
+      reaction_id = Ecto.UUID.generate()
+
+      insert_routing_response!(
+        repo,
+        prefix,
+        "delivery_reactions",
+        reaction_id,
+        ids.ingress_id,
+        nil
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @routing_responses_version,
+               prefix: prefix,
+               log: false
+             ) == [@routing_responses_version]
+
+      refute table_exists?(repo, prefix, "delivery_reactions")
+
+      assert %{rows: [["reaction", ~s({"emoji_name":"wave"})]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT kind, document FROM #{prefix}.delivery_routing_responses WHERE id = $1::text::uuid",
+                 [reaction_id]
+               )
+
+      quick_input = copy_ingress_entry!(repo, prefix, ids.ingress_id)
+      quick_id = Ecto.UUID.generate()
+
+      insert_routing_response!(
+        repo,
+        prefix,
+        "delivery_routing_responses",
+        quick_id,
+        quick_input,
+        "message"
+      )
+
+      assert_raise Postgrex.Error, ~r/quick replies exist/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert table_exists?(repo, prefix, "delivery_routing_responses")
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.delivery_routing_responses WHERE id = $1::text::uuid",
+        [quick_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@routing_responses_version]
+
+      refute table_exists?(repo, prefix, "delivery_routing_responses")
+
+      assert %{rows: [[~s({"emoji_name":"wave"})]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT document FROM #{prefix}.delivery_reactions WHERE id = $1::text::uuid",
+                 [reaction_id]
+               )
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
   # Operator association corrections lost their last writer: nothing in the
   # product recorded a merge, split or reassignment, and the only readers were a
   # candidate-search filter and an episode trace step that could never find a
@@ -4666,6 +4758,59 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     )
 
     %{episode_id: episode_id, session_id: session_id, turn_id: turn_id, ingress_id: ingress_id}
+  end
+
+  # A reaction row when `kind` is nil (before routing responses had kinds),
+  # otherwise a row of that kind.
+  defp insert_routing_response!(repo, prefix, table, id, input_id, kind) do
+    {kind_column, kind_value, document} =
+      case kind do
+        nil -> {"", "", ~s({"emoji_name":"wave"})}
+        "message" -> {", kind", ", 'message'", ~s({"message":"Hi! What can I help with?"})}
+      end
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.#{table} (
+        id, input_id, decision_ref, delivery_ref, transport, conversation_ref, thread_ref,
+        source_item_ref, document, document_fingerprint, status, inserted_at, updated_at#{kind_column}
+      ) VALUES (
+        $1::text::uuid, $2::text::uuid, 'decision:' || $1, 'ingress-reaction:' || $2, 'slack',
+        'workspace:C123', '1710000000.000100', '1710000000.000100', $3, repeat('c', 64),
+        'pending', clock_timestamp(), clock_timestamp()#{kind_value}
+      )
+      """,
+      [id, input_id, document]
+    )
+  end
+
+  # Another message in the same place: the entry copied whole, under its
+  # own identity.
+  defp copy_ingress_entry!(repo, prefix, ingress_id) do
+    id = Ecto.UUID.generate()
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.ingress_inbox_entries
+      SELECT (jsonb_populate_record(
+        NULL::#{prefix}.ingress_inbox_entries,
+        to_jsonb(entry) || jsonb_build_object(
+          'id', $1::text,
+          'dedupe_key', 'dedupe:' || $1::text,
+          'event_ref', 'event:' || $1::text,
+          'native_input_id', 'message:' || $1::text,
+          'source_item_ref', '1710000000.000200'
+        )
+      )).*
+      FROM #{prefix}.ingress_inbox_entries AS entry
+      WHERE entry.id = $2::text::uuid
+      """,
+      [id, ingress_id]
+    )
+
+    id
   end
 
   defp insert_case_record!(repo, prefix, episode_id) do

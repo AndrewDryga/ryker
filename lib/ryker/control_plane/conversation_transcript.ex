@@ -2,7 +2,8 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   @moduledoc """
   The rows of one direct conversation as the messages a reader sees: inputs
   with their revisions, reactions and attachments; accepted replies with their
-  cards and generated files; delivered platform messages; and publications.
+  cards and generated files; delivered platform messages; publications; and
+  the quick replies routing sent without Work.
 
   `ConversationProjection` decides which rows are on a page; this module says
   what each row shows, with the sort key and cursor that place it.
@@ -12,7 +13,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.ControlPlane.TranscriptCursor
-  alias Ryker.Delivery.{ChatCard, PlatformAction, Reaction}
+  alias Ryker.Delivery.{ChatCard, PlatformAction, RoutingResponse}
   alias Ryker.Episodes.{Episode, Event, Reactions}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Publication.Publication
@@ -34,11 +35,12 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     replies = Map.get(rows, :reply, [])
     actions = Map.get(rows, :action, [])
     publications = Map.get(rows, :publication, [])
+    quick_replies = Map.get(rows, :quick_reply, [])
     item_refs = inputs |> Enum.map(& &1.source_item_ref) |> Enum.filter(&is_binary/1)
 
     reactions =
       Map.merge(
-        delivery_reactions(item_refs),
+        routing_reactions(item_refs),
         input_reaction_actions(item_refs),
         fn _item_ref, delivered, acted -> delivered ++ acted end
       )
@@ -52,7 +54,8 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
         actions,
         reactions,
         Reactions.current_for_episodes(Enum.uniq(Enum.map(replies, & &1.episode_id)))
-      ) ++ publication_messages(publications)
+      ) ++
+        publication_messages(publications) ++ Enum.flat_map(quick_replies, &quick_reply_message/1)
 
     messages
     |> attach_execution()
@@ -262,12 +265,14 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     |> Map.new()
   end
 
-  defp delivery_reactions([]), do: %{}
+  defp routing_reactions([]), do: %{}
 
-  defp delivery_reactions(item_refs) do
+  defp routing_reactions(item_refs) do
     Repo.all(
-      from(reaction in Reaction,
-        where: reaction.transport == "control_plane" and reaction.source_item_ref in ^item_refs,
+      from(reaction in RoutingResponse,
+        where:
+          reaction.kind == :reaction and reaction.transport == "control_plane" and
+            reaction.source_item_ref in ^item_refs,
         order_by: [asc: reaction.inserted_at, asc: reaction.id],
         limit: ^(@page_maximum * 4),
         select: %{
@@ -564,6 +569,33 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp action_message(_action), do: []
+
+  # Routing answered the message itself, without Work: no request to open, so
+  # the message links the input it answered.
+  defp quick_reply_message(%{document: %{"message" => message}} = response)
+       when is_binary(message) do
+    [
+      %{
+        actor: :ryker,
+        attachments: [],
+        cards: [],
+        episode_ref: nil,
+        identity: "quick-reply:" <> response.id,
+        input_id: response.input_id,
+        occurred_at: response.delivered_at,
+        reactions: [],
+        ref: response.delivery_ref,
+        retained: true,
+        sort_key:
+          TranscriptCursor.key(response.delivered_at, :quick_reply, "quick-reply:" <> response.id),
+        state: nil,
+        status: :delivered,
+        text: message
+      }
+    ]
+  end
+
+  defp quick_reply_message(_response), do: []
 
   defp publication_messages(publications) do
     Enum.flat_map(publications, &publication_message/1)

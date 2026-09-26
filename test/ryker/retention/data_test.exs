@@ -810,9 +810,9 @@ defmodule Ryker.Retention.DataTest do
     backdate_rows!()
 
     assert {:ok, result} = Data.prune(settings(conversation_memory_seconds: 60))
-    assert result.delivery_reactions == 1
-    assert Repo.get(Ryker.Delivery.Reaction, delivered) == nil
-    assert Repo.get!(Ryker.Delivery.Reaction, blocked).status == :blocked
+    assert result.routing_responses == 1
+    assert Repo.get(Ryker.Delivery.RoutingResponse, delivered) == nil
+    assert Repo.get!(Ryker.Delivery.RoutingResponse, blocked).status == :blocked
     assert result.audit_rows == 5
     assert Repo.get(Ryker.Credentials.Event, credential_event_id) == nil
     assert Actions.fetch("operator-action:old-operator-action") == :error
@@ -1405,13 +1405,13 @@ defmodule Ryker.Retention.DataTest do
 
     Repo.query!(
       """
-      INSERT INTO delivery_reactions
-        (id, input_id, decision_ref, delivery_ref, transport, conversation_ref,
+      INSERT INTO delivery_routing_responses
+        (id, input_id, kind, decision_ref, delivery_ref, transport, conversation_ref,
          source_item_ref, document, document_fingerprint, status, attempt_count,
          retry_generation, last_error_code, last_error_detail, external_receipt,
          external_receipt_fingerprint, delivered_at, inserted_at, updated_at)
-      VALUES ($1, $2, $3, $4, 'slack', 'C1', 'M1', '{"emoji_name":"eyes"}', $5, $6, 1, 0,
-              $7, $8, $9, $10, $11, $12, $12)
+      VALUES ($1, $2, 'reaction', $3, $4, 'slack', 'C1', 'M1', '{"emoji_name":"eyes"}', $5, $6,
+              1, 0, $7, $8, $9, $10, $11, $12, $12)
       """,
       [
         uuid!(reaction_id),
@@ -1606,7 +1606,7 @@ defmodule Ryker.Retention.DataTest do
 
   defp backdate_rows! do
     Repo.query!("UPDATE ingress_inbox_entries SET updated_at = $1", [@old])
-    Repo.query!("UPDATE delivery_reactions SET updated_at = $1", [@old])
+    Repo.query!("UPDATE delivery_routing_responses SET updated_at = $1", [@old])
     Repo.query!("UPDATE ryker_operator_actions SET inserted_at = $1, updated_at = $1", [@old])
   end
 

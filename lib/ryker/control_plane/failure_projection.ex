@@ -429,8 +429,9 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   def slack_thread_status(_ref), do: :not_found
 
-  # A reaction delivery belongs to an input rather than an episode; its input
-  # id is what finds the conversation and source it was reacting in.
+  # A routing response (a reaction or quick reply) belongs to an input rather
+  # than an episode; its input id is what finds the conversation and source it
+  # answered.
   defp delivery_item(item) do
     %{
       action: :rearm,

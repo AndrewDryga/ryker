@@ -1,6 +1,6 @@
 defmodule Ryker.Delivery.Runtime do
   @moduledoc """
-  Supervises independent bounded pools for messages, reactions, and model-requested actions.
+  Supervises independent bounded pools for messages, routing responses, and model-requested actions.
 
   The trusted adapter registry owns platform credentials and bindings. A worker
   receives only that prepared registry plus an opaque lease identity.
@@ -18,7 +18,7 @@ defmodule Ryker.Delivery.Runtime do
     :max_attempts,
     :message_concurrency,
     :poll_interval_ms,
-    :reaction_concurrency,
+    :routing_concurrency,
     :retry_base_seconds,
     :retry_max_seconds,
     :worker_ref
@@ -47,7 +47,7 @@ defmodule Ryker.Delivery.Runtime do
 
     children =
       worker_children(:message, options.message_concurrency, options) ++
-        worker_children(:reaction, options.reaction_concurrency, options) ++
+        worker_children(:routing, options.routing_concurrency, options) ++
         worker_children(:action, options.action_concurrency, options)
 
     Supervisor.init(children, strategy: :one_for_one)
@@ -60,7 +60,7 @@ defmodule Ryker.Delivery.Runtime do
     registrations = Map.fetch!(configuration, :adapters)
     worker_ref = Map.fetch!(configuration, :worker_ref)
     message_concurrency = Map.get(configuration, :message_concurrency, 2)
-    reaction_concurrency = Map.get(configuration, :reaction_concurrency, 1)
+    routing_concurrency = Map.get(configuration, :routing_concurrency, 1)
     action_concurrency = Map.get(configuration, :action_concurrency, 1)
     lease_seconds = Map.get(configuration, :lease_seconds, 60)
     max_attempts = Map.get(configuration, :max_attempts, 8)
@@ -68,7 +68,7 @@ defmodule Ryker.Delivery.Runtime do
     retry_base_seconds = Map.get(configuration, :retry_base_seconds, 1)
     retry_max_seconds = Map.get(configuration, :retry_max_seconds, 60)
 
-    validate_concurrency!(message_concurrency, reaction_concurrency, action_concurrency)
+    validate_concurrency!(message_concurrency, routing_concurrency, action_concurrency)
     validate_positive!(lease_seconds, :lease_seconds)
     validate_positive!(max_attempts, :max_attempts)
     validate_positive!(poll_interval_ms, :poll_interval_ms)
@@ -90,7 +90,7 @@ defmodule Ryker.Delivery.Runtime do
       max_attempts: max_attempts,
       message_concurrency: message_concurrency,
       poll_interval_ms: poll_interval_ms,
-      reaction_concurrency: reaction_concurrency,
+      routing_concurrency: routing_concurrency,
       retry_base_seconds: retry_base_seconds,
       retry_max_seconds: retry_max_seconds,
       worker_ref: worker_ref
@@ -124,15 +124,15 @@ defmodule Ryker.Delivery.Runtime do
     )
   end
 
-  defp validate_concurrency!(messages, reactions, actions)
-       when is_integer(messages) and messages > 0 and is_integer(reactions) and reactions > 0 and
+  defp validate_concurrency!(messages, routing, actions)
+       when is_integer(messages) and messages > 0 and is_integer(routing) and routing > 0 and
               is_integer(actions) and actions > 0 and
-              messages + reactions + actions <= @maximum_concurrency,
+              messages + routing + actions <= @maximum_concurrency,
        do: :ok
 
-  defp validate_concurrency!(_messages, _reactions, _actions) do
+  defp validate_concurrency!(_messages, _routing, _actions) do
     raise ArgumentError,
-          "delivery message, reaction, and action concurrency must total between 3 and #{@maximum_concurrency}"
+          "delivery message, routing, and action concurrency must total between 3 and #{@maximum_concurrency}"
   end
 
   defp validate_positive!(value, _field) when is_integer(value) and value > 0, do: :ok

@@ -546,8 +546,9 @@ defmodule Ryker.ControlPlane.LabPage do
   inspector before an episode exists, its own admission request once routed,
   and the recorded decision when it was ignored. A reply is addressed by the
   turn that produced it, the same work-request contract the episode page
-  uses. Nothing is derived from the conversation's newest episode, the title,
-  or the message's position.
+  uses. A quick reply, which routing sent without Work, links the input it
+  answered. Nothing is derived from the conversation's newest episode, the
+  title, or the message's position.
   """
   def timeline_href(%{actor: actor, input_id: id})
       when actor in [:operator, :integration] and is_binary(id),
@@ -562,6 +563,9 @@ defmodule Ryker.ControlPlane.LabPage do
       _no_turn -> path
     end
   end
+
+  def timeline_href(%{actor: :ryker, input_id: id}) when is_binary(id),
+    do: "/timeline/ingress-input%3A#{id}"
 
   def timeline_href(_message), do: nil
 

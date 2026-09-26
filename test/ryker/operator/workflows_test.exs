@@ -7,7 +7,7 @@ defmodule Ryker.Operator.WorkflowsTest do
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
-  alias Ryker.Delivery.ReactionCustody
+  alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Ingress.Inbox
@@ -237,11 +237,11 @@ defmodule Ryker.Operator.WorkflowsTest do
              })
 
     assert {:ok, _result} = Admission.commit(context, decision, "operator-delivery-decision")
-    assert {:ok, claim} = ReactionCustody.claim_next("operator-delivery-worker", 60)
+    assert {:ok, claim} = RoutingResponseCustody.claim_next("operator-delivery-worker", 60)
 
     assert {:ok, blocked_reaction} =
-             ReactionCustody.block(
-               claim.reaction.delivery_ref,
+             RoutingResponseCustody.block(
+               claim.response.delivery_ref,
                claim.lease_ref,
                "slack_api_error",
                "missing_scope"

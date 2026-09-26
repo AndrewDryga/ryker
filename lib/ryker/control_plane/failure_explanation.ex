@@ -1391,6 +1391,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   end
 
   defp delivery_kind(%{source: "reaction delivery"}), do: :reaction
+  defp delivery_kind(%{source: "quick_reply delivery"}), do: :quick_reply
   defp delivery_kind(%{source: "platform_action delivery"}), do: :platform_action
   defp delivery_kind(_row), do: :message
 
@@ -1408,6 +1409,22 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       question: "Add this reaction again?",
       effect:
         "Ryker adds the same reaction to the same message. Slack ignores it if the reaction is already there."
+    }
+
+  defp delivery_parts(:quick_reply),
+    do: %{
+      title: "Sending a quick reply stopped",
+      affected: "The person has not received Ryker's answer.",
+      happened:
+        "Ryker answered a simple message itself, without starting work, and sending that answer stopped",
+      affects: [
+        "The person who wrote the message saw no reply. Nothing else is waiting on it."
+      ],
+      left: "The answer is never sent. Nothing else is affected.",
+      label: "Send the reply again",
+      question: "Send this reply again?",
+      effect:
+        "Ryker sends the same words to the same place. If they already arrived, they are not sent twice."
     }
 
   defp delivery_parts(:platform_action),

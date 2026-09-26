@@ -227,7 +227,7 @@ config :ryker, :delivery,
   worker_ref: "ryker-delivery:host-a",
   max_attempts: 8,
   message_concurrency: 2,
-  reaction_concurrency: 1,
+  routing_concurrency: 1,
   adapters: %{
     "slack" => %{
       binding: %{

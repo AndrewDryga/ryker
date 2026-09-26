@@ -6,19 +6,24 @@ defmodule Ryker.Admission.Decision do
   never contains a channel, thread, delivery destination, or raw episode identity.
   On a new episode in an environment with several repositories it names, by
   ref, the one the work changes, from the choices the host offered.
+
+  A quick reply is routing answering a simple message itself (a greeting, a
+  thanks) with the words in `message`, without starting the work model; it
+  starts and continues no work (Andrew, 2026-09-26).
   """
 
   alias Ryker.Work.RepositorySource
 
-  @actions [:start_episode, :continue_episode, :reply, :react, :ignore]
+  @actions [:start_episode, :continue_episode, :reply, :quick_reply, :react, :ignore]
   @relations [:same_work, :history_only, :unrelated]
   @work_classes [:conversational, :standard, :deep]
-  @fields ~w(action episode_ref reaction relation reason repository repository_source work_class)
-  # `repository` joined the contract on 2026-09-25. A decision recorded before
-  # then carries no such key, and absence means what null means: no choice.
-  # Recorded answers are history and stay readable as recorded; the published
-  # schema still requires the key, so a live model always sends it.
-  @required_fields @fields -- ["repository"]
+  @fields ~w(action episode_ref message reaction relation reason repository repository_source work_class)
+  # `repository` joined the contract on 2026-09-25 and `message` on 2026-09-26.
+  # A decision recorded before then carries no such key, and absence means what
+  # null means. Recorded answers are history and stay readable as recorded; the
+  # published schema still requires the keys, so a live model always sends them.
+  @required_fields @fields -- ["repository", "message"]
+  @maximum_message 1_000
   @nonblank_pattern "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
 
   @enforce_keys [
@@ -30,13 +35,14 @@ defmodule Ryker.Admission.Decision do
     :repository_source,
     :work_class
   ]
-  # A decision built without a repository chose none, like one recorded
-  # before the field existed.
-  defstruct @enforce_keys ++ [repository: nil]
+  # A decision built without a repository chose none, and one without a
+  # message is no quick reply, like one recorded before the fields existed.
+  defstruct @enforce_keys ++ [repository: nil, message: nil]
 
   @type t :: %__MODULE__{
-          action: :start_episode | :continue_episode | :reply | :react | :ignore,
+          action: :start_episode | :continue_episode | :reply | :quick_reply | :react | :ignore,
           episode_ref: String.t() | nil,
+          message: String.t() | nil,
           reaction: %{emoji_name: String.t()} | nil,
           relation: :same_work | :history_only | :unrelated,
           reason: String.t(),
@@ -54,6 +60,7 @@ defmodule Ryker.Admission.Decision do
          :ok <- validate_reference(value["episode_ref"]),
          {:ok, reaction} <- parse_reaction(value["reaction"]),
          :ok <- validate_reason(value["reason"]),
+         {:ok, message} <- parse_message(action, Map.get(value, "message")),
          :ok <- validate_shape(action, value["episode_ref"], reaction, relation),
          :ok <- validate_work_class(action, work_class),
          {:ok, repository} <- parse_repository(action, Map.get(value, "repository")),
@@ -63,6 +70,7 @@ defmodule Ryker.Admission.Decision do
        %__MODULE__{
          action: action,
          episode_ref: value["episode_ref"],
+         message: message,
          reaction: reaction,
          relation: relation,
          reason: value["reason"],
@@ -84,6 +92,7 @@ defmodule Ryker.Admission.Decision do
     %{
       "action" => Atom.to_string(decision.action),
       "episode_ref" => decision.episode_ref,
+      "message" => decision.message,
       "reaction" => reaction_document(decision.reaction),
       "relation" => Atom.to_string(decision.relation),
       "reason" => decision.reason,
@@ -94,17 +103,19 @@ defmodule Ryker.Admission.Decision do
   end
 
   @doc """
-  Fingerprints the durable decision, excluding explanatory prose.
+  Fingerprints the durable decision, excluding its prose: the reason and a
+  quick reply's words.
 
-  A provider may paraphrase its reason after a lost response. The natural
+  A provider may paraphrase either after a lost response. The natural
   Slack-input slot still reconciles that retry when the chosen action,
-  candidate, relation, and reaction are unchanged.
+  candidate, relation, and reaction are unchanged; the first recorded words
+  are the ones sent.
   """
   @spec fingerprint(t()) :: String.t()
   def fingerprint(%__MODULE__{} = decision) do
     decision
     |> document()
-    |> Map.delete("reason")
+    |> Map.drop(["reason", "message"])
     |> Ryker.CanonicalJSON.digest()
   end
 
@@ -150,6 +161,12 @@ defmodule Ryker.Admission.Decision do
             %{"type" => "null"}
           ]
         },
+        "message" => %{
+          "anyOf" => [
+            bounded_string_schema(@maximum_message),
+            %{"type" => "null"}
+          ]
+        },
         "reaction" => %{
           "anyOf" => [
             reaction_schema(reaction_names),
@@ -186,6 +203,7 @@ defmodule Ryker.Admission.Decision do
       shape("reply", nil, nil, "unrelated", :conversation, pinned),
       shape("reply", :reference, nil, "same_work", :conversation, pinned),
       shape("reply", :reference, nil, "history_only", :conversation, pinned),
+      "quick_reply" |> shape(nil, nil, "unrelated", nil, pinned) |> with_message(),
       shape("react", nil, {:reaction, reaction_names}, "unrelated", nil, pinned),
       shape("ignore", nil, nil, "unrelated", nil, pinned)
     ]
@@ -199,6 +217,7 @@ defmodule Ryker.Admission.Decision do
       "properties" => %{
         "action" => %{"const" => action},
         "episode_ref" => reference_shape(episode_ref),
+        "message" => %{"type" => "null"},
         "reaction" => reaction_shape(reaction),
         "relation" => %{"const" => relation},
         "repository" => repository_shape(selectors.choices),
@@ -207,6 +226,10 @@ defmodule Ryker.Admission.Decision do
       }
     }
   end
+
+  # Only a quick reply carries words, and it always does.
+  defp with_message(shape),
+    do: put_in(shape, ["properties", "message"], bounded_string_schema(@maximum_message))
 
   defp repository_source_schema(false), do: %{"type" => "null"}
 
@@ -298,6 +321,13 @@ defmodule Ryker.Admission.Decision do
 
   defp parse_repository_source(_action, _value), do: invalid(:repository_source)
 
+  defp parse_message(:quick_reply, value) do
+    if bounded_text?(value, @maximum_message), do: {:ok, value}, else: invalid(:message)
+  end
+
+  defp parse_message(_action, nil), do: {:ok, nil}
+  defp parse_message(_action, _value), do: invalid(:message)
+
   defp parse_work_class(nil), do: {:ok, nil}
   defp parse_work_class(value), do: parse_enum(value, @work_classes, :work_class)
 
@@ -337,7 +367,7 @@ defmodule Ryker.Admission.Decision do
        when action in [:start_episode, :continue_episode] and work_class in [:standard, :deep],
        do: :ok
 
-  defp validate_work_class(action, nil) when action in [:react, :ignore], do: :ok
+  defp validate_work_class(action, nil) when action in [:quick_reply, :react, :ignore], do: :ok
   defp validate_work_class(_action, _work_class), do: invalid(:work_class)
 
   defp validate_shape(:continue_episode, ref, nil, :same_work) when is_binary(ref), do: :ok
@@ -365,6 +395,13 @@ defmodule Ryker.Admission.Decision do
 
   defp validate_shape(:reply, nil, _reaction, _relation), do: invalid(:episode_ref)
   defp validate_shape(:reply, _ref, _reaction, _relation), do: invalid(:relation)
+
+  defp validate_shape(:quick_reply, nil, nil, :unrelated), do: :ok
+
+  defp validate_shape(:quick_reply, _ref, reaction, _relation) when not is_nil(reaction),
+    do: invalid(:reaction)
+
+  defp validate_shape(:quick_reply, _ref, _reaction, _relation), do: invalid(:relation)
 
   defp validate_shape(:react, nil, %{emoji_name: _emoji_name}, :unrelated), do: :ok
   defp validate_shape(:react, _ref, nil, :unrelated), do: invalid(:reaction)

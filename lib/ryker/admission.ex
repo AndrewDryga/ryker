@@ -23,7 +23,7 @@ defmodule Ryker.Admission do
     Ranking
   }
 
-  alias Ryker.Delivery.ReactionCustody
+  alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
 
   alias Ryker.Episodes.{
@@ -789,7 +789,7 @@ defmodule Ryker.Admission do
   end
 
   defp apply_episode(_context, _entry, %{decision: %{action: action}})
-       when action in [:ignore, :react],
+       when action in [:ignore, :react, :quick_reply],
        do: {:ok, [], nil}
 
   defp apply_episode(context, entry, selection) do
@@ -926,7 +926,7 @@ defmodule Ryker.Admission do
     |> case do
       {:ok, decided} ->
         with :ok <- Attempts.committed(decided),
-             {:ok, _reaction} <- maybe_enqueue_reaction(decided) do
+             {:ok, _response} <- maybe_enqueue_routing_response(decided) do
           {:ok, decided}
         end
 
@@ -935,8 +935,10 @@ defmodule Ryker.Admission do
     end
   end
 
-  defp maybe_enqueue_reaction(%Entry{execution_mode: :shadow}), do: {:ok, nil}
-  defp maybe_enqueue_reaction(%Entry{} = entry), do: ReactionCustody.enqueue_in_transaction(entry)
+  defp maybe_enqueue_routing_response(%Entry{execution_mode: :shadow}), do: {:ok, nil}
+
+  defp maybe_enqueue_routing_response(%Entry{} = entry),
+    do: RoutingResponseCustody.enqueue_in_transaction(entry)
 
   defp persist_superseded_decision(entry, decision, decision_ref, episode, details) do
     entry

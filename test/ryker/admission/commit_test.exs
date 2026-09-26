@@ -282,7 +282,7 @@ defmodule Ryker.Admission.CommitTest do
     end
 
     assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 0
-    assert Repo.aggregate(Ryker.Delivery.Reaction, :count) == 0
+    assert Repo.aggregate(Ryker.Delivery.RoutingResponse, :count) == 0
     assert Repo.aggregate(Ryker.Work.Turn, :count) == 0
     assert Repo.aggregate(Ryker.State.ConversationKnowledge, :count) == 0
   end
@@ -683,6 +683,71 @@ defmodule Ryker.Admission.CommitTest do
         assert result.entry.decision_document["reaction"] == nil
       end
     end
+  end
+
+  test "a quick reply is sent as routing wrote it and starts no work" do
+    # Andrew, 2026-09-26: routing may answer a simple message itself, without
+    # starting the work model; "hi" gets "hi" back. It still decides every
+    # time whether a message starts or continues work.
+    entry = record_input!(event_ref: "Ev-quick-reply", content: %{"text" => "hi"})
+    context = context!(entry)
+
+    assert {:ok, decision} =
+             Decision.parse(%{
+               "action" => "quick_reply",
+               "episode_ref" => nil,
+               "message" => "Hi! What can I help with?",
+               "reaction" => nil,
+               "relation" => "unrelated",
+               "repository_source" => nil,
+               "reason" => "A greeting needs only a greeting back.",
+               "work_class" => nil
+             })
+
+    assert {:ok, result} = Admission.commit(context, decision, "decision-quick-reply")
+    assert result.status == :applied
+    assert result.episode == nil
+    assert result.entry.decision_action == :quick_reply
+    assert result.entry.episode_id == nil
+    assert Repo.aggregate(Ryker.Work.Turn, :count) == 0
+
+    assert [response] = Repo.all(Ryker.Delivery.RoutingResponse)
+    assert response.kind == :message
+    assert response.document == %{"message" => "Hi! What can I help with?"}
+    assert response.status == :pending
+    assert response.input_id == entry.id
+  end
+
+  # A quick reply is sent exactly as routing wrote it, without review, so the
+  # host offers it only for a person writing in Slack or Chat. An alert bot's
+  # message must be investigated or left alone, never chatted back at.
+  test "a quick reply to an app's message is refused before anything is sent" do
+    entry =
+      record_input!(
+        event_ref: "Ev-quick-reply-app",
+        actor: %{kind: :bot, ref: "B123"},
+        content: %{"text" => "CRITICAL: checkout readiness failing"}
+      )
+
+    context = context!(entry)
+    refute :quick_reply in Ryker.Ingress.Input.allowed_actions(context.input)
+
+    assert {:ok, decision} =
+             Decision.parse(%{
+               "action" => "quick_reply",
+               "episode_ref" => nil,
+               "message" => "Thanks for the heads-up!",
+               "reaction" => nil,
+               "relation" => "unrelated",
+               "repository_source" => nil,
+               "reason" => "An alert that needs no work.",
+               "work_class" => nil
+             })
+
+    assert {:error, {:admission_rejected, :action_not_allowed, submitted: :quick_reply}} =
+             Admission.commit(context, decision, "decision-quick-reply-app")
+
+    assert Repo.aggregate(Ryker.Delivery.RoutingResponse, :count) == 0
   end
 
   test "a decision-store failure rolls back the episode transition" do

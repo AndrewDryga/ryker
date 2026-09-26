@@ -28,7 +28,7 @@ defmodule Ryker.Defaults do
     max_attempts: 8,
     message_concurrency: 4,
     poll_interval_ms: 250,
-    reaction_concurrency: 2,
+    routing_concurrency: 2,
     retry_base_seconds: 1,
     retry_max_seconds: 60
   }
@@ -146,7 +146,7 @@ defmodule Ryker.Defaults do
       {@learning.quiet_seconds <= @learning.maximum_delay_seconds,
        "learning quiet_seconds must fit maximum_delay_seconds"},
       {@delivery.action_concurrency + @delivery.message_concurrency +
-         @delivery.reaction_concurrency <= 32, "delivery lanes must fit the total pool"},
+         @delivery.routing_concurrency <= 32, "delivery lanes must fit the total pool"},
       {@emisar.receive_timeout_ms <= @emisar.lease_seconds * 1_000,
        "an Emisar request must fit inside its lease"}
     ]

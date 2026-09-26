@@ -1397,6 +1397,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         "start_episode" -> "Start new work for this message"
         "continue_episode" -> "Add this message to earlier work that is still open"
         "reply" -> "Answer in the conversation without starting work"
+        "quick_reply" -> "Answer briefly itself, without starting work"
         "react" -> "Only add an emoji reaction"
         "ignore" -> "Do nothing"
         other -> human(other)
@@ -1420,6 +1421,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp action_label("start_episode"), do: "Start work"
   defp action_label("continue_episode"), do: "Continue work"
   defp action_label("reply"), do: "Reply"
+  defp action_label("quick_reply"), do: "Quick reply"
   defp action_label("react"), do: "React"
   defp action_label("ignore"), do: "Ignore"
   defp action_label(value), do: human(value)
