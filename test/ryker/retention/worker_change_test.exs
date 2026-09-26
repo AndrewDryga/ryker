@@ -103,11 +103,20 @@ defmodule Ryker.Retention.WorkerChangeTest do
     fleet = fleet_client(worker, @started, remote_session(session))
 
     assert {:ok, %{executed: 1}} = run_pass(fleet, "cleanup:away:grace")
+    before = Repo.now!()
     assert {:ok, %{deferred: 1, blocked: 0}} = run_pass(fleet, "cleanup:away:outage")
+    after_deferral = Repo.now!()
 
     waiting = Repo.get!(Session, session.id)
     assert waiting.cleanup_status == :close_pending
     assert waiting.cleanup_last_error_code == "retention_worker_unavailable"
+
+    # The gate on 2026-09-26 once found the returned worker ignored here: the
+    # deferral was stamped by the host clock and the worker's report by the
+    # database clock, so a report a few milliseconds later could look older.
+    # Both now come from the database clock.
+    assert DateTime.compare(waiting.updated_at, before) != :lt
+    assert DateTime.compare(waiting.updated_at, after_deferral) != :gt
 
     # The worker's own report is the evidence that brings the cleanup back.
     poll!(worker, @started)
