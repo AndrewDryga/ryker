@@ -48,6 +48,7 @@ defmodule Ryker.ControlPlane.Navigation do
      ]},
     {:settings, "Settings",
      [
+       {"Overview", "/settings"},
        {"Models", "/settings/models"},
        {"Data retention", "/settings/retention"},
        {"Model prices", "/settings/prices"},
@@ -56,7 +57,7 @@ defmodule Ryker.ControlPlane.Navigation do
   ]
   # An overview page is selected on its own address only, never under its
   # siblings' addresses.
-  @overviews ["/integrations", "/memory"]
+  @overviews ["/integrations", "/settings", "/memory"]
 
   attr(:path, :string, required: true)
   attr(:live, :boolean, default: true)

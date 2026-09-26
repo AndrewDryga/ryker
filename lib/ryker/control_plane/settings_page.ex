@@ -3,10 +3,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
   The pages that connect and configure Ryker: onboarding at /setup (see
   `SetupPage`), the environments Ryker works in (see `EnvironmentsPage`), the
   Integrations overview and a page per integration (Slack, GitHub, Emisar,
-  Webhooks), and a page per installation setting (Models, Data retention,
-  Model prices, Advanced). The sidebar is the only menu; each page has one
-  title, one sentence and plain sections. A page's Add opens its form under
-  the button, above the list it adds to, and pressed again closes it.
+  Webhooks), and the Settings overview and a page per installation setting
+  (Models, Data retention, Model prices, Advanced). The sidebar is the only
+  menu; each page has one title, one sentence and plain sections. A page's Add
+  opens its form under the button, above the list it adds to, and pressed
+  again closes it.
 
   A connection reads as a dot and a word, why when it is not working, and the
   one action that fits it, in the words every page uses (see
@@ -32,7 +33,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
     WebhookPreview
   }
 
+  alias Ryker.Settings
+  alias Ryker.Settings.Work
   alias Ryker.Slack.Names
+  alias Ryker.Work.ExecutionTarget
 
   @doc "The title of one page: the name it has in the sidebar, or Set up Ryker."
   @spec title(atom()) :: String.t()
@@ -148,6 +152,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         confirm={@confirm}
       />
       <.integrations :if={@section == :integrations} view={@view} />
+      <.settings_overview :if={@section == :settings} view={@view} />
       <.slack
         :if={@section == :slack}
         view={@view}
@@ -221,6 +226,99 @@ defmodule Ryker.ControlPlane.SettingsPage do
     </Kit.entity_list>
     """
   end
+
+  # Settings overview ---------------------------------------------------------
+
+  attr(:view, :map, required: true)
+
+  # Every installation setting in the rows the Integrations overview uses:
+  # what its page sets and what it is set to now. A setting has no connection
+  # to repair and so no next step of its own; the whole row opens its page.
+  defp settings_overview(assigns) do
+    assigns = assign(assigns, :rows, settings_rows(assigns.view))
+
+    ~H"""
+    <Kit.entity_list label="Settings" class="settings-list">
+      <Kit.entity_row
+        :for={row <- @rows}
+        id={"setting-#{row.key}"}
+        name={row.name}
+        href={row.href}
+        navigate={true}
+        link_row={true}
+        text={row.text}
+        meta={row.meta}
+      />
+    </Kit.entity_list>
+    """
+  end
+
+  @settings_pages [
+    model: "/settings/models",
+    retention: "/settings/retention",
+    pricing: "/settings/prices",
+    system: "/settings/advanced"
+  ]
+
+  defp settings_rows(view) do
+    for {section, href} <- @settings_pages do
+      %{
+        key: section,
+        name: title(section),
+        href: href,
+        text: sets(section),
+        meta: [set_now(section, view)]
+      }
+    end
+  end
+
+  defp sets(:model), do: "The model and reasoning effort for each kind of work."
+  defp sets(:retention), do: "How many days Ryker keeps each kind of data before deleting it."
+
+  defp sets(:pricing),
+    do: "What each model costs, for estimating cost when the provider does not report it."
+
+  defp sets(:system), do: "Where work runs and what each kind of work may do."
+
+  defp set_now(:model, view) do
+    models =
+      Work.model_fields()
+      |> Enum.map(&(ExecutionTarget.parts(Map.get(view.snapshot.work, &1)) || %{}))
+      |> Enum.map(& &1[:model])
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if models != [], do: "Uses " <> Environments.sentence(models)
+  end
+
+  defp set_now(:retention, view) do
+    days =
+      Settings.retention_defaults()
+      |> Map.keys()
+      |> Enum.map(&Map.get(view.snapshot.retention, &1))
+      |> Enum.filter(&is_integer/1)
+      |> Enum.map(&div(&1, 86_400))
+
+    case Enum.min_max(days, fn -> nil end) do
+      nil -> nil
+      {same, same} -> "Keeps every kind of data #{days(same)}"
+      {shortest, longest} -> "Keeps each kind of data #{shortest} to #{days(longest)}"
+    end
+  end
+
+  defp set_now(:pricing, %{snapshot: %{pricing_rates: []}}), do: "No prices yet"
+
+  defp set_now(:pricing, %{snapshot: %{pricing_rates: rates}}),
+    do: Integrations.count(length(rates), "price")
+
+  defp set_now(:system, _view) do
+    if BundledCoop.distribution?(),
+      do: "Work runs on the bundled worker on this host",
+      else: "Work runs on workers you run yourself"
+  end
+
+  defp days(1), do: "1 day"
+  defp days(count), do: "#{count} days"
 
   # Slack ---------------------------------------------------------------------
 
@@ -1058,6 +1156,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
       description:
         "The services Ryker works through: Slack to talk with your team, GitHub for your code, " <>
           "Emisar to act on running systems and webhooks for alerts from other tools."
+    }
+
+  defp page(:settings),
+    do: %{
+      title: "Settings",
+      description:
+        "How Ryker itself runs: the models it uses, how long it keeps data, what models " <>
+          "cost and where its work runs."
     }
 
   defp page(:slack),

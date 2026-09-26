@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.NavigationTest do
                ~w(/integrations /integrations/slack /integrations/github /integrations/emisar /integrations/webhooks)
 
       assert LazyHTML.query(bottom, "details#nav-settings a") |> LazyHTML.attribute("href") ==
-               ~w(/settings/models /settings/retention /settings/prices /settings/advanced)
+               ~w(/settings /settings/models /settings/retention /settings/prices /settings/advanced)
 
       mobile =
         render_component(&Navigation.mobile/1, path: "/", live: live)
@@ -93,8 +93,7 @@ defmodule Ryker.ControlPlane.NavigationTest do
       groups = LazyHTML.query(mobile, "section strong") |> Enum.map(&LazyHTML.text/1)
       assert Enum.take(groups, -2) == ["Integrations", "Settings"]
 
-      for removed <-
-            ~w(/settings /settings/slack /settings/github /settings/emisar /settings/webhooks) do
+      for removed <- ~w(/settings/slack /settings/github /settings/emisar /settings/webhooks) do
         for rendered <- [document, mobile] do
           refute removed in (LazyHTML.query(rendered, "a") |> LazyHTML.attribute("href"))
         end
@@ -146,6 +145,7 @@ defmodule Ryker.ControlPlane.NavigationTest do
           {"/memory/learned", "/memory/learned"},
           {"/integrations", "/integrations"},
           {"/integrations/slack", "/integrations/slack"},
+          {"/settings", "/settings"},
           {"/settings/models", "/settings/models"},
           {"/environments", "/environments"},
           {"/channels/T1/C1", "/channels"},
