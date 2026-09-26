@@ -46,6 +46,30 @@ defmodule Ryker.ControlPlane.SlackMarkdownTest do
     assert html =~ ~s(<ol start="2"><li>Pod events</li><li>Release changes</li></ol>)
   end
 
+  # Manual test, 2026-09-26: a model's numbered item whose text wrapped onto
+  # an indented line, or which carried an indented sub-point, split the list:
+  # the item ended, the wrapped words stood alone as a paragraph, and the
+  # next item began a new list.
+  test "a numbered item's wrapped line and its sub-points stay inside the item" do
+    html =
+      "1. **Deploy** check the release\n   notes before rolling back\n   - error rate\n   - latency\n2. Tell the channel"
+      |> SlackMarkdown.preview()
+      |> IO.iodata_to_binary()
+
+    assert html ==
+             "<ol><li><strong>Deploy</strong> check the release notes before rolling back" <>
+               "<ul><li>error rate</li><li>latency</li></ul></li><li>Tell the channel</li></ol>"
+  end
+
+  test "an indented line under plain text is still plain text" do
+    html =
+      "Run this:\n    make check\nThen deploy."
+      |> SlackMarkdown.preview()
+      |> IO.iodata_to_binary()
+
+    assert html == "<p>Run this:\n    make check\nThen deploy.</p>"
+  end
+
   # QA re-test, 2026-09-26: "```sh" showed "sh" as the first line of the code.
   # The fence's first word names the language; it is not code.
   test "a fenced block's language names the block instead of becoming its first line" do
