@@ -608,7 +608,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert [%{attempts: 2, measured: 1}] = snapshot.days
 
     assert [target_episode] =
-             Activity.list(%{"target" => "claude:opus/high@work"}).items
+             Activity.list(%{
+               "usage_model" => "opus",
+               "usage_provider" => "claude",
+               "usage_effort" => "high"
+             }).items
 
     assert target_episode.id == measured.episode_id
 
@@ -967,22 +971,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Projection.usage(%{"mode" => "live"}).totals.attempts == 0
     assert Projection.usage(%{"mode" => "shadow"}).totals.attempts == 1
     refute Map.has_key?(Projection.usage(%{}), :executions)
-    assert Activity.list(%{"usage_measurement" => "missing"}).total == 0
-  end
-
-  test "missing measurement drilldowns find only requests with missing reports" do
-    missing = measured_turn!("missing-report", "codex:gpt-5.6-sol/medium", DateTime.utc_now())
-    measured_turn!("measured-report", "codex:gpt-5.6-sol/medium", DateTime.utc_now())
-
-    Repo.update_all(from(e in Ryker.Accounting.Execution, where: e.source_id == ^missing.id),
-      set: [usage_recorded: false]
-    )
-
-    result = Activity.list(%{"usage_measurement" => "missing", "mode" => "all"})
-    assert result.total == 1
-    assert hd(result.items).id == missing.episode_id
-    assert Activity.list(%{"usage_measurement" => "measured", "mode" => "all"}).total == 1
-    assert Activity.list(%{"usage_measurement" => %{"bad" => "query"}}).total == 0
   end
 
   # Provider work still costs money when the host never accepts the answer.

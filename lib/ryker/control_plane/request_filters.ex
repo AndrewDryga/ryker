@@ -5,37 +5,63 @@ defmodule Ryker.ControlPlane.RequestFilters do
   Every filter is an exact match, so there is no operator to choose. Choosing a
   value applies it at once as a URL parameter, which keeps the view shareable;
   filters only change this view, never execution state.
+
+  The menu offers the filters a person uses. Usage, the timeline and the
+  channel pages link here with a few more, such as a profile or a Slack
+  thread; each of those still reads as a chip in plain words and can be
+  removed. A parameter that only narrows another, such as the workspace of a
+  chosen user, is part of that filter's chip and leaves with it.
   """
   use Phoenix.Component
   import Ryker.ControlPlane.Components
   alias Phoenix.LiveView.JS
-  alias Ryker.ControlPlane.{Components, SlackNames, UsagePage, UsageProjection}
 
+  alias Ryker.ControlPlane.{
+    Components,
+    ExecutionTarget,
+    ShortTime,
+    SlackNames,
+    UsagePage,
+    UsageProjection
+  }
+
+  @efforts ~w(none minimal low medium high xhigh max)
+
+  # Every filter a view can carry, in chip order, with the words its chip shows.
   @fields [
-    {"state", "Request state",
-     ~w(working waiting_for_input waiting_for_event complete cancelled)},
-    {"repository", "Repository", :text},
-    {"target", "Execution target", :text},
     {"conversation", "Conversation", :conversation},
-    {"thread", "Thread", :text},
-    {"transport", "Conversation platform", ~w(slack github control_plane)},
-    {"usage_profile", "Profile", :text},
+    {"thread", "Slack thread", :thread},
+    {"transport", "Source", ~w(slack github control_plane)},
+    {"repository", "Repository", :text},
+    {"state", "State", ~w(working waiting_for_input waiting_for_event complete cancelled)},
+    {"usage_work_kind", "Work type", UsagePage.work_kinds()},
     {"usage_model", "Model", :text},
-    {"usage_effort", "Reasoning effort", ~w(none minimal low medium high xhigh max)},
+    {"usage_effort", "Reasoning effort", @efforts},
+    {"usage_profile", "Profile", :text},
     {"usage_provider", "Provider", :text},
     {"usage_actor", "User", :user},
     {"usage_channel", "Channel", :channel},
-    {"usage_repository", "Usage repository", :text},
-    {"usage_work_kind", "Work type",
-     ~w(admission learning conversational standard deep continuation resumed task event_wait schedule publication approval)},
-    {"usage_source", "Input source", ~w(slack github webhook control_plane)},
-    {"usage_actor_kind", "Sender type", ~w(user app bot system)},
-    {"usage_workspace", "Source workspace", :text},
-    {"usage_transport", "Delivery platform", ~w(slack github control_plane)},
-    {"usage_measurement", "Token report", ~w(measured missing)},
-    {"usage_target", "Exact usage target", :text},
+    {"usage_repository", "Repository", :text},
+    {"usage_source", "Source", ~w(slack github webhook control_plane)},
+    {"usage_actor_kind", "Sender", ~w(user app bot system)},
+    {"usage_workspace", "Workspace", :text},
     {"usage_window", "Usage period", ~w(24h 7d 30d all)}
   ]
+
+  # What "+ Filter" offers, by group and in order.
+  @menu [
+    {"Request", ~w(conversation transport repository state)},
+    {"Usage", ~w(usage_model usage_effort usage_work_kind usage_actor)}
+  ]
+
+  # Parameters that only narrow another filter: they read as part of its
+  # chip and are removed with it, unless another chip still needs them.
+  @companions %{
+    "usage_actor" => ~w(usage_actor_kind usage_workspace usage_source),
+    "usage_model" => ~w(usage_provider),
+    "usage_profile" => ~w(usage_provider)
+  }
+
   @keys Enum.map(@fields, &elem(&1, 0))
   def keys, do: @keys
 
@@ -47,21 +73,22 @@ defmodule Ryker.ControlPlane.RequestFilters do
     params = params |> base() |> Map.put(key, value)
     # The user list holds people only, so a chosen account never also matches
     # a bot that retained the same actor string.
-    params =
-      if key == "usage_actor", do: Map.put(params, "usage_actor_kind", "user"), else: params
-
-    if usage?(key),
-      do: Map.put_new(params, "usage_window", UsageProjection.window(nil)),
-      else: params
+    if key == "usage_actor", do: Map.put(params, "usage_actor_kind", "user"), else: params
   end
 
   def set(params, _key, _value), do: base(params)
 
-  @doc "The view's parameters without one filter."
-  def remove(params, key), do: params |> base() |> Map.delete(key)
+  @doc "The view's parameters without one filter and the parameters that only narrow it."
+  def remove(params, key) do
+    params = params |> base() |> Map.delete(key)
+
+    claimed =
+      for {primary, parts} <- @companions, Map.has_key?(params, primary), part <- parts, do: part
+
+    Map.drop(params, Map.get(@companions, key, []) -- claimed)
+  end
 
   defp base(params), do: params |> UsageProjection.link_params() |> Map.delete("page")
-  defp usage?(key), do: String.starts_with?(key, "usage_")
 
   attr(:params, :map, required: true)
 
@@ -82,13 +109,12 @@ defmodule Ryker.ControlPlane.RequestFilters do
   def render(assigns) do
     params = UsageProjection.link_params(assigns.params)
     chips = chips(params, assigns.values)
-    active = MapSet.new(chips, & &1.key)
 
     assigns =
       assign(assigns,
         params: params,
         chips: chips,
-        available: Enum.reject(@fields, &MapSet.member?(active, elem(&1, 0))),
+        groups: menu_groups(params),
         adding: assigns.menu == "fields",
         cleared: chips != [] or params["q"] not in [nil, ""]
       )
@@ -137,7 +163,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
           phx-value-key="fields"
           aria-expanded={to_string(@adding)}
         ><.icon name={:plus} />Filter</button>
-        <.menu :if={@adding && !@disabled} available={@available} values={@values} params={@params} />
+        <.menu :if={@adding && !@disabled} groups={@groups} values={@values} params={@params} />
       </span>
       <.link :if={@cleared && !@disabled} class="filter-clear" patch={@path}>Clear</.link>
       <a
@@ -151,7 +177,15 @@ defmodule Ryker.ControlPlane.RequestFilters do
     """
   end
 
-  attr(:available, :list, required: true)
+  # The menu's fields not already applied, by group; a group left empty goes.
+  defp menu_groups(params) do
+    for {group, keys} <- @menu,
+        fields = for(key <- keys, not is_binary(params[key]), do: field(key)),
+        fields != [],
+        do: {group, fields}
+  end
+
+  attr(:groups, :list, required: true)
   attr(:values, :list, required: true)
   attr(:params, :map, required: true)
 
@@ -159,15 +193,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
   # it, which the FilterMenu hook shows on hover, focus or click. Choosing a
   # field never replaces the list without a way back.
   defp menu(assigns) do
-    assigns =
-      assign(assigns,
-        groups:
-          [
-            {"Request", Enum.reject(assigns.available, &usage?(elem(&1, 0)))},
-            {"Usage", Enum.filter(assigns.available, &usage?(elem(&1, 0)))}
-          ]
-          |> Enum.reject(&(elem(&1, 1) == []))
-      )
+    assigns = assign(assigns, :available, Enum.flat_map(assigns.groups, &elem(&1, 1)))
 
     ~H"""
     <div
@@ -291,8 +317,13 @@ defmodule Ryker.ControlPlane.RequestFilters do
 
   defp field(key), do: List.keyfind(@fields, key, 0)
 
+  # One chip per filter; a parameter that only narrows another applied
+  # filter is part of that one's chip.
   defp chips(params, values) do
-    for {key, label, type} <- @fields, is_binary(params[key]) do
+    folded =
+      for {primary, parts} <- @companions, is_binary(params[primary]), part <- parts, do: part
+
+    for {key, label, type} <- @fields, is_binary(params[key]), key not in folded do
       %{key: key, label: label, value: value_label(type, params[key], params, values)}
     end
   end
@@ -301,10 +332,30 @@ defmodule Ryker.ControlPlane.RequestFilters do
   # recorded; it reads as "none" so the chip can be seen and removed.
   defp value_label(_type, "", _params, _values), do: "none"
   defp value_label(:text, value, _params, _values), do: value
-  defp value_label(:conversation, value, _params, _values), do: SlackNames.destination(value)
+
+  # A chat is named the way the menu named it, never only "Direct conversation".
+  defp value_label(:conversation, value, _params, values) do
+    case Enum.find(values, &(Map.get(&1, :conversation_ref) == value)) do
+      %{conversation_label: label} when is_binary(label) -> label
+      _other -> SlackNames.destination(value)
+    end
+  end
+
+  defp value_label(:thread, value, _params, _values), do: thread_label(value)
   defp value_label(:channel, value, _params, _values), do: SlackNames.destination(value)
   defp value_label(:user, value, params, values), do: user_label(value, params, values)
   defp value_label(_choices, value, _params, _values), do: choice_label(value)
+
+  # A Slack thread is known by the time its first message was posted.
+  defp thread_label(value) do
+    with [seconds | _fraction] <- String.split(value, ".", parts: 2),
+         {seconds, ""} <- Integer.parse(seconds),
+         {:ok, started} <- DateTime.from_unix(seconds) do
+      "started " <> ShortTime.full(started)
+    else
+      _other -> "this thread"
+    end
+  end
 
   defp user_label(value, %{"usage_source" => "slack", "usage_workspace" => workspace}, _values),
     do: SlackNames.name(workspace, value)
@@ -359,10 +410,9 @@ defmodule Ryker.ControlPlane.RequestFilters do
       URI.encode_query(%{window: UsageProjection.window(params["usage_window"]), mode: mode})
   end
 
+  defp choice_label(value) when value in @efforts, do: ExecutionTarget.effort_name(value)
   defp choice_label("control_plane"), do: "Direct conversation"
   defp choice_label("github"), do: "GitHub"
-  defp choice_label("measured"), do: "Recorded"
-  defp choice_label("missing"), do: "Missing"
   defp choice_label("24h"), do: "Last 24 hours"
   defp choice_label("7d"), do: "Last 7 days"
   defp choice_label("30d"), do: "Last 30 days"

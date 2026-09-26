@@ -10,10 +10,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
     "usage_provider" => :provider,
     "usage_model" => :model,
     "usage_effort" => :effort,
-    "usage_measurement" => :measurement,
-    "usage_target" => :execution_target,
     "usage_channel" => :conversation_ref,
-    "usage_transport" => :transport,
     "usage_repository" => :repository_ref,
     "usage_work_kind" => :work_kind,
     "usage_actor" => :actor,
@@ -49,15 +46,18 @@ defmodule Ryker.ControlPlane.UsageProjection do
 
   def page(_params), do: page(%{})
 
+  @doc """
+  Narrows Activity's rows to the requests whose executions match the usage
+  filters in `params`. A period applies only when the view carries one, as a
+  link from Usage does; a filter chosen on Activity covers all history.
+  """
   def filter_activity(query, params) do
     if filtered?(params) do
       mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
+      window = if Map.has_key?(params, "usage_window"), do: params["usage_window"], else: "all"
 
       executions =
-        Ryker.Accounting.Query.executions(
-          since(params["usage_window"]),
-          mode
-        )
+        Ryker.Accounting.Query.executions(since(window), mode)
         |> dimensions()
 
       ids =
@@ -170,7 +170,6 @@ defmodule Ryker.ControlPlane.UsageProjection do
             turn.id,
             turn.validation_history
           ),
-        measurement: fragment("CASE WHEN ? THEN 'measured' ELSE 'missing' END", e.usage_recorded),
         provider:
           fragment(
             "COALESCE(NULLIF(split_part(split_part(split_part(?, '@', 1), '/', 1), ':', 1), ''), 'unrecorded')",
