@@ -1,6 +1,7 @@
 defmodule Ryker.Delivery.ChatCard do
   @moduledoc false
 
+  alias Ryker.Delivery.OfferWords
   alias Ryker.InspectionRedactor
   alias Ryker.Publication.Card, as: PublicationCard
   alias Ryker.Publication.{Publication, Review}
@@ -13,8 +14,7 @@ defmodule Ryker.Delivery.ChatCard do
     Record,
     RecordPayload,
     Schedule,
-    ScheduleCadence,
-    ScheduleRecurrence
+    ScheduleCadence
   }
 
   @doc "Only a lifecycle state that changes the card's meaning is shown."
@@ -238,7 +238,7 @@ defmodule Ryker.Delivery.ChatCard do
         {"How often", ScheduleCadence.describe(payload["recurrence"], payload["timezone"])},
         {"What it may do", ScheduleCadence.access(payload["authority"], payload["repository"])}
       ]
-      |> optional_detail("Stops", stamp(payload["expires_at"]))
+      |> optional_detail("Stops", OfferWords.stamp(payload["expires_at"]))
 
     common(record, "Schedule", payload["title"], payload["task"], details, :confirm_schedule)
   end
@@ -252,7 +252,7 @@ defmodule Ryker.Delivery.ChatCard do
     common(
       record,
       "Automation change",
-      humanize(payload["action"]) <> " automation",
+      OfferWords.humanize(payload["action"]) <> " automation",
       "Nothing changes until you confirm it.",
       details,
       :confirm_automation
@@ -262,9 +262,12 @@ defmodule Ryker.Delivery.ChatCard do
   defp card(%Record{kind: "memory_offer"} = record, payload) do
     details =
       []
-      |> optional_detail("Applies to", applies_to(payload["scope"], payload["repository"]))
-      |> optional_detail("Shown to", shown_to(payload["scope"], payload["visibility"]))
-      |> optional_detail("Expires", duration_label(payload["expires_in"]))
+      |> optional_detail(
+        "Applies to",
+        OfferWords.applies_to(payload["scope"], payload["repository"])
+      )
+      |> optional_detail("Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"]))
+      |> optional_detail("Expires", OfferWords.duration(payload["expires_in"]))
 
     common(
       record,
@@ -279,14 +282,17 @@ defmodule Ryker.Delivery.ChatCard do
   defp card(%Record{kind: "preference_offer"} = record, payload) do
     details =
       []
-      |> optional_detail("Applies to", applies_to(payload["scope"], payload["repository"]))
-      |> optional_detail("Expires", duration_label(payload["expires_in"]))
+      |> optional_detail(
+        "Applies to",
+        OfferWords.applies_to(payload["scope"], payload["repository"])
+      )
+      |> optional_detail("Expires", OfferWords.duration(payload["expires_in"]))
 
     common(
       record,
       "Behavior preference",
-      humanize(payload["key"]),
-      payload["value"],
+      OfferWords.humanize(payload["key"]),
+      OfferWords.humanize(payload["value"]),
       details,
       :confirm_behavior
     )
@@ -295,9 +301,12 @@ defmodule Ryker.Delivery.ChatCard do
   defp card(%Record{kind: "guidance_offer"} = record, payload) do
     details =
       []
-      |> optional_detail("Applies to", applies_to(payload["scope"], payload["repository"]))
-      |> optional_detail("Shown to", shown_to(payload["scope"], payload["visibility"]))
-      |> optional_detail("Expires", duration_label(payload["expires_in"]))
+      |> optional_detail(
+        "Applies to",
+        OfferWords.applies_to(payload["scope"], payload["repository"])
+      )
+      |> optional_detail("Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"]))
+      |> optional_detail("Expires", OfferWords.duration(payload["expires_in"]))
 
     common(
       record,
@@ -312,11 +321,11 @@ defmodule Ryker.Delivery.ChatCard do
   defp card(%Record{kind: "standing_assignment_offer"} = record, payload) do
     details =
       []
-      |> optional_detail("Listens to", listens_to(payload))
+      |> optional_detail("Listens to", OfferWords.listens_to(payload))
       |> optional_detail("Repository", payload["repository"])
       |> optional_detail(
         "Expires",
-        stamp(payload["expires_at"]) || duration_label(payload["expires_in"])
+        OfferWords.stamp(payload["expires_at"]) || OfferWords.duration(payload["expires_in"])
       )
 
     common(
@@ -389,9 +398,9 @@ defmodule Ryker.Delivery.ChatCard do
     common(
       record,
       "Coverage",
-      humanize(payload["layer"]),
+      OfferWords.humanize(payload["layer"]),
       payload["detail"],
-      [{"Status", humanize(payload["status"])}, {"Source", payload["source"]}],
+      [{"Status", OfferWords.humanize(payload["status"])}, {"Source", payload["source"]}],
       nil
     )
   end
@@ -406,7 +415,7 @@ defmodule Ryker.Delivery.ChatCard do
     common(
       record,
       "Finding",
-      humanize(payload["status"]),
+      OfferWords.humanize(payload["status"]),
       prose.(payload["what"]),
       []
       |> optional_detail("Why", prose.(payload["reason"]))
@@ -433,11 +442,11 @@ defmodule Ryker.Delivery.ChatCard do
       payload["requested_outcome"],
       payload["completion_contract"],
       [
-        {"Kind", humanize(payload["kind"])},
-        {"Authority", humanize(payload["authority"])},
+        {"Kind", OfferWords.humanize(payload["kind"])},
+        {"Authority", OfferWords.humanize(payload["authority"])},
         {"Required", if(payload["required"], do: "Yes", else: "No")}
       ]
-      |> optional_detail("Stage", payload["stage"] && humanize(payload["stage"]))
+      |> optional_detail("Stage", payload["stage"] && OfferWords.humanize(payload["stage"]))
       |> optional_detail("Replaces attempt", payload["successor_of"]),
       nil
     )
@@ -447,7 +456,7 @@ defmodule Ryker.Delivery.ChatCard do
     common(
       record,
       "Goal updated",
-      humanize(payload["state"]),
+      OfferWords.humanize(payload["state"]),
       payload["detail"] || "Goal #{payload["goal_id"]}",
       [{"Goal", payload["goal_id"]}]
       |> optional_detail("Evidence", evidence_refs(payload["evidence_refs"])),
@@ -465,7 +474,7 @@ defmodule Ryker.Delivery.ChatCard do
     common(
       record,
       "Alert assessment",
-      humanize(payload["verdict"]),
+      OfferWords.humanize(payload["verdict"]),
       payload["cause"] || payload["impact"],
       details,
       nil
@@ -687,12 +696,8 @@ defmodule Ryker.Delivery.ChatCard do
 
   # A time automation's change names the cadence it leaves the schedule on, in
   # the same words as the schedule itself.
-  defp changed_cadence(%{"automation_kind" => "time", "after" => %{"trigger" => trigger}}) do
-    case ScheduleRecurrence.from_trigger(trigger) do
-      {:ok, recurrence} -> ScheduleCadence.describe(recurrence, trigger["timezone"])
-      {:error, _reason} -> nil
-    end
-  end
+  defp changed_cadence(%{"automation_kind" => "time", "after" => %{"trigger" => trigger}}),
+    do: OfferWords.cadence(trigger)
 
   defp changed_cadence(_payload), do: nil
 
@@ -707,24 +712,6 @@ defmodule Ryker.Delivery.ChatCard do
   defp source_name(%{"source_name" => name}), do: name
   defp source_name(_payload), do: nil
 
-  defp listens_to(%{"source_kind" => "github"}), do: "GitHub events"
-  defp listens_to(%{"source_kind" => "slack"}), do: "Slack messages here"
-  defp listens_to(%{"source_kind" => "webhook"}), do: "Webhook events"
-  defp listens_to(%{"source_kind" => kind}) when is_binary(kind), do: humanize(kind) <> " events"
-  defp listens_to(%{"source_filter" => "human"}), do: "Messages from people"
-  defp listens_to(%{"source_filter" => "app"}), do: "Messages from apps"
-  defp listens_to(%{"source_filter" => "any"}), do: "Every message"
-  defp listens_to(_payload), do: nil
-
-  defp stamp(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, at, _offset} -> Calendar.strftime(at, "%-d %b %Y, %H:%M UTC")
-      _invalid -> nil
-    end
-  end
-
-  defp stamp(_value), do: nil
-
   # An empty evidence list is honest for qualitative review work, so it stays absent
   # rather than rendering a row with nothing in it.
   defp evidence_refs(refs) when is_list(refs) and refs != [], do: Enum.join(refs, ", ")
@@ -732,56 +719,6 @@ defmodule Ryker.Delivery.ChatCard do
 
   defp optional_detail(details, _label, nil), do: details
   defp optional_detail(details, label, value), do: details ++ [{label, to_string(value)}]
-
-  # Who a saved memory, preference or guidance applies to, in words.
-  defp applies_to("operator", _repository), do: "Just you"
-  defp applies_to("conversation", _repository), do: "This conversation"
-
-  defp applies_to("repository", repository) when is_binary(repository),
-    do: "Work in " <> repository
-
-  defp applies_to("workspace", _repository), do: "Everyone in this workspace"
-  defp applies_to(_scope, _repository), do: nil
-
-  # Who may see it, only where that differs from who it applies to.
-  defp shown_to(scope, visibility)
-       when {scope, visibility} in [
-              {"operator", "private"},
-              {"conversation", "conversation"},
-              {"workspace", "workspace"}
-            ],
-       do: nil
-
-  defp shown_to(_scope, "private"), do: "Only you"
-  defp shown_to(_scope, "conversation"), do: "This conversation only"
-  defp shown_to(_scope, "workspace"), do: "Everyone in this workspace"
-  defp shown_to(_scope, _visibility), do: nil
-
-  defp duration_label(value) when is_binary(value) do
-    case Regex.run(~r/^(\d+)([smhdw])$/, value) do
-      [_, count, unit] -> count <> " " <> duration_unit(unit, count)
-      _other -> humanize(value)
-    end
-  end
-
-  defp duration_label(nil), do: nil
-  defp duration_label(value), do: to_string(value)
-
-  defp duration_unit("s", "1"), do: "second"
-  defp duration_unit("s", _count), do: "seconds"
-  defp duration_unit("m", "1"), do: "minute"
-  defp duration_unit("m", _count), do: "minutes"
-  defp duration_unit("h", "1"), do: "hour"
-  defp duration_unit("h", _count), do: "hours"
-  defp duration_unit("d", "1"), do: "day"
-  defp duration_unit("d", _count), do: "days"
-  defp duration_unit("w", "1"), do: "week"
-  defp duration_unit("w", _count), do: "weeks"
-
-  defp humanize(value) when is_binary(value),
-    do: value |> String.replace("_", " ") |> String.capitalize()
-
-  defp humanize(value), do: to_string(value)
 
   defp safe_https_url(value) when is_binary(value) do
     case URI.parse(value) do

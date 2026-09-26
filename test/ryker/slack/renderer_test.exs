@@ -1460,7 +1460,7 @@ defmodule Ryker.Slack.RendererTest do
 
     assert [%{"action_id" => "ryker_review_publication"} = button] = actions["elements"]
     assert button["value"] == "record:publication_offer:abc123"
-    assert button["confirm"]["text"]["text"] =~ "read-only Coop review"
+    assert button["confirm"]["text"]["text"] =~ "without changing anything"
   end
 
   test "the first governed-review card is the card its decisions will repaint" do
@@ -1752,7 +1752,7 @@ defmodule Ryker.Slack.RendererTest do
 
     assert [%{"action_id" => "ryker_confirm_schedule"} = button] = actions["elements"]
     assert button["value"] == "record:schedule_offer:abc123"
-    assert button["confirm"]["text"]["text"] =~ "current policy"
+    assert button["confirm"]["text"]["text"] =~ "with the access this card shows"
     refute inspect(rendered) =~ "event_matcher"
   end
 
@@ -1853,13 +1853,13 @@ defmodule Ryker.Slack.RendererTest do
 
     assert {:ok, rendered} = Renderer.render(%{"message" => "Posted.", "records" => [sent]})
     text = Jason.encode!(rendered)
-    assert text =~ "Additional Slack post sent"
+    assert text =~ "Message posted"
     assert text =~ "Open message"
     refute text =~ "sending or reconciling"
 
     unsent = Map.delete(sent, "message_url")
     assert {:ok, pending} = Renderer.render(%{"message" => "Posted.", "records" => [unsent]})
-    assert Jason.encode!(pending) =~ "sending or reconciling"
+    assert Jason.encode!(pending) =~ "Ryker is posting it."
 
     forged = Map.put(sent, "message_url", "http://evil.example/steal")
 
@@ -1891,10 +1891,14 @@ defmodule Ryker.Slack.RendererTest do
                ]
              })
 
+    # Where it goes is the channel as Slack names it, in a thread, never the
+    # stored destination reference.
     rendered_text = inspect(rendered)
-    assert rendered_text =~ destination_ref
+    refute rendered_text =~ destination_ref
+    assert rendered_text =~ "<#C789>"
+    assert rendered_text =~ "in a thread"
     assert rendered_text =~ "The deployment is healthy."
-    assert rendered_text =~ "No message has been posted"
+    assert rendered_text =~ "Nothing is posted until the person who asked confirms."
 
     assert [button] =
              rendered["blocks"]
@@ -1903,7 +1907,7 @@ defmodule Ryker.Slack.RendererTest do
 
     assert button["action_id"] == "ryker_confirm_slack_post"
     assert button["value"] == "record:slack_post_offer:abc123"
-    assert button["confirm"]["text"]["text"] =~ destination_ref
+    assert button["confirm"]["text"]["text"] =~ "Ryker posts this message as written"
   end
 
   test "renders a complete automation before and after with one host-owned confirmation" do
@@ -1947,12 +1951,16 @@ defmodule Ryker.Slack.RendererTest do
                ]
              })
 
+    # The change in words: what it is, how often the automation runs and what
+    # it does, never its JSON before and after.
     text = Enum.map_join(rendered["blocks"], "\n", &inspect/1)
-    assert text =~ "Before"
-    assert text =~ "After"
-    assert text =~ "Daily service health"
+    assert text =~ "Pause automation · Daily service health"
+    assert text =~ "Every day at 13:00 UTC"
     assert text =~ "Inspect current service health."
-    assert text =~ "paused"
+    assert text =~ "Nothing changes until you confirm."
+    refute text =~ "schedule:daily-health"
+    refute text =~ "revision"
+    refute text =~ "next_occurrence_at"
 
     assert [%{"action_id" => "ryker_confirm_automation"} = button] =
              rendered["blocks"]
@@ -2084,11 +2092,15 @@ defmodule Ryker.Slack.RendererTest do
     assert {:ok, rendered} =
              Renderer.render(%{"message" => "I can remember these bounds.", "records" => records})
 
-    assert inspect(rendered) =~ "behavior has not changed"
-    assert inspect(rendered) =~ "Advisory only"
-    assert inspect(rendered) =~ "Read-only initiative"
     rendered_text = Enum.map_join(rendered["blocks"], "\n", &inspect/1)
-    assert rendered_text =~ "Source event: `github`"
+    assert rendered_text =~ "Preference · Response detail"
+    assert rendered_text =~ "Just you"
+    assert rendered_text =~ "90 days"
+    assert rendered_text =~ "Nothing changes until you confirm."
+    assert rendered_text =~ "Guidance only"
+    assert rendered_text =~ "It only reads and replies here"
+    assert rendered_text =~ "GitHub events"
+    assert rendered_text =~ "Only when action is submitted"
     assert rendered_text =~ "Review pull request reviews"
 
     assert rendered["blocks"]
@@ -2120,8 +2132,10 @@ defmodule Ryker.Slack.RendererTest do
                ]
              })
 
-    assert inspect(rendered) =~ "Potentially stale hint only"
+    assert inspect(rendered) =~ "A hint for later"
     assert inspect(rendered) =~ "live evidence"
+    assert inspect(rendered) =~ "This conversation"
+    assert inspect(rendered) =~ "90 days"
 
     assert [button] =
              rendered["blocks"]
@@ -2131,6 +2145,169 @@ defmodule Ryker.Slack.RendererTest do
     assert button["action_id"] == "ryker_confirm_memory"
     assert button["value"] == "record:memory_offer:abc123"
   end
+
+  test "no Slack offer says an internal value or word" do
+    # 2026-09-26: the Chat cards were rewritten in plain words, while the same
+    # offers in Slack still said "Kind: `entity_relationship` · Scope:
+    # `workspace`", "Trigger: `x` → `y`", raw JSON before and after, and
+    # dialogs about "the trusted read-only Coop review for this exact
+    # committed workspace" and the "authority ceiling". Every offer in Slack
+    # now says what happens, where, for how long and what it may change.
+    automation = %{
+      "automation_id" => "schedule:daily-health",
+      "context_channel" => "slack:T123:C456",
+      "delivery_channel" => "slack:T123:C456",
+      "expires_at" => nil,
+      "next_occurrence_at" => "2026-08-30T13:00:00.000000Z",
+      "prompt" => "Inspect current service health.",
+      "repository" => nil,
+      "revision" => 1,
+      "status" => "active",
+      "title" => "Daily service health",
+      "trigger" => %{
+        "recurrence" => "daily",
+        "time" => "13:00:00",
+        "timezone" => "Etc/UTC",
+        "type" => "time"
+      }
+    }
+
+    weekdays = %{
+      automation
+      | "trigger" => %{
+          "recurrence" => "weekdays",
+          "time" => "09:00:00",
+          "timezone" => "Europe/Berlin",
+          "type" => "time"
+        },
+        "revision" => 2
+    }
+
+    records = [
+      offer("memory_offer", %{
+        "expires_in" => "90d",
+        "kind" => "entity_relationship",
+        "repository" => nil,
+        "scope" => "workspace",
+        "subject" => "Staging account",
+        "value" => "The staging Emisar account is acme-staging.",
+        "visibility" => "workspace"
+      }),
+      offer("preference_offer", %{
+        "expires_in" => "30d",
+        "key" => "response_location",
+        "repository" => nil,
+        "scope" => "workspace",
+        "value" => "prefer_thread"
+      }),
+      offer("guidance_offer", %{
+        "expires_in" => "30d",
+        "repository" => nil,
+        "scope" => "conversation",
+        "subject" => "Terraform reviews",
+        "summary" => "Lead with availability risk.",
+        "text" => "Explain availability and drift before resource counts.",
+        "visibility" => "conversation"
+      }),
+      offer("standing_assignment_offer", %{
+        "action" => "review_terraform_plan",
+        "expires_in" => "30d",
+        "repository" => "ryker-infra",
+        "source_filter" => "app",
+        "task" => "Review every Terraform plan posted here.",
+        "trigger" => "terraform_plan"
+      }),
+      offer("standing_assignment_offer", %{
+        "context_channel" => "slack:T123:C456",
+        "delivery_channel" => "slack:T123:C456",
+        "expires_at" => nil,
+        "filter" => %{"action" => "submitted"},
+        "hold" => nil,
+        "repository" => "ryker",
+        "source_kind" => "github",
+        "task" => "Review every submitted pull request review.",
+        "title" => "Review pull request reviews"
+      }),
+      offer("automation_change_offer", %{
+        "action" => "update",
+        "after" => weekdays,
+        "automation_id" => automation["automation_id"],
+        "automation_kind" => "time",
+        "before" => automation,
+        "patch" => %{"trigger" => weekdays["trigger"]},
+        "revision" => 1
+      }),
+      offer("slack_post_offer", %{
+        "conversation_ref" => "slack:T123:C789",
+        "destination_ref" => "slack-source:v1:T123:C789:thread:1787832888.000300",
+        "instruction_ref" => "slack-source:v1:T123:C456:message:1787832000.000100",
+        "message" => "The deployment is healthy.",
+        "requested_by_actor_ref" => "slack:user:U123",
+        "thread_ref" => "1787832888.000300",
+        "transport" => "slack"
+      }),
+      offer("publication_offer", %{"body" => "Fix the readiness probe.", "title" => "Probe fix"}),
+      offer("schedule_offer", %{
+        "authority" => "read_only",
+        "expires_at" => nil,
+        "recurrence" => %{"kind" => "weekdays", "time" => "09:00:00"},
+        "repository" => nil,
+        "task" => "Post the open incidents.",
+        "timezone" => "Europe/Berlin",
+        "title" => "Weekday incident status"
+      })
+    ]
+
+    for record <- records do
+      assert {:ok, rendered} = Renderer.render(%{"message" => "Offer.", "records" => [record]}),
+             record["kind"]
+
+      text = rendered_words(rendered)
+
+      for internal <- ["`", "host", "exact", "scope", "Scope", "Coop", "authority", "revision"] do
+        refute text =~ internal, "#{record["kind"]} says #{inspect(internal)}: #{text}"
+      end
+    end
+
+    {:ok, preference} =
+      Renderer.render(%{"message" => "Offer.", "records" => [Enum.at(records, 1)]})
+
+    assert rendered_words(preference) =~ "*Preference · Response location*\nPrefer thread"
+
+    # A changed schedule says how often in words, and what it was.
+    {:ok, change} = Renderer.render(%{"message" => "Offer.", "records" => [Enum.at(records, 5)]})
+
+    assert rendered_words(change) =~
+             "Every weekday at 09:00 Berlin time (was every day at 13:00 UTC)"
+  end
+
+  defp offer(kind, payload),
+    do: %{
+      "kind" => kind,
+      "payload" => payload,
+      "ref" => "record:#{kind}:words",
+      "status" => "open"
+    }
+
+  # Every word a person can read on the card: its text, fields, buttons and
+  # confirmation dialogs.
+  defp rendered_words(rendered) do
+    rendered["blocks"]
+    |> Enum.flat_map(fn block ->
+      [text(block["text"])] ++
+        Enum.map(block["fields"] || [], &text(&1["text"])) ++
+        Enum.flat_map(block["elements"] || [], fn element ->
+          [text(element["text"])] ++
+            Enum.map(~w(title text confirm), &text(get_in(element, ["confirm", &1])))
+        end)
+    end)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join("\n")
+  end
+
+  defp text(%{"text" => text}) when is_binary(text), do: text
+  defp text(text) when is_binary(text), do: text
+  defp text(_other), do: nil
 
   test "renders only an exact publishable review as an operator publication control" do
     review = %{
