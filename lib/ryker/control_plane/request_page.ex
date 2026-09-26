@@ -72,14 +72,7 @@ defmodule Ryker.ControlPlane.RequestPage do
           />
           <div class="request-document-flow">
             <div :if={!@params["section"]} class="prompt-assembly" aria-label="Briefing sources">
-              {Phoenix.HTML.raw(
-                RequestContextHTML.briefing(
-                  @view.selected.sections,
-                  @view.kind,
-                  "selected-#{@view.selected.id}",
-                  @view.selected[:counts] || %{}
-                )
-              )}
+              {Phoenix.HTML.raw(briefing(@view))}
             </div>
             <.artifact
               :for={
@@ -94,6 +87,7 @@ defmodule Ryker.ControlPlane.RequestPage do
               sections={@view.selected.sections}
               prefix={"selected-#{@view.selected.id}"}
               expanded_source={@params["section"] == section.id}
+              names={@view[:names]}
             />
           </div>
           <section class="retained-tools" id="retained-tools">
@@ -141,6 +135,17 @@ defmodule Ryker.ControlPlane.RequestPage do
     </section>
     """
   end
+
+  # Drawn from the whole view, which carries the names known when it loaded
+  # (`Names.revision/0`), so a name Slack gives later draws it again.
+  defp briefing(view),
+    do:
+      RequestContextHTML.briefing(
+        view.selected.sections,
+        view.kind,
+        "selected-#{view.selected.id}",
+        view.selected[:counts] || %{}
+      )
 
   defp request_identity(request) do
     [

@@ -13,7 +13,8 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
     ChannelSettings,
     ChannelSetup,
     ConfigurationSession,
-    MembershipReconciler
+    MembershipReconciler,
+    Operators
   }
 
   alias Ryker.TestSupport.FakeSlackAPI
@@ -276,7 +277,7 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
   # The people chosen to manage Ryker, with the workspace's admins left out.
   defp chosen_operators(people),
     do:
-      Ryker.Slack.Operators.new(
+      Operators.new(
         chosen: people,
         workspace_admins: false,
         workspace_ref: "T9E23FDA39DE5"

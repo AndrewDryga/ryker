@@ -396,13 +396,16 @@ defmodule Ryker.ProductContractsTest do
                interaction_feedback_worker: %{name: :interaction_feedback_worker},
                reconciler: %{name: :reconciler},
                task_card_worker: %{name: :task_card_worker},
-               thread_status_worker: %{name: :thread_status_worker}
+               thread_status_worker: %{name: :thread_status_worker},
+               workspace_admins: [workspace: "T1", lookup: fn _user -> {:ok, false} end]
              })
 
     assert flags.strategy == :one_for_one
 
+    # Who is a workspace admin is known before anything that hears Slack asks.
     assert Enum.map(children, & &1.id) == [
              Ryker.Slack.ActionTokens,
+             Ryker.Slack.WorkspaceAdmins,
              Ryker.Slack.Gateway,
              Ryker.Slack.MembershipReconciler,
              Ryker.Slack.IncidentRoomWorker,

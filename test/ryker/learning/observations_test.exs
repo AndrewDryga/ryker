@@ -87,7 +87,8 @@ defmodule Ryker.Learning.ObservationsTest do
       |> LearnedPage.html("test-secret")
       |> IO.iodata_to_binary()
 
-    assert length(Regex.scan(~r/class="slack-mention"/, html)) == 2
+    # Both become the person, linked to their profile.
+    assert length(Regex.scan(~r/class="kit-person slack-mention"/, html)) == 2
     assert html =~ "<code>U03EPT4RP5M</code>"
     assert html =~ ~s(<pre class="md-code"><code>U03EPT4RP5M</code></pre>)
     assert html =~ "href=\"https://example.test/U03EPT4RP5M\""

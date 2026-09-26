@@ -1,7 +1,7 @@
 defmodule Ryker.Slack.InteractionHandlerTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.Slack.{Interaction, InteractionHandler}
+  alias Ryker.Slack.{Interaction, InteractionHandler, Operators}
 
   defmodule Directory do
     @behaviour Ryker.Slack.MemberDirectory
@@ -918,5 +918,5 @@ defmodule Ryker.Slack.InteractionHandlerTest do
 
   # The people chosen to manage Ryker, with the workspace's admins left out.
   defp chosen_operators(people),
-    do: Ryker.Slack.Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
+    do: Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
 end

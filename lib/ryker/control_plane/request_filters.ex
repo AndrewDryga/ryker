@@ -355,10 +355,15 @@ defmodule Ryker.ControlPlane.RequestFilters do
   defp user_label(value, %{"usage_source" => "slack", "usage_workspace" => workspace}, _values),
     do: Names.name(workspace, value)
 
+  # A person the loaded choices no longer list is still a person, never their
+  # bare Slack ID (Andrew, 2026-09-26); Ryker serves one workspace.
   defp user_label(value, _params, values) do
     case Enum.find(values, &(Map.get(&1, :actor) == value and Map.get(&1, :source) == "slack")) do
-      %{workspace: workspace} -> Names.name(workspace, value)
-      nil -> value
+      %{workspace: workspace} ->
+        Names.name(workspace, value)
+
+      nil ->
+        if Names.person_ref?(value), do: Names.person(Names.workspace(), value).name, else: value
     end
   end
 

@@ -234,10 +234,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       at: input.occurred_at,
       transport: input.destination_transport,
       # "User" told a reader nothing they could act on. Slack writes a person as
-      # @name, so the page does too, and says which workspace they are from.
+      # @name, so the page does too, linked to their Slack profile and never as
+      # a raw ID; an app or a bot there is named by Slack as well.
       actor: actor_label(input),
+      person: slack_person(input),
+      # People mentioned in the text are named while the card is drawn; the
+      # names known then are part of the card, so a later one redraws it.
+      names: Names.revision(),
       display_actor:
-        if(input.source_kind == "slack",
+        if(input.source_kind == "slack" and input.actor_kind != :user,
           do: Names.name(input.source_ref, input.actor_ref)
         ),
       actor_ref: input.actor_ref,
@@ -255,6 +260,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       details: input_details(input, options)
     }
   end
+
+  defp slack_person(%{actor_kind: :user, source_kind: "slack"} = input),
+    do: Names.person(input.source_ref, input.actor_ref)
+
+  defp slack_person(_input), do: nil
 
   defp actor_label(%{actor_kind: :user, source_kind: "slack"}), do: "Slack user"
   defp actor_label(%{actor_kind: :user, actor_ref: "local-operator"}), do: "You"

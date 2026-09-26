@@ -81,6 +81,12 @@ defmodule Ryker.Slack.Names do
 
   def person(_workspace, _ref), do: nobody()
 
+  @doc "Whether a reference names a Slack person, bare (`U…`) or as an actor (`slack:user:U…`)."
+  @spec person_ref?(term()) :: boolean()
+  def person_ref?("slack:user:" <> ref), do: person_ref?(ref)
+  def person_ref?(<<prefix, _::binary>> = ref) when prefix in [?U, ?W], do: valid_ref?(ref)
+  def person_ref?(_ref), do: false
+
   @doc """
   Keeps names Ryker already has in hand, such as the members Choose people
   just listed, so pages show them at once instead of asking Slack for each.
@@ -128,6 +134,20 @@ defmodule Ryker.Slack.Names do
     do: rest |> String.split(":", parts: 2) |> hd()
 
   def workspace_from_destination(_), do: nil
+
+  @doc """
+  A number that grows each time a name any page could show arrives or
+  changes. Data drawn with names while the page is drawn, rather than with
+  names read into the data, carries it, so the next refresh sees a change and
+  draws those names again.
+  """
+  @spec revision() :: non_neg_integer()
+  def revision do
+    case cached(:revision) do
+      [{:revision, revision}] -> revision
+      [] -> 0
+    end
+  end
 
   @doc "The workspace whose names the running cache serves, or nil when none runs."
   @spec workspace() :: String.t() | nil
@@ -264,7 +284,10 @@ defmodule Ryker.Slack.Names do
     end
   end
 
-  defp announce, do: Phoenix.PubSub.broadcast(@pubsub, @topic, :control_plane_changed)
+  defp announce do
+    :ets.update_counter(@table, :revision, 1, {:revision, 0})
+    Phoenix.PubSub.broadcast(@pubsub, @topic, :control_plane_changed)
+  end
 
   defp clean(label), do: InspectionRedactor.artifact(label, max_bytes: 160).text
 

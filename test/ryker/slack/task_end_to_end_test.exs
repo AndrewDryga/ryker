@@ -1,5 +1,6 @@
 defmodule Ryker.Slack.TaskEndToEndTest do
   use Ryker.DataCase, async: false
+
   import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
@@ -18,6 +19,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   alias Ryker.Slack.{
     Gateway,
     InteractionHandler,
+    Operators,
     Publisher,
     Renderer,
     TaskCard,
@@ -956,5 +958,5 @@ defmodule Ryker.Slack.TaskEndToEndTest do
 
   # The people chosen to manage Ryker, with the workspace's admins left out.
   defp chosen_operators(people),
-    do: Ryker.Slack.Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
+    do: Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
 end

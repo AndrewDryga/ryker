@@ -204,13 +204,36 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert fact(html, "Code") == "acme/api, acme/docs · a task changes the one it needs"
     assert fact(html, "Emisar") == "Production approvals"
     assert fact(html, "Alerts") == "Offers to investigate, in the thread or an incident room"
-    assert fact(html, "Invites to incident rooms") =~ "U1"
-    assert fact(html, "Invites to incident rooms") =~ "user group S1"
-    assert fact(html, "Channel settings") =~ "Revision 4, saved 10 Sep, 12:00 UTC by"
-    assert fact(html, "Channel settings") =~ "U123"
+
+    # Invitees and whoever saved the settings read as people, each linked to
+    # their Slack profile, never as raw IDs: "Slack user U0BHTNFCW6S" is not
+    # readable (Andrew, 2026-09-26). Slack has not named anyone here yet.
+    assert fact(html, "Invites to incident rooms") == "Slack user, Slack user, user group S1"
+
+    assert fact_links(html, "Invites to incident rooms") == [
+             "https://slack.com/app_redirect?team=T123&channel=U1",
+             "https://slack.com/app_redirect?team=T123&channel=U2"
+           ]
+
+    assert fact(html, "Channel settings") == "Revision 4, saved 10 Sep, 12:00 UTC by Slack user"
+
+    assert fact_links(html, "Channel settings") == [
+             "https://slack.com/app_redirect?team=T123&channel=U123"
+           ]
 
     assert html |> LazyHTML.from_document() |> LazyHTML.query(".channel-state") |> LazyHTML.text() =~
              "Ryker is in"
+  end
+
+  # Choosing a channel's environment on its page saves the channel as the
+  # console did it, and the Details line read "saved … by Slack reference".
+  test "channel settings saved in Ryker say so instead of naming a Slack reference" do
+    membership!("T123", "C456", private: false, external_shared: false)
+    configuration!("T123", "C456", actor_ref: "control-plane:local", revision: 2)
+
+    html = page("/channels/T123/C456")
+    assert fact(html, "Channel settings") == "Revision 2, saved 10 Sep, 12:00 UTC in Ryker"
+    assert fact_links(html, "Channel settings") == []
   end
 
   test "unconfigured values are calm explicit empties, never a substituted default" do
@@ -2062,6 +2085,17 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   end
 
   # The text of the definition beside one configuration label.
+  defp fact_links(html, label) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("#taking-part dl > div")
+    |> Enum.find(fn pair ->
+      pair |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim() == label
+    end)
+    |> LazyHTML.query("dd a")
+    |> LazyHTML.attribute("href")
+  end
+
   defp fact(html, label) do
     html
     |> LazyHTML.from_document()

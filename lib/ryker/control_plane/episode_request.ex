@@ -113,14 +113,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         aria-label="Briefing sources"
       >
         <h4 class="sr-only">Briefing sources</h4>
-        {Phoenix.HTML.raw(
-          RequestContextHTML.briefing(
-            @request.sections,
-            @request.source_kind,
-            @request.id,
-            @request[:counts] || %{}
-          )
-        )}
+        {Phoenix.HTML.raw(briefing(@request))}
         <%= for section <- @input_sections do %>
           <Components.disclosure
             :if={unavailable_assembly?(section)}
@@ -140,13 +133,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
             Full submitted request<span :if={@prompt_section.artifact.truncated}>Partial display</span>
           </h4>
         </header>
-        {Phoenix.HTML.raw(
-          RequestContextHTML.submitted(
-            @request.sections,
-            @request.id <> "-submitted",
-            @prompt_section[:artifact_id]
-          )
-        )}
+        {Phoenix.HTML.raw(submitted(@request, @prompt_section))}
       </section>
       <section :if={is_map(@response)} class="response-review">
         <Components.message_block :if={is_binary(@response["message"])} sender="Ryker">
@@ -195,6 +182,26 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   # What the call cost and where its time went, as recorded when it ended: a
   # short two-column table a reader scans top to bottom.
+  # Drawn from the whole entry rather than its sections alone: the entry
+  # carries the names known when it loaded (`Names.revision/0`), so a name
+  # Slack gives later draws the briefing again (2026-09-26).
+  defp briefing(request),
+    do:
+      RequestContextHTML.briefing(
+        request.sections,
+        request.source_kind,
+        request.id,
+        request[:counts] || %{}
+      )
+
+  defp submitted(request, prompt_section),
+    do:
+      RequestContextHTML.submitted(
+        request.sections,
+        request.id <> "-submitted",
+        prompt_section[:artifact_id]
+      )
+
   defp call_run(assigns) do
     ~H"""
     <dl class="call-run" aria-label="How this call ran">

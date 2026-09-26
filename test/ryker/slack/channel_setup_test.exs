@@ -12,6 +12,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     Input,
     Interaction,
     MembershipTransition,
+    Operators,
     Renderer
   }
 
@@ -1014,7 +1015,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
   # The people chosen to manage Ryker, with the workspace's admins left out.
   defp chosen_operators(people),
     do:
-      Ryker.Slack.Operators.new(
+      Operators.new(
         chosen: people,
         workspace_admins: false,
         workspace_ref: @workspace

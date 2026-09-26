@@ -216,7 +216,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           </a>
         </.fact>
         <.fact :if={invited?(@configuration)} label="Invites to incident rooms">
-          {invited(@configuration, @view.scope)}
+          <.invited configuration={@configuration} workspace={@view.scope.workspace_ref} />
         </.fact>
         <.fact label="Membership">{membership(@membership, @now)}</.fact>
       </dl>
@@ -234,7 +234,9 @@ defmodule Ryker.ControlPlane.ChannelPage do
           <.fact label="Shared with another organization">
             {tri_state(@membership, :external_shared, "Yes", "No")}
           </.fact>
-          <.fact label="Channel settings">{saved(@configuration, @view.scope)}</.fact>
+          <.fact label="Channel settings">
+            <.saved configuration={@configuration} workspace={@view.scope.workspace_ref} />
+          </.fact>
           <.fact :if={@membership} label="Membership record">
             Generation {@membership.generation}
           </.fact>
@@ -335,10 +337,21 @@ defmodule Ryker.ControlPlane.ChannelPage do
 
   defp invited?(_configuration), do: false
 
-  defp invited(configuration, %ChannelScope{workspace_ref: workspace}) do
-    people = Enum.map(configuration.invite_user_refs, &Names.name(workspace, &1))
-    groups = Enum.map(configuration.invite_user_group_refs, &("user group " <> &1))
-    Enum.join(people ++ groups, ", ")
+  attr(:configuration, :map, required: true)
+  attr(:workspace, :string, required: true)
+
+  # The people by name, each linked to their Slack profile, then user groups.
+  defp invited(assigns) do
+    assigns =
+      assign(assigns,
+        people:
+          Enum.map(assigns.configuration.invite_user_refs, &Names.person(assigns.workspace, &1)),
+        groups: Enum.map(assigns.configuration.invite_user_group_refs, &("user group " <> &1))
+      )
+
+    ~H"""
+    <Kit.people people={@people} more={@groups} />
+    """
   end
 
   defp membership(nil, _now), do: "Not recorded"
@@ -367,16 +380,28 @@ defmodule Ryker.ControlPlane.ChannelPage do
     end
   end
 
-  defp saved(nil, _scope), do: "Never saved; this channel follows the defaults"
+  attr(:configuration, :map, default: nil)
+  attr(:workspace, :string, required: true)
 
-  defp saved(configuration, scope) do
-    by =
-      if configuration.actor_ref,
-        do: " by " <> Names.name(scope.workspace_ref, configuration.actor_ref),
-        else: ""
+  defp saved(%{configuration: nil} = assigns),
+    do: ~H"Never saved; this channel follows the defaults"
 
-    "Revision #{configuration.revision}, saved #{Components.timestamp(configuration.saved_at)}#{by}"
+  # Who saved it: a Slack person by name, linked to their profile, or Ryker's
+  # own pages, which read "by Slack reference" until 2026-09-26.
+  defp saved(assigns) do
+    actor = assigns.configuration.actor_ref
+    person = if Names.person_ref?(actor), do: Names.person(assigns.workspace, actor)
+    assigns = assign(assigns, by: saved_by(actor, person), person: person)
+
+    ~H"""
+    Revision {@configuration.revision}, saved {Components.timestamp(@configuration.saved_at)}{@by}
+    <Kit.person :if={@person} person={@person} />
+    """
   end
+
+  defp saved_by("control-plane:" <> _console, _person), do: " in Ryker"
+  defp saved_by(_actor, nil), do: ""
+  defp saved_by(_actor, _person), do: " by"
 
   attr(:view, :map, required: true)
   attr(:base, :string, required: true)

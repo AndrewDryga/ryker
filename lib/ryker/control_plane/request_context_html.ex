@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.CallRun
   alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.Kit
+  alias Ryker.ControlPlane.MemoryFormat
   alias Ryker.ControlPlane.PromptDocument
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
@@ -1781,10 +1783,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp notes(items), do: ["<ol class=\"context-notes\">", Enum.map(items, &note/1), "</ol>"]
 
   defp note(item) do
-    meta =
-      [actor_label(item), readable_candidate_time(item["occurred_at"] || item["at"])]
-      |> Enum.reject(&(&1 in [nil, ""]))
-      |> Enum.join(" · ")
+    meta = byline(who(item), readable_candidate_time(item["occurred_at"] || item["at"]))
 
     topics = item["topics"] |> List.wrap() |> Enum.filter(&is_binary/1)
 
@@ -1794,7 +1793,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "\"><p class=\"context-note-text\">",
       escape(present(item["summary"]) || "No summary was recorded."),
       "</p>",
-      if(meta != "", do: ["<p class=\"context-note-meta\">", escape(meta), "</p>"], else: []),
+      if(meta != [], do: ["<p class=\"context-note-meta\">", meta, "</p>"], else: []),
       if(topics != [],
         do: [
           "<ul class=\"context-note-topics\" aria-label=\"Topics\">",
@@ -1829,7 +1828,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       fn {key, title} ->
         if state[key] in [nil, "", [], %{}],
           do: [],
-          else: ["<div><h5>", title, "</h5>", fields(state[key], 0), "</div>"]
+          else: ["<div><h5>", title, "</h5>", recall_field(key, state[key]), "</div>"]
       end
     )
   end
@@ -1837,6 +1836,25 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp recall_fields(_),
     do:
       "<p>Saved summary is not structured. Its retained value is in the exact component below.</p>"
+
+  # The people a conversation involved, as the model wrote them down: a Slack
+  # ID or a mention there is the person, by name and linked to their profile.
+  defp recall_field("participants", people) when is_list(people) do
+    [
+      "<ul>",
+      Enum.map(people, fn
+        person when is_binary(person) ->
+          {:safe, html} = MemoryFormat.inline(person, Names.workspace())
+          ["<li><p>", html, "</p></li>"]
+
+        other ->
+          ["<li>", fields(other, 1), "</li>"]
+      end),
+      "</ul>"
+    ]
+  end
+
+  defp recall_field(_key, value), do: fields(value, 0)
 
   defp source(key, path, value, metadata, body, prefix, options \\ []) do
     {title, origin, _owner, description} = metadata
@@ -2046,6 +2064,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         do: message_body(body, input),
         else: "<p class=\"context-absent\">This source event has no text body.</p>"
       ),
+      person: slack_person(input),
       class: "context-message",
       rest: %{"data-message-context" => context},
       title: title,
@@ -2127,6 +2146,52 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp file_label(%{"status" => "available", "name" => name}) when is_binary(name), do: name
   defp file_label(%{"status" => "unavailable"}), do: "a file Ryker could not read"
   defp file_label(_file), do: "a file"
+
+  # A Slack person the one way every page shows one: their name, linked to
+  # their Slack profile, never a raw ID (Andrew, 2026-09-26). A name kept with
+  # the message stays that name. The message's source names the workspace; an
+  # earlier message or a note kept without one is from the workspace Ryker
+  # serves.
+  defp slack_person(input) do
+    actor = actor_map(input)
+    ref = actor_ref(input, actor)
+
+    if actor["kind"] in [nil, "user"] and Names.person_ref?(ref),
+      do: kept_name(Names.person(slack_workspace(input) || Names.workspace(), ref), actor)
+  end
+
+  defp actor_map(%{"actor" => actor}) when is_map(actor), do: actor
+  defp actor_map(_input), do: %{}
+
+  defp actor_ref(%{"actor" => ref}, _actor) when is_binary(ref), do: ref
+  defp actor_ref(input, actor), do: input["actor_ref"] || actor["ref"]
+
+  defp kept_name(person, %{"display_name" => name}) when is_binary(name) and name != "",
+    do: %{person | name: name}
+
+  defp kept_name(person, %{"name" => name}) when is_binary(name) and name != "",
+    do: %{person | name: name}
+
+  defp kept_name(person, _actor), do: person
+
+  # Who wrote a note or a message: a Slack person as above, anyone else as
+  # their label says.
+  defp who(input) do
+    case slack_person(input) do
+      nil ->
+        escape(actor_label(input))
+
+      person ->
+        Kit.person_html(person)
+    end
+  end
+
+  # "who · when", leaving out whichever is not known.
+  defp byline(who, at) do
+    [who, at && escape(at)]
+    |> Enum.reject(&(&1 in [nil, "", []]))
+    |> Enum.intersperse(" · ")
+  end
 
   defp actor_label(%{"actor" => actor} = input) when is_binary(actor),
     do: input |> Map.delete("actor") |> Map.put("actor_ref", actor) |> actor_label()
@@ -2367,9 +2432,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       escape(message.text),
       if(message.truncated, do: " <span>(truncated)</span>", else: []),
       "</p><span class=\"candidate-message-meta\">",
-      [message.actor, readable_candidate_time(message.at)]
-      |> Enum.filter(&is_binary/1)
-      |> Enum.map_join(" · ", &escape/1),
+      byline(
+        if(is_binary(message.actor), do: who(%{"actor" => message.actor})),
+        readable_candidate_time(message.at)
+      ),
       "</span></dd></div>"
     ]
   end

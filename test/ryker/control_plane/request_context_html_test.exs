@@ -288,6 +288,88 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert html =~ "data-source=\"slack_addressing\""
   end
 
+  # "Who can manage Ryker" read "Slack user U0BHTNFCW6S" on 2026-09-26, and so
+  # did every sender, note and routing candidate kept with a Slack ID in a
+  # request's context. A Slack person reads as their name linked to their
+  # Slack profile; the raw ID stays only under "Sender ID", which says it is one.
+  test "a Slack person in a request's context reads as a linked name, never a raw ID" do
+    message =
+      %{
+        "input" => %{
+          "source" => %{"kind" => "slack", "ref" => "T123"},
+          "actor" => %{"kind" => "user", "ref" => "U0BHTNFCW6S"},
+          "text" => "Is the deploy healthy?"
+        }
+      }
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    sender = LazyHTML.query(message, ".ui-message-header strong a")
+    assert LazyHTML.text(sender) == "Slack user"
+
+    assert LazyHTML.attribute(sender, "href") == [
+             "https://slack.com/app_redirect?team=T123&channel=U0BHTNFCW6S"
+           ]
+
+    refute message |> LazyHTML.query(".ui-message-header") |> LazyHTML.text() =~ "U0BHTNFCW6S"
+
+    assert message |> LazyHTML.query(".context-message-details") |> LazyHTML.text() =~
+             "U0BHTNFCW6S"
+
+    # A note and a message a router weighed, each kept with a bare Slack ID.
+    notes =
+      recall_document(%{
+        "observations" => [
+          %{
+            "summary" => "Deploy rolled back.",
+            "actor_ref" => "U0BHTNFCW6S",
+            "occurred_at" => "2026-09-18T17:00:00Z"
+          }
+        ]
+      })
+
+    # The exact component beneath keeps the retained JSON for support.
+    note = LazyHTML.query(notes, ".context-note")
+    assert note |> LazyHTML.query(".context-note-meta") |> LazyHTML.text() =~ "Slack user · "
+    refute LazyHTML.text(note) =~ "U0BHTNFCW6S"
+
+    candidate = %{
+      "state" => "complete",
+      "episode_ref" => "candidate:named",
+      "title" => "Deploy",
+      "message_count" => 1,
+      "first_message" => %{
+        "actor" => "U0BHTNFCW6S",
+        "at" => "2026-09-18T17:00:00Z",
+        "text" => "Deploy failing"
+      }
+    }
+
+    candidates =
+      %{"candidates" => [candidate]}
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.context", "admission")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    assert candidates |> LazyHTML.query(".candidate-message-meta") |> LazyHTML.text() =~
+             "Slack user · "
+
+    refute LazyHTML.text(candidates) =~ "U0BHTNFCW6S"
+
+    # The people a conversation involved, as the model wrote them down.
+    people =
+      recall_document(%{
+        "current" => [%{"state" => %{"participants" => ["<@U0BHTNFCW6S> (on call)"]}}]
+      })
+
+    participants = LazyHTML.query(people, ".conversation-recall")
+    assert LazyHTML.text(participants) =~ "Slack user (on call)"
+    refute LazyHTML.text(participants) =~ "U0BHTNFCW6S"
+  end
+
   # A directory enhancement must not erase a name already retained with the
   # message: operators otherwise lose the author while inspecting a request.
   test "retained display names are not interpreted as Slack directory IDs" do
@@ -300,9 +382,16 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
         }
       })
 
-    html = artifact |> RequestContextHTML.render() |> IO.iodata_to_binary()
-    assert html =~ "<strong>Andrew &lt;admin&gt;</strong>"
-    refute html =~ "<strong>Slack reference</strong>"
+    document = artifact |> RequestContextHTML.render() |> IO.iodata_to_binary()
+    sender = document |> LazyHTML.from_fragment() |> LazyHTML.query(".ui-message-header strong")
+    assert LazyHTML.text(sender) == "Andrew <admin>"
+
+    # Still the person: the retained name links to their Slack profile.
+    assert sender |> LazyHTML.query("a") |> LazyHTML.attribute("href") == [
+             "https://slack.com/app_redirect?team=T123&channel=U123"
+           ]
+
+    refute document =~ "Slack reference"
   end
 
   # Andrew's screenshot of this block, 2026-09-13: thirteen alphabetised labels

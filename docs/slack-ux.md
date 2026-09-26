@@ -205,7 +205,7 @@ option before asking for a choice, pairing the exact button label with what Ryke
 3. alerts: **Investigate here** (in the alert's thread), **Offer a room** (a choice between the
    thread and an incident room), or **Always open a room**;
 4. invitations: **Nobody automatically**, or a reply with the members and user groups to add;
-   configured operators are always invited;
+   the people chosen to manage Ryker are always invited (workspace admins are not, unless chosen);
 5. confirm: a plain-English summary of the choices with **Save settings**, **Start over** and
    **Cancel**, each explained.
 
@@ -752,8 +752,12 @@ anything else — is an operator turn, not a cancellation.
 Workspace membership alone does not grant operator authority. Incident steering, incident-offer
 approval, durable behavior and schedules require both:
 
-- the Slack user ID is one of the configured operators (`operators` in the Slack settings, chosen
-  under Integrations › Slack);
+- the Slack user ID is one of the configured operators: a person chosen under Integrations ›
+  Slack (`operators` in the Slack settings) or, while **Workspace admins and owners can manage
+  Ryker** is on (the default, `workspace_admins_manage`), someone Slack's `users.info` lists as an
+  admin or owner of the workspace. Ryker asks Slack when it matters and keeps the answer for a
+  minute; a lookup that fails refuses. One check, `Ryker.Slack.Operators.operator?/2`, decides it
+  for every surface below and for the saved settings themselves;
 - Slack reports a current full member of the configured workspace (`workspace_ref`).
 
 Changes to running systems are not on this list: Ryker does not decide them, and Emisar's policy

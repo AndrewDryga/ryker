@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Repo
   alias Ryker.Settings.PolicyBinding
+  alias Ryker.Slack.Names
   alias Ryker.Work.{ActivityEvent, ActivityRetention, CandidateResponse, Recovery, Session, Turn}
   alias Ryker.Work.FailureCause
 
@@ -71,7 +72,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
                pages: page.pages,
                total: page.total,
                items: page.items,
-               selected: inspect_row(selected, params, options)
+               selected: inspect_row(selected, params, options),
+               # The briefing names Slack people while it is drawn; see
+               # `Names.revision/0`.
+               names: Names.revision()
              }}
         end
 
@@ -526,6 +530,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
       source_kind: kind,
       phase: :submission,
       sections: submission,
+      # The briefing names Slack people while it is drawn; the names known
+      # then are part of the entry, so a later one draws it again.
+      names: Names.revision(),
       href: href,
       band: :ready,
       kind: :request
@@ -592,7 +599,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
          preparation: EpisodeTrace.input_preparation(entry),
          timeline: input_request_events(entry, params, options),
          answer: routing_answer(entry),
-         selected: request
+         selected: request,
+         names: Names.revision()
        }}
     else
       _missing -> :not_found

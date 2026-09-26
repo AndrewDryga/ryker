@@ -1,7 +1,7 @@
 defmodule Ryker.Slack.AppHomeControlsTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.Slack.{AppHomeControls, HomeInteraction, HomeSubmission}
+  alias Ryker.Slack.{AppHomeControls, HomeInteraction, HomeSubmission, Operators}
 
   @plan_fingerprint String.duplicate("a", 64)
 
@@ -689,5 +689,5 @@ defmodule Ryker.Slack.AppHomeControlsTest do
 
   # The people chosen to manage Ryker, with the workspace's admins left out.
   defp chosen_operators(people),
-    do: Ryker.Slack.Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
+    do: Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
 end

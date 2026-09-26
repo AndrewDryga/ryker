@@ -27,6 +27,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     IncidentRoom,
     IncidentRooms,
     InteractionAudit,
+    Names,
     TaskCard,
     ThreadStatus
   }
@@ -538,7 +539,10 @@ defmodule Ryker.ControlPlane.FailureProjection do
       outcome: audit.outcome,
       provider_error: provider_error(audit.last_error_detail),
       ref: audit.event_ref,
-      source: "#{audit.actor_ref} · #{audit.action_id}",
+      # Who pressed it is a person, shown as every person is; the control is
+      # the source (until 2026-09-26 both were one raw "U… · action" line).
+      pressed_by: Names.person(audit.workspace_ref, audit.actor_ref),
+      source: audit.action_id,
       status: audit.repaint_status,
       summary: audit.last_error_code || "Slack repaint blocked",
       updated_at: audit.updated_at

@@ -5,7 +5,14 @@ defmodule Ryker.ControlPlane.RelearnPanel do
 
   alias Ryker.CanonicalJSON
 
-  alias Ryker.ControlPlane.{ConversationMemory, CSRF, LearningActivity, SlackMarkdown, SourceText}
+  alias Ryker.ControlPlane.{
+    ConversationMemory,
+    CSRF,
+    Kit,
+    LearningActivity,
+    SlackMarkdown,
+    SourceText
+  }
 
   alias Ryker.InspectionRedactor
   alias Ryker.Slack.Names
@@ -87,7 +94,11 @@ defmodule Ryker.ControlPlane.RelearnPanel do
                   <span>
                     <span class="relearn-source-meta">
                       <time datetime={DateTime.to_iso8601(source.at)}>{timestamp(source.at)}</time>
-                      <span>{source.actor}</span>
+                      <%= if source.person do %>
+                        <Kit.person person={source.person} />
+                      <% else %>
+                        <span>{source.actor}</span>
+                      <% end %>
                       <span :if={source.mode}>{source.mode}</span>
                       <span :if={source.suggested}>Connected to earlier sources</span>
                     </span>
@@ -236,6 +247,10 @@ defmodule Ryker.ControlPlane.RelearnPanel do
             conversation_ref: Map.get(preview, :conversation_ref),
             source_message_ref: entry.source_message_ref
           }),
+        # A Slack person reads as every person does; the name cache redacts
+        # their name as it keeps it.
+        person:
+          if(Names.person_ref?(entry.actor_ref), do: Names.person(workspace, entry.actor_ref)),
         actor:
           InspectionRedactor.artifact(actor(workspace, entry.actor_ref), secrets: secrets).text,
         mode: mode(Map.get(entry, :execution_mode)),
