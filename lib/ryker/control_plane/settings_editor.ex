@@ -423,7 +423,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
               <dl>
                 <div :for={{label, value} <- row.details}>
                   <dt>{label}</dt>
-                  <dd><code>{value}</code></dd>
+                  <dd :if={match?({:fingerprint, _value}, value)}>
+                    <Components.identifier value={elem(value, 1)} label={label} />
+                  </dd>
+                  <dd :if={is_binary(value)}><code>{value}</code></dd>
                 </div>
               </dl>
             </details>

@@ -376,15 +376,15 @@ defmodule Ryker.ControlPlane.UsagePage do
 
   defp timing(totals) do
     segments = [
-      {"Queue", value(totals, :queued_ms), "queue"},
-      {"Execution", value(totals, :provider_ms), "execution"},
-      {"Host processing", value(totals, :host_ms), "host"}
+      {"Waiting for a worker", value(totals, :queued_ms), "queue"},
+      {"Model", value(totals, :provider_ms), "execution"},
+      {"Checking the answer", value(totals, :host_ms), "host"}
     ]
 
     total = Enum.sum(Enum.map(segments, &elem(&1, 1)))
 
     if total == 0 do
-      "<p class=\"empty\">No execution timing recorded yet.</p>"
+      "<p class=\"empty\">No timing recorded yet.</p>"
     else
       {arcs, _} =
         Enum.map_reduce(segments, 0, fn {label, ms, class}, offset ->
@@ -410,7 +410,7 @@ defmodule Ryker.ControlPlane.UsagePage do
         end)
 
       [
-        "<div class=\"usage-donut\"><svg viewBox=\"0 0 160 160\" role=\"img\" aria-label=\"Time spent in queue, execution and host processing\"><title>Where the time went</title>",
+        "<div class=\"usage-donut\"><svg viewBox=\"0 0 160 160\" role=\"img\" aria-label=\"Time spent waiting for a worker, in the model and checking the answer\"><title>Where the time went</title>",
         arcs,
         "<text x=\"80\" y=\"77\" text-anchor=\"middle\">",
         duration(total),

@@ -277,7 +277,6 @@ defmodule Ryker.ControlPlane.LearningActivity do
     |> Map.merge(attempts(row, params))
     |> Map.merge(%{
       relearn: relearn,
-      retry_policy: policy,
       retry_available: retryable?(row, relearn, outstanding or busy, policy),
       retry_blocked:
         retry_reason(row.status, outstanding, busy) ||

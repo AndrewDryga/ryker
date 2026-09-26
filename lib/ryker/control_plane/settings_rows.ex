@@ -16,7 +16,7 @@ defmodule Ryker.ControlPlane.SettingsRows do
           state: {atom(), String.t()} | nil,
           text: String.t() | nil,
           meta: [String.t() | {:strong, String.t()} | nil],
-          details: [{String.t(), String.t()}],
+          details: [{String.t(), String.t() | {:fingerprint, String.t()}}],
           address: String.t() | nil
         }
 
@@ -65,19 +65,21 @@ defmodule Ryker.ControlPlane.SettingsRows do
         allows(binding),
         offered(view, binding)
       ],
+      # The two fingerprints are for support to compare, never to read: a
+      # short form, with the whole value a copy away.
       details:
         Enum.reject(
           [
             {"Worker policy", binding.policy_name},
-            {"Pinned version", binding.policy_digest},
-            {"Authority", binding.authority_digest},
+            {"Reviewed version", fingerprint(binding.policy_digest)},
+            {"Allowed access", fingerprint(binding.authority_digest)},
             {"Confirmed by",
              if(binding.verified_by == :import,
                do: "Imported",
                else: binding.verified_worker_ref
              )}
           ],
-          fn {_label, value} -> value in [nil, ""] end
+          fn {_label, value} -> value in [nil, "", {:fingerprint, nil}, {:fingerprint, ""}] end
         )
     })
   end
@@ -96,6 +98,8 @@ defmodule Ryker.ControlPlane.SettingsRows do
       meta: facts
     })
   end
+
+  defp fingerprint(value), do: {:fingerprint, value}
 
   @doc "What removing a row does, said before it is done."
   @spec removal(map()) :: String.t()

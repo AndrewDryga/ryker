@@ -180,7 +180,7 @@ defmodule Ryker.ControlPlane.RunningSystem do
           <p class="configuration-behavior">{@help.behavior}</p>
           <dl>
             <div>
-              <dt>Key</dt>
+              <dt>Name in the settings file</dt>
               <dd><code>{@integration.key}</code></dd>
             </div>
             <div :if={@row}>
@@ -218,11 +218,11 @@ defmodule Ryker.ControlPlane.RunningSystem do
           <p class="configuration-default">Default: {@help.default}</p>
           <dl>
             <div>
-              <dt>Key</dt>
+              <dt>Name in the settings file</dt>
               <dd><code>{@row.key}</code></dd>
             </div>
             <div>
-              <dt>Loaded value</dt>
+              <dt>Value as loaded</dt>
               <dd><code>{@row.value}</code></dd>
             </div>
             <div :if={@row.source != @source} class="configuration-provenance">

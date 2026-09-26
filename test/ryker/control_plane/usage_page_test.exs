@@ -361,7 +361,15 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     assert html =~ "— of tokens"
     assert html =~ "Not measured"
     assert html =~ "<0.1%" or html =~ "&lt;0.1%"
-    assert html =~ "Time spent in queue, execution and host processing"
+    # QA re-test, 2026-09-26: the chart said "Host processing". It names the
+    # parts the way the request timeline does.
+    assert html =~ "Time spent waiting for a worker, in the model and checking the answer"
+
+    for label <- ["Waiting for a worker", "Model", "Checking the answer"] do
+      assert html =~ "</span>#{label}</dt>"
+    end
+
+    refute html =~ "Host processing"
   end
 
   test "work types people and sub-cent costs remain useful in populated breakdowns" do

@@ -328,7 +328,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           options: :advertised_policies,
           help: "Only policies a connected worker offers can be chosen."
         },
-        %{name: :policy_digest, kind: :evidence, label: "Pinned version"}
+        %{name: :policy_digest, kind: :evidence, label: "Reviewed version"}
       ]
     },
     # Every field says what it is for in plain words and, when refused, what

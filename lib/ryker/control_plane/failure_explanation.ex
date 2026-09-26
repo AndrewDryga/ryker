@@ -2466,7 +2466,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       href: row[:learning_path],
       link: "Open its attempts",
       effect:
-        "The Learning page shows why each attempt stopped. Grant one more start there and Ryker reads these messages again under the current learning policy."
+        "The Learning page shows why each attempt stopped. Grant one more start there and Ryker reads these messages again with the learning settings in place now."
     }
 
   defp learning_cause(%{summary: "learning_retry_exhausted"}),
