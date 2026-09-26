@@ -26,7 +26,20 @@ defmodule Ryker.Delivery.ChatCard do
       when kind in ~w(evidence coverage finding progress goal goal_state alert_assessment),
       do: nil
 
-  def display_status(card), do: card.status
+  # The stored status in words: "superseded" and "dismissed" mean nothing to
+  # the person reading the card.
+  def display_status(%{kind: "input_request", status: status})
+      when status in [:superseded, "superseded"],
+      do: "Replaced by your edit"
+
+  def display_status(%{status: status}) when status in [:answered, "answered"], do: "Answered"
+  def display_status(%{status: status}) when status in [:dismissed, "dismissed"], do: "Closed"
+
+  def display_status(%{status: status}) when status in [:superseded, "superseded"],
+    do: "Replaced by a newer one"
+
+  def display_status(%{status: status}),
+    do: status |> to_string() |> String.replace("_", " ") |> String.capitalize()
 
   @spec project(Record.t()) :: {:ok, map()} | :ignore
   def project(%Record{} = record) do

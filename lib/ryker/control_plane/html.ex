@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.HTML do
 
   alias Phoenix.HTML.Safe
 
-  alias Ryker.ControlPlane.{ConversationLab, Layouts}
+  alias Ryker.ControlPlane.{ConversationLab, Layouts, SlackMarkdown}
   alias Ryker.Delivery.ChatCard
 
   # The title and description are the shell's header; the body owns the rest.
@@ -402,6 +402,20 @@ defmodule Ryker.ControlPlane.HTML do
     end
   end
 
+  # A title with several lines (a question listing what it needs) keeps its
+  # paragraphs and numbered lists; one line stays a heading.
+  defp card_title(title) when is_binary(title) do
+    if String.contains?(title, "\n"),
+      do: [
+        "<div class=\"lab-card-question markdown-preview\">",
+        SlackMarkdown.preview(title),
+        "</div>"
+      ],
+      else: ["<h3>", escape(title), "</h3>"]
+  end
+
+  defp card_title(title), do: ["<h3>", escape(title), "</h3>"]
+
   defp lab_card(card) do
     details =
       Enum.map(card.details, fn {label, value} ->
@@ -435,9 +449,8 @@ defmodule Ryker.ControlPlane.HTML do
         do: ["<span class=\"lab-card-status\">", escape(ChatCard.display_status(card)), "</span>"],
         else: ""
       ),
-      "</div><h3>",
-      escape(card.title),
-      "</h3>",
+      "</div>",
+      card_title(card.title),
       if(card.summary, do: ["<p>", escape(card.summary), "</p>"], else: ""),
       if(card[:wait_warning],
         do: [
