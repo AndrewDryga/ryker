@@ -1011,9 +1011,12 @@ defmodule Ryker.Retention.Custody do
     end
   end
 
+  # Every cleanup change is stamped by the database clock: a returning
+  # worker's report (`last_seen_at`) is compared with it, and a host clock
+  # running ahead made a report a few milliseconds later look older.
   defp persist(session, attributes) do
     session
-    |> Ecto.Changeset.change(attributes)
+    |> Ecto.Changeset.change(Map.put_new(attributes, :updated_at, Repo.now!()))
     |> Ecto.Changeset.check_constraint(:cleanup_status,
       name: :episode_work_session_cleanup_state_valid
     )
