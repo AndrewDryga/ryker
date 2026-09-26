@@ -658,8 +658,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
     },
     # Ryker cannot see which accounts the worker has signed in, so they are
     # listed here and every model above names one of them. Coop refuses the
-    # whole policy file while a model names an account that is not signed in,
-    # which stops every kind of work, so the help says to sign in first.
+    # whole policy file while a model names an account that is not signed in;
+    # the worker then keeps running the models it loaded before
+    # (deploy/compose/coop/load-policies.sh), so the help says to sign in first.
     %{
       key: :model_accounts,
       domain: :work,
@@ -682,8 +683,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
           group: "Model accounts",
           help:
             "Each as provider@name, such as codex@default or claude@work. Sign an account in " <>
-              "first with scripts/compose.sh model-login claude@work: while a model uses an " <>
-              "account the worker has not signed in, the worker takes no work at all.",
+              "first with scripts/compose.sh model-login claude@work. If a model uses an " <>
+              "account the worker has not signed in, the worker keeps running the models saved " <>
+              "before, and this page says so.",
           errors: %{
             length: "List at least one account, such as codex@default.",
             format:
@@ -991,9 +993,11 @@ defmodule Ryker.ControlPlane.SettingsSections do
   One step on a list of models in a draft: add a fallback, remove an entry,
   or move one up or down. A step the list cannot take leaves it as it is.
 
-  A new fallback starts as the model above it on the next account of its
-  provider that list does not already use it on, since the same model on
-  another account is the fallback most often wanted.
+  A new fallback is never a copy of the entry above it, which Save refuses
+  (QA, 2026-09-26). It starts as the same model on the next listed account of
+  that provider the list does not use yet, after that entry's account and
+  then from the top, since the same model on another account is the fallback
+  most often wanted. With every account in use, its model waits to be chosen.
   """
   @spec ladder_step([map()], String.t(), integer() | nil, map()) :: [map()]
   def ladder_step(entries, "add", _index, view) do
@@ -1020,16 +1024,16 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   defp next_entry(entries, view) do
     last = List.last(entries)
+    provider = provider(last["model"])
+    used = for entry <- entries, provider(entry["model"]) == provider, do: entry["account"]
 
-    taken =
-      for entry <- entries,
-          entry["model"] == last["model"] and entry["effort"] == last["effort"],
-          do: entry["account"]
+    {before, rest} =
+      Enum.split_while(ladder_accounts(view, last["model"]), &(&1 != last["account"]))
 
-    account =
-      Enum.find(ladder_accounts(view, last["model"]), &(&1 not in taken)) || last["account"]
-
-    %{last | "account" => account}
+    case Enum.find(Enum.drop(rest, 1) ++ before, &(&1 not in used)) do
+      nil -> %{last | "model" => "", "account" => ""}
+      account -> %{last | "account" => account}
+    end
   end
 
   defp swap(entries, index) do

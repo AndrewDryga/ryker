@@ -1,0 +1,6 @@
+
+✗ Could not load remote session configurations
+
+      /var/lib/ryker-workspaces/session-policies.yaml policy "ryker-admission": target[1] credential "zzqa" is not authenticated
+
+  Help: coop help sessions policies

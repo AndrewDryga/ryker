@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
           "Output",
           "Reasoning",
           "Cache hit rate",
-          "By profile",
+          "By account",
           "Token usage over time",
           "By model",
           "By channel",
@@ -34,6 +34,9 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     refute html =~ "<h2>Measurement coverage"
     refute html =~ "Coop profiles"
+    # The part of a model's name after the @ is the account it ran on, the
+    # word Settings › Models and every other page use.
+    refute html |> LazyHTML.from_fragment() |> LazyHTML.text() =~ ~r/profile/i
     refute html =~ "UTC · empty days"
     refute html =~ "id=\"cost-method\""
     refute html =~ "Individual executions"
@@ -331,6 +334,11 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     assert length(LazyHTML.query(document, "#usage-profiles tbody > tr") |> LazyHTML.to_tree()) ==
              1
 
+    assert LazyHTML.query(document, "#usage-profiles thead th[rowspan='2']")
+           |> Enum.map(&LazyHTML.text/1)
+           |> hd() == "Account"
+
+    refute LazyHTML.text(document) =~ ~r/profile/i
     assert LazyHTML.query(document, "#usage-profiles details") |> LazyHTML.to_tree() == []
     refute html =~ "Unattributed profile"
     refute html =~ "Unclassified work"

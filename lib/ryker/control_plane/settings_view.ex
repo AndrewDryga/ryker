@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.SettingsView do
 
   import Ecto.Query
 
+  alias Ryker.BundledCoop
   alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, ProductReadiness}
   alias Ryker.Credentials
   alias Ryker.Episodes.Episode
@@ -39,7 +40,8 @@ defmodule Ryker.ControlPlane.SettingsView do
           github_connection: :ready | :missing | :invalid,
           environment_channels: %{(String.t() | nil) => non_neg_integer()},
           slack_channels: [%{workspace_ref: String.t(), channel_ref: String.t()}],
-          slack_managers: [%{name: String.t(), href: String.t() | nil}]
+          slack_managers: [%{name: String.t(), href: String.t() | nil}],
+          policy_problem: String.t() | nil
         }
 
   @typedoc """
@@ -118,7 +120,11 @@ defmodule Ryker.ControlPlane.SettingsView do
       workers: WorkerPolicies.catalog(snapshot.work.workspace_ref),
       # Channels choose an environment in the Slack tables, so how many use
       # each one is read beside the snapshot rather than from it.
-      environment_channels: Environments.channel_counts()
+      environment_channels: Environments.channel_counts(),
+      # Why the bundled worker still runs the models it loaded before the
+      # newest ones, read on every refresh (`BundledCoop.ProblemWatcher`
+      # asks open pages for one the moment it changes).
+      policy_problem: BundledCoop.policy_problem(snapshot)
     })
   end
 

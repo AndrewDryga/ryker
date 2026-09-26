@@ -3,6 +3,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
+  import Ryker.TestHelpers, only: [eventually: 1]
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SettingsPage, SettingsView, SetupPage}
   alias Ryker.Credentials
@@ -1032,14 +1033,33 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "codex:gpt-5.6-sol/medium@default"
            ]
 
-    # One model and at most three fallbacks.
+    # One model and at most three fallbacks. Both accounts are in use, so a
+    # new fallback waits for its model to be chosen, and saving says so.
     click.("add", nil)
     click.("add", nil)
     assert has_element?(view, "#settings-model-routing_models-3 legend", "Fallback 3")
     refute has_element?(view, button(ladder, "add", nil))
-
-    # The last fallback repeats the one above it, and saving says so.
     view |> form("#settings-model-form") |> render_submit()
+
+    assert has_element?(
+             view,
+             "#settings-model-routing_models .settings-error",
+             "Choose a model, a reasoning effort and an account for each one."
+           )
+
+    # The same model, effort and account twice is refused in words. Each
+    # account choice lists its model's accounts once the model is chosen.
+    luna = %{"model" => "codex:gpt-5.6-luna", "effort" => "low"}
+
+    view
+    |> form("#settings-model-form", %{"routing_models" => %{"2" => luna, "3" => luna}})
+    |> render_change()
+
+    default = %{"account" => "default"}
+
+    view
+    |> form("#settings-model-form", %{"routing_models" => %{"2" => default, "3" => default}})
+    |> render_submit()
 
     assert has_element?(
              view,
@@ -1053,8 +1073,50 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert Settings.fetch!().work.routing_models == [
              "codex:gpt-5.6-sol/medium@default",
-             "codex:gpt-5.6-sol/medium@personal"
+             "codex:gpt-5.6-luna/low@default"
            ]
+  end
+
+  # QA, 2026-09-26: Add fallback copied the entry above it, account and all,
+  # and Save refused the copy, so every new fallback had to be noticed and
+  # changed before anything could be saved.
+  test "a new fallback is never a copy of the one above it" do
+    initialize!()
+    snapshot = Settings.fetch!()
+
+    {:ok, snapshot} =
+      Settings.save_work(
+        %{model_accounts: ["codex@default", "codex@personal", "codex@ops"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, _snapshot} =
+      Settings.save_work(
+        %{routing_models: ["codex:gpt-5.6-sol/medium@personal"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, view, _html} = open("/settings/models")
+    add = "button[phx-click=ladder][phx-value-field=routing_models][phx-value-action=add]"
+    entry = &"select[name='routing_models[#{&1}][#{&2}]'] option[selected]"
+
+    chosen = fn index ->
+      Enum.map(~w(model effort account), &selected(view, entry.(index, &1)))
+    end
+
+    # The same model on the next listed account the list does not use yet,
+    # after the last one and then from the top.
+    view |> element(add) |> render_click()
+    assert chosen.(1) == ["codex:gpt-5.6-sol", "medium", "ops"]
+    view |> element(add) |> render_click()
+    assert chosen.(2) == ["codex:gpt-5.6-sol", "medium", "default"]
+
+    # Every account is in use: the model waits to be chosen.
+    view |> element(add) |> render_click()
+    assert has_element?(view, entry.(3, "model"), "Choose a model")
+    assert chosen.(3) == ["", "medium", ""]
   end
 
   test "a Claude model is offered once its price is saved, on a Claude account" do
@@ -1152,7 +1214,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   # Ryker cannot see which accounts the worker has signed in, and Coop refuses
   # the whole policy file while one of its models names an account that is
-  # not signed in: every kind of work would stop, not only the one changed.
+  # not signed in: the change would never run, and until the worker kept its
+  # last loaded policies every kind of work stopped, not only the one changed.
   test "an account not listed under Model accounts is refused in plain words" do
     initialize!()
     {:ok, view, _html} = open("/settings/models")
@@ -1190,6 +1253,92 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
            )
 
     assert Settings.fetch!().work.model_accounts == ["codex@default"]
+  end
+
+  # Andrew, 2026-09-26: a fallback on an account the worker had not signed in
+  # (claude@zzqa) made Coop refuse the whole policy file and took the worker
+  # offline. The worker now keeps running the models it last loaded, so the
+  # page must say the saved change did not reach it, and why, without anyone
+  # reloading it; otherwise a save that changed nothing reads as applied.
+  test "a change the worker could not load says what still runs and how to fix it" do
+    initialize!()
+    shared = bundled_worker!()
+    snapshot = Settings.fetch!()
+
+    {:ok, snapshot} =
+      Settings.put_pricing_rate(
+        %{
+          execution_target: "claude:claude-opus-4-6",
+          input_usd_per_million: "5",
+          cached_input_usd_per_million: "0.5",
+          output_usd_per_million: "25",
+          effective_from: ~D[2026-09-26],
+          provenance: "https://www.anthropic.com/pricing"
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, snapshot} =
+      Settings.save_work(
+        %{model_accounts: ["codex@default", "claude@zzqa"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, snapshot} =
+      Settings.save_work(
+        %{
+          routing_models: ["codex:gpt-5.6-sol/medium@default", "claude:claude-opus-4-6/high@zzqa"],
+          deep_models: ["codex:gpt-5.6-luna/high@default"]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    rate = Enum.find(snapshot.pricing_rates, &(&1.execution_target == "codex:gpt-5.6-luna"))
+
+    {:ok, _snapshot} =
+      Settings.delete_pricing_rate(rate.id, snapshot.installation.revision, @actor)
+
+    {:ok, view, _html} = open("/settings/models")
+    notices = fn -> view |> render() |> LazyHTML.from_fragment() |> notice_texts() end
+    assert [unpriced] = notices.()
+    assert unpriced =~ "No price covers the model for Deep work"
+
+    File.write!(
+      Path.join(shared, "policy-problem"),
+      File.read!("testdata/coop/policies-unsigned-account.stderr")
+    )
+
+    Phoenix.PubSub.broadcast(Ryker.PubSub, "control-plane", :control_plane_changed)
+
+    refused =
+      "The worker is still running the models saved before your last change, because the " <>
+        "claude@zzqa account is not signed in on the worker. Sign it in with " <>
+        "scripts/compose.sh model-login claude@zzqa, or choose another account."
+
+    assert eventually(fn -> notices.() == [refused, unpriced] end)
+
+    File.rm!(Path.join(shared, "policy-problem"))
+    Phoenix.PubSub.broadcast(Ryker.PubSub, "control-plane", :control_plane_changed)
+    assert eventually(fn -> notices.() == [unpriced] end)
+  end
+
+  defp notice_texts(document) do
+    document
+    |> LazyHTML.query("#settings-model .settings-notice")
+    |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
+  end
+
+  # The value of the option a select shows as chosen; "" for its prompt.
+  defp selected(view, selector) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(selector)
+    |> LazyHTML.attribute("value")
+    |> List.first()
   end
 
   defp button(selector, action, nil), do: "#{selector}[phx-value-action=#{action}]"
@@ -1631,16 +1780,28 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   # The Compose distribution names its bundled worker's root; the rest of the
   # test runs as that installation.
+  # Returns the directory the worker shares with Ryker, empty at first.
   defp bundled_worker! do
-    previous = System.get_env("RYKER_BUNDLED_COOP_ROOT")
+    shared = Path.join(System.tmp_dir!(), "ryker-shared-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(shared)
+
+    previous =
+      for name <- ~w(RYKER_BUNDLED_COOP_ROOT RYKER_BUNDLED_COOP_SHARED),
+          do: {name, System.get_env(name)}
+
     System.put_env("RYKER_BUNDLED_COOP_ROOT", System.tmp_dir!())
+    System.put_env("RYKER_BUNDLED_COOP_SHARED", shared)
 
     on_exit(fn ->
-      if previous,
-        do: System.put_env("RYKER_BUNDLED_COOP_ROOT", previous),
-        else: System.delete_env("RYKER_BUNDLED_COOP_ROOT")
+      Enum.each(previous, &restore_env/1)
+      File.rm_rf!(shared)
     end)
+
+    shared
   end
+
+  defp restore_env({name, nil}), do: System.delete_env(name)
+  defp restore_env({name, value}), do: System.put_env(name, value)
 
   defp initialize! do
     {:ok, snapshot} = Settings.initialize(@actor)

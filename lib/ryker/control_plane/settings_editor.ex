@@ -809,40 +809,45 @@ defmodule Ryker.ControlPlane.SettingsEditor do
               </div>
             </div>
           </fieldset>
+          <%!-- Each button keeps its own slot, so every row's choices line up
+          whichever buttons it has. --%>
           <div class="settings-ladder-actions">
             <button
               :if={row.index > 0}
               type="button"
-              class="ui-button quiet"
+              class="ui-button quiet settings-ladder-up"
               phx-click="ladder"
               phx-value-field={@name}
               phx-value-action="up"
               phx-value-index={row.index}
               phx-target={@myself}
+              title="Move up"
               aria-label={"Move #{String.downcase(row.rung)} up"}
-            >Move up</button>
+            ><Components.icon name={:arrow_up} /></button>
             <button
               :if={row.index < @count - 1}
               type="button"
-              class="ui-button quiet"
+              class="ui-button quiet settings-ladder-down"
               phx-click="ladder"
               phx-value-field={@name}
               phx-value-action="down"
               phx-value-index={row.index}
               phx-target={@myself}
+              title="Move down"
               aria-label={"Move #{String.downcase(row.rung)} down"}
-            >Move down</button>
+            ><Components.icon name={:arrow_down} /></button>
             <button
               :if={@count > 1}
               type="button"
-              class="ui-button quiet"
+              class="ui-button quiet settings-ladder-remove"
               phx-click="ladder"
               phx-value-field={@name}
               phx-value-action="remove"
               phx-value-index={row.index}
               phx-target={@myself}
+              title="Remove"
               aria-label={"Remove #{String.downcase(row.rung)}"}
-            >Remove</button>
+            ><Components.icon name={:close} /></button>
           </div>
         </li>
       </ol>
@@ -1238,7 +1243,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     |> Enum.filter(& &1)
   end
 
-  defp notices(section, view), do: List.wrap(notice(section, view))
+  defp notices(section, view),
+    do: section |> notice(view) |> List.wrap() |> Enum.reject(&is_nil/1)
 
   # Why Ryker cannot post these events to Slack yet, in the words and with the
   # next step every page gives for Slack's state.
@@ -1254,38 +1260,53 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp slack_notice(_slack), do: nil
 
+  # Outside the distribution nothing here is used. Inside it, first what the
+  # worker could not load, since a saved change it refused never ran, then
+  # any model or fallback no price covers.
+  defp notice(%{key: :model} = section, view) do
+    if BundledCoop.distribution?() do
+      [refused(view), unpriced_notice(section, view)]
+    else
+      %{
+        text:
+          "This installation runs on separately managed workers. " <>
+            "Their own policies choose their models, so these settings are not used."
+      }
+    end
+  end
+
+  defp notice(_section, _view), do: nil
+
+  # The worker keeps running what it loaded before when Coop refuses the
+  # newest models (`BundledCoop.policy_problem/0`).
+  defp refused(%{policy_problem: reason}) when is_binary(reason),
+    do: %{
+      text:
+        "The worker is still running the models saved before your last change, because " <>
+          reason
+    }
+
+  defp refused(_view), do: nil
+
   # A model or fallback no price covers still runs; its cost reads as not
   # priced, and the page says which one before anyone wonders why.
-  defp notice(%{key: :model} = section, view) do
+  defp unpriced_notice(section, view) do
     unpriced =
       for field <- section.fields,
           phrase = unpriced(field, Map.fetch!(view.snapshot.work, field.name), view),
           do: phrase
 
-    cond do
-      not BundledCoop.distribution?() ->
-        %{
-          text:
-            "This installation runs on separately managed workers. " <>
-              "Their own policies choose their models, so these settings are not used."
-        }
-
-      unpriced != [] ->
-        %{
-          text:
-            "No price covers #{Environments.sentence(unpriced)}, so " <>
-              if(length(unpriced) == 1, do: "its", else: "their") <>
-              " cost will show as not priced.",
-          link: "Add a price",
-          href: "/settings/prices"
-        }
-
-      true ->
-        nil
+    if unpriced != [] do
+      %{
+        text:
+          "No price covers #{Environments.sentence(unpriced)}, so " <>
+            if(length(unpriced) == 1, do: "its", else: "their") <>
+            " cost will show as not priced.",
+        link: "Add a price",
+        href: "/settings/prices"
+      }
     end
   end
-
-  defp notice(_section, _view), do: nil
 
   defp unpriced(field, [first | _fallbacks] = models, view) do
     case Enum.reject(models, &SettingsSections.priced?(&1, view)) do

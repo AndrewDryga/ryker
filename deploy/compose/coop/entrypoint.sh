@@ -5,6 +5,10 @@ state=/var/lib/coop
 shared=/var/lib/ryker-coop
 workspaces=/var/lib/ryker-workspaces
 policies=$workspaces/session-policies.yaml
+# The copy of Ryker's policies the worker last loaded, which it connects with,
+# and Coop's reason when it refused a newer one (ryker-coop-load-policies).
+loaded=$state/session-policies.loaded.yaml
+problem=$shared/policy-problem
 repositories=$workspaces/repositories.json
 worker=$state/worker.json
 identity=$state/identity.pem
@@ -68,20 +72,24 @@ while :; do
   recover_expired_identity
   wait_for_identity
 
-  if ! policy_json=$(coop sessions policies --policies "$policies" --json 2>/dev/null); then
+  # A newer file Coop refuses leaves the worker on the policies it loaded
+  # before; with nothing loaded yet, it waits.
+  if ! policy_json=$(ryker-coop-load-policies "$policies" "$loaded" "$problem"); then
     echo "Ryker's worker is waiting for model access. Open Settings to connect a model account." >&2
     sleep 10
     continue
   fi
 
   sandbox_digest=$(coop version | sha256sum | awk '{print $1}')
+  # Ryker's newest file, not the loaded copy: a refused file does not
+  # reconnect in a loop, and the next change to it is tried again.
   policy_sha=$(sha256sum "$policies" "$repositories" | sha256sum | awk '{print $1}')
 
   jq -n \
     --arg ca "$ca" \
     --arg identity "$identity" \
     --arg journal "$state/journal" \
-    --arg policies "$policies" \
+    --arg loaded "$loaded" \
     --arg state_endpoint "https://172.30.42.10:4322" \
     --arg sandbox "$sandbox_digest" \
     --arg socket "$state/sessions/control.sock" \
@@ -102,7 +110,7 @@ while :; do
       enrollment_token_file: $token,
       coop_socket: $socket,
       session_state_dir: $state,
-      session_policy_path: $policies,
+      session_policy_path: $loaded,
       journal_dir: $journal,
       sandbox_digest: $sandbox,
       policy_digests: $digests,

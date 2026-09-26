@@ -36,7 +36,7 @@ defmodule Ryker.ControlPlane.UsagePage do
       timing(totals),
       "</section></div>",
       performance(Map.get(snapshot, :performance, []), snapshot),
-      section("By profile", "profiles", Map.get(snapshot, :profiles, []), snapshot, :profile),
+      section("By account", "profiles", Map.get(snapshot, :profiles, []), snapshot, :profile),
       section(
         "By model",
         "models",
@@ -360,7 +360,7 @@ defmodule Ryker.ControlPlane.UsagePage do
     ]
   end
 
-  defp heading(:profile), do: "Profile"
+  defp heading(:profile), do: "Account"
   defp heading(:model), do: "Provider / model"
   defp heading(:channel), do: "Channel"
   defp heading(:repository), do: "Repository"

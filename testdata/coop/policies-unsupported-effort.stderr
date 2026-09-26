@@ -1,0 +1,6 @@
+
+✗ Could not load remote session configurations
+
+      /var/lib/ryker-workspaces/session-policies.yaml policy "ryker-admission": target Invalid agent target "gemini:gemini-3-pro/medium@emisar" — Gemini takes effort low or high, not "medium": Gemini 3 has no other thinking level, and any Gemini target can end up on a Gemini 3 model.
+
+  Help: coop help sessions policies

@@ -646,9 +646,16 @@ episode.
   Ryker cannot see the worker's sign-ins, so Model accounts lists them
   (`provider@name`, from `scripts/compose.sh model-login claude@work`), and a
   model may only name a listed account: Coop refuses the whole policy file while
-  any model names an account that is not signed in. Conversation, standard and
-  deep work must use the same accounts in the same order, because Coop counts
-  each model's provider and account in the authority digest their policies share
+  any model names an account that is not signed in. The worker never stops for
+  that: `deploy/compose/coop/load-policies.sh` connects with the copy it last
+  loaded (`session-policies.loaded.yaml`) and leaves Coop's reason in the shared
+  `policy-problem` file, and Models then says the worker still runs the models
+  saved before, why, and which account to sign in (`BundledCoop.policy_problem/0`,
+  pushed to open pages by `BundledCoop.ProblemWatcher`). A new fallback starts as
+  the same model on the next listed account the list does not use yet, never as
+  a copy Save would refuse. Conversation, standard and deep work must use the
+  same accounts in the same order, because Coop counts each model's provider
+  and account in the authority digest their policies share
 - Settings explain themselves in plain words: each model says under its choice
   where Ryker uses it, as the code decides it; Advanced opens with what a worker
   is, and says what a policy is; a policy row reads as the kind of work, where it
