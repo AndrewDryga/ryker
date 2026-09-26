@@ -191,7 +191,8 @@ defmodule Ryker.Work.Executor do
     with {:ok, workspace} <- Workspace.session_workspace(claim, settings),
          submission_options <-
            [state_tool_capabilities: settings.state_tool_capabilities, workspace: workspace]
-           |> maybe_submission_option(:platform_tools, settings.platform_tools),
+           |> maybe_submission_option(:platform_tools, settings.platform_tools)
+           |> maybe_submission_option(:connected, settings.connected),
          {:ok, %{submission: submission, ledger: ledger}} <-
            SubmissionBuilder.prepare(claim, submission_options),
          {:ok, turn} <-
@@ -222,6 +223,7 @@ defmodule Ryker.Work.Executor do
     allowed = [
       :api,
       :client,
+      :connected,
       :lease_seconds,
       :max_block_ms,
       :max_polls,
@@ -245,6 +247,7 @@ defmodule Ryker.Work.Executor do
       validate_settings(%{
         api: Keyword.get(options, :api, Ryker.Coop.Client),
         client: Keyword.fetch!(options, :client),
+        connected: Keyword.get(options, :connected),
         lease_seconds: Keyword.get(options, :lease_seconds, 300),
         max_block_ms: Keyword.get(options, :max_block_ms, 30_000),
         max_polls: Keyword.get(options, :max_polls, 600),
@@ -279,11 +282,21 @@ defmodule Ryker.Work.Executor do
 
   defp settings(_options), do: {:error, {:invalid_work_executor, :options}}
 
+  # What the running system connected, when it says: Slack and GitHub, each on
+  # or off. Absent, the model is told nothing rather than something false.
+  defp valid_connected?(nil), do: true
+
+  defp valid_connected?(%{github: github, slack: slack} = connected),
+    do: map_size(connected) == 2 and is_boolean(github) and is_boolean(slack)
+
+  defp valid_connected?(_connected), do: false
+
   defp validate_settings(settings) do
     safe_window = div(settings.lease_seconds * 1_000, 3)
 
     validations = [
       {is_atom(settings.api), :api},
+      {valid_connected?(settings.connected), :connected},
       {is_integer(settings.lease_seconds) and settings.lease_seconds > 0, :lease_seconds},
       {is_integer(settings.max_block_ms) and settings.max_block_ms > 0 and
          settings.max_block_ms < safe_window, :max_block_ms},

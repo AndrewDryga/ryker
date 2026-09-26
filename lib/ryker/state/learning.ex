@@ -77,6 +77,13 @@ defmodule Ryker.State.Learning do
   An author is not an anchor merely because they sent the message.
   Preserve case; do not invent identities. These are matching clues,
   not a uniqueness claim: two incidents can concern the same service. Use [] when none is useful.
+
+  Write each title and summary as knowledge a teammate keeps about the subject: what it is, what
+  was decided and by whom, and what is still open, in plain declarative sentences. Never describe
+  this learning pass, the supplied messages, or what they fail to establish; when the messages
+  establish nothing useful about a subject, return no update for it. Attribute decisions to people
+  by the name or role the messages give; when they give none, state the decision itself instead of
+  calling anyone "the user" or "the operator".
   """
 
   @rebuild_instructions """
@@ -95,6 +102,8 @@ defmodule Ryker.State.Learning do
   standalone identifier anchors present in their content; routing metadata and authors are not anchors.
   Use [] when no useful anchors are available. Never create a finding, incident, task, permission,
   executable procedure, or a separate memory for each message.
+  Write the title and summary as knowledge a teammate keeps, in plain declarative sentences; never
+  describe this pass or the supplied messages, and never call anyone "the user" or "the operator".
   """
 
   def prepare(ids, %{policy: policy, policy_digest: digest} = settings)
