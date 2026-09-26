@@ -822,7 +822,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       name={SettingsSections.field_name(@field)}
       value={@value}
       inputmode={if @field.kind == :decimal, do: "decimal"}
-      min={if @field.kind == :integer, do: "1"}
+      min={if @field.kind == :integer, do: Map.get(@field, :min, 1)}
+      max={if @field.kind == :integer, do: @field[:max]}
       step={if @field.kind == :integer, do: "1"}
       aria-describedby={@help}
       aria-invalid={to_string(@invalid)}

@@ -9,7 +9,7 @@ defmodule Ryker.Admission.Runtime do
 
   use Supervisor
 
-  alias Ryker.Admission.{FleetSession, Worker}
+  alias Ryker.Admission.{FleetSession, ReadySessions, Worker}
   alias Ryker.Options
 
   @fields [
@@ -49,6 +49,7 @@ defmodule Ryker.Admission.Runtime do
                executor_options: [
                  api: options.api,
                  bind_execution_session: options.bind_execution_session,
+                 claim_ready_session: options.claim_ready_session,
                  client: options.client,
                  maximum_elapsed_ms: options.decision_timeout_ms,
                  policy: options.policy,
@@ -137,16 +138,21 @@ defmodule Ryker.Admission.Runtime do
     raise ArgumentError, "admission decision_timeout_ms must fit within the durable lease window"
   end
 
+  @doc false
+  @spec execution_callbacks() :: map()
+  def execution_callbacks do
+    %{
+      bind_execution_session: &FleetSession.bind/2,
+      claim_ready_session: &ReadySessions.claim/2,
+      prepare_execution_session: fn entry, policy -> FleetSession.ensure(entry, policy) end,
+      settle_execution_session: &FleetSession.settle/2
+    }
+  end
+
   defp coop_adapter!(%{api: api, client: client})
        when is_atom(api) and not is_nil(api) and not is_nil(client) do
     if Code.ensure_loaded?(api) and function_exported?(api, :get_session, 2) do
-      callbacks = %{
-        bind_execution_session: &FleetSession.bind/2,
-        prepare_execution_session: fn entry, policy -> FleetSession.ensure(entry, policy) end,
-        settle_execution_session: &FleetSession.settle/2
-      }
-
-      {api, client, callbacks}
+      {api, client, execution_callbacks()}
     else
       raise ArgumentError, "admission api must implement the Coop session contract"
     end

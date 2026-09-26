@@ -17,6 +17,8 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         close_after_validation: Keyword.get(options, :close_after_validation, false),
         close_keys: [],
         closed: false,
+        # Session ids in the order they were closed.
+        closed_sessions: [],
         discard_keys: [],
         discard_plan_keys: [],
         discarded: false,
@@ -49,13 +51,17 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         omit_validation_receipt: Keyword.get(options, :omit_validation_receipt, false),
         operation_calls: %{},
         operation_mode: Keyword.get(options, :operation_mode, :succeeded),
+        policy_digest: Keyword.get(options, :policy_digest, String.duplicate("a", 64)),
         resume_operations: resume_operations,
         schema: nil,
+        # Routing sessions kept ready, by id, beside the one session routing
+        # creates for itself.
+        sessions: %{},
         session: %{
           "external_ref" => nil,
           "id" => "remote_test",
           "policy" => nil,
-          "policy_digest" => String.duplicate("a", 64),
+          "policy_digest" => Keyword.get(options, :policy_digest, String.duplicate("a", 64)),
           "project_env" => Keyword.get(options, :project_env, false),
           "project_mcp" => Keyword.get(options, :project_mcp, false),
           "repository_read_only" => Keyword.get(options, :repository_read_only, true),
@@ -67,6 +73,8 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         turn_report: Keyword.get(options, :turn_report, %{}),
         turn_session_id_override: Keyword.get(options, :turn_session_id_override),
         turn_keys: [],
+        # The session each submitted turn ran on, in order.
+        turn_sessions: [],
         turn: turn,
         turn_wait_polls: Keyword.get(options, :turn_wait_polls, 0),
         validation_keys: [],
@@ -78,6 +86,18 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
 
   def state(agent), do: Agent.get(agent, & &1)
   def allow_create(agent), do: Agent.update(agent, &%{&1 | fail_create: false})
+
+  @doc "Every session this Coop started, by id: routing's own and those kept ready."
+  def sessions(agent) do
+    Agent.get(agent, fn state -> Map.put(state.sessions, state.session["id"], state.session) end)
+  end
+
+  @doc "The routing policy changed: sessions started from now on report this digest."
+  def set_policy_digest(agent, digest) do
+    Agent.update(agent, fn state ->
+      %{state | policy_digest: digest, session: Map.put(state.session, "policy_digest", digest)}
+    end)
+  end
 
   @impl true
   def operation_by_key(agent, key) do
@@ -91,6 +111,48 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
 
   @impl true
   def create_session(agent, key, policy, task, source) do
+    if String.starts_with?(key, "ryker:admission-ready:"),
+      do: create_ready_session(agent, key, policy, task, source),
+      else: create_routing_session(agent, key, policy, task, source)
+  end
+
+  # A session kept ready is a separate Coop session with its own identity.
+  defp create_ready_session(agent, key, policy, task, source) do
+    Agent.get_and_update(agent, fn state ->
+      id = "ready_#{map_size(state.sessions) + 1}"
+
+      session =
+        Map.merge(state.session, %{
+          "external_ref" => task,
+          "id" => id,
+          "policy" => policy,
+          "policy_digest" => state.policy_digest,
+          "revision" => 1,
+          "state" => "open"
+        })
+
+      state = %{
+        state
+        | create_keys: state.create_keys ++ [key],
+          create_sources: state.create_sources ++ [source]
+      }
+
+      if state.fail_create do
+        {{:error, {:coop_unavailable, :simulated}}, state}
+      else
+        operation = succeeded_operation("CreateRemoteSession", "session", id)
+
+        {{:ok, %{"session" => session}},
+         %{
+           state
+           | known_operations: Map.put(state.known_operations, key, operation),
+             sessions: Map.put(state.sessions, id, session)
+         }}
+      end
+    end)
+  end
+
+  defp create_routing_session(agent, key, policy, task, source) do
     Agent.get_and_update(agent, fn state ->
       session =
         Map.merge(state.session, %{
@@ -147,7 +209,8 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
     do: fence_operation(agent, key, "CreateRemoteSession")
 
   @impl true
-  def get_session(agent, _session_id), do: {:ok, Agent.get(agent, & &1.session)}
+  def get_session(agent, session_id),
+    do: {:ok, Agent.get(agent, &session_for(&1, session_id))}
 
   @impl true
   def submit_turn(agent, session_id, key, _revision, prompt, schema) do
@@ -156,6 +219,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         state
         |> Map.put(:submitted_prompt, prompt)
         |> Map.put(:turn_keys, state.turn_keys ++ [key])
+        |> Map.put(:turn_sessions, state.turn_sessions ++ [session_id])
 
       terminal_state =
         cond do
@@ -285,23 +349,23 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
   end
 
   @impl true
-  def close_session(agent, _session_id, key, _revision) do
+  def close_session(agent, session_id, key, _revision) do
     Agent.get_and_update(agent, fn state ->
       state = %{state | close_keys: state.close_keys ++ [key]}
 
       cond do
         state.fail_first_close and is_nil(state.failed_close_key) ->
-          closed = close_state(state)
+          closed = close_state(state, session_id)
 
           {{:error, {:coop_unavailable, :simulated_close_response_loss}},
            %{closed | failed_close_key: key}}
 
         state.failed_close_key == key ->
-          {{:ok, %{"session" => state.session}}, state}
+          {{:ok, %{"session" => session_for(state, session_id)}}, state}
 
         true ->
-          closed = close_state(state)
-          {{:ok, %{"session" => closed.session}}, closed}
+          closed = close_state(state, session_id)
+          {{:ok, %{"session" => session_for(closed, session_id)}}, closed}
       end
     end)
   end
@@ -371,13 +435,22 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
     end)
   end
 
-  defp close_state(state) do
-    session =
-      state.session
+  defp close_state(state, session_id) do
+    state
+    |> update_session(session_id, fn session ->
+      session
       |> Map.put("state", "closed")
       |> Map.update!("revision", &(&1 + 1))
+    end)
+    |> Map.merge(%{closed: true, closed_sessions: state.closed_sessions ++ [session_id]})
+  end
 
-    %{state | closed: true, session: session}
+  defp session_for(state, session_id), do: Map.get(state.sessions, session_id, state.session)
+
+  defp update_session(state, session_id, update) do
+    if Map.has_key?(state.sessions, session_id),
+      do: %{state | sessions: Map.update!(state.sessions, session_id, update)},
+      else: %{state | session: update.(state.session)}
   end
 
   defp awaiting_turn(session_id, message, attempt \\ 1) do
@@ -429,15 +502,16 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
     queued = %{current | "state" => "queued", "candidate" => nil}
     operation = succeeded_operation("SubmitTurn", "turn", current["id"])
 
-    next = %{
-      state
-      | candidates: remaining,
-        known_operations: Map.put(state.known_operations, key, operation),
-        schema: schema,
-        session: Map.update!(state.session, "revision", &(&1 + 1)),
-        submit_count: state.submit_count + 1,
-        turn: current
-    }
+    next =
+      %{
+        state
+        | candidates: remaining,
+          known_operations: Map.put(state.known_operations, key, operation),
+          schema: schema,
+          submit_count: state.submit_count + 1,
+          turn: current
+      }
+      |> update_session(session_id, &Map.update!(&1, "revision", fn revision -> revision + 1 end))
 
     response =
       if state.async_submit,
@@ -464,22 +538,21 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
       |> maybe_omit_validation_receipt(state.omit_validation_receipt)
 
     validation = %{sha256: sha256, verdict: :accept, violations: []}
-
-    session =
-      state.session
-      |> Map.update!("revision", &(&1 + 1))
-      |> maybe_exhaust(state.exhaust_after_validation)
-      |> maybe_close_after_validation(state.close_after_validation)
-
     response = %{"turn" => completed}
 
-    next = %{
-      state
-      | session: session,
-        turn: completed,
-        validation_responses: Map.put(state.validation_responses, key, response),
-        validations: state.validations ++ [validation]
-    }
+    next =
+      %{
+        state
+        | turn: completed,
+          validation_responses: Map.put(state.validation_responses, key, response),
+          validations: state.validations ++ [validation]
+      }
+      |> update_session(state.turn["session_id"], fn session ->
+        session
+        |> Map.update!("revision", &(&1 + 1))
+        |> maybe_exhaust(state.exhaust_after_validation)
+        |> maybe_close_after_validation(state.close_after_validation)
+      end)
 
     {{:ok, response}, next}
   end

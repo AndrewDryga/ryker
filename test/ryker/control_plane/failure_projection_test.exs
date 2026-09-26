@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   @moduletag isolation: "REPEATABLE READ"
 
   alias Ryker.Admission
-  alias Ryker.Admission.Decision
+  alias Ryker.Admission.{Decision, ReadySessions}
 
   alias Ryker.CanonicalJSON
 
@@ -99,6 +99,53 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert row.destination == "slack:TBLOCKEDREACTION:C456 / 1787832000.000100"
     assert row.source == "slack:TBLOCKEDREACTION · Ev-blocked-reaction"
     refute inspect(row) =~ "private reaction diagnostic"
+  end
+
+  # A routing session started ahead of time and retired unused never served a
+  # message. When its cleanup stops, the page must not tell the reader that a
+  # message was read or that a request is behind it: nobody is.
+  test "a stuck cleanup of a routing session no message used says nobody is waiting on it" do
+    id = Ecto.UUID.generate()
+    now = Repo.now!()
+
+    session =
+      Repo.insert!(%Session{
+        cleanup_status: :active,
+        coop_session_id: "coop-ready-stuck-#{id}",
+        execution_kind: :admission,
+        external_ref: ReadySessions.external_ref(id),
+        generation: 1,
+        id: id,
+        inserted_at: now,
+        policy: "admission-read-only",
+        policy_digest: String.duplicate("a", 64),
+        ready_state: :retired,
+        updated_at: now
+      })
+
+    assert {:ok, claim} = RetentionCustody.claim_next("cleanup:ready-stuck", 60)
+    assert claim.session.id == session.id
+
+    assert {:ok, _blocked} =
+             RetentionCustody.block(
+               session.id,
+               claim.lease_ref,
+               "coop_protocol_error",
+               "close refused"
+             )
+
+    assert {:ok, row} = FailureProjection.fetch("retention", session.external_ref)
+    explanation = FailureExplanation.explain(row)
+
+    assert explanation.lede =~
+             "Nobody is waiting on it: Ryker started it ahead of time and no message used it."
+
+    assert hd(explanation.happened) =~ "When Ryker stopped keeping it ready"
+    assert hd(explanation.affects) =~ "Nobody."
+
+    detail = row |> FailuresPage.detail() |> IO.iodata_to_binary()
+    refute detail =~ "the message was already read"
+    refute detail =~ "request"
   end
 
   # A learning session has no episode, and every retention row here was read

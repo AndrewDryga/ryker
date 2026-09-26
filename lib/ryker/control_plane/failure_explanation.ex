@@ -416,6 +416,11 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp retention_owner(%{execution_kind: :learning}),
     do: "Nobody is waiting on it: background learning runs on its own."
 
+  # A routing session started ahead of time and retired unused served no
+  # message, so there is no message or request to name.
+  defp retention_owner(%{ready_state: :retired}),
+    do: "Nobody is waiting on it: Ryker started it ahead of time and no message used it."
+
   defp retention_owner(%{execution_kind: :admission}),
     do: "Nobody is waiting on it: the message was already read."
 
@@ -426,6 +431,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     do: "Nobody is waiting on it: the request was stopped."
 
   defp retention_owner(_row), do: "The request is not held up by this."
+
+  defp retention_affects(%{ready_state: :retired}),
+    do: "Nobody. No message used this session; this is Ryker tidying up after it."
 
   defp retention_affects(%{execution_kind: :learning}),
     do:
@@ -444,6 +452,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp retention_happened(row, thing) do
     after_what =
       case row do
+        %{ready_state: :retired} -> "When Ryker stopped keeping it ready"
         %{execution_kind: :learning} -> "After background learning finished with it"
         %{request_state: :complete} -> "After the request finished"
         %{request_state: :cancelled} -> "After the request was stopped"

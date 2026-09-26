@@ -6,6 +6,11 @@ defmodule Ryker.Admission.FleetSession do
   kernel episode merely to reach a Coop worker. These rows reuse the common
   execution-session and placement custody with an explicit `admission` kind,
   a nil episode owner, and no repository or workspace authority.
+
+  A generation has one session: the one routing created for it, named after
+  the generation, or one kept ready that the generation claimed
+  (`Ryker.Admission.ReadySessions`), which keeps its own name. Both are found
+  by the message and generation they serve.
   """
 
   import Ecto.Query
@@ -42,11 +47,19 @@ defmodule Ryker.Admission.FleetSession do
 
   def settle(_entry, _coop_session_id), do: {:error, :invalid_admission_fleet_session}
 
-  defp ensure_locked(entry, policy, digest) do
-    external_ref = external_ref(entry)
+  @doc false
+  @spec generation_query(Entry.t()) :: Ecto.Query.t()
+  def generation_query(%Entry{id: id, execution_generation: generation}) do
+    from(session in Session,
+      where:
+        session.execution_kind == :admission and session.admission_input_id == ^id and
+          session.generation == ^generation
+    )
+  end
 
-    case lock_session(external_ref) do
-      nil -> insert_or_reload_session!(entry, policy, digest, external_ref)
+  defp ensure_locked(entry, policy, digest) do
+    case lock_session(entry) do
+      nil -> insert_or_reload_session!(entry, policy, digest, external_ref(entry))
       %Session{} = session -> exact_authority(session, policy, digest)
     end
   end
@@ -100,7 +113,7 @@ defmodule Ryker.Admission.FleetSession do
     |> Ecto.Changeset.check_constraint(:policy, name: :episode_work_session_identity_valid)
     |> Repo.insert!(on_conflict: :nothing)
 
-    external_ref
+    entry
     |> lock_session()
     |> exact_authority(policy, digest)
   end
@@ -122,7 +135,7 @@ defmodule Ryker.Admission.FleetSession do
     do: Repo.rollback(:admission_fleet_authority_conflict)
 
   defp bind_locked(entry, coop_session_id) do
-    case lock_session(external_ref(entry)) do
+    case lock_session(entry) do
       %Session{execution_kind: :admission, coop_session_id: nil} = session ->
         session
         |> Ecto.Changeset.change(%{coop_session_id: coop_session_id})
@@ -138,7 +151,7 @@ defmodule Ryker.Admission.FleetSession do
   end
 
   defp settle_locked(entry, coop_session_id) do
-    case lock_session(external_ref(entry)) do
+    case lock_session(entry) do
       %Session{
         execution_kind: :admission,
         coop_session_id: ^coop_session_id,
@@ -166,14 +179,8 @@ defmodule Ryker.Admission.FleetSession do
     end
   end
 
-  defp lock_session(external_ref) do
-    Repo.one(
-      from(session in Session,
-        where: session.external_ref == ^external_ref,
-        lock: "FOR UPDATE"
-      )
-    )
-  end
+  defp lock_session(entry),
+    do: Repo.one(from(session in generation_query(entry), lock: "FOR UPDATE"))
 
   defp external_ref(%Entry{id: id, execution_generation: generation}),
     do: "ryker-admission:#{id}:g#{generation}"

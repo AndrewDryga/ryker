@@ -50,6 +50,9 @@ defmodule Ryker.Runtime.Assembly do
     {:coop_worker_gateway, Ryker.CoopFleet.Server},
     {:state_tools, Ryker.StateTools.Server},
     {:admission, Ryker.Admission.Runtime},
+    # Its own key, so changing how many routing sessions are kept ready
+    # restarts only the pool, never the routing slots mid-message.
+    {:admission_ready, Ryker.Admission.ReadyPool},
     {:work, Ryker.Work.Runtime},
     {:learning, Ryker.Learning.Runtime},
     {:retention, Ryker.Retention.Runtime},
@@ -112,6 +115,7 @@ defmodule Ryker.Runtime.Assembly do
     environments = environments(settings, repositories, policies, outside)
     work = work(settings)
     admission = admission(settings, policies, work)
+    admission_ready = admission_ready(settings, admission)
     learning = learning(settings, policies, work)
     schedules = schedules(settings, repositories, policies)
     gateway = worker_gateway(bootstrap)
@@ -150,6 +154,7 @@ defmodule Ryker.Runtime.Assembly do
     }
     |> put_optional(:work, work)
     |> put_optional(:admission, admission)
+    |> put_optional(:admission_ready, admission_ready)
     |> put_optional(:control_plane, control_plane)
     |> put_optional(:coop_worker_gateway, gateway)
     |> put_optional(:delivery, delivery)
@@ -557,6 +562,16 @@ defmodule Ryker.Runtime.Assembly do
     else
       _unconfigured -> nil
     end
+  end
+
+  # The pool starts sessions with exactly the policy routing uses, so it runs
+  # wherever routing does, even at 0, to retire what an earlier setting kept.
+  defp admission_ready(_settings, nil), do: nil
+
+  defp admission_ready(settings, admission) do
+    admission
+    |> Map.take([:api, :client, :policy, :policy_digest])
+    |> Map.put(:target, settings.work.ready_routing_sessions)
   end
 
   defp learning(settings, policies, work) do

@@ -1252,6 +1252,47 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     end
   end
 
+  test "routing sessions kept ready are set from 0 to 5 and anything else is refused in words" do
+    # Andrew, 2026-09-26: routing a plain "hi" spent 5.6 s of its 28.6 s
+    # creating a session, so Ryker keeps some started. How many is his to
+    # choose, 0 turns it off, and a number the pool cannot keep must be
+    # refused in words rather than saved or shown as a field error code.
+    initialize!()
+    {:ok, view, _html} = open("/settings/advanced")
+
+    assert has_element?(
+             view,
+             "label[for=settings-work-ready_routing_sessions]",
+             "Routing sessions kept ready"
+           )
+
+    assert has_element?(
+             view,
+             "#settings-work-ready_routing_sessions-help",
+             "Ryker starts this many routing sessions ahead of time so a new message is " <>
+               "answered sooner. Each is used for one message only. 0 turns this off."
+           )
+
+    assert has_element?(view, "input[name=ready_routing_sessions][min='0'][max='5'][value='1']")
+
+    view |> form("#settings-work-form", %{"ready_routing_sessions" => "0"}) |> render_submit()
+    assert Settings.fetch!().work.ready_routing_sessions == 0
+
+    for refused <- ["6", "-1", ""] do
+      view
+      |> form("#settings-work-form", %{"ready_routing_sessions" => refused})
+      |> render_submit()
+
+      assert has_element?(
+               view,
+               "#settings-work .settings-error",
+               "Choose a whole number from 0 to 5."
+             )
+
+      assert Settings.fetch!().work.ready_routing_sessions == 0
+    end
+  end
+
   test "an unreadable settings database is not an installation without settings", context do
     initialize!()
     Agent.update(context.unavailable, fn _ -> true end)

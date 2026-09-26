@@ -33,6 +33,12 @@ defmodule Ryker.Work.Session do
     field(:source_exposure_count, :integer)
     field(:knowledge_exposure_count, :integer)
 
+    # Only a routing session started ahead of time has one: `starting` while
+    # Coop creates it, `ready` once open, `claimed` by exactly one message's
+    # routing generation, or `retired` when it is given up unused
+    # (`Ryker.Admission.ReadySessions`).
+    field(:ready_state, Ecto.Enum, values: [:starting, :ready, :claimed, :retired])
+
     field(:cleanup_status, Ecto.Enum,
       values: [
         :active,
@@ -101,6 +107,7 @@ defmodule Ryker.Work.Session do
           workspace_task: map() | nil,
           source_exposure_count: non_neg_integer() | nil,
           knowledge_exposure_count: non_neg_integer() | nil,
+          ready_state: :starting | :ready | :claimed | :retired | nil,
           cleanup_status:
             :active
             | :close_pending
