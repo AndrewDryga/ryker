@@ -16,6 +16,7 @@ defmodule Ryker.Admission.DispatcherTest do
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
 
   @now ~U[2026-08-27 12:00:00.000000Z]
+  @mentioned [slack_audience: :mention, slack_bot_user_ref: "UBOT"]
 
   test "claims and decides one durable input" do
     entry = record_input!("Ev-dispatch-success")
@@ -342,6 +343,69 @@ defmodule Ryker.Admission.DispatcherTest do
       assert blocked.last_error_code == code
       assert blocked.last_error_detail =~ detail
       assert {:ok, :idle} = Dispatcher.run_once(options(stub))
+    end
+  end
+
+  # 2026-09-26: the model account ran out of usage for three days. Every
+  # message stopped on Failures and nowhere else, so a person who asked Ryker
+  # something in Slack heard nothing at all.
+  test "a person who asked Ryker hears once a thread a day that its model account is out" do
+    reason =
+      {:coop_turn_failed, "failed", "rate_limited",
+       "provider rate limited the turn: You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 29th, 2026 8:59 PM."}
+
+    first = record_input!("Ev-account-out-1", [], @mentioned)
+
+    second =
+      record_input!(
+        "Ev-account-out-2",
+        [message_ref: "1787832000.000200", thread_ref: "1787832000.000100"],
+        @mentioned
+      )
+
+    {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
+
+    for entry <- [first, second] do
+      assert {:ok, {:blocked, input_ref, ^reason}} =
+               Dispatcher.run_once(options(stub) ++ [notify: notify(self())])
+
+      assert input_ref == Inbox.ref(entry)
+    end
+
+    assert_receive {:note, note}
+    assert_receive {:note, again}
+    assert note.message =~ "I can't reply right now"
+    assert note.message =~ "the AI model account I run on needs attention"
+    assert note.transport == "slack"
+    assert note.conversation_ref == first.destination_conversation_ref
+    assert note.thread_ref == "1787832000.000100"
+
+    # One reference for the thread and the day: the publisher finds the note
+    # it already posted instead of posting a second one.
+    assert again.ref == note.ref
+  end
+
+  test "an app, a message not meant for Ryker and a cure a retry may bring get no note" do
+    limited =
+      {:coop_turn_failed, "failed", "acp_protocol_error",
+       "provider limit prevented the turn: You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 15th, 2026 4:32 PM."}
+
+    crashed =
+      {:coop_turn_failed, "failed", "acp_process_error", "ACP child closed before its response"}
+
+    for {event, overrides, record_options, reason} <- [
+          {"Ev-quiet-app", [actor: %{kind: :bot, ref: "B123"}], @mentioned, limited},
+          {"Ev-quiet-ambient", [message_ref: "1787832000.000300"],
+           [slack_audience: :ambient, slack_bot_user_ref: "UBOT"], limited},
+          {"Ev-quiet-crash", [message_ref: "1787832000.000400"], @mentioned, crashed}
+        ] do
+      record_input!(event, overrides, record_options)
+      {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
+
+      assert {:ok, {:blocked, _input_ref, ^reason}} =
+               Dispatcher.run_once(options(stub) ++ [notify: notify(self())])
+
+      refute_received {:note, _note}
     end
   end
 
@@ -871,6 +935,13 @@ defmodule Ryker.Admission.DispatcherTest do
 
     offered = Jason.decode!(FakeAPI.state(fake).submitted_prompt)["context"]["candidates"]
     assert length(offered) <= 8
+  end
+
+  defp notify(parent) do
+    fn note ->
+      send(parent, {:note, note})
+      {:ok, {:posted, %{}}}
+    end
   end
 
   defp options(stub) do

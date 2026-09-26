@@ -361,6 +361,13 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert cause =~ "Sep 29th, 2026 8:59 PM"
     assert next_step =~ "credits"
 
+    # The same limit as Coop worded it on 2026-09-09.
+    earlier =
+      ~s({:coop_turn_failed, "failed", "acp_protocol_error", "provider limit prevented the turn: You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 15th, 2026 4:32 PM."})
+
+    assert %{cause: "The model provider limited the worker's account: " <> _} =
+             FailureCause.explain(earlier)
+
     row = %{
       kind: "admission",
       ref: "ingress-input:one",

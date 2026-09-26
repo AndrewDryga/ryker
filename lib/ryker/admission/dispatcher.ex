@@ -7,8 +7,11 @@ defmodule Ryker.Admission.Dispatcher do
   second model call.
   """
 
-  alias Ryker.Admission.{Executor, LeaseRenewer}
+  alias Ryker.Admission.{Executor, LeaseRenewer, UnavailableNote}
+  alias Ryker.Delivery.HostNote
   alias Ryker.Ingress.Inbox
+
+  require Logger
 
   @maximum_error_detail_bytes 4_096
   @maximum_attempts 8
@@ -57,7 +60,10 @@ defmodule Ryker.Admission.Dispatcher do
         # Coop owns provider failover and in-turn recovery. Once it declares
         # failure, the frozen request cannot fix its runtime or account. Keep
         # the next occurrence for an explicit retry after operator repair.
-        block(claim, input_ref, reason, :execution)
+        with {:ok, _blocked} = blocked <- block(claim, input_ref, reason, :execution) do
+          tell_unavailable(claim.entry, reason, settings)
+          blocked
+        end
 
       {:error, {:coop_timeout, _phase} = reason} ->
         # Coop was still creating the session or running the turn when this
@@ -80,6 +86,20 @@ defmodule Ryker.Admission.Dispatcher do
           defer(claim, input_ref, reason, settings, settings.now.())
         end
     end
+  end
+
+  # A person waiting on a model account nobody can fix by retrying hears so;
+  # the note is courtesy, so a note that cannot be posted never changes what
+  # happened to the input.
+  defp tell_unavailable(entry, reason, settings) do
+    {_code, detail} = describe_error(reason)
+
+    with %HostNote{} = note <- UnavailableNote.note(entry, detail, settings.now.()),
+         {:error, failure} <- settings.notify.(note) do
+      Logger.warning("model-unavailable note not posted: #{inspect(failure, limit: 5)}")
+    end
+
+    :ok
   end
 
   defp block(claim, input_ref, reason, generation \\ :same) do
@@ -190,6 +210,7 @@ defmodule Ryker.Admission.Dispatcher do
       :executor,
       :executor_options,
       :lease_seconds,
+      :notify,
       :now,
       :retry_base_ms,
       :retry_max_ms,
@@ -201,6 +222,7 @@ defmodule Ryker.Admission.Dispatcher do
         executor: Keyword.get(options, :executor, Executor),
         executor_options: Keyword.fetch!(options, :executor_options),
         lease_seconds: Keyword.get(options, :lease_seconds, 300),
+        notify: Keyword.get(options, :notify, &HostNote.deliver/1),
         now: Keyword.get(options, :now, &DateTime.utc_now/0),
         retry_base_ms: Keyword.get(options, :retry_base_ms, 1_000),
         retry_max_ms: Keyword.get(options, :retry_max_ms, 60_000),
@@ -219,6 +241,7 @@ defmodule Ryker.Admission.Dispatcher do
     with :ok <- dispatcher_value(is_atom(settings.executor), :executor),
          :ok <- valid_executor_options(settings.executor_options),
          :ok <- dispatcher_value(positive?(settings.lease_seconds), :lease_seconds),
+         :ok <- dispatcher_value(is_function(settings.notify, 1), :notify),
          :ok <- dispatcher_value(is_function(settings.now, 0), :now),
          :ok <- dispatcher_value(positive?(settings.retry_base_ms), :retry_base_ms),
          :ok <- valid_retry_max(settings),

@@ -20,10 +20,10 @@ defmodule Ryker.Work.FailureCause do
   # truncated detail, and a half sentence is not a cause.
   @coop_refusal ~r/:coop_operation_failed, "(?:[^"\\]|\\.)*", "((?:[^"\\]|\\.)*)"/
 
-  # A provider that limits the worker's model account: Coop fails the turn
-  # with `rate_limited` and keeps the provider's own sentence, which says
-  # whether it is a moment's throttle or a usage cap, and until when.
-  @provider_limit ~r/"rate_limited", "provider rate limited the turn: ((?:[^"\\]|\\.)*)"/
+  # A provider that limits the worker's model account keeps its own sentence,
+  # which says whether it is a moment's throttle or a usage cap, and until
+  # when. Coop has worded it two ways (recorded 2026-09-09 and 2026-09-26).
+  @provider_limit ~r/"provider (?:rate limited the turn|limit prevented the turn): ((?:[^"\\]|\\.)*)"/
 
   @doc """
   The cause a saved execution error names and the step that answers it.
@@ -83,6 +83,17 @@ defmodule Ryker.Work.FailureCause do
   end
 
   def explain(_detail), do: nil
+
+  @doc """
+  Whether the saved error says the model account the worker signs in with
+  needs a person: it is limited, or its sign-in no longer works. No retry
+  cures either.
+  """
+  @spec account_problem?(String.t() | nil) :: boolean()
+  def account_problem?(detail) when is_binary(detail),
+    do: provider_limit(detail) != nil or String.contains?(detail, "Failed to refresh token")
+
+  def account_problem?(_detail), do: false
 
   # The checkpoint guard's refusal, as the dispatcher records it: a blocked turn
   # carries the code before the term, a deferred one the term alone.
