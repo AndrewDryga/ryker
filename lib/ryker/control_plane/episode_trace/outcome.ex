@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
+  alias Ryker.ControlPlane.Emoji
   alias Ryker.Delivery.PlatformAction
   alias Ryker.InspectionRedactor
   alias Ryker.Publication.Publication
@@ -26,10 +27,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
     )
   end
 
-  @doc "Each platform action as queued, and as confirmed when it was."
+  @doc """
+  Each platform action as Ryker asked for it, and as its platform confirmed
+  it when it did. History cards stay as they were at their time, so the first
+  one says what was asked rather than a state ("Queued") that went stale
+  beside its own confirmation (Andrew, 2026-09-26). A reply's supporting
+  record links to the first card.
+  """
   def platform_action_steps(actions) do
     Enum.flat_map(actions, fn action ->
-      queued =
+      platform = capitalize(action.transport)
+
+      asked =
         step(
           "platform-action-#{action.id}",
           :outcome,
@@ -42,9 +51,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
                 {"Conversation", action.conversation_ref, identifier: true},
                 {"Thread", action.thread_ref, identifier: true}
               ]),
+            record_ref: action.action_ref,
             stage: "Platform action",
-            state: "queued",
-            summary: "Queued for #{capitalize(action.transport)} delivery.",
+            state: nil,
+            summary: "Asked #{platform} to #{platform_action_request(action)}.",
             title: platform_action_title(action.tool),
             tone: nil
           }
@@ -52,22 +62,45 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
 
       if action.delivered_at do
         [
-          queued,
+          asked,
           step("platform-action-#{action.id}-confirmed", :outcome, action.delivered_at, %{
             actor: action.transport,
             details: [],
             stage: "Platform action",
             state: "confirmed",
             title: platform_action_title(action.tool) <> " confirmed",
-            summary: "#{capitalize(action.transport)} confirmed the action.",
+            summary: "#{platform} #{platform_action_done(action)}.",
             tone: :good
           })
         ]
       else
-        [queued]
+        [asked]
       end
     end)
   end
+
+  defp platform_action_request(%PlatformAction{kind: :reaction, document: document}) do
+    case reaction(document) do
+      {"remove", emoji} -> "remove #{emoji} from the message"
+      {_add, emoji} -> "add #{emoji} to the message"
+    end
+  end
+
+  defp platform_action_request(_action), do: "post the message"
+
+  defp platform_action_done(%PlatformAction{kind: :reaction, document: document}) do
+    case reaction(document) do
+      {"remove", emoji} -> "removed #{emoji} from the message"
+      {_add, emoji} -> "added #{emoji} to the message"
+    end
+  end
+
+  defp platform_action_done(_action), do: "posted the message"
+
+  defp reaction(%{"action" => action, "emoji_name" => name}) when is_binary(name),
+    do: {action, Emoji.glyph(name)}
+
+  defp reaction(_document), do: {"add", "the reaction"}
 
   @doc "Incident rooms the episode requested or was opened from."
   def incident_steps(episode_id) do

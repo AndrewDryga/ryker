@@ -1,6 +1,8 @@
 defmodule Ryker.StateTools.FixedTools do
   @moduledoc false
 
+  require Logger
+
   alias Ryker.Episodes.Origins
   alias Ryker.Records
   alias Ryker.Work.{Contract, Final}
@@ -78,14 +80,25 @@ defmodule Ryker.StateTools.FixedTools do
 
       case dispatch(name, arguments, binding) do
         {:ok, _result} = success -> success
-        {:error, reason} -> {:error, ErrorCode.code(reason)}
+        {:error, reason} -> {:error, error_code(name, reason)}
       end
     else
-      {:error, reason} -> {:error, ErrorCode.code(reason)}
+      {:error, reason} -> {:error, error_code(name, reason)}
     end
   end
 
   def call(_name, _arguments, _options), do: {:error, "unknown_tool"}
+
+  # A reason the table does not know reaches the model as a retry; the log
+  # keeps what it was, which the Timeline's "Error" disclosure cannot.
+  defp error_code(name, reason) do
+    code = ErrorCode.code(reason)
+
+    if code == "temporarily_unavailable",
+      do: Logger.warning("state tool #{name} failed: #{inspect(reason, limit: 8)}")
+
+    code
+  end
 
   defp contract_capability_available(name, options) do
     if Contract.fixed_tool_allowed?(execution_mode(options), name),
