@@ -1506,6 +1506,31 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert request(:get, "/actions/unknown/ref/delete").status == 404
   end
 
+  # Manual testing, 2026-09-26: every refused confirmed action ended on a bare
+  # text page reading "Action is no longer available", with no reason and no
+  # way back, even for a schedule whose previous run was still going.
+  test "a refused action says why in words and offers the way back" do
+    path = "/actions/schedule/schedule%3Aone/run-now"
+    confirmation = request(:get, path)
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
+
+    for {reason, words} <- [
+          {:schedule_occurrence_active, "A run of this schedule is still going."},
+          {:schedule_policy_unavailable, "no worker is set up to run it"},
+          {:unexpected, "The page may be out of date"}
+        ] do
+      options = put_in(options(), [:actions, :run_schedule], fn _ref -> {:error, reason} end)
+
+      refused =
+        request_with_options(:post, path, URI.encode_query(%{"_token" => token}), options)
+
+      assert refused.status == 409
+      assert refused.resp_body =~ words
+      assert refused.resp_body =~ ~s(href="/schedules/schedule%3Aone")
+      refute refused.resp_body =~ "Action is no longer available"
+    end
+  end
+
   test "a schedule confirmation says what the change will do, never the raw lifecycle action" do
     # Until 2026-09-24 Pause asked "Change Daily health?" over "The schedule
     # lifecycle will change to paused.": the action's own enum, and nothing
