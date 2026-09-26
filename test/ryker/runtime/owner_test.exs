@@ -195,7 +195,7 @@ defmodule Ryker.Runtime.OwnerTest do
 
     assert applied(owner, connected)
     assert is_map(Application.get_env(:ryker, :slack))
-    assert is_pid(Process.whereis(Ryker.Slack.Names))
+    assert is_pid(Process.whereis(Names))
   end
 
   # The Card Lab delivery worker polled card_lab_posts every second beside the
