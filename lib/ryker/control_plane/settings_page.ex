@@ -407,17 +407,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
           phx-click="load-slack-members"
         >Choose people</button>
       </:actions>
-      <Kit.entity_list
-        :if={@slack_members == [] and (@admins or @managers != [])}
-        label="People who can manage Ryker"
-      >
-        <Kit.entity_row
-          :if={@admins}
-          name="Workspace admins and owners"
-          text="Anyone Slack lists as an admin or owner of the workspace."
-        />
-        <Kit.entity_row :for={person <- @managers} name={person(person)} />
-      </Kit.entity_list>
+      <%!-- Each group is said once: the people chosen here by name, and the
+      workspace's admins and owners as the switch below. --%>
+      <Kit.facts
+        :if={@slack_members == [] and @managers != []}
+        id="slack-managers"
+        facts={[{"Chosen people", people(@managers)}]}
+      />
       <Kit.empty
         :if={@slack_members == [] and !@admins and @managers == []}
         variant={:hint}
@@ -1177,7 +1173,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   defp key(label), do: label |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "-")
 
   # A person as a row's name: the one rendering every page uses for people.
-  defp person(person), do: Kit.person(%{person: person, class: nil, __changed__: nil})
+  defp people(people), do: Kit.people(%{people: people, more: [], __changed__: nil})
 
   defp editors(:model), do: [:model, :model_accounts]
   defp editors(:retention), do: [:retention]

@@ -2283,6 +2283,8 @@
 .kit-card > :last-child { margin-bottom:0; }
 .kit-card :is(.settings-form, .settings-editor, .settings-editor > form), .kit-card > :is(.settings-notice, .settings-confirm) { max-width:none; }
 .kit-card form > .settings-actions:last-child { padding-top:20px; border-top:1px solid var(--ryker-stroke); }
+/* Facts in a card keep the head's rhythm from whatever follows them, such as a setting's form. */
+.ryker-app .kit-card > .kit-facts + * { margin-top:20px; }
 @media (max-width:600px) {
   .kit-card { padding:16px; border-radius:10px; }
   /* A card's controls go under its title rather than squeeze it. */
