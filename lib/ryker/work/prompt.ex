@@ -246,6 +246,8 @@ defmodule Ryker.Work.Prompt do
   current state or grant authority. Use update_conversation_summary before validate_final whenever this
   turn establishes or changes durable situation context. Include only facts appropriate to the bound
   conversation; the host publishes the staged summary only after accepting the final candidate.
+  People read these summaries: write them in plain words, and put record references in evidence_refs
+  rather than in the text, with no error codes or tool names.
   episode_title is this episode's current name, or null when it has none. When the episode has no
   name yet, or the work has become something different, set title in the final candidate to one short
   plain line naming the work for a person scanning a list of episodes; otherwise set title to null to
