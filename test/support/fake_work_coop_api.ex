@@ -41,6 +41,9 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
         output_artifact_metadata: Keyword.get(options, :output_artifact_metadata, []),
         output_artifacts: Keyword.get(options, :output_artifacts, %{}),
         on_validation_reject: Keyword.get(options, :on_validation_reject),
+        # Runs in the caller once a session is created, the moment the fleet
+        # would place it on a worker.
+        on_create_session: Keyword.get(options, :on_create_session),
         pause_after_submit: Keyword.get(options, :pause_after_submit),
         paused_after_submit: false,
         turn_finished_at: Keyword.get(options, :turn_finished_at),
@@ -180,6 +183,12 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
 
   @impl true
   def create_session(agent, key, policy, task, source) do
+    {result, on_create_session} = create_session_state(agent, key, policy, task, source)
+    if is_function(on_create_session, 1), do: on_create_session.(task)
+    result
+  end
+
+  defp create_session_state(agent, key, policy, task, source) do
     Agent.get_and_update(agent, fn state ->
       session_id =
         if state.session["state"] in ~w(exhausted closed discarded),
@@ -211,7 +220,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
           session: session
       }
 
-      {{:ok, response}, next}
+      {{{:ok, response}, state.on_create_session}, next}
     end)
   end
 
