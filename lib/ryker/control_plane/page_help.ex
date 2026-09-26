@@ -190,7 +190,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Start a conversation",
        [
          "Type a message and press Send, or ⌘ / Ctrl + Enter. Choosing an example fills the box without sending it. Nothing is saved until you send the first message.",
-         "You can attach up to two files, 8 MiB in total: images, text, CSV, JSON, YAML or PDF."
+         "You can attach up to two files, 8 MiB in total: images, PDFs, and text files such as logs, CSV, JSON or YAML."
        ]},
       {"Follow the work",
        [

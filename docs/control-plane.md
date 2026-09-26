@@ -906,7 +906,9 @@ grouped by what Ryker does (Investigate, Build, Remember), and choosing one fill
 the composer without sending. On a phone the composer comes first with the examples under it,
 and a bar above the conversation opens the directory as a drawer; there is no bar
 on a wider screen. The attachment limits (two files, 8 MiB in total) are said
-beside the composer only when a choice breaks them. The empty composer says
+beside the composer only when a choice breaks them. A file is judged by its
+bytes, not the browser's label: any UTF-8 text, such as a log, is read as text,
+and a file Ryker cannot read is refused by name, in the composer. The empty composer says
 "Write a message to Ryker"; Send stays off until there is text or a file; the
 browser's own file field is hidden and the composer names the chosen files
 beside Attach files. Without a pointer to hover, each example is drawn as a row
