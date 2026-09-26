@@ -191,6 +191,26 @@ defmodule Ryker.ControlPlane.Kit do
 
   defp fact(assigns), do: ~H"{@value}"
 
+  attr(:person, :map, required: true, doc: "A Slack person from `Ryker.Slack.Names.person/2`")
+  attr(:class, :any, default: nil)
+
+  @doc """
+  A Slack person, the one way every page shows one: their name, opening their
+  Slack profile in a new tab. Never a raw ID; until Slack has said the name it
+  reads "Slack user", still linked, and the page draws again once it knows.
+  """
+  def person(assigns) do
+    ~H"""
+    <a
+      :if={@person.href}
+      class={["kit-person", @class]}
+      href={@person.href}
+      target="_blank"
+      rel="noopener noreferrer"
+    >{@person.name}</a><span :if={!@person.href} class={["kit-person", @class]}>{@person.name}</span>
+    """
+  end
+
   attr(:tone, :atom, values: [:on, :busy, :off, :warn, :bad], default: :off)
   attr(:word, :string, required: true)
 

@@ -190,21 +190,17 @@ defmodule Ryker.Runtime.Owner do
 
   # The console is always configured: without settings it has bootstrap's
   # listener, no environment Chat could run in and no Work profile at all.
-  defp console(state, nil, configuration) do
+  defp console(state, nil, _configuration) do
     %{
       access: Map.get(state.bootstrap.control_plane, :access, :loopback),
       csrf_secret: state.csrf_secret,
       ip: state.bootstrap.control_plane.ip,
-      port: state.bootstrap.control_plane.port,
-      slack: configuration[:slack]
+      port: state.bootstrap.control_plane.port
     }
   end
 
-  defp console(state, control_plane, configuration) do
-    control_plane
-    |> Map.put(:csrf_secret, state.csrf_secret)
-    |> Map.put(:slack, configuration[:slack])
-  end
+  defp console(state, control_plane, _configuration),
+    do: Map.put(control_plane, :csrf_secret, state.csrf_secret)
 
   # Starts, replaces and stops children in dependency order and reports every
   # child that would not start as `{:runtime_start_failed, key, reason}`.
@@ -283,26 +279,25 @@ defmodule Ryker.Runtime.Owner do
     end
   end
 
-  # The console's companions start before it, and the name cache is handed the
-  # Slack runtime rather than reading it back out of the application
-  # environment in `init`. A child that reads global state at start is a child
-  # whose start depends on who ran before it: this one declined with `:ignore`
-  # for weeks in production, and nothing retries an `:ignore`.
-  defp child_specs(:control_plane, module, configuration) do
-    {slack, console} = Map.pop(configuration, :slack)
-    [{Ryker.ControlPlane.Updates, []}, {Names, name_cache(slack)}, {module, console}]
-  end
+  # The console's companion starts before it.
+  defp child_specs(:control_plane, module, configuration),
+    do: [{Ryker.ControlPlane.Updates, []}, {module, configuration}]
+
+  # The name cache is handed its workspace and lookup rather than reading them
+  # back out of the application environment in `init`. A child that reads
+  # global state at start is a child whose start depends on who ran before it:
+  # it declined with `:ignore` for weeks in production, and nothing retries an
+  # `:ignore`. It is its own child, not the console's, so no Slack setting but
+  # the workspace and its token restarts it and empties it.
+  defp child_specs(:slack_names, Names, %{workspace: workspace, client: client} = names),
+    do: [
+      {Names,
+       workspace: workspace,
+       workspace_url: names.workspace_url,
+       fetch: &SlackUsers.directory_name(client, workspace, &1)}
+    ]
 
   defp child_specs(_key, module, configuration), do: [{module, configuration}]
-
-  defp name_cache(%{identity: %{workspace_ref: workspace}, bot_client: client})
-       when is_binary(workspace),
-       do: [
-         workspace: workspace,
-         fetch: &SlackUsers.directory_name(client, workspace, &1)
-       ]
-
-  defp name_cache(_slack), do: []
 
   defp record(revision, result) do
     case Settings.record_application(revision, result) do

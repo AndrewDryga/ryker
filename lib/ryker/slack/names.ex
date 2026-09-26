@@ -1,12 +1,46 @@
 defmodule Ryker.Slack.Names do
-  @moduledoc "Workspace-scoped display cache. Never an authorization source or a dependency of rendering."
+  @moduledoc """
+  Workspace-scoped display cache: the names of Slack people, channels and the
+  workspace, for reading. Never an authorization source or a dependency of
+  rendering.
+
+  A page asks while it is drawn and gets what is known now, or a kind word
+  when nothing is ("Slack user", "Slack channel C123"). Slack is then asked in
+  the background, one name a tick, and every open page is told when a name it
+  may show arrives or changes, so it draws again without a reload. Names Ryker
+  already has in hand, such as the members Choose people lists, are kept at
+  once (`remember/1`).
+
+  The owner runs it whenever Slack's tokens are verified, switched on or not,
+  apart from every other Slack setting, so choosing who can manage Ryker (and
+  switching Slack on by doing so) keeps the names it knows.
+  """
   use GenServer
   alias Ryker.InspectionRedactor
+  alias Ryker.Slack.Client
+
   @table __MODULE__
   @ttl 900_000
   @interval 1600
+  @maximum_names 2000
+  @pubsub Ryker.PubSub
+  @topic "control-plane"
+  @workspace_url ~r/\Ahttps:\/\/[a-z0-9-]{1,64}\.slack\.com\z/
 
   def start_link(options), do: GenServer.start_link(__MODULE__, options, name: __MODULE__)
+
+  @doc """
+  Checks what assembly hands the owner for this cache: the workspace, its
+  saved address (nil when unknown) and the bot's client. The owner turns the
+  client into the lookup.
+  """
+  @spec options!(map()) :: map()
+  def options!(%{workspace: workspace, workspace_url: url, client: %Client{}} = configuration)
+      when is_binary(workspace) and (is_nil(url) or is_binary(url)),
+      do: configuration
+
+  def options!(_configuration),
+    do: raise(ArgumentError, "Slack names need a workspace, its address and a client")
 
   def name(workspace, ref) when is_binary(workspace) and is_binary(ref) do
     key = {workspace, ref}
@@ -23,6 +57,44 @@ defmodule Ryker.Slack.Names do
   end
 
   def name(_, _), do: "Slack reference"
+
+  @doc """
+  A Slack person the one way every page shows them: `name` is "@Name" once
+  Slack has said it and "Slack user" until then, never the raw ID, and `href`
+  opens their profile, in the workspace when its address is known and through
+  Slack when not. Anything that is not a person's reference Slack would
+  accept has no link. The ref may carry the `slack:user:` prefix actor refs
+  use.
+  """
+  @spec person(String.t() | nil, String.t() | nil) :: %{
+          name: String.t(),
+          href: String.t() | nil
+        }
+  def person(workspace, "slack:user:" <> ref), do: person(workspace, ref)
+
+  def person(workspace, <<prefix, _::binary>> = ref)
+      when is_binary(workspace) and prefix in [?U, ?W] do
+    if valid_ref?(ref) and valid_ref?(workspace),
+      do: %{name: name(workspace, ref), href: profile_url(workspace, ref)},
+      else: nobody()
+  end
+
+  def person(_workspace, _ref), do: nobody()
+
+  @doc """
+  Keeps names Ryker already has in hand, such as the members Choose people
+  just listed, so pages show them at once instead of asking Slack for each.
+  Each entry is `{workspace, ref, name}`; only this cache's workspace is kept.
+  Without a running cache there is nowhere to keep them, and that is fine.
+  """
+  @spec remember([{String.t(), String.t(), String.t()}]) :: :ok
+  def remember(entries) when is_list(entries) do
+    if is_pid(Process.whereis(__MODULE__)),
+      do: GenServer.call(__MODULE__, {:remember, entries}),
+      else: :ok
+  catch
+    :exit, _not_running -> :ok
+  end
 
   def destination("slack:" <> rest) do
     case String.split(rest, ":", parts: 3) do
@@ -57,18 +129,21 @@ defmodule Ryker.Slack.Names do
 
   def workspace_from_destination(_), do: nil
 
+  @doc "The workspace whose names the running cache serves, or nil when none runs."
+  @spec workspace() :: String.t() | nil
   def workspace do
-    case Application.get_env(:ryker, :slack) do
-      %{identity: %{workspace_ref: workspace}} -> workspace
-      _ -> nil
+    case cached(:origin) do
+      [{:origin, workspace, _url}] -> workspace
+      [] -> nil
     end
   end
 
   @impl true
   def init(options) do
     case settings(options) do
-      {:ok, workspace, fetch} ->
+      {:ok, workspace, workspace_url, fetch} ->
         :ets.new(@table, [:named_table, :protected, :set, read_concurrency: true])
+        :ets.insert(@table, {:origin, workspace, workspace_url})
         Process.send_after(self(), :tick, @interval)
 
         {:ok,
@@ -108,6 +183,22 @@ defmodule Ryker.Slack.Names do
   @impl true
   def handle_call(:refresh, _from, state), do: {:reply, :ok, refresh_one(state)}
 
+  def handle_call({:remember, entries}, _from, %{workspace: workspace} = state) do
+    changed =
+      Enum.reduce(entries, false, fn
+        {^workspace, ref, label}, changed when is_binary(ref) ->
+          if valid_ref?(ref) and valid_label?(label),
+            do: store(workspace, ref, clean(label), @ttl) or changed,
+            else: changed
+
+        _another_workspace, changed ->
+          changed
+      end)
+
+    if changed, do: announce()
+    {:reply, :ok, state}
+  end
+
   defp refresh_one(state) do
     if state.blocked_until > now(), do: state, else: fetch_next(state)
   end
@@ -118,30 +209,66 @@ defmodule Ryker.Slack.Names do
         state
 
       {{:value, ref}, queue} ->
-        {label, ttl, backoff} =
-          case fetch(state.fetch, ref) do
-            {:ok, label} when is_binary(label) and byte_size(label) in 1..160 ->
-              {InspectionRedactor.artifact(label, max_bytes: 160).text, @ttl, 0}
+        state = %{state | queue: queue, pending: MapSet.delete(state.pending, ref)}
 
-            {:error, {:delivery_rate_limited, seconds, _}} when is_integer(seconds) ->
-              {nil, max(seconds * 1000, 60_000), max(seconds * 1000, 60_000)}
-
-            _ ->
-              {nil, 300_000, 0}
-          end
-
-        # This is disposable presentation data, not durable identity or authority.
-        if :ets.info(@table, :size) >= 2000, do: :ets.delete(@table, :ets.first(@table))
-        :ets.insert(@table, {{state.workspace, ref}, label, now() + ttl})
-
-        %{
-          state
-          | queue: queue,
-            pending: MapSet.delete(state.pending, ref),
-            blocked_until: now() + backoff
-        }
+        # Remembered since it was asked for: nothing to ask Slack.
+        if remembered?({state.workspace, ref}), do: state, else: look_up(state, ref)
     end
   end
+
+  defp look_up(state, ref) do
+    {label, ttl, backoff} =
+      case fetch(state.fetch, ref) do
+        {:ok, label} when is_binary(label) and byte_size(label) in 1..160 ->
+          {clean(label), @ttl, 0}
+
+        {:error, {:delivery_rate_limited, seconds, _}} when is_integer(seconds) ->
+          {nil, max(seconds * 1000, 60_000), max(seconds * 1000, 60_000)}
+
+        _ ->
+          {nil, 300_000, 0}
+      end
+
+    if store(state.workspace, ref, label, ttl), do: announce()
+    %{state | blocked_until: now() + backoff}
+  end
+
+  # This is disposable presentation data, not durable identity or authority.
+  # A lookup that failed keeps the name Slack gave before, if any. Whether
+  # what a page would show changed is the answer.
+  defp store(workspace, ref, label, ttl) do
+    key = {workspace, ref}
+
+    previous =
+      case :ets.lookup(@table, key) do
+        [{^key, known, _expires}] -> known
+        [] -> nil
+      end
+
+    evict()
+    :ets.insert(@table, {key, label || previous, now() + ttl})
+    is_binary(label) and label != previous
+  end
+
+  # The workspace's own entry is not a name and never makes room.
+  defp evict do
+    if :ets.info(@table, :size) >= @maximum_names do
+      case :ets.select(
+             @table,
+             [{{{:"$1", :_}, :_, :_}, [{:is_binary, :"$1"}], [{:element, 1, :"$_"}]}],
+             1
+           ) do
+        {[key], _continuation} -> :ets.delete(@table, key)
+        _empty -> :ok
+      end
+    end
+  end
+
+  defp announce, do: Phoenix.PubSub.broadcast(@pubsub, @topic, :control_plane_changed)
+
+  defp clean(label), do: InspectionRedactor.artifact(label, max_bytes: 160).text
+
+  defp valid_label?(label), do: is_binary(label) and byte_size(String.trim(label)) in 1..160
 
   # The caller supplies the workspace and the lookup. Reading them back out of the
   # application environment here is what let this process decline with `:ignore`
@@ -151,10 +278,28 @@ defmodule Ryker.Slack.Names do
   defp settings(options) do
     case {Keyword.get(options, :workspace), Keyword.get(options, :fetch)} do
       {workspace, fetch} when is_binary(workspace) and is_function(fetch, 1) ->
-        {:ok, workspace, fetch}
+        {:ok, workspace, workspace_url(Keyword.get(options, :workspace_url)), fetch}
 
       _unconfigured ->
         :disabled
+    end
+  end
+
+  # Only a Slack workspace's own origin ever becomes a link.
+  defp workspace_url(url) when is_binary(url) do
+    url = String.trim_trailing(url, "/")
+    if Regex.match?(@workspace_url, url), do: url
+  end
+
+  defp workspace_url(_url), do: nil
+
+  defp profile_url(workspace, ref) do
+    case cached(:origin) do
+      [{:origin, ^workspace, url}] when is_binary(url) ->
+        url <> "/team/" <> ref
+
+      _unknown ->
+        "https://slack.com/app_redirect?" <> URI.encode_query(team: workspace, channel: ref)
     end
   end
 
@@ -171,6 +316,13 @@ defmodule Ryker.Slack.Names do
   end
 
   defp resolved?(_workspace, _ref), do: false
+
+  defp remembered?(key) do
+    case cached(key) do
+      [{^key, label, expires}] -> is_binary(label) and expires > now()
+      [] -> false
+    end
+  end
 
   defp fresh?(key) do
     case cached(key) do
@@ -190,14 +342,21 @@ defmodule Ryker.Slack.Names do
       do: GenServer.cast(__MODULE__, {:resolve, workspace, ref})
   end
 
+  defp nobody, do: %{name: "Slack user", href: nil}
+
   defp valid_ref?(ref), do: byte_size(ref) <= 64 and Regex.match?(~r/\A[TCGDUWA][A-Z0-9]+\z/, ref)
   defp display(ref, nil), do: unresolved(ref)
   defp display(<<prefix, _::binary>>, label) when prefix in [?C, ?G], do: "#" <> label
   defp display(<<prefix, _::binary>>, label) when prefix in [?U, ?W], do: "@" <> label
   defp display(_, label), do: label
+
   # The channels page listed five identical "Slack channel" rows with the
-  # reference only in a tooltip, so nothing on screen told #test from #test2.
-  # A reference Slack itself would reject is never echoed back into the page.
+  # reference only in a tooltip, so nothing on screen told #test from #test2:
+  # a channel keeps its reference. A person never shows as a raw ID (Andrew,
+  # 2026-09-26); their profile link tells two people apart. A reference Slack
+  # itself would reject is never echoed back into the page.
+  defp unresolved(<<prefix, _::binary>>) when prefix in [?U, ?W], do: "Slack user"
+
   defp unresolved(ref) do
     if valid_ref?(ref), do: fallback(ref) <> " " <> ref, else: fallback(ref)
   end
@@ -205,7 +364,6 @@ defmodule Ryker.Slack.Names do
   defp fallback(<<prefix, _::binary>>) when prefix in [?C, ?G], do: "Slack channel"
   defp fallback("D" <> _), do: "Direct message"
   defp fallback("T" <> _), do: "Slack workspace"
-  defp fallback(<<prefix, _::binary>>) when prefix in [?U, ?W], do: "Slack user"
   defp fallback("A" <> _), do: "Slack app"
   defp fallback(_), do: "Slack reference"
   defp now, do: System.monotonic_time(:millisecond)

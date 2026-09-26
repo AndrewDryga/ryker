@@ -7,7 +7,7 @@ defmodule Ryker.Slack.AppHomeControls do
   again by the host.
   """
 
-  alias Ryker.Slack.{Collections, HomeEvent, HomeInteraction, HomeSubmission}
+  alias Ryker.Slack.{Collections, HomeEvent, HomeInteraction, HomeSubmission, Operators}
 
   # A retained-workspace control names the session's external_ref.
   @work_session_prefix "ryker-work:"
@@ -68,8 +68,8 @@ defmodule Ryker.Slack.AppHomeControls do
 
   defp operator?(interaction, options) do
     case Map.get(options, :operators) do
-      %MapSet{} = operators ->
-        if MapSet.member?(operators, interaction.actor_ref),
+      %Operators{} = operators ->
+        if Operators.operator?(operators, interaction.actor_ref),
           do: :ok,
           else: {:error, :operator_required}
 

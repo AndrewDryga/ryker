@@ -684,7 +684,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
         client: :directory,
         confirm_task_offer: &TaskOffers.confirm/1,
         directory: Directory,
-        operators: MapSet.new(["U123"]),
+        operators: chosen_operators(["U123"]),
         approve_task_publication: &WorkControls.approve_publication/1,
         records: Records,
         # The channel works in the production environment, which changes ryker.
@@ -953,4 +953,8 @@ defmodule Ryker.Slack.TaskEndToEndTest do
       "source_tree" => String.duplicate("3", 40)
     }
   end
+
+  # The people chosen to manage Ryker, with the workspace's admins left out.
+  defp chosen_operators(people),
+    do: Ryker.Slack.Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
 end

@@ -9,6 +9,7 @@ defmodule Ryker.IntegrationSetupTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.GitHub.{Access, Binding}
   alias Ryker.Settings.Environment
+  alias Ryker.Slack.Names
   alias Ryker.Work.Custody
 
   @actor "control-plane:local"
@@ -68,13 +69,15 @@ defmodule Ryker.IntegrationSetupTest do
             "deleted" => false,
             "id" => "U2",
             "is_bot" => false,
-            "profile" => %{"display_name" => "Zoe"}
+            "profile" => %{"display_name" => "Zoe"},
+            "team_id" => "T0123456789"
           },
           %{
             "deleted" => false,
             "id" => "U1",
             "is_bot" => false,
-            "profile" => %{"real_name" => "Ada"}
+            "profile" => %{"real_name" => "Ada"},
+            "team_id" => "T0123456789"
           },
           %{"deleted" => false, "id" => "B1", "is_bot" => true},
           # Slack lists Slackbot as a member that is not a bot, and a workflow
@@ -213,6 +216,36 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert {:ok, [%{id: "U1", name: "Ada"}, %{id: "U2", name: "Zoe"}]} =
              IntegrationSetup.slack_members(requester: Requester)
+  end
+
+  # Andrew chose himself on Integrations › Slack on 2026-09-26 and the list
+  # then read "Slack user U0BHTNFCW6S": Choose people had every member's name
+  # in hand from users.list, while the name cache went on to ask Slack for
+  # each chosen person, one every 1.6 seconds, after the page was drawn.
+  test "the people Choose people lists are known by name at once, without asking Slack for each" do
+    parent = self()
+
+    start_supervised!(
+      {Names,
+       workspace: "T0123456789",
+       fetch: fn ref ->
+         send(parent, {:name_lookup, ref})
+         {:ok, "someone else"}
+       end}
+    )
+
+    tokens = %{
+      "app_token" => "xapp-this-is-a-long-app-token",
+      "bot_token" => "xoxb-this-is-a-long-bot-token"
+    }
+
+    assert {:ok, _connected} = IntegrationSetup.connect_slack(tokens, requester: Requester)
+    assert {:ok, _members} = IntegrationSetup.slack_members(requester: Requester)
+
+    assert Names.name("T0123456789", "U1") == "@Ada"
+    assert Names.name("T0123456789", "U2") == "@Zoe"
+    assert :ok = GenServer.call(Names, :refresh)
+    refute_received {:name_lookup, _ref}
   end
 
   # Manual testing, 2026-09-26: tokens pasted into each other's boxes were

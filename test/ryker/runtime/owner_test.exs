@@ -3,7 +3,7 @@ defmodule Ryker.Runtime.OwnerTest do
   import Ryker.TestHelpers, only: [eventually: 1]
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias Ryker.{Bootstrap, Repo, Settings}
+  alias Ryker.{Bootstrap, Credentials, Repo, Settings}
   alias Ryker.Runtime.{Assembly, Owner}
   alias Ryker.Slack.Names
 
@@ -181,6 +181,8 @@ defmodule Ryker.Runtime.OwnerTest do
         @actor
       )
 
+    slack_tokens!()
+
     {:ok, connected} =
       Settings.save_slack(
         %{
@@ -197,6 +199,66 @@ defmodule Ryker.Runtime.OwnerTest do
     assert applied(owner, connected)
     assert is_map(Application.get_env(:ryker, :slack))
     assert is_pid(Process.whereis(Names))
+  end
+
+  # On 2026-09-26 Andrew chose himself on Integrations › Slack and the list
+  # read "Slack user U0BHTNFCW6S". The name cache ran beside the console only
+  # while Slack was switched on, so the names Choose people had just loaded
+  # had nowhere to go, and switching Slack on, like every later Slack setting,
+  # restarted the console with an empty cache.
+  test "the Slack name cache runs once the tokens are verified and keeps its names as people are chosen",
+       context do
+    owner = start_owner(context)
+    {:ok, saved} = initialize()
+
+    {:ok, saved} =
+      Settings.put_policy_binding(
+        %{
+          policy_digest: @digest,
+          policy_name: "ryker-incident-v1",
+          purpose: :incident,
+          scope_kind: :installation,
+          scope_ref: "",
+          verified_by: :import
+        },
+        saved.installation.revision,
+        @actor
+      )
+
+    slack_tokens!()
+
+    {:ok, verified} =
+      Settings.save_slack(
+        %{bot_ref: "A0123456789", bot_user_ref: "U0123456789", workspace_ref: "T0123456789"},
+        saved.installation.revision,
+        @actor
+      )
+
+    assert applied(owner, verified)
+    refute Application.get_env(:ryker, :slack)
+    assert :ok = Names.remember([{"T0123456789", "U1111111111", "Andrew"}])
+    assert Names.name("T0123456789", "U1111111111") == "@Andrew"
+
+    {:ok, chosen} =
+      Settings.save_slack(
+        %{enabled: true, operators: ["U1111111111"]},
+        verified.installation.revision,
+        @actor
+      )
+
+    assert applied(owner, chosen)
+    assert is_map(Application.get_env(:ryker, :slack))
+    assert Names.name("T0123456789", "U1111111111") == "@Andrew"
+
+    {:ok, rechosen} =
+      Settings.save_slack(
+        %{operators: ["U1111111111", "U2222222222"]},
+        chosen.installation.revision,
+        @actor
+      )
+
+    assert applied(owner, rechosen)
+    assert Names.name("T0123456789", "U1111111111") == "@Andrew"
   end
 
   # The Card Lab delivery worker polled card_lab_posts every second beside the
@@ -241,6 +303,13 @@ defmodule Ryker.Runtime.OwnerTest do
 
   # The owner applies a save it hears about on its own; an explicit reconcile
   # after that answers :unchanged. Either way the revision must end up running.
+  defp slack_tokens! do
+    for kind <- [:slack_app, :slack_bot] do
+      {:ok, _} = Credentials.put(kind, "primary", "xoxb-test-token-long-enough", @actor)
+      {:ok, _} = Credentials.verify(kind, "primary", :verified, @actor)
+    end
+  end
+
   defp applied(owner, snapshot) do
     revision = snapshot.installation.revision
     assert Owner.reconcile(owner) in [{:ok, :applied}, {:ok, :unchanged}]

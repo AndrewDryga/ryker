@@ -306,7 +306,7 @@ defmodule Ryker.ControlPlane.Integrations do
 
       true ->
         state(:slack, running(view.readiness, view.application),
-          facts: facts([workspace, bot, managers(slack.operators)])
+          facts: facts([workspace, bot, managers(slack)])
         )
     end
   end
@@ -334,9 +334,19 @@ defmodule Ryker.ControlPlane.Integrations do
        when worker in [:setting_up, :worker_unavailable, :policy_unavailable],
        do: :waiting
 
-  defp managers([]), do: nil
-  defp managers([_one]), do: "1 person can manage Ryker"
-  defp managers(people), do: "#{length(people)} people can manage Ryker"
+  # Who can manage Ryker, as the Slack page lists them: the workspace's admins
+  # and owners while they may, then the people chosen by name.
+  defp managers(%{workspace_admins_manage: true, operators: []}),
+    do: "Workspace admins and owners can manage Ryker"
+
+  defp managers(%{workspace_admins_manage: true, operators: chosen}),
+    do: "Workspace admins, owners and #{people(length(chosen))} can manage Ryker"
+
+  defp managers(%{operators: []}), do: nil
+  defp managers(%{operators: chosen}), do: people(length(chosen)) <> " can manage Ryker"
+
+  defp people(1), do: "1 person"
+  defp people(count), do: "#{count} people"
 
   @doc """
   GitHub: the App Ryker works through, whether it still works and whether

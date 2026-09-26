@@ -39,6 +39,8 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Slack.ActionTokens
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
   alias Ryker.Slack.Client, as: SlackClient
+  alias Ryker.Slack.Operators
+  alias Ryker.Slack.Runtime, as: SlackRuntime
   alias Ryker.Slack.Target, as: SlackTarget
   alias Ryker.Webhooks.Route, as: WebhookRoute
   alias Ryker.Work.RepositoryContext
@@ -63,6 +65,7 @@ defmodule Ryker.Runtime.Assembly do
     {:event_waits, Ryker.Waits.EventWaitWorker},
     {:schedules, Ryker.Schedules.ScheduleRuntime},
     {:slack, Ryker.Slack.Runtime},
+    {:slack_names, Ryker.Slack.Names},
     {:webhooks, Ryker.Webhooks.Server},
     {:control_plane, Ryker.ControlPlane.Server}
   ]
@@ -124,6 +127,8 @@ defmodule Ryker.Runtime.Assembly do
     {slack, slack_left_out} =
       slack(bootstrap, settings, environments, schedules, policies, outside)
 
+    slack_names = slack_names(settings)
+
     control_plane = control_plane(bootstrap, settings, environments, work, schedules, outside)
     adapters = adapters(slack, github, control_plane)
     delivery = delivery(settings, adapters)
@@ -166,6 +171,7 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:retention, retention)
     |> put_optional(:schedules, schedules)
     |> put_optional(:slack, slack && slack.runtime)
+    |> put_optional(:slack_names, slack_names)
     |> put_optional(:state_tools, state_tools)
     |> put_optional(:webhooks, webhooks)
     |> put_optional(
@@ -927,6 +933,37 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
+  # The names of Slack people and channels on every page, for the workspace
+  # whose bot token is saved, whether or not Slack is switched on: choosing who
+  # can manage Ryker happens before it is, and the names Choose people loaded
+  # must still be there after (2026-09-26). Only the workspace, its address
+  # and the token belong here, so no other Slack setting restarts the cache.
+  defp slack_names(%{slack: %{workspace_ref: workspace} = slack}) when is_binary(workspace) do
+    case Credentials.fetch(:slack_bot, "primary") do
+      {:ok, _token} ->
+        %{workspace: workspace, workspace_url: slack.workspace_url, client: slack_bot_client()}
+
+      {:error, _missing_or_unreadable} ->
+        nil
+    end
+  end
+
+  defp slack_names(_settings), do: nil
+
+  defp slack_bot_client do
+    defaults = Defaults.fetch!(:slack)
+
+    bot_http =
+      json_client!(
+        defaults.api_url,
+        defaults.receive_timeout_ms,
+        Credentials.provider(:slack_bot, "primary")
+      )
+
+    {:ok, bot_client} = SlackClient.new(http: bot_http, requester: JSONClient)
+    bot_client
+  end
+
   # The delivery adapter builds the runtime's own options, so a value the
   # runtime would refuse is refused here, inside `isolated/2`.
   defp slack_runtime(settings, environments, schedules, outside, incident_policy) do
@@ -939,14 +976,7 @@ defmodule Ryker.Runtime.Assembly do
         Credentials.provider(:slack_app, "primary")
       )
 
-    bot_http =
-      json_client!(
-        defaults.api_url,
-        defaults.receive_timeout_ms,
-        Credentials.provider(:slack_bot, "primary")
-      )
-
-    {:ok, bot_client} = SlackClient.new(http: bot_http, requester: JSONClient)
+    bot_client = slack_bot_client()
 
     runtime =
       defaults
@@ -969,7 +999,9 @@ defmodule Ryker.Runtime.Assembly do
         incident_policy: incident_policy,
         incident_private: settings.slack.incident_private,
         operators: settings.slack.operators,
-        schedule_policies: schedules
+        schedule_policies: schedules,
+        workspace_admins_manage: settings.slack.workspace_admins_manage,
+        workspace_url: settings.slack.workspace_url
       })
 
     %{
@@ -980,7 +1012,7 @@ defmodule Ryker.Runtime.Assembly do
           client: bot_client,
           workspace_ref: settings.slack.workspace_ref
         }),
-      delivery_adapter: Ryker.Slack.Runtime.delivery_adapter!(runtime),
+      delivery_adapter: SlackRuntime.delivery_adapter!(runtime),
       runtime: runtime
     }
   end
@@ -1387,12 +1419,15 @@ defmodule Ryker.Runtime.Assembly do
     |> add_platform_capability_tools(slack, github, control_plane)
   end
 
-  # Clarification answers are authorized by the current operator membership.
+  # Clarification answers are authorized by who can manage Ryker now, the
+  # same check every Slack surface makes.
   defp answer_authorizer(slack, control_plane) do
+    operators = slack && SlackRuntime.operators(slack.runtime)
+
     fn
       %{source_kind: "slack", source_ref: workspace, actor_kind: :user, actor_ref: actor} ->
         not is_nil(slack) and workspace == slack.runtime.identity.workspace_ref and
-          actor in slack.runtime.operators
+          Operators.operator?(operators, actor)
 
       %{
         source_kind: "control_plane",

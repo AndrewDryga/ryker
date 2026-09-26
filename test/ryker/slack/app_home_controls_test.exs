@@ -59,7 +59,7 @@ defmodule Ryker.Slack.AppHomeControlsTest do
 
   test "a full nonoperator cannot mutate or repaint operational state" do
     parent = self()
-    options = %{options(parent) | operators: MapSet.new()}
+    options = %{options(parent) | operators: chosen_operators([])}
 
     assert AppHomeControls.handle(
              interaction(:delete_schedule, "schedule-control:schedule:one:4"),
@@ -163,7 +163,7 @@ defmodule Ryker.Slack.AppHomeControlsTest do
 
     assert AppHomeControls.handle(
              interaction(:show_collection, "home-collection:schedules:0"),
-             %{options(parent) | operators: MapSet.new()}
+             %{options(parent) | operators: chosen_operators([])}
            ) == {:ok, %{outcome: :denied}}
 
     refute_received {:shown_collection, _, _, _, _}
@@ -639,7 +639,7 @@ defmodule Ryker.Slack.AppHomeControlsTest do
         send(parent, {:forgot_memory, ref, actor_ref, workspace_ref})
         {:ok, %{ref: ref}}
       end,
-      operators: MapSet.new(["U123"]),
+      operators: chosen_operators(["U123"]),
       open_memory_review_editor: fn ref, trigger_ref, actor_ref, workspace_ref ->
         send(parent, {:opened_memory_editor, ref, trigger_ref, actor_ref, workspace_ref})
         :ok
@@ -686,4 +686,8 @@ defmodule Ryker.Slack.AppHomeControlsTest do
       end
     }
   end
+
+  # The people chosen to manage Ryker, with the workspace's admins left out.
+  defp chosen_operators(people),
+    do: Ryker.Slack.Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
 end

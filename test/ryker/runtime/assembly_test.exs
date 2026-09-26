@@ -142,6 +142,7 @@ defmodule Ryker.Runtime.AssemblyTest do
                :retention,
                :schedules,
                :slack,
+               :slack_names,
                :state_tools,
                :webhooks,
                :work

@@ -5,7 +5,7 @@ defmodule Ryker.Settings.Slack do
   alias Ryker.Settings.Validation
 
   @primary_key {:id, :string, autogenerate: false}
-  @fields ~w(enabled workspace_ref workspace_url workspace_name bot_ref bot_user_ref bot_name channel_prefix incident_private default_participation operators)a
+  @fields ~w(enabled workspace_ref workspace_url workspace_name bot_ref bot_user_ref bot_name channel_prefix incident_private default_participation operators workspace_admins_manage)a
 
   schema "slack_settings" do
     field(:enabled, :boolean, default: false)
@@ -24,6 +24,9 @@ defmodule Ryker.Settings.Slack do
     )
 
     field(:operators, {:array, :string}, default: [])
+    # Whether the workspace's admins and owners can manage Ryker beside the
+    # people in `operators`. Slack says who they are when it matters.
+    field(:workspace_admins_manage, :boolean, default: true)
   end
 
   def fields, do: @fields
@@ -31,7 +34,13 @@ defmodule Ryker.Settings.Slack do
   def changeset(current, attributes, _snapshot) do
     current
     |> cast(attributes, @fields)
-    |> validate_required([:enabled, :channel_prefix, :incident_private, :default_participation])
+    |> validate_required([
+      :enabled,
+      :channel_prefix,
+      :incident_private,
+      :default_participation,
+      :workspace_admins_manage
+    ])
     |> validate_format(:workspace_ref, Validation.slack_id_pattern())
     # The workspace origin is the only part of a Slack message link the host
     # cannot derive. It is an origin, never a path, so a card can build a link
