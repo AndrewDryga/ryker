@@ -10,7 +10,6 @@ defmodule Ryker.Delivery.Presentation do
   alias Ryker.Delivery.ChatCard
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.Renderer, as: GitHubRenderer
-  alias Ryker.Records
   alias Ryker.Slack.{Mentions, Renderer, ReplyRecords}
   alias Ryker.Work.Final
 
@@ -19,7 +18,7 @@ defmodule Ryker.Delivery.Presentation do
 
   def validate(%Episode{} = episode, turn_id, %Final{delivery: :reply} = final)
       when is_binary(turn_id) do
-    with {:ok, records} <- Records.fetch_for_episode(episode.id, final.record_refs),
+    with {:ok, records} <- ReplyRecords.fetch(episode.id, final.record_refs),
          :ok <- validate_native_records(episode, records) do
       render(episode, %{
         "message" => final.message,

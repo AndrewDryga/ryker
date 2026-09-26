@@ -326,6 +326,27 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert {:ok, %{status: :pending, retry_generation: 1}} = DeliveryOperator.rearm(action_ref)
   end
 
+  # The Work prompt has the model cite the ref every tool returned for what
+  # its reply says it did, and a reaction's is a platform action's. Delivery
+  # read every cited ref as a durable record, found none and blocked the
+  # reply; on 2026-09-26 a "Hi again! 👋 Your 👍 reaction is queued." sat
+  # undelivered for two hours in #test while its turn crashed every five
+  # minutes, 23 times, on the same lookup before delivery.
+  test "a reply that cites the reaction it added is delivered, without a card for the reaction" do
+    accepted = delivery_pending!("cited-reaction", cited_reaction: true)
+    [action_ref] = accepted.turn.delivery_document["outcome"]["record_refs"]
+    assert String.starts_with?(action_ref, "platform-action:")
+
+    {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
+
+    assert {:ok, {:delivered, :message, delivery_ref}} =
+             Dispatcher.run_once(dispatcher_options(:message, publisher))
+
+    assert delivery_ref == accepted.turn.delivery_ref
+    assert [{:message, request}] = Agent.get(publisher, &Enum.reverse(&1.calls))
+    assert request.document == %{"message" => "Finished from generic delivery."}
+  end
+
   test "a publisher receipt for another destination never settles this intent" do
     accepted = delivery_pending!("crossed")
     {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: [:crossed]} end)
@@ -857,6 +878,23 @@ defmodule Ryker.Delivery.DispatcherTest do
           nil
       end
 
+    reaction =
+      if Keyword.get(options, :cited_reaction) do
+        assert {:ok, %{action: action, status: :created}} =
+                 PlatformActionCustody.enqueue(claim, %{
+                   conversation_ref: "slack:T123:C456",
+                   document: %{"action" => "add", "emoji_name" => "thumbsup"},
+                   host_slot: "reaction",
+                   kind: :reaction,
+                   source_item_ref: "1787832000.000100",
+                   thread_ref: "1787832000.000100",
+                   tool: :set_slack_reaction,
+                   transport: "slack"
+                 })
+
+        action
+      end
+
     output_artifact = Keyword.get(options, :output_artifact)
 
     assert {:ok, submission} =
@@ -917,7 +955,9 @@ defmodule Ryker.Delivery.DispatcherTest do
                1
              )
 
-    record_refs = if record, do: [record.ref], else: []
+    record_refs =
+      if(record, do: [record.ref], else: []) ++
+        if reaction, do: [reaction.action_ref], else: []
 
     delivery_document =
       case {record_refs, artifact_refs} do

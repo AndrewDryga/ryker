@@ -3,13 +3,14 @@ defmodule Ryker.Delivery.PresentationTest do
 
   import Ecto.Query
 
-  alias Ryker.Delivery.Presentation
+  alias Ryker.Delivery.{PlatformActionCustody, Presentation}
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
+  alias Ryker.Slack.ReplyRecords
   alias Ryker.Work.Custody
   alias Ryker.Work.Final
 
@@ -40,6 +41,30 @@ defmodule Ryker.Delivery.PresentationTest do
 
     assert Presentation.validate(%{}, Ecto.UUID.generate(), final) ==
              {:error, {:invalid_delivery_presentation, :document}}
+  end
+
+  # A reply cites the reaction it added, as the Work prompt asks, and the
+  # validator accepts that ref. Presentation read it as a missing durable
+  # record, and the Work executor crashed on the answer: one Slack reply sat
+  # for two hours while its turn failed 23 times (2026-09-26).
+  test "a reply that cites the reaction it added is presentable, with no card for the reaction" do
+    claim = claim!("cited-reaction", "slack")
+
+    assert {:ok, %{action: action}} =
+             PlatformActionCustody.enqueue(claim, %{
+               conversation_ref: claim.episode.destination_conversation_ref,
+               document: %{"action" => "add", "emoji_name" => "thumbsup"},
+               host_slot: "reaction",
+               kind: :reaction,
+               source_item_ref: "1787832000.000100",
+               thread_ref: "1787832000.000100",
+               tool: :set_slack_reaction,
+               transport: "slack"
+             })
+
+    final = final!(:reply, [action.action_ref])
+    assert :ok = Presentation.validate(claim.episode, claim.turn.id, final)
+    assert {:ok, []} = ReplyRecords.fetch(claim.episode.id, [action.action_ref])
   end
 
   test "audit retention does not spend Slack interactive-card capacity or force a retry" do

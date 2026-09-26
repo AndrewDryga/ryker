@@ -23,7 +23,6 @@ defmodule Ryker.Slack.InteractionRepaint do
     TaskCardProjection
   }
 
-  alias Ryker.Records
   alias Ryker.Records.DerivedContext
   alias Ryker.Work.{Session, Turn}
 
@@ -225,7 +224,7 @@ defmodule Ryker.Slack.InteractionRepaint do
       } = document
       when map_size(document) == 4 and map_size(outcome) == 3 and is_binary(message) and
              is_list(refs) ->
-        with {:ok, records} <- Records.fetch_for_episode(turn.episode_id, refs) do
+        with {:ok, records} <- ReplyRecords.fetch(turn.episode_id, refs) do
           {:ok,
            %{
              "message" => confirmation_message(records, message),
