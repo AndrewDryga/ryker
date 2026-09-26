@@ -506,6 +506,37 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     refute only_cleanup =~ "Affects people"
   end
 
+  test "Housekeeping never says nobody waits over rows that need the reader" do
+    # QA, 2026-09-25: Housekeeping said "Nobody is waiting on these" while each
+    # of its rows was tagged "Needs you". No reply waits on them, but a person
+    # still has to decide, as stopped learning does.
+    learning = %{
+      kind: "learning",
+      ref: "batch:one",
+      action: nil,
+      attempt_count: 3,
+      execution_kind: :learning,
+      input_count: 2,
+      learning_path: "/memory/learning?batch=one",
+      status: :deferred,
+      summary: "learning_retry_exhausted",
+      updated_at: ~U[2026-09-23 12:00:00Z]
+    }
+
+    document =
+      [learning]
+      |> FailuresPage.list(@now)
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(document, "#housekeeping ~ .entity-list .state-word")
+           |> LazyHTML.text() == "Needs you"
+
+    lede = document |> LazyHTML.query(".section-head p") |> LazyHTML.text()
+    refute lede =~ "Nobody is waiting"
+    assert lede =~ "No one is missing a reply"
+  end
+
   test "an empty Failures page says nothing needs you and what would put something here" do
     document = [] |> FailuresPage.list(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
 

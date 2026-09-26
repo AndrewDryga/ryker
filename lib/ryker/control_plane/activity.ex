@@ -17,6 +17,7 @@ defmodule Ryker.ControlPlane.Activity do
   alias Ryker.Episodes.{Episode, RoutingDigest}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
+  alias Ryker.State.{Schedule, ScheduleOccurrence}
   alias Ryker.Work.{Session, Turn}
 
   @page_size 30
@@ -220,12 +221,25 @@ defmodule Ryker.ControlPlane.Activity do
         select: %{episode_id: session.episode_id, repository: session.repository_ref}
       )
 
+    # A scheduled run starts from its schedule, not from a message.
+    schedules =
+      from(occurrence in ScheduleOccurrence,
+        join: schedule in Schedule,
+        on: schedule.id == occurrence.schedule_id,
+        where: not is_nil(occurrence.child_episode_id),
+        distinct: occurrence.child_episode_id,
+        order_by: [asc: occurrence.child_episode_id, asc: occurrence.scheduled_for],
+        select: %{episode_id: occurrence.child_episode_id, title: schedule.title}
+      )
+
     episodes =
       from(episode in Episode,
         left_join: input in subquery(first_inputs),
         on: input.episode_id == episode.id,
         left_join: checkout in subquery(checkouts),
         on: checkout.episode_id == episode.id,
+        left_join: scheduled in subquery(schedules),
+        on: scheduled.episode_id == episode.id,
         left_join: turn in Turn,
         on:
           turn.episode_id == episode.id and turn.turn_ref == episode.owner_ref and
@@ -236,6 +250,7 @@ defmodule Ryker.ControlPlane.Activity do
           id: episode.id,
           kind: type(^"episode", :string),
           episode_title: digest.title,
+          schedule_title: scheduled.title,
           ref: episode.key,
           conversation: episode.destination_conversation_ref,
           thread: episode.destination_thread_ref,
@@ -276,6 +291,7 @@ defmodule Ryker.ControlPlane.Activity do
           id: entry.id,
           kind: type(^"admission", :string),
           episode_title: type(^nil, :string),
+          schedule_title: type(^nil, :string),
           ref: fragment("?::text", entry.id),
           conversation: entry.destination_conversation_ref,
           thread: entry.destination_thread_ref,
@@ -314,9 +330,13 @@ defmodule Ryker.ControlPlane.Activity do
   end
 
   # An episode reads as the name Work gave it; before any turn has named it,
-  # as its first message.
+  # a scheduled run as its schedule and anything else as its first message.
   defp present(%{episode_title: title} = row, secrets) when is_binary(title) do
     %{present(%{row | episode_title: nil}, secrets) | title: redacted(title, secrets, 240)}
+  end
+
+  defp present(%{schedule_title: title} = row, secrets) when is_binary(title) do
+    %{present(%{row | schedule_title: nil}, secrets) | title: redacted(title, secrets, 240)}
   end
 
   defp present(row, secrets) do
@@ -332,7 +352,7 @@ defmodule Ryker.ControlPlane.Activity do
           |> String.slice(0, 200)
 
     row
-    |> Map.drop([:text, :ref, :conversation, :episode_state, :episode_title])
+    |> Map.drop([:text, :ref, :conversation, :episode_state, :episode_title, :schedule_title])
     |> Map.merge(%{
       conversation: row.conversation,
       title: title,
@@ -402,7 +422,7 @@ defmodule Ryker.ControlPlane.Activity do
     from(row in query,
       where:
         ilike(row.text, ^pattern) or ilike(row.repository, ^pattern) or ilike(row.ref, ^pattern) or
-          ilike(row.conversation, ^pattern)
+          ilike(row.conversation, ^pattern) or ilike(row.schedule_title, ^pattern)
     )
   end
 

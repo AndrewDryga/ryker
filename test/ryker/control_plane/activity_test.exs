@@ -473,6 +473,32 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert Activity.list(%{"usage_model" => "gpt-5.6-terra", "usage_window" => "7d"}).total == 0
   end
 
+  test "a scheduled run is named by its schedule, not as a message that went missing" do
+    # QA, 2026-09-25: every scheduled run in Activity read "Message text no
+    # longer available". A run starts from its schedule, not from a message,
+    # so there was never text to lose.
+    source = Ryker.Fixtures.SavedEntities.source!("slack:T123:C456")
+    schedule = Ryker.Fixtures.SavedEntities.schedule!(source, "Weekday open incident status", 1)
+    run = counted_episode!("scheduled-run")
+
+    %{
+      child_episode_id: run.id,
+      event_ref: "schedule-event:" <> run.id,
+      id: Ecto.UUID.generate(),
+      ref: "schedule-occurrence:" <> run.id,
+      schedule_id: schedule.id,
+      scheduled_for: DateTime.utc_now(),
+      status: :dispatched
+    }
+    |> Ryker.State.ScheduleOccurrenceChangeset.insert()
+    |> Repo.insert!()
+
+    assert %{title: "Weekday open incident status"} =
+             Enum.find(Activity.list(%{}).items, &(&1.id == run.id))
+
+    assert Activity.list(%{"q" => "weekday open incident"}).total == 1
+  end
+
   test "every workload count opens a view that lists exactly that many requests" do
     # QA, 2026-09-25: Activity led with "3 active · 2 waiting · 1 blocked" while
     # In progress listed nothing, and "waiting" and "blocked" both opened the
