@@ -205,7 +205,7 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
 
     Repo.update_all(
       from(stored in InteractionAudit, where: stored.id == ^audit.id),
-      set: [next_attempt_at: DateTime.add(database_now!(), -1, :second)]
+      set: [next_attempt_at: DateTime.add(Repo.now!(), -1, :second)]
     )
 
     assert {:ok, {:blocked, "interaction:retry-block"}} =
@@ -375,11 +375,6 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
       worker_ref: "slack-interaction:test"
     }
     |> Map.merge(Map.new(overrides))
-  end
-
-  defp database_now! do
-    {:ok, %{rows: [[now]]}} = Repo.query("SELECT clock_timestamp()")
-    now
   end
 
   defp interaction(event_ref) do

@@ -1,5 +1,6 @@
 defmodule Ryker.Continuity.ContinuityConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Accounting.Execution
@@ -352,6 +353,4 @@ defmodule Ryker.Continuity.ContinuityConcurrencyTest do
     delete_entries!(from(entry in Entry, where: entry.native_input_id in ^native_input_ids))
     Repo.delete_all(from(usage in Execution, where: usage.episode_id in ^episode_ids))
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

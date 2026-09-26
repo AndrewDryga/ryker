@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.WorkChangesTest do
   use ExUnit.Case, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ryker.ControlPlane.WorkChanges
 
@@ -106,6 +107,4 @@ defmodule Ryker.ControlPlane.WorkChangesTest do
       "untracked" => []
     }
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

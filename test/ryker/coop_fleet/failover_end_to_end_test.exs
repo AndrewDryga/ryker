@@ -233,7 +233,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
                  episode_id: episode_id,
                  episode_key: "fleet:failover:#{episode_id}",
                  native_input_id: "source:failover:#{episode_id}",
-                 occurred_at: database_now!(),
+                 occurred_at: Repo.now!(),
                  turn_ref: "turn:failover:#{episode_id}"
                })
              )
@@ -291,7 +291,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
   end
 
   defp expire_and_drain!(placement, worker_id) do
-    now = database_now!()
+    now = Repo.now!()
 
     Repo.update_all(
       from(value in Placement, where: value.id == ^placement.id),
@@ -350,7 +350,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
           "workspace_slots_free" => free_slots,
           "workspace_slots_total" => 2
         },
-        "clock_at" => DateTime.to_iso8601(database_now!()),
+        "clock_at" => DateTime.to_iso8601(Repo.now!()),
         "id" => worker_id,
         "policy_digests" => %{@policy => @policy_digest},
         "protocol_version" => "1",
@@ -360,10 +360,5 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
         "workspace_ref" => "workspace-main"
       }
     }
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 end

@@ -152,7 +152,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
                event_kind: :message,
                event_ref: "Ev-fleet-control-admission",
                message_ref: "1787832000.000100",
-               occurred_at: database_now!(),
+               occurred_at: Repo.now!(),
                revision: 1,
                thread_ref: nil,
                workspace_ref: "TE4A6CC529D81"
@@ -443,7 +443,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     Repo.update_all(
       from(value in Placement, where: value.id == ^placement.id),
-      set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
     )
 
     requirements = %{
@@ -508,7 +508,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     Repo.update_all(
       from(value in Placement, where: value.id == ^placement.id),
-      set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
     )
 
     assert {:error, {:coop_session_replacement_required, _, 1}} =
@@ -556,7 +556,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     Repo.update_all(
       from(value in Placement, where: value.id == ^placement.id),
-      set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
     )
 
     # The first call after the lease ends retires the placement and says so; the next one re-places.
@@ -577,7 +577,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     Repo.update_all(
       from(value in Placement, where: value.id == ^unbound.id),
-      set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
     )
 
     assert {:error, {:coop_session_replacement_required, _, 1}} =
@@ -649,7 +649,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     Repo.update_all(
       from(value in Placement, where: value.id == ^placement.id),
-      set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
     )
 
     assert Binding.resolve(binding.token) == {:error, :state_tools_binding_not_authorized}
@@ -704,7 +704,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       generation: first_placement.generation + 1,
       id: replacement_id,
       last_acked_event_sequence: 0,
-      lease_expires_at: DateTime.add(database_now!(), 60, :second),
+      lease_expires_at: DateTime.add(Repo.now!(), 60, :second),
       lease_ref: "placement-lease:#{replacement_id}",
       requirements: first_placement.requirements,
       requirements_fingerprint: first_placement.requirements_fingerprint,
@@ -833,7 +833,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     Repo.update_all(
       from(value in Placement, where: value.id == ^placement.id),
-      set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
     )
 
     result = %{
@@ -1040,7 +1040,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         set: [coop_session_id: coop_session_id]
       )
 
-    now = database_now!() |> DateTime.to_iso8601()
+    now = Repo.now!() |> DateTime.to_iso8601()
 
     session_event = fn sequence, id, type, payload ->
       %{
@@ -1106,7 +1106,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         set: [coop_session_id: coop_session_id]
       )
 
-    now = database_now!() |> DateTime.to_iso8601()
+    now = Repo.now!() |> DateTime.to_iso8601()
 
     session_event = fn sequence, id, type, payload ->
       %{
@@ -1155,7 +1155,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     authorize_and_poll!("worker-a")
     placement = place!("pre-bind-session-created")
     coop_session_id = "coop-session-created-before-binding"
-    now = database_now!() |> DateTime.to_iso8601()
+    now = Repo.now!() |> DateTime.to_iso8601()
 
     created = %{
       "kind" => "session_event",
@@ -1269,7 +1269,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     |> SessionChangeset.bind_workspace_task(workspace_task)
     |> Repo.update!()
 
-    now = database_now!() |> DateTime.to_iso8601()
+    now = Repo.now!() |> DateTime.to_iso8601()
 
     created = %{
       "kind" => "session_event",
@@ -1381,7 +1381,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              )
 
     placement
-    |> Ecto.Changeset.change(lease_expires_at: DateTime.add(database_now!(), -1, :second))
+    |> Ecto.Changeset.change(lease_expires_at: DateTime.add(Repo.now!(), -1, :second))
     |> Repo.update!()
 
     # The third live retry bound the exact task, but its lifecycle event arrived before the
@@ -1462,7 +1462,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         set: [coop_session_id: coop_session_id]
       )
 
-    expired_at = database_now!() |> DateTime.add(-5, :second)
+    expired_at = Repo.now!() |> DateTime.add(-5, :second)
 
     placement
     |> Ecto.Changeset.change(lease_expires_at: expired_at)
@@ -1472,7 +1472,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       "kind" => "session_event",
       "payload" => %{
         "id" => "evt-late-progress",
-        "occurred_at" => database_now!() |> DateTime.to_iso8601(),
+        "occurred_at" => Repo.now!() |> DateTime.to_iso8601(),
         "payload" => %{},
         "sequence" => 1,
         "session_id" => coop_session_id,
@@ -1524,7 +1524,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       "kind" => "session_event",
       "payload" => %{
         "id" => "evt-workspace-discarded",
-        "occurred_at" => database_now!() |> DateTime.to_iso8601(),
+        "occurred_at" => Repo.now!() |> DateTime.to_iso8601(),
         "sequence" => 1,
         "session_id" => coop_session_id,
         "type" => "workspace.discarded",
@@ -1851,7 +1851,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         episode_id: Ecto.UUID.generate(),
         episode_key: "fleet:#{suffix}:#{Ecto.UUID.generate()}",
         native_input_id: "source:#{suffix}:#{Ecto.UUID.generate()}",
-        occurred_at: database_now!(),
+        occurred_at: Repo.now!(),
         turn_ref: "turn:#{suffix}:#{Ecto.UUID.generate()}"
       })
 
@@ -1888,7 +1888,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
             %{"name" => "responder-state", "version" => "1"}
           ]),
         "capacity" => Keyword.get(options, :capacity, capacity(2, 4)),
-        "clock_at" => DateTime.to_iso8601(database_now!()),
+        "clock_at" => DateTime.to_iso8601(Repo.now!()),
         "id" => worker_id,
         "policy_authority_digests" => %{
           "work-read-only" => Keyword.get(options, :authority_digest, @authority_digest)
@@ -1961,7 +1961,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     Repo.update!(
       Ecto.Changeset.change(command,
-        completed_at: database_now!(),
+        completed_at: Repo.now!(),
         operation_key: command.idempotency_key,
         result: %{"state" => "stored"},
         result_fingerprint: String.duplicate("d", 64),
@@ -1987,10 +1987,5 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       session_ref: session.id,
       worker_id: command.worker_id
     })
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 end

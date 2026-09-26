@@ -1,5 +1,6 @@
 defmodule Ryker.Work.ExecutorTest do
   use Ryker.DataCase, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
 
@@ -4725,6 +4726,4 @@ defmodule Ryker.Work.ExecutorTest do
   defp turn_key(claim),
     do:
       "ryker:work:turn:#{claim.turn.id}:g#{claim.turn.submit_generation}:#{claim.turn.submission_fingerprint}"
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

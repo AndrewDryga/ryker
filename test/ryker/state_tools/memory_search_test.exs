@@ -924,7 +924,7 @@ defmodule Ryker.StateTools.MemorySearchTest do
   end
 
   defp summary!(observation) do
-    now = database_now!()
+    now = Repo.now!()
     state = %{"situation" => @captured}
     # Custody resolves a summary by the uuid inside its own ref, as production
     # writes it. A decorative ref makes the document unexposable.
@@ -951,7 +951,7 @@ defmodule Ryker.StateTools.MemorySearchTest do
   end
 
   defp rollup!(observation, summary) do
-    now = database_now!()
+    now = Repo.now!()
     state = %{"situation" => @captured}
 
     Repo.insert!(%ConversationRollup{
@@ -978,10 +978,6 @@ defmodule Ryker.StateTools.MemorySearchTest do
 
   # PostgreSQL owns the search cutoff, so a fixture stamped with the host clock
   # can land after it and never be searched at all.
-  defp database_now! do
-    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
 
   defp common(claim, id, offer, index) do
     ["slack", workspace, _channel] = String.split(claim.episode.destination_conversation_ref, ":")

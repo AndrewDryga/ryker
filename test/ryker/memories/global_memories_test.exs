@@ -303,7 +303,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
 
       case revoke do
         :correct ->
-          stale = DateTime.add(database_now!(), -120, :second)
+          stale = DateTime.add(Ryker.Repo.now!(), -120, :second)
 
           Repo.update_all(MemoryEntry,
             set: [
@@ -356,7 +356,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
 
   # A real answer is a source event that already happened; taking the offset
   # from the database clock keeps that true however far the host clock has run.
-  defp answered_at, do: DateTime.add(database_now!(), -60, :second)
+  defp answered_at, do: DateTime.add(Ryker.Repo.now!(), -60, :second)
 
   defp expire_raw_history! do
     old = DateTime.add(DateTime.utc_now(), -30 * 86_400)
@@ -446,7 +446,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     # PostgreSQL owns the search cutoff. Stamping a fixture with the host clock
     # made this file fail on roughly one seed in three, because a row confirmed
     # after the database's clock_timestamp() is recalled but never searched.
-    now = database_now!()
+    now = Ryker.Repo.now!()
     payload = %{"value" => value, "applicability" => applicability}
 
     attributes = %{
@@ -482,10 +482,5 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     assert {:ok, %MemoryEntry{} = entry} = Repo.insert(changeset)
     Repo.update_all(MemoryEntry, set: [inserted_at: now, updated_at: now])
     Repo.get!(MemoryEntry, entry.id)
-  end
-
-  defp database_now! do
-    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 end

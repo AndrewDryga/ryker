@@ -1,5 +1,6 @@
 defmodule Ryker.Work.CandidateResponseTest do
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
 
@@ -322,6 +323,4 @@ defmodule Ryker.Work.CandidateResponseTest do
       operational_data_seconds: 60
     }
   end
-
-  defp digest(body), do: :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
 end

@@ -1,5 +1,6 @@
 defmodule Ryker.Slack.AttachmentIngestorTest do
   use Ryker.DataCase, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ryker.Artifacts
   alias Ryker.Ingress.Input
@@ -179,6 +180,4 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
       "url_private" => "https://files.slack.com/files-pri/TBEFEAD653F6D-F123/failure.png"
     }
   end
-
-  defp digest(data), do: :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
 end

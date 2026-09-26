@@ -1,5 +1,6 @@
 defmodule Ryker.Schedules.SchedulesTest do
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
 
@@ -44,7 +45,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert duplicate.schedule.id == confirmation.schedule.id
     assert Repo.aggregate(Schedule, :count, :id) == 1
 
-    due_at = DateTime.add(database_now!(), -60, :second)
+    due_at = DateTime.add(Repo.now!(), -60, :second)
     make_due!(confirmation.schedule, due_at)
 
     assert {:ok, claim} = Schedules.claim_due("schedule-worker:one", 60)
@@ -107,7 +108,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert run["episode_state"] == "working"
     assert run["outcome"] == "dispatched"
 
-    make_due!(dispatched.schedule, DateTime.add(database_now!(), -30, :second))
+    make_due!(dispatched.schedule, DateTime.add(Repo.now!(), -30, :second))
     assert {:ok, overlap_claim} = Schedules.claim_due("schedule-worker:two", 60)
 
     assert {:ok, overlap} =
@@ -178,7 +179,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert {:ok, confirmation} = Schedules.confirm(confirmation(fixture, "environment"))
     assert confirmation.schedule.environment_ref == "production"
 
-    make_due!(confirmation.schedule, DateTime.add(database_now!(), -60, :second))
+    make_due!(confirmation.schedule, DateTime.add(Repo.now!(), -60, :second))
     assert {:ok, claim} = Schedules.claim_due("schedule-worker:environment", 60)
 
     assert {:ok, dispatched} =
@@ -292,7 +293,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     fixture = delivered_offer!("misfire")
     assert {:ok, confirmation} = Schedules.confirm(confirmation(fixture, "misfire"))
 
-    make_due!(confirmation.schedule, DateTime.add(database_now!(), -3_600, :second))
+    make_due!(confirmation.schedule, DateTime.add(Repo.now!(), -3_600, :second))
 
     assert {:ok, claim} = Schedules.claim_due("schedule-worker:misfire", 60)
     assert {:ok, missed} = Schedules.dispatch(claim.schedule.ref, claim.lease_ref, &policy/1, 60)
@@ -322,7 +323,7 @@ defmodule Ryker.Schedules.SchedulesTest do
   test "schedule leases renew, defer bounded failures, and reject invalid policy authority" do
     fixture = delivered_offer!("lease")
     assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "lease"))
-    make_due!(confirmed.schedule, DateTime.add(database_now!(), -1, :second))
+    make_due!(confirmed.schedule, DateTime.add(Repo.now!(), -1, :second))
 
     assert {:ok, claim} = Schedules.claim_due("schedule-worker:lease", 60)
     assert {:ok, renewed} = Schedules.renew(claim.schedule.ref, claim.lease_ref, 120)
@@ -345,7 +346,7 @@ defmodule Ryker.Schedules.SchedulesTest do
   test "expired due schedules are terminalized without starving the next claim" do
     fixture = delivered_offer!("expired")
     assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "expired"))
-    now = database_now!()
+    now = Repo.now!()
 
     Repo.update_all(
       from(schedule in Schedule, where: schedule.id == ^confirmed.schedule.id),
@@ -374,7 +375,7 @@ defmodule Ryker.Schedules.SchedulesTest do
       )
 
     assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "missed"))
-    now = database_now!()
+    now = Repo.now!()
     make_due!(confirmed.schedule, DateTime.add(now, -3_601, :second))
 
     assert {:ok, claim} = Schedules.claim_due("schedule-worker:missed", 60)
@@ -403,7 +404,7 @@ defmodule Ryker.Schedules.SchedulesTest do
                |> Map.update!(:occurred_at, &DateTime.to_iso8601/1)
              )
 
-    make_due!(confirmed.schedule, DateTime.add(database_now!(), -1, :second))
+    make_due!(confirmed.schedule, DateTime.add(Repo.now!(), -1, :second))
     assert {:ok, claim} = Schedules.claim_due("schedule-worker:once", 60)
 
     assert {:ok, dispatched} =
@@ -622,7 +623,7 @@ defmodule Ryker.Schedules.SchedulesTest do
   test "the next recurrence at or beyond expiry terminalizes the schedule" do
     fixture = delivered_offer!("next-expired")
     assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "next-expired"))
-    now = database_now!()
+    now = Repo.now!()
     due_at = DateTime.add(now, -1, :second)
 
     assert {:ok, next_at} =
@@ -856,16 +857,9 @@ defmodule Ryker.Schedules.SchedulesTest do
   defp expire!(schedule, status \\ :active) do
     Repo.update_all(
       from(stored in Schedule, where: stored.id == ^schedule.id),
-      set: [expires_at: DateTime.add(database_now!(), -1, :second), status: status]
+      set: [expires_at: DateTime.add(Repo.now!(), -1, :second), status: status]
     )
   end
 
   defp policy(_schedule), do: {:ok, @policy}
-
-  defp database_now! do
-    {:ok, %{rows: [[now]]}} = Repo.query("SELECT clock_timestamp()")
-    now
-  end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

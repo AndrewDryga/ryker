@@ -1,5 +1,6 @@
 defmodule Ryker.Runtime.OwnerTest do
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [eventually: 1]
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.{Bootstrap, Repo, Settings}
@@ -244,14 +245,6 @@ defmodule Ryker.Runtime.OwnerTest do
     revision = snapshot.installation.revision
     assert Owner.reconcile(owner) in [{:ok, :applied}, {:ok, :unchanged}]
     Owner.applied_revision(owner) == revision
-  end
-
-  defp eventually(check, attempts \\ 50) do
-    cond do
-      check.() -> true
-      attempts == 0 -> false
-      true -> Process.sleep(20) && eventually(check, attempts - 1)
-    end
   end
 
   defp console_running?(context) do

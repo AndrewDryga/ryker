@@ -1,5 +1,6 @@
 defmodule Ryker.Records.InputRequestsTest do
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -408,6 +409,4 @@ defmodule Ryker.Records.InputRequestsTest do
       }
     }
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

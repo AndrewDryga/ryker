@@ -498,7 +498,7 @@ defmodule Ryker.CoopFleet.RouterTest do
              )
 
     restore_command
-    |> Ecto.Changeset.change(status: :delivered, delivered_at: database_now!())
+    |> Ecto.Changeset.change(status: :delivered, delivered_at: Repo.now!())
     |> Repo.update!()
 
     download =
@@ -888,7 +888,7 @@ defmodule Ryker.CoopFleet.RouterTest do
                  episode_id: episode_id,
                  episode_key: "fleet:router:#{episode_id}",
                  native_input_id: "source:fleet-router:#{episode_id}",
-                 occurred_at: database_now!(),
+                 occurred_at: Repo.now!(),
                  turn_ref: "turn:fleet-router:#{episode_id}"
                })
              )
@@ -929,11 +929,6 @@ defmodule Ryker.CoopFleet.RouterTest do
         "workspace_ref" => "workspace-main"
       }
     }
-  end
-
-  defp database_now! do
-    %{rows: [[now]]} = Ryker.Repo.query!("SELECT clock_timestamp()")
-    now
   end
 
   defp enrollment_authority do

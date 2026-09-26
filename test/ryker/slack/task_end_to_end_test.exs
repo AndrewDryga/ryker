@@ -1,5 +1,6 @@
 defmodule Ryker.Slack.TaskEndToEndTest do
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
   import Plug.Conn
@@ -952,6 +953,4 @@ defmodule Ryker.Slack.TaskEndToEndTest do
       "source_tree" => String.duplicate("3", 40)
     }
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

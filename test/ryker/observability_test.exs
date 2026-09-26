@@ -58,7 +58,7 @@ defmodule Ryker.ObservabilityTest do
       }
     })
 
-    now = database_now!()
+    now = Repo.now!()
     ingress_at = DateTime.add(now, -7_200, :second)
     lease_at = DateTime.add(now, -1_800, :second)
     progress_at = DateTime.add(now, -3_600, :second)
@@ -140,11 +140,11 @@ defmodule Ryker.ObservabilityTest do
         "control-plane:local"
       )
 
-    before = database_now!()
+    before = Repo.now!()
     health = probe("/healthz")
     ready = probe("/readyz")
     metrics = probe("/metrics")
-    later = database_now!()
+    later = Repo.now!()
 
     assert {health.status, health.resp_body} == {200, "ok\n"}
 
@@ -908,7 +908,7 @@ defmodule Ryker.ObservabilityTest do
     # Learning sessions were invisible to the same queue, so their backlog could
     # never be seen at all.
     session = terminal_work_session!("eligible-age")
-    now = database_now!()
+    now = Repo.now!()
 
     # Structural fixture: freeze the exact durable cleanup timestamps the defect
     # confuses. The session was created two hours ago, closed sixteen minutes ago
@@ -956,7 +956,7 @@ defmodule Ryker.ObservabilityTest do
     # watchdog told the operator Ryker was not working. A retry that comes due
     # is the same: it becomes claimable when its backoff ends, not before.
     learning = stopped_learning_session!()
-    now = database_now!()
+    now = Repo.now!()
 
     # Structural fixture: the run stopped two days ago and its cleanup blocked.
     Repo.update_all(
@@ -1227,17 +1227,12 @@ defmodule Ryker.ObservabilityTest do
     # Structural fixture: the durable remote stop proof retention custody requires.
     run
     |> Ecto.Changeset.change(
-      remote_stopped_at: database_now!(),
+      remote_stopped_at: Repo.now!(),
       stop_receipt: %{"kind" => "stopped", "session_id" => session.coop_session_id}
     )
     |> Repo.update!()
 
     session
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 
   defp slack_input(content) do

@@ -1,5 +1,6 @@
 defmodule Ryker.BundledCoopTest do
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [eventually: 1]
 
   import Ecto.Query
 
@@ -465,14 +466,6 @@ defmodule Ryker.BundledCoopTest do
     ~r/^  ([a-z0-9-]+):\n(?:    .*\n)*?    target: "([^"]+)"/m
     |> Regex.scan(File.read!(path), capture: :all_but_first)
     |> Map.new(fn [name, target] -> {name, target} end)
-  end
-
-  defp eventually(check, attempts \\ 100) do
-    cond do
-      check.() -> true
-      attempts == 0 -> false
-      true -> Process.sleep(20) && eventually(check, attempts - 1)
-    end
   end
 
   defp restore_env(key, nil), do: System.delete_env(key)

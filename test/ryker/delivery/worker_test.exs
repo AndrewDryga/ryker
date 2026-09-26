@@ -1,5 +1,6 @@
 defmodule Ryker.Delivery.WorkerTest do
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [eventually: 1]
 
   @moduletag isolation: "REPEATABLE READ"
 
@@ -164,17 +165,5 @@ defmodule Ryker.Delivery.WorkerTest do
              })
 
     adapters
-  end
-
-  defp eventually(predicate, attempts \\ 100)
-  defp eventually(_predicate, 0), do: false
-
-  defp eventually(predicate, attempts) do
-    if predicate.() do
-      true
-    else
-      Process.sleep(5)
-      eventually(predicate, attempts - 1)
-    end
   end
 end

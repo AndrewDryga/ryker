@@ -1,5 +1,6 @@
 defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
   use ExUnit.Case, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ryker.CoopFleet.CheckpointCrypto
   alias Ryker.CoopFleet.WorkspaceCheckpoint
@@ -374,6 +375,4 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
     binary_part(header, 0, 148) <>
       checksum_field <> <<0, 32>> <> binary_part(header, 156, 356) <> rest
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

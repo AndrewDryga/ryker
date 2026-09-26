@@ -1,5 +1,6 @@
 defmodule Ryker.Publication.GitHubPublisherTest do
   use ExUnit.Case, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ryker.Publication.{GitHubPublisher, Publication, Request}
 
@@ -444,6 +445,4 @@ defmodule Ryker.Publication.GitHubPublisherTest do
       "url" => "https://github.com/acme/ryker/pull/42"
     }
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

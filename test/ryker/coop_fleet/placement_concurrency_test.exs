@@ -209,7 +209,7 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
                    "workspace_slots_free" => 1,
                    "workspace_slots_total" => 1
                  },
-                 "clock_at" => DateTime.to_iso8601(database_now!()),
+                 "clock_at" => DateTime.to_iso8601(Repo.now!()),
                  "id" => worker_id,
                  "policy_digests" => %{"work-read-only" => @policy_digest},
                  "protocol_version" => "1",
@@ -227,7 +227,7 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
         episode_id: Ecto.UUID.generate(),
         episode_key: "fleet-placement:#{suffix}",
         native_input_id: "source:#{suffix}",
-        occurred_at: database_now!(),
+        occurred_at: Repo.now!(),
         turn_ref: "turn:#{suffix}"
       })
 
@@ -254,10 +254,5 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
     Repo.delete_all(from(episode in Episode, where: episode.id in ^episode_ids))
     Repo.delete_all(from(certificate in Certificate, where: certificate.worker_id in ^worker_ids))
     Repo.delete_all(from(worker in Worker, where: worker.id in ^worker_ids))
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 end

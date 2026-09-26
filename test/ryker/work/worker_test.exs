@@ -1,5 +1,6 @@
 defmodule Ryker.Work.WorkerTest do
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [eventually: 1]
 
   import ExUnit.CaptureLog
 
@@ -233,17 +234,5 @@ defmodule Ryker.Work.WorkerTest do
       "message" => message,
       "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
     })
-  end
-
-  defp eventually(predicate, attempts \\ 100)
-  defp eventually(_predicate, 0), do: false
-
-  defp eventually(predicate, attempts) do
-    if predicate.() do
-      true
-    else
-      Process.sleep(5)
-      eventually(predicate, attempts - 1)
-    end
   end
 end

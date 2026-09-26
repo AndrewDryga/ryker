@@ -1,6 +1,7 @@
 defmodule Ryker.Fixtures.Publication do
   @moduledoc false
 
+  import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Publication.Custody, as: PublicationCustody
@@ -344,6 +345,4 @@ defmodule Ryker.Fixtures.Publication do
       incomplete
     )
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end
