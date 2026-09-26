@@ -10,16 +10,16 @@ defmodule Mix.Tasks.Ryker.Delivery do
   use Mix.Task
 
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
-  alias Ryker.Delivery.Operator
+  alias Ryker.Operator.Delivery, as: DeliveryOperator
 
   @shortdoc "Lists, inspects, or rearms blocked delivery"
 
   @impl Mix.Task
   def run(arguments) do
     case arguments do
-      ["list"] -> with_repo(&Operator.list_blocked/0)
-      ["show", delivery_ref] -> with_repo(fn -> Operator.fetch(delivery_ref) end)
-      ["rearm", delivery_ref] -> with_repo(fn -> Operator.rearm(delivery_ref) end)
+      ["list"] -> with_repo(&DeliveryOperator.list_blocked/0)
+      ["show", delivery_ref] -> with_repo(fn -> DeliveryOperator.fetch(delivery_ref) end)
+      ["rearm", delivery_ref] -> with_repo(fn -> DeliveryOperator.rearm(delivery_ref) end)
       _invalid -> Mix.raise("usage: mix ryker.delivery list|show REF|rearm REF")
     end
   end

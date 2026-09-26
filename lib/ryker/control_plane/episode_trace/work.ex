@@ -9,8 +9,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.ControlPlane.{Card, InspectionRedactor}
   alias Ryker.CoopFleet.Event, as: CoopEvent
+  alias Ryker.Delivery.ChatCard
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Slack.ThreadStatusReceipts
   alias Ryker.State.Record
@@ -258,7 +259,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     |> Enum.with_index(1)
     |> Enum.map(fn {record, index} ->
       card =
-        case Card.project(%{
+        case ChatCard.project(%{
                record
                | status: :open,
                  updated_at: record.inserted_at,
@@ -285,7 +286,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
           state: "",
           summary: record_summary(record, card),
           title: record_title(record, card),
-          current_warning: Card.wait_warning(record),
+          current_warning: ChatCard.wait_warning(record),
           tone: nil
         }
       )

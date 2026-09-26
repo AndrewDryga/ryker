@@ -18,7 +18,6 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     AdmissionProgress,
     ConversationTranscript,
     CurrentInputs,
-    InspectionRedactor,
     TranscriptCursor
   }
 
@@ -26,6 +25,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   alias Ryker.Delivery.Reaction
   alias Ryker.Episodes.{Episode, Event, RoutingDigest}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.InspectionRedactor
   alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.State.Record

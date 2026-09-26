@@ -8,7 +8,7 @@ defmodule Ryker.Webhooks.Router do
 
   @behaviour Plug
 
-  alias Ryker.Ingress.{Adapters, HTTP, Inbox}
+  alias Ryker.Ingress.{Adapters, InboundHTTP, Inbox}
   alias Ryker.Webhooks.{Auth, Headers, Route, Transforms}
 
   @impl Plug
@@ -29,18 +29,18 @@ defmodule Ryker.Webhooks.Router do
   def call(%Plug.Conn{method: "POST", path_info: ["v1", "hooks", route_name]} = conn, options) do
     case Map.fetch(options.routes, route_name) do
       {:ok, route} -> admit(conn, route, options.now.())
-      :error -> HTTP.respond(conn, 404, %{"error" => "not_found"})
+      :error -> InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
     end
   end
 
-  def call(conn, _options), do: HTTP.respond(conn, 404, %{"error" => "not_found"})
+  def call(conn, _options), do: InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
 
   defp admit(conn, route, now) do
-    with :ok <- HTTP.json_content_type(conn),
-         {:ok, body, conn} <- HTTP.read_bounded_body(conn, route.max_body_bytes),
+    with :ok <- InboundHTTP.json_content_type(conn),
+         {:ok, body, conn} <- InboundHTTP.read_bounded_body(conn, route.max_body_bytes),
          :ok <- Auth.authorize(conn, route, body, now),
          {:ok, metadata} <- metadata(conn, now),
-         {:ok, payload} <- HTTP.decode_json(body),
+         {:ok, payload} <- InboundHTTP.decode_json(body),
          {:ok, transformed} <- normalize(route, payload, metadata),
          {:ok, receipts} <-
            Inbox.record_many(transformed.inputs,
@@ -49,7 +49,7 @@ defmodule Ryker.Webhooks.Router do
            ) do
       receipt = hd(receipts)
 
-      HTTP.respond(conn, 202, %{
+      InboundHTTP.respond(conn, 202, %{
         "input_ref" => Inbox.ref(receipt.entry),
         "input_refs" => Enum.map(receipts, &Inbox.ref(&1.entry)),
         "count" => length(receipts),
@@ -57,40 +57,40 @@ defmodule Ryker.Webhooks.Router do
       })
     else
       {:error, :unsupported_media_type} ->
-        HTTP.respond(conn, 415, %{"error" => "unsupported_media_type"})
+        InboundHTTP.respond(conn, 415, %{"error" => "unsupported_media_type"})
 
       {:error, :too_large} ->
-        HTTP.respond(conn, 413, %{"error" => "payload_too_large"})
+        InboundHTTP.respond(conn, 413, %{"error" => "payload_too_large"})
 
       {:error, :unauthorized} ->
-        HTTP.respond(conn, 401, %{"error" => "unauthorized"})
+        InboundHTTP.respond(conn, 401, %{"error" => "unauthorized"})
 
       {:error, :event_id} ->
-        HTTP.respond(conn, 400, %{"error" => "missing_event_id"})
+        InboundHTTP.respond(conn, 400, %{"error" => "missing_event_id"})
 
       {:error, :metadata} ->
-        HTTP.respond(conn, 400, %{"error" => "invalid_metadata"})
+        InboundHTTP.respond(conn, 400, %{"error" => "invalid_metadata"})
 
       {:error, :json} ->
-        HTTP.respond(conn, 400, %{"error" => "invalid_json"})
+        InboundHTTP.respond(conn, 400, %{"error" => "invalid_json"})
 
       {:error, {:invalid_webhook_input, _field}} ->
-        HTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:invalid_webhook_transform, _field}} ->
-        HTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:invalid_input, _field}} ->
-        HTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:invalid_input, _field, _reason}} ->
-        HTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:input_conflict, _details}} ->
-        HTTP.respond(conn, 409, %{"error" => "event_conflict"})
+        InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
 
       {:error, _reason} ->
-        HTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+        InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
     end
   end
 

@@ -2,7 +2,7 @@ defmodule Ryker.Slack.ThreadStatusReceipts do
   @moduledoc "Append-only observations of actual Slack status API results, separate from desired state."
   use Ecto.Schema
   import Ecto.Query
-  alias Ryker.ControlPlane.InspectionRedactor
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
 
   @primary_key {:id, :binary_id, autogenerate: true}

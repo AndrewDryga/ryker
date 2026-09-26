@@ -1,4 +1,4 @@
-defmodule Ryker.ControlPlane.ExecutionTarget do
+defmodule Ryker.Work.ExecutionTarget do
   @moduledoc """
   One presentation of a retained co:op execution target.
 

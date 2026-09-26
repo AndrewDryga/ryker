@@ -1,7 +1,7 @@
-defmodule Ryker.ControlPlane.WorkRecovery do
+defmodule Ryker.Work.Recovery do
   @moduledoc "A shared recovery brief: host facts and attributed final output, never raw diagnostics or thoughts."
-  alias Ryker.ControlPlane.{CodeEditingSetup, InspectionRedactor}
-  alias Ryker.Work.{Custody, FailureCause, Turn}
+  alias Ryker.InspectionRedactor
+  alias Ryker.Work.{CodeEditingSetup, Custody, FailureCause, Turn}
 
   # What a brief says when the saved error names no cause. A surface with its
   # own sentence for that case reads `explained` instead of comparing text.

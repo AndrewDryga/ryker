@@ -13,7 +13,7 @@ defmodule Ryker.Work.FailureCause do
   explanation for that, rather than inventing a cause the host does not have.
   """
 
-  alias Ryker.ControlPlane.InspectionRedactor
+  alias Ryker.InspectionRedactor
 
   # The saved error keeps a Coop refusal as the third element of an inspected
   # tuple, wherever the retry ladder nested it. An unterminated literal is a

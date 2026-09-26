@@ -1,10 +1,10 @@
 defmodule Ryker.ControlPlane.ConfigurationHelpTest do
   use ExUnit.Case, async: false
 
-  alias Ryker.ControlPlane.CodeEditingSetup
   alias Ryker.ControlPlane.ConfigurationHelp
   alias Ryker.ControlPlane.ConfigurationProjection
   alias Ryker.ControlPlane.RunningSystem
+  alias Ryker.Work.CodeEditingSetup
 
   @settings ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks runtime.mode admission.policy admission.decision_timeout_ms work.concurrency work.poll_interval_ms retention.operational_data_seconds retention.closed_work_seconds retention.episode_history_seconds retention.audit_data_seconds retention.disposable_bytes_limit retention.reclaim_target_seconds retention.storage_high_watermark_bytes retention.storage_low_watermark_bytes retention.storage_reserve_bytes)
 

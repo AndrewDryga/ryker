@@ -1,4 +1,4 @@
-defmodule Ryker.ControlPlane.CodeEditingSetup do
+defmodule Ryker.Work.CodeEditingSetup do
   @moduledoc "Read-only setup facts; connection support is not proof of worker readiness."
 
   def checkpoint_supported? do

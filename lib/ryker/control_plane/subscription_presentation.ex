@@ -5,7 +5,8 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
   every label comes from the saved matcher or the host's own timestamps.
   """
 
-  alias Ryker.ControlPlane.{InspectionRedactor, SlackNames}
+  alias Ryker.ControlPlane.SlackNames
+  alias Ryker.InspectionRedactor
   alias Ryker.Slack.ReplyRecords
 
   @doc """

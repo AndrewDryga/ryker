@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.InspectionRedactor
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.State.{Behavior, Memories, MemoryEntry, Schedule}
 

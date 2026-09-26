@@ -7,8 +7,9 @@ defmodule Ryker.ControlPlane.FindingsProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{InspectionRedactor, PagedRelation, Search}
+  alias Ryker.ControlPlane.{PagedRelation, Search}
   alias Ryker.Episodes.Episode
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.State.Record
 

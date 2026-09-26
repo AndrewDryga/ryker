@@ -9,8 +9,9 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{Activity, InspectionRedactor, Search, SubscriptionPresentation}
+  alias Ryker.ControlPlane.{Activity, Search, SubscriptionPresentation}
   alias Ryker.Episodes.Episode
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.State.{EventSubscription, Record}
 

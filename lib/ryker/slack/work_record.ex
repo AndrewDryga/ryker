@@ -11,12 +11,12 @@ defmodule Ryker.Slack.WorkRecord do
 
   alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.EpisodeTrace.Input
-  alias Ryker.ControlPlane.WorkRecovery
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.Slack.WorkTarget
   alias Ryker.State.Record
+  alias Ryker.Work.Recovery
   alias Ryker.Work.Turn
 
   @maximum_events 60
@@ -204,12 +204,12 @@ defmodule Ryker.Slack.WorkRecord do
   # one set of facts, and the worker's own retained answer is attributed to it
   # rather than read as a check result.
   defp render(:recovery, %{turn: %Turn{} = turn} = snapshot) do
-    case WorkRecovery.workspace_hold(turn) do
+    case Recovery.workspace_hold(turn) do
       nil ->
         nil
 
       _held ->
-        brief = WorkRecovery.brief(turn)
+        brief = Recovery.brief(turn)
 
         [
           "Recovery for #{snapshot.work_ref}",

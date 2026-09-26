@@ -1,4 +1,4 @@
-defmodule Ryker.Learning.Operator do
+defmodule Ryker.Operator.Learning do
   @moduledoc "Explicit, audited recovery of a deferred learning batch without erasing its cost."
   alias Ryker.Learning.{Batches, Rebuilds}
   alias Ryker.Operator.Actions

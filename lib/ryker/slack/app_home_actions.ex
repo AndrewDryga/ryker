@@ -10,9 +10,10 @@ defmodule Ryker.Slack.AppHomeActions do
   import Ecto.Query
 
   alias Ryker.Episodes.Episode
-  alias Ryker.Publication.{Operator, Publication}
+  alias Ryker.Operator.Publication, as: PublicationOperator
+  alias Ryker.Operator.Retention, as: RetentionOperator
+  alias Ryker.Publication.Publication
   alias Ryker.Repo
-  alias Ryker.Retention.Operator, as: RetentionOperator
   alias Ryker.Slack.{HomeInteraction, HomeSubmission}
   alias Ryker.State.Schedule
   alias Ryker.Work.Session
@@ -82,7 +83,7 @@ defmodule Ryker.Slack.AppHomeActions do
       ) do
     with %Publication{} = publication <- Repo.get_by(Publication, ref: publication_ref),
          true <- slack_workspace?(publication, workspace_ref) do
-      Operator.recover(publication.ref, action, expected_generation,
+      PublicationOperator.recover(publication.ref, action, expected_generation,
         actor_ref: "slack:user:#{actor_ref}",
         action_ref: action_ref
       )

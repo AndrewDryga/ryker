@@ -7,13 +7,12 @@ defmodule Ryker.Operator.Failures do
   """
 
   alias Ryker.ControlPlane.FailureProjection
-  alias Ryker.Delivery.Operator, as: DeliveryOperator
-  alias Ryker.Emisar.Operator, as: EmisarOperator
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Operator.{Actions, Reference}
-  alias Ryker.Retention.Operator, as: RetentionOperator
-  alias Ryker.Retention.OperatorAction
+  alias Ryker.Operator.{Actions, Reference, RetentionAction}
+  alias Ryker.Operator.Delivery, as: DeliveryOperator
+  alias Ryker.Operator.Emisar, as: EmisarOperator
+  alias Ryker.Operator.Retention, as: RetentionOperator
 
   alias Ryker.Slack.{
     IncidentRoom,
@@ -121,7 +120,7 @@ defmodule Ryker.Operator.Failures do
   end
 
   defp outcome("retention", ref, %{
-         action: %OperatorAction{} = action,
+         action: %RetentionAction{} = action,
          outcome: outcome,
          session: %Session{} = session
        }) do

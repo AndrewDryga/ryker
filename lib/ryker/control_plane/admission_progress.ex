@@ -3,8 +3,9 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
   import Ecto.Query
   require Ryker.ControlPlane.CurrentInputs
   alias Ryker.Admission.Attempt
-  alias Ryker.ControlPlane.{CurrentInputs, InspectionRedactor}
+  alias Ryker.ControlPlane.CurrentInputs
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
 
   @labels %{

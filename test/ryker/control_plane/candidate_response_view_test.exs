@@ -3,7 +3,8 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
 
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{InspectionRedactor, RequestPage}
+  alias Ryker.ControlPlane.RequestPage
+  alias Ryker.InspectionRedactor
 
   @fixture "test/ryker/work/fixtures/airflow_candidate_responses.json"
 

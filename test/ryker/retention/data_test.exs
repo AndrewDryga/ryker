@@ -15,9 +15,11 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Learning.Batches
   alias Ryker.Learning.FleetSession, as: LearningFleetSession
   alias Ryker.Operator.Actions
+  alias Ryker.Operator.Retention, as: RetentionOperator
+  alias Ryker.Operator.RetentionAction
   alias Ryker.Repo
   alias Ryker.Retention.Custody, as: RetentionCustody
-  alias Ryker.Retention.{Data, Operator, OperatorAction}
+  alias Ryker.Retention.Data
   alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, ThreadStatusReceipts}
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.StateTools.{CallLog, CallRecord}
@@ -478,7 +480,11 @@ defmodule Ryker.Retention.DataTest do
              )
 
     assert {:ok, %{outcome: :rearmed}} =
-             Operator.rearm(session.external_ref, "slack:user:operator", "retention-action:rearm")
+             RetentionOperator.rearm(
+               session.external_ref,
+               "slack:user:operator",
+               "retention-action:rearm"
+             )
 
     assert {:ok, claim} = RetentionCustody.claim_next("cleanup", 60)
 
@@ -499,13 +505,13 @@ defmodule Ryker.Retention.DataTest do
     assert {:ok, _result} = Data.prune(settings(audit_data_seconds: 86_400))
     assert Repo.get(Session, session.id)
 
-    assert Repo.get_by!(OperatorAction, action_ref: "retention-action:rearm").session_id ==
+    assert Repo.get_by!(RetentionAction, action_ref: "retention-action:rearm").session_id ==
              session.id
 
     Repo.query!("UPDATE retention_operator_actions SET inserted_at = $1", [@old])
 
     assert {:ok, _result} = Data.prune(settings())
-    assert Repo.get_by(OperatorAction, action_ref: "retention-action:rearm") == nil
+    assert Repo.get_by(RetentionAction, action_ref: "retention-action:rearm") == nil
 
     assert {:ok, _result} = Data.prune(settings())
     assert Repo.get(Session, session.id) == nil

@@ -8,13 +8,8 @@ defmodule Ryker.ControlPlane.SettingsRows do
 
   alias Ryker.BundledCoop
 
-  alias Ryker.ControlPlane.{
-    Environments,
-    ExecutionTarget,
-    Integrations,
-    SettingsSections,
-    SlackNames
-  }
+  alias Ryker.ControlPlane.{Environments, Integrations, SettingsSections, SlackNames}
+  alias Ryker.Work.ExecutionTarget
 
   @type row :: %{
           name: String.t(),

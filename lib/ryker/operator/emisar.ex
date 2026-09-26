@@ -1,4 +1,4 @@
-defmodule Ryker.Emisar.Operator do
+defmodule Ryker.Operator.Emisar do
   @moduledoc """
   Trusted inspection and rearm surface for Emisar approval monitors.
 

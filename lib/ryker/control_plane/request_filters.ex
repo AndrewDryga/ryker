@@ -16,14 +16,8 @@ defmodule Ryker.ControlPlane.RequestFilters do
   import Ryker.ControlPlane.Components
   alias Phoenix.LiveView.JS
 
-  alias Ryker.ControlPlane.{
-    Components,
-    ExecutionTarget,
-    ShortTime,
-    SlackNames,
-    UsagePage,
-    UsageProjection
-  }
+  alias Ryker.ControlPlane.{Components, ShortTime, SlackNames, UsagePage, UsageProjection}
+  alias Ryker.Work.ExecutionTarget
 
   @efforts ~w(none minimal low medium high xhigh max)
 

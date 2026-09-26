@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
   alias Ryker.ControlPlane.{
     ConversationMemory,
     CSRF,
-    InspectionRedactor,
     LearnedPage,
     RelearnPanel,
     Router,
@@ -19,6 +18,7 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Knowledge, as: Fixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.InspectionRedactor
   alias Ryker.Learning.{Batch, Batches}
   alias Ryker.Operator.Action
 

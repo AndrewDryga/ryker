@@ -1,7 +1,8 @@
 defmodule Ryker.ControlPlane.LearningReceiptTest do
   use Ryker.DataCase, async: false
-  alias Ryker.ControlPlane.{ConversationMemory, InspectionRedactor, LearnedPage, Projection}
+  alias Ryker.ControlPlane.{ConversationMemory, LearnedPage, Projection}
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.State.{KnowledgeRevision, Learning}
 

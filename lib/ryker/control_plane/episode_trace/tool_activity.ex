@@ -9,7 +9,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   import Ryker.ControlPlane.EpisodeTrace.Step
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{EpisodeCausality, InspectionRedactor}
+  alias Ryker.ControlPlane.EpisodeCausality
+  alias Ryker.InspectionRedactor
   alias Ryker.StateTools.{CallRecord, ErrorCode}
   alias Ryker.Work.{ActivityEvent, ActivityPaths}
 

@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.ControlPlane.{EpisodeCausality, EpisodeResponseMetrics, EvidenceLinks, WorkRecovery}
+  alias Ryker.ControlPlane.{EpisodeCausality, EpisodeResponseMetrics, EvidenceLinks}
 
   alias Ryker.ControlPlane.EpisodeTrace.{
     CaseFile,
@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   alias Ryker.Repo
   alias Ryker.State.Record
   alias Ryker.StateTools.CallLog
-  alias Ryker.Work.{Activity, Session, Turn}
+  alias Ryker.Work.{Activity, Recovery, Session, Turn}
 
   @chapters [
     {:input, "What came in", "The input, continuation, or trigger that opened this work."},
@@ -89,7 +89,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     # Only collapse an entirely unstarted task, never earlier work in a resumed episode.
     startup =
       if current_blocked_turn?(episode, current_turn) and length(turns) == 1 and
-           WorkRecovery.not_started?(current_turn) and
+           Recovery.not_started?(current_turn) and
            Enum.all?(sessions, &is_nil(&1.coop_session_id)),
          do: CaseFile.task_start(episode, current_turn)
 
@@ -398,7 +398,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   end
 
   defp stopped(episode, %Turn{status: :blocked} = turn) do
-    recovery = WorkRecovery.brief(turn)
+    recovery = Recovery.brief(turn)
 
     attempts =
       [
@@ -553,7 +553,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   defp operator_actions(episode, current_turn, review) do
     recovery =
       if current_blocked_turn?(episode, current_turn) and is_nil(current_turn.delivery_ref),
-        do: WorkRecovery.brief(current_turn)
+        do: Recovery.brief(current_turn)
 
     []
     |> maybe_action(

@@ -1,4 +1,4 @@
-defmodule Ryker.ControlPlane.CardConfirmationTest do
+defmodule Ryker.Delivery.ChatCardConfirmationTest do
   @moduledoc """
   What a confirmed offer's Chat card says happened, read from the row the
   confirmation saved rather than from the offer the model wrote.
@@ -6,7 +6,8 @@ defmodule Ryker.ControlPlane.CardConfirmationTest do
   use Ryker.DataCase, async: true
 
   alias Ecto.Changeset
-  alias Ryker.ControlPlane.{Card, HTML}
+  alias Ryker.ControlPlane.HTML
+  alias Ryker.Delivery.ChatCard
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Repo
   alias Ryker.State.Record
@@ -29,7 +30,7 @@ defmodule Ryker.ControlPlane.CardConfirmationTest do
     offer = %{Repo.get!(Record, schedule.offer_record_id) | status: :confirmed}
     path = "/schedules/" <> URI.encode(schedule.ref, &URI.char_unreserved?/1)
 
-    assert {:ok, card} = Card.project(offer)
+    assert {:ok, card} = ChatCard.project(offer)
     assert card.action == nil
 
     assert card.outcome == %{
@@ -46,7 +47,7 @@ defmodule Ryker.ControlPlane.CardConfirmationTest do
     assert html =~ ~s(<a href="#{path}">Open schedule</a>)
 
     schedule |> Changeset.change(status: :deleted) |> Repo.update!()
-    assert {:ok, deleted} = Card.project(offer)
+    assert {:ok, deleted} = ChatCard.project(offer)
     assert %{tone: :off, word: "Schedule deleted", text: nil, href: ^path} = deleted.outcome
   end
 
@@ -62,7 +63,7 @@ defmodule Ryker.ControlPlane.CardConfirmationTest do
 
     offer = %{Repo.get!(Record, memory.offer_record_id) | status: :confirmed}
 
-    assert {:ok, card} = Card.project(offer)
+    assert {:ok, card} = ChatCard.project(offer)
     assert %{tone: :on, word: "Saved to memory", link: "Open facts", href: href} = card.outcome
     assert href == "/memory#fact-" <> String.replace(memory.ref, ~r/[^A-Za-z0-9_-]/, "-")
 
@@ -76,7 +77,7 @@ defmodule Ryker.ControlPlane.CardConfirmationTest do
     schedule = SavedEntities.schedule!(source, "Daily review", 1)
     offer = Repo.get!(Record, schedule.offer_record_id)
 
-    assert {:ok, card} = Card.project(offer)
+    assert {:ok, card} = ChatCard.project(offer)
     assert card.action == :confirm_schedule
     assert card.outcome == nil
 

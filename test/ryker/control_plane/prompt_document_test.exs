@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.PromptDocumentTest do
   use ExUnit.Case, async: true
-  alias Ryker.ControlPlane.{InspectionRedactor, PromptDocument, RequestContextHTML}
+  alias Ryker.ControlPlane.{PromptDocument, RequestContextHTML}
+  alias Ryker.InspectionRedactor
 
   test "Work history highlights the same message and summary components as routing" do
     # The actual nested Work bundle was unlabelled even though the same sources

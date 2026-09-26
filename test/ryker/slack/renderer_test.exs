@@ -1,9 +1,8 @@
 defmodule Ryker.Slack.RendererTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.WorkRecovery
   alias Ryker.Slack.{Interaction, Renderer}
-  alias Ryker.Work.{TaskStages, Turn}
+  alias Ryker.Work.{Recovery, TaskStages, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -1113,7 +1112,7 @@ defmodule Ryker.Slack.RendererTest do
       status: :blocked
     }
 
-    failures = WorkRecovery.project(stopped, :ok, true, nil)
+    failures = Recovery.project(stopped, :ok, true, nil)
 
     assert button["text"]["text"] == failures.action_label
     assert button["confirm"]["text"]["text"] == failures.retry_effect

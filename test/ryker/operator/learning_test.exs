@@ -1,8 +1,9 @@
-defmodule Ryker.Learning.OperatorTest do
+defmodule Ryker.Operator.LearningTest do
   use Ryker.DataCase, async: false
   alias Ryker.Fixtures.Learning, as: Fixtures
-  alias Ryker.Learning.{Batch, Batches, InputMembership, Operator}
+  alias Ryker.Learning.{Batch, Batches, InputMembership}
   alias Ryker.Operator.Actions
+  alias Ryker.Operator.Learning, as: LearningOperator
   alias Ryker.State.{Learning, LearningRun}
 
   @settings %{
@@ -53,7 +54,7 @@ defmodule Ryker.Learning.OperatorTest do
     configure_policy(selected)
 
     assert {:ok, receipt} =
-             Operator.retry(before.id, 0, "operator:andrew", "retry:current-policy")
+             LearningOperator.retry(before.id, 0, "operator:andrew", "retry:current-policy")
 
     after_retry = Repo.get!(Batch, before.id)
     assert after_retry.policy == selected.policy
@@ -78,7 +79,7 @@ defmodule Ryker.Learning.OperatorTest do
     })
 
     assert {:ok, duplicate} =
-             Operator.retry(before.id, 0, "operator:andrew", "retry:current-policy")
+             LearningOperator.retry(before.id, 0, "operator:andrew", "retry:current-policy")
 
     assert duplicate.status == :duplicate
     assert duplicate.outcome == receipt.outcome
@@ -106,7 +107,7 @@ defmodule Ryker.Learning.OperatorTest do
       Application.put_env(:ryker, :learning, unquote(Macro.escape(configuration)))
 
       assert {:error, unquote(error)} =
-               Operator.retry(before.id, 0, "operator:andrew", "retry:unconfigured")
+               LearningOperator.retry(before.id, 0, "operator:andrew", "retry:unconfigured")
 
       assert Repo.get!(Batch, before.id) == before
       assert Repo.all(InputMembership) == members
@@ -128,18 +129,21 @@ defmodule Ryker.Learning.OperatorTest do
     [batch] = Repo.all(Batch)
     assert batch.status == :deferred
     assert batch.start_count == 3
-    assert {:ok, receipt} = Operator.retry(batch.id, 0, "operator:andrew", "learning-retry:first")
+
+    assert {:ok, receipt} =
+             LearningOperator.retry(batch.id, 0, "operator:andrew", "learning-retry:first")
+
     assert receipt.outcome["start_count"] == 3
     assert receipt.outcome["start_limit"] == 4
 
     assert {:ok, duplicate} =
-             Operator.retry(batch.id, 0, "operator:andrew", "learning-retry:first")
+             LearningOperator.retry(batch.id, 0, "operator:andrew", "learning-retry:first")
 
     assert duplicate.status == :duplicate
     assert duplicate.outcome == receipt.outcome
 
     assert {:error, :learning_retry_conflict} =
-             Operator.retry(batch.id, 0, "operator:andrew", "learning-retry:stale-form")
+             LearningOperator.retry(batch.id, 0, "operator:andrew", "learning-retry:stale-form")
 
     assert Repo.aggregate(Ryker.Operator.Action, :count) == 1
 
@@ -163,7 +167,7 @@ defmodule Ryker.Learning.OperatorTest do
     assert {:ok, _} = Batches.release(claim, :learning_remote_unresolved, 0)
 
     assert {:error, :learning_remote_outstanding} =
-             Operator.retry(claim.batch.id, 0, "operator:andrew", "learning-retry:unsafe")
+             LearningOperator.retry(claim.batch.id, 0, "operator:andrew", "learning-retry:unsafe")
 
     assert Repo.aggregate(Ryker.Operator.Action, :count) == 0
     assert Repo.get!(Batch, claim.batch.id).start_limit == 3
@@ -185,7 +189,12 @@ defmodule Ryker.Learning.OperatorTest do
     end)
 
     assert {:error, :learning_source_stale} =
-             Operator.retry(claim.batch.id, 0, "operator:andrew", "learning-retry:withdrawn")
+             LearningOperator.retry(
+               claim.batch.id,
+               0,
+               "operator:andrew",
+               "learning-retry:withdrawn"
+             )
 
     assert Repo.aggregate(Ryker.Operator.Action, :count) == 0
     assert Repo.get!(Batch, claim.batch.id).status == :deferred
@@ -210,7 +219,12 @@ defmodule Ryker.Learning.OperatorTest do
       end
 
       assert {:ok, receipt} =
-               Operator.retry(claim.batch.id, 0, "operator:andrew", "learning-retry:survivor")
+               LearningOperator.retry(
+                 claim.batch.id,
+                 0,
+                 "operator:andrew",
+                 "learning-retry:survivor"
+               )
 
       assert receipt.outcome["start_count"] == 0
       assert receipt.outcome["start_limit"] == 1
@@ -234,7 +248,7 @@ defmodule Ryker.Learning.OperatorTest do
     assert {:ok, _} = Batches.release(claim, :knowledge_target_unavailable, 0)
 
     assert {:ok, receipt} =
-             Operator.retry(claim.batch.id, 0, "operator:andrew", "learning-retry:early")
+             LearningOperator.retry(claim.batch.id, 0, "operator:andrew", "learning-retry:early")
 
     assert receipt.outcome["start_count"] == 1
     assert receipt.outcome["start_limit"] == 2

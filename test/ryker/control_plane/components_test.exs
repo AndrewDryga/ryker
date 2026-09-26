@@ -137,6 +137,23 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert LazyHTML.query(summary, ".ui-icon") |> Enum.count() == 1
   end
 
+  test "an execution target shows its model and labelled parts, titled with the co:op target" do
+    html =
+      render_component(&Components.execution_target/1,
+        target: "codex:gpt-5.6-sol/medium@default"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    assert LazyHTML.query(document, ".execution-target-model") |> LazyHTML.text() == "gpt-5.6-sol"
+
+    assert LazyHTML.query(document, ".execution-target-meta") |> LazyHTML.text() ==
+             "Medium reasoning · Codex · Default profile"
+
+    assert LazyHTML.query(document, ".execution-target") |> LazyHTML.attribute("title") == [
+             "codex:gpt-5.6-sol/medium@default"
+           ]
+  end
+
   test "timeline cards share one title and metadata header anatomy" do
     html =
       render_component(

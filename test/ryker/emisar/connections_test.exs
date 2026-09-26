@@ -1,11 +1,12 @@
 defmodule Ryker.Emisar.ConnectionsTest do
   use Ryker.DataCase, async: true
 
-  alias Ryker.Emisar.{Approvals, Connections, Operator}
+  alias Ryker.Emisar.{Approvals, Connections}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Operator.Emisar, as: EmisarOperator
   alias Ryker.Settings
   alias Ryker.State.Records
   alias Ryker.Work.Custody
@@ -56,8 +57,11 @@ defmodule Ryker.Emisar.ConnectionsTest do
              Approvals.claim_next("staging", "staging-monitor", 60)
 
     assert staging.episode_id == second.episode.id
-    assert {:ok, %{connection_ref: "production"}} = Operator.fetch("production/request-shared")
-    assert {:ok, %{connection_ref: "staging"}} = Operator.fetch("staging/request-shared")
+
+    assert {:ok, %{connection_ref: "production"}} =
+             EmisarOperator.fetch("production/request-shared")
+
+    assert {:ok, %{connection_ref: "staging"}} = EmisarOperator.fetch("staging/request-shared")
 
     # Moving the environment to another account changes where new work goes;
     # a session already pinned keeps the account it started with.

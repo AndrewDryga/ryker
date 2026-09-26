@@ -9,14 +9,13 @@ defmodule Ryker.Slack.TaskCardProjection do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.WorkRecovery
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.{Followup, Publication, Review}
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.{Permalink, TaskCard}
   alias Ryker.State.{DerivedContext, Record, Records}
-  alias Ryker.Work.{Custody, FailureCause, Session, TaskStages, Turn}
+  alias Ryker.Work.{Custody, FailureCause, Recovery, Session, TaskStages, Turn}
 
   @ui_revision 6
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
@@ -138,7 +137,7 @@ defmodule Ryker.Slack.TaskCardProjection do
       publication_offer: latest_publication_offer(episode.id),
       goal_records: goal_records(episode.id),
       progress_records: progress_records(episode.id),
-      workspace_hold: WorkRecovery.workspace_hold(turn)
+      workspace_hold: Recovery.workspace_hold(turn)
     }
   end
 

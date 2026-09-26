@@ -12,10 +12,11 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Operator.{EpisodeReviews, Failures}
+  alias Ryker.Operator.Publication, as: PublicationOperator
+  alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Followups, Operator, Publication}
+  alias Ryker.Publication.{Followups, Publication}
   alias Ryker.Repo
-  alias Ryker.Retention.Operator, as: RetentionOperator
   alias Ryker.Slack.Runtime, as: SlackRuntime
   alias Ryker.Slack.WorkRecord
 
@@ -657,7 +658,7 @@ defmodule Ryker.ControlPlane.Actions do
 
     with {:ok, episode} <- task_episode(record, target),
          %Publication{} = publication <- task_publication(episode.id, publication_ref) do
-      Operator.recover(publication.ref, recovery_action, expected_generation,
+      PublicationOperator.recover(publication.ref, recovery_action, expected_generation,
         actor_ref: @actor_ref,
         action_ref: action_ref
       )

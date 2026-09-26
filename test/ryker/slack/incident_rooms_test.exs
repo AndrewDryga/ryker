@@ -5,11 +5,11 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, InstructionSettings}
   alias Ryker.Delivery.{Adapters, Dispatcher, JSONClient}
-  alias Ryker.Delivery.Operator, as: DeliveryOperator
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
+  alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Repo
 
   alias Ryker.Slack.{

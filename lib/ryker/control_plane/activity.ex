@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.Activity do
   alias Ryker.ControlPlane.{
     ConversationProjection,
     CurrentInputs,
-    InspectionRedactor,
     PagedRelation,
     Search,
     SlackMarkdown,
@@ -16,6 +15,7 @@ defmodule Ryker.ControlPlane.Activity do
 
   alias Ryker.Episodes.{Episode, RoutingDigest}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.State.{Schedule, ScheduleOccurrence}
   alias Ryker.Work.{Session, Turn}

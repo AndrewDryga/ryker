@@ -5,13 +5,8 @@ defmodule Ryker.ControlPlane.LearningReceipt do
 
   import Ryker.ControlPlane.Components, only: [execution_target: 1]
 
-  alias Ryker.ControlPlane.{
-    InspectionRedactor,
-    LearningActivity,
-    PromptDocument,
-    SlackMarkdown,
-    SourceText
-  }
+  alias Ryker.ControlPlane.{LearningActivity, PromptDocument, SlackMarkdown, SourceText}
+  alias Ryker.InspectionRedactor
 
   alias Ryker.Repo
   alias Ryker.State.{KnowledgeRevision, LearningRun}

@@ -1,4 +1,4 @@
-defmodule Ryker.Retention.OperatorAction do
+defmodule Ryker.Operator.RetentionAction do
   @moduledoc false
 
   use Ecto.Schema

@@ -12,7 +12,8 @@ defmodule Ryker.ControlPlane.FactsPage do
   import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1]
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{InspectionRedactor, Kit, MemoryFormat, MemoryProjection, SlackNames}
+  alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection, SlackNames}
+  alias Ryker.InspectionRedactor
 
   @doc "The query keys the Facts page reads."
   def query_keys, do: MemoryProjection.query_keys()

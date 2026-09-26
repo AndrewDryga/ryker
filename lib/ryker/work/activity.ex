@@ -1,6 +1,5 @@
 defmodule Ryker.Work.Activity do
   alias Ryker.Admission.FleetSession
-  alias Ryker.ControlPlane.InspectionRedactor
   alias Ryker.Work.ActivityRetention
 
   @moduledoc """
@@ -17,6 +16,7 @@ defmodule Ryker.Work.Activity do
   alias Ecto.Changeset
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Work.{ActivityEvent, ActivityPaths, Session}
 

@@ -8,11 +8,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.ControlPlane.{CurrentInputs, InspectionRedactor, ProviderMessage, SlackMarkdown}
+  alias Ryker.ControlPlane.{CurrentInputs, ProviderMessage, SlackMarkdown}
   alias Ryker.ControlPlane.SlackNames
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Episodes.{Episode, RoutingDigests}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.State.Record
   alias Ryker.Work.{Session, Turn}

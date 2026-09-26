@@ -1,7 +1,7 @@
-defmodule Ryker.ControlPlane.InspectionRedactorTest do
+defmodule Ryker.InspectionRedactorTest do
   use ExUnit.Case, async: true
-  alias Ryker.ControlPlane.InspectionRedactor
   alias Ryker.ControlPlane.SlackMarkdown
+  alias Ryker.InspectionRedactor
 
   test "redacting a Slack alert URL preserves its complete readable label" do
     # The retained HAProxy alert lost 'Open' and displayed a long URL instead.

@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   alias Ryker.ControlPlane.{
     Activity,
-    InspectionRedactor,
     LearningActivity,
     LearningReceipt,
     PagedRelation,
@@ -18,6 +17,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.InspectionRedactor
   alias Ryker.Learning.Rebuilds
   alias Ryker.Repo
 

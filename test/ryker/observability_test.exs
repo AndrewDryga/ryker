@@ -13,8 +13,8 @@ defmodule Ryker.ObservabilityTest do
   alias Ryker.Learning.FleetSession
   alias Ryker.Observability
   alias Ryker.Observability.Progress
+  alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Repo
-  alias Ryker.Retention.Operator, as: RetentionOperator
   alias Ryker.Runtime.Owner
   alias Ryker.Settings
   alias Ryker.Slack.Input, as: SlackInput

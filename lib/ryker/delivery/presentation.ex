@@ -7,7 +7,7 @@ defmodule Ryker.Delivery.Presentation do
   an external side effect.
   """
 
-  alias Ryker.ControlPlane.Card, as: ControlPlaneCard
+  alias Ryker.Delivery.ChatCard
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.Renderer, as: GitHubRenderer
   alias Ryker.Slack.{Mentions, Renderer, ReplyRecords}
@@ -63,7 +63,7 @@ defmodule Ryker.Delivery.Presentation do
          records
        ) do
     Enum.reduce_while(records, :ok, fn record, :ok ->
-      case ControlPlaneCard.project(record) do
+      case ChatCard.project(record) do
         {:ok, _card} ->
           {:cont, :ok}
 

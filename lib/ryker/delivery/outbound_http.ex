@@ -1,4 +1,4 @@
-defmodule Ryker.Delivery.HTTP do
+defmodule Ryker.Delivery.OutboundHTTP do
   @moduledoc """
   The two steps the JSON and binary delivery transports share: asking the
   host for a bearer token, and streaming one response under a hard byte limit.
