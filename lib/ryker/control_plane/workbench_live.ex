@@ -361,7 +361,20 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   def handle_event("connect-slack", %{"connection" => params}, socket) do
     case IntegrationSetup.connect_slack(params) do
-      {:ok, _result} ->
+      # New tokens for the workspace Slack already works in keep it on, for
+      # the same people, so there is nobody to choose again.
+      {:ok, %{enabled: true}} ->
+        {:noreply,
+         socket
+         |> refresh_settings()
+         |> assign(
+           setup_notice: "The new tokens are verified. Slack stays on for the same people.",
+           setup_failure: nil,
+           setup_reveal: nil,
+           slack_members: []
+         )}
+
+      {:ok, _off} ->
         members =
           case IntegrationSetup.slack_members() do
             {:ok, found} -> found
