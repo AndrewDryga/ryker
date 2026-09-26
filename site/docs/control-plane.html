@@ -4,20 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The control plane — Ryker docs</title>
-<meta name="description" content="The local web UI: episodes and full traces, the decisions queue, findings, the review ledger, and audit.">
-<!-- Unfurl metadata. og:image is root-relative; most unfurlers need absolute
+<meta name="description" content="Every request’s timeline, failures, working copies, usage and cost, memory, automations, integrations and settings, on a web UI you run on your own host.">
+<!-- Unfurl metadata. og:image is relative; most unfurlers need absolute
      URLs, so point og:image (and add og:url + rel=canonical) at the real domain
      when the site gets one — a one-line substitution at publish time. -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="The control plane — Ryker docs">
-<meta property="og:description" content="The local web UI: episodes and full traces, the decisions queue, findings, the review ledger, and audit.">
+<meta property="og:description" content="Every request’s timeline, failures, working copies, usage and cost, memory, automations, integrations and settings, on a web UI you run on your own host.">
 <meta property="og:image" content="../assets/og.png">
+<meta property="og:image:width" content="1600">
+<meta property="og:image:height" content="840">
+<meta property="og:image:alt" content="Ryker">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="The control plane — Ryker docs">
-<meta name="twitter:description" content="The local web UI: episodes and full traces, the decisions queue, findings, the review ledger, and audit.">
+<meta name="twitter:description" content="Every request’s timeline, failures, working copies, usage and cost, memory, automations, integrations and settings, on a web UI you run on your own host.">
 
 <meta name="color-scheme" content="dark">
-<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
 <link rel="preload" href="../assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="../assets/site.css">
 </head>
@@ -27,10 +30,7 @@
 
 <header class="nav">
   <div class="wrap nav-in">
-    <a class="wordmark" href="../index.html">
-      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
-      Ryker
-    </a>
+    <a class="wordmark" href="../index.html"><img src="../assets/brand/lockup-color.svg" alt="Ryker" width="160" height="56"></a>
     <nav class="nav-links" aria-label="Main">
       <a href="../index.html#how">How it works</a>
       <a href="../index.html#trust">Trust</a>
@@ -86,176 +86,135 @@
       <ul>
         <li><a href="#what">What it is</a></li>
         <li><a href="#pages">The pages</a></li>
-        <li><a href="#trace">An episode trace</a></li>
-        <li><a href="#fingerprints">Replay fingerprints</a></li>
-        <li><a href="#refusals">Refusals and corrections</a></li>
-        <li><a href="#measurement">Measurement, and the refusal to guess</a></li>
-        <li><a href="#decisions">The decisions queue</a></li>
-        <li><a href="#findings">Findings</a></li>
-        <li><a href="#review">The review ledger</a></li>
-        <li><a href="#audit">Audit</a></li>
-        <li><a href="#failures">Failures and workspaces</a></li>
+        <li><a href="#timeline">A request’s timeline</a></li>
+        <li><a href="#failures">Failures</a></li>
+        <li><a href="#working-copies">Working copies</a></li>
+        <li><a href="#usage">Usage and cost</a></li>
+        <li><a href="#chat">Chat</a></li>
+        <li><a href="#settings">Integrations and settings</a></li>
         <li><a href="#non-goals">What it will not become</a></li>
       </ul>
     </details>
 
     <h1>The control plane</h1>
 
-    <p class="lede">Every episode has a full trace, and the trace is on a web UI served by the same binary, on the same host, over loopback. This is where “it shows its work” stops being a slogan and becomes a page you can open.</p>
+    <p class="lede">Every request has a timeline, and the timeline is on a web UI served by Ryker itself, on your host, over loopback. This is where “it shows its work” stops being a slogan and becomes a page you can open.</p>
 
     <h2 id="what">What it is</h2>
 
-    <p>The control plane is served by the Ryker process itself through server-rendered LiveView pages. It is bound to loopback along with everything else. There are no accounts, no roles, and no invitations, because <strong>the loopback interface is the authentication.</strong> If you can reach it, you are already on the host.</p>
-
-    <p>Three properties are worth stating because they were chosen, not inherited:</p>
+    <p>The control plane is served by the Ryker service at <code>http://127.0.0.1:4321</code>, and it binds to loopback by default. There are no accounts, no roles and no invitations, because <strong>the loopback interface is the authentication.</strong> Reach it from the same machine or through an SSH tunnel, and do not publish it.</p>
 
     <ul>
-      <li><strong>No JavaScript at all.</strong> The content security policy has no script source. Every confirmation is a native two-step disclosure that posts a form; every chart is inline SVG computed on the server. A confirm dialog that needs a script is a confirm dialog that silently does nothing when the policy blocks it — which is exactly what happened once, and why this rule exists.</li>
-      <li><strong>No external assets.</strong> No CDN fonts, no analytics, no telemetry. The page must render with the network off, and nothing about production work should leave the machine.</li>
-      <li><strong>Nothing here mutates infrastructure.</strong> Emisar remains the only path. The control plane can retry work, keep a correction, publish a reviewed tree, or resolve a memory review. It cannot run an action.</li>
+      <li><strong>Changes ask first.</strong> Every action that retries, discards, pauses or deletes something asks you to confirm before it runs, and writes its change and its audit record together.</li>
+      <li><strong>Secrets never render.</strong> A credential shows only as configured, missing or unusable.</li>
+      <li><strong>No external assets.</strong> No CDN fonts, no analytics, no telemetry. Its scripts come from Ryker itself, and it renders with the network off, so nothing about production work leaves the machine.</li>
+      <li><strong>Nothing here changes infrastructure.</strong> Emisar remains the only path for that.</li>
     </ul>
 
-    <p>Every write is a POST, attributed to the control plane as an actor, and its store transition and its audit row commit together.</p>
+    <p>Every page carries <strong>How this page works</strong>: its own help, written for someone who has never seen Ryker. Filters are part of the address, so a filtered list is a link you can paste into an incident thread.</p>
 
     <h2 id="pages">The pages</h2>
 
-    <p>Twelve pages in three groups, and each one states the question it answers. A section that cannot say what it is for is usually one that should not exist.</p>
+    <p>Each page answers one question.</p>
 
-    <h3 id="operate">Operate</h3>
-
-    <dl>
-      <div><dt>Overview</dt><dd>What is happening right now?</dd></div>
-      <div><dt>Episodes</dt><dd>What did it do, and why?</dd></div>
-      <div><dt>Schedules</dt><dd>What runs on its own, and did it?</dd></div>
-      <div><dt>Channels</dt><dd>Where is Ryker, and what is set up there?</dd></div>
-      <div><dt>Failures</dt><dd>What is broken, and can I retry it?</dd></div>
-      <div><dt>Workspaces</dt><dd>What is still held, and why?</dd></div>
-    </dl>
-
-    <h3 id="improve">Improve</h3>
+    <h3 id="everyday">Every day</h3>
 
     <dl>
-      <div><dt>Decisions</dt><dd>What did it choose, and was it right?</dd></div>
-      <div><dt>Findings</dt><dd>What is wrong with Ryker itself?</dd></div>
-      <div><dt>Memory</dt><dd>What does it believe, and where did that come from?</dd></div>
+      <div><dt>Chat</dt><dd>Can I ask Ryker something without Slack?</dd></div>
+      <div><dt>Activity</dt><dd>What did people ask of Ryker, and what did it do about it?</dd></div>
+      <div><dt>Incident rooms</dt><dd>Which incidents have a Slack room, and where does each stand?</dd></div>
+      <div><dt>Failures</dt><dd>What stopped, and will a retry help?</dd></div>
+      <div><dt>Usage &amp; cost</dt><dd>What did Ryker run, and what did it cost?</dd></div>
     </dl>
 
-    <h3 id="system">System</h3>
+    <h3 id="manage">Managing Ryker</h3>
 
     <dl>
-      <div><dt>Audit</dt><dd>Who did what, and what came of it?</dd></div>
-      <div><dt>Configuration</dt><dd>How is it set up?</dd></div>
-      <div><dt>Usage</dt><dd>What is it spending?</dd></div>
+      <div><dt>Work › Environments</dt><dd>Which repositories and Emisar account can each place of work use?</dd></div>
+      <div><dt>Work › Channels</dt><dd>Where is Ryker, how does it take part, and which environment does each channel use?</dd></div>
+      <div><dt>Work › Repositories</dt><dd>What code can Ryker read and change, and is each repository ready?</dd></div>
+      <div><dt>Work › Working copies</dt><dd>Which checkouts are still held, and why?</dd></div>
+      <div><dt>Automations › Rules</dt><dd>What does Ryker do when something happens, and what did each rule set off?</dd></div>
+      <div><dt>Automations › Schedules</dt><dd>What runs on its own, and did it?</dd></div>
+      <div><dt>Automations › Follow-ups</dt><dd>What work is paused on purpose, and what is it waiting for?</dd></div>
+      <div><dt>Instructions</dt><dd>How should Ryker work, in your own words, everywhere and per channel?</dd></div>
+      <div><dt>Memory › Facts, Learned, Findings, Learning</dt><dd>What does Ryker know, where did it come from, what did its investigations conclude, and is background learning running?</dd></div>
     </dl>
 
-    <p>Detail routes hang off these: one episode, one schedule, one incident, one failure, one conversation, one channel, one rule, plus preferences, assignments, and stored artifacts.</p>
+    <h3 id="system">Integrations and settings</h3>
 
-    <p>Filters and time windows are links, not controls. A filtered list stays a URL — bookmarkable, and pasteable into an incident thread — with no client state to keep in sync.</p>
+    <dl>
+      <div><dt>Integrations</dt><dd>Are Slack, GitHub, Emisar and webhooks connected, and does any need repair?</dd></div>
+      <div><dt>Settings</dt><dd>Which model does each kind of work use, how long is data kept, what do models cost, and where does work run?</dd></div>
+    </dl>
 
-    <h2 id="trace">An episode trace</h2>
+    <p>Detail pages hang off these: one request’s timeline, one conversation, one incident room, one schedule, one channel, one failure. While required setup steps are open, <strong>Setup</strong> stays in the sidebar as a way back.</p>
 
-    <p>The episode page is the centre of the product. It is not a collection of reports; it is one execution story. A summary answers “how did it go?”, and a rail below it answers “what happened, in order, and why?” — cut into chapters a stranger can follow, with a time bar showing where the wall clock actually went.</p>
+    <h2 id="timeline">A request’s timeline</h2>
 
-    <h3 id="input">The exact model input</h3>
+    <p>The timeline is the centre of the product. It is one request from start to finish, in the order things happened, in four stages: <strong>Intake</strong>, <strong>Routing</strong>, <strong>Work</strong> and <strong>Answer</strong>. The top says where the request stands, how long it took, what it cost, and what it is waiting for, if anything.</p>
 
-    <p>The prompt is shown as it was submitted, grouped by what it was made of: the Slack conversation (the target message, the messages around it, any referenced thread, attachments, channel context), operational memory, conversation memory, related conversations, recalled past episodes, recent changes, and the workspace and prompt controls.</p>
+    <dl>
+      <div><dt>Intake</dt><dd>The message that started it: what Ryker extracted, the input as received, and the original message.</dd></div>
+      <div><dt>Routing</dt><dd>The channel settings and rules that applied, and the decision Ryker made, with its reason. A check that never ran says “Not checked”, never “No”.</dd></div>
+      <div><dt>Work</dt><dd>The worker and working copy it ran on, the exact briefing sent to the model, including what was left out to fit, the answer that came back, each check on that answer, and every tool the model used.</dd></div>
+      <div><dt>Answer</dt><dd>What was delivered, and where.</dd></div>
+    </dl>
 
-    <p><strong>Every slot renders a row whether or not it was filled.</strong> That is the design. A layer that was included says why. A layer that was absent says why it was absent — and critically, a layer the budget <em>cut</em> is labelled as trimmed, never as “nothing was relevant”. Those are different facts and reading one as the other sends you debugging the wrong thing.</p>
-
-    <p>Each omission carries its own reason, in the words the host used at the time: earlier evidence records were omitted to fit the turn; related conversation summaries were omitted to fit the turn; the referenced transcript was cut back to fit the turn; operator-confirmed memory was omitted to fit the turn. A layer is reported the first time anything is taken from it, not when it reaches empty — a turn that dropped 389 of 400 channel messages and fitted at eleven used to say nothing at all, staying silent for precisely the prompts that lost the most.</p>
-
-    <p>Omissions do not travel forward. When a later attempt extends a manifest, a layer trimmed once would otherwise read as trimmed forever, including on the attempts that carried it in full.</p>
-
-    <h3 id="fingerprints">Replay fingerprints</h3>
-
-    <p>Two SHA-256 digests are recorded on every context manifest: a <strong>prompt replay fingerprint</strong> over the exact submitted bytes, and a <strong>context replay fingerprint</strong> over the assembled context. Alongside them the manifest freezes the prompt version, the contract version, the tool schema version, and the provider, model and reasoning effort that <em>actually</em> answered — after any ladder rotation, not the one that was requested.</p>
+    <p>Background learning and cleanup that followed come after the answer, at their own recorded times. Every card has a link to itself, so you can share the exact step. History is bounded and says so: earlier activity loads a page at a time, and nothing is dropped or shown twice.</p>
 
     <div class="callout">
-      <p class="lbl">The two-clock prompt</p>
-      <p>The submitted prompt is transport state and expires on the short operational horizon. A sanitized archive copy lives on the much longer episode horizon. Before that second copy existed, only 428 of 1221 manifests still held a prompt, and every one was from the previous two days — the harvest was never limited by a code path, it was limited to yesterday.</p>
-      <p>The trace prefers the submitted bytes. When only the archive remains it labels it <em>Redacted archive</em> and says in as many words that it will not hash to the fingerprint printed below it.</p>
+      <p class="lbl">What was not recorded says so</p>
+      <p>A step Ryker did not record reads “Not recorded”, never a zero and never a guess rebuilt from today’s settings. A panel that looks live and is not would be worse than no panel at all.</p>
     </div>
 
-    <h3 id="refusals">Refusals and corrections</h3>
+    <h2 id="failures">Failures</h2>
 
-    <p>When the host refuses a model answer, that refusal is a step on the rail like any other: “the result did not fit the required format, so Ryker sent a correction back instead of acting on it.” The exact correction text is written to the audit log and shown here.</p>
+    <p>The Failures page lists work Ryker could not finish on its own, newest first. <strong>Affects people</strong> comes first: someone is still waiting for a reply, an update or a result. <strong>Housekeeping</strong> is cleanup nobody waits on.</p>
 
-    <p>Four correction classes: <code>unreadable</code>, <code>incomplete</code>, <code>rejected</code>, and <code>shape</code>. The last is the only one that posts on a second attempt rather than blocking the turn — right content, wrong form.</p>
+    <p>Each row says what stopped, who it affects, why Ryker stopped trying, and whether a retry should work: <em>Retry should work</em>, <em>Needs you</em>, <em>Fix needed first</em>, <em>Retry won’t help</em>, or <em>Retrying on its own</em>. A row has a button only when pressing it can help, and says what the button does before you press it. When something else has to change first, such as a token or Ryker’s place in a Slack channel, the row links to where to change it.</p>
 
-    <h3 id="measurement">Measurement, and the refusal to guess</h3>
+    <p>A failure’s own page tells the whole story: what happened, what it affects, what Ryker already tried, and each thing you can do, recommended first, including what happens if nobody acts. Ryker retries most things several times before it lists them, and an item leaves the list once its work finishes.</p>
 
-    <p>Two habits run through every number on this UI.</p>
+    <h2 id="working-copies">Working copies</h2>
 
-    <p><strong>Measured and zero are different.</strong> Usage and latency both carry an explicit “was this recorded?” flag, so nobody ever renders an unmeasured turn as free or instant — down to the trend, where a day of unmeasured attempts gets its own mark rather than a missing bar.</p>
+    <p>A working copy is a checkout Ryker makes while a task works on code. The page shows the space each worker has, what cleanup will do next, and why anything is kept. Ryker removes a copy on its own once that is safe, and keeps one with uncommitted changes or commits that were never merged.</p>
 
-    <p><strong>Wall clock is three spans, not one duration.</strong> Queued is Coop holding a turn before a provider picked it up. Provider is the provider working. Host is Ryker not yet having noticed the turn finished, because it polls — that gap is real, is nobody else’s, and is the one span this codebase can fix on its own. Provider time is deliberately <em>not</em> split into inference and tool calls, because the underlying record does not hold that split, and an invented split in a latency report is a guess wearing a measurement’s clothes.</p>
+    <p>When cleanup stops, the row says why. <strong>Resume cleanup</strong> tries the same step again. <strong>Discard unmerged</strong> throws away commits that were never merged and keeps uncommitted changes. Both ask first. A worker that is full stops taking new copies until space frees up.</p>
 
-    <p>Cost follows the same rule. Provider-reported amounts are shown directly and never re-priced. An optional local price table fills in providers that report tokens but no money — and a model with no rate reports <em>no estimate</em>, never a zero that reads as “free”. Reported and estimated are printed on separate lines and never summed.</p>
+    <h2 id="usage">Usage and cost</h2>
 
-    <p>Panels that are not wired to anything say so, in a designed marker that states both why it is empty and what would fill it. It never renders a zero, and never an estimate dressed as a measurement.</p>
+    <p>Usage covers every model call, including routing messages, replies, investigations, tasks and background learning, over the last day, week, month or all time. Tables break it down by model, channel, repository, kind of work and person, and each row opens the requests behind it.</p>
 
-    <h2 id="decisions">The decisions queue</h2>
+    <p><strong>Measured and zero are different.</strong> Cost is what the model provider reported. When a provider reports tokens but no cost, Ryker estimates it from your model prices and lists the rates it used; on a timeline, a cost marked ≈ includes an estimate. When nothing was reported, the row says “Not measured”, never $0.</p>
 
-    <p>This is where the product improves on the record.</p>
+    <h2 id="chat">Chat</h2>
 
-    <p>Every host refusal queues a <strong>fixture candidate</strong> — the host has already decided the model was wrong and said why, so the label is free. Candidates carry the episode, the run, the capability, the correction class and the correction text, and they expire after fourteen days if nobody looks.</p>
+    <p>Chat, at <code>/conversations</code>, is a direct conversation with Ryker without Slack, and a real one: the same pipeline, and the same answers, investigations, tasks, memory, schedules and follow-ups as a Slack channel. Each conversation works in one environment, starting with the default. You can attach up to two files, 8 MiB in all, edit or delete your own messages, and react to replies.</p>
 
-    <p>You keep or discard each one, here or from App Home. A kept candidate is promoted into the regression corpus at <code>testdata/eval/regressions.jsonl</code>, inside whichever configured repository already contains that file — deliberately not a configurable path, which makes it impossible to point auto-promotion at the wrong tree.</p>
+    <p>Every message links to its timeline. An incident opened from Chat is a real investigation without a Slack room. The browser never talks to a model provider or to Coop directly.</p>
 
-    <p>Promotion runs on the maintenance lane, bounded to a small number per week, because the manual step is the one that stopped happening. Before anything is appended, the whole corpus is re-parsed with the new fixture in place; one that would not decode, or whose name is taken, is held in quarantine and surfaced here rather than retried into a corrupt file.</p>
+    <h2 id="settings">Integrations and settings</h2>
 
-    <p>The result is the property the whole project rests on: a real production failure becomes a recorded real model answer that replays offline, with no credentials and no model call, on every commit.</p>
+    <p>Each integration has its own page to connect, repair or disconnect it, and each checks what you paste before saving it. The Slack page also chooses who can manage Ryker, how it behaves in channels that have not chosen, and how incident rooms are named. The GitHub page decides whether Ryker may open pull requests.</p>
 
-    <p>The Decisions page also carries the watch decisions themselves — what Ryker chose to do with each message, its attention scores, and the reason it recorded — plus correction rates, judged evaluation results, feedback, and the model audition panel.</p>
+    <p>Settings hold the <strong>Models</strong> for each kind of work (routing, conversation, standard and deep work, code changes, scheduled runs, incident rooms and learning), <strong>Data retention</strong>, <strong>Model prices</strong>, and <strong>Advanced</strong>: where work runs, what each kind of work may do, and whether tasks that change code can run right now.</p>
 
-    <div class="callout">
-      <p class="lbl">Why the audition panel has two halves that never join</p>
-      <p>One half is live traffic: provider, model, effort, usage, corrections, cost. The other is recorded evaluation: gate-pass rate, judge mean, case count. Evaluation results record no provider and no model, and live traffic has no gate to pass. A grid keyed by both would be inventing an attribution neither source holds, so the two are shown side by side and left alone.</p>
-    </div>
-
-    <h2 id="findings">Findings</h2>
-
-    <p>A <strong>finding</strong> is a proposed defect in Ryker itself, not in your infrastructure. A read-only assessor reads terminal episodes out of process and proposes one; a second, independent read-only reviewer then tries to disprove it. Both verdicts are shown.</p>
-
-    <p>That challenger is not decoration. In its first week it overturned 23 of 83 proposals. A page that showed only the assessor would have shown a 28% false-positive rate as a to-do list.</p>
-
-    <p>Each finding carries a verdict, a disposition, a severity, what was expected, the evidence, the components involved, and whether it is a regression. Findings and their transcripts expire together on a configurable horizon. A companion report lists every confirmed finding whose suggested regression test does not yet exist, so the backlog is a number that can reach zero rather than one that drifts.</p>
-
-    <p>There is an experimental automatic fixer, and it is off by default because it did not work: of 84 proposed defects, the challenger rejected 23, 48 of the remaining 59 failed the full gate across 81 distinct broken tests, 10 of the 11 survivors were rejected by the final reviewer, and the single approved patch failed to install. Nothing landed. That outcome is recorded rather than quietly deleted, which is the same standard the product holds itself to everywhere else.</p>
-
-    <h2 id="review">The review ledger</h2>
-
-    <p>Separate from findings, a daily pass reviews how individual episodes <em>ended</em>. Its ledger carries two independent flags rather than one status, because an episode whose ending moved after it was reviewed is simultaneously reviewed — of an ending that no longer exists — and awaiting review. Collapsing those into one state would lose the only interesting case. Work still running is neither.</p>
-
-    <h2 id="audit">Audit</h2>
-
-    <p>The audit page answers who did what, and what came of it. Denied and privileged actions, correction events, memory reviews, publications, discards.</p>
-
-    <p>One detail is a good example of the house style: the actor column names a <em>kind</em> — a person, an app, the host, this dashboard — beside the raw Slack ID. There is no user directory, and inventing a display name would be worse than showing the ID.</p>
-
-    <p>Audit runs on its own retention horizon, which is never shorter than the episode horizon and can be configured far longer. Forgotten memory values are not copied into audit state; only the entry ID, scope, predicate, actor and outcome are kept, with replacement history stored as hashes.</p>
-
-    <h2 id="failures">Failures and workspaces</h2>
-
-    <p>The Failures page lists terminal work with its retained error and whether it can be retried. A retry puts the run back to pending with a <em>fresh</em> Coop idempotency key and reopens its episode. Only the latest attempt qualifies — a superseded run names the attempt that replaced it instead of offering a button the store would refuse.</p>
-
-    <p>The Workspaces page mirrors the Slack admission gate exactly: publish and discard call the identical service handlers the Slack buttons call, including the Coop review, the verified discard plan, the audit record and the Slack notice. Closed work refuses to publish here too. A session with no work record says plainly that no safe discard path exists for it yet, rather than inventing one.</p>
+    <p>Each section saves on its own, and a draft survives a refresh. If someone else saved first, the page shows what is saved now before you save over it. A saved setting and the setting the running service uses are shown as two separate facts.</p>
 
     <h2 id="non-goals">What it will not become</h2>
 
     <ul>
       <li>Multiple users, accounts, or roles.</li>
-      <li>Editing prompts or policies in the browser. Those are code and config, reviewed in git.</li>
-      <li>Anything that mutates infrastructure. Emisar remains the only path.</li>
+      <li>A place to edit prompts or the policies workers run. Those are code and configuration, reviewed in git.</li>
+      <li>Anything that changes infrastructure. Emisar remains the only path.</li>
       <li>A replacement for the Slack App Home.</li>
-      <li>Public exposure. Binding it even to a private network was considered and rejected: tagged service devices would then reach production episode content, evidence, and prompts.</li>
+      <li>Public exposure. The loopback bind is a deliberate limit, not a first step.</li>
     </ul>
 
-    <p>One last detail that tells you what kind of surface this is: the schema version it shows is read from the database, not from a constant in the binary — so the page reports the schema actually in use rather than the one this build expects. Those differ exactly when something is wrong.</p>
-
     <nav class="doc-next" aria-label="Page navigation">
-      <a href="memory.html"><span class="k">Previous</span><span class="t">← Memory and recall</span></a>
-      <a class="next" href="operations.html"><span class="k">Next</span><span class="t">Operating it →</span></a>
+      <a href="memory.html"><span class="k">Previous</span><span class="t">&larr; Memory and recall</span></a>
+      <a class="next" href="operations.html"><span class="k">Next</span><span class="t">Operating it &rarr;</span></a>
     </nav>
   </main>
 
@@ -264,15 +223,12 @@
     <ul>
       <li><a href="#what">What it is</a></li>
       <li><a href="#pages">The pages</a></li>
-      <li><a href="#trace">An episode trace</a></li>
-      <li><a href="#fingerprints">Replay fingerprints</a></li>
-      <li><a href="#refusals">Refusals and corrections</a></li>
-      <li><a href="#measurement">Measurement, and the refusal to guess</a></li>
-      <li><a href="#decisions">The decisions queue</a></li>
-      <li><a href="#findings">Findings</a></li>
-      <li><a href="#review">The review ledger</a></li>
-      <li><a href="#audit">Audit</a></li>
-      <li><a href="#failures">Failures and workspaces</a></li>
+      <li><a href="#timeline">A request’s timeline</a></li>
+      <li><a href="#failures">Failures</a></li>
+      <li><a href="#working-copies">Working copies</a></li>
+      <li><a href="#usage">Usage and cost</a></li>
+      <li><a href="#chat">Chat</a></li>
+      <li><a href="#settings">Integrations and settings</a></li>
       <li><a href="#non-goals">What it will not become</a></li>
     </ul>
   </nav>

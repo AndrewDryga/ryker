@@ -4,20 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run it — Ryker docs</title>
-<meta name="description" content="One binary, one config file, one Slack app. What the first hour of running Ryker looks like.">
-<!-- Unfurl metadata. og:image is root-relative; most unfurlers need absolute
+<meta name="description" content="Install Ryker with Docker Compose, finish the six setup steps, and send your first request.">
+<!-- Unfurl metadata. og:image is relative; most unfurlers need absolute
      URLs, so point og:image (and add og:url + rel=canonical) at the real domain
      when the site gets one — a one-line substitution at publish time. -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="Run it — Ryker docs">
-<meta property="og:description" content="One binary, one config file, one Slack app. What the first hour of running Ryker looks like.">
+<meta property="og:description" content="Install Ryker with Docker Compose, finish the six setup steps, and send your first request.">
 <meta property="og:image" content="../assets/og.png">
+<meta property="og:image:width" content="1600">
+<meta property="og:image:height" content="840">
+<meta property="og:image:alt" content="Ryker">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Run it — Ryker docs">
-<meta name="twitter:description" content="One binary, one config file, one Slack app. What the first hour of running Ryker looks like.">
+<meta name="twitter:description" content="Install Ryker with Docker Compose, finish the six setup steps, and send your first request.">
 
 <meta name="color-scheme" content="dark">
-<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
 <link rel="preload" href="../assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="../assets/site.css">
 </head>
@@ -27,10 +30,7 @@
 
 <header class="nav">
   <div class="wrap nav-in">
-    <a class="wordmark" href="../index.html">
-      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
-      Ryker
-    </a>
+    <a class="wordmark" href="../index.html"><img src="../assets/brand/lockup-color.svg" alt="Ryker" width="160" height="56"></a>
     <nav class="nav-links" aria-label="Main">
       <a href="../index.html#how">How it works</a>
       <a href="../index.html#trust">Trust</a>
@@ -86,21 +86,24 @@
       <ul>
         <li><a href="#requirements">What you need</a></li>
         <li><a href="#install">Install</a></li>
-        <li><a href="#configure">Configure</a></li>
-        <li><a href="#start">Start and verify</a></li>
+        <li><a href="#setup">Set it up</a></li>
+        <li><a href="#verify">Check it is running</a></li>
+        <li><a href="#defaults">What stays off until you turn it on</a></li>
       </ul>
     </details>
 
     <h1>Run it</h1>
 
-    <p class="lede">Ryker runs as an Elixir release backed by PostgreSQL on one trusted host. This page covers the shortest path from a checkout to a verified service.</p>
+    <p class="lede">Ryker runs as one Docker Compose project on a trusted host: the Ryker service, PostgreSQL, and a bundled Coop worker. This page is the shortest path from a checkout to a first answer in Slack.</p>
 
     <h2 id="requirements">What you need</h2>
 
     <ul>
-      <li>The Erlang and Elixir versions pinned in <code>.tool-versions</code>.</li>
-      <li>PostgreSQL, Coop, a Slack workspace app, and the required Emisar access.</li>
-      <li>A trusted Unix host and systemd for the production service.</li>
+      <li>A host with Docker and Docker Compose v2, plus OpenSSL, curl and tar.</li>
+      <li>A model account for the work itself. The installer signs in to Codex through Coop, or reuses an existing Codex sign-in on the host.</li>
+      <li>A Slack workspace where you can create an app from Ryker’s manifest.</li>
+      <li>A GitHub App of your own, installed on the repositories Ryker should read and change.</li>
+      <li>Optionally, an Emisar account, so Ryker can check and act on running systems.</li>
     </ul>
 
     <h2 id="install">Install</h2>
@@ -108,31 +111,62 @@
     <p class="code-label">shell</p>
     <pre><code><span class="tok-x">git</span> <span class="tok-v">clone https://github.com/AndrewDryga/ryker ryker</span>
 <span class="tok-x">cd</span> <span class="tok-v">ryker</span>
-<span class="tok-x">make</span> <span class="tok-v">elixir-install</span></code></pre>
+<span class="tok-x">./install.sh</span></code></pre>
 
-    <p>The install target builds, inspects, and installs the immutable release under <code>~/.local/lib/ryker-elixir</code>. Production releases use the same archive and the shipped installer.</p>
+    <p>The installer:</p>
 
-    <h2 id="configure">Configure</h2>
+    <ul>
+      <li>creates <code>.ryker/</code>, readable only by you, and in it <code>compose.env</code>;</li>
+      <li>on the first run, generates the database password and Ryker’s encryption keys, and reuses them on every later run;</li>
+      <li>builds and starts PostgreSQL, Ryker, and the bundled worker with its private Docker daemon;</li>
+      <li>asks you to sign in to the model account, unless the worker already has one;</li>
+      <li>waits until Ryker is healthy, ready, and running the exact version it built, then prints the setup address.</li>
+    </ul>
 
-    <p>Start from <code>config/ryker-elixir.example.yaml</code> and <code>deploy/systemd/ryker.env.example</code>. Keep platform tokens out of YAML, use distinct Coop policies for production and evaluation, and keep all listeners except authenticated webhook ingress on loopback.</p>
+    <p>Running it again keeps the same keys and data.</p>
 
-    <p>Create the Slack app from <code>deploy/slack-app-manifest.yaml</code> and follow the repository’s Slack app guide for scopes, Socket Mode, and event subscriptions.</p>
+    <div class="callout good">
+      <p class="lbl">Credentials never go in a file</p>
+      <p>Slack, GitHub, Emisar and webhook credentials are entered in the setup UI and stored encrypted in PostgreSQL. They never belong in Compose or in <code>.ryker/compose.env</code>, which holds only the version, the listening addresses, and the generated password and keys.</p>
+    </div>
 
-    <h2 id="start">Start and verify</h2>
+    <h2 id="setup">Set it up</h2>
 
-    <p>Run the release qualification before installing or restarting production:</p>
+    <p>Open the address the installer printed, <code>http://127.0.0.1:4321/setup</code>. Setup has six steps, one open at a time, each with what it needs and one button:</p>
+
+    <ol>
+      <li><strong>Connect Slack.</strong> Create the app from <code>deploy/slack-app-manifest.yaml</code>, generate an app-level token with <code>connections:write</code>, install the app, and paste the app token and the bot token. Then choose who can manage Ryker.</li>
+      <li><strong>Connect the GitHub App.</strong> Enter its App ID and private key, then paste the callback address Ryker shows into the App’s webhook settings. GitHub has to reach that address, so publish that one path through HTTPS (<a href="operations.html#exposure">how</a>).</li>
+      <li><strong>Add repositories.</strong> Pick the ones Ryker should work in, or add every repository the App can reach. Ryker copies each one, reads it, and proposes a <code>RYKER.md</code> describing what it learned, in a pull request you can review.</li>
+      <li><strong>Invite Ryker to a Slack channel.</strong></li>
+      <li><strong>Choose that channel’s environment.</strong> A channel Ryker joins starts in the default environment, which adding a repository created, so this step usually checks itself off.</li>
+      <li><strong>Send one real request in Slack</strong> and get the answer.</li>
+    </ol>
+
+    <p>Ryker notices the Slack steps on its own and checks them off. Emisar is the one recommended extra: it never blocks setup, but without it Ryker can only tell you what to run. The first Emisar account you connect is given to every environment that has none.</p>
+
+    <p>Each step has its own page afterwards: integrations under <strong>Integrations</strong>, environments under <strong>Work › Environments</strong>, and models, retention and prices under <strong>Settings</strong>. <a href="index.html#environments">What an environment is</a>.</p>
+
+    <h2 id="verify">Check it is running</h2>
 
     <p class="code-label">shell</p>
-    <pre><code><span class="tok-x">make</span> <span class="tok-v">release-check</span>
-<span class="tok-x">scripts/deploy.sh</span>
+    <pre><code><span class="tok-x">scripts/compose.sh</span> <span class="tok-v">status</span>
 <span class="tok-x">curl</span> <span class="tok-k">--fail</span> <span class="tok-v">http://127.0.0.1:4321/healthz</span>
-<span class="tok-x">curl</span> <span class="tok-k">--fail</span> <span class="tok-v">http://127.0.0.1:4321/readyz</span></code></pre>
+<span class="tok-x">curl</span> <span class="tok-k">--fail --include</span> <span class="tok-v">http://127.0.0.1:4321/readyz</span></code></pre>
 
-    <p>Then use <code>/manual-tests</code> for the guided Slack, GitHub, webhook, model-behavior, and restart journeys. A green offline gate, an installed release, a ready process, and live platform acceptance are separate evidence.</p>
+    <p><code>/healthz</code> means the process can use PostgreSQL. <code>/readyz</code> means its runtimes are alive and due work is making progress, and its <code>x-ryker-version</code> header names the exact version that is running.</p>
+
+    <p>Then open Chat at <code>http://127.0.0.1:4321/conversations</code> to talk to Ryker without Slack. It goes through the same pipeline, so it is the quickest way to see a request, its timeline and its cost end to end.</p>
+
+    <h2 id="defaults">What stays off until you turn it on</h2>
+
+    <p>Background learning is on by default. Proactive participation, opening pull requests, scheduled reports and anything destructive stay off until someone turns them on.</p>
+
+    <p>The UI keeps four facts apart, and one does not imply the next: a setting can be saved, the running service can have applied it, an integration can be connected, and a real request can have succeeded through it.</p>
 
     <nav class="doc-next" aria-label="Page navigation">
-      <a href="index.html"><span class="k">Previous</span><span class="t">← What Ryker is</span></a>
-      <a class="next" href="slack.html"><span class="k">Next</span><span class="t">Working in Slack →</span></a>
+      <a href="index.html"><span class="k">Previous</span><span class="t">&larr; What Ryker is</span></a>
+      <a class="next" href="slack.html"><span class="k">Next</span><span class="t">Working in Slack &rarr;</span></a>
     </nav>
   </main>
 
@@ -141,8 +175,9 @@
     <ul>
       <li><a href="#requirements">What you need</a></li>
       <li><a href="#install">Install</a></li>
-      <li><a href="#configure">Configure</a></li>
-      <li><a href="#start">Start and verify</a></li>
+      <li><a href="#setup">Set it up</a></li>
+      <li><a href="#verify">Check it is running</a></li>
+      <li><a href="#defaults">What stays off until you turn it on</a></li>
     </ul>
   </nav>
 

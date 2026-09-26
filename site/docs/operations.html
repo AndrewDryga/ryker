@@ -3,21 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Running it — Ryker docs</title>
-<meta name="description" content="Deploys and restarts, retention, backups, webhooks, repository mirrors, routing profiles, offline evals, and the watchdog.">
-<!-- Unfurl metadata. og:image is root-relative; most unfurlers need absolute
+<title>Operating it — Ryker docs</title>
+<meta name="description" content="Running Ryker with Docker Compose: the lifecycle helper, upgrades, deploys, backups, exposure, health, retention, webhooks, workers and releases.">
+<!-- Unfurl metadata. og:image is relative; most unfurlers need absolute
      URLs, so point og:image (and add og:url + rel=canonical) at the real domain
      when the site gets one — a one-line substitution at publish time. -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="Operating it — Ryker docs">
-<meta property="og:description" content="Deploys and restarts, retention, backups, webhooks, repository mirrors, routing profiles, offline evals, and the watchdog.">
+<meta property="og:description" content="Running Ryker with Docker Compose: the lifecycle helper, upgrades, deploys, backups, exposure, health, retention, webhooks, workers and releases.">
 <meta property="og:image" content="../assets/og.png">
+<meta property="og:image:width" content="1600">
+<meta property="og:image:height" content="840">
+<meta property="og:image:alt" content="Ryker">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Operating it — Ryker docs">
-<meta name="twitter:description" content="Deploys and restarts, retention, backups, webhooks, repository mirrors, routing profiles, offline evals, and the watchdog.">
+<meta name="twitter:description" content="Running Ryker with Docker Compose: the lifecycle helper, upgrades, deploys, backups, exposure, health, retention, webhooks, workers and releases.">
 
 <meta name="color-scheme" content="dark">
-<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
 <link rel="preload" href="../assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="../assets/site.css">
 </head>
@@ -27,10 +30,7 @@
 
 <header class="nav">
   <div class="wrap nav-in">
-    <a class="wordmark" href="../index.html">
-      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
-      Ryker
-    </a>
+    <a class="wordmark" href="../index.html"><img src="../assets/brand/lockup-color.svg" alt="Ryker" width="160" height="56"></a>
     <nav class="nav-links" aria-label="Main">
       <a href="../index.html#how">How it works</a>
       <a href="../index.html#trust">Trust</a>
@@ -79,211 +79,217 @@
   </aside>
 
   <main class="doc" id="main">
-    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Running it</span></p>
+    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Operating it</span></p>
 
     <details class="doc-toc">
       <summary>On this page</summary>
       <ul>
-        <li><a href="#restarts">Deploys and restarts</a></li>
-        <li><a href="#state">PostgreSQL state and backups</a></li>
+        <li><a href="#project">The project</a></li>
+        <li><a href="#lifecycle">Day to day</a></li>
+        <li><a href="#upgrade">Upgrade</a></li>
+        <li><a href="#deploy">Deploy a commit</a></li>
+        <li><a href="#backup">Backup and restore</a></li>
+        <li><a href="#destroy">Destroy</a></li>
+        <li><a href="#exposure">Exposure</a></li>
+        <li><a href="#health">Health and recovery</a></li>
+        <li><a href="#state">What survives a restart</a></li>
         <li><a href="#retention">Retention</a></li>
-        <li><a href="#webhooks">Webhooks and dedup</a></li>
-        <li><a href="#mirrors">Repository mirrors</a></li>
-        <li><a href="#routing">Routing profiles</a></li>
-        <li><a href="#evals">The eval idea</a></li>
-        <li><a href="#watchdog">The watchdog</a></li>
-        <li><a href="#commands">Day to day</a></li>
-        <li><a href="#capacity">Capacity and limits</a></li>
+        <li><a href="#webhooks">Webhooks</a></li>
+        <li><a href="#workers">Workers</a></li>
+        <li><a href="#releases">Releases</a></li>
+        <li><a href="#testing">How Ryker is tested</a></li>
       </ul>
     </details>
 
-    <h1>Running it</h1>
+    <h1>Operating it</h1>
 
-    <p class="lede">Ryker is meant to be boring to operate: one process, one file, one lock. This page covers the parts you will actually touch — restarts, backups, retention, and the two mechanisms that tell you when something is wrong.</p>
+    <p class="lede">Ryker is meant to be boring to operate: one Compose project, one helper script, one database. This page covers the parts you will actually touch.</p>
 
-    <h2 id="restarts">Deploys and restarts</h2>
+    <h2 id="project">The project</h2>
 
-    <p>Ryker parks between turns. A restart converts interrupted leases back into their correct recoverable states, rehydrates approval monitors from the database, and resumes the same agent conversations. Scheduler leases carry random owner tokens, so an expired lease can be reclaimed while the process is running and the stale owner can no longer complete or retry the work that replaced it.</p>
+    <p>The Compose project <code>ryker</code> runs four services: PostgreSQL (<code>database</code>), the Ryker service (<code>ryker</code>), the bundled Coop worker (<code>ryker-coop</code>), and that worker’s private Docker daemon (<code>ryker-coop-docker</code>). Their data lives in named volumes. <code>.ryker/compose.env</code>, readable only by you, holds the pinned version and image and the keys generated at install.</p>
 
-    <p>Waiting costs nothing. An episode waiting on an Emisar approval occupies no Slack conversation lane and no model turn.</p>
+    <p>PostgreSQL is the durable record of everything in flight: requests, work, replies waiting to be delivered, follow-ups, schedules, approvals, pull requests being published, worker placement and retention. Restarting containers resumes that work. There is no second copy of deployment state to keep in step.</p>
 
-    <div class="callout warn">
-      <p class="lbl">Stop it before a migrating upgrade</p>
-      <p>Startup holds the process lock, creates and verifies a pre-migration snapshot, and only then migrates. Two processes racing that would be bad, so a second one exits instead of competing — but stop the running service first anyway.</p>
-    </div>
+    <h2 id="lifecycle">Day to day</h2>
 
-    <p>With the split systemd units, <code>ryker.service</code> requires the Coop unit and starts it first. Only the Coop unit holds the <code>docker</code> group; the Ryker process never does. The unit runs <code>doctor</code> as a pre-start check, so a broken configuration fails to start rather than starting and failing quietly.</p>
+    <p class="code-label">shell</p>
+    <pre><code><span class="tok-x">scripts/compose.sh</span> <span class="tok-v">status</span>
+<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">logs</span>
+<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">stop</span>
+<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">start</span>
+<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">restart</span>
+<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">model-login</span></code></pre>
 
-    <p><code>scripts/deploy.sh</code> builds and qualifies the exact immutable release, installs it, performs one normal service restart, and waits for health and readiness. A proof is content-bound; it can never be reused for a different commit or a different archive.</p>
+    <p>Every command uses the same project and the same environment file. <code>stop</code> keeps everything. <code>uninstall</code> removes the containers and network and keeps the volumes, the data and the keys. <code>model-login</code> signs the worker in to its model account again, Codex by default, and restarts only the worker.</p>
 
-    <p>Release archives are verified <em>cosign first</em>: authenticate the checksum manifest against its signature bundle, then check the sums, then verify build provenance. Comparing checksums against an unauthenticated manifest proves nothing at all.</p>
+    <h2 id="upgrade">Upgrade</h2>
 
-    <h2 id="state">State lives in PostgreSQL</h2>
+    <p>Set <code>RYKER_IMAGE</code> and <code>RYKER_VERSION</code> in <code>.ryker/compose.env</code> to the release you intend to run, then:</p>
 
-    <p>PostgreSQL owns durable inputs, deliveries, episodes, evidence, memory, approvals, schedules, and worker state. Use <code>pg_dump</code> for backups and restore into a fresh database before treating a backup as usable.</p>
+    <p class="code-label">shell</p>
+    <pre><code><span class="tok-x">scripts/compose.sh</span> <span class="tok-v">backup</span>
+<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">upgrade</span></code></pre>
 
-    <p>Application restarts reclaim expired leases and resume pending custody from the database. Never run two service instances against the same Slack, GitHub, webhook, or delivery identities.</p>
+    <p>Upgrade pulls the selected image when there is one to pull, rebuilds a local image when there is not, starts the replacement, runs database migrations as the container starts, and checks health, readiness and the exact running version. Workers enrolled on other machines are not restarted or changed.</p>
 
-    <h2 id="retention">Retention</h2>
+    <h2 id="deploy">Deploy a commit</h2>
 
-    <p>Bounded retention removes expired payloads on short horizons and keeps the record on long ones. The defaults:</p>
+    <p>From a checkout, <code>scripts/deploy.sh</code> puts the current commit into production:</p>
+
+    <p class="code-label">shell</p>
+    <pre><code><span class="tok-x">scripts/deploy.sh</span></code></pre>
+
+    <ul>
+      <li>It refuses a dirty tree, and a commit that is not <code>main</code>’s unless you pass <code>--allow-not-main</code> on purpose.</li>
+      <li>It backs the database up into <code>.ryker/backups/</code> before anything changes.</li>
+      <li>It builds the image from a clean copy of the commit, so nothing git does not know about reaches it.</li>
+      <li>It replaces only the <code>ryker</code> container. PostgreSQL, the bundled worker and its Docker daemon keep running.</li>
+      <li>Only once health, readiness and the exact version check out does it pin the new version in <code>.ryker/compose.env</code>.</li>
+    </ul>
+
+    <p>If the new version fails, the script prints the container’s last log lines and leaves the previous version pinned, so <code>scripts/compose.sh start</code> returns to it. Restore the pre-deploy backup first if the new version had already migrated the database.</p>
+
+    <h2 id="backup">Backup and restore</h2>
+
+    <p class="code-label">shell</p>
+    <pre><code><span class="tok-x">scripts/compose.sh</span> <span class="tok-v">backup</span>
+<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">restore</span> <span class="tok-y">.ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz</span></code></pre>
+
+    <p>A backup is one archive under <code>.ryker/backups/</code>, readable only by you: a PostgreSQL dump, the worker’s state, and the generated environment needed to decrypt the stored credentials. It is as sensitive as the database it restores.</p>
+
+    <p>Restore refuses an archive whose keys differ from an existing installation. With no installation present, it restores the archived keys first, then the database, then starts Ryker and checks the exact version. A missing, wrong or damaged key must fail: never generate a new key for an existing database.</p>
+
+    <h2 id="destroy">Destroy</h2>
+
+    <p>Stopping Ryker is recoverable. Deleting its volumes and keys is not, so it takes an explicit phrase:</p>
+
+    <p class="code-label">shell</p>
+    <pre><code><span class="tok-k">RYKER_DESTROY_CONFIRM=delete-ryker-data</span> <span class="tok-x">scripts/compose.sh</span> <span class="tok-v">destroy</span></code></pre>
+
+    <p>This removes the Compose volumes and the generated environment. Without a backup, the stored credentials and history cannot be recovered.</p>
+
+    <h2 id="exposure">Exposure</h2>
+
+    <p>Every port Ryker publishes binds to <code>127.0.0.1</code> by default, and Slack needs no inbound connection at all:</p>
 
     <table>
-      <thead><tr><th>Setting</th><th>Default</th><th>What it bounds</th></tr></thead>
+      <thead><tr><th>Port</th><th>What</th><th>Publish it?</th></tr></thead>
       <tbody>
-        <tr><td><code>operational_data</code></td><td>24h</td><td>Completed Slack inputs, webhook payloads, deliveries, and the assembled prompt context inside finished runs</td></tr>
-        <tr><td><code>closed_work</code></td><td>7d</td><td>Closed incidents and their evidence and coverage</td></tr>
-        <tr><td><code>episode_history</code></td><td>30d</td><td>The episode record: events, attempts, context manifests, claim assessments, goals</td></tr>
-        <tr><td><code>audit_data</code></td><td>30d</td><td>Audit facts for denied and privileged actions</td></tr>
-        <tr><td><code>conversation_memory</code></td><td>90d</td><td>Compact channel and thread summaries, and their rollups</td></tr>
-        <tr><td><code>closed_session_grace</code></td><td>15m</td><td>How long a closed Coop session waits before cleanup considers it</td></tr>
+        <tr><td><code>4321</code></td><td>Control plane, <code>/healthz</code>, <code>/readyz</code>, <code>/metrics</code></td><td>Never</td></tr>
+        <tr><td><code>4319</code></td><td>GitHub App webhooks, <code>/v1/github</code></td><td>Only that path, through HTTPS</td></tr>
+        <tr><td><code>4320</code></td><td>Signed webhooks, <code>/v1/hooks/&lt;source&gt;</code></td><td>Only that path, through HTTPS</td></tr>
       </tbody>
     </table>
 
-    <p>The ordering is <em>validated</em>, not merely documented: each class must be at least as long as the one before it, so operational data cannot outlive closed work, which cannot outlive episode history, which cannot outlive audit. Audit can be configured out to five years. Episode history caps at one, and it exists on that horizon deliberately: a correction queued on day thirteen has to be reviewed against an episode that still exists.</p>
+    <p>When GitHub or another sender has to reach Ryker, put a maintained HTTPS reverse proxy in front of those two paths and nothing else; <code>deploy/nginx/ryker.conf</code> is an example that does exactly that and answers everything else with 404. PostgreSQL and the worker’s connection are not published at all; keep it that way.</p>
 
-    <p>Some things are simply not deleted, and shortening a horizon does not relax it. No horizon removes an episode that a pending or approved correction, open feedback, a live wakeup, a non-terminal child, an unfinished run, or an open incident still depends on. On the operational horizon, a run a wakeup could still resume from, one the control plane could still retry, or one whose answer somebody reacted positively to is also protected — a praised reply is only an example of good behavior while the question that produced it is still beside it.</p>
+    <h2 id="health">Health and recovery</h2>
 
-    <p>Maintenance checkpoints the write-ahead log and optimizes the database after pruning.</p>
+    <table>
+      <thead><tr><th>Endpoint</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>/healthz</code></td><td>The process can use PostgreSQL.</td></tr>
+        <tr><td><code>/readyz</code></td><td>Its runtimes are alive and due work is making progress. The <code>x-ryker-version</code> header names the running version.</td></tr>
+        <tr><td><code>/metrics</code></td><td>Queue, delivery, worker placement and retention measurements.</td></tr>
+      </tbody>
+    </table>
 
-    <h2 id="webhooks">Webhooks and dedup</h2>
+    <p>When readiness fails, check <code>scripts/compose.sh status</code>, then <code>scripts/compose.sh logs</code>. In the control plane, open the stopped request and the Failures page: they say what stopped and whether a retry should work. Do not edit database rows by hand; the retry controls keep the checks that make a retry safe.</p>
 
-    <p>Routes accept POSTs of JSON under a size cap, on loopback, published through your proxy. Two auth modes: a bearer token, or an HMAC signature over the timestamp, the event ID, and the raw body within a five-minute window. Every secret is at least 16 bytes.</p>
+    <h2 id="state">What survives a restart</h2>
 
-    <p>Delivery identity is the <code>X-Ryker-Event-ID</code> header when you send one, and a digest of the body when you do not. The body digest is stored either way. Reusing an event ID with <em>different</em> content returns <code>409</code> rather than silently accepting one of the two.</p>
+    <p>PostgreSQL holds the inputs, the work, the replies waiting to be delivered, follow-ups, schedules, approvals, memory and history, so a restart picks pending work back up where it stopped. Waiting on an Emisar approval, a merge or a set time holds no model and no worker.</p>
 
-    <p>That identity is derived before normalization on purpose. It is the identity the signature binds, and a change route takes its ledger identity from it — so a redelivery records one change, and a replay under a new event ID fails the signature.</p>
+    <p>Credentials are stored encrypted in the same database. The keys that decrypt them are generated once at install and kept in <code>.ryker/compose.env</code> and in every backup.</p>
 
-    <p>Grafana routes read fingerprints and group keys natively. Generic routes use small dot-path mappings, with no jq, CEL, templates, or scripting of any kind. A change route’s kind must be inside the closed vocabulary; a value outside it is rejected with a <code>400</code> rather than quietly recorded as a deploy, because a mapping typo should stop where you can see it.</p>
+    <h2 id="retention">Retention</h2>
 
-    <p>Socket Mode does not replay events from while you were offline, so there is a bounded startup catch-up window — 15 minutes by default, up to 24 hours, and zero to disable. It re-reads app notifications only. Human conversation is never replayed by catch-up.</p>
+    <p>Older data is deleted on its own. The limits are set under <strong>Settings › Data retention</strong>, and the defaults are:</p>
 
-    <h2 id="mirrors">Repository mirrors</h2>
+    <table>
+      <thead><tr><th>Kind of data</th><th>Kept for</th></tr></thead>
+      <tbody>
+        <tr><td>Prompts, replies and tool activity</td><td>30 days</td></tr>
+        <tr><td>Finished work</td><td>30 days</td></tr>
+        <tr><td>Request history</td><td>30 days</td></tr>
+        <tr><td>Audit trail</td><td>30 days</td></tr>
+        <tr><td>Conversation memory</td><td>90 days</td></tr>
+      </tbody>
+    </table>
 
-    <p>Declare a repository by slug and Ryker owns the clone. It lives under your state directory, keyed by owner and name, and there is exactly one place in the product that constructs that path.</p>
+    <p>The order is enforced: prompts, replies and tool activity cannot be kept longer than finished work, finished work not longer than request history, and that not longer than the audit trail. Shortening a limit deletes older data, so the page asks first.</p>
 
-    <p>The maintenance lane fetches and fast-forwards every managed clone on an interval that defaults to fifteen minutes. It <strong>never modifies the work tree</strong>. A turn whose clone has lapsed pays for a bounded fetch before its session forks.</p>
+    <p>Nothing still in use is cleaned up underneath you. Open follow-ups, blocked work, pending approvals, live schedules, unpublished changes and active incident rooms keep their history whatever its age. Working copies have <a href="actions.html#cleanup">their own cleanup rules</a>.</p>
 
-    <p>A fetch that fails degrades to <em>recorded staleness</em> rather than blocking a turn: every context manifest records the revision and when it was last fetched, so “how old was the code the model read” has an answer. Failures show up in <code>doctor</code> and as a gauge on <code>/metrics</code>, named to say what it means — the clones whose evidence is stale, not whose work is stalled.</p>
+    <h2 id="webhooks">Webhooks</h2>
 
-    <h2 id="routing">Routing profiles</h2>
+    <p>Webhook sources are set up under <strong>Integrations › Webhooks</strong>; there is no configuration file. Each source has its own address, <code>/v1/hooks/&lt;name&gt;</code>, a signing credential, and the conversation and environment its work goes to. The payload can never choose any of those.</p>
 
-    <p>A Coop session policy names one target, or an ordered ladder of up to four that may cross providers. When a session is rate-limited, Coop rotates to the next rung that is not cooling and re-delivers the same turn itself, so Ryker sees an ordinary completion on a different model. A rate limit is not a failure and never spends an attempt.</p>
+    <ul>
+      <li><strong>Shapes.</strong> Any authenticated JSON, Grafana alerts, or a custom mapping of dotted paths. There is no jq, CEL, template or script of any kind.</li>
+      <li><strong>Authentication.</strong> A bearer token, or an HMAC-SHA256 signature over a timestamp and the request. There is no unauthenticated option, and bodies are capped at 40,000 bytes.</li>
+      <li><strong>Receipts.</strong> <code>202</code> means the whole batch is safely queued, not that the work is done. An exact retry returns the original receipt; the same event ID with different content returns <code>409</code>. A Grafana request of up to 500 alerts is recorded all or nothing.</li>
+      <li><strong>Check a payload.</strong> Paste one delivery and see exactly what it would record, without saving or sending anything.</li>
+    </ul>
 
-    <p>Crossing providers drops the model’s own in-session history. That costs its prior reasoning and nothing the run depends on, because Ryker restates durable context in every prompt. Only when every rung is cooling does the turn fail as rate-limited, and it then waits on the reported reset instant, re-checking at least every half hour.</p>
+    <p>The exact headers and the signing recipe are in the repository’s <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/webhooks.md">webhook reference</a>.</p>
 
-    <p>Four execution profiles let one repository route its lanes at different policies:</p>
+    <h2 id="workers">Workers</h2>
+
+    <p>Ryker runs its work on a Coop worker: a machine with your code checked out that runs the model and its tools. The bundled worker is set up for you, so most installations never change anything here.</p>
+
+    <p>It is a separate container. It reaches Ryker only through an outbound connection over mutual TLS, and the boxes it runs work in live in its private Docker daemon, never on the host’s Docker socket. Coop never receives Ryker’s Slack, webhook, GitHub or Emisar credentials. A deploy never rebuilds or restarts the worker or its daemon.</p>
+
+    <p>When requests wait because no worker can take them, start at <strong>Settings › Advanced</strong>, then check <strong>Work › Working copies</strong>, where a full worker stops taking new work.</p>
+
+    <h2 id="releases">Releases</h2>
+
+    <p>Releases are tag-driven GitHub Releases: the Linux amd64 release archive, <code>checksums.txt</code>, and the signature bundle for that checksum file. GitHub records build provenance separately. There is no automatic production deployment; a published release waits for an operator to install it.</p>
+
+    <p>Verify before you use one. Put the three files in one directory and run <code>scripts/check-release.sh DIRECTORY vX.Y.Z</code>: it checks the checksum file’s signature with cosign before it trusts any checksum, then the archive. <code>gh attestation verify --repo AndrewDryga/ryker</code> checks the build provenance.</p>
+
+    <h2 id="testing">How Ryker is tested</h2>
+
+    <p>There are four kinds of evidence, and no single command proves all of them:</p>
 
     <dl>
-      <div><dt><code>chat</code></dt><dd>Conversation and small focused checks addressed to Ryker.</dd></div>
-      <div><dt><code>investigate</code></dt><dd>Deep read-only operational work with tools.</dd></div>
-      <div><dt><code>engineer</code></dt><dd>Writable repository work in an isolated fork.</dd></div>
-      <div><dt><code>watch</code></dt><dd>The attention decision on a message nobody addressed to Ryker.</dd></div>
+      <div><dt>Deterministic gates</dt><dd><code>make dev-check</code> runs formatting, compiler warnings, lint, migrations, the whole test suite in a fresh database, the control plane’s JavaScript tests and a shell-script linter. Nothing in it calls a model, and it gates every commit and every deploy. <code>make check</code> adds replays in an isolated database, the scripts’ self-tests and a simulated thirty days of retention; CI runs it on every push.</dd></div>
+      <div><dt>Model evaluation</dt><dd><code>make eval-world</code> runs real model sessions against checked-in scenarios, the candidate against a baseline, three times each. It refuses to run with any policy that matches a production one.</dd></div>
+      <div><dt>Live acceptance</dt><dd>Runs inside the deployed <code>ryker</code> container, against the installation’s own settings, and posts only to a joined channel named <code>#test</code> or ending in <code>-test</code>.</dd></div>
+      <div><dt>Manual qualification</dt><dd>User-facing journeys through Chat, Slack, GitHub, webhooks, follow-ups and recovery. Each is complete only when the visible effect and the request’s timeline agree.</dd></div>
     </dl>
-
-    <p>Ryker decides which profile a turn asks for <em>before</em> any model runs, and records it on the manifest beside the model that actually answered. A profile names a policy and nothing else — the ladder, the reasoning effort and the budget stay in the owner-private policy file, and a profile can never widen authority. Omitting the block entirely behaves exactly like a deployment from before profiles existed. Move one lane at a time and check the split on the Usage page before moving the next.</p>
-
-    <p>There is deliberately no Slack command that changes a provider account or a model policy.</p>
-
-    <h2 id="evals">The eval idea</h2>
-
-    <p>The rule underneath all of this: <strong>no test in the fast gate may call a model.</strong></p>
-
-    <p>Almost every defect in a system like this is the host mishandling a well-formed answer — suppression rebuilding a reply it had just cleared, a conflict response read as “this work is finished”, a whole result discarded because a confidence field held a number instead of a word. None of those need a model to reproduce. They need the exact answer that broke production, and that answer is already on disk.</p>
-
-    <p>So there are two kinds of check, and knowing which one you need is the diagnosis:</p>
-
-    <dl>
-      <div><dt>The host mishandled a valid answer</dt><dd>An ordinary ExUnit test beside the owning module, plus a recorded fixture. Deterministic, offline, and credential-free. This runs on every commit.</dd></div>
-      <div><dt>The model produced an unusable answer</dt><dd>A prompt problem, and no amount of host testing fixes it. That needs the real-model evaluation, and it is run when prompts, contracts, or operation schemas change.</dd></div>
-    </dl>
-
-    <p>The offline replay is the day-to-day gate: recorded real answers pushed through the strict production parsers, so a prompt, model or schema change fails the build when it breaks an accepted contract. A broader deterministic gate adds the customer journeys with fake Slack, Coop, Emisar and GitHub boundaries — it uses no credentials, calls no model, creates no channels, and touches no infrastructure.</p>
-
-    <p>The real-model evaluation is the other half. Each case runs through its own isolated Coop session using the production prompts and tool configuration, and the workspace is discarded only after Coop proves it is clean — a dirty workspace fails the case and keeps the session. Results are recorded, so a release can say whether answers are <em>improving</em>, not merely that a gate passed.</p>
-
-    <p>Two things about that corpus are worth copying if you build something similar. Cases are compared by name: a case the baseline does not know is not a regression, but a case the baseline knows that has gone missing is a failure — deleting a fixture must not be a way to make its regression disappear. And there are two separate regression knobs, a pass rate and a judge score, because a judge’s five-point scale is not a rate and one knob for both would be useless for one of them.</p>
 
     <div class="callout good">
       <p class="lbl">Fixtures are harvested, never invented</p>
-      <p>Hundreds of real model answers are already recorded, alongside the prompts that produced them. The exact result that broke production is on disk. A fix without the test that would have caught it is a fix with a scheduled return date.</p>
+      <p>Almost every defect in a system like this is the program mishandling a well-formed model answer, and the exact answer that broke production is already on disk. So a fix comes with a deterministic test that replays that recorded answer, with no model and no credentials. A model giving an unusable answer is a prompt problem, and only model evaluation catches it.</p>
     </div>
 
-    <h2 id="watchdog">The watchdog</h2>
-
-    <p>Some failures no test catches, because the machine simply stopped. On one occasion the Docker daemon died, Coop’s control API kept answering, <code>/readyz</code> kept reporting ready, every turn died inside execution, and the operator found out by noticing that Slack had gone quiet.</p>
-
-    <p>So the watchdog’s primary signal is not a health endpoint. It is <strong>whether due work has moved</strong>. A queue that is not draining is the one symptom every outage shares. It checks readiness too, because that catches a disconnected socket on an idle afternoon.</p>
-
-    <p>It reads each deployment’s database read-only and immutable — a watchdog that trips on its own lock is worse than none — and reports an unreadable database as unreadable, never as zero. It alarms after a sustained stall across several consecutive checks, so a few seconds of unreadiness during a deploy passes silently.</p>
-
-    <p>Two details earn their place. It distinguishes <em>provider-limited</em> — every stalled run parked on a rate-limit retry — from <em>unexplained</em>, because “waiting on rate limits” and “wedged” look identical otherwise. And it alarms through a desktop notification, a log file, <em>and</em> a Slack DM to the deployment’s first configured operator, added after a queue sat wedged for eleven hours behind a notification nobody saw. The bot token is the right transport for that, because the Slack app outlives the process using it.</p>
-
-    <p>Recovery has to show real movement. A momentarily empty queue is not an all-clear; a backoff phase once produced a cheerful “queue is moving again” on a stall that then ran another two hours. And it writes a heartbeat first thing on every run, because this script is silent when everything is well and also silent when it is dead.</p>
-
-    <p>It is exercised by the fast gate on every change, deliberately: the only way to know it still fires is to break something on purpose every time the tree moves.</p>
-
-    <h2 id="commands">Day to day</h2>
-
-    <p class="code-label">shell</p>
-    <pre><code><span class="tok-c"># counters, and the bounded incident directory</span>
-<span class="tok-x">ryker</span> <span class="tok-v">status</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/ryker/ryker.yaml</span> <span class="tok-k">--json</span>
-
-<span class="tok-c"># what failed, and whether it can be retried</span>
-<span class="tok-x">ryker</span> <span class="tok-v">failures</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/ryker/ryker.yaml</span>
-
-<span class="tok-c"># put exactly one item back on the queue</span>
-<span class="tok-x">ryker</span> <span class="tok-v">retry</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/ryker/ryker.yaml</span> <span class="tok-p">\</span>
-  <span class="tok-y">delivery delivery_9b2e4c71</span>
-
-<span class="tok-c"># re-run a saved Slack message, privately</span>
-<span class="tok-x">ryker</span> <span class="tok-v">replay slack</span> <span class="tok-k">--url</span> <span class="tok-y">&lt;slack-permalink&gt;</span>
-
-<span class="tok-c"># the process can use its database</span>
-<span class="tok-x">curl</span> <span class="tok-k">-f</span> <span class="tok-v">http://127.0.0.1:8080/healthz</span>
-<span class="tok-c"># …and Slack, Coop, and every lane are alive</span>
-<span class="tok-x">curl</span> <span class="tok-k">-f</span> <span class="tok-v">http://127.0.0.1:8080/readyz</span>
-<span class="tok-x">curl</span> <span class="tok-k">-f</span> <span class="tok-v">http://127.0.0.1:8080/metrics</span></code></pre>
-
-    <p><code>status</code> and <code>failures</code> open the current schema <em>without migrating it</em> and need neither Slack nor Coop, so they work when the service does not.</p>
-
-    <p><code>retry</code> takes exactly one item, preserves its original payload, frozen revision and idempotency key, resets the failure budget, and appends an audit event. It refuses to run while Ryker owns the state directory. There is deliberately no bulk retry.</p>
-
-    <p><code>replay slack</code> is the post-fix verification tool. It clones the saved text, attachments, actor, channel, thread and timestamp behind a permalink, gives the clone a fresh identity, and queues it through the running service. Replays are <strong>private by default</strong>: the real model and tool path runs, but Slack status, reactions, messages, offers, schedules, tasks and incidents are all suppressed. Add <code>--publish</code> only when another real response in that conversation is intentional. If the command hits its timeout it cancels the durable run and interrupts the exact Coop turn — and if it cannot confirm that immediately, it says so rather than reporting a clean stop.</p>
-
-    <h2 id="capacity">Capacity and limits</h2>
-
-    <p>The knobs you are most likely to touch:</p>
-
-    <dl>
-      <div><dt>Incidents</dt><dd>One limit bounds concurrently active incidents (and therefore open Coop sessions); another bounds all non-closed incidents and is enforced transactionally before a channel is created. Set the second above the first.</dd></div>
-      <div><dt>Member tasks</dt><dd>Per-member open-task caps, a creation cooldown, and a reserved pool of slots so contributor work cannot crowd out incidents and operator work.</dd></div>
-      <div><dt>Turn ceiling</dt><dd>A lifetime safety ceiling measured in accepted requests, not tool calls, defaulting to 1000. Ryker allocates capacity automatically as authorized requests arrive; operators never estimate how many turns an investigation needs. At the ceiling the pending request, session and fork are preserved and deferred, not failed.</dd></div>
-      <div><dt>Retry budgets</dt><dd>Four independent ones — webhooks, Slack inputs, deliveries, agent runs. Scheduling deferrals and progress polls do not consume them.</dd></div>
-      <div><dt>Worker lanes</dt><dd>Control, background, and maintenance, sized separately. Slack controls stay on the control lane while long turns stay on background, so an approval or a stop is never blocked behind an investigation.</dd></div>
-    </dl>
-
-    <p>Secrets are read at startup and rotated by restart. Park active work, update the owner-only environment, restart the affected service, and verify readiness before resuming work.</p>
+    <p>A green gate is not a deploy, and a deploy is not proof that a live integration works. Keep those claims apart.</p>
 
     <nav class="doc-next" aria-label="Page navigation">
-      <a href="control-plane.html"><span class="k">Previous</span><span class="t">← The control plane</span></a>
-      <a class="next" href="index.html"><span class="k">Back to</span><span class="t">Docs home →</span></a>
+      <a href="control-plane.html"><span class="k">Previous</span><span class="t">&larr; The control plane</span></a>
+      <a class="next" href="index.html"><span class="k">Back to</span><span class="t">Docs home &rarr;</span></a>
     </nav>
   </main>
 
   <nav class="toc" aria-label="On this page">
     <p class="lbl">On this page</p>
     <ul>
-      <li><a href="#restarts">Deploys and restarts</a></li>
-      <li><a href="#state">PostgreSQL state and backups</a></li>
+      <li><a href="#project">The project</a></li>
+      <li><a href="#lifecycle">Day to day</a></li>
+      <li><a href="#upgrade">Upgrade</a></li>
+      <li><a href="#deploy">Deploy a commit</a></li>
+      <li><a href="#backup">Backup and restore</a></li>
+      <li><a href="#destroy">Destroy</a></li>
+      <li><a href="#exposure">Exposure</a></li>
+      <li><a href="#health">Health and recovery</a></li>
+      <li><a href="#state">What survives a restart</a></li>
       <li><a href="#retention">Retention</a></li>
-      <li><a href="#webhooks">Webhooks and dedup</a></li>
-      <li><a href="#mirrors">Repository mirrors</a></li>
-      <li><a href="#routing">Routing profiles</a></li>
-      <li><a href="#evals">The eval idea</a></li>
-      <li><a href="#watchdog">The watchdog</a></li>
-      <li><a href="#commands">Day to day</a></li>
-      <li><a href="#capacity">Capacity and limits</a></li>
+      <li><a href="#webhooks">Webhooks</a></li>
+      <li><a href="#workers">Workers</a></li>
+      <li><a href="#releases">Releases</a></li>
+      <li><a href="#testing">How Ryker is tested</a></li>
     </ul>
   </nav>
 
