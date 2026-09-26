@@ -2,17 +2,21 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   @moduledoc """
   "Getting ready": per input, the participation decision with its recorded
   settings and standing-rule inventory, followed by the queue position; per
-  Work turn, the setup selected against the session, worker and workspace it
-  actually ran on.
+  Work turn, how its message joined the request, the environment the work ran
+  in and what it gave the work, and the session it actually ran on.
   """
 
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
+  alias Ryker.ControlPlane.{Activity, Environments}
   alias Ryker.CoopFleet.Placement
+  alias Ryker.Episodes.Episode
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
+  alias Ryker.Slack.IncidentRoom
   alias Ryker.State.Behaviors
   alias Ryker.Work.{FailureCause, Session, Turn}
 
@@ -594,13 +598,26 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     do: "#{total} #{if(total == 1, do: "rule", else: "rules")} · #{matched} matched"
 
   @doc """
-  One Work setup card per Work turn, before its briefing: the pinned setup
-  versus the actual session, worker and workspace it ran on. A pinned
-  episode that no turn has claimed yet gets one card on its session row,
-  which proves configuration was selected and nothing more.
+  One Work setup card per Work turn, before its briefing: whether the message
+  that started the run began the request or was added to it, the environment
+  the work ran in and why, what that environment gave the work (each
+  repository with whether the run could change it, and its Emisar account),
+  and the session the run used. A pinned episode that no turn has claimed yet
+  gets one card on its session row, which proves configuration was selected
+  and nothing more.
+
+  `origin` holds the episode, its inputs by every reference a run can carry
+  for them, and its first input, whose source decided the environment.
   """
-  def setup_steps(sessions, turns, edit_runs) do
+  def setup_steps(sessions, turns, origin) do
     work_sessions = Enum.filter(sessions, &(&1.execution_kind == :work))
+
+    if turns == [] and work_sessions == [],
+      do: [],
+      else: setup_cards(work_sessions, turns, setup_context(origin, turns))
+  end
+
+  defp setup_cards(work_sessions, turns, context) do
     sessions_by_id = Map.new(work_sessions, &{&1.id, &1})
     placements = placements(work_sessions)
     now = DateTime.utc_now()
@@ -625,7 +642,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
             earlier,
             Map.get(placements, turn.session_id),
             now,
-            MapSet.member?(edit_runs, turn.id)
+            context
           )
 
         step("setup-#{turn.id}", :ready, turn.inserted_at, %{
@@ -644,7 +661,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     session_cards =
       if turns == [] do
         Enum.map(work_sessions, fn session ->
-          setup = selected_setup(session)
+          setup = selected_setup(session, context)
 
           step("setup-#{session.id}", :ready, session.inserted_at, %{
             actor: "Ryker",
@@ -679,25 +696,29 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     |> Map.new(&{&1.session_id, &1})
   end
 
-  # Ready needs evidence that preparation completed: a bound remote turn is
-  # that evidence, because Coop accepts a turn only into a prepared session. A
-  # live lease without a bound session is preparation in progress at the one
-  # step the rows record. Anything else is "selected", with its outcome
-  # unrecorded rather than guessed from today's worker health.
-  # Two facts a reader can use: whether the model started fresh or kept the
-  # earlier round, and what code it could see. The worker and its execution
-  # policy are the same on every card of a one-worker install, so they are
-  # named only when setup failed and they are part of the explanation.
-  defp work_setup(turn, ordinal, session, earlier_turns, placement, now, edited?) do
+  # What a reader can use, in the order they ask it: did this message start
+  # the request or join it, where did the work run and why, what did that
+  # give it, and did the model start fresh or keep the earlier round. The
+  # worker and its execution policy are the same on every card of a
+  # one-worker install, so they are named only when setup failed and they
+  # are part of the explanation.
+  defp work_setup(turn, ordinal, session, earlier_turns, placement, now, context) do
+    # Admission names each run after the input that started it.
+    input = Map.get(context.inputs, turn.turn_ref)
+    edited? = match?(%Entry{event_kind: :edit}, input)
     session_state = session_state(session, earlier_turns, edited?)
     outcome = setup_outcome(turn, session, now)
+    repositories = repositories(turn, session)
 
     Map.merge(outcome, %{
       ordinal: ordinal,
       rows:
         compact_details([
+          {"Request", request_words(input, context.linked)},
+          {"Environment", environment_words(session, context)},
+          {repositories_label(repositories), repositories_words(repositories, context.names)},
+          {"Emisar", emisar_words(session, context.names)},
           {"Session", session_state.detail},
-          {"Code", setup_code(turn, session)},
           {"Current step", outcome.current_step}
         ]),
       diagnostics: setup_diagnostics(outcome.kind, turn, session, placement)
@@ -757,7 +778,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     ])
   end
 
-  defp selected_setup(session) do
+  defp selected_setup(session, context) do
+    repositories = repositories(nil, session)
+
     %{
       kind: :selected,
       label: "Setup selected",
@@ -768,8 +791,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       current_step: nil,
       rows:
         compact_details([
-          {"Session", "Not created yet"},
-          {"Code", setup_code(nil, session)}
+          {"Environment", environment_words(session, context)},
+          {repositories_label(repositories), repositories_words(repositories, context.names)},
+          {"Emisar", emisar_words(session, context.names)},
+          {"Session", "Not created yet"}
         ]),
       diagnostics: []
     }
@@ -822,33 +847,217 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp preparing_step(_session, %Turn{submission: nil}), do: "Preparing the briefing"
   defp preparing_step(_session, _turn), do: "Submitting the frozen briefing"
 
-  # A session without a repository still gets Coop's empty scratch workspace,
-  # named "primary"; that is not code the reader would recognise.
-  defp setup_code(_turn, %Session{repository_ref: nil}), do: "No repository"
+  # What the cards share: the names people know environments, repositories
+  # and Emisar accounts by, why the work ran in its environment, and the
+  # earlier request routing linked a new one to, looked up only when a run's
+  # message was linked. The refs are the recorded history; only their display
+  # names are read from today's settings.
+  defp setup_context(%{episode: episode, inputs: inputs, first_input: first_input}, turns) do
+    linked? = Enum.any?(turns, &linked_input?(Map.get(inputs, &1.turn_ref)))
 
-  defp setup_code(%Turn{operational_pruned_at: nil, submission: %{} = submission}, session) do
-    case get_in(submission, ["context", "workspace"]) do
-      %{"primary" => %{} = primary} = workspace ->
-        companions = workspace |> Map.get("companions", []) |> Enum.filter(&is_map/1)
-        Enum.map_join([primary | companions], ", ", &repository_access(&1, session))
+    %{
+      inputs: inputs,
+      linked: if(linked?, do: linked_request(episode)),
+      names: setup_names(),
+      reason: environment_reason(episode, first_input)
+    }
+  end
 
-      _absent ->
-        session.repository_ref
+  defp linked_input?(%Entry{decision_document: %{"relation" => "history_only"}}), do: true
+  defp linked_input?(_input), do: false
+
+  defp setup_names do
+    case Ryker.Settings.fetch() do
+      {:ok, snapshot} ->
+        %{
+          emisar: Map.new(snapshot.emisar_connections, &{&1.ref, &1.display_name}),
+          environments: Map.new(snapshot.environments, &{&1.ref, &1.display_name}),
+          repositories:
+            Map.new(
+              snapshot.repositories,
+              &{&1.ref, Environments.repository_name(snapshot, &1.ref)}
+            )
+        }
+
+      {:error, _not_initialized} ->
+        %{emisar: %{}, environments: %{}, repositories: %{}}
     end
   end
 
-  defp setup_code(_turn, %Session{repository_ref: repository}), do: repository
-  defp setup_code(_turn, _session), do: nil
+  defp linked_request(%Episode{linked_episode_id: nil}), do: nil
 
-  defp repository_access(%{"name" => "primary"} = primary, session),
-    do: repository_access(%{primary | "name" => session.repository_ref}, session)
+  defp linked_request(%Episode{linked_episode_id: id}) do
+    case Repo.one(from(episode in Episode, where: episode.id == ^id, select: episode.key)) do
+      nil -> nil
+      key -> get_in(Activity.request_titles([key]), [key, :title])
+    end
+  end
 
-  defp repository_access(%{"name" => name, "read_only" => true}, _session),
-    do: "#{name} · read only"
+  # Whether the message that started this run began the request or was added
+  # to it, as routing decided for that message. A run no message started, a
+  # retry or an automation's run, says nothing here.
+  defp request_words(%Entry{decision_document: %{} = decision}, linked) do
+    case {decision["action"], decision["relation"]} do
+      {"continue_episode", _relation} ->
+        "Continued · routing added this message to the work already under way"
 
-  defp repository_access(%{"name" => name, "read_only" => false}, _session),
-    do: "#{name} · can change it"
+      {_action, "same_work"} ->
+        "Continued · routing added this message to the work already under way"
 
-  defp repository_access(%{"name" => name}, _session), do: name
-  defp repository_access(_repository, _session), do: "unnamed repository"
+      {action, "history_only"} when action in ["start_episode", "reply"] ->
+        "New · this message started it, with #{linked_words(linked)} linked as background"
+
+      {action, _relation} when action in ["start_episode", "reply"] ->
+        "New · this message started it"
+
+      _other ->
+        nil
+    end
+  end
+
+  defp request_words(_input, _linked), do: nil
+
+  defp linked_words(nil), do: "earlier work"
+  defp linked_words(title), do: "“#{bounded(title, 160)}”"
+
+  # Why the work ran in its environment, read from where the request came
+  # from the way the runtime chose it: an incident room works in the
+  # environment it was opened with, a Slack channel in its own, a direct
+  # message (which has no setting of its own) in the default, a Chat
+  # conversation in its own, a GitHub event in the environment that holds its
+  # repository and a webhook in its source's. Where the request came from is
+  # fixed history; which environment that pointed to is the session's own
+  # record, never today's channel setting.
+  defp environment_reason(episode, first_input) do
+    if incident_room?(episode), do: :incident_room, else: input_reason(first_input)
+  end
+
+  defp input_reason(%Entry{source_kind: "slack", destination_conversation_ref: ref}),
+    do: if(direct_message?(ref), do: :default, else: :channel)
+
+  defp input_reason(%Entry{source_kind: "control_plane"}), do: :chat
+  defp input_reason(%Entry{source_kind: "github"}), do: :github
+  defp input_reason(%Entry{source_kind: "webhook"}), do: :webhook
+  defp input_reason(_input), do: nil
+
+  defp direct_message?(ref) when is_binary(ref) do
+    match?({_workspace, "D" <> _channel}, slack_channel(ref))
+  end
+
+  defp direct_message?(_ref), do: false
+
+  # The room's own investigation, or a request that began in the room's channel.
+  defp incident_room?(%Episode{id: id, destination_conversation_ref: ref}) do
+    rooms =
+      case slack_channel(ref) do
+        {workspace, channel} ->
+          from(room in IncidentRoom,
+            where:
+              room.episode_id == ^id or
+                (room.workspace_ref == ^workspace and room.channel_ref == ^channel)
+          )
+
+        nil ->
+          from(room in IncidentRoom, where: room.episode_id == ^id)
+      end
+
+    Repo.exists?(rooms)
+  end
+
+  defp slack_channel("slack:" <> scope) do
+    case String.split(scope, ":", parts: 2) do
+      [workspace, channel] when workspace != "" and channel != "" -> {workspace, channel}
+      _other -> nil
+    end
+  end
+
+  defp slack_channel(_ref), do: nil
+
+  defp environment_words(nil, _context), do: nil
+
+  defp environment_words(%Session{environment_ref: nil}, _context),
+    do: "None · the work ran outside any environment"
+
+  defp environment_words(%Session{environment_ref: ref}, context) do
+    name = Map.get(context.names.environments, ref, ref)
+
+    case reason_words(context.reason) do
+      nil -> name
+      words -> "#{name} · #{words}"
+    end
+  end
+
+  defp reason_words(:channel), do: "this channel's environment"
+
+  defp reason_words(:default),
+    do: "the default environment, since a direct message has none of its own"
+
+  defp reason_words(:incident_room), do: "the environment the incident room was opened with"
+  defp reason_words(:chat), do: "this Chat conversation's environment"
+  defp reason_words(:github), do: "the environment that holds this repository"
+  defp reason_words(:webhook), do: "this webhook source's environment"
+  defp reason_words(nil), do: nil
+
+  # Each repository the work had and whether the run could change it, from
+  # the workspace Coop reported when the briefing was frozen. Before that the
+  # pinned set says which repositories there are, with every one beside the
+  # working copy read-only. A session without a repository still gets Coop's
+  # empty scratch workspace, named "primary"; that is not a repository.
+  defp repositories(_turn, nil), do: nil
+  defp repositories(_turn, %Session{repository_ref: nil}), do: []
+
+  defp repositories(%Turn{operational_pruned_at: nil, submission: %{} = submission}, session) do
+    case get_in(submission, ["context", "workspace"]) do
+      %{"primary" => %{} = primary} = workspace ->
+        companions =
+          for %{"name" => name} = companion when is_binary(name) <-
+                List.wrap(workspace["companions"]),
+              do: %{ref: name, access: access(companion)}
+
+        [%{ref: session.repository_ref, access: access(primary)} | companions]
+
+      _absent ->
+        pinned_repositories(session)
+    end
+  end
+
+  defp repositories(_turn, session), do: pinned_repositories(session)
+
+  defp pinned_repositories(%Session{
+         repository_context: %{
+           "primary_repository" => primary,
+           "read_only_repositories" => read_only
+         }
+       })
+       when is_binary(primary) and is_list(read_only),
+       do: [%{ref: primary, access: nil} | Enum.map(read_only, &%{ref: &1, access: :read})]
+
+  defp pinned_repositories(%Session{repository_ref: ref}), do: [%{ref: ref, access: nil}]
+
+  defp access(%{"read_only" => true}), do: :read
+  defp access(%{"read_only" => false}), do: :change
+  defp access(_repository), do: nil
+
+  defp repositories_label([_one]), do: "Repository"
+  defp repositories_label(_repositories), do: "Repositories"
+
+  defp repositories_words(nil, _names), do: nil
+  defp repositories_words([], _names), do: "None"
+
+  defp repositories_words(repositories, names) do
+    Enum.map_join(repositories, ", ", fn %{ref: ref, access: access} ->
+      name = Map.get(names.repositories, ref, ref)
+
+      case access do
+        :change -> "#{name} · can change it"
+        :read -> "#{name} · read only"
+        nil -> name
+      end
+    end)
+  end
+
+  defp emisar_words(%Session{emisar_connection_ref: ref}, names) when is_binary(ref),
+    do: Map.get(names.emisar, ref, ref)
+
+  defp emisar_words(_session, _names), do: nil
 end
