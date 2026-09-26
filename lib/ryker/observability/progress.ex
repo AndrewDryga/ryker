@@ -7,6 +7,7 @@ defmodule Ryker.Observability.Progress do
   a healthy idle loop from one blocked forever inside a call.
   """
 
+  alias Ryker.Observability.Query
   alias Ryker.Repo
 
   @lanes ~w(
@@ -75,4 +76,45 @@ defmodule Ryker.Observability.Progress do
   end
 
   def record(_lane, _outcome), do: {:error, {:invalid_runtime_progress, :fields}}
+
+  @doc """
+  Every lane's last heartbeat, aged from the database clock reading `now`.
+
+  A row naming a lane or outcome this release does not know fails the whole
+  read instead of being skipped.
+  """
+  @spec snapshot(DateTime.t()) :: {:ok, [map()]} | {:error, Query.failure()}
+  def snapshot(now) do
+    with {:ok, rows} <-
+           Query.rows(
+             "SELECT lane, outcome, cycle_count, observed_at FROM ryker_runtime_progress ORDER BY lane"
+           ) do
+      Query.collect(rows, &heartbeat(&1, now))
+    end
+  end
+
+  defp heartbeat([lane, outcome, cycle_count, observed_at], now) do
+    with {:ok, lane} <- known(lane, @lanes, "lane"),
+         {:ok, outcome} <- known(outcome, @outcomes, "outcome") do
+      {:ok,
+       %{
+         age_seconds: Query.age_seconds(now, observed_at),
+         cycle_count: cycle_count,
+         lane: lane,
+         outcome: outcome,
+         observed_at: observed_at
+       }}
+    end
+  end
+
+  defp known(value, known, field) do
+    case Enum.find(known, &(Atom.to_string(&1) == value)) do
+      nil ->
+        {:error,
+         {:observability_query_failed, "unknown runtime progress #{field}: #{inspect(value)}"}}
+
+      atom ->
+        {:ok, atom}
+    end
+  end
 end
