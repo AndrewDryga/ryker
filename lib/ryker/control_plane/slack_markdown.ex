@@ -63,13 +63,34 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   # A list may start right under a line of text ("Check these first:\n1. …"),
   # so a paragraph is split into runs of plain lines, bullet lines and
   # numbered lines, each rendered as what it is. A question that listed what
-  # it needed ran into one line before.
+  # it needed ran into one line before. An indented line under a list item
+  # belongs to that item: words that wrapped continue it, and indented
+  # points become a list inside it, so the list does not start over.
   defp paragraph(text, workspace) do
     text
     |> String.split("\n")
-    |> Enum.chunk_by(&line_kind/1)
-    |> Enum.map(&block(&1, line_kind(hd(&1)), workspace))
+    |> items()
+    |> Enum.chunk_by(fn {head, _children} -> line_kind(head) end)
+    |> Enum.map(fn [{head, _children} | _] = items ->
+      block(items, line_kind(head), workspace)
+    end)
   end
+
+  defp items(lines) do
+    lines
+    |> Enum.reduce([], fn
+      line, [{head, children} | rest] = items ->
+        if line_kind(head) != :text and indented?(line),
+          do: [{head, children ++ [line]} | rest],
+          else: [{line, []} | items]
+
+      line, [] ->
+        [{line, []}]
+    end)
+    |> Enum.reverse()
+  end
+
+  defp indented?(line), do: Regex.match?(~r/^(?: {2,}|\t)\S/u, line)
 
   defp line_kind(line) do
     cond do
@@ -79,28 +100,38 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     end
   end
 
-  defp block(lines, :bullet, workspace),
-    do: [
-      "<ul>",
-      Enum.map(
-        lines,
-        &["<li>", render(Regex.replace(~r/^\s*[-*•] /u, &1, ""), workspace), "</li>"]
-      ),
-      "</ul>"
-    ]
+  @bullet ~r/^\s*[-*•] /u
+  @numbered ~r/^\s*\d+\. /u
 
-  defp block(lines, :numbered, workspace),
-    do: [
-      ordered_list_open(hd(lines)),
-      Enum.map(
-        lines,
-        &["<li>", render(Regex.replace(~r/^\s*\d+\. /u, &1, ""), workspace), "</li>"]
-      ),
-      "</ol>"
-    ]
+  defp block(items, :bullet, workspace),
+    do: ["<ul>", Enum.map(items, &item(&1, @bullet, workspace)), "</ul>"]
 
-  defp block(lines, :text, workspace),
-    do: ["<p>", render(Enum.join(lines, "\n"), workspace), "</p>"]
+  defp block([{head, _children} | _] = items, :numbered, workspace),
+    do: [ordered_list_open(head), Enum.map(items, &item(&1, @numbered, workspace)), "</ol>"]
+
+  defp block(items, :text, workspace),
+    do: ["<p>", render(Enum.map_join(items, "\n", &elem(&1, 0)), workspace), "</p>"]
+
+  # The item's own words, the words that wrapped under it, then any points
+  # indented under it as a list of their own.
+  defp item({head, children}, marker, workspace) do
+    {wrapped, nested} =
+      Enum.split_while(children, &(line_kind(String.trim_leading(&1)) == :text))
+
+    words = Enum.join([Regex.replace(marker, head, "") | Enum.map(wrapped, &String.trim/1)], " ")
+    ["<li>", render(words, workspace), nested_blocks(nested, workspace), "</li>"]
+  end
+
+  defp nested_blocks([], _workspace), do: []
+
+  defp nested_blocks(lines, workspace) do
+    lines
+    |> Enum.map(&{String.trim_leading(&1), []})
+    |> Enum.chunk_by(fn {line, _children} -> line_kind(line) end)
+    |> Enum.map(fn [{line, _children} | _] = items ->
+      block(items, line_kind(line), workspace)
+    end)
+  end
 
   # Items separated by blank lines arrive as separate paragraphs; each list
   # starts at the number its first item was written with, so they still count
