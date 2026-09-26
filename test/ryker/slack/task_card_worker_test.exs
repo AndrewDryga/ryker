@@ -122,8 +122,11 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     )
   end
 
+  # Due by the database's clock, which the worker claims with: a host-clock
+  # "one second ago" was still in the future whenever the database trailed the
+  # host by more than a second, and the gate saw an idle worker.
   defp make_due!(id) do
-    past = DateTime.add(DateTime.utc_now(), -1, :second)
+    past = DateTime.add(Repo.now!(), -3_600, :second)
 
     Repo.update_all(from(card in TaskCard, where: card.id == ^id),
       set: [next_attempt_at: past, card_checked_at: past]

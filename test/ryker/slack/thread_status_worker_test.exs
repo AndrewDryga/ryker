@@ -207,7 +207,7 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
     options = options(client, projection)
 
     assert {:ok, %{failed: 0, written: 1}} = ThreadStatusWorker.run_once(options)
-    old = DateTime.add(DateTime.utc_now(), -91, :second)
+    old = DateTime.add(Repo.now!(), -91, :second)
     Repo.update_all(from(status in ThreadStatus), set: [delivered_at: old])
 
     assert {:ok, %{failed: 0, written: 1}} = ThreadStatusWorker.run_once(options)
@@ -357,8 +357,10 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
 
   defp status!, do: Repo.one!(from(status in ThreadStatus))
 
+  # Due by the database's clock, which the worker claims with; a host-clock
+  # "one second ago" can still be ahead of a trailing database clock.
   defp make_due!(id) do
-    past = DateTime.add(DateTime.utc_now(), -1, :second)
+    past = DateTime.add(Repo.now!(), -3_600, :second)
 
     Repo.update_all(from(status in ThreadStatus, where: status.id == ^id),
       set: [next_attempt_at: past]
