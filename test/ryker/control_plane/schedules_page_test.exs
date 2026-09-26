@@ -79,6 +79,9 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
   end
 
   describe "the list" do
+    # QA re-test, 2026-09-26: "next run 28 Sep, 09:00" sat beside "Every
+    # weekday at 09:00 UTC" with no zone of its own, so a reader could not
+    # tell whose 09:00 it was.
     test "a row names what it asks for, how often in its own zone, where results go and the next run" do
       row = list_row(@item)
 
@@ -93,7 +96,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
                "Summarize unresolved incidents."
 
       assert words(LazyHTML.query(row, ".entity-meta")) ==
-               "Every day at 09:00 Berlin time · in Slack channel C456 · next run tomorrow 09:00 · repository acme/api"
+               "Every day at 09:00 Berlin time · in Slack channel C456 · next run tomorrow 09:00 Berlin time · repository acme/api"
 
       next = LazyHTML.query(row, ".entity-meta time")
       assert LazyHTML.attribute(next, "datetime") == ["2026-09-25T07:00:00Z"]
@@ -170,12 +173,12 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       }
 
       assert words(LazyHTML.query(list_row(direct), ".entity-meta")) ==
-               "Every day at 09:00 Berlin time · in a direct conversation · next run tomorrow 09:00 · stops 31 Oct"
+               "Every day at 09:00 Berlin time · in a direct conversation · next run tomorrow 09:00 Berlin time · stops 31 Oct"
 
       thread = %{@item | destination_thread_ref: "1787832000.001000", repository: nil}
 
       assert words(LazyHTML.query(list_row(thread), ".entity-meta")) ==
-               "Every day at 09:00 Berlin time · in a thread in Slack channel C456 · next run tomorrow 09:00"
+               "Every day at 09:00 Berlin time · in a thread in Slack channel C456 · next run tomorrow 09:00 Berlin time"
     end
 
     test "the list offers Current and Past, keeps the search across both, and says how to add one" do
@@ -279,7 +282,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
                {"Where results go", "Slack channel C456 · in a thread"},
                {"Repository", "acme/api"},
                {"What it may do", "Read only"},
-               {"Next run", "tomorrow 09:00"},
+               {"Next run", "tomorrow 09:00 Berlin time"},
                {"Stops", "Never"},
                {"Started from", "Set up the morning summary"}
              ]
@@ -313,7 +316,11 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
     end
 
     test "each run says what happened in words, newest first, and opens its own timeline" do
-      runs = detail(snapshot()) |> LazyHTML.query(".schedule-runs .entity-row")
+      document = detail(snapshot())
+      runs = LazyHTML.query(document, ".schedule-runs .entity-row")
+
+      # The rows keep their times short; the list names their zone once.
+      assert LazyHTML.text(document) =~ "Newest first. Times are Berlin time."
 
       assert Enum.map(runs, fn run ->
                {LazyHTML.query(run, ".entity-name time") |> LazyHTML.text(),
@@ -363,7 +370,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       assert LazyHTML.query(document, ".kit-status-line .schedule-warning") |> LazyHTML.text() ==
                "failed to start 3 times"
 
-      assert {"Stops", "31 Oct, 09:00"} in facts(document)
+      assert {"Stops", "31 Oct, 09:00 Berlin time"} in facts(document)
     end
 
     test "a schedule that posts in a direct conversation links to that conversation" do
