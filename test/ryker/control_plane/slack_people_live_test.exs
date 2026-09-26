@@ -33,7 +33,8 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
   @andrew "U0BHTNFCW6S"
   @profile "https://acme.slack.com/team/U0BHTNFCW6S"
   @managers "section[aria-label='Who can manage Ryker']"
-  @listed "#{@managers} [role=listitem]"
+  @chosen "#{@managers} #slack-managers"
+  @switch "#{@managers} input[type=checkbox][name=workspace_admins_manage]"
 
   setup do
     start_supervised!(
@@ -76,7 +77,11 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
     refute managers_text(view) =~ @andrew
   end
 
-  test "who can manage Ryker says workspace admins and owners can, and the switch turns that off" do
+  # Andrew, 2026-09-26: under "Who can manage Ryker" the chosen person read
+  # like the heading of the admins checkbox below it, and admins were said
+  # twice, as a list row and as the checkbox. Each group is said once now:
+  # the people under their own label, the admins as the switch.
+  test "who can manage Ryker says each group once: chosen people by name, admins as the switch" do
     names!(%{@andrew => "Andrew"})
     slack_on!([@andrew])
     Names.name(@workspace, @andrew)
@@ -84,11 +89,20 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
 
     {:ok, view, _html} = open("/integrations/slack")
 
-    assert has_element?(view, @listed, "Workspace admins and owners")
-    assert has_element?(view, "#{@listed} a[href='#{@profile}']", "@Andrew")
+    assert has_element?(view, "#{@chosen} dt", "Chosen people")
+    assert has_element?(view, "#{@chosen} dd a[href='#{@profile}']", "@Andrew")
+    assert has_element?(view, "#{@switch}[checked]")
+    refute has_element?(view, "#{@managers} [role=listitem]")
+    assert managers_text(view) |> String.split("Workspace admins and owners") |> length() == 2
+  end
 
-    switch = "#{@managers} input[type=checkbox][name=workspace_admins_manage]"
-    assert has_element?(view, "#{switch}[checked]")
+  test "the switch turns off workspace admins and owners, and the chosen people stay" do
+    names!(%{@andrew => "Andrew"})
+    slack_on!([@andrew])
+    Names.name(@workspace, @andrew)
+    :ok = GenServer.call(Names, :refresh)
+
+    {:ok, view, _html} = open("/integrations/slack")
 
     view
     |> form("#{@managers} form#settings-slack-admins-form", %{
@@ -97,9 +111,8 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
     |> render_submit()
 
     refute Settings.fetch!().slack.workspace_admins_manage
-    assert eventually(fn -> not has_element?(view, @listed, "Workspace admins and owners") end)
-    assert has_element?(view, "#{@listed} a[href='#{@profile}']", "@Andrew")
-    refute has_element?(view, "#{switch}[checked]")
+    assert eventually(fn -> not has_element?(view, "#{@switch}[checked]") end)
+    assert has_element?(view, "#{@chosen} dd a[href='#{@profile}']", "@Andrew")
   end
 
   test "with nobody chosen, workspace admins and owners are who can manage Ryker" do
@@ -108,8 +121,9 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
 
     {:ok, view, _html} = open("/integrations/slack")
 
-    assert has_element?(view, @listed, "Workspace admins and owners")
-    refute managers_text(view) =~ "Nobody yet"
+    assert has_element?(view, "#{@switch}[checked]")
+    refute has_element?(view, @chosen)
+    refute managers_text(view) =~ "Nobody can manage Ryker yet"
   end
 
   # A message that mentioned someone Slack had not named yet kept reading
