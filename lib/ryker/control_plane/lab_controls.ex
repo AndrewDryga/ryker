@@ -299,6 +299,74 @@ defmodule Ryker.ControlPlane.LabControls do
   defp record_action_name(:view_handoff), do: "handoff"
   defp record_action_name(:view_postmortem), do: "postmortem"
 
+  @doc """
+  What a record action that did not go through says: a title naming what was
+  not done, and why in words. Every confirmation is one transaction, so
+  nothing changed.
+  """
+  @spec record_failure(atom(), term()) :: {String.t(), String.t()}
+  def record_failure(action, reason),
+    do: {failure_title(action), "Nothing changed. " <> failure_reason(reason)}
+
+  defp failure_title(:confirm_schedule), do: "Couldn't schedule this"
+  defp failure_title(:confirm_memory), do: "Couldn't save this to memory"
+  defp failure_title(:confirm_behavior), do: "Couldn't save this"
+  defp failure_title(:confirm_automation), do: "Couldn't apply this change"
+  defp failure_title(:confirm_task), do: "Couldn't start this task"
+  defp failure_title(:open_incident), do: "Couldn't open this incident"
+  defp failure_title(:confirm_post), do: "Couldn't post this message"
+  defp failure_title(:review_publication), do: "Couldn't start the review"
+  defp failure_title(:answer_input), do: "Couldn't send your answer"
+  defp failure_title(:stop_task), do: "Couldn't stop this task"
+  defp failure_title(:close_task), do: "Couldn't close this task"
+
+  defp failure_title(action) when action in [:approve_publication, :approve_task_publication],
+    do: "Couldn't create the draft pull request"
+
+  defp failure_title(action) when action in [:check_publication, :check_task_publication],
+    do: "Couldn't check the pull request"
+
+  defp failure_title(:retry_task_publication), do: "Couldn't retry"
+  defp failure_title(:update_task_publication), do: "Couldn't review the latest state"
+  defp failure_title(:discard_task_publication), do: "Couldn't discard the candidate"
+  defp failure_title(_action), do: "That didn't go through"
+
+  # An offer somebody already handled, replaced or never delivered here fails
+  # with one of these; which one is the host's business, not the reader's.
+  @superseded_suffixes ~w(_stale _not_found _mismatch _not_delivered _already_confirmed _already_answered _already_requested _status_conflict)
+
+  defp failure_reason(reason) when reason in [:schedule_not_future, :automation_not_future],
+    do:
+      "Its time has already passed, or it would stop before its first run. Ask Ryker for a new time."
+
+  defp failure_reason({:invalid_schedule, :timezone}),
+    do: "Ryker doesn't recognise its time zone. Ask again with one such as Europe/Berlin."
+
+  defp failure_reason(reason)
+       when reason in [
+              :conversation_lab_not_configured,
+              :conversation_lab_task_policy_not_configured
+            ],
+       do:
+         "This conversation's environment can't run it. Choose an environment for the conversation, then try again."
+
+  defp failure_reason({:automation_revision_conflict, _revision}), do: superseded()
+
+  defp failure_reason(reason) when is_atom(reason) do
+    if String.ends_with?(Atom.to_string(reason), @superseded_suffixes),
+      do: superseded(),
+      else: unfinished()
+  end
+
+  defp failure_reason(_reason), do: unfinished()
+
+  defp superseded,
+    do:
+      "This is no longer current: it was already handled or replaced. Use the latest message in the conversation."
+
+  defp unfinished,
+    do: "Ryker couldn't finish it. Try again; if it keeps failing, look under Failures."
+
   defp record_label(:confirm_task), do: "Start task"
   defp record_label(:open_incident), do: "Open local incident"
   defp record_label(:confirm_memory), do: "Remember this"

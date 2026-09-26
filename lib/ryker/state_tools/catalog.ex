@@ -2,7 +2,7 @@ defmodule Ryker.StateTools.Catalog do
   @moduledoc false
 
   alias Ryker.Ingress.Adapters, as: IngressAdapters
-  alias Ryker.State.{ConversationSummaryState, InvestigationPayload}
+  alias Ryker.State.{ConversationSummaryState, InvestigationPayload, ScheduleRecurrence}
   alias Ryker.Work.{Final, RepositorySource}
 
   @maximum_automation_proposals 4
@@ -10,6 +10,10 @@ defmodule Ryker.StateTools.Catalog do
 
   @spec source_kinds() :: [String.t()]
   def source_kinds, do: @source_kinds
+
+  @doc "How many proposals one propose_automation call may carry."
+  @spec maximum_automation_proposals() :: pos_integer()
+  def maximum_automation_proposals, do: @maximum_automation_proposals
 
   @spec tools([atom()], map()) :: [map()]
   def tools(capabilities, final_schema \\ Final.json_schema()) do
@@ -442,7 +446,11 @@ defmodule Ryker.StateTools.Catalog do
             open_object(),
             "Exact recursive subset of the observed input.content payload. Read a real matching event to choose stable fields. This is not a text search or query language; an empty filter matches every event from this input adapter in the bound channel."
           ),
-        "recurrence" => enum(~w(once interval daily weekly monthly)),
+        "recurrence" =>
+          describe(
+            enum(ScheduleRecurrence.kinds()),
+            "daily runs every day and weekdays runs Monday to Friday, both at time; weekly runs on one weekday at time. For any other set of days, propose one weekly schedule per day."
+          ),
         "source_kind" =>
           describe(
             enum(@source_kinds),

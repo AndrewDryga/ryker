@@ -1200,6 +1200,92 @@ defmodule Ryker.StateTools.RouterTest do
            }
   end
 
+  # QA, 2026-09-25, Chat 878b84df: "every weekday at 9:00 post a one-line
+  # status of open incidents here" had no recurrence to land in. The tool
+  # refused the model's weekday bundle, the model fell back to Monday alone, and
+  # confirming a card titled "weekday" created a Monday-only schedule.
+  test "every weekday is one proposal the host keeps as Monday to Friday" do
+    claim = claim!("weekday-automation")
+
+    assert {:ok, %{"proposals" => [%{"kind" => "automation_offer", "record_ref" => ref}]}} =
+             Tools.call(
+               "propose_automation",
+               %{
+                 "proposals" => [
+                   time_proposal(%{
+                     "recurrence" => "weekdays",
+                     "time" => "09:00",
+                     "timezone" => "UTC",
+                     "type" => "time"
+                   })
+                 ]
+               },
+               bound_options(claim)
+             )
+
+    assert Repo.get_by!(Record, ref: ref).payload["recurrence"] == %{
+             "kind" => "weekdays",
+             "time" => "09:00:00"
+           }
+  end
+
+  # The same conversation's four failed calls: the tool said only
+  # "invalid_arguments", so the model could not tell what to change, and a
+  # weekly trigger carrying a list of days beside its one weekday was kept as
+  # that weekday alone. A day set no recurrence expresses is refused with the
+  # correction, and nothing narrower is saved in its place.
+  test "a set of days no recurrence expresses is refused with its correction, never narrowed" do
+    claim = claim!("unsupported-schedule-days")
+    options = bound_options(claim)
+    days = ~w(monday wednesday friday)
+
+    for trigger <- [
+          %{"recurrence" => "weekly", "time" => "09:00", "type" => "time", "weekday" => days},
+          %{
+            "recurrence" => "weekly",
+            "time" => "09:00",
+            "type" => "time",
+            "weekday" => "monday",
+            "weekdays" => days
+          },
+          %{
+            "recurrence" => "weekdays",
+            "time" => "09:00",
+            "type" => "time",
+            "weekday" => "monday"
+          },
+          %{"recurrence" => "weekday", "time" => "09:00", "type" => "time"}
+        ] do
+      assert {:error, error} =
+               Tools.call(
+                 "propose_automation",
+                 %{"proposals" => [time_proposal(trigger)]},
+                 options
+               ),
+             inspect(trigger)
+
+      assert error =~ "recurrence weekdays"
+      assert error =~ "one weekly schedule per day"
+    end
+
+    every_weekday =
+      for day <- ~w(monday tuesday wednesday thursday friday) do
+        time_proposal(%{
+          "recurrence" => "weekly",
+          "time" => "09:00",
+          "type" => "time",
+          "weekday" => day
+        })
+      end
+
+    assert {:error, error} =
+             Tools.call("propose_automation", %{"proposals" => every_weekday}, options)
+
+    assert error =~ "at most 4"
+    assert error =~ "recurrence weekdays"
+    assert Records.retained_records(claim.episode.id) == []
+  end
+
   test "an invalid automation time is reported as an argument error, not an outage" do
     claim = claim!("invalid-automation-time")
 
@@ -1252,8 +1338,8 @@ defmodule Ryker.StateTools.RouterTest do
         }
       end
 
-    assert Tools.call("propose_automation", %{"proposals" => proposals}, options) ==
-             {:error, "invalid_arguments"}
+    assert {:error, "invalid_arguments: propose_automation takes at most 4 proposals" <> _} =
+             Tools.call("propose_automation", %{"proposals" => proposals}, options)
 
     assert Records.retained_records(claim.episode.id) == []
 
@@ -2638,6 +2724,17 @@ defmodule Ryker.StateTools.RouterTest do
 
   defp request(method, params) do
     %{"id" => 1, "jsonrpc" => "2.0", "method" => method, "params" => params}
+  end
+
+  defp time_proposal(trigger) do
+    %{
+      "action" => "create",
+      "patch" => %{},
+      "prompt" => "Post a one-line status of open incidents here.",
+      "repository" => nil,
+      "title" => "Weekday open incident status",
+      "trigger" => trigger
+    }
   end
 
   defp bound_options(claim) do

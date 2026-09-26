@@ -564,6 +564,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     %{
       "branch" => publication.branch_ref,
       "controls" => publication_controls(publication),
+      "discarded_reason" => discarded_reason(publication),
       "publication_ref" => publication.ref,
       "pull_request_number" => publication.pull_request_number,
       "pull_request_url" => publication.pull_request_url,
@@ -572,6 +573,15 @@ defmodule Ryker.Slack.TaskCardProjection do
       "unverified" => unverified(publication)
     }
   end
+
+  # Why Ryker ended a publication itself; nil for one a person discarded, which
+  # the operator audit already names. The card said "PR preparation stopped"
+  # for both, so a closed worker session read like somebody's decision.
+  defp discarded_reason(%Publication{status: :discarded, discarded_reason: reason})
+       when is_atom(reason) and not is_nil(reason),
+       do: Atom.to_string(reason)
+
+  defp discarded_reason(_publication), do: nil
 
   # Which required check has no result, in the operator's words. Without it a
   # blocked candidate can only say that something is missing, which is how a

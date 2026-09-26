@@ -25,6 +25,57 @@ defmodule Ryker.State.ScheduleRecurrenceTest do
     assert autumn == ~U[2026-11-01 14:00:00.000000Z]
   end
 
+  # QA, 2026-09-25: "every weekday at 9:00" had no recurrence to land in. The
+  # tool refused the model's weekday bundle, the model fell back to Monday
+  # alone, and confirming the card created "Every Monday at 09:00 UTC" under a
+  # title that still said weekday. Monday to Friday is its own recurrence.
+  test "a weekdays schedule runs Monday to Friday and skips the weekend in its own time zone" do
+    weekdays = %{"kind" => "weekdays", "time" => "09:00:00"}
+
+    # Friday's run is followed by Monday's, not Saturday's.
+    assert ScheduleRecurrence.next_after(weekdays, "Etc/UTC", ~U[2026-09-25 09:00:00.000000Z]) ==
+             {:ok, ~U[2026-09-28 09:00:00.000000Z]}
+
+    assert ScheduleRecurrence.next_after(weekdays, "Etc/UTC", ~U[2026-09-26 12:00:00.000000Z]) ==
+             {:ok, ~U[2026-09-28 09:00:00.000000Z]}
+
+    assert ScheduleRecurrence.next_after(weekdays, "Etc/UTC", ~U[2026-09-29 08:00:00.000000Z]) ==
+             {:ok, ~U[2026-09-29 09:00:00.000000Z]}
+
+    # The weekend is the schedule's own: 10:00 on Saturday in Auckland is
+    # Friday evening in UTC, and 09:00 on Monday there is Sunday in UTC.
+    assert ScheduleRecurrence.next_after(
+             weekdays,
+             "Pacific/Auckland",
+             ~U[2026-01-09 21:00:00.000000Z]
+           ) == {:ok, ~U[2026-01-11 20:00:00.000000Z]}
+
+    assert ScheduleRecurrence.next_after(
+             weekdays,
+             "Pacific/Auckland",
+             ~U[2026-01-08 19:00:00.000000Z]
+           ) == {:ok, ~U[2026-01-08 20:00:00.000000Z]}
+  end
+
+  test "a weekdays schedule keeps its local time across daylight saving changes" do
+    weekdays = %{"kind" => "weekdays", "time" => "09:00:00"}
+
+    # New York springs forward on Sunday 8 March: Friday's run is 14:00 UTC,
+    # Monday's 13:00 UTC, both 09:00 in New York.
+    assert ScheduleRecurrence.next_after(
+             weekdays,
+             "America/New_York",
+             ~U[2026-03-06 14:00:00.000000Z]
+           ) == {:ok, ~U[2026-03-09 13:00:00.000000Z]}
+
+    # And falls back on Sunday 1 November.
+    assert ScheduleRecurrence.next_after(
+             weekdays,
+             "America/New_York",
+             ~U[2026-10-30 13:00:00.000000Z]
+           ) == {:ok, ~U[2026-11-02 14:00:00.000000Z]}
+  end
+
   test "monthly recurrence skips months that do not contain its requested day" do
     recurrence = %{"day" => 31, "kind" => "monthly", "time" => "09:30:00"}
 
@@ -92,6 +143,13 @@ defmodule Ryker.State.ScheduleRecurrenceTest do
                now
              )
 
+    assert {:ok, %{"kind" => "weekdays", "time" => "09:15:00"}} =
+             ScheduleRecurrence.normalize(
+               %{"kind" => "weekdays", "time" => "09:15"},
+               "Etc/UTC",
+               now
+             )
+
     assert {:ok, %{"day" => 1, "kind" => "monthly", "time" => "00:00:00"}} =
              ScheduleRecurrence.normalize(
                %{"day" => 1, "kind" => "monthly", "time" => "00:00:00"},
@@ -118,6 +176,8 @@ defmodule Ryker.State.ScheduleRecurrenceTest do
       %{"every_seconds" => 300, "kind" => "interval", "starts_at" => "not-a-date"},
       %{"kind" => "daily", "time" => "25:00:00"},
       %{"kind" => "weekly", "time" => "09:00:00", "weekday" => "funday"},
+      %{"kind" => "weekdays", "time" => "09:00:00", "weekday" => "monday"},
+      %{"kind" => "weekdays", "time" => "9 o'clock"},
       %{"day" => 32, "kind" => "monthly", "time" => "09:00:00"}
     ]
 

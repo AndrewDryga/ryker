@@ -210,22 +210,28 @@ defmodule Ryker.ControlPlane.Router do
              token
            ),
          {:ok, _result} <-
-           options.actions.act_on_lab_record.(
-             conversation_id,
-             record_ref,
-             action,
-             action_context
-           ) do
+           act_on_lab_record(options, conversation_id, record_ref, action, action_context) do
       conn
       |> put_resp_header("location", "/conversations/#{conversation_id}")
       |> send_resp(303, "")
       |> halt()
     else
-      false -> text(conn, 403, "Invalid confirmation token")
-      {:error, :path_ref} -> text(conn, 404, "Conversation or record not found")
-      {:error, :lab_record_action} -> text(conn, 404, "Record action not found")
-      {:error, :form} -> text(conn, 400, "Invalid form")
-      {:error, _reason} -> text(conn, 409, "Record action is no longer available")
+      false ->
+        text(conn, 403, "Invalid confirmation token")
+
+      {:error, :path_ref} ->
+        text(conn, 404, "Conversation or record not found")
+
+      {:error, :lab_record_action} ->
+        text(conn, 404, "Record action not found")
+
+      {:error, :form} ->
+        text(conn, 400, "Invalid form")
+
+      {:error, {:lab_record_failed, conversation_id, action, reason}} ->
+        {title, explanation} = LabControls.record_failure(action, reason)
+        back = "/conversations/#{conversation_id}"
+        html(conn, 409, title, HTML.lab_record_failure(explanation, back))
     end
   end
 
@@ -1103,6 +1109,16 @@ defmodule Ryker.ControlPlane.Router do
 
       _missing_or_incompatible ->
         {:error, :not_found}
+    end
+  end
+
+  # A record action that did not go through keeps its action and conversation,
+  # so its page can say what was not done and lead back. It once answered with a
+  # bare "Record action is no longer available".
+  defp act_on_lab_record(options, conversation_id, record_ref, action, action_context) do
+    case options.actions.act_on_lab_record.(conversation_id, record_ref, action, action_context) do
+      {:ok, result} -> {:ok, result}
+      {:error, reason} -> {:error, {:lab_record_failed, conversation_id, action, reason}}
     end
   end
 

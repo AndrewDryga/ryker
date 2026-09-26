@@ -4,8 +4,18 @@ defmodule Ryker.ControlPlane.Card do
   alias Ryker.ControlPlane.InspectionRedactor
   alias Ryker.Publication.Card, as: PublicationCard
   alias Ryker.Publication.{Publication, Review}
+  alias Ryker.Repo
   alias Ryker.Slack.TaskCardProjection
-  alias Ryker.State.{Record, RecordPayload}
+
+  alias Ryker.State.{
+    Behavior,
+    MemoryEntry,
+    Record,
+    RecordPayload,
+    Schedule,
+    ScheduleCadence,
+    ScheduleRecurrence
+  }
 
   @doc "Only a lifecycle state that changes the card's meaning is shown."
   def display_status(%{status: status})
@@ -190,6 +200,8 @@ defmodule Ryker.ControlPlane.Card do
     )
   end
 
+  # The conversation it posts in is this one, which the title already says; its
+  # stored reference is nothing a person can read.
   defp card(
          %Record{kind: "slack_post_offer"} = record,
          %{"transport" => "control_plane"} = payload
@@ -199,32 +211,36 @@ defmodule Ryker.ControlPlane.Card do
       "Additional message",
       "Post this in the conversation",
       payload["message"],
-      [{"Destination", payload["conversation_ref"]}],
+      [],
       :confirm_post
     )
   end
 
+  # How often comes from the recurrence the confirmation will save, never from
+  # the title or task the model wrote: a card whose task said "Every weekday at
+  # 09:00 UTC" offered, and on confirmation created, a Monday-only schedule.
   defp card(%Record{kind: "schedule_offer"} = record, payload) do
     details =
-      []
-      |> optional_detail("Authority", payload["authority"])
-      |> optional_detail("Repository", payload["repository"])
-      |> optional_detail("Timezone", payload["timezone"])
+      [
+        {"How often", ScheduleCadence.describe(payload["recurrence"], payload["timezone"])},
+        {"What it may do", may_do(payload["authority"], payload["repository"])}
+      ]
+      |> optional_detail("Stops", stamp(payload["expires_at"]))
 
     common(record, "Schedule", payload["title"], payload["task"], details, :confirm_schedule)
   end
 
   defp card(%Record{kind: "automation_change_offer"} = record, payload) do
-    details = [
-      {"Automation", payload["automation_id"]},
-      {"Revision", Integer.to_string(payload["revision"])}
-    ]
+    details =
+      []
+      |> optional_detail("Automation", get_in(payload, ["after", "title"]))
+      |> optional_detail("How often", changed_cadence(payload))
 
     common(
       record,
       "Automation change",
       humanize(payload["action"]) <> " automation",
-      "Nothing changes until this exact durable revision is confirmed.",
+      "Nothing changes until you confirm it.",
       details,
       :confirm_automation
     )
@@ -233,15 +249,9 @@ defmodule Ryker.ControlPlane.Card do
   defp card(%Record{kind: "memory_offer"} = record, payload) do
     details =
       []
-      |> optional_detail("Kind", humanize_optional(payload["kind"]))
-      |> optional_detail("Scope", scope_label(payload["scope"]))
-      |> optional_distinct_detail(
-        "Visibility",
-        scope_label(payload["visibility"]),
-        scope_label(payload["scope"])
-      )
+      |> optional_detail("Applies to", applies_to(payload["scope"], payload["repository"]))
+      |> optional_detail("Shown to", shown_to(payload["scope"], payload["visibility"]))
       |> optional_detail("Expires", duration_label(payload["expires_in"]))
-      |> optional_detail("Repository", payload["repository"])
 
     common(
       record,
@@ -256,9 +266,8 @@ defmodule Ryker.ControlPlane.Card do
   defp card(%Record{kind: "preference_offer"} = record, payload) do
     details =
       []
-      |> optional_detail("Scope", scope_label(payload["scope"]))
+      |> optional_detail("Applies to", applies_to(payload["scope"], payload["repository"]))
       |> optional_detail("Expires", duration_label(payload["expires_in"]))
-      |> optional_detail("Repository", payload["repository"])
 
     common(
       record,
@@ -273,14 +282,9 @@ defmodule Ryker.ControlPlane.Card do
   defp card(%Record{kind: "guidance_offer"} = record, payload) do
     details =
       []
-      |> optional_detail("Scope", scope_label(payload["scope"]))
-      |> optional_distinct_detail(
-        "Visibility",
-        scope_label(payload["visibility"]),
-        scope_label(payload["scope"])
-      )
+      |> optional_detail("Applies to", applies_to(payload["scope"], payload["repository"]))
+      |> optional_detail("Shown to", shown_to(payload["scope"], payload["visibility"]))
       |> optional_detail("Expires", duration_label(payload["expires_in"]))
-      |> optional_detail("Repository", payload["repository"])
 
     common(
       record,
@@ -295,9 +299,12 @@ defmodule Ryker.ControlPlane.Card do
   defp card(%Record{kind: "standing_assignment_offer"} = record, payload) do
     details =
       []
-      |> optional_detail("Source", payload["source_kind"] || payload["source_filter"])
+      |> optional_detail("Listens to", listens_to(payload))
       |> optional_detail("Repository", payload["repository"])
-      |> optional_detail("Expires", payload["expires_at"] || payload["expires_in"])
+      |> optional_detail(
+        "Expires",
+        stamp(payload["expires_at"]) || duration_label(payload["expires_in"])
+      )
 
     common(
       record,
@@ -309,12 +316,15 @@ defmodule Ryker.ControlPlane.Card do
     )
   end
 
+  # Every question card said "Reply below or choose one of the offered
+  # answers." whether it offered any or not, and went on saying it after the
+  # answer came. An answered question asks for nothing.
   defp card(%Record{kind: "input_request"} = record, payload) do
     common(
       record,
       "Input needed",
       payload["question"],
-      "Reply below or choose one of the offered answers.",
+      reply_prompt(record.status, payload["choices"]),
       [],
       if(payload["choices"] == [], do: nil, else: :answer_input),
       payload["choices"]
@@ -355,9 +365,9 @@ defmodule Ryker.ControlPlane.Card do
     common(
       record,
       "Evidence",
-      payload["claim"] || payload["source_name"],
+      payload["claim"] || source_name(payload),
       payload["observation"],
-      [{"Source", payload["source_name"]}],
+      optional_detail([], "Source", source_name(payload)),
       nil
     )
   end
@@ -549,6 +559,7 @@ defmodule Ryker.ControlPlane.Card do
       details: details,
       kind: record.kind,
       label: label,
+      outcome: outcome(record),
       ref: record.ref,
       status: record.status,
       summary: summary,
@@ -556,6 +567,158 @@ defmodule Ryker.ControlPlane.Card do
       url: nil
     }
   end
+
+  # What a confirmed offer did, read from the row its confirmation saved. After
+  # "Schedule this" or "Remember this" the button went away and nothing said
+  # it had worked, and a schedule card kept its offer's words over a schedule
+  # that ran on a different day. The saved row says what is true now.
+  defp outcome(%Record{status: :confirmed, id: id} = record) when is_binary(id),
+    do: confirmed_outcome(record)
+
+  defp outcome(_record), do: nil
+
+  defp confirmed_outcome(%Record{kind: "schedule_offer", id: id}) do
+    case Repo.get_by(Schedule, offer_record_id: id) do
+      %Schedule{} = schedule -> schedule_outcome(schedule)
+      nil -> nil
+    end
+  end
+
+  defp confirmed_outcome(%Record{kind: "memory_offer", id: id}) do
+    case Repo.get_by(MemoryEntry, offer_record_id: id) do
+      %MemoryEntry{} = memory -> memory_outcome(memory)
+      nil -> nil
+    end
+  end
+
+  defp confirmed_outcome(%Record{kind: kind, id: id})
+       when kind in ~w(preference_offer guidance_offer standing_assignment_offer) do
+    case Repo.get_by(Behavior, offer_record_id: id) do
+      %Behavior{} = behavior -> behavior_outcome(behavior)
+      nil -> nil
+    end
+  end
+
+  defp confirmed_outcome(%Record{kind: "automation_change_offer", payload: payload}) do
+    {link, href} = automation_link(payload["automation_id"])
+    outcome_line(:on, "Change applied", nil, link, href)
+  end
+
+  defp confirmed_outcome(_record), do: nil
+
+  defp schedule_outcome(%Schedule{status: :active} = schedule) do
+    cadence = ScheduleCadence.describe(schedule.recurrence, schedule.timezone)
+    {link, href} = automation_link(schedule.ref)
+    outcome_line(:on, "Scheduled", "runs " <> lowercase_first(cadence), link, href)
+  end
+
+  defp schedule_outcome(%Schedule{status: status} = schedule) do
+    {link, href} = automation_link(schedule.ref)
+    outcome_line(:off, "Schedule " <> schedule_state(status), nil, link, href)
+  end
+
+  defp schedule_state(:paused), do: "paused"
+  defp schedule_state(:completed), do: "done"
+  defp schedule_state(:expired), do: "expired"
+  defp schedule_state(:deleted), do: "deleted"
+
+  defp memory_outcome(%MemoryEntry{status: :active, ref: ref}),
+    do: outcome_line(:on, "Saved to memory", nil, "Open facts", "/memory#" <> fact_id(ref))
+
+  defp memory_outcome(%MemoryEntry{status: :superseded}),
+    do: outcome_line(:off, "Memory replaced by a newer version", nil, nil, nil)
+
+  defp memory_outcome(%MemoryEntry{status: :deleted}),
+    do: outcome_line(:off, "Memory forgotten", nil, nil, nil)
+
+  defp memory_outcome(%MemoryEntry{status: :expired}),
+    do: outcome_line(:off, "Memory expired", nil, nil, nil)
+
+  defp behavior_outcome(%Behavior{kind: kind, status: status, ref: ref}) do
+    name = behavior_name(kind)
+    {link, href} = behavior_link(kind, ref)
+
+    case status do
+      :active -> outcome_line(:on, name <> " saved", nil, link, href)
+      :disabled -> outcome_line(:off, name <> " paused", nil, link, href)
+      :deleted -> outcome_line(:off, name <> " deleted", nil, nil, nil)
+      :expired -> outcome_line(:off, name <> " expired", nil, nil, nil)
+      :superseded -> outcome_line(:off, name <> " replaced by a newer version", nil, nil, nil)
+    end
+  end
+
+  defp behavior_name(:preference), do: "Preference"
+  defp behavior_name(:guidance), do: "Guidance"
+  defp behavior_name(:standing_assignment), do: "Rule"
+
+  defp behavior_link(:standing_assignment, ref), do: {"Open rules", "/rules#behavior-" <> ref}
+  defp behavior_link(_kind, ref), do: {"Open instructions", "/instructions#behavior-" <> ref}
+
+  defp automation_link("schedule:" <> _rest = ref),
+    do: {"Open schedule", "/schedules/" <> URI.encode(ref, &URI.char_unreserved?/1)}
+
+  defp automation_link("behavior:" <> _rest = ref), do: {"Open rules", "/rules#behavior-" <> ref}
+  defp automation_link(_ref), do: {nil, nil}
+
+  defp outcome_line(tone, word, text, link, href),
+    do: %{href: href, link: link, text: text, tone: tone, word: word}
+
+  # The Facts page names each row by its reference with every character outside
+  # letters, digits, "_" and "-" replaced.
+  defp fact_id(ref), do: "fact-" <> String.replace(ref, ~r/[^A-Za-z0-9_-]/, "-")
+
+  defp lowercase_first(<<first::utf8, rest::binary>>),
+    do: String.downcase(<<first::utf8>>) <> rest
+
+  defp lowercase_first(text), do: text
+
+  defp may_do("read_only", _repository), do: "Read-only"
+
+  defp may_do("repository_write", repository) when is_binary(repository),
+    do: "Can change code in " <> repository
+
+  defp may_do("governed_operation", _repository), do: "Can run approved operations"
+  defp may_do(_authority, _repository), do: nil
+
+  # A time automation's change names the cadence it leaves the schedule on, in
+  # the same words as the schedule itself.
+  defp changed_cadence(%{"automation_kind" => "time", "after" => %{"trigger" => trigger}}) do
+    case ScheduleRecurrence.from_trigger(trigger) do
+      {:ok, recurrence} -> ScheduleCadence.describe(recurrence, trigger["timezone"])
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp changed_cadence(_payload), do: nil
+
+  defp reply_prompt(:open, []), do: "Reply below."
+  defp reply_prompt(:open, _choices), do: "Reply below or choose an answer."
+  defp reply_prompt(_status, _choices), do: nil
+
+  # A citation names its source by the reference a tool issued, which nobody can
+  # open or read; only a source written as a name says something here. The
+  # timeline keeps the reference.
+  defp source_name(%{"source_name" => name, "source_id" => name}), do: nil
+  defp source_name(%{"source_name" => name}), do: name
+  defp source_name(_payload), do: nil
+
+  defp listens_to(%{"source_kind" => "github"}), do: "GitHub events"
+  defp listens_to(%{"source_kind" => "slack"}), do: "Slack messages here"
+  defp listens_to(%{"source_kind" => "webhook"}), do: "Webhook events"
+  defp listens_to(%{"source_kind" => kind}) when is_binary(kind), do: humanize(kind) <> " events"
+  defp listens_to(%{"source_filter" => "human"}), do: "Messages from people"
+  defp listens_to(%{"source_filter" => "app"}), do: "Messages from apps"
+  defp listens_to(%{"source_filter" => "any"}), do: "Every message"
+  defp listens_to(_payload), do: nil
+
+  defp stamp(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, at, _offset} -> Calendar.strftime(at, "%-d %b %Y, %H:%M UTC")
+      _invalid -> nil
+    end
+  end
+
+  defp stamp(_value), do: nil
 
   # An empty evidence list is honest for qualitative review work, so it stays absent
   # rather than rendering a row with nothing in it.
@@ -565,17 +728,29 @@ defmodule Ryker.ControlPlane.Card do
   defp optional_detail(details, _label, nil), do: details
   defp optional_detail(details, label, value), do: details ++ [{label, to_string(value)}]
 
-  defp optional_distinct_detail(details, _label, nil, _existing), do: details
-  defp optional_distinct_detail(details, _label, value, value), do: details
+  # Who a saved memory, preference or guidance applies to, in words.
+  defp applies_to("operator", _repository), do: "Just you"
+  defp applies_to("conversation", _repository), do: "This conversation"
 
-  defp optional_distinct_detail(details, label, value, _existing),
-    do: optional_detail(details, label, value)
+  defp applies_to("repository", repository) when is_binary(repository),
+    do: "Work in " <> repository
 
-  defp scope_label("conversation"), do: "This conversation"
-  defp scope_label("repository"), do: "This repository"
-  defp scope_label("workspace"), do: "Workspace"
-  defp scope_label(nil), do: nil
-  defp scope_label(value), do: humanize(value)
+  defp applies_to("workspace", _repository), do: "Everyone in this workspace"
+  defp applies_to(_scope, _repository), do: nil
+
+  # Who may see it, only where that differs from who it applies to.
+  defp shown_to(scope, visibility)
+       when {scope, visibility} in [
+              {"operator", "private"},
+              {"conversation", "conversation"},
+              {"workspace", "workspace"}
+            ],
+       do: nil
+
+  defp shown_to(_scope, "private"), do: "Only you"
+  defp shown_to(_scope, "conversation"), do: "This conversation only"
+  defp shown_to(_scope, "workspace"), do: "Everyone in this workspace"
+  defp shown_to(_scope, _visibility), do: nil
 
   defp duration_label(value) when is_binary(value) do
     case Regex.run(~r/^(\d+)([smhdw])$/, value) do
@@ -597,9 +772,6 @@ defmodule Ryker.ControlPlane.Card do
   defp duration_unit("d", _count), do: "days"
   defp duration_unit("w", "1"), do: "week"
   defp duration_unit("w", _count), do: "weeks"
-
-  defp humanize_optional(nil), do: nil
-  defp humanize_optional(value), do: humanize(value)
 
   defp humanize(value) when is_binary(value),
     do: value |> String.replace("_", " ") |> String.capitalize()

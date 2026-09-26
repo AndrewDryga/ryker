@@ -18,11 +18,11 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, ShortTime, SlackNames}
+  alias Ryker.State.ScheduleCadence
 
   @list_limit 100
   @runs_limit 200
   @changeable [:active, :paused]
-  @weekdays ~w(monday tuesday wednesday thursday friday saturday sunday)
 
   @doc "The one sentence under the page title."
   @spec description() :: String.t()
@@ -356,86 +356,14 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   defp failure_words(_code), do: "stopped before it finished"
 
-  @doc """
-  How often a schedule runs, in words and in its own time zone: "Every day
-  at 09:00 Berlin time", "Once on 25 Sep at 09:00 UTC", "Every 15 minutes".
-  """
-  @spec how_often(map()) :: String.t()
-  def how_often(%{recurrence: %{"kind" => "once", "at" => at}} = schedule) do
-    {local, zone} =
-      case Map.get(schedule, :once_local) do
-        %NaiveDateTime{} = local -> {local, zone(schedule.timezone)}
-        nil -> {utc_naive(at), "UTC"}
-      end
-
-    if local,
-      do: "Once on #{day(local, Map.get(schedule, :now_local))} at #{clock(local)} #{zone}",
-      else: "Once"
+  # How often, in the schedule's own zone, from the one wording every surface
+  # shares; the projection has already converted a single run to local time.
+  defp how_often(schedule) do
+    ScheduleCadence.describe(schedule.recurrence, schedule.timezone,
+      once_local: Map.get(schedule, :once_local),
+      now_local: Map.get(schedule, :now_local)
+    )
   end
-
-  def how_often(%{recurrence: %{"kind" => "interval", "every_seconds" => seconds}})
-      when is_integer(seconds) and seconds > 0,
-      do: "Every " <> period(seconds)
-
-  def how_often(%{recurrence: %{"kind" => "daily", "time" => time}} = schedule),
-    do: "Every day at #{clock_time(time)} #{zone(schedule.timezone)}"
-
-  def how_often(%{recurrence: %{"kind" => "weekly", "weekday" => day, "time" => time}} = schedule)
-      when day in @weekdays,
-      do: "Every #{String.capitalize(day)} at #{clock_time(time)} #{zone(schedule.timezone)}"
-
-  def how_often(%{recurrence: %{"kind" => "monthly", "day" => day, "time" => time}} = schedule)
-      when is_integer(day),
-      do: "Every month on the #{ordinal(day)} at #{clock_time(time)} #{zone(schedule.timezone)}"
-
-  def how_often(_schedule), do: "On a custom timing"
-
-  defp period(seconds) do
-    [{604_800, "week"}, {86_400, "day"}, {3_600, "hour"}, {60, "minute"}, {1, "second"}]
-    |> Enum.find(fn {unit, _name} -> rem(seconds, unit) == 0 end)
-    |> then(fn
-      {^seconds, name} -> name
-      {unit, name} -> "#{div(seconds, unit)} #{name}s"
-    end)
-  end
-
-  defp ordinal(day) when day in [11, 12, 13], do: "#{day}th"
-
-  defp ordinal(day) do
-    case rem(day, 10) do
-      1 -> "#{day}st"
-      2 -> "#{day}nd"
-      3 -> "#{day}rd"
-      _ -> "#{day}th"
-    end
-  end
-
-  # A saved "09:00:00" reads as 09:00; a time saved with seconds keeps them.
-  defp clock_time(value) when is_binary(value) do
-    case String.split(value, ":") do
-      [hour, minute] -> hour <> ":" <> minute
-      [hour, minute, "00"] -> hour <> ":" <> minute
-      _other -> value
-    end
-  end
-
-  defp clock_time(value), do: to_string(value)
-
-  # The zone the way people say it: "Berlin time", "New York time", "UTC".
-  defp zone(name) when name in ~w(UTC Etc/UTC Etc/UCT UCT Universal Etc/Universal Zulu Etc/Zulu),
-    do: "UTC"
-
-  defp zone(name) when name in ~w(GMT GMT0 Etc/GMT Etc/GMT0 Greenwich Etc/Greenwich), do: "UTC"
-
-  defp zone(name) when is_binary(name) do
-    place = name |> String.split("/") |> List.last()
-
-    if Regex.match?(~r/\A(GMT|UTC)[+-]\d{1,2}\z|\A[A-Z0-9+-]{2,8}\z/, place),
-      do: place,
-      else: String.replace(place, "_", " ") <> " time"
-  end
-
-  defp zone(_name), do: "UTC"
 
   defp destination(%{destination_transport: "slack"} = schedule) do
     name = SlackNames.destination(schedule.destination_conversation_ref)
@@ -540,15 +468,6 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   defp exact(%DateTime{} = utc), do: ShortTime.full(utc)
   defp exact(_value), do: nil
-
-  defp utc_naive(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, utc, _offset} -> DateTime.to_naive(utc)
-      _invalid -> nil
-    end
-  end
-
-  defp utc_naive(_value), do: nil
 
   defp elapsed(seconds) when seconds < 60, do: "#{max(seconds, 1)} s"
   defp elapsed(seconds) when seconds < 3_600, do: "#{div(seconds, 60)} min"

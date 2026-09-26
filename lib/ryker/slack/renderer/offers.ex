@@ -8,6 +8,8 @@ defmodule Ryker.Slack.Renderer.Offers do
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
 
+  alias Ryker.State.ScheduleCadence
+
   # A task brief shows this many checks and limits, each cut to this length,
   # and counts the rest.
   @brief_items 4
@@ -199,13 +201,15 @@ defmodule Ryker.Slack.Renderer.Offers do
       end
 
     expiry = payload["expires_at"] || "no expiry"
+    # The recurrence the confirmation saves, in the words every surface uses,
+    # never the title or task the model wrote over it.
+    cadence = ScheduleCadence.describe(payload["recurrence"], payload["timezone"])
 
     summary =
       [
         "*#{escape(payload["title"])}*",
         escape(payload["task"]),
-        "When: `#{escape(schedule_description(payload["recurrence"]))}`",
-        "Timezone: `#{escape(payload["timezone"])}`",
+        "When: #{escape(cadence)}",
         "Scope: `#{escape(scope)}` · Expires: `#{escape(expiry)}`",
         "_This is only an offer; no schedule exists yet._"
       ]
@@ -267,23 +271,6 @@ defmodule Ryker.Slack.Renderer.Offers do
 
   defp automation_change_style(action) when action in ~w(pause delete), do: "danger"
   defp automation_change_style(_action), do: "primary"
-
-  defp schedule_description(%{"kind" => "once", "at" => at}), do: "once at #{at}"
-
-  defp schedule_description(%{
-         "kind" => "interval",
-         "every_seconds" => seconds,
-         "starts_at" => starts_at
-       }),
-       do: "every #{seconds}s" <> if(starts_at, do: " from #{starts_at}", else: "")
-
-  defp schedule_description(%{"kind" => "daily", "time" => time}), do: "daily at #{time}"
-
-  defp schedule_description(%{"kind" => "weekly", "weekday" => weekday, "time" => time}),
-    do: "every #{weekday} at #{time}"
-
-  defp schedule_description(%{"kind" => "monthly", "day" => day, "time" => time}),
-    do: "monthly on day #{day} at #{time}"
 
   @spec slack_post_offer(String.t(), map(), String.t()) :: [map()]
   def slack_post_offer(ref, payload, "open") do

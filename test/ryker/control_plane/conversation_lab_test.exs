@@ -1162,6 +1162,26 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert preferred.behavior.confirmed_by_actor_ref == ConversationLab.operator_actor_ref()
     assert preferred.behavior.payload["value"] == "detailed"
 
+    # QA, 2026-09-25: after "Schedule this" or "Remember this" the button went
+    # away and nothing in the conversation said it had worked. Each confirmed
+    # card now says what was saved, from the row its confirmation wrote.
+    assert {:ok, saved_conversation} = Projection.lab_conversation(@conversation_id)
+    saved_ryker = Enum.find(saved_conversation.messages, &(&1.actor == :ryker))
+    assert [_task, memory_saved, schedule_saved, preference_saved] = saved_ryker.cards
+
+    assert %{tone: :on, word: "Saved to memory", link: "Open facts"} = memory_saved.outcome
+
+    assert schedule_saved.outcome == %{
+             href: "/schedules/" <> URI.encode(scheduled.schedule.ref, &URI.char_unreserved?/1),
+             link: "Open schedule",
+             text: "runs every day at 09:00 UTC",
+             tone: :on,
+             word: "Scheduled"
+           }
+
+    assert %{tone: :on, word: "Preference saved", link: "Open instructions"} =
+             preference_saved.outcome
+
     assert {:ok, duplicate} =
              actions.act_on_lab_record.(
                @conversation_id,

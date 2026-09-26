@@ -28,6 +28,20 @@ defmodule Ryker.ControlPlane.HTML do
     ]
   end
 
+  @doc false
+  # A record action that did not go through: what happened, in words, and the
+  # way back to the conversation it came from.
+  @spec lab_record_failure(String.t(), String.t()) :: iodata()
+  def lab_record_failure(explanation, back_path) do
+    [
+      "<section class=\"document-unavailable\"><p>",
+      escape(explanation),
+      "</p><a class=\"ui-button secondary\" href=\"",
+      escape(back_path),
+      "\">Back to the conversation</a></section>"
+    ]
+  end
+
   def lab_task_record(snapshot, back_path) do
     navigation =
       Enum.map(snapshot.navigation, fn item ->
@@ -433,6 +447,7 @@ defmodule Ryker.ControlPlane.HTML do
         else: ""
       ),
       if(details == [], do: "", else: ["<dl class=\"lab-card-details\">", details, "</dl>"]),
+      lab_card_outcome(Map.get(card, :outcome)),
       if(choices == [], do: "", else: ["<div class=\"choice-list\">", choices, "</div>"]),
       if(controls == [],
         do: "",
@@ -449,6 +464,26 @@ defmodule Ryker.ControlPlane.HTML do
       "</section>"
     ]
   end
+
+  # One line saying what a confirmed offer did, as the Kit says a state: a dot
+  # and a word, then how often it runs and the way to it where there is one.
+  defp lab_card_outcome(%{tone: tone, word: word} = outcome) do
+    [
+      "<p class=\"lab-card-outcome\"><span class=\"state-word\" data-tone=\"",
+      escape(tone),
+      "\">",
+      escape(word),
+      "</span>",
+      if(outcome.text, do: [" · ", escape(outcome.text)], else: ""),
+      if(outcome.href,
+        do: [" · <a href=\"", escape(outcome.href), "\">", escape(outcome.link), "</a>"],
+        else: ""
+      ),
+      "</p>"
+    ]
+  end
+
+  defp lab_card_outcome(nil), do: ""
 
   defp lab_card_control(control) do
     if Map.get(control, :method, :post) == :get do

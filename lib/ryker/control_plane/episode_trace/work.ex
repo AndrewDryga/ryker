@@ -397,8 +397,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       {"Record", record.ref, identifier: true},
       {"Operation", record.operation_id, identifier: true}
     ] ++
+      cited_source(record) ++
       Map.get(card, :details, [])
   end
+
+  # A citation names its source by the reference a tool issued. The Chat card
+  # leaves that out, since nobody can read or open it there; tracing it is what
+  # the timeline is for.
+  defp cited_source(%Record{kind: "evidence", payload: %{"source_id" => source}})
+       when is_binary(source),
+       do: [{"Source reference", source, identifier: true}]
+
+  defp cited_source(_record), do: []
 
   defp coop_band(kind) when kind in ["turn", "candidate", "validation"], do: :work
   defp coop_band(_kind), do: :ready

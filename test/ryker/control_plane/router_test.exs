@@ -606,6 +606,52 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert unavailable_record.status == 409
   end
 
+  # QA, 2026-09-25: a confirmation that did not go through answered with a
+  # bare "Record action is no longer available" page. It says, in words, that
+  # nothing was scheduled or saved, why, and the way back to the conversation.
+  test "a confirmation that does not go through says what happened in words" do
+    conversation_id = Ecto.UUID.generate()
+
+    for {record_ref, action_name, action, reason, title, words} <- [
+          {"record:schedule_offer:late", "confirm-schedule", :confirm_schedule,
+           :schedule_not_future, "Couldn't schedule this", "would stop before its first run"},
+          {"record:memory_offer:stale", "confirm-memory", :confirm_memory, :memory_offer_stale,
+           "Couldn't save this to memory", "no longer current"},
+          {"record:schedule_offer:broken", "confirm-schedule", :confirm_schedule,
+           {:schedule_persistence_failed, []}, "Couldn't schedule this", "Try again"}
+        ] do
+      resource = "#{conversation_id}:#{record_ref}:#{action}:none"
+      token = CSRF.token(@secret, "conversation_lab:record", resource)
+
+      options =
+        put_in(options(), [:actions, :act_on_lab_record], fn _id, _ref, _action, _choice ->
+          {:error, reason}
+        end)
+
+      response =
+        request_with_options(
+          :post,
+          "/conversations/#{conversation_id}/records/#{record_ref}/#{action_name}",
+          URI.encode_query(%{"_token" => token}),
+          options
+        )
+
+      assert response.status == 409
+      page = LazyHTML.from_document(response.resp_body)
+      text = LazyHTML.text(page)
+      assert text =~ title
+      assert text =~ "Nothing changed. "
+      assert text =~ words
+
+      assert LazyHTML.query(page, ".document-unavailable a") |> LazyHTML.attribute("href") == [
+               "/conversations/#{conversation_id}"
+             ]
+
+      refute text =~ "Record action is no longer available"
+      refute text =~ inspect(reason)
+    end
+  end
+
   test "the superseded task readiness action has no route or handler" do
     conversation_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
     record_ref = "record:task_offer:confirmed"

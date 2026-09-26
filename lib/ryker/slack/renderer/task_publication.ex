@@ -8,6 +8,8 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   import Ryker.Slack.Renderer.Fields
 
   @publication_controls ~w(publish open check retry update discard)
+  # Why Ryker ended a publication itself; a person's discard has none.
+  @discarded_reasons [nil, "review_session_closed"]
 
   @spec validate(map() | nil) :: :ok | {:error, term()}
   def validate(nil), do: :ok
@@ -16,6 +18,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
         %{
           "branch" => branch,
           "controls" => controls,
+          "discarded_reason" => discarded_reason,
           "publication_ref" => publication_ref,
           "pull_request_number" => number,
           "pull_request_url" => url,
@@ -24,7 +27,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
           "unverified" => unverified
         } = publication
       )
-      when map_size(publication) == 8 do
+      when map_size(publication) == 9 and discarded_reason in @discarded_reasons do
     with :ok <- bounded_text(status, 120),
          :ok <- optional_bounded_text(branch, 512),
          :ok <- publication_controls(controls),
@@ -51,6 +54,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   def blocks(task_ref, repository, %{
         "branch" => branch,
         "controls" => controls,
+        "discarded_reason" => discarded_reason,
         "publication_ref" => publication_ref,
         "pull_request_number" => number,
         "pull_request_url" => url,
@@ -63,10 +67,12 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
         do: " · #{link(url, "Open draft PR ##{number}")}",
         else: ""
 
-    summary =
-      section(
-        "#{publication_status_message(status, controls, unverified)}#{detail}#{publication_branch_line(status, branch)}"
-      )
+    message =
+      if status == "discarded",
+        do: discarded_message(discarded_reason),
+        else: publication_status_message(status, controls, unverified)
+
+    summary = section("#{message}#{detail}#{publication_branch_line(status, branch)}")
 
     buttons =
       Enum.map(controls, fn
@@ -158,9 +164,6 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   defp publication_status_message("published_ready", _controls, _unverified),
     do: "Draft PR created. Sending the publication update."
 
-  defp publication_status_message("discarded", _controls, _unverified),
-    do: "PR preparation stopped. The review history is saved."
-
   defp publication_status_message(status, controls, _unverified) do
     cond do
       "retry" in controls -> "PR preparation stopped after an error. Retry the saved step below."
@@ -168,6 +171,16 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
       true -> "Checking the changes before creating a PR."
     end
   end
+
+  # A closed worker session can never be reviewed, so Ryker ends that request
+  # itself; the task's next finished run is checked afresh.
+  defp discarded_message("review_session_closed"),
+    do:
+      "I stopped preparing the PR: the worker session holding these changes closed before they could be checked, so no PR was made from them. When the task runs again, its new changes are checked then."
+
+  defp discarded_message(nil),
+    do:
+      "Someone discarded these changes, so I stopped preparing their PR. The review history is saved."
 
   defp publish_confirmation(repository, nil),
     do:

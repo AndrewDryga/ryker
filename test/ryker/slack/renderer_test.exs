@@ -803,6 +803,7 @@ defmodule Ryker.Slack.RendererTest do
       publication_task_card(%{
         "branch" => "refs/heads/ryker/publication-42",
         "controls" => ["update", "discard"],
+        "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
         "pull_request_url" => nil,
@@ -819,6 +820,43 @@ defmodule Ryker.Slack.RendererTest do
     refute Jason.encode!(reviewed_rendered) =~ "refs/heads/ryker/publication-42"
   end
 
+  # Since 2026-09-25 Ryker ends a publication whose worker session closed,
+  # because that review can never run, and records why. The card said only "PR
+  # preparation stopped" for that and for a person's discard alike, so a reader
+  # could not tell a closed session from somebody's decision.
+  test "a discarded publication says why in words" do
+    publication = %{
+      "branch" => nil,
+      "controls" => [],
+      "discarded_reason" => "review_session_closed",
+      "publication_ref" => "publication:def456",
+      "pull_request_number" => nil,
+      "pull_request_url" => nil,
+      "recovery_generation" => 2,
+      "status" => "discarded",
+      "unverified" => nil
+    }
+
+    assert {:ok, closed} = Renderer.render(%{"task_card" => publication_task_card(publication)})
+    closed = Jason.encode!(closed)
+
+    assert closed =~
+             "the worker session holding these changes closed before they could be checked"
+
+    assert closed =~ "When the task runs again, its new changes are checked then."
+
+    discarded = %{publication | "discarded_reason" => nil}
+    assert {:ok, person} = Renderer.render(%{"task_card" => publication_task_card(discarded)})
+    person = Jason.encode!(person)
+    assert person =~ "Someone discarded these changes, so I stopped preparing their PR."
+    refute person =~ "worker session"
+
+    unknown = %{publication | "discarded_reason" => "review_ran_out_of_time"}
+
+    assert Renderer.render(%{"task_card" => publication_task_card(unknown)}) ==
+             {:error, {:invalid_slack_render, :task_card}}
+  end
+
   test "renders only publication actions valid for the durable task state" do
     task = %{
       "action_needed" => nil,
@@ -829,6 +867,7 @@ defmodule Ryker.Slack.RendererTest do
       "publication" => %{
         "branch" => "refs/heads/ryker/card",
         "controls" => ["open", "check"],
+        "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
         "pull_request_url" => "https://github.com/acme/ryker/pull/91",
@@ -872,6 +911,7 @@ defmodule Ryker.Slack.RendererTest do
       put_in(task, ["publication"], %{
         "branch" => "refs/heads/ryker/card",
         "controls" => ["publish"],
+        "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
         "pull_request_url" => nil,
@@ -890,6 +930,7 @@ defmodule Ryker.Slack.RendererTest do
       put_in(task, ["publication"], %{
         "branch" => "refs/heads/ryker/card",
         "controls" => ["update", "discard"],
+        "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
         "pull_request_url" => nil,
@@ -916,6 +957,7 @@ defmodule Ryker.Slack.RendererTest do
       put_in(task, ["publication"], %{
         "branch" => "refs/heads/ryker/card",
         "controls" => ["open", "check", "update", "discard"],
+        "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
         "pull_request_url" => "https://github.com/acme/ryker/pull/91",
@@ -951,6 +993,7 @@ defmodule Ryker.Slack.RendererTest do
       "publication" => %{
         "branch" => "refs/heads/ryker/card",
         "controls" => ["open", "check"],
+        "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
         "pull_request_url" => "https://github.com/acme/ryker/pull/91",
@@ -1705,14 +1748,45 @@ defmodule Ryker.Slack.RendererTest do
 
     [_, summary, actions] = rendered["blocks"]
     assert summary["text"]["text"] =~ "Weekly service health"
-    assert summary["text"]["text"] =~ "every monday at 09:00:00"
-    assert summary["text"]["text"] =~ "America/New_York"
+    assert summary["text"]["text"] =~ "When: Every Monday at 09:00 New York time"
     assert summary["text"]["text"] =~ "only an offer"
 
     assert [%{"action_id" => "ryker_confirm_schedule"} = button] = actions["elements"]
     assert button["value"] == "record:schedule_offer:abc123"
     assert button["confirm"]["text"]["text"] =~ "current policy"
     refute inspect(rendered) =~ "event_matcher"
+  end
+
+  # QA, 2026-09-25, Chat 878b84df: the offer's task said "Every weekday at
+  # 09:00 UTC" over a Monday-only schedule, and confirming it created Mondays.
+  # The Slack offer's cadence is the recurrence in the words every surface uses.
+  test "a Slack schedule offer says how often from its recurrence, whatever its title claims" do
+    offer = %{
+      "kind" => "schedule_offer",
+      "payload" => %{
+        "authority" => "read_only",
+        "expires_at" => nil,
+        "recurrence" => %{"kind" => "weekly", "time" => "09:00:00", "weekday" => "monday"},
+        "repository" => nil,
+        "task" => "Every weekday at 09:00 UTC, post a one-line status of open incidents here.",
+        "timezone" => "Etc/UTC",
+        "title" => "Weekday open incident status"
+      },
+      "ref" => "record:schedule_offer:weekday",
+      "status" => "open"
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Prepared.", "records" => [offer]})
+    [_, summary, _actions] = rendered["blocks"]
+    assert summary["text"]["text"] =~ "When: Every Monday at 09:00 UTC"
+    refute summary["text"]["text"] =~ "Timezone"
+
+    weekdays =
+      put_in(offer, ["payload", "recurrence"], %{"kind" => "weekdays", "time" => "09:00:00"})
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Prepared.", "records" => [weekdays]})
+    [_, summary, _actions] = rendered["blocks"]
+    assert summary["text"]["text"] =~ "When: Every weekday at 09:00 UTC"
   end
 
   test "a post that has landed says so and links to it" do
@@ -2121,6 +2195,7 @@ defmodule Ryker.Slack.RendererTest do
       publication_task_card(%{
         "branch" => "refs/heads/ryker/card",
         "controls" => ["publish", "update", "discard"],
+        "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
         "pull_request_url" => nil,
@@ -2168,6 +2243,7 @@ defmodule Ryker.Slack.RendererTest do
       publication_task_card(%{
         "branch" => "refs/heads/ryker/card",
         "controls" => ["publish", "update", "discard"],
+        "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
         "pull_request_url" => nil,
@@ -2196,6 +2272,7 @@ defmodule Ryker.Slack.RendererTest do
       publication_task_card(%{
         "branch" => "refs/heads/ryker/card",
         "controls" => [],
+        "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
         "pull_request_url" => nil,
@@ -2805,6 +2882,7 @@ defmodule Ryker.Slack.RendererTest do
       |> put_in(["publication"], %{
         "branch" => "refs/heads/ryker/card",
         "controls" => [],
+        "discarded_reason" => nil,
         "publication_ref" => "publication:review123",
         "pull_request_number" => nil,
         "pull_request_url" => nil,

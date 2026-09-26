@@ -2,7 +2,7 @@ defmodule Ryker.StateTools.AutomationTools do
   @moduledoc false
 
   alias Ryker.Repo
-  alias Ryker.State.Automations
+  alias Ryker.State.{Automations, ScheduleRecurrence}
   alias Ryker.StateTools.RecordWriter
 
   @spec list_automations(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -84,9 +84,8 @@ defmodule Ryker.StateTools.AutomationTools do
   end
 
   defp automation_record(binding, %{"action" => "create"} = proposal, index) do
-    with :ok <- automation_capability("time", binding) do
-      recurrence = automation_recurrence(proposal["trigger"])
-
+    with :ok <- automation_capability("time", binding),
+         {:ok, recurrence} <- ScheduleRecurrence.from_trigger(proposal["trigger"]) do
       payload = %{
         "authority" => if(proposal["repository"], do: "repository_write", else: "read_only"),
         "expires_at" => proposal["expires_at"],
@@ -175,41 +174,4 @@ defmodule Ryker.StateTools.AutomationTools do
   defp query_matches?(automation, query) do
     String.contains?(String.downcase(automation["title"]), String.downcase(query))
   end
-
-  defp automation_recurrence(%{"type" => "time", "recurrence" => "once", "at" => at}),
-    do: %{"at" => at, "kind" => "once"}
-
-  defp automation_recurrence(%{"type" => "time", "recurrence" => "daily", "time" => time}),
-    do: %{"kind" => "daily", "time" => time}
-
-  defp automation_recurrence(%{
-         "type" => "time",
-         "recurrence" => "weekly",
-         "time" => time,
-         "weekday" => weekday
-       }),
-       do: %{"kind" => "weekly", "time" => time, "weekday" => weekday}
-
-  defp automation_recurrence(%{
-         "type" => "time",
-         "recurrence" => "monthly",
-         "day" => day,
-         "time" => time
-       }),
-       do: %{"day" => day, "kind" => "monthly", "time" => time}
-
-  defp automation_recurrence(
-         %{
-           "type" => "time",
-           "recurrence" => "interval",
-           "every_seconds" => every_seconds
-         } = trigger
-       ),
-       do: %{
-         "every_seconds" => every_seconds,
-         "kind" => "interval",
-         "starts_at" => trigger["starts_at"]
-       }
-
-  defp automation_recurrence(trigger), do: %{"kind" => "source_event", "trigger" => trigger}
 end

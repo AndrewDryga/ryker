@@ -13,6 +13,56 @@ defmodule Ryker.State.ScheduleRecurrence do
     "sunday" => 7
   }
 
+  # The fields each recurrence reads from a time trigger, beside the type,
+  # recurrence and timezone every time trigger carries.
+  @trigger_fields %{
+    "once" => ~w(at),
+    "interval" => ~w(every_seconds starts_at),
+    "daily" => ~w(time),
+    "weekdays" => ~w(time),
+    "weekly" => ~w(time weekday),
+    "monthly" => ~w(day time)
+  }
+  @trigger_frame ~w(recurrence timezone type)
+
+  @doc "The recurrences a time trigger may name."
+  @spec kinds() :: [String.t()]
+  def kinds, do: ~w(once interval daily weekdays weekly monthly)
+
+  @doc """
+  The recurrence a time trigger describes, before its values are checked.
+
+  A trigger names one recurrence and only the fields it reads. Anything more is
+  refused rather than dropped: a weekly trigger that also carried a list of
+  days used to become a schedule for its one weekday, which is how a request
+  for every weekday was offered, and confirmed, as Mondays only.
+  """
+  @spec from_trigger(term()) :: {:ok, map()} | {:error, :invalid_schedule_trigger}
+  def from_trigger(%{"type" => "time", "recurrence" => kind} = trigger)
+      when is_map_key(@trigger_fields, kind) do
+    fields = Map.fetch!(@trigger_fields, kind)
+
+    stray =
+      trigger
+      |> Map.drop(@trigger_frame ++ fields)
+      |> Enum.reject(fn {_field, value} -> absent?(value) end)
+
+    if stray == [] and single_weekday?(kind, trigger),
+      do: {:ok, trigger |> Map.take(fields) |> Map.put("kind", kind) |> fill(kind)},
+      else: {:error, :invalid_schedule_trigger}
+  end
+
+  def from_trigger(_trigger), do: {:error, :invalid_schedule_trigger}
+
+  defp absent?(value), do: value in [nil, %{}]
+
+  defp single_weekday?("weekly", %{"weekday" => weekday}), do: is_map_key(@weekdays, weekday)
+  defp single_weekday?("weekly", _trigger), do: false
+  defp single_weekday?(_kind, _trigger), do: true
+
+  defp fill(recurrence, "interval"), do: Map.put_new(recurrence, "starts_at", nil)
+  defp fill(recurrence, _kind), do: recurrence
+
   @spec prepare_shape(map()) :: {:ok, map()} | {:error, term()}
   def prepare_shape(%{"at" => at, "kind" => "once"} = recurrence)
       when map_size(recurrence) == 2 do
@@ -41,6 +91,13 @@ defmodule Ryker.State.ScheduleRecurrence do
       when map_size(recurrence) == 2 do
     with {:ok, time} <- time(time) do
       {:ok, %{"kind" => "daily", "time" => Time.to_iso8601(time)}}
+    end
+  end
+
+  def prepare_shape(%{"kind" => "weekdays", "time" => time} = recurrence)
+      when map_size(recurrence) == 2 do
+    with {:ok, time} <- time(time) do
+      {:ok, %{"kind" => "weekdays", "time" => Time.to_iso8601(time)}}
     end
   end
 
@@ -103,7 +160,7 @@ defmodule Ryker.State.ScheduleRecurrence do
   end
 
   def next_after(%{"kind" => kind} = recurrence, timezone, after_datetime)
-      when kind in ["daily", "weekly", "monthly"] do
+      when kind in ["daily", "weekdays", "weekly", "monthly"] do
     with :ok <- timezone(timezone),
          {:ok, local_after} <- local_datetime(after_datetime, timezone) do
       local_candidate(recurrence, local_after, timezone, 0)
@@ -128,6 +185,31 @@ defmodule Ryker.State.ScheduleRecurrence do
       attempts,
       &local_candidate(%{"kind" => "daily", "time" => Time.to_iso8601(time)}, &1, timezone, &2)
     )
+  end
+
+  # Monday to Friday by the schedule's own calendar: the date is local, so a
+  # zone ahead of UTC runs its Monday while UTC is still on Sunday.
+  defp local_candidate(
+         %{"kind" => "weekdays", "time" => time} = recurrence,
+         local_after,
+         timezone,
+         attempts
+       ) do
+    {:ok, clock} = time(time)
+    date = NaiveDateTime.to_date(local_after) |> Date.add(attempts)
+
+    if Date.day_of_week(date) in 6..7 do
+      local_candidate(recurrence, local_after, timezone, attempts + 1)
+    else
+      choose_local(
+        date,
+        clock,
+        local_after,
+        timezone,
+        attempts,
+        &local_candidate(recurrence, &1, timezone, &2)
+      )
+    end
   end
 
   defp local_candidate(
