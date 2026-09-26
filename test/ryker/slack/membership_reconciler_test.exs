@@ -63,6 +63,13 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
     def reconcile_absent(_workspace_ref, _channels, _snapshot_started_at), do: {:ok, 0}
   end
 
+  defmodule UnavailableConfigurations do
+    def reconcile_joined(_workspace_ref, _channels, _catalog),
+      do: raise(DBConnection.ConnectionError, "connection not available")
+
+    def reconcile_absent(_workspace_ref, _channels, _snapshot_started_at), do: {:ok, 0}
+  end
+
   setup do
     ChannelEnvironments.environment!("infrastructure")
     :ok
@@ -183,6 +190,42 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
         ] do
       assert_raise ArgumentError, fn -> MembershipReconciler.options!(invalid) end
     end
+  end
+
+  # The reconciler was the one poller the database backoff never covered. A pool
+  # outage crashed it, its restart swept again at once and crashed again, and a
+  # few of those spend the Slack supervisor's restart budget: the same cascade
+  # that once stopped seventeen pollers in 328 ms and took Ryker down with them.
+  test "membership reconciliation outlives a database outage" do
+    agent =
+      start_supervised!({Agent, fn -> %{channels: [], deliveries: %{}, posts: 0} end})
+
+    options =
+      agent
+      |> options()
+      |> Map.merge(%{configurations: UnavailableConfigurations, interval_ms: 30_000})
+
+    log =
+      capture_log(fn ->
+        worker =
+          start_supervised!(
+            Supervisor.child_spec({MembershipReconciler, options}, restart: :temporary)
+          )
+
+        # The first sweep is queued when the process starts, ahead of this
+        # read, so the read answers only after that sweep has run.
+        survived? =
+          try do
+            _state = :sys.get_state(worker)
+            true
+          catch
+            :exit, _reason -> false
+          end
+
+        assert survived?, "a database outage crashed the membership reconciler"
+      end)
+
+    assert log =~ "database polling unavailable; retrying after backoff (slack_membership"
   end
 
   test "already configured channels are counted without another setup prompt" do
