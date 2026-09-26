@@ -14,6 +14,7 @@ defmodule Ryker.StateTools.Router do
   require Logger
 
   alias Ryker.CanonicalJSON
+  alias Ryker.HTTPConnection
   alias Ryker.StateTools.{CallLog, LookupContext, Tools, ToolVisibility}
 
   @maximum_body_bytes 1_048_576
@@ -58,12 +59,19 @@ defmodule Ryker.StateTools.Router do
   end
 
   @impl Plug
-  def call(%Plug.Conn{method: "POST", path_info: ["mcp"]} = conn, options) do
+  def call(conn, options),
+    do: conn |> HTTPConnection.close_after_refusal() |> route(options)
+
+  defp route(%Plug.Conn{method: "POST", path_info: ["mcp"]} = conn, options) do
     with :ok <- authorize(conn, options.token),
          :ok <- json_content_type(conn),
-         {:ok, body, conn} <- read_request_body(conn),
-         {:ok, request} <- decode_request(body) do
-      respond_rpc(conn, request, options)
+         {:ok, body, conn} <- read_request_body(conn) do
+      # A JSON-RPC error is a 200 that keeps the connection open, so it goes
+      # out through the conn that read the body (see Ryker.HTTPConnection).
+      case decode_request(body) do
+        {:ok, request} -> respond_rpc(conn, request, options)
+        {:error, :invalid_request} -> rpc_error(conn, nil, -32_600, "Invalid Request")
+      end
     else
       {:error, :unauthorized} ->
         respond(conn, 401, %{"error" => "unauthorized"})
@@ -74,12 +82,12 @@ defmodule Ryker.StateTools.Router do
       {:error, :too_large} ->
         respond(conn, 413, %{"error" => "payload_too_large"})
 
-      {:error, :invalid_request} ->
-        rpc_error(conn, nil, -32_600, "Invalid Request")
+      {:error, :unreadable_body} ->
+        respond(conn, 400, %{"error" => "unreadable_body"})
     end
   end
 
-  def call(conn, _options), do: respond(conn, 404, %{"error" => "not_found"})
+  defp route(conn, _options), do: respond(conn, 404, %{"error" => "not_found"})
 
   defp respond_rpc(
          conn,
@@ -276,7 +284,7 @@ defmodule Ryker.StateTools.Router do
     case Plug.Conn.read_body(conn, length: @maximum_body_bytes + 1, read_length: 64 * 1_024) do
       {:ok, body, conn} -> bounded_body(bytes <> body, conn)
       {:more, body, conn} -> continue_body(bytes <> body, conn)
-      {:error, _reason} -> {:error, :invalid_request}
+      {:error, _reason} -> {:error, :unreadable_body}
     end
   end
 

@@ -529,6 +529,87 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert response.resp_body == "Chat is not ready. The bundled worker is still starting."
   end
 
+  # Manual testing, 2026-09-26: Chat's own example asks Ryker to "Summarize the
+  # attached log", but a browser labels a .log file application/octet-stream,
+  # so every log was refused with a bare "Invalid message" and the composer
+  # could only say "check message and file limits".
+  test "a text file the browser cannot name is read as text, and an unreadable file is refused by name" do
+    id = Ecto.UUID.generate()
+    token = CSRF.token(@secret, "conversation_lab:send", id)
+    log = "12:00:01 ERROR checkout timed out after 30s\n"
+
+    read =
+      multipart_request(
+        "/conversations/#{id}/messages",
+        token,
+        "Summarize the attached log.",
+        "probe.log",
+        "application/octet-stream",
+        log
+      )
+
+    assert read.status == 303
+
+    assert_received {:lab_message, ^id, "Summarize the attached log.",
+                     [%{data: ^log, media_type: "text/plain", name: "probe.log"}]}
+
+    refused =
+      multipart_request(
+        "/conversations/#{id}/messages",
+        token,
+        "Read this core dump.",
+        "core.bin",
+        "application/octet-stream",
+        <<0, 159, 146, 150>>
+      )
+
+    assert refused.status == 422
+    assert refused.resp_body =~ "Ryker can't read core.bin."
+    refute_received {:lab_message, ^id, "Read this core dump.", _files}
+  end
+
+  # Manual testing, 2026-09-26: the Chat message sent after a refused upload
+  # failed with a bare 400 and a connection reset. The refusal went out
+  # through the conn from before the upload was read, so Bandit drained the
+  # "unread" upload a second time, from the next request's bytes. Every
+  # listener that reads a body answered its refusals the same way.
+  test "the message sent after a refused upload is read intact" do
+    id = Ecto.UUID.generate()
+    token = CSRF.token(@secret, "conversation_lab:send", id)
+
+    server =
+      start_supervised!(
+        {Bandit, plug: {Router, options()}, ip: :loopback, port: 0, startup_log: false}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+    {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+    core = :binary.copy(<<0, 159, 146, 150>>, 16_384)
+
+    assert {:ok, refusal} =
+             socket_upload(socket, id, token, "Read this core dump.", "core.bin", core)
+
+    assert refusal =~ "HTTP/1.1 422"
+
+    # A browser reuses the connection unless the server said it closes it.
+    socket =
+      if refusal =~ ~r/\r\nconnection: close/i do
+        :gen_tcp.close(socket)
+        {:ok, fresh} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+        fresh
+      else
+        socket
+      end
+
+    log = String.duplicate("12:00:01 ERROR checkout timed out after 30s\n", 1_500)
+
+    assert {:ok, accepted} =
+             socket_upload(socket, id, token, "Summarize the attached log.", "probe.log", log)
+
+    assert accepted =~ "HTTP/1.1 303"
+    assert_received {:lab_message, ^id, "Summarize the attached log.", [%{name: "probe.log"}]}
+  end
+
   test "new and malformed Lab routes fail closed without creating hidden authority" do
     empty_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83ff"
 
@@ -1898,6 +1979,54 @@ defmodule Ryker.ControlPlane.RouterTest do
     |> Map.put(:host, "localhost")
     |> Map.put(:remote_ip, {127, 0, 0, 1})
     |> Router.call(Router.init(options()))
+  end
+
+  defp socket_upload(socket, conversation_id, token, message, filename, data) do
+    boundary = "ryker-socket-boundary"
+
+    body =
+      IO.iodata_to_binary([
+        multipart_field(boundary, "_token", token),
+        multipart_field(boundary, "message", message),
+        "--#{boundary}\r\n",
+        "content-disposition: form-data; name=\"attachments[]\"; filename=\"#{filename}\"\r\n",
+        "content-type: application/octet-stream\r\n\r\n",
+        data,
+        "\r\n--#{boundary}--\r\n"
+      ])
+
+    head =
+      "POST /conversations/#{conversation_id}/messages HTTP/1.1\r\nhost: localhost\r\n" <>
+        "content-type: multipart/form-data; boundary=#{boundary}\r\n" <>
+        "content-length: #{byte_size(body)}\r\n\r\n"
+
+    # A browser writes a large body after its headers, so the server has read
+    # only the headers when the router starts reading the upload.
+    :ok = :gen_tcp.send(socket, head)
+    Process.sleep(50)
+    :ok = :gen_tcp.send(socket, body)
+    socket_response(socket, "")
+  end
+
+  defp socket_response(socket, received) do
+    with [head, body] <- :binary.split(received, "\r\n\r\n"),
+         length = socket_content_length(head),
+         true <- byte_size(body) >= length do
+      {:ok, head}
+    else
+      _incomplete ->
+        case :gen_tcp.recv(socket, 0, 5_000) do
+          {:ok, data} -> socket_response(socket, received <> data)
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  defp socket_content_length(head) do
+    case Regex.run(~r/\r\ncontent-length: (\d+)/i, head) do
+      [_line, length] -> String.to_integer(length)
+      nil -> 0
+    end
   end
 
   defp multipart_field(boundary, name, value) do

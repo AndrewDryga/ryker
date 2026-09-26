@@ -11,6 +11,7 @@ defmodule Ryker.GitHub.Router do
 
   alias Ryker.BundledCoop
   alias Ryker.GitHub.{Access, Auth, Binding, Confirmations, Engagement, Events}
+  alias Ryker.HTTPConnection
   alias Ryker.Ingress.{Adapters, InboundHTTP, Inbox}
   alias Ryker.Publication.Followups
 
@@ -69,10 +70,13 @@ defmodule Ryker.GitHub.Router do
   end
 
   @impl Plug
-  def call(%Plug.Conn{method: "POST", path_info: ["v1", "github"]} = conn, options),
+  def call(conn, options),
+    do: conn |> HTTPConnection.close_after_refusal() |> route(options)
+
+  defp route(%Plug.Conn{method: "POST", path_info: ["v1", "github"]} = conn, options),
     do: admit(conn, options)
 
-  def call(conn, _options), do: InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
+  defp route(conn, _options), do: InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
 
   defp admit(conn, options) do
     with :ok <- InboundHTTP.json_content_type(conn),

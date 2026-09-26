@@ -8,6 +8,7 @@ defmodule Ryker.Webhooks.Router do
 
   @behaviour Plug
 
+  alias Ryker.HTTPConnection
   alias Ryker.Ingress.{Adapters, InboundHTTP, Inbox}
   alias Ryker.Webhooks.{Auth, Headers, Route, Transforms}
 
@@ -26,14 +27,17 @@ defmodule Ryker.Webhooks.Router do
   end
 
   @impl Plug
-  def call(%Plug.Conn{method: "POST", path_info: ["v1", "hooks", route_name]} = conn, options) do
+  def call(conn, options),
+    do: conn |> HTTPConnection.close_after_refusal() |> route(options)
+
+  defp route(%Plug.Conn{method: "POST", path_info: ["v1", "hooks", route_name]} = conn, options) do
     case Map.fetch(options.routes, route_name) do
       {:ok, route} -> admit(conn, route, options.now.())
       :error -> InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
     end
   end
 
-  def call(conn, _options), do: InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
+  defp route(conn, _options), do: InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
 
   defp admit(conn, route, now) do
     with :ok <- InboundHTTP.json_content_type(conn),

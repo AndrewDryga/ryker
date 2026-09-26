@@ -2645,6 +2645,34 @@ defmodule Ryker.StateTools.RouterTest do
     end
   end
 
+  # Manual testing, 2026-09-26: the control plane answered refusals through
+  # the conn from before it read the body, and Bandit then drained that body
+  # a second time from the next request on the connection. A malformed call
+  # here is answered with a JSON-RPC error, a 200 that keeps the connection
+  # open, so the next tool call on it must still be read from its start.
+  test "the call after a malformed JSON-RPC request is read intact" do
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {Router, [token: "trusted-state-tools-token"]},
+         ip: :loopback,
+         port: 0,
+         startup_log: false}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+    {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+
+    assert {:ok, malformed} = socket_call(socket, "{" <> String.duplicate("\"x\": 1, ", 8_000))
+    assert malformed =~ "HTTP/1.1 200"
+    assert malformed =~ "Invalid Request"
+
+    ping = Jason.encode!(request("ping", %{"padding" => String.duplicate("x", 70_000)}))
+    assert {:ok, answered} = socket_call(socket, ping)
+    assert answered =~ "HTTP/1.1 200"
+    assert answered =~ ~s("result":{})
+  end
+
   test "handles the remaining MCP and HTTP protocol boundaries" do
     initialize = rpc("initialize", %{})
 
@@ -2745,6 +2773,34 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert get_in(Jason.decode!(response.resp_body), ["result", "structuredContent", "results"]) ==
              %{"messages" => []}
+  end
+
+  defp socket_call(socket, body) do
+    head =
+      "POST /mcp HTTP/1.1\r\nhost: localhost\r\n" <>
+        "authorization: Bearer trusted-state-tools-token\r\n" <>
+        "content-type: application/json\r\ncontent-length: #{byte_size(body)}\r\n\r\n"
+
+    # A client writes a large body after its headers, so the server has read
+    # only the headers when the router starts reading the call.
+    :ok = :gen_tcp.send(socket, head)
+    Process.sleep(50)
+    :ok = :gen_tcp.send(socket, body)
+    socket_response(socket, "")
+  end
+
+  defp socket_response(socket, received) do
+    with [head, body] <- :binary.split(received, "\r\n\r\n"),
+         [_line, length] <- Regex.run(~r/\r\ncontent-length: (\d+)/i, head),
+         true <- byte_size(body) >= String.to_integer(length) do
+      {:ok, received}
+    else
+      _incomplete ->
+        case :gen_tcp.recv(socket, 0, 5_000) do
+          {:ok, data} -> socket_response(socket, received <> data)
+          {:error, _reason} = error -> error
+        end
+    end
   end
 
   defp rpc(method, params, options \\ @options) do

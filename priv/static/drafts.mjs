@@ -34,10 +34,19 @@ export const sendDraft = async (url, body, fetcher = fetch) => {
     headers: {Accept: "application/json"}
   })
   if (response.status === 503) throw new Error("unavailable:chat")
-  if ([400, 403, 409, 413, 422].includes(response.status)) throw new Error(`rejected:${response.status}`)
+  if ([400, 403, 409, 413, 422].includes(response.status)) {
+    const error = new Error(`rejected:${response.status}`)
+    // A 422 names what the server refused, such as a file Ryker cannot read.
+    if (response.status === 422) error.reason = await refusalReason(response)
+    throw error
+  }
   if (response.status !== 202) throw new Error("not_accepted")
   const receipt = await response.json()
   if (receipt.accepted !== true) throw new Error("unconfirmed_receipt")
+}
+
+const refusalReason = async response => {
+  try { return (await response.text?.())?.trim().slice(0, 300) || "" } catch (_) { return "" }
 }
 
 export const validateDraft = (message, files) => {

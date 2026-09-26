@@ -106,6 +106,8 @@ export function createComposer({pushEvent, active, storage, location: loc}) {
         status,
         error.message === "unavailable:chat"
           ? "Chat is waiting for its worker. Your draft is preserved; try again when Chat shows ready."
+          : error.reason
+          ? `${error.reason} Your draft is preserved.`
           : error.message.startsWith("rejected:")
           ? "The server rejected this message. Your draft is preserved. Check message and file limits, or reload the conversation if its form has expired."
           : "Acceptance was not confirmed. Your draft is preserved. Check the conversation before sending again; no automatic retry was made.",
