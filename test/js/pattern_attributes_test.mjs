@@ -27,3 +27,18 @@ test("every pattern attribute the control plane renders compiles with the v flag
     assert.doesNotThrow(() => new RegExp(`^(?:${pattern})$`, "v"), `${file}: ${pattern}`)
   }
 })
+
+// Without a title a browser refuses a mistyped value with only "Please match
+// the requested format." (manual testing, 2026-09-26, on the Webhooks
+// credential name). The title is what the refusal adds to say which format.
+test("every pattern attribute comes with a title that names the format", () => {
+  const inputs = sources(root).flatMap(file =>
+    [...readFileSync(file, "utf8").matchAll(/<input\b[^>]*\bpattern="[^"]*"[^>]*>/g)].map(match => [file.pathname, match[0]])
+  )
+
+  assert.ok(inputs.length > 0, "the control plane renders at least one pattern-checked input")
+
+  for (const [file, input] of inputs) {
+    assert.match(input, /\btitle="[^"]{10,}"/, `${file}: ${input.replace(/\s+/g, " ")}`)
+  }
+})
