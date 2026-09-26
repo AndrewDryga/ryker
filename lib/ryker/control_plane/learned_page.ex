@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.LearnedPage do
   """
   use Phoenix.Component
 
-  import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1]
+  import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1, pager: 1]
 
   alias Phoenix.HTML.Safe
 
@@ -63,16 +63,19 @@ defmodule Ryker.ControlPlane.LearnedPage do
         icon={:book}
         name={item.title}
         href={ConversationMemory.topic_path(item.id)}
-        state={if item.available == false, do: {:warn, "Not used"}}
+        state={topic_state(item)}
         text={MemoryFormat.excerpt(item.text, item.workspace)}
         meta={topic_facts(item, :list)}
       >
-        <:details :if={item.available == false}>
+        <:details :if={item.available == false and is_nil(item[:forgotten_at])}>
           <p class="memory-note">
             {@unused}
             <a href={ConversationMemory.topic_path(item.id) <> "#relearn"}>Relearn it</a>
           </p>
         </:details>
+        <:actions :if={is_nil(item[:forgotten_at])}>
+          <.action_button path={forget_path(item.id)} label="Forget" />
+        </:actions>
       </Kit.entity_row>
     </Kit.entity_list>
     <.nothing view={@view} />
@@ -150,15 +153,22 @@ defmodule Ryker.ControlPlane.LearnedPage do
       <article class="memory-record" id={"topic-" <> @item.id}>
         <h2 class="memory-record-title">
           <span>{@item.title}</span>
-          <Kit.state :if={@item.available == false} tone={:warn} word="Not used" />
+          <Kit.state
+            :if={topic_state(@item)}
+            tone={elem(topic_state(@item), 0)}
+            word={elem(topic_state(@item), 1)}
+          />
         </h2>
         <div class="memory-record-text markdown-preview">
           {MemoryFormat.markdown(@item.text, @item.workspace)}
         </div>
         <MemoryFormat.facts facts={topic_facts(@item, :record)} />
-        <p :if={@item.available == false} class="memory-note">
+        <p :if={@item.available == false and is_nil(@item[:forgotten_at])} class="memory-note">
           {@unused} Relearn it below from the messages that still exist.
         </p>
+        <div :if={is_nil(@item[:forgotten_at])} class="memory-record-actions">
+          <.action_button path={forget_path(@item.id)} label="Forget" />
+        </div>
       </article>
       <RelearnPanel.render :if={@view.rebuild} preview={@view.rebuild} csrf_secret={@csrf_secret} />
       <section :if={@view.history != []} id="history" class="memory-section">
@@ -201,6 +211,13 @@ defmodule Ryker.ControlPlane.LearnedPage do
     <% end %>
     """
   end
+
+  # A forgotten topic says so; one whose messages changed says it is not used.
+  defp topic_state(%{forgotten_at: %DateTime{}}), do: {:off, "Forgotten"}
+  defp topic_state(%{available: false}), do: {:warn, "Not used"}
+  defp topic_state(_item), do: nil
+
+  defp forget_path(id), do: "/actions/knowledge/#{id}/forget"
 
   defp sources(assigns) do
     ~H"""

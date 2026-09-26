@@ -29,6 +29,7 @@ defmodule Ryker.State.Memories do
 
   alias Ryker.State.{
     CardDelivery,
+    Forgetting,
     MemoryEntry,
     MemoryEntryChangeset,
     Record,
@@ -569,8 +570,13 @@ defmodule Ryker.State.Memories do
       %MemoryEntry{status: status} when status in [:expired, :superseded] ->
         Repo.rollback(:memory_terminal)
 
+      # What learning took from the message the fact came from goes with it:
+      # Learned kept the same knowledge after the fact was forgotten (QA
+      # re-test, 2026-09-26).
       %MemoryEntry{} = entry ->
-        redact!(entry, :deleted, "forgotten_payload_sha256")
+        forgotten = redact!(entry, :deleted, "forgotten_payload_sha256")
+        _learning = Forgetting.forget_fact_in_transaction(entry)
+        forgotten
     end
   end
 

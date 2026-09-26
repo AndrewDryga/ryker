@@ -418,7 +418,10 @@ defmodule Ryker.Slack.AppHome do
           "ryker_home_forget_memory",
           "Forget",
           Map.get(row, :ref),
-          destructive_confirm("Forget this memory?", "The stored value will be redacted.")
+          destructive_confirm(
+            "Forget this memory?",
+            "I'll stop recalling it and forget what I learned from the same message."
+          )
         )
       ])
     ]

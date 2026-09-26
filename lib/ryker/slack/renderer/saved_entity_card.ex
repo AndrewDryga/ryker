@@ -61,7 +61,7 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
           ref,
           "danger",
           "Forget this memory?",
-          "I'll stop recalling “#{title}”. Messages I already sent and the original conversation stay as they are.",
+          "I'll stop recalling “#{title}” and forget what I learned from the same message. Messages I already sent and the original conversation stay as they are.",
           "Forget memory"
         )
       ])

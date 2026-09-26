@@ -524,8 +524,23 @@ defmodule Ryker.ControlPlane.Router do
 
       memory ->
         {:ok, "Forget #{memory.subject}?",
-         "Ryker stops using this fact and erases what it saved. You can ask it to remember again later.",
+         "Ryker stops using this fact and erases what it saved. You can ask it to remember again later." <>
+           forgetting_consequences(options.projection.forgetting.({:memory, resource_ref})),
          "memory:forget"}
+    end
+  end
+
+  # Forgetting a learned topic forgets the messages it came from, and what
+  # else learning took from them; the question says all of it first.
+  defp confirmation("knowledge", resource_ref, "forget", options) do
+    case options.projection.forgetting.({:knowledge, resource_ref}) do
+      {:ok, preview} ->
+        {:ok, "Forget #{preview.title}?",
+         "Ryker stops using this topic, erases what it learned, and never learns from the messages it came from again. The topic stays listed as forgotten." <>
+           forgetting_consequences({:ok, preview}), "knowledge:forget"}
+
+      :error ->
+        {:error, :not_found}
     end
   end
 
@@ -686,6 +701,9 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("memory", resource_ref, "forget", actions),
     do: actions.forget_memory.(resource_ref)
 
+  defp perform("knowledge", resource_ref, "forget", actions),
+    do: actions.forget_knowledge.(resource_ref)
+
   defp perform("memory-review", resource_ref, action, actions)
        when action in ["keep", "merge", "forget", "dismiss"],
        do: actions.resolve_memory_review.(resource_ref, memory_review_action(action), nil)
@@ -772,6 +790,8 @@ defmodule Ryker.ControlPlane.Router do
   defp action_return_path(kind, _resource_ref) when kind in @recoverable_failures,
     do: "/failures"
 
+  defp action_return_path("knowledge", _resource_ref), do: "/memory/learned"
+
   defp action_return_path(_kind, _resource_ref), do: "/memory"
 
   defp action_return_path("behavior", resource_ref, options) do
@@ -808,6 +828,21 @@ defmodule Ryker.ControlPlane.Router do
 
   defp action_return_path(kind, resource_ref, _action, options),
     do: action_return_path(kind, resource_ref, options)
+
+  # What forgetting takes with it beyond the thing itself, in two sentences at
+  # most, naming the topics.
+  defp forgetting_consequences({:ok, %{forgotten: forgotten, relearn: relearn}}) do
+    [
+      forgotten != [] &&
+        " Learned only from the same messages, and forgotten with it: #{Enum.join(forgotten, ", ")}.",
+      relearn != [] &&
+        " Also learned from them, and not used until you relearn it from its other messages: #{Enum.join(relearn, ", ")}."
+    ]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join()
+  end
+
+  defp forgetting_consequences(_preview), do: ""
 
   # A confirmation opened from a request's timeline or its conversation names
   # that page as `back` and returns there, on Cancel and after confirming.

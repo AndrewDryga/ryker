@@ -851,6 +851,12 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert confirm.status == 200
     assert confirm.resp_body =~ "Forget checkout-api?"
     assert confirm.resp_body =~ "Ryker stops using this fact and erases what it saved."
+    # What learning kept from the same message goes with it, named before it
+    # is confirmed (QA re-test, 2026-09-26: Learned kept it after the fact
+    # was forgotten).
+    assert confirm.resp_body =~
+             "Learned only from the same messages, and forgotten with it: Staging account."
+
     refute confirm.resp_body =~ "redacted"
     assert confirm.resp_body =~ ~s(href="/memory")
     [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirm.resp_body)
@@ -875,6 +881,34 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert accepted.status == 303
     assert get_resp_header(accepted, "location") == ["/memory"]
     assert_received {:forgot_memory, "memory:one"}
+  end
+
+  test "a learned topic is forgotten after a confirmation that names what goes with it" do
+    # QA re-test, 2026-09-26: a learned topic had no way to be forgotten.
+    path = "/actions/knowledge/knowledge-checkout/forget"
+    confirm = request(:get, path)
+    assert confirm.status == 200
+    assert confirm.resp_body =~ "Forget Checkout readiness?"
+
+    assert confirm.resp_body =~
+             "Ryker stops using this topic, erases what it learned, and never learns from the messages it came from again."
+
+    assert confirm.resp_body =~
+             "Learned only from the same messages, and forgotten with it: Deploy timing."
+
+    assert confirm.resp_body =~
+             "Also learned from them, and not used until you relearn it from its other messages: Incident timeline."
+
+    assert confirm.resp_body =~ ~s(<a href="/memory/learned">Cancel</a>)
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirm.resp_body)
+
+    accepted = request(:post, path, URI.encode_query(%{"_token" => token}))
+    assert accepted.status == 303
+    assert get_resp_header(accepted, "location") == ["/memory/learned"]
+    assert_received {:forgot_knowledge, "knowledge-checkout"}
+
+    # A topic that is gone or already forgotten has nothing to confirm.
+    assert request(:get, "/actions/knowledge/knowledge-missing/forget").status == 404
   end
 
   test "memory reviews support confirmed keep merge forget and an explicit edit form" do
