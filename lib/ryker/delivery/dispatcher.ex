@@ -9,6 +9,7 @@ defmodule Ryker.Delivery.Dispatcher do
 
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.{Adapters, PlatformActionCustody, ReactionCustody, Request}
+  alias Ryker.LeasedCall
   alias Ryker.Slack.ReplyRecords
   alias Ryker.State.Records
   alias Ryker.Work.Custody
@@ -211,102 +212,18 @@ defmodule Ryker.Delivery.Dispatcher do
   end
 
   defp publish_with_lease(request, custody, settings) do
-    caller = self()
-    result_ref = make_ref()
-
-    {publisher, monitor} =
-      spawn_monitor(fn ->
-        supervise_publish(caller, result_ref, request, settings.adapters)
-      end)
-
-    cadence_ms = max(div(settings.lease_seconds * 1_000, 3), 1)
-
-    try do
-      await_publish(result_ref, publisher, monitor, custody, cadence_ms)
-    after
-      stop_publish(result_ref, publisher, monitor)
-    end
+    LeasedCall.run(
+      fn -> publish(request, settings.adapters) end,
+      custody.renew,
+      settings.lease_seconds,
+      :delivery_publisher_exit
+    )
   end
 
-  defp supervise_publish(caller, result_ref, request, adapters) do
-    Process.flag(:trap_exit, true)
-    caller_monitor = Process.monitor(caller)
-    owner = self()
-
-    provider =
-      spawn_link(fn ->
-        result =
-          try do
-            Adapters.publish(request, adapters)
-          catch
-            kind, reason -> {:error, {:delivery_publisher_crashed, kind, reason}}
-          end
-
-        send(owner, {:delivery_provider_result, self(), result})
-      end)
-
-    try do
-      receive do
-        {:delivery_provider_result, ^provider, result} ->
-          send(caller, {result_ref, result})
-
-        {:EXIT, ^provider, reason} ->
-          send(caller, {result_ref, {:error, {:delivery_publisher_exit, reason}}})
-
-        {:DOWN, ^caller_monitor, :process, ^caller, _reason} ->
-          :ok
-
-        {:cancel_publish, ^caller, ^result_ref} ->
-          :ok
-      end
-    after
-      provider_monitor = Process.monitor(provider)
-      Process.exit(provider, :kill)
-      receive do: ({:DOWN, ^provider_monitor, :process, ^provider, _reason} -> :ok)
-    end
-  end
-
-  defp stop_publish(result_ref, publisher, monitor) do
-    # Polling may rescue a renewal exception without exiting the caller. Reap the
-    # supervisor only after its linked provider has stopped, then drain our mail.
-    cleanup_monitor = Process.monitor(publisher)
-    send(publisher, {:cancel_publish, self(), result_ref})
-    receive do: ({:DOWN, ^cleanup_monitor, :process, ^publisher, _reason} -> :ok)
-    Process.demonitor(monitor, [:flush])
-
-    receive do
-      {^result_ref, _result} -> :ok
-    after
-      0 -> :ok
-    end
-  end
-
-  defp await_publish(result_ref, publisher, monitor, custody, cadence_ms) do
-    receive do
-      {^result_ref, result} ->
-        Process.demonitor(monitor, [:flush])
-
-        case renew_claim(custody) do
-          :ok -> result
-          {:error, _reason} = error -> error
-        end
-
-      {:DOWN, ^monitor, :process, ^publisher, reason} ->
-        {:error, {:delivery_publisher_exit, reason}}
-    after
-      cadence_ms ->
-        case renew_claim(custody) do
-          :ok -> await_publish(result_ref, publisher, monitor, custody, cadence_ms)
-          {:error, _reason} = error -> error
-        end
-    end
-  end
-
-  defp renew_claim(custody) do
-    case custody.renew.() do
-      {:ok, _claimed} -> :ok
-      {:error, _reason} = error -> error
-    end
+  defp publish(request, adapters) do
+    Adapters.publish(request, adapters)
+  catch
+    kind, reason -> {:error, {:delivery_publisher_crashed, kind, reason}}
   end
 
   defp handle_error(custody, reason, settings) do
