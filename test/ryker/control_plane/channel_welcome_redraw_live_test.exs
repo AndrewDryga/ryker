@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   web the card still said the channel worked in the old environment, with
   the old repositories, while the page and the work used the new one.
 
-  The Slack API here is a recording double; the documents it receives are
+  Slack here is the shared test workspace; the documents it receives are
   rendered with the real Slack renderer, so the test reads what the channel
   would show.
   """
@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Slack.Runtime, as: SlackRuntime
+  alias Ryker.TestSupport.FakeSlackAPI
 
   alias Ryker.Slack.{
     ChannelConfigurations,
@@ -29,36 +30,6 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
 
   @endpoint Endpoint
   @workspace "TD65C7CD93124"
-
-  defmodule API do
-    @moduledoc false
-    def find_message(agent, channel, thread, delivery_ref) do
-      Agent.get(agent, fn state ->
-        case Map.get(state.deliveries, {channel, thread, delivery_ref}) do
-          nil -> :not_found
-          message_ref -> {:ok, message_ref}
-        end
-      end)
-    end
-
-    def post_message(agent, channel, thread, _document, delivery_ref) do
-      Agent.get_and_update(agent, fn state ->
-        message_ref = "#{map_size(state.deliveries) + 1}.000001"
-
-        {{:ok, message_ref},
-         %{
-           state
-           | deliveries: Map.put(state.deliveries, {channel, thread, delivery_ref}, message_ref)
-         }}
-      end)
-    end
-
-    def update_message(agent, channel, message_ref, document, _delivery_ref) do
-      Agent.update(agent, fn state ->
-        %{state | updates: state.updates ++ [{channel, message_ref, document}]}
-      end)
-    end
-  end
 
   defmodule SlowAPI do
     @moduledoc false
@@ -76,7 +47,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   end
 
   setup do
-    agent = start_supervised!({Agent, fn -> %{deliveries: %{}, updates: []} end})
+    agent = start_supervised!(FakeSlackAPI)
     running = start_supervised!({Agent, fn -> true end}, id: :slack_running)
     slow = start_supervised!({Agent, fn -> false end}, id: :slow_slack)
     tasks = start_supervised!(Task.Supervisor)
@@ -85,7 +56,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
 
     # What the running Slack runtime hands the welcome.
     slack = %{
-      api: API,
+      api: FakeSlackAPI,
       bot_user_ref: "UBOT",
       catalog: %{
         default_environment: "production",
@@ -167,10 +138,11 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
 
     view |> form("#channel-environment", environment: "staging") |> render_submit()
 
-    assert eventually(fn -> Agent.get(agent, & &1.updates) != [] end),
+    assert eventually(fn -> FakeSlackAPI.state(agent).updates != [] end),
            "the welcome in the channel was not redrawn"
 
-    assert [{"C456", message_ref, document}] = Agent.get(agent, & &1.updates)
+    assert [%{channel: "C456", message_ref: message_ref, document: document}] =
+             FakeSlackAPI.state(agent).updates
 
     assert message_ref ==
              ChannelConfigurations.configuration(@workspace, "C456").welcome_message_ref
@@ -254,7 +226,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     Agent.update(context.running, fn _running -> true end)
     view |> form("#channel-environment", environment: "staging") |> render_submit()
     Process.sleep(100)
-    assert Agent.get(context.agent, & &1.updates) == []
+    assert FakeSlackAPI.state(context.agent).updates == []
   end
 
   # The redraw answers the page on its own time; wait for it, briefly.
