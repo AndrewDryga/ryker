@@ -89,6 +89,16 @@ test("definite HTTP validation rejections are distinguishable from uncertain tra
   await assert.rejects(sendDraft("/conversations/test/messages", "body", async () => ({status: 422})), {message: "rejected:422"})
 })
 
+test("the server's reason for refusing a message reaches the person who sent it", async () => {
+  // Manual testing, 2026-09-26: an attached file was refused and the composer
+  // could only say "check message and file limits" while the server knew
+  // which file it could not read.
+  await assert.rejects(
+    sendDraft("/conversations/test/messages", "body", async () => ({status: 422, text: async () => "Ryker can't read core.bin."})),
+    {message: "rejected:422", reason: "Ryker can't read core.bin."}
+  )
+})
+
 test("worker readiness is distinct from an invalid message", async () => {
   await assert.rejects(sendDraft("/conversations/test/messages", "body", async () => ({status: 503})), {message: "unavailable:chat"})
 })

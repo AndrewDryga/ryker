@@ -103,6 +103,24 @@ defmodule Ryker.Artifacts do
   @spec supported_media_type?(term()) :: boolean()
   def supported_media_type?(media_type), do: media_type in @media_types
 
+  @doc """
+  The media type to store for an uploaded file its sender labelled `declared`:
+  the label when the bytes are that kind, otherwise text/plain for any UTF-8
+  text, because a browser labels a .log file or a script
+  application/octet-stream. Anything else, and an empty file, is unreadable.
+  """
+  @spec readable_media_type(String.t(), binary()) :: {:ok, String.t()} | :error
+  def readable_media_type(declared, data)
+      when is_binary(declared) and is_binary(data) and data != "" do
+    cond do
+      supported_media_type?(declared) and media_matches?(declared, data) -> {:ok, declared}
+      media_matches?("text/plain", data) -> {:ok, "text/plain"}
+      true -> :error
+    end
+  end
+
+  def readable_media_type(_declared, _data), do: :error
+
   defp prepare(attributes) do
     expected = [:data, :media_type, :name, :source_kind, :source_ref]
 

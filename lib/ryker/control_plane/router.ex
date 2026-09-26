@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.Router do
   import Plug.Conn
 
   alias Plug.Conn.Query
+  alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
 
   alias Ryker.ControlPlane.{
@@ -29,6 +30,7 @@ defmodule Ryker.ControlPlane.Router do
     RelearnPanel
   }
 
+  alias Ryker.HTTPConnection
   alias Ryker.Observability
   alias Ryker.Operator.Learning, as: LearningOperator
 
@@ -37,6 +39,7 @@ defmodule Ryker.ControlPlane.Router do
   @maximum_memory_form_bytes 16 * 1_024
   @maximum_lab_form_bytes 65_536
   @maximum_lab_multipart_bytes 8 * 1_024 * 1_024 + @maximum_lab_form_bytes
+  @readable_files "It reads text files, PDFs and PNG, JPEG, WebP or GIF images."
   # Every failure kind with a confirmed recovery; publications have none.
   @recoverable_failures ~w(admission delivery emisar retention slack_incident slack_interaction slack_task_card slack_thread_status work)
   @lab_multipart_parser Plug.Parsers.init(
@@ -61,7 +64,7 @@ defmodule Ryker.ControlPlane.Router do
   def call(conn, options) do
     case BrowserGuard.call(conn, access: Map.get(options, :access, :loopback)) do
       %Plug.Conn{halted: true} = refused -> refused
-      conn -> route(conn, options)
+      conn -> conn |> HTTPConnection.close_after_refusal() |> route(options)
     end
   end
 
@@ -128,6 +131,7 @@ defmodule Ryker.ControlPlane.Router do
     with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
          {:ok, token, message, attachments, conn} <- lab_form(conn),
          true <- LabControls.valid_send_token?(options.csrf_secret, conversation_id, token),
+         {:ok, attachments} <- readable_attachments(attachments),
          {:ok, _receipt} <-
            options.actions.send_lab_message.(conversation_id, message, attachments) do
       lab_accepted(conn, conversation_id)
@@ -144,8 +148,20 @@ defmodule Ryker.ControlPlane.Router do
       {:error, :conversation_lab_not_configured} ->
         text(conn, 503, "Chat is not ready. The bundled worker is still starting.")
 
+      {:error, {:unreadable_attachment, %{name: name, data: ""}}} ->
+        text(conn, 422, "#{name} is empty.")
+
+      {:error, {:unreadable_attachment, %{name: name}}} ->
+        text(conn, 422, "Ryker can't read #{name}. #{@readable_files}")
+
+      {:error, {:invalid_conversation_lab, :attachments}} ->
+        text(conn, 422, "Ryker can't read one of the attached files. #{@readable_files}")
+
+      {:error, {:invalid_conversation_lab, :message}} ->
+        text(conn, 422, "Write a message of at most 20,000 bytes, or attach a file.")
+
       {:error, {:invalid_conversation_lab, _field}} ->
-        text(conn, 422, "Invalid message")
+        text(conn, 422, "Invalid message.")
 
       {:error, _reason} ->
         text(conn, 409, "Message could not be accepted")
@@ -1049,6 +1065,21 @@ defmodule Ryker.ControlPlane.Router do
   end
 
   defp lab_uploads(_uploads), do: {:error, :form}
+
+  # The bytes, not the browser's label, decide whether Ryker can read a file:
+  # a browser labels a .log file or a script application/octet-stream.
+  defp readable_attachments(attachments) do
+    Enum.reduce_while(attachments, {:ok, []}, fn attachment, {:ok, readable} ->
+      case Artifacts.readable_media_type(attachment.media_type, attachment.data) do
+        {:ok, media_type} -> {:cont, {:ok, [%{attachment | media_type: media_type} | readable]}}
+        :error -> {:halt, {:error, {:unreadable_attachment, attachment}}}
+      end
+    end)
+    |> case do
+      {:ok, readable} -> {:ok, Enum.reverse(readable)}
+      {:error, _reason} = error -> error
+    end
+  end
 
   defp lab_record_form(conn, :answer_input) do
     with [content_type] <- get_req_header(conn, "content-type"),

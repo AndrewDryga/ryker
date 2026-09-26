@@ -15,6 +15,7 @@ defmodule Ryker.CoopFleet.Router do
     WorkspaceCheckpoint
   }
 
+  alias Ryker.HTTPConnection
   alias Ryker.StateTools.Binding
   alias Ryker.StateTools.Router, as: StateToolsRouter
 
@@ -26,10 +27,13 @@ defmodule Ryker.CoopFleet.Router do
   def init(options), do: options
 
   @impl Plug
-  def call(
-        %Plug.Conn{method: "POST", request_path: "/v1/state-tools/mcp"} = conn,
-        options
-      ) do
+  def call(conn, options),
+    do: conn |> HTTPConnection.close_after_refusal() |> route(options)
+
+  defp route(
+         %Plug.Conn{method: "POST", request_path: "/v1/state-tools/mcp"} = conn,
+         options
+       ) do
     with {:ok, token} <- bearer_token(conn),
          {:ok, binding} <- Binding.resolve(token),
          {:ok, state_tools} <- Keyword.fetch(options, :state_tools) do
@@ -51,20 +55,20 @@ defmodule Ryker.CoopFleet.Router do
     end
   end
 
-  def call(
-        %Plug.Conn{
-          method: "GET",
-          path_info: [
-            "v1",
-            "coop-workers",
-            "commands",
-            command_id,
-            "workspace-checkpoints",
-            transfer_id
-          ]
-        } = conn,
-        options
-      ) do
+  defp route(
+         %Plug.Conn{
+           method: "GET",
+           path_info: [
+             "v1",
+             "coop-workers",
+             "commands",
+             command_id,
+             "workspace-checkpoints",
+             transfer_id
+           ]
+         } = conn,
+         options
+       ) do
     with {:ok, certificate} <- client_certificate(conn),
          {:ok, key} <- Keyword.fetch(options, :checkpoint_key),
          {:ok, secrets} <- Keyword.fetch(options, :checkpoint_secrets),
@@ -93,20 +97,20 @@ defmodule Ryker.CoopFleet.Router do
     end
   end
 
-  def call(
-        %Plug.Conn{
-          method: "PUT",
-          path_info: [
-            "v1",
-            "coop-workers",
-            "commands",
-            command_id,
-            "workspace-checkpoints",
-            checkpoint_ref
-          ]
-        } = conn,
-        options
-      ) do
+  defp route(
+         %Plug.Conn{
+           method: "PUT",
+           path_info: [
+             "v1",
+             "coop-workers",
+             "commands",
+             command_id,
+             "workspace-checkpoints",
+             checkpoint_ref
+           ]
+         } = conn,
+         options
+       ) do
     with {:ok, certificate} <- client_certificate(conn),
          {:ok, metadata} <- checkpoint_headers(conn, checkpoint_ref),
          {:ok, data, conn} <- bounded_checkpoint_body(conn),
@@ -140,11 +144,10 @@ defmodule Ryker.CoopFleet.Router do
     end
   end
 
-  @impl Plug
-  def call(
-        %Plug.Conn{method: "POST", request_path: "/v1/coop-workers/enroll"} = conn,
-        options
-      ) do
+  defp route(
+         %Plug.Conn{method: "POST", request_path: "/v1/coop-workers/enroll"} = conn,
+         options
+       ) do
     with :ok <- json_content_type(conn),
          {:ok, body, conn} <- bounded_body(conn),
          {:ok, document} <- Jason.decode(body),
@@ -170,10 +173,10 @@ defmodule Ryker.CoopFleet.Router do
     end
   end
 
-  def call(
-        %Plug.Conn{method: "POST", request_path: "/v1/coop-workers/renew"} = conn,
-        options
-      ) do
+  defp route(
+         %Plug.Conn{method: "POST", request_path: "/v1/coop-workers/renew"} = conn,
+         options
+       ) do
     with {:ok, certificate} <- client_certificate(conn),
          :ok <- json_content_type(conn),
          {:ok, body, conn} <- bounded_body(conn),
@@ -190,8 +193,7 @@ defmodule Ryker.CoopFleet.Router do
     end
   end
 
-  @impl Plug
-  def call(%Plug.Conn{method: "POST", request_path: "/v1/coop-workers/poll"} = conn, options) do
+  defp route(%Plug.Conn{method: "POST", request_path: "/v1/coop-workers/poll"} = conn, options) do
     with {:ok, certificate} <- client_certificate(conn),
          :ok <- json_content_type(conn),
          {:ok, body, conn} <- bounded_body(conn),
@@ -212,20 +214,20 @@ defmodule Ryker.CoopFleet.Router do
     end
   end
 
-  def call(
-        %Plug.Conn{
-          method: "GET",
-          path_info: [
-            "v1",
-            "coop-workers",
-            "commands",
-            command_id,
-            "input-artifacts",
-            artifact_ref
-          ]
-        } = conn,
-        _options
-      ) do
+  defp route(
+         %Plug.Conn{
+           method: "GET",
+           path_info: [
+             "v1",
+             "coop-workers",
+             "commands",
+             command_id,
+             "input-artifacts",
+             artifact_ref
+           ]
+         } = conn,
+         _options
+       ) do
     with {:ok, certificate} <- client_certificate(conn),
          {:ok, artifact} <- ArtifactTransport.fetch_input(certificate, command_id, artifact_ref) do
       conn
@@ -244,13 +246,20 @@ defmodule Ryker.CoopFleet.Router do
     end
   end
 
-  def call(
-        %Plug.Conn{
-          method: "PUT",
-          path_info: ["v1", "coop-workers", "commands", command_id, "review-patches", artifact_id]
-        } = conn,
-        _options
-      ) do
+  defp route(
+         %Plug.Conn{
+           method: "PUT",
+           path_info: [
+             "v1",
+             "coop-workers",
+             "commands",
+             command_id,
+             "review-patches",
+             artifact_id
+           ]
+         } = conn,
+         _options
+       ) do
     with {:ok, certificate} <- client_certificate(conn),
          {:ok, metadata} <- review_patch_headers(conn),
          {:ok, data, conn} <- bounded_review_patch_body(conn),
@@ -278,20 +287,20 @@ defmodule Ryker.CoopFleet.Router do
     end
   end
 
-  def call(
-        %Plug.Conn{
-          method: "PUT",
-          path_info: [
-            "v1",
-            "coop-workers",
-            "commands",
-            command_id,
-            "output-artifacts",
-            artifact_ref
-          ]
-        } = conn,
-        _options
-      ) do
+  defp route(
+         %Plug.Conn{
+           method: "PUT",
+           path_info: [
+             "v1",
+             "coop-workers",
+             "commands",
+             command_id,
+             "output-artifacts",
+             artifact_ref
+           ]
+         } = conn,
+         _options
+       ) do
     with {:ok, certificate} <- client_certificate(conn),
          {:ok, metadata} <- artifact_headers(conn),
          {:ok, data, conn} <- bounded_artifact_body(conn),
@@ -321,7 +330,7 @@ defmodule Ryker.CoopFleet.Router do
     end
   end
 
-  def call(conn, _options), do: json_error(conn, 404, "not_found")
+  defp route(conn, _options), do: json_error(conn, 404, "not_found")
 
   defp client_certificate(conn) do
     case Plug.Conn.get_peer_data(conn) do
