@@ -71,6 +71,35 @@ defmodule Ryker.Settings.EnvironmentsTest do
              %{installation: 1, repositories: 3, environments: 2}
   end
 
+  # Manual testing, 2026-09-26: a second environment named "Production" was
+  # saved beside the first, and Chat's picker, the channel settings and the
+  # list then offered two identical names with nothing to tell them apart.
+  test "two environments cannot share a name", %{snapshot: snapshot} do
+    {:ok, saved} =
+      Settings.put_environment(
+        %{ref: "production", display_name: "Production", repositories: ["payments"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    assert {:error, {:invalid_settings, errors}} =
+             Settings.put_environment(
+               %{ref: "production-2", display_name: " production ", repositories: ["ledger"]},
+               saved.installation.revision,
+               @actor
+             )
+
+    assert {:display_name, :taken} in errors
+
+    # Renaming an environment to its own name is no clash.
+    assert {:ok, _renamed} =
+             Settings.put_environment(
+               %{ref: "production", display_name: "PRODUCTION"},
+               saved.installation.revision,
+               @actor
+             )
+  end
+
   # Chat and every conversation without its own setting use the default, so
   # two defaults would make the answer depend on which row a query saw first.
   test "one environment is the default, and choosing another moves it", %{snapshot: snapshot} do

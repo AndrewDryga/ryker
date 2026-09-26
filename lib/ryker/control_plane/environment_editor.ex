@@ -218,6 +218,10 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   defp error(_reason), do: "The environment could not be saved. Reload the page and try again."
 
   defp refused({:display_name, :required}), do: "Give the environment a name."
+
+  defp refused({:display_name, :taken}),
+    do: "Another environment already has this name. Choose a different one."
+
   defp refused({:display_name, _length}), do: "Use a name of 80 characters or fewer."
   defp refused({:description, _length}), do: "Keep the description to 500 characters or fewer."
 
