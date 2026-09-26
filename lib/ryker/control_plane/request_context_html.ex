@@ -2330,6 +2330,26 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     |> String.replace(~r/\bTurn(s?)\b/, "Run\\1")
     |> String.replace(~r/\bepisode(s?)\b/, "request\\1")
     |> String.replace(~r/\bEpisode(s?)\b/, "Request\\1")
+    |> abbreviations()
+  end
+
+  # Capitalizing a key wrote "Sha256", "Json preview" and "Source url"; people
+  # write these abbreviations one way.
+  @abbreviations %{
+    "api" => "API",
+    "id" => "ID",
+    "ids" => "IDs",
+    "json" => "JSON",
+    "pr" => "PR",
+    "sha256" => "SHA-256",
+    "url" => "URL",
+    "urls" => "URLs"
+  }
+
+  defp abbreviations(label) do
+    Regex.replace(~r/\b[A-Za-z0-9]+\b/, label, fn word ->
+      Map.get(@abbreviations, String.downcase(word), word)
+    end)
   end
 
   defp human(value) when is_map(value) or is_list(value), do: "Structured value"
