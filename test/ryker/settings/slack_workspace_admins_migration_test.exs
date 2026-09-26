@@ -6,9 +6,9 @@ defmodule Ryker.Settings.SlackWorkspaceAdminsMigrationTest do
   alias Ecto.Adapters.SQL
   alias Ryker.Settings
 
-  @version 20_260_926_120_000
+  @version 20_260_926_121_000
   @migration Ryker.Repo.Migrations.AddSlackWorkspaceAdminsManage
-  @file_name "20260926120000_add_slack_workspace_admins_manage.exs"
+  @file_name "20260926121000_add_slack_workspace_admins_manage.exs"
   # The migrator's own lock holds the one sandboxed connection while its task
   # waits for that same connection, so it is skipped: nothing else migrates here.
   @options [log: false, migration_lock: false]
