@@ -48,21 +48,21 @@ defmodule Ryker.BundledCoop do
   # is what a Work profile requires of them; a deeper model is not permission
   # to write. Only confirmed engineering work writes, through the contributor.
   @writable_purposes [:contributor]
-  # Which saved model each policy purpose runs on.
+  # Which saved list of models each policy purpose runs on.
   @models %{
-    admission: :routing_model,
-    conversational: :conversation_model,
-    standard: :standard_model,
-    deep: :deep_model,
-    contributor: :contributor_model,
-    schedule: :schedule_model,
-    schedule_governed: :schedule_model,
-    schedule_read_only: :schedule_model,
-    incident: :incident_model,
-    learning: :learning_model
+    admission: :routing_models,
+    conversational: :conversation_models,
+    standard: :standard_models,
+    deep: :deep_models,
+    contributor: :contributor_models,
+    schedule: :schedule_models,
+    schedule_governed: :schedule_models,
+    schedule_read_only: :schedule_models,
+    incident: :incident_models,
+    learning: :learning_models
   }
 
-  @doc "The Work setting that holds the model for a policy purpose."
+  @doc "The Work setting that holds the models for a policy purpose."
   def model_field(purpose), do: Map.get(@models, purpose)
 
   @doc "Whether this installation runs the Compose distribution's bundled worker."
@@ -495,13 +495,13 @@ defmodule Ryker.BundledCoop do
     end
   end
 
-  defp policy_yaml(policy, target) do
+  defp policy_yaml(policy, models) do
     read_only = if policy.read_only, do: "\n    repository_read_only: true", else: ""
 
     "  #{policy.name}:\n" <>
       "    repository: #{yaml_string(policy.repository)}\n" <>
       companions_yaml(Map.get(policy, :companions, [])) <>
-      "    target: #{yaml_string(target)}#{read_only}\n" <>
+      "    target: #{target_yaml(models)}#{read_only}\n" <>
       isolation_yaml(policy.purpose) <>
       "    max_turns: 100\n" <>
       "    max_queued_turns: 20\n" <>
@@ -509,6 +509,14 @@ defmodule Ryker.BundledCoop do
       "    max_patch_bytes: 1048576\n" <>
       "    turn_timeout: 1h\n"
   end
+
+  # Coop reads `target:` as one model or as a list it moves down in order when
+  # a model hits a usage limit or its account's sign-in fails. One model stays
+  # the plain string it always was: Coop reads it exactly as a one-model list,
+  # with the same policy digest, and an unchanged file keeps its bytes, so the
+  # worker, which reloads when the file's checksum changes, sees nothing new.
+  defp target_yaml([model]), do: yaml_string(model)
+  defp target_yaml(models), do: "[" <> Enum.map_join(models, ", ", &yaml_string/1) <> "]"
 
   defp companions_yaml([]), do: ""
 

@@ -31,7 +31,25 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   @day 86_400
   @longest_days 3_650
-  @efforts ~w(low medium high xhigh)
+  # What a refused list of models says, whichever kind of work it is for.
+  @ladder_errors %{
+    length: "Keep one model and at most three fallbacks.",
+    cast: "Choose a model, a reasoning effort and an account for each one.",
+    format: "Choose a model, a reasoning effort and an account for each one.",
+    duplicate: "The same model, effort and account is listed twice. Change one or remove it.",
+    unknown_account:
+      "Choose an account listed under Model accounts. To use another account, sign it in " <>
+        "on the worker, then add it there.",
+    unpriced: "Choose a model that has a price under Model prices.",
+    shared_accounts:
+      "A request can move between Conversation, Standard and Deep work, so these three must " <>
+        "use the same accounts, in the same order. Their models and efforts can differ."
+  }
+  # One model and its fallbacks as the form holds them: each part of a model.
+  @ladder_parts ~w(model effort account)
+  # How many entries a submitted list may carry before the rest are ignored;
+  # more than Coop takes is refused with a reason, not cut short.
+  @ladder_bound 16
   # The words a person picks between, each with what Ryker will then do.
   @participation [
     {"mentions", "Only when mentioned", "Ryker replies when someone writes @Ryker."},
@@ -516,15 +534,20 @@ defmodule Ryker.ControlPlane.SettingsSections do
         }
       ]
     },
-    # Each `used` sentence says where the bundled worker runs that model, as
+    # Each `used` sentence says where the bundled worker runs those models, as
     # the code decides it: routing (`Ryker.Admission.Decision`) answers a
     # reply on the conversational class and new or continued work on the
     # standard or deep one; `Ryker.BundledCoop` writes each policy with the
-    # model saved for its purpose; `Ryker.Runtime.Assembly` runs work with no
+    # models saved for its purpose; `Ryker.Runtime.Assembly` runs work with no
     # repository (an environment without any, or no environment) on the
     # installation's conversation policy for every class, a confirmed task on
     # the contributor, schedules on theirs, and a whole incident room on the
     # incident policy. Change a sentence only with the code it describes.
+    #
+    # Each kind of work is an ordered list (Andrew, 2026-09-26: "Can I have
+    # fallbacks between models/providers like coop allows?"): the first model
+    # is used, and Coop moves to the next when one hits a usage limit or its
+    # account's sign-in fails.
     %{
       key: :model,
       domain: :work,
@@ -532,12 +555,23 @@ defmodule Ryker.ControlPlane.SettingsSections do
       schema: Work,
       title: "Models",
       description:
-        "The model and reasoning effort for each kind of work. " <>
+        "The model, reasoning effort and account for each kind of work, and its fallbacks. " <>
           "A saved change reaches new work within seconds.",
+      help:
+        "Ryker uses the first model of each kind of work. A fallback is used only when the " <>
+          "one above it hits a usage limit or its sign-in stops working. Models come from " <>
+          "Model prices: to offer a Claude model here, add its price.",
+      groups: %{
+        "Work" => %{
+          lede:
+            "A request can move between Conversation, Standard and Deep work, so these " <>
+              "three use the same accounts in the same order. Their models and efforts can differ."
+        }
+      },
       fields: [
         %{
-          name: :routing_model,
-          kind: :select,
+          name: :routing_models,
+          kind: :ladder,
           label: "Routing",
           group: "Routing and replies",
           used:
@@ -545,88 +579,121 @@ defmodule Ryker.ControlPlane.SettingsSections do
               "and webhooks. It decides whether to answer, start work, add it to earlier work " <>
               "or stay quiet, and picks Conversation, Standard or Deep work for it. It runs " <>
               "more often than anything else, so speed and price matter most here.",
-          options: :bundled_models,
-          required: true
+          errors: @ladder_errors
         },
         %{
-          name: :conversation_model,
-          kind: :select,
+          name: :conversation_models,
+          kind: :ladder,
           label: "Conversation",
           group: "Routing and replies",
           used:
             "Writes the replies Ryker can give straight away, without a longer investigation: " <>
               "answers from what it already knows, quick questions and small lookups. Where " <>
               "there is no repository to work in, it does the standard and deep work too.",
-          options: :bundled_models,
-          required: true
+          errors: @ladder_errors
         },
         %{
-          name: :standard_model,
-          kind: :select,
+          name: :standard_models,
+          kind: :ladder,
           label: "Standard work",
           group: "Work",
           used:
             "Investigations that use tools: reading code, checking logs, running read-only " <>
               "commands and asking Emisar to run something. Routing picks it for most work " <>
               "that needs more than a quick answer.",
-          options: :bundled_models,
-          required: true
+          errors: @ladder_errors
         },
         %{
-          name: :deep_model,
-          kind: :select,
+          name: :deep_models,
+          kind: :ladder,
           label: "Deep work",
           group: "Work",
           used:
             "The same kind of work, when routing judges the request hard, ambiguous or risky.",
-          options: :bundled_models,
-          required: true
+          errors: @ladder_errors
         },
         %{
-          name: :contributor_model,
-          kind: :select,
+          name: :contributor_models,
+          kind: :ladder,
           label: "Contributor work",
           group: "Work",
           used:
             "Tasks that change code, once a person confirms them. When pull requests are on, " <>
               "Ryker opens one for the change.",
-          options: :bundled_models,
-          required: true
+          errors: @ladder_errors
         },
         %{
-          name: :schedule_model,
-          kind: :select,
+          name: :schedule_models,
+          kind: :ladder,
           label: "Scheduled work",
           group: "Other work",
           used:
             "Work that starts on its own when a schedule is due: the reminders and recurring " <>
               "checks people set up by asking Ryker.",
-          options: :bundled_models,
-          required: true
+          errors: @ladder_errors
         },
         %{
-          name: :incident_model,
-          kind: :select,
+          name: :incident_models,
+          kind: :ladder,
           label: "Incident rooms",
           group: "Other work",
           used:
             "Everything Ryker does in an incident room, the Slack channel it opens for an " <>
               "incident: the investigation and every reply there. It also runs an incident " <>
               "investigated in its own thread instead of a room.",
-          options: :bundled_models,
-          required: true
+          errors: @ladder_errors
         },
         %{
-          name: :learning_model,
-          kind: :select,
+          name: :learning_models,
+          kind: :ladder,
           label: "Learning",
           group: "Other work",
           used:
             "Reads the messages Ryker picks up in the background, including ones it did not " <>
               "answer, and notes what is worth remembering about each conversation. It never " <>
               "replies, and runs only while learning is on.",
-          options: :bundled_models,
-          required: true
+          errors: @ladder_errors
+        }
+      ]
+    },
+    # Ryker cannot see which accounts the worker has signed in, so they are
+    # listed here and every model above names one of them. Coop refuses the
+    # whole policy file while a model names an account that is not signed in,
+    # which stops every kind of work, so the help says to sign in first.
+    %{
+      key: :model_accounts,
+      domain: :work,
+      kind: :singleton,
+      schema: Work,
+      title: "Model accounts",
+      description: "The accounts the worker has signed in, for each provider.",
+      groups: %{
+        "Model accounts" => %{
+          lede:
+            "Ryker cannot see which accounts the worker has signed in, so list them here. " <>
+              "Each model above runs on one of them."
+        }
+      },
+      fields: [
+        %{
+          name: :model_accounts,
+          kind: :list,
+          label: "Accounts",
+          group: "Model accounts",
+          help:
+            "Each as provider@name, such as codex@default or claude@work. Sign an account in " <>
+              "first with scripts/compose.sh model-login claude@work: while a model uses an " <>
+              "account the worker has not signed in, the worker takes no work at all.",
+          errors: %{
+            length: "List at least one account, such as codex@default.",
+            format:
+              "Write each account as its provider and name, such as codex@default or " <>
+                "claude@work. Ryker runs Codex and Claude models.",
+            list: "List each account once.",
+            in_use:
+              "A model above still uses an account you removed. Choose another account for " <>
+                "it first, then remove the account."
+          }
         }
       ]
     },
@@ -872,39 +939,154 @@ defmodule Ryker.ControlPlane.SettingsSections do
         &{&1.ref, "#{&1.ref} · #{&1.eligible} of #{&1.workers} #{workers(&1.workers)} ready"}
       )
 
-  # Every priced Codex model at each effort the bundled worker can run, on the
-  # saved model's profile. A saved model outside that list stays selectable.
-  # Every option runs through Codex on the same profile, so a label names only
-  # the model and its effort. Every select lists them in one order, by model
-  # and then effort, and marks the saved one: QA, 2026-09-25, found each
-  # select putting its own saved model first, eight orders for one list.
-  def options(%{options: :bundled_models, name: name}, view) do
-    current = Map.fetch!(view.snapshot.work, name)
-    profile = (ExecutionTarget.parts(current) || %{})[:profile] || "default"
-
-    priced =
-      for %{execution_target: "codex:" <> _ = model} <- view.snapshot.pricing_rates,
-          effort <- @efforts,
-          uniq: true,
-          do: "#{model}/#{effort}@#{profile}"
-
-    [current | priced]
-    |> Enum.uniq()
-    |> Enum.sort_by(&model_order/1)
-    |> Enum.map(&{&1, model_label(&1) <> if(&1 == current, do: " (current)", else: "")})
-  end
-
   def options(%{options: options}, _view) when is_list(options), do: options
 
-  defp model_order(target) do
+  @doc """
+  The models one model choice offers, under their provider: every model a
+  saved price covers, for each provider the worker runs, and any model this
+  kind of work already has, priced or not, so choosing never loses it. Every
+  choice on the page lists them in one order: QA, 2026-09-25, found each
+  select putting its own saved model first, eight orders for one list.
+  """
+  @spec ladder_models(map(), [String.t()], [map()]) :: [{String.t(), [{String.t(), String.t()}]}]
+  def ladder_models(view, saved, entries) do
+    priced = MapSet.new(view.snapshot.pricing_rates, & &1.execution_target)
+
+    kept =
+      Enum.map(saved, &ladder_entry(&1)["model"]) ++ Enum.map(entries, & &1["model"])
+
+    (Enum.filter(priced, &(provider(&1) in Work.providers())) ++ kept)
+    |> Enum.filter(&String.contains?(&1, ":"))
+    |> Enum.uniq()
+    |> Enum.group_by(&provider/1)
+    |> Enum.sort_by(fn {provider, _models} -> provider_order(provider) end)
+    |> Enum.map(fn {provider, models} ->
+      {ExecutionTarget.provider_name(provider),
+       models
+       |> Enum.sort()
+       |> Enum.map(&{&1, model_name(&1) <> if(&1 in priced, do: "", else: " (no price)")})}
+    end)
+  end
+
+  @doc "The reasoning efforts a model choice offers, in the words every page uses."
+  @spec ladder_efforts() :: [{String.t(), String.t()}]
+  def ladder_efforts, do: Enum.map(Work.efforts(), &{&1, ExecutionTarget.effort_name(&1)})
+
+  @doc "The accounts listed under Model accounts for the provider of `model`."
+  @spec ladder_accounts(map(), String.t()) :: [String.t()]
+  def ladder_accounts(view, model) do
+    provider = provider(model)
+
+    for account <- view.snapshot.work.model_accounts,
+        [^provider, name] <- [String.split(account, "@", parts: 2)],
+        do: name
+  end
+
+  @doc "What one entry of a list of models is called: the first choice, then each fallback."
+  @spec ladder_rung(non_neg_integer()) :: String.t()
+  def ladder_rung(0), do: "First choice"
+  def ladder_rung(index), do: "Fallback #{index}"
+
+  @doc """
+  One step on a list of models in a draft: add a fallback, remove an entry,
+  or move one up or down. A step the list cannot take leaves it as it is.
+
+  A new fallback starts as the model above it on the next account of its
+  provider that list does not already use it on, since the same model on
+  another account is the fallback most often wanted.
+  """
+  @spec ladder_step([map()], String.t(), integer() | nil, map()) :: [map()]
+  def ladder_step(entries, "add", _index, view) do
+    if length(entries) < Work.most_models(),
+      do: entries ++ [next_entry(entries, view)],
+      else: entries
+  end
+
+  def ladder_step(entries, "remove", index, _view)
+      when length(entries) > 1 and is_integer(index) and index in 0..(length(entries) - 1)//1,
+      do: List.delete_at(entries, index)
+
+  def ladder_step(entries, "up", index, _view)
+      when is_integer(index) and index in 1..(length(entries) - 1)//1,
+      do: swap(entries, index - 1)
+
+  def ladder_step(entries, "down", index, _view)
+      when is_integer(index) and index in 0..(length(entries) - 2)//1,
+      do: swap(entries, index)
+
+  def ladder_step(entries, _action, _index, _view), do: entries
+
+  defp next_entry([], _view), do: Map.new(@ladder_parts, &{&1, ""})
+
+  defp next_entry(entries, view) do
+    last = List.last(entries)
+
+    taken =
+      for entry <- entries,
+          entry["model"] == last["model"] and entry["effort"] == last["effort"],
+          do: entry["account"]
+
+    account =
+      Enum.find(ladder_accounts(view, last["model"]), &(&1 not in taken)) || last["account"]
+
+    %{last | "account" => account}
+  end
+
+  defp swap(entries, index) do
+    {first, [a, b | rest]} = Enum.split(entries, index)
+    first ++ [b, a | rest]
+  end
+
+  defp provider(model) when is_binary(model), do: model |> String.split(":", parts: 2) |> hd()
+  defp provider(_model), do: ""
+
+  defp provider_order(provider),
+    do:
+      {Enum.find_index(Work.providers(), &(&1 == provider)) || length(Work.providers()), provider}
+
+  defp model_name(model), do: model |> String.split(":", parts: 2) |> List.last()
+
+  # A saved model as the form holds it: the provider and model together, as
+  # its price names it, then its effort and its account.
+  defp ladder_entry(target) do
     case ExecutionTarget.parts(target) do
-      %{model: model, effort: effort} ->
-        {model, Enum.find_index(@efforts, &(&1 == effort)) || length(@efforts), target}
+      %{provider: provider, model: model} = parts ->
+        %{
+          "model" => "#{provider}:#{model}",
+          "effort" => parts.effort || "",
+          "account" => parts.account || ""
+        }
 
       nil ->
-        {target, 0, target}
+        Map.new(@ladder_parts, &{&1, ""})
     end
   end
+
+  # The entries of a submitted list, in the order the form numbered them. A
+  # draft already holds them as a list.
+  defp ladder_entries(entries) when is_list(entries),
+    do: entries |> Enum.take(@ladder_bound) |> Enum.map(&ladder_fields/1)
+
+  defp ladder_entries(%{} = numbered) do
+    numbered
+    |> Enum.flat_map(fn {index, entry} ->
+      case Integer.parse(to_string(index)) do
+        {position, ""} when position >= 0 -> [{position, entry}]
+        _not_a_position -> []
+      end
+    end)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.take(@ladder_bound)
+    |> Enum.map(fn {_position, entry} -> ladder_fields(entry) end)
+  end
+
+  defp ladder_entries(_mismatched), do: []
+
+  defp ladder_fields(%{} = entry), do: Map.new(@ladder_parts, &{&1, text(Map.get(entry, &1))})
+  defp ladder_fields(_mismatched), do: Map.new(@ladder_parts, &{&1, ""})
+
+  # An entry missing a part becomes a model the settings refuse by its shape.
+  defp ladder_target(entry), do: "#{entry["model"]}/#{entry["effort"]}@#{entry["account"]}"
 
   defp workers(1), do: "worker"
   defp workers(_count), do: "workers"
@@ -925,18 +1107,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
       end
 
     "#{model} already has a price from #{day}. Choose another day, or edit that price."
-  end
-
-  @doc "The words for a saved model, as its option in the select reads."
-  @spec model_label(String.t()) :: String.t()
-  def model_label(target) do
-    case ExecutionTarget.present(target) do
-      %{model: model, meta: meta} when is_binary(meta) ->
-        model <> " · " <> (meta |> String.split(" · ") |> hd())
-
-      %{compact: compact} ->
-        compact
-    end
   end
 
   @doc "Whether a token rate prices this model, so its cost can be estimated."
@@ -1025,6 +1195,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       else: empty_value(field)
   end
 
+  defp submitted_value(%{kind: :ladder}, value), do: ladder_entries(value)
   defp submitted_value(_field, value) when is_binary(value), do: value
   defp submitted_value(field, _mismatched), do: empty_value(field)
 
@@ -1083,6 +1254,12 @@ defmodule Ryker.ControlPlane.SettingsSections do
   end
 
   defp cast_field(%{kind: :lifecycle}, _absent), do: {:ok, nil}
+
+  # A form always sends every list it shows; one it did not send is left as saved.
+  defp cast_field(%{kind: :ladder}, ""), do: :skip
+
+  defp cast_field(%{kind: :ladder}, value),
+    do: {:ok, value |> ladder_entries() |> Enum.map(&ladder_target/1)}
 
   defp cast_field(%{kind: :boolean}, value), do: {:ok, value in ["true", "on", true]}
 
@@ -1178,12 +1355,18 @@ defmodule Ryker.ControlPlane.SettingsSections do
     end
   end
 
+  def row_value(%{kind: :ladder}, models), do: ExecutionTarget.present(models || []).compact
   def row_value(field, value), do: form_value(field, value)
 
   @doc "A saved value rendered for its control."
-  @spec form_value(map(), term()) :: String.t() | map()
+  @spec form_value(map(), term()) :: String.t() | map() | [map()]
   def form_value(%{kind: :mapping} = field, value),
     do: Map.new(subfields(field), &{&1, Map.get(value || %{}, &1, "")})
+
+  def form_value(%{kind: :ladder}, models) when is_list(models),
+    do: Enum.map(models, &ladder_entry/1)
+
+  def form_value(%{kind: :ladder}, _absent), do: []
 
   def form_value(%{kind: :lifecycle} = field, value),
     do: Map.new(subfields(field), &{&1, Enum.join(Map.get(value || %{}, &1, []), ", ")})

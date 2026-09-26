@@ -5,7 +5,7 @@ defmodule Ryker.Accounting.Pricing do
   never a provider-reported charge or a subscription bill.
 
   A call is priced at the latest price saved for its provider and model (its
-  effort and profile removed) that took effect on or before the UTC day it
+  effort and account removed) that took effect on or before the UTC day it
   was recorded, so a new price never reaches back to earlier work. A model no
   saved price covers stays unpriced rather than free.
   """
@@ -135,7 +135,7 @@ defmodule Ryker.Accounting.Pricing do
   end
 
   # The one rule for which saved price covers a call: the price saved for its
-  # provider and model, without `/effort` or `@profile`, with the latest
+  # provider and model, without `/effort` or `@account`, with the latest
   # effective day on or before the day the call was recorded.
   defp in_effect_query(target, day) do
     model = dynamic(fragment("split_part(split_part(?, '@', 1), '/', 1)", ^target))
