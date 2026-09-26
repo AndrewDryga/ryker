@@ -294,6 +294,43 @@ defmodule Ryker.Slack.ChannelSetup do
     end
   end
 
+  @doc """
+  `redraw_welcome/3` on a task of its own under `supervisor`, for a change
+  saved somewhere that must not wait on Slack, such as the channel's page in
+  Ryker. Returns at once. The outcome, or `{:error, :timeout}` once Slack has
+  taken `timeout_ms` without answering, is sent to `reply_to` as
+  `{:channel_welcome_redrawn, workspace_ref, channel_ref, result}`.
+  """
+  @spec redraw_welcome_async(
+          String.t(),
+          String.t(),
+          map(),
+          pid(),
+          GenServer.server(),
+          pos_integer()
+        ) ::
+          :ok
+  def redraw_welcome_async(workspace_ref, channel_ref, options, reply_to, supervisor, timeout_ms) do
+    {:ok, _task} =
+      Task.Supervisor.start_child(supervisor, fn ->
+        redraw =
+          Task.Supervisor.async_nolink(supervisor, fn ->
+            redraw_welcome(workspace_ref, channel_ref, options)
+          end)
+
+        result =
+          case Task.yield(redraw, timeout_ms) || Task.shutdown(redraw, :brutal_kill) do
+            {:ok, result} -> result
+            {:exit, _reason} -> {:error, :redraw_failed}
+            nil -> {:error, :timeout}
+          end
+
+        send(reply_to, {:channel_welcome_redrawn, workspace_ref, channel_ref, result})
+      end)
+
+    :ok
+  end
+
   @doc false
   @spec welcome_document(ChannelConfiguration.t(), String.t() | nil, map()) ::
           {:ok, map()} | {:error, term()}

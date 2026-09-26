@@ -102,6 +102,11 @@ defmodule Ryker.Slack.Runtime do
     :operators
   ]
 
+  # Redraws asked for from outside Slack run under this supervisor and give up
+  # after this long, well within the time a person waits on a page.
+  @welcome_tasks Ryker.Slack.WelcomeTasks
+  @welcome_timeout_ms 15_000
+
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
     options = supervisor_options!(configuration)
@@ -120,20 +125,35 @@ defmodule Ryker.Slack.Runtime do
   @doc """
   Redraws a channel's welcome from its saved settings, the way a save made in
   Slack does, for a change saved elsewhere, such as the channel's page in
-  Ryker. Only a running Slack runtime can post there, so with Slack switched
-  off this says so instead.
+  Ryker, on a task this runtime supervises, so the change never waits on
+  Slack (until 2026-09-26 the page waited for Slack's answer before it said
+  the change was saved). Returns `:ok` once the task is started; the outcome
+  reaches `reply_to` as `ChannelSetup.redraw_welcome_async/6` describes. Only
+  a running Slack runtime can post there, so with Slack switched off this
+  says so instead.
   """
-  @spec redraw_welcome(String.t(), String.t()) :: {:ok, :posted | :updated} | {:error, term()}
-  def redraw_welcome(workspace_ref, channel_ref) do
-    case Application.get_env(:ryker, :slack) do
-      nil ->
-        {:error, :slack_not_running}
+  @spec redraw_welcome(String.t(), String.t(), pid()) :: :ok | {:error, :slack_not_running}
+  def redraw_welcome(workspace_ref, channel_ref, reply_to) do
+    with %{} = configuration <- Application.get_env(:ryker, :slack),
+         tasks when is_pid(tasks) <- Process.whereis(@welcome_tasks) do
+      setup = options!(configuration).handler_settings.setup_options
 
-      configuration ->
-        setup = options!(configuration).handler_settings.setup_options
-        ChannelSetup.redraw_welcome(workspace_ref, channel_ref, setup)
+      ChannelSetup.redraw_welcome_async(
+        workspace_ref,
+        channel_ref,
+        setup,
+        reply_to,
+        tasks,
+        @welcome_timeout_ms
+      )
+    else
+      _not_running -> {:error, :slack_not_running}
     end
   end
+
+  @doc false
+  @spec welcome_tasks() :: atom()
+  def welcome_tasks, do: @welcome_tasks
 
   @doc """
   Builds the trusted Delivery registry entry for the same Slack runtime.

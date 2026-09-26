@@ -97,6 +97,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        github_repository_discovery: :idle,
        repository_notice: nil,
        channel_notice: nil,
+       welcome_pending: nil,
        slack_members: [],
        emisar_edit_ref: nil,
        webhook_credential_editing: false,
@@ -154,7 +155,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        setup_notice: if(location.path == socket.assigns.path, do: socket.assigns.setup_notice),
        setup_failure: nil,
        settings_confirm: nil,
-       channel_notice: nil
+       channel_notice: nil,
+       welcome_pending: nil
      )
      |> assign_conversation_draft(location.path)
      |> refresh(true)}
@@ -210,6 +212,26 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      socket
      |> assign(settings: {:ok, view}, settings_error: nil, settings_confirm: nil)
      |> refresh()}
+  end
+
+  # The welcome redraw a channel's environment change asked for, back from
+  # Slack. Only the page that asked hears it, and only a redraw that did not
+  # work changes what it says: the change itself was saved already.
+  def handle_info({:channel_welcome_redrawn, workspace, channel, result}, socket) do
+    case {socket.assigns.welcome_pending, result} do
+      {{^workspace, ^channel, _saved}, {:ok, _delivered}} ->
+        {:noreply, assign(socket, :welcome_pending, nil)}
+
+      # The channel page renders its notice when it loads, so it loads again.
+      {{^workspace, ^channel, saved}, {:error, reason}} ->
+        {:noreply,
+         socket
+         |> assign(channel_notice: welcome_not_redrawn(saved, reason), welcome_pending: nil)
+         |> refresh()}
+
+      _another_page ->
+        {:noreply, socket}
+    end
   end
 
   # A saved environment closes its editor and says so on the list.
@@ -607,27 +629,31 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       when is_binary(workspace) and is_binary(channel) and is_binary(environment) do
     choice = if environment == "", do: nil, else: environment
 
-    notice =
+    {notice, pending} =
       case ChannelConfigurations.select_environment(workspace, channel, choice, @actor_ref) do
         # A change redraws the channel's welcome in Slack the way a save made
-        # there does; until 2026-09-26 the card kept naming the old
-        # environment after a change here.
+        # there does (until 2026-09-26 the card kept naming the old
+        # environment). The redraw runs on Slack's own task and reports back
+        # here, so a slow Slack never holds up the save; until then the page
+        # waited for Slack's answer before it said anything.
         {:ok, %{status: :saved}} ->
+          saved = channel_environment_saved(choice)
           %{actions: actions} = Endpoint.config(:control_plane)
 
-          welcome_redrawn(
-            channel_environment_saved(choice),
-            actions.redraw_channel_welcome.(workspace, channel)
-          )
+          case actions.redraw_channel_welcome.(workspace, channel) do
+            :ok -> {{:success, saved}, {workspace, channel, saved}}
+            {:error, reason} -> {welcome_not_redrawn(saved, reason), nil}
+          end
 
         {:ok, %{status: :unchanged}} ->
-          {:success, channel_environment_saved(choice)}
+          {{:success, channel_environment_saved(choice)}, nil}
 
         {:error, reason} ->
-          {:error, channel_environment_error(reason)}
+          {{:error, channel_environment_error(reason)}, nil}
       end
 
-    {:noreply, socket |> assign(:channel_notice, notice) |> refresh(true)}
+    {:noreply,
+     socket |> assign(channel_notice: notice, welcome_pending: pending) |> refresh(true)}
   end
 
   # The default moves in one save: whichever environment had it gives it up.
@@ -1296,16 +1322,21 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     "Saved. This channel works in #{name} now."
   end
 
-  defp welcome_redrawn(saved, {:ok, _delivered}), do: {:success, saved}
-
-  defp welcome_redrawn(saved, {:error, :slack_not_running}),
+  defp welcome_not_redrawn(saved, :slack_not_running),
     do:
       {:warning,
        saved <>
          " Slack is not connected, so Ryker's welcome message in the channel still shows the " <>
          "old environment."}
 
-  defp welcome_redrawn(saved, {:error, _refused}),
+  defp welcome_not_redrawn(saved, :timeout),
+    do:
+      {:warning,
+       saved <>
+         " Slack did not answer in time, so Ryker's welcome message in the channel may still " <>
+         "show the old environment."}
+
+  defp welcome_not_redrawn(saved, _refused),
     do:
       {:warning,
        saved <>
