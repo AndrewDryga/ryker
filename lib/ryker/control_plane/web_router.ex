@@ -26,7 +26,7 @@ defmodule Ryker.ControlPlane.WebRouter do
     live("/", Ryker.ControlPlane.WorkbenchLive)
 
     for path <-
-          ~w(conversations activity incident-rooms schedules follow-ups environments channels repositories working-copies failures memory rules instructions usage integrations setup) do
+          ~w(conversations activity incident-rooms schedules follow-ups environments channels repositories working-copies failures memory rules instructions usage integrations settings setup) do
       live("/#{path}", Ryker.ControlPlane.WorkbenchLive)
     end
 

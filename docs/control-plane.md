@@ -32,10 +32,10 @@ Live invalidation domains follow the first path segment, so `activity` and
 A detail page whose record does not exist (a timeline, schedule, incident room,
 conversation, failure or channel) answers 404 on its first, server-rendered
 load, with the same page a browser shows for it; live navigation inside the
-page makes no HTTP request and so has no status. `/settings` is not a page:
-the navigation's Settings group opens its four pages directly and never links
-the bare path, so it answers 404 like any other unknown path rather than
-redirecting.
+page makes no HTTP request and so has no status. `/settings` is the Settings
+overview, the way `/integrations` is the Integrations overview: each of the two
+sidebar groups opens on its overview, which lists its pages with what each sets
+or where it stands.
 
 ### Timeline evidence: what is recorded and what is not
 
@@ -860,7 +860,7 @@ replacement, not the older dashboard or the intended final design above.
 | Memory | Three pages beside Findings. Facts: what people asked Ryker to remember, where each applies and how often it was used, with confirmed forget and a Needs review section (keep, merge, edit, forget) for stale or repeated facts. Learned: topics and conversation summaries with their source messages, update history, how each update was learned, and relearning for a topic whose sources are gone. Learning: whether background learning runs here, what waits, batches that need attention with one more start or, when a learned topic lost its sources, the topic to relearn first, recent passes by outcome, handovers that were not saved, and learning worker sessions, with the on/off switch opposite the title (turning it off asks first) |
 | Setup | Live onboarding at `/setup`: the six required steps as an ordered list with one open step (why it matters, what it needs, about how long, one action), the Slack-side steps checked off when Ryker notices them, the channel's environment chosen on the channel's page (done once a joined channel has one; adding a repository creates the Default environment, so there is no step for that), Emisar as the one recommended step with its own panel that never blocks ready, and a calm ready state; the sidebar keeps a way back while required steps are open |
 | Integrations | Live: an overview of Slack, GitHub, Emisar and webhooks, each with its state in words, what it gives Ryker, what is connected and one action, and a page per integration to connect, repair, manage or disconnect it (disconnects and removals ask first); each Emisar account says which environments use it, and the environments without one are counted with a link to Environments |
-| Settings | Models, Data retention, Model prices and Advanced: live editors for every product decision, each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; each model says where Ryker uses it; Add opens its form above the list and a row's Edit under that row; Advanced says in plain words where work runs, what each kind of work may do and whether tasks that change code can run, then an allowlist of effective runtime values, MCP/host/tool grant names, and repository-topology linkage. Secrets, endpoints, callbacks, and raw policy documents are omitted, and credentials appear only as configured, missing or unusable |
+| Settings | Live: an overview of Models, Data retention, Model prices and Advanced, each with what it sets and what it is set to now (the models in use, how many days data is kept, how many prices, where work runs), and each page's live editors for every product decision, each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; each model says where Ryker uses it; Add opens its form above the list and a row's Edit under that row; Advanced says in plain words where work runs, what each kind of work may do and whether tasks that change code can run, then an allowlist of effective runtime values, MCP/host/tool grant names, and repository-topology linkage. Secrets, endpoints, callbacks, and raw policy documents are omitted, and credentials appear only as configured, missing or unusable |
 
 Every administrative action is a POST behind a native two-step confirm and
 writes its store transition and audit row in the same act, attributed to

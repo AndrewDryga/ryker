@@ -155,15 +155,62 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     # Integrations moved out of Settings on 2026-09-24 and the old overview
     # became /setup. A pre-v1 move is a clean cut: no alias answers the old
     # addresses, so a stale link fails loudly instead of landing somewhere else.
+    # /settings is now the Settings overview, a page of its own, not an alias
+    # for the old one.
     initialize!()
 
-    for path <- ~w(/settings /settings/slack /settings/github /settings/emisar /settings/webhooks) do
+    for path <- ~w(/settings/slack /settings/github /settings/emisar /settings/webhooks) do
       assert get(build_conn() |> Map.put(:host, "localhost"), path).status == 404, path
     end
 
-    for path <- ~w(/setup /integrations /integrations/slack /settings/models /settings/advanced) do
+    for path <-
+          ~w(/setup /integrations /integrations/slack /settings /settings/models /settings/advanced) do
       assert {:ok, _view, _html} = open(path)
     end
+  end
+
+  test "Settings has an overview of its pages, the way Integrations has one" do
+    # QA 2026-09-26: /settings answered 404 while /integrations opened an
+    # overview. Settings was the one group in the sidebar whose own address
+    # found nothing, so a remembered or typed /settings read as a broken page.
+    prices = length(initialize!().pricing_rates)
+    assert prices > 1
+
+    conn = build_conn() |> Map.put(:host, "localhost") |> get("/settings")
+    assert conn.status == 200
+
+    {:ok, _view, html} = open("/settings")
+    document = LazyHTML.from_document(html)
+
+    assert LazyHTML.query(document, "main h1") |> LazyHTML.text() == "Settings"
+    assert LazyHTML.query(document, "title") |> LazyHTML.text() == "Settings · Ryker"
+
+    rows = LazyHTML.query(document, "main .settings-list .entity-row")
+
+    assert rows |> LazyHTML.query(".entity-name a") |> LazyHTML.attribute("href") ==
+             ~w(/settings/models /settings/retention /settings/prices /settings/advanced)
+
+    assert rows |> LazyHTML.query(".entity-name a") |> texts() ==
+             ["Models", "Data retention", "Model prices", "Advanced"]
+
+    # Each row says what its page sets, and where it is now.
+    assert rows |> LazyHTML.query(".entity-text") |> Enum.count() == 4
+    models = LazyHTML.query(document, "#setting-model .entity-meta") |> LazyHTML.text()
+    assert models =~ "gpt-5.6-sol"
+    assert models =~ "gpt-5.6-terra"
+
+    assert LazyHTML.query(document, "#setting-pricing .entity-meta") |> LazyHTML.text() =~
+             "#{prices} prices"
+
+    # The sidebar's Settings group opens on its overview, as Integrations does,
+    # and the overview alone is selected on its own address.
+    settings_links = LazyHTML.query(document, "details#nav-settings a")
+
+    assert LazyHTML.attribute(settings_links, "href") ==
+             ~w(/settings /settings/models /settings/retention /settings/prices /settings/advanced)
+
+    assert LazyHTML.query(document, "details#nav-settings a[aria-current=page]")
+           |> LazyHTML.attribute("href") == ["/settings"]
   end
 
   test "the sidebar leads back into setup until every required step is done" do

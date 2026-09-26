@@ -49,6 +49,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     ["integrations", "github"] => :github,
     ["integrations", "emisar"] => :emisar,
     ["integrations", "webhooks"] => :webhooks,
+    ["settings"] => :settings,
     ["settings", "models"] => :model,
     ["settings", "retention"] => :retention,
     ["settings", "prices"] => :pricing,

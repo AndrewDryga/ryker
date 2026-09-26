@@ -2324,7 +2324,7 @@
 .ryker-app .setup-emisar-actions p { margin:0; font-size:12px; line-height:17px; color:var(--ryker-text-secondary); }
 .ryker-app .setup-emisar-facts { margin:6px 0 16px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 
-.settings-page > .integrations-list { margin-top:20px; }
+.settings-page > :is(.integrations-list, .settings-list) { margin-top:20px; }
 @media (max-width:1180px) {
   .setup { grid-template-columns:minmax(0, 1fr); gap:36px; }
   .setup-aside { position:static; max-width:640px; }

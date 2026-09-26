@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
   """
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.{Pages, WorkingCopiesPage}
+  alias Ryker.ControlPlane.{PageHelp, Pages, WorkingCopiesPage}
 
   @now ~U[2026-08-28 14:00:00Z]
 
@@ -283,6 +283,27 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
              "No working copies right now."
 
     assert LazyHTML.text(none) =~ "Nothing is ready for cleanup right now."
+  end
+
+  test "the help names a worker's storage in the words its storage line uses" do
+    # QA, 2026-09-25: storage read "0.16 GiB kept" beside "No working copies
+    # right now". The line was reworded to what the worker measures ("in use",
+    # "can be freed", "allowed"), but the page's help still said "what is
+    # kept, what can be removed", sending the reader back to the old word.
+    storage =
+      PageHelp.for_path("/working-copies").sections
+      |> Enum.find(&(&1.heading == "Storage"))
+      |> Map.fetch!(:paragraphs)
+      |> Enum.join(" ")
+
+    line = render([]) |> LazyHTML.query("#storage-worker-a") |> LazyHTML.text() |> squeeze()
+
+    for words <- ["in use", "can be freed", "allowed"] do
+      assert line =~ words
+      assert storage =~ words, "the help does not say #{words}"
+    end
+
+    refute storage =~ "kept"
   end
 
   test "the route renders the working copies under their own name" do

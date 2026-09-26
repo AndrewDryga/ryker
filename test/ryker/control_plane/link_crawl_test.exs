@@ -34,12 +34,12 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
             /channels /repositories /failures /working-copies /memory /memory/learned /memory/findings
             /memory/learning /rules
             /instructions /usage /setup /integrations /integrations/slack /integrations/github
-            /integrations/emisar /integrations/webhooks /settings/models /settings/retention
-            /settings/prices /settings/advanced)
+            /integrations/emisar /integrations/webhooks /settings /settings/models
+            /settings/retention /settings/prices /settings/advanced)
 
   @live_routes [
     ~r{^/$},
-    ~r{^/(conversations|activity|incident-rooms|schedules|follow-ups|environments|channels|repositories|failures|working-copies|memory|rules|instructions|usage|setup|integrations)$},
+    ~r{^/(conversations|activity|incident-rooms|schedules|follow-ups|environments|channels|repositories|failures|working-copies|memory|rules|instructions|usage|setup|integrations|settings)$},
     ~r{^/memory/(learned|findings|learning)$},
     ~r{^/integrations/(slack|github|emisar|webhooks)$},
     ~r{^/settings/(models|retention|prices|advanced)$},

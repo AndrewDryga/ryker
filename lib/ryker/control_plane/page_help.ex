@@ -63,6 +63,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/integrations/github", :github},
     {"/integrations/emisar", :emisar},
     {"/integrations/webhooks", :webhooks},
+    {"/settings", :settings},
     {"/settings/models", :models},
     {"/settings/retention", :retention},
     {"/settings/prices", :prices},
@@ -443,7 +444,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Storage",
        [
-         "Each worker reports its space: what is kept, what can be removed and the limit. A worker that is full stops taking new copies until space frees up."
+         "Each worker reports its space: how much is in use, how much can be freed and how much it is allowed. A worker that is full stops taking new copies until space frees up."
        ]}
     ])
   end
@@ -770,6 +771,23 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"When something looks wrong",
        [
          "A credential that a source still uses cannot be deleted. Change or remove that source first."
+       ]}
+    ])
+  end
+
+  defp help(:settings) do
+    page("How settings work", [
+      {"What this page shows",
+       [
+         "The settings that decide how Ryker itself runs, each with what it sets and what it is set to now: models, data retention, model prices and advanced settings."
+       ]},
+      {"Change a setting",
+       [
+         "Open a setting to change it on its own page. Each page saves on its own, and asks first before a change that deletes data."
+       ]},
+      {"Where services are connected",
+       [
+         "Slack, GitHub, Emisar and webhooks are connected under Integrations, not here."
        ]}
     ])
   end
