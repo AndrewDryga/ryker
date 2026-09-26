@@ -75,9 +75,27 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   defp directory_titles([]), do: []
 
   defp directory_titles(items) do
-    refs = Enum.map(items, & &1.ref)
+    titles = titles(Enum.map(items, & &1.ref))
 
-    titles =
+    Enum.map(items, fn item ->
+      Map.put(
+        item,
+        :title,
+        titles[item.ref] || "Conversation · #{Calendar.strftime(item.updated_at, "%d %b")}"
+      )
+    end)
+  end
+
+  @doc """
+  What each direct conversation is called, by conversation reference: the
+  name Ryker gave its latest work there, or else its opening message. A
+  conversation with neither has no title.
+  """
+  @spec titles([String.t()]) :: %{String.t() => String.t()}
+  def titles([]), do: %{}
+
+  def titles(refs) do
+    opening =
       Repo.all(
         from(entry in Entry,
           join: current in subquery(CurrentInputs.latest()),
@@ -101,33 +119,18 @@ defmodule Ryker.ControlPlane.ConversationProjection do
              )}
         )
       )
-      |> Map.new()
 
     secrets = InspectionRedactor.configured_secrets()
-    named = episode_titles(refs)
 
-    Enum.map(items, fn item ->
-      artifact =
-        InspectionRedactor.artifact(titles[item.ref],
-          secrets: secrets,
-          max_bytes: 600
-        )
-
-      Map.put(
-        item,
-        :title,
-        cond do
-          is_binary(named[item.ref]) ->
-            named[item.ref]
-
-          artifact.text in [nil, ""] ->
-            "Conversation · #{Calendar.strftime(item.updated_at, "%d %b")}"
-
-          true ->
-            String.slice(artifact.text, 0, 160)
-        end
-      )
+    opening
+    |> Enum.flat_map(fn {ref, text} ->
+      case InspectionRedactor.artifact(text, secrets: secrets, max_bytes: 600).text do
+        text when text in [nil, ""] -> []
+        text -> [{ref, String.slice(text, 0, 160)}]
+      end
     end)
+    |> Map.new()
+    |> Map.merge(episode_titles(refs))
   end
 
   # Once Ryker has named its latest work in a conversation, that name is the

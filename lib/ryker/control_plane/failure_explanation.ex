@@ -2427,24 +2427,38 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ],
       tried: [
         tried(row, now),
-        "Ryker does not start again on its own: a start can be a model call, and this batch has used what it was given."
+        "Ryker does not start again on its own, because a start can be a model call."
       ],
       if_left: "These messages stay unlearned. Nothing else changes.",
       outlook: cause.outlook,
       outlook_note: cause.note,
-      fix:
-        if cause.outlook != :stuck do
-          %{
-            person: true,
-            label: "Grant one more start",
-            href: row[:learning_path],
-            link: "Open its attempts",
-            effect:
-              "The Learning page shows why each attempt stopped. Grant one more start there and Ryker reads these messages again under the current learning policy."
-          }
-        end
+      fix: learning_fix(row, cause)
     }
   end
+
+  # A topic that lost its sources stops every start the same way, so the step
+  # that moves the batch is relearning that topic, not granting another start.
+  defp learning_fix(%{summary: "knowledge_target_unavailable", relearn_path: path}, _cause)
+       when is_binary(path),
+       do: %{
+         person: true,
+         label: "Relearn the topic",
+         href: path,
+         effect:
+           "Relearn the topic on Learned from the messages that still exist. One more start can then update it with these messages."
+       }
+
+  defp learning_fix(_row, %{outlook: :stuck}), do: nil
+
+  defp learning_fix(row, _cause),
+    do: %{
+      person: true,
+      label: "Grant one more start",
+      href: row[:learning_path],
+      link: "Open its attempts",
+      effect:
+        "The Learning page shows why each attempt stopped. Grant one more start there and Ryker reads these messages again under the current learning policy."
+    }
 
   defp learning_cause(%{summary: "learning_retry_exhausted"}),
     do:
@@ -2455,15 +2469,33 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "Another start works if what stopped the attempts has changed; each attempt says what that was."
       )
 
-  defp learning_cause(%{summary: code})
-       when code in ~w(knowledge_target_unavailable knowledge_match_ambiguous),
+  defp learning_cause(%{summary: "knowledge_target_unavailable", relearn_path: path})
+       when is_binary(path),
        do:
          cause(
-           "The learned topic it would change was unclear or no longer valid.",
-           "The messages matched a learned topic Ryker could not safely change: either more than one topic fit, or the one that fit no longer had valid sources.",
-           :unknown,
-           "Another start may pick a different topic; the attempt says which one it could not change."
+           "A learned topic these messages would update lost the messages it was learned from.",
+           "Ryker does not change a topic whose own messages changed, were removed or expired, so every attempt stopped on it.",
+           :fix_first,
+           "Another start stops the same way until the topic is relearned from messages that still exist."
          )
+
+  defp learning_cause(%{summary: "knowledge_target_unavailable"}),
+    do:
+      cause(
+        "The topic it stopped on has been relearned since.",
+        "A learned topic these messages would update had lost the messages it was learned from. It has been relearned from messages that still exist.",
+        :ready,
+        "One more start can now update it with these messages."
+      )
+
+  defp learning_cause(%{summary: "knowledge_match_ambiguous"}),
+    do:
+      cause(
+        "More than one learned topic fits these messages.",
+        "The messages matched more learned topics than Ryker can safely choose between.",
+        :unknown,
+        "Another start may settle on one topic; each attempt says which topics fit."
+      )
 
   defp learning_cause(%{summary: "learning_capacity_exceeded"}),
     do:

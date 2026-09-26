@@ -95,18 +95,22 @@ defmodule Ryker.Learning.Batches do
     end)
   end
 
-  defp terminal_release?(batch, reason),
-    do:
-      batch.start_count >= batch.start_limit or
-        reason in [
-          :knowledge_target_unavailable,
-          :knowledge_match_ambiguous,
-          :learning_capacity_exceeded,
-          :learning_remote_unresolved
-        ]
+  # Causes another start would meet again, so they stop the batch at once.
+  @stopping_reasons [
+    :knowledge_target_unavailable,
+    :knowledge_match_ambiguous,
+    :learning_capacity_exceeded,
+    :learning_remote_unresolved
+  ]
 
+  defp terminal_release?(batch, reason),
+    do: batch.start_count >= batch.start_limit or reason in @stopping_reasons
+
+  # A cause that stops the batch by itself keeps its name even when it also
+  # spent the last start: "every start was used" would hide it and invite one
+  # more start that meets the same cause.
   defp release_code(batch, reason) do
-    if batch.start_count >= batch.start_limit and reason != :learning_remote_unresolved,
+    if batch.start_count >= batch.start_limit and reason not in @stopping_reasons,
       do: "learning_retry_exhausted",
       else: Atom.to_string(reason)
   end

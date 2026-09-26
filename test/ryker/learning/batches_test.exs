@@ -188,6 +188,23 @@ defmodule Ryker.Learning.BatchesTest do
     assert {:ok, :idle} = Batches.claim("worker", @settings)
   end
 
+  test "a stale topic stays the named cause when it stops the last granted start" do
+    # QA, 2026-09-25, batch 96368bd7: the first attempt stopped on a topic whose
+    # source history was no longer valid; "Grant one more start" ran it again
+    # and it stopped the same way, but that stop spent the granted start, so
+    # the batch said "every start was used" and offered yet another start
+    # instead of the relearn that fixes it.
+    _entries = inputs!()
+    assert {:ok, claim} = Batches.claim("worker", @settings)
+    assert {:ok, run} = Learning.prepare(Enum.map(claim.inputs, & &1.id), @settings)
+    assert {:ok, _} = Batches.begin_execution(claim, run.id)
+    Repo.update_all(Batch, set: [start_limit: 1])
+
+    assert {:ok, batch} = Batches.release(claim, :knowledge_target_unavailable, 0)
+    assert batch.status == :deferred
+    assert batch.error_code == "knowledge_target_unavailable"
+  end
+
   test "fresh arrivals cannot postpone the oldest decided input beyond the maximum delay" do
     # Structural queue timing over captured messages: busy channels may never
     # become quiet, but their oldest unassigned input must still get learned.

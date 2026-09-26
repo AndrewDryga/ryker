@@ -726,6 +726,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       input_count: batch.input_count,
       kind: "learning",
       learning_path: LearningActivity.path(batch.id),
+      relearn_path: relearn_path(LearningActivity.relearn_topics(batch)),
       policy: batch.policy,
       ref: batch.id,
       source: batch.repository_ref || "no repository",
@@ -735,6 +736,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
       updated_at: batch.updated_at
     }
   end
+
+  # Where to relearn the topics a batch stopped on: the topic itself when
+  # there is one, the Learned list when there are several.
+  defp relearn_path([]), do: nil
+  defp relearn_path([topic]), do: topic.path
+  defp relearn_path(_topics), do: "/memory/learned"
 
   defp decorate_failures(items) do
     items

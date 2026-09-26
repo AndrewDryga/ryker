@@ -61,7 +61,7 @@ defmodule Ryker.ControlPlane.LearningPage do
                 MemoryFormat.count(batch.input_count, "message", "messages"),
                 starts(batch),
                 MemoryFormat.time(batch.at),
-                MemoryFormat.time(batch.next_attempt_at, "Next check ")
+                MemoryFormat.time(batch[:next_check], "Next check ")
               ]}
             >
               <:actions><a class="ui-button secondary" href={batch.path}>Review</a></:actions>
@@ -233,10 +233,28 @@ defmodule Ryker.ControlPlane.LearningPage do
         if(@batch.mode == :shadow, do: "From shadow mode"),
         MemoryFormat.time(@batch.at, "Queued "),
         MemoryFormat.time(@batch.completed_at, "Finished "),
-        MemoryFormat.time(@batch.next_attempt_at, "Next check ")
+        MemoryFormat.time(@batch[:next_check], "Next check ")
       ]} />
       <p :if={@batch.retry_blocked} class="memory-note">{@batch.retry_blocked}</p>
     </article>
+    <section :if={@batch[:relearn] not in [nil, []]} id="relearn-topics" class="memory-section">
+      <Kit.section_head
+        title="Relearn the topic first"
+        lede="These messages would update a learned topic that lost the messages it was learned from, so every start stops on it. Relearn it from the messages that still exist; one more start can then update it."
+      />
+      <Kit.entity_list label="Topics to relearn">
+        <Kit.entity_row
+          :for={topic <- @batch.relearn}
+          id={"relearn-" <> topic.id}
+          icon={:book}
+          name={topic.title}
+          href={topic.path}
+          state={{:warn, "Not used"}}
+        >
+          <:actions><a class="ui-button primary" href={topic.path}>Relearn it</a></:actions>
+        </Kit.entity_row>
+      </Kit.entity_list>
+    </section>
     <section :if={@batch.retry_available && @csrf_secret} id="retry" class="memory-section">
       <Kit.section_head
         title="Try once more"
@@ -325,9 +343,17 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp waiting(0), do: "No messages waiting"
   defp waiting(count), do: MemoryFormat.count(count, "message", "messages") <> " waiting"
 
-  defp starts(batch),
+  # How many model starts a batch used. The limit is part of it only while
+  # the batch can still start: a stopped batch keeps none of the starts it
+  # did not use, so "1 of 3" there promised two that would never run.
+  defp starts(%{status: status} = batch) when status in [:queued, :running],
     do:
       "#{batch.start_count} of #{MemoryFormat.count(batch.start_limit, "model start", "model starts")} used"
+
+  defp starts(%{start_count: 0}), do: "No model starts used"
+
+  defp starts(batch),
+    do: MemoryFormat.count(batch.start_count, "model start", "model starts") <> " used"
 
   defp state(:queued), do: {:off, LearningActivity.label(:queued)}
   defp state(:running), do: {:busy, LearningActivity.label(:running)}

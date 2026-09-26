@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   alias Ryker.CanonicalJSON
 
   alias Ryker.ControlPlane.{
+    ConversationMemory,
     FailureExplanation,
     FailureProjection,
     FailuresPage,
@@ -26,13 +27,14 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   alias Ryker.Delivery.ReactionCustody
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Learning.Batch, as: LearningBatch
   alias Ryker.Learning.FleetSession, as: LearningFleetSession
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.State.Learning
+  alias Ryker.State.{ConversationKnowledge, Learning}
   alias Ryker.Work.{Cancellation, Custody, Session, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -231,6 +233,59 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     detail = exact |> FailuresPage.detail() |> IO.iodata_to_binary()
     assert detail =~ "Grant one more start"
     assert detail =~ path
+  end
+
+  test "learning stopped by a topic that lost its sources points to relearning it" do
+    # QA, 2026-09-25, batch 96368bd7: a learned topic's own messages were gone,
+    # so every attempt stopped on it, and Failures sent the reader to "Grant
+    # one more start", which ran again and stopped the same way. Relearning the
+    # topic from messages that still exist is the step that moves it.
+    [old, _current] = LearningFixtures.inputs!()
+
+    proposal = %{
+      "topic_key" => "checkout-readiness-history",
+      "title" => "Checkout readiness history",
+      "summary" =>
+        "This message reports a historical checkout readiness alert; current health is unverified.",
+      "topics" => ["checkout"],
+      "anchors" => [],
+      "target_ref" => nil,
+      "expected_version" => 0
+    }
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn -> KnowledgeFixtures.record_topic(old, proposal, []) end)
+
+    topic = Repo.one!(ConversationKnowledge)
+    KnowledgeFixtures.revoke!(old)
+
+    batch =
+      Repo.insert!(%LearningBatch{
+        id: Ecto.UUID.generate(),
+        scope_key: "failures-stale-topic-#{System.unique_integer([:positive])}",
+        transport: old.destination_transport,
+        conversation_ref: old.destination_conversation_ref,
+        repository_ref: old.repository_ref,
+        execution_mode: old.execution_mode,
+        policy: "recorded-read-only-policy",
+        policy_digest: String.duplicate("c", 64),
+        status: :deferred,
+        input_count: 2,
+        start_count: 2,
+        start_limit: 2,
+        error_code: "knowledge_target_unavailable"
+      })
+
+    assert {:ok, row} = FailureProjection.fetch("learning", batch.id)
+    explained = FailureExplanation.explain(row)
+    relearn = ConversationMemory.topic_path(topic.id) <> "#relearn"
+
+    assert explained.outlook == :fix_first
+    assert explained.button == %{label: "Relearn the topic", href: relearn}
+
+    detail = row |> FailuresPage.detail() |> IO.iodata_to_binary()
+    assert detail =~ relearn
+    refute detail =~ "Grant one more start"
   end
 
   test "an unresolved learning worker reports the scheduled retry instead of being in use" do

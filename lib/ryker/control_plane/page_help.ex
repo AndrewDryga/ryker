@@ -633,7 +633,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"When learning needs you",
        [
-         "Needs attention lists conversations where learning stopped, such as after it used all its tries. Review one to see what happened; Grant one more start tries the same messages once more.",
+         "Needs attention lists conversations where learning stopped, such as after it used all its tries. Review one to see what happened; Grant one more start tries the same messages once more. When it stopped on a learned topic that lost its messages, relearn that topic on Learned first.",
          "If learning can't start, the page links to the settings it is missing."
        ]}
     ])
