@@ -2,10 +2,13 @@ defmodule Ryker.ObservabilityTest do
   use Ryker.DataCase, async: false
 
   import Ecto.Query
+  import Plug.Test
 
+  alias Ryker.ControlPlane.Router
   alias Ryker.CoopFleet.{Client, ControlPlane, Worker}
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
+  alias Ryker.Fixtures.ControlPlaneOptions
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.Inbox
@@ -23,6 +26,266 @@ defmodule Ryker.ObservabilityTest do
   alias Ryker.Work.Session
 
   @now ~U[2026-08-29 12:00:00.000000Z]
+
+  # scripts/watchdog.sh reads the reasons /readyz prints and sums the blocked
+  # totals /metrics exports, deploy.sh waits on both, and Prometheus scrapes
+  # every series. Splitting the 1,080-line observability module on 2026-09-26
+  # must not move one byte they read, so this pins all three answers for one
+  # fixed installation: every family, label, value and line in order. Ages move
+  # with the clock, so each must fall between the database clock readings taken
+  # around the scrape. Series built from maps come out in the VM's map order
+  # (atom keys iterate by atom index, not by name), so the expectation iterates
+  # maps with the same keys instead of assuming an alphabetical order.
+  test "the probes answer the same bytes for the same installation" do
+    previous =
+      Map.new([:work, :fleet_profiles, :slack], &{&1, Application.get_env(:ryker, &1, :missing)})
+
+    on_exit(fn -> Enum.each(previous, fn {key, value} -> restore_env(key, value) end) end)
+
+    assert {:ok, client} =
+             Client.new(capability_names: ["responder-state"], workspace_ref: "workspace-probes")
+
+    Application.put_env(:ryker, :work, %{api: Client, client: client})
+    Application.delete_env(:ryker, :slack)
+
+    Application.put_env(:ryker, :fleet_profiles, %{
+      {"read_only", nil} => %{
+        authority_digest: String.duplicate("d", 64),
+        policy: "work-read-only",
+        policy_digest: String.duplicate("b", 64),
+        repository_ref: nil
+      }
+    })
+
+    now = database_now!()
+    ingress_at = DateTime.add(now, -7_200, :second)
+    lease_at = DateTime.add(now, -1_800, :second)
+    progress_at = DateTime.add(now, -3_600, :second)
+    measured_at = DateTime.add(now, -600, :second)
+
+    # Structural fixture: an input that has waited two hours for admission.
+    assert {:ok, input} = slack_input("probe input")
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+    Repo.update_all(from(row in Entry, where: row.id == ^entry.id),
+      set: [inserted_at: ingress_at, updated_at: ingress_at]
+    )
+
+    # Structural fixture: Work whose lease has been held for thirty minutes.
+    episode_id = Ecto.UUID.generate()
+
+    assert {:ok, transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode_id,
+                 episode_key: "observability-probes:#{episode_id}",
+                 native_input_id: "source:observability-probes:#{episode_id}",
+                 occurred_at: @now,
+                 turn_ref: "turn:observability-probes:#{episode_id}"
+               })
+             )
+
+    assert {:ok, _session} =
+             Custody.pin_episode(transition.episode.id, "read-only", String.duplicate("a", 64))
+
+    assert {:ok, claim} = Custody.claim_next("observability-probes-worker", 3_600, :work)
+
+    Repo.update_all(from(turn in Ryker.Work.Turn, where: turn.id == ^claim.turn.id),
+      set: [updated_at: lease_at]
+    )
+
+    # Structural fixture: the Work lane last cycled an hour ago.
+    assert :ok = Progress.record(:work, :cycle)
+
+    Repo.query!("UPDATE ryker_runtime_progress SET observed_at = $1 WHERE lane = 'work'", [
+      progress_at
+    ])
+
+    # One worker whose volume refuses workspaces, measured ten minutes ago.
+    assert {:ok, _worker} =
+             ControlPlane.authorize_worker(
+               "worker-probes",
+               "workspace-probes",
+               String.duplicate("e", 64)
+             )
+
+    assert {:ok, _poll} =
+             ControlPlane.handle_poll(
+               "worker-probes",
+               "worker-probes"
+               |> storage_poll("workspace-probes", 9_663_676_416, "refused")
+               |> put_in(["worker", "storage", "measured_at"], DateTime.to_iso8601(measured_at))
+             )
+
+    # Structural fixture: one workspace kept because it is dirty.
+    retained = terminal_work_session!("probes")
+
+    Repo.update_all(from(row in Session, where: row.id == ^retained.id),
+      set: [cleanup_status: :retained, retained_reason: "dirty"]
+    )
+
+    # Slack turned on in settings but never started.
+    {:ok, saved} = Settings.initialize("control-plane:local")
+
+    {:ok, _saved} =
+      Settings.save_slack(
+        %{
+          enabled: true,
+          workspace_ref: "T0123456789",
+          bot_ref: "A0123456789",
+          bot_user_ref: "U0123456789"
+        },
+        saved.installation.revision,
+        "control-plane:local"
+      )
+
+    before = database_now!()
+    health = probe("/healthz")
+    ready = probe("/readyz")
+    metrics = probe("/metrics")
+    later = database_now!()
+
+    assert {health.status, health.resp_body} == {200, "ok\n"}
+
+    assert {ready.status, ready.resp_body} ==
+             {503,
+              "not ready: runtime not running: work; no_workspace_storage; " <>
+                "lane not cycling: work; lease held too long: work; " <>
+                "queue not draining: ingress; not configured: slack\n"}
+
+    assert metrics.status == 200
+    assert Plug.Conn.get_resp_header(metrics, "content-type") == ["text/plain; charset=utf-8"]
+
+    # Progress heartbeats are stored without a zone and read back naive.
+    timed = %{
+      ~s(ryker_queue_oldest_age_seconds{queue="ingress"}) => ingress_at,
+      ~s(ryker_queue_oldest_active_age_seconds{queue="work"}) => lease_at,
+      ~s(ryker_runtime_progress_age_seconds{lane="work"}) => DateTime.to_naive(progress_at),
+      "ryker_coop_fleet_storage_oldest_measurement_age_seconds" => measured_at
+    }
+
+    scraped =
+      metrics.resp_body
+      |> String.split("\n")
+      |> Enum.map_join("\n", fn line ->
+        with [series, value] <- String.split(line, " "),
+             %{} = at <- Map.get(timed, series),
+             true <- String.to_integer(value) in age(before, at)..age(later, at) do
+          series <> " <age>"
+        else
+          _exact -> line
+        end
+      end)
+
+    assert scraped == Enum.join(expected_probe_metrics(), "\n") <> "\n"
+  end
+
+  # Every queue in the order readiness reads them; only these two have rows.
+  defp expected_probe_metrics do
+    queues =
+      Enum.flat_map(
+        ~w(ingress work cancellation delivery reaction_delivery publication emisar_approval
+           publication_followup publication_lifecycle retention schedule),
+        fn queue ->
+          label = ~s({queue="#{queue}"})
+
+          {active, claimable, oldest_active, oldest} =
+            case queue do
+              "ingress" -> {0, 1, 0, "<age>"}
+              "work" -> {1, 0, "<age>", 0}
+              _empty -> {0, 0, 0, 0}
+            end
+
+          [
+            "ryker_queue_active_leases#{label} #{active}",
+            "ryker_queue_claimable#{label} #{claimable}",
+            "ryker_queue_oldest_active_age_seconds#{label} #{oldest_active}",
+            "ryker_queue_oldest_age_seconds#{label} #{oldest}"
+          ]
+        end
+      )
+
+    [
+      "# Ryker aggregate lifecycle metrics. No message or prompt labels are exported.",
+      "# An absent storage series is an unmeasured value, never a measured zero.",
+      "ryker_observability_snapshot 1"
+    ] ++
+      in_map_order(%{
+        incidents: [],
+        ingress: [~s(ryker_ingress_total{status="pending"} 1)],
+        publications: [],
+        reactions: [],
+        schedules: [],
+        task_cards: ["ryker_task_cards_total 0"],
+        work: [~s(ryker_work_total{status="pending"} 1)]
+      }) ++
+      queues ++
+      [
+        ~s(ryker_runtime_progress_age_seconds{lane="work"} <age>),
+        ~s(ryker_runtime_progress_cycles{lane="work"} 1),
+        "ryker_coop_fleet_required 1",
+        "ryker_coop_fleet_fresh_workers 1",
+        "ryker_coop_fleet_stale_workers 0",
+        "ryker_coop_fleet_eligible_workers 1",
+        "ryker_coop_fleet_required_policy_profiles 1",
+        "ryker_coop_fleet_available_policy_profiles 1",
+        "ryker_coop_fleet_current_placements 0",
+        "ryker_coop_fleet_expired_current_placements 0",
+        "ryker_coop_fleet_event_cursor_lag 0",
+        "ryker_coop_fleet_oldest_queued_command_age_seconds 0",
+        "ryker_coop_fleet_checkpoints 0",
+        "ryker_coop_fleet_latest_checkpoint_age_seconds 0",
+        ~s(ryker_coop_fleet_workers{state="eligible"} 1),
+        ~s(ryker_coop_fleet_provider_workers{state="eligible"} 1)
+      ] ++
+      in_map_order(%{
+        session: [
+          ~s(ryker_coop_fleet_slots_free{kind="session"} 2),
+          ~s(ryker_coop_fleet_slots_total{kind="session"} 4)
+        ],
+        turn: [
+          ~s(ryker_coop_fleet_slots_free{kind="turn"} 2),
+          ~s(ryker_coop_fleet_slots_total{kind="turn"} 4)
+        ],
+        workspace: [
+          ~s(ryker_coop_fleet_slots_free{kind="workspace"} 2),
+          ~s(ryker_coop_fleet_slots_total{kind="workspace"} 4)
+        ]
+      }) ++
+      [
+        "ryker_coop_fleet_storage_reporting_workers 1",
+        "ryker_coop_fleet_storage_stale_workers 0",
+        "ryker_coop_fleet_storage_unknown_workers 0",
+        "ryker_coop_fleet_storage_refused_workers 1",
+        "ryker_coop_fleet_storage_reclaimed_bytes 0",
+        "ryker_coop_fleet_storage_oldest_measurement_age_seconds <age>",
+        ~s(ryker_coop_fleet_storage_bytes{kind="capacity"} 536870912000),
+        ~s(ryker_coop_fleet_storage_bytes{kind="disposable"} 9663676416),
+        ~s(ryker_coop_fleet_storage_bytes{kind="free"} 107374182400),
+        ~s(ryker_coop_fleet_storage_bytes{kind="protected"} 21474836480),
+        ~s(ryker_coop_fleet_storage_bytes{kind="reserve"} 5368709120),
+        ~s(ryker_coop_fleet_storage_bytes{kind="unattributed"} 1073741824),
+        "ryker_retention_blocked 0",
+        "ryker_retention_eligible 0",
+        "ryker_retention_retrying 0",
+        "ryker_retention_oldest_eligible_age_seconds 0",
+        "ryker_retention_last_reclaimed_age_seconds 0"
+      ] ++
+      in_map_order(%{
+        active: [~s(ryker_retention_sessions{status="active"} 1)],
+        retained: [~s(ryker_retention_sessions{status="retained"} 1)]
+      }) ++
+      [~s(ryker_retention_retained{reason="dirty"} 1)]
+  end
+
+  defp in_map_order(lines_by_key), do: Enum.flat_map(lines_by_key, &elem(&1, 1))
+
+  # Aged exactly as the scrape ages them: a naive timestamp by the whole
+  # seconds NaiveDateTime.diff counts, a zoned one by elapsed time.
+  defp age(now, %NaiveDateTime{} = at),
+    do: max(NaiveDateTime.diff(DateTime.to_naive(now), at, :second), 0)
+
+  defp age(now, at), do: max(DateTime.diff(now, at, :second), 0)
 
   test "health readiness and metrics expose queue facts without payloads or destinations" do
     secret = "private-payload-never-a-metric"
@@ -978,6 +1241,21 @@ defmodule Ryker.ObservabilityTest do
         "workspace_ref" => workspace_ref
       }
     }
+  end
+
+  # The request exactly as a probe or scraper sends it, answered by the real
+  # observability callbacks rather than the router fixture's doubles.
+  defp probe(path) do
+    options =
+      self()
+      |> ControlPlaneOptions.options()
+      |> Map.put(:observability, Observability.callbacks())
+
+    :get
+    |> conn(path)
+    |> Map.put(:host, "localhost")
+    |> Map.put(:remote_ip, {127, 0, 0, 1})
+    |> Router.call(Router.init(options))
   end
 
   defp restore_env(key, :missing), do: Application.delete_env(:ryker, key)
