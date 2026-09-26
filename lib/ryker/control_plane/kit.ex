@@ -2,14 +2,17 @@ defmodule Ryker.ControlPlane.Kit do
   @moduledoc """
   The shared parts every page is built from, from Activity and Incident rooms
   to Channels, Automations, Memory, Usage and Settings: counts, the toolbar
-  row, rows, tables, facts and states.
+  row, rows, tables, facts, states, section cards and empty states.
 
   One list language for all of them: rows sit on the page with faint
   separators, an icon tile for what kind of thing each one is, a name, then
   what it does, then one line of facts; its state, its time and its own
   controls sit at the far edge. A list ordered by time opens each day with a
   heading. State is a dot and a word, and tone lives only there and in the
-  tile. String-rendered pages call these through
+  tile. A long page of several parts, such as a channel's page or an
+  integration's, gives each part its own card, and a list that is one part
+  of such a page keeps its rows inside that card. Anything with nothing to
+  show says so with `empty/1`. String-rendered pages call these through
   `Phoenix.HTML.Safe.to_iodata/1` with `__changed__: nil`.
   """
   use Phoenix.Component
@@ -332,18 +335,74 @@ defmodule Ryker.ControlPlane.Kit do
     """
   end
 
-  attr(:title, :string, required: true)
-  attr(:text, :string, default: nil)
-  slot(:inner_block)
+  attr(:icon, :atom, required: true, doc: "What would be here, as a Components.icon name")
+  attr(:title, :string, required: true, doc: "What is missing, in a few words")
+  attr(:text, :string, default: nil, doc: "One sentence: why, or what would put something here")
 
-  @doc "What a list says when it has nothing to show, and what would put something there."
+  attr(:variant, :atom,
+    values: [:boxed, :hint, :bare],
+    default: :boxed,
+    doc: "Boxed for an empty page, list or table; hint for an empty part of a longer page"
+  )
+
+  attr(:id, :string, default: nil)
+  slot(:inner_block, doc: "The one action that would put something here")
+
+  @doc """
+  What a page, list, table or section shows when it has nothing to show: an
+  icon for what would be there, a title, one sentence and optionally the one
+  action that would put something there, centred, so it reads as empty at a
+  glance, before anyone reads it (Andrew, 2026-09-26: a bold line and a grey
+  line looked like any other text on the page).
+
+  `:boxed` is an empty page, list or table: a dashed box around it. `:hint`
+  is an empty part of a longer page, such as one section of a channel's page:
+  a smaller dashed box. `:bare` draws no box, for a place that already frames
+  it, such as a raised panel.
+  """
   def empty(assigns) do
     ~H"""
-    <div class="entity-empty">
-      <p class="entity-empty-title">{@title}</p>
-      <p :if={@text}>{@text}</p>
-      {render_slot(@inner_block)}
+    <div id={@id} class="kit-empty" data-variant={@variant}>
+      <span class="kit-empty-icon" aria-hidden="true"><Components.icon name={@icon} /></span>
+      <p class="kit-empty-title">{@title}</p>
+      <p :if={@text} class="kit-empty-text">{@text}</p>
+      <div :if={@inner_block != []} class="kit-empty-actions">{render_slot(@inner_block)}</div>
     </div>
+    """
+  end
+
+  @doc "`empty/1` for a page built as an HTML string: icon, title, text and variant."
+  @spec empty_html(keyword()) :: iodata()
+  def empty_html(options) do
+    %{__changed__: nil, id: nil, text: nil, variant: :boxed, inner_block: []}
+    |> Map.merge(Map.new(options))
+    |> empty()
+    |> Safe.to_iodata()
+  end
+
+  attr(:title, :string, default: nil, doc: "Nil only for a page's one card, under the page title")
+  attr(:lede, :string, default: nil, doc: "One sentence on what the part is for")
+  attr(:id, :string, default: nil)
+  attr(:anchor, :string, default: nil, doc: "The id other pages link to, on the title")
+  attr(:label, :string, default: nil, doc: "What the part is, for a card without a title")
+  attr(:class, :any, default: nil)
+  slot(:actions, doc: "Controls for the whole part, such as Add, beside the title")
+  slot(:inner_block, required: true, doc: "Its controls and their actions")
+
+  @doc """
+  One part of a long page in its own card: its title, one sentence, then its
+  controls and their actions, with the same space between every card (Andrew,
+  2026-09-26: Integrations › Slack and a channel's page read as "a huge blob
+  of text"). A form's closing actions sit under a hairline.
+  """
+  def section_card(assigns) do
+    ~H"""
+    <section id={@id} class={["kit-card", @class]} aria-label={@label || @title}>
+      <.section_head :if={@title} id={@anchor} title={@title} lede={@lede}>
+        <:actions :if={@actions != []}>{render_slot(@actions)}</:actions>
+      </.section_head>
+      {render_slot(@inner_block)}
+    </section>
     """
   end
 

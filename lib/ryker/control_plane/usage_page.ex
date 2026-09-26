@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.UsagePage do
   @moduledoc "Usage as an operator's ledger: totals, subscriptions, and the work behind them."
-  alias Ryker.ControlPlane.{SettingsRows, UsageChart}
+  alias Ryker.ControlPlane.{Kit, SettingsRows, UsageChart}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
@@ -150,7 +150,10 @@ defmodule Ryker.ControlPlane.UsagePage do
     ]
   end
 
-  defp breakdown([], _, kind), do: ["<p class=\"empty\">", empty(kind), "</p>"]
+  defp breakdown([], _, kind) do
+    {title, text} = empty(kind)
+    Kit.empty_html(variant: :hint, icon: :usage, title: title, text: text)
+  end
 
   defp breakdown(rows, snapshot, :user) do
     [
@@ -240,13 +243,15 @@ defmodule Ryker.ControlPlane.UsagePage do
   # people in Slack or GitHub, so either is empty while Chat work ran; "No
   # activity in this period" there contradicted the totals above it.
   defp empty(:channel),
-    do: "No work came from a Slack channel in this period. Chat is not listed by channel."
+    do: {"No work came from a Slack channel in this period", "Chat is not listed by channel."}
 
   defp empty(:user),
     do:
-      "No work came from a person in Slack or GitHub in this period. Chat is not listed by user."
+      {"No work came from a person in Slack or GitHub in this period",
+       "Chat is not listed by user."}
 
-  defp empty(_kind), do: "No activity in this period."
+  defp empty(_kind),
+    do: {"No activity in this period", "Choose a longer window to see earlier work."}
 
   defp truncation(rows),
     do:
@@ -407,7 +412,12 @@ defmodule Ryker.ControlPlane.UsagePage do
     total = Enum.sum(Enum.map(segments, &elem(&1, 1)))
 
     if total == 0 do
-      "<p class=\"empty\">No timing recorded yet.</p>"
+      Kit.empty_html(
+        variant: :bare,
+        icon: :clock,
+        title: "No timing recorded yet",
+        text: "How long work waited and ran shows here once Ryker works."
+      )
     else
       {arcs, _} =
         Enum.map_reduce(segments, 0, fn {label, ms, class}, offset ->

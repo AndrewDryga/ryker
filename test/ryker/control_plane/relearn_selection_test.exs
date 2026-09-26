@@ -27,7 +27,7 @@ defmodule Ryker.ControlPlane.RelearnSelectionTest do
     preview = preview()
     html = render(%{preview | entries: []})
 
-    assert html =~ "No eligible current messages match"
+    assert html =~ "No current messages match"
     assert html =~ ~s(data-relearn-scope="knowledge:relearn:#{preview.topic_id}:3:2")
     assert html =~ "data-relearn-hidden"
     assert html =~ "data-relearn-count"

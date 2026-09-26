@@ -59,7 +59,8 @@ defmodule Ryker.ControlPlane.FailuresPage do
     <div class="failures-page">
       <%= if @people == [] and @housekeeping == [] do %>
         <Kit.empty
-          title="Nothing needs you."
+          icon={:check}
+          title="Nothing needs you"
           text="When Ryker cannot finish something on its own, such as a reply, a Slack update or a cleanup, it shows up here with what you can do about it."
         />
       <% else %>

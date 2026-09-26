@@ -342,7 +342,12 @@ other way; `page-help.mjs` owns the button and keeps its label through live
 updates. The panel replaced the one-line how-to hints that sat under a few lists
 ("To open one, ask Ryker in the alert's Slack thread…"): no page explains itself
 in its body, while an empty state still says what would put something in the
-list.
+list. Every empty state is the Kit's (`Kit.empty/1`): an icon for what would be
+there, a title, one sentence and the action that fills it, centred in a dashed
+box for an empty page, list or table, a smaller one for an empty part of a
+longer page, and no box inside a frame that already holds it, so it reads as
+empty before anyone reads it. `PageConsistencyTest` renders a sample of empty
+pages and fails on an empty state drawn any other way.
 
 ## Why this exists
 
@@ -641,6 +646,12 @@ episode.
   again closes it, as Cancel does; a row's Edit opens its form under that row. A
   section whose only job is a form, such as the Slack tokens or the GitHub App
   credentials, shows its fields rather than a disclosure
+- A long page gives each part its own card (`Kit.section_card/1`), as the Emisar
+  portal's settings do: its title, one sentence, its controls, and the button
+  that saves them under a hairline, with the same space between cards. The
+  integration pages open with a Connection card; on the Slack page New channels
+  and Incident rooms are separate cards, each with its own Save. A channel's
+  page is cards too, and Data retention is one card under the page title
 - Worker policies are chosen by name from what enrolled, unrevoked workers
   advertise; the digest and authority digest are copied from that advertisement,
   never typed, and a binding the fleet no longer advertises is shown as

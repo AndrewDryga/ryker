@@ -671,10 +671,10 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     refute LazyHTML.text(document) =~ "No activity in this period"
 
-    assert document |> LazyHTML.query("#usage-channels .empty") |> LazyHTML.text() =~
+    assert document |> LazyHTML.query("#usage-channels .kit-empty") |> LazyHTML.text() =~
              "Chat is not listed by channel"
 
-    assert document |> LazyHTML.query("#usage-users .empty") |> LazyHTML.text() =~
+    assert document |> LazyHTML.query("#usage-users .kit-empty") |> LazyHTML.text() =~
              "Chat is not listed by user"
   end
 

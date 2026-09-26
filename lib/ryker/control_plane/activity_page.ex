@@ -98,6 +98,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
       </button>
       <Kit.empty
         :if={@activity.total == 0}
+        icon={if @filtered, do: :search, else: :activity}
         title={if @filtered, do: "No matching activity", else: "No activity yet"}
         text={
           if @filtered,

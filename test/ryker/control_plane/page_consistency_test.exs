@@ -28,10 +28,14 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
     ActivityPage,
     Assets,
     BehaviorPage,
+    ChannelPage,
     EnvironmentsPage,
+    FailuresPage,
     Kit,
     PageHelp,
-    Pages
+    Pages,
+    UsagePage,
+    WorkingCopiesPage
   }
 
   alias Ryker.Fixtures.ControlPlaneOptions
@@ -121,6 +125,35 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
 
       for retired <- @retired,
           do: assert(Enum.empty?(LazyHTML.query(document, retired)), "#{name} uses #{retired}")
+    end
+  end
+
+  # Andrew, 2026-09-26: "Empty table states across the app should not look
+  # like title+subtitle, they need to be properly designed, otherwise tables
+  # look like text blobs and you can't tell it's an empty state without
+  # reading it all." A channel with nothing on it showed five, each a bold
+  # line and a grey line under its section's own bold title and grey
+  # sentence, and Usage said so in one grey line per breakdown. Each page
+  # below is rendered with nothing in it: every empty part shows the Kit's
+  # empty state, whole, and no sentence saying there is nothing sits outside
+  # one, so a hand-rolled empty state on these pages fails here.
+  test "every empty state on a sample of empty pages is the Kit empty state" do
+    for {name, document, expected} <- empty_pages() do
+      empties = LazyHTML.query(document, ".kit-empty")
+      assert Enum.count(empties) == expected, "#{name} shows #{Enum.count(empties)} empty states"
+
+      for empty <- empties do
+        title = empty |> LazyHTML.query(".kit-empty-title") |> LazyHTML.text()
+        assert title != "", "#{name} has an empty state without a title"
+
+        assert LazyHTML.query(empty, ".kit-empty-icon > svg") |> Enum.count() == 1,
+               "#{name}: “#{title}” has no icon"
+
+        assert LazyHTML.query(empty, ".kit-empty-text") |> LazyHTML.text() != "",
+               "#{name}: “#{title}” says nothing under its title"
+      end
+
+      assert hand_rolled(document) == [], "#{name} says it is empty outside the Kit empty state"
     end
   end
 
@@ -293,5 +326,83 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
 
     assert page.status == 200, "#{path} answered #{page.status}"
     LazyHTML.from_fragment(page.body)
+  end
+
+  # Pages with nothing in them, each with how many empty parts it has.
+  defp empty_pages do
+    [
+      {"A channel", empty_channel(), 5},
+      {"Rules", rules(), 1},
+      {"Working copies", empty_working_copies(), 2},
+      {"Failures", [] |> FailuresPage.list() |> fragment(), 1},
+      {"Usage & cost", empty_usage(), 8}
+    ]
+  end
+
+  # The recorded channel, with none of its lists holding anything.
+  defp empty_channel do
+    {:ok, view} =
+      ControlPlaneOptions.options(self()).projection.channel.("T123", "C456", %{})
+
+    nothing = fn relation -> %{relation | items: [], total: 0, page: 1, pages: 1} end
+    view = Enum.reduce(~w(episodes schedules summaries)a, view, &Map.update!(&2, &1, nothing))
+    assigns = %{__changed__: nil, view: view, now: ~U[2026-09-26 12:00:00Z]}
+
+    [ChannelPage.lead(assigns), ChannelPage.render(assigns)]
+    |> Enum.map(&Safe.to_iodata/1)
+    |> fragment()
+  end
+
+  defp empty_working_copies do
+    worker = %{
+      allocation: "open",
+      bytes: %{"disposable_bytes" => 0, "protected_bytes" => 0, "unattributed_bytes" => nil},
+      id: "worker-a",
+      last_seen_at: ~U[2026-09-26 11:59:00Z],
+      measured_at: "2026-09-26T11:58:00Z",
+      measurement: :fresh,
+      reclaimed_bytes: 0,
+      refusal_reason: nil,
+      state: :idle
+    }
+
+    %{rows: [], storage: %{budget: %{}, preview: [], workers: [worker]}, now: nil}
+    |> WorkingCopiesPage.html()
+    |> fragment()
+  end
+
+  defp empty_usage do
+    snapshot = ControlPlaneOptions.options(self()).projection.usage.(%{})
+
+    zero = fn
+      %Decimal{} -> Decimal.new(0)
+      value when is_number(value) -> 0
+      value -> value
+    end
+
+    totals = Map.new(snapshot.totals, fn {key, value} -> {key, zero.(value)} end)
+
+    %{snapshot | days: [], targets: [], channels: [], repositories: [], totals: totals}
+    |> UsagePage.render()
+    |> IO.iodata_to_binary()
+    |> LazyHTML.from_document()
+  end
+
+  defp fragment(iodata), do: iodata |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+
+  # What says a list or a part of a page has nothing in it, outside a Kit
+  # empty state. A fact's value ("None, so …") and a row's facts are not
+  # empty states.
+  @nothing ~r/^(No|Nothing|Nobody|None yet|Ryker has not)\b/
+
+  defp hand_rolled(document) do
+    said = texts(document, "p, li, strong, span, td, h3")
+    allowed = texts(document, ".kit-empty *, dd, dd *, option, .entity-row *")
+    Enum.filter(said -- allowed, &(&1 =~ @nothing))
+  end
+
+  defp texts(document, selector) do
+    for node <- LazyHTML.query(document, selector),
+        do: node |> LazyHTML.text() |> String.split() |> Enum.join(" ")
   end
 end

@@ -337,8 +337,8 @@ defmodule Ryker.ControlPlane.LiveTest do
     conn = build_conn() |> Map.put(:host, "localhost")
 
     {:ok, empty, _} = live(conn, "/rules?q=nothing-here")
-    assert has_element?(empty, "main .behavior-page > .entity-empty", "No rules match")
-    assert has_element?(empty, "main .entity-empty a[href='/rules']", "Clear the search")
+    assert has_element?(empty, "main .behavior-page > .kit-empty", "No rules match")
+    assert has_element?(empty, "main .kit-empty a[href='/rules']", "Clear the search")
     refute has_element?(empty, ".document-unavailable")
     refute has_element?(empty, ".app-warning", "could not refresh")
 
@@ -350,7 +350,7 @@ defmodule Ryker.ControlPlane.LiveTest do
           {:ok, failed, _} = live(conn, path)
           assert has_element?(failed, ".document-unavailable", "temporarily unavailable"), path
           assert has_element?(failed, ".app-warning", "could not refresh"), path
-          refute has_element?(failed, ".entity-empty"), path
+          refute has_element?(failed, ".kit-empty"), path
           refute has_element?(failed, "main", "No rules match"), path
           refute has_element?(failed, "main", "Nothing saved yet"), path
         end

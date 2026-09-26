@@ -106,48 +106,49 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   @sections [
     # Whether Slack is on at all is the connection itself (Connect and
-    # Disconnect on the Slack page), not a checkbox in this form.
+    # Disconnect on the Slack page), not a checkbox in these forms. New
+    # channels and incident rooms are separate cards on that page, each with
+    # its own Save (Andrew, 2026-09-26: each part of a long page is a card
+    # with its controls and its actions). The Channels page links to the
+    # first by its anchor.
     %{
-      key: :slack,
+      key: :new_channels,
       domain: :slack,
       kind: :singleton,
       schema: Slack,
-      title: "Slack",
-      description: "How Ryker takes part in channels and the rooms it opens for incidents.",
-      groups: %{
-        "New channels" => %{
-          id: "new-channels",
-          lede:
-            "Used in every channel that has not made its own choice. " <>
-              "You can change each channel on its own page."
-        },
-        "Incident rooms" => %{lede: "Channels Ryker creates for an incident."}
-      },
+      anchor: "new-channels",
+      title: "New channels",
+      description:
+        "Used in every channel that has not made its own choice. " <>
+          "You can change each channel on its own page.",
       fields: [
         %{
           name: :default_participation,
           kind: :choice,
           label: "When to reply",
-          options: @participation,
-          group: "New channels"
-        },
+          options: @participation
+        }
+      ]
+    },
+    %{
+      key: :incident_rooms,
+      domain: :slack,
+      kind: :singleton,
+      schema: Slack,
+      title: "Incident rooms",
+      description: "Channels Ryker creates for an incident.",
+      fields: [
         %{
           name: :channel_prefix,
           kind: :text,
           label: "Name starts with",
-          group: "Incident rooms",
           help: "Lowercase letters, numbers, dashes and underscores, such as inc.",
           errors: %{
             required: "Choose how incident room names start, such as inc.",
             format: "Use 1 to 20 lowercase letters, numbers, dashes or underscores, such as inc."
           }
         },
-        %{
-          name: :incident_private,
-          kind: :boolean,
-          label: "Make incident rooms private",
-          group: "Incident rooms"
-        }
+        %{name: :incident_private, kind: :boolean, label: "Make incident rooms private"}
       ]
     },
     # Shown under "Who can manage Ryker" on the Slack page, beside the people
@@ -310,6 +311,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           "it may change files, which repositories it sees and what it may run. " <>
           "The bundled worker writes these for you.",
       empty: {
+        :settings,
         "No policies yet",
         "The bundled worker writes these for you. Add one only for a worker you run yourself."
       },
@@ -368,6 +370,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       description:
         "Each source is one sender, such as a Grafana contact point, with its own address.",
       empty: {
+        :plug,
         "No webhook sources yet",
         "Add a source for each system that should send events to Ryker."
       },
@@ -719,7 +722,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
       item_label: "price",
       title: "Prices",
       description: "Ryker uses these to estimate cost when the provider does not report it.",
-      empty: {"No prices yet", "Add a price so Ryker can estimate what each model costs."},
+      empty:
+        {:usage, "No prices yet", "Add a price so Ryker can estimate what each model costs."},
       fields: [
         %{
           name: :execution_target,

@@ -87,12 +87,14 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
       </Kit.entity_list>
       <Kit.empty
         :if={@items == [] and @view.q != ""}
-        title={"No repositories match “#{@view.q}”."}
+        icon={:search}
+        title={"No repositories match “#{@view.q}”"}
         text="Try another name or clear the search."
       />
       <Kit.empty
         :if={@items == [] and @view.q == ""}
-        title="No repositories yet."
+        icon={:repository}
+        title="No repositories yet"
         text={
           if @connected,
             do: "Add repositories from GitHub below, so Ryker can read their code and work in them.",

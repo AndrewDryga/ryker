@@ -51,8 +51,15 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       <Kit.entity_list :if={@view.items != []} label="Rules">
         <.entry :for={item <- @view.items} item={item} now={@now} />
       </Kit.entity_list>
-      <Kit.empty :if={@view.items == []} title={rules_empty(@view)} text={rules_empty_text(@view)}>
-        <a :if={@q != ""} href={rules_url(@view, q: "")}>Clear the search</a>
+      <Kit.empty
+        :if={@view.items == []}
+        icon={if @q != "", do: :search, else: :bolt}
+        title={rules_empty(@view)}
+        text={rules_empty_text(@view)}
+      >
+        <a :if={@q != ""} class="ui-button secondary" href={rules_url(@view, q: "")}>
+          Clear the search
+        </a>
       </Kit.empty>
       <Components.pager
         page={@view.page}
@@ -84,6 +91,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
         </Kit.entity_list>
         <Kit.empty
           :if={@view.runs == []}
+          variant={:hint}
+          icon={:activity}
           title="No matches yet"
           text="When a message sets off one of these rules, it shows up here."
         />
@@ -136,6 +145,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
         </Kit.entity_list>
         <Kit.empty
           :if={@channel_rows == []}
+          variant={:hint}
+          icon={:hash}
           title="No channel has its own instructions yet"
           text="When something should apply in one channel only, open that channel and add instructions there."
         />
@@ -170,6 +181,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
         </Kit.entity_list>
         <Kit.empty
           :if={@saved.items == []}
+          variant={:hint}
+          icon={:chat}
           title={saved_empty(@saved)}
           text={saved_empty_text(@saved)}
         />
@@ -488,7 +501,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     end
   end
 
-  defp rules_empty_text(%{params: %{"q" => q}}) when q != "", do: nil
+  defp rules_empty_text(%{params: %{"q" => q}}) when q != "",
+    do: "Try other words, or clear the search to see every rule."
 
   defp rules_empty_text(%{params: params, counts: counts}) do
     cond do

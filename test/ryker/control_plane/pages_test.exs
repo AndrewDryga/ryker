@@ -192,10 +192,10 @@ defmodule Ryker.ControlPlane.PagesTest do
 
     empty = page("/incident-rooms", %{}, none).body |> LazyHTML.from_fragment()
 
-    assert LazyHTML.query(empty, ".entity-empty .entity-empty-title") |> LazyHTML.text() ==
+    assert LazyHTML.query(empty, ".kit-empty .kit-empty-title") |> LazyHTML.text() ==
              "No incident rooms yet"
 
-    assert LazyHTML.query(empty, ".entity-empty") |> LazyHTML.text() =~ "Create incident room"
+    assert LazyHTML.query(empty, ".kit-empty") |> LazyHTML.text() =~ "Create incident room"
 
     assert Enum.empty?(LazyHTML.query(empty, ".ask-hint"))
 
@@ -249,7 +249,7 @@ defmodule Ryker.ControlPlane.PagesTest do
     assert LazyHTML.query(incident, "#code-change .entity-row .state-word[data-tone=warn]")
            |> LazyHTML.text() == "Needs attention"
 
-    assert LazyHTML.query(incident, "#investigation .entity-empty-title") |> LazyHTML.text() ==
+    assert LazyHTML.query(incident, "#investigation .kit-empty-title") |> LazyHTML.text() ==
              "Nothing recorded yet"
 
     # A channel whose creation time the projection does not name keeps its

@@ -167,15 +167,15 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     installation!()
     {:ok, view, _html} = open("/environments")
 
-    assert has_element?(view, ".entity-empty-title", "No environments yet")
+    assert has_element?(view, ".kit-empty-title", "No environments yet")
 
     assert has_element?(
              view,
-             ".entity-empty",
+             ".kit-empty",
              "Connect GitHub, then add a repository: Ryker creates the Default environment for it."
            )
 
-    assert has_element?(view, ".entity-empty a[href='/integrations/github']", "Connect GitHub")
+    assert has_element?(view, ".kit-empty a[href='/integrations/github']", "Connect GitHub")
 
     for kind <- [:github_private_key, :github_webhook] do
       {:ok, _} = Credentials.put(kind, "primary", "not-a-working-key-long-enough", @actor)
@@ -185,13 +185,13 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
 
     assert has_element?(
              view,
-             ".entity-empty",
+             ".kit-empty",
              "Repair the GitHub connection, then add a repository: Ryker creates the Default environment for it."
            )
 
     assert has_element?(
              view,
-             ".entity-empty a[href='/integrations/github#github-app']",
+             ".kit-empty a[href='/integrations/github#github-app']",
              "Repair GitHub"
            )
 
@@ -204,7 +204,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     # Adding the first one opens its form where the empty list was.
     view |> element(".page-action a", "Add an environment") |> render_click()
     assert has_element?(view, "#environment-editor-new")
-    refute has_element?(view, ".entity-empty")
+    refute has_element?(view, ".kit-empty")
   end
 
   test "an address for an environment that is gone says so above the list" do

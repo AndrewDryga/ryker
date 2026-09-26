@@ -66,11 +66,13 @@ defmodule Ryker.ControlPlane.FindingsPage do
       </Kit.entity_list>
       <Kit.empty
         :if={@view.items == [] and @q != ""}
+        icon={:search}
         title={"No findings match “#{@q}”"}
         text="Try other words, or clear the search to see every finding."
       />
       <Kit.empty
         :if={@view.items == [] and @q == ""}
+        icon={:book}
         title="No findings yet"
         text="When Ryker investigates a problem, it saves what it concluded here, with the evidence behind it."
       />

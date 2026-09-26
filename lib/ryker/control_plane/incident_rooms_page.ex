@@ -115,11 +115,13 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
       </Kit.entity_list>
       <Kit.empty
         :if={@items == [] and @filtered}
+        icon={:search}
         title="No incident rooms match"
         text="Try other words or another status, or clear the filters."
       />
       <Kit.empty
         :if={@items == [] and not @filtered}
+        icon={:incident}
         title="No incident rooms yet"
         text="A room opens when someone chooses Create incident room on Ryker’s offer in an alert’s Slack thread, or when a channel is set to open one for every alert."
       />
@@ -184,7 +186,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
           <p :if={@latest.text} class="incident-room-now-text">{@latest.text}</p>
           <p :if={@latest.note} class="incident-room-now-note">{@latest.note}</p>
         <% else %>
-          <Kit.empty title="No update yet" text={no_update(@room)} />
+          <Kit.empty variant={:bare} icon={:chat} title="No update yet" text={no_update(@room)} />
         <% end %>
       </section>
       <section id="investigation" aria-labelledby="investigation-title">
@@ -210,11 +212,15 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
         </Kit.entity_list>
         <Kit.empty
           :if={@records == [] and is_nil(@room.episode_ref)}
+          variant={:hint}
+          icon={:clock}
           title="The investigation has not started"
           text="It starts in the room once the channel is ready and the responders are invited."
         />
         <Kit.empty
           :if={@records == [] and is_binary(@room.episode_ref)}
+          variant={:hint}
+          icon={:activity}
           title="Nothing recorded yet"
           text="Evidence, findings and progress appear here as Ryker records them."
         />

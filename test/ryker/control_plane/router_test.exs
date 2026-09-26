@@ -1920,13 +1920,13 @@ defmodule Ryker.ControlPlane.RouterTest do
     {metrics_at, _} = :binary.match(shadow, "class=\"usage-summary\"")
     assert scope_at < metrics_at
 
-    assert [] |> FailuresPage.list() |> IO.iodata_to_binary() =~ "Nothing needs you."
+    assert [] |> FailuresPage.list() |> IO.iodata_to_binary() =~ "Nothing needs you"
 
     assert WorkingCopiesPage.html(%{
              rows: [],
              storage: %{budget: %{}, preview: [], workers: []},
              now: nil
-           }) =~ "No working copies right now."
+           }) =~ "No working copies right now"
 
     assert HTML.not_found("Unknown") |> IO.iodata_to_binary() =~ "This unknown does not exist"
   end

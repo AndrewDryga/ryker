@@ -2,11 +2,11 @@ defmodule Ryker.ControlPlane.ChannelPage do
   @moduledoc """
   One channel's page under the shared header: how Ryker takes part here, the
   channel's instructions, what applies here, what Ryker knows, schedules,
-  recent work and usage, each a Kit section. The channel's environment, the
-  code and Emisar account its work uses, is chosen here.
+  recent work and usage, each in its own Kit section card. The channel's
+  environment, the code and Emisar account its work uses, is chosen here.
 
-  The live shell places the channel's instruction editor between `lead/1`
-  and `render/1`, so the page reads in that order. Lists never show raw
+  The live shell places the channel's instruction editor, which draws its own
+  card, between `lead/1` and `render/1`, so the page reads in that order. Lists never show raw
   Slack ids or refs; the ones support needs sit in one closed Details
   disclosure under "How Ryker takes part". Every list keeps its own page
   parameter and anchor, so paging one never resets another.
@@ -27,8 +27,9 @@ defmodule Ryker.ControlPlane.ChannelPage do
   )
 
   @doc """
-  The channel's state, how Ryker takes part here, and the heading of the
-  instructions the live editor fills in beneath.
+  The channel's state and how Ryker takes part here. Without the live
+  editor, it also says the channel's instructions could not be loaded, in
+  the card the editor would have drawn.
   """
   def lead(assigns) do
     assigns =
@@ -43,14 +44,17 @@ defmodule Ryker.ControlPlane.ChannelPage do
         <Kit.state tone={elem(@state, 0)} word={elem(@state, 1)} />
       </p>
       <.taking_part view={@view} now={@now} notice={@notice} />
-      <Kit.section_head
-        id="channel-instructions"
+      <Kit.section_card
+        :if={!@editor}
+        class="channel-section"
+        anchor="channel-instructions"
         title="Instructions"
-        lede="What Ryker should do differently in this channel. It follows the global instructions everywhere."
-      />
-      <p :if={!@editor} class="channel-note">
-        This channel's instructions could not be loaded. Reload the page to edit them.
-      </p>
+        lede={instructions_lede()}
+      >
+        <p class="channel-note">
+          This channel's instructions could not be loaded. Reload the page to edit them.
+        </p>
+      </Kit.section_card>
     </div>
     """
   end
@@ -72,6 +76,12 @@ defmodule Ryker.ControlPlane.ChannelPage do
     </div>
     """
   end
+
+  @doc "What the channel's Instructions card says under its title."
+  @spec instructions_lede() :: String.t()
+  def instructions_lede,
+    do:
+      "What Ryker should do differently in this channel. It follows the global instructions everywhere."
 
   defp defaults(assigns) do
     assigns
@@ -149,11 +159,12 @@ defmodule Ryker.ControlPlane.ChannelPage do
       )
 
     ~H"""
-    <section id="taking-part" class="channel-section">
-      <Kit.section_head
-        title="How Ryker takes part"
-        lede={taking_part_lede(@configuration, @environment)}
-      />
+    <Kit.section_card
+      id="taking-part"
+      class="channel-section"
+      title="How Ryker takes part"
+      lede={taking_part_lede(@configuration, @environment)}
+    >
       <dl class="channel-facts">
         <.fact label="Conversations">
           <%= if @view.participation do %>
@@ -243,7 +254,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           <.fact :if={@room} label="Incident room ID"><code>{@room.ref}</code></.fact>
         </dl>
       </details>
-    </section>
+    </Kit.section_card>
     """
   end
 
@@ -419,14 +430,17 @@ defmodule Ryker.ControlPlane.ChannelPage do
       )
 
     ~H"""
-    <section id="applies" class="channel-section">
-      <Kit.section_head
-        title="What applies here"
-        lede="Rules, saved instructions and facts that reach this channel, and where each one comes from."
-      />
+    <Kit.section_card
+      id="applies"
+      class="channel-section"
+      title="What applies here"
+      lede="Rules, saved instructions and facts that reach this channel, and where each one comes from."
+    >
       <Kit.empty
         :if={@empty}
-        title="Nothing else applies here yet."
+        variant={:hint}
+        icon={:pen}
+        title="Nothing else applies here yet"
         text="Ryker follows the instructions above and its defaults."
       />
       <.relation id="rules" base={@base} params={@view.params} relation={@view.rules} many="rules">
@@ -509,7 +523,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           ]}
         />
       </.relation>
-    </section>
+    </Kit.section_card>
     """
   end
 
@@ -519,15 +533,18 @@ defmodule Ryker.ControlPlane.ChannelPage do
 
   defp knows(assigns) do
     ~H"""
-    <section id="knows" class="channel-section">
-      <Kit.section_head
-        title="What Ryker knows"
-        lede="Topics Ryker learned here and what it remembers about recent conversations."
-      />
+    <Kit.section_card
+      id="knows"
+      class="channel-section"
+      title="What Ryker knows"
+      lede="Topics Ryker learned here and what it remembers about recent conversations."
+    >
       <.learning_health learning={@view.learning} continuity={@view.continuity} />
       <Kit.empty
         :if={@view.knowledge.total == 0 and @view.summaries.total == 0}
-        title="Ryker has not learned anything here yet."
+        variant={:hint}
+        icon={:book}
+        title="Ryker has not learned anything here yet"
         text="It learns from the conversations it can read, even when it does not reply."
       />
       <.relation
@@ -610,7 +627,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           </:details>
         </Kit.entity_row>
       </.relation>
-    </section>
+    </Kit.section_card>
     """
   end
 
@@ -649,9 +666,19 @@ defmodule Ryker.ControlPlane.ChannelPage do
 
   defp schedules(assigns) do
     ~H"""
-    <section id="schedules" class="channel-section">
-      <Kit.section_head title="Schedules" lede="Work Ryker runs on a schedule and posts here." />
-      <Kit.empty :if={@view.schedules.total == 0} title="Nothing is scheduled here." />
+    <Kit.section_card
+      id="schedules"
+      class="channel-section"
+      title="Schedules"
+      lede="Work Ryker runs on a schedule and posts here."
+    >
+      <Kit.empty
+        :if={@view.schedules.total == 0}
+        variant={:hint}
+        icon={:clock}
+        title="Nothing is scheduled here"
+        text="Ask Ryker in the channel to run something at a set time, and confirm what it proposes."
+      />
       <.relation
         id="schedule-list"
         anchor="schedules"
@@ -683,7 +710,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           ]}
         />
       </.relation>
-    </section>
+    </Kit.section_card>
     """
   end
 
@@ -700,19 +727,24 @@ defmodule Ryker.ControlPlane.ChannelPage do
       )
 
     ~H"""
-    <section id="episodes" class="channel-section">
-      <Kit.section_head title="Recent work" lede="What Ryker worked on here, newest first.">
-        <:actions :if={@view.episodes.total > 0}>
-          <a href={@activity}>
-            {if @view.episodes.total == 1,
-              do: "Open in Activity",
-              else: "All #{@view.episodes.total} conversations"}
-          </a>
-        </:actions>
-      </Kit.section_head>
+    <Kit.section_card
+      id="episodes"
+      class="channel-section"
+      title="Recent work"
+      lede="What Ryker worked on here, newest first."
+    >
+      <:actions :if={@view.episodes.total > 0}>
+        <a href={@activity}>
+          {if @view.episodes.total == 1,
+            do: "Open in Activity",
+            else: "All #{@view.episodes.total} conversations"}
+        </a>
+      </:actions>
       <Kit.empty
         :if={@view.episodes.total == 0}
-        title="Ryker has not worked here yet."
+        variant={:hint}
+        icon={:activity}
+        title="Ryker has not worked here yet"
         text="Mention Ryker in the channel to ask it for something."
       />
       <.relation
@@ -736,7 +768,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           ]}
         />
       </.relation>
-    </section>
+    </Kit.section_card>
     """
   end
 
@@ -744,19 +776,23 @@ defmodule Ryker.ControlPlane.ChannelPage do
 
   defp usage(assigns) do
     ~H"""
-    <section id="usage" class="channel-section">
-      <Kit.section_head
-        title="Usage"
-        lede={window(@view.usage.window) <> ", " <> mode(@view.usage.mode) <> "."}
-      >
-        <:actions>
-          <a href={@view.usage.link}>Requests</a>
-          <a href={@view.usage.usage_path}>Usage &amp; cost</a>
-        </:actions>
-      </Kit.section_head>
-      <p :if={@view.usage.executions == 0} class="channel-usage">
-        No model work here in this window.
-      </p>
+    <Kit.section_card
+      id="usage"
+      class="channel-section"
+      title="Usage"
+      lede={window(@view.usage.window) <> ", " <> mode(@view.usage.mode) <> "."}
+    >
+      <:actions>
+        <a href={@view.usage.link}>Requests</a>
+        <a href={@view.usage.usage_path}>Usage &amp; cost</a>
+      </:actions>
+      <Kit.empty
+        :if={@view.usage.executions == 0}
+        variant={:hint}
+        icon={:usage}
+        title="No model work here in this window"
+        text="What Ryker's work in this channel costs shows here once it runs."
+      />
       <%= if @view.usage.executions > 0 do %>
         <p class="channel-usage">
           <span>{count(@view.usage.executions, "run", "runs")}</span>
@@ -774,7 +810,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           {@view.usage.measured} of {@view.usage.executions} reported tokens · {@view.usage.costed} of {@view.usage.executions} recorded a cost
         </p>
       <% end %>
-    </section>
+    </Kit.section_card>
     """
   end
 

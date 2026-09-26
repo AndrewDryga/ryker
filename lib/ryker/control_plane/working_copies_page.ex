@@ -60,7 +60,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
       </Kit.entity_list>
       <Kit.empty
         :if={@current == []}
-        title="No working copies right now."
+        icon={:copy}
+        title="No working copies right now"
         text="A copy appears here while a task works in a repository, and stays until cleanup removes it safely."
       />
       <section id="ready-for-cleanup" class="working-copies-section">
@@ -77,7 +78,13 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
             meta={["ready for " <> duration(item.eligible_age_seconds)]}
           />
         </Kit.entity_list>
-        <Kit.empty :if={@ready == []} title="Nothing is ready for cleanup right now." />
+        <Kit.empty
+          :if={@ready == []}
+          variant={:hint}
+          icon={:check}
+          title="Nothing is ready for cleanup right now"
+          text="Ryker removes a copy on its own once that is safe. It keeps any copy with work not yet merged."
+        />
       </section>
       <details :if={@removed != []} id="removed-copies" class="working-copies-history">
         <summary>Removed copies ({length(@removed)})</summary>

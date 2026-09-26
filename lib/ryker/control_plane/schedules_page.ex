@@ -99,6 +99,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   defp list_empty(%{query: query} = assigns) when query != "" do
     ~H"""
     <Kit.empty
+      icon={:search}
       title={"No schedules match “#{@query}”"}
       text={"Try other words, or look under #{if @view == "past", do: "Current", else: "Past"}."}
     />
@@ -108,6 +109,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   defp list_empty(%{view: "past"} = assigns) do
     ~H"""
     <Kit.empty
+      icon={:clock}
       title="No past schedules"
       text="Schedules move here when they finish, expire or are deleted."
     />
@@ -117,6 +119,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   defp list_empty(assigns) do
     ~H"""
     <Kit.empty
+      icon={:clock}
       title="Nothing is scheduled"
       text="A schedule appears here once you ask Ryker to run something at a set time and confirm it."
     />
@@ -232,7 +235,13 @@ defmodule Ryker.ControlPlane.SchedulesPage do
             meta={run_facts(run, @now)}
           />
         </Kit.entity_list>
-        <Kit.empty :if={@runs == []} title="No runs yet" text={no_runs(@schedule)} />
+        <Kit.empty
+          :if={@runs == []}
+          variant={:hint}
+          icon={:clock}
+          title="No runs yet"
+          text={no_runs(@schedule)}
+        />
         <p :if={@full} class="schedule-note">Showing the 200 most recent runs.</p>
       </div>
       <Components.disclosure id="schedule-details" label="Details" class="schedule-details">
