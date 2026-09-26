@@ -4,6 +4,7 @@ defmodule Ryker.GitHub.Server do
   """
 
   alias Ryker.GitHub.{Binding, Confirmations, Router}
+  alias Ryker.Options
 
   @default_ip {127, 0, 0, 1}
   @fields [:bindings, :bot_login, :confirmations, :ip, :port, :repository_access, :secret]
@@ -81,30 +82,13 @@ defmodule Ryker.GitHub.Server do
     }
   end
 
-  defp normalize_configuration!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration) do
-      configuration |> Map.new() |> normalize_configuration!()
-    else
-      raise ArgumentError, "GitHub server configuration must use unique known fields"
-    end
+  defp normalize_configuration!(configuration) do
+    Options.normalize!(configuration, @fields, [:bindings, :bot_login, :port, :secret],
+      list: "GitHub server configuration must use unique known fields",
+      map: "GitHub server configuration must include port, secret, and bindings",
+      other: "GitHub server configuration must be a map or keyword list"
+    )
   end
-
-  defp normalize_configuration!(%{} = configuration) do
-    keys = Map.keys(configuration)
-
-    if Enum.sort(keys -- @fields) == [] and
-         Enum.all?([:bindings, :bot_login, :port, :secret], &(&1 in keys)),
-       do: configuration,
-       else:
-         raise(
-           ArgumentError,
-           "GitHub server configuration must include port, secret, and bindings"
-         )
-  end
-
-  defp normalize_configuration!(_configuration),
-    do: raise(ArgumentError, "GitHub server configuration must be a map or keyword list")
 
   defp normalize_bindings!(bindings) when is_map(bindings) and map_size(bindings) > 0 do
     Map.new(bindings, fn

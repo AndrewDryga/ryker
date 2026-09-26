@@ -10,6 +10,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   require Logger
 
   alias Ryker.Observability.Progress
+  alias Ryker.Options
   alias Ryker.Slack.ThreadStatuses
 
   @default_interval_ms 1_000
@@ -149,13 +150,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   end
 
   @doc false
-  def options!(options) when is_list(options) do
-    if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),
-      do: options |> Map.new() |> options!(),
-      else: raise(ArgumentError, "thread-status worker requires unique options")
-  end
-
-  def options!(%{} = options) do
+  def options!(options) do
     required = [:api, :client, :snapshot, :worker_ref, :workspace_ref]
 
     optional = [
@@ -169,6 +164,13 @@ defmodule Ryker.Slack.ThreadStatusWorker do
       :retry_base_ms
     ]
 
+    options =
+      Options.normalize!(options, required ++ optional, required,
+        list: "thread-status worker requires unique options",
+        map: "invalid thread-status worker options",
+        other: "invalid thread-status worker options"
+      )
+
     prepared =
       options
       |> Map.put_new(:interval_ms, @default_interval_ms)
@@ -180,21 +182,15 @@ defmodule Ryker.Slack.ThreadStatusWorker do
       |> Map.put_new(:refresh_interval_ms, @default_refresh_interval_ms)
       |> Map.put_new(:retry_base_ms, @default_retry_base_ms)
 
-    if valid_options?(prepared, required, optional) do
+    if valid_options?(prepared) do
       prepared
     else
       raise ArgumentError, "invalid thread-status worker options"
     end
   end
 
-  def options!(_options), do: raise(ArgumentError, "invalid thread-status worker options")
-
-  defp valid_options?(options, required, optional) do
-    keys = Map.keys(options)
-
+  defp valid_options?(options) do
     Enum.all?([
-      keys -- (required ++ optional) == [],
-      Enum.all?(required, &(&1 in keys)),
       is_atom(Map.get(options, :api)),
       function_exported?(Map.get(options, :api), :set_thread_status, 4),
       is_function(Map.get(options, :snapshot), 1),

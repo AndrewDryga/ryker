@@ -13,6 +13,7 @@ defmodule Ryker.GitHub.CapabilityTools do
   alias Ryker.Delivery.PlatformActionCustody
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.GitHub.SourceRef
+  alias Ryker.Options
   alias Ryker.Repo
 
   @emoji_names ~w(+1 -1 confused eyes heart hooray laugh rocket)
@@ -279,17 +280,14 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   @doc false
   @spec options!(map() | keyword()) :: map()
-  def options!(options) when is_list(options) do
-    if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),
-      do: options |> Map.new() |> options!(),
-      else: raise(ArgumentError, "GitHub capability-tool options are invalid")
-  end
-
-  def options!(%{} = options) do
-    allowed = [:bindings, :clients, :current_input, :enqueue_action]
-
-    unless Map.keys(options) -- allowed == [] and Map.has_key?(options, :bindings),
-      do: raise(ArgumentError, "GitHub capability-tool options are invalid")
+  def options!(options) do
+    options =
+      Options.normalize!(
+        options,
+        [:bindings, :clients, :current_input, :enqueue_action],
+        [:bindings],
+        "GitHub capability-tool options are invalid"
+      )
 
     {bindings, derived_clients} = prepare_bindings(options.bindings)
     clients = options |> Map.get(:clients, derived_clients) |> normalize_clients(bindings)
@@ -307,8 +305,6 @@ defmodule Ryker.GitHub.CapabilityTools do
       enqueue_action: enqueue_action
     }
   end
-
-  def options!(_options), do: raise(ArgumentError, "GitHub capability-tool options are invalid")
 
   defp document(%{} = arguments) do
     with true <- Map.keys(arguments) |> Enum.sort() == @fields,

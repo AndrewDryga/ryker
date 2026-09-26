@@ -12,6 +12,8 @@ defmodule Ryker.GitHub.InstallationTokens do
 
   require Logger
 
+  alias Ryker.Options
+
   @headers [
     {"accept", "application/vnd.github+json"},
     {"x-github-api-version", "2022-11-28"}
@@ -254,20 +256,14 @@ defmodule Ryker.GitHub.InstallationTokens do
 
   defp positive_id?(value), do: is_integer(value) and value > 0 and value <= @maximum_id
 
-  defp normalize_configuration!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration),
-       do: configuration |> Map.new() |> normalize_configuration!(),
-       else: raise(ArgumentError, "GitHub installation-token configuration is invalid")
-  end
-
-  defp normalize_configuration!(%{} = configuration) do
-    allowed = [:app_http, :bindings, :clock, :name, :refresh_before_seconds, :requester]
-    required = [:app_http, :bindings, :requester]
-
-    unless Map.keys(configuration) -- allowed == [] and
-             Enum.all?(required, &Map.has_key?(configuration, &1)),
-           do: raise(ArgumentError, "GitHub installation-token configuration is invalid")
+  defp normalize_configuration!(configuration) do
+    configuration =
+      Options.normalize!(
+        configuration,
+        [:app_http, :bindings, :clock, :name, :refresh_before_seconds, :requester],
+        [:app_http, :bindings, :requester],
+        "GitHub installation-token configuration is invalid"
+      )
 
     refresh = Map.get(configuration, :refresh_before_seconds, @refresh_before_seconds)
 
@@ -276,7 +272,4 @@ defmodule Ryker.GitHub.InstallationTokens do
 
     configuration
   end
-
-  defp normalize_configuration!(_configuration),
-    do: raise(ArgumentError, "GitHub installation-token configuration is invalid")
 end

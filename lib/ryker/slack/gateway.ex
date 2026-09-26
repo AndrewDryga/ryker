@@ -13,6 +13,7 @@ defmodule Ryker.Slack.Gateway do
   require Logger
 
   alias Ryker.Ingress.Inbox
+  alias Ryker.Options
 
   alias Ryker.Slack.{
     Command,
@@ -847,26 +848,15 @@ defmodule Ryker.Slack.Gateway do
     %{state | idle_ref: idle_ref}
   end
 
-  defp normalize_configuration!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration) do
-      configuration |> Map.new() |> normalize_configuration!()
-    else
-      raise ArgumentError, "Slack gateway configuration must use unique fields"
-    end
-  end
-
-  defp normalize_configuration!(%{} = configuration) do
-    keys = Map.keys(configuration)
-    required = [:handler_settings, :transport, :transport_options]
-
-    if keys -- @configuration_fields == [] and Enum.all?(required, &(&1 in keys)),
-      do: configuration,
-      else: raise(ArgumentError, "Slack gateway configuration has missing or unknown fields")
-  end
-
-  defp normalize_configuration!(_configuration) do
-    raise ArgumentError, "Slack gateway configuration must be a map or keyword list"
+  defp normalize_configuration!(configuration) do
+    Options.normalize!(
+      configuration,
+      @configuration_fields,
+      [:handler_settings, :transport, :transport_options],
+      list: "Slack gateway configuration must use unique fields",
+      map: "Slack gateway configuration has missing or unknown fields",
+      other: "Slack gateway configuration must be a map or keyword list"
+    )
   end
 
   defp transport?(transport) when is_atom(transport) do

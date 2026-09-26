@@ -18,6 +18,7 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Episodes.Reactions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Options
   alias Ryker.Publication.{Custody, Followups}
   alias Ryker.Settings.Environment
 
@@ -731,25 +732,12 @@ defmodule Ryker.Slack.Runtime do
     Behaviors.manage_assignment(ref, status, scope.workspace_ref, scope.conversation_ref)
   end
 
-  defp normalize_configuration!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration) do
-      configuration |> Map.new() |> normalize_configuration!()
-    else
-      raise ArgumentError, "Slack runtime configuration must use unique fields"
-    end
-  end
-
-  defp normalize_configuration!(%{} = configuration) do
-    keys = Map.keys(configuration)
-
-    if keys -- @fields == [] and Enum.all?(@required_fields, &(&1 in keys)),
-      do: configuration,
-      else: raise(ArgumentError, "Slack runtime configuration has missing or unknown fields")
-  end
-
-  defp normalize_configuration!(_configuration) do
-    raise ArgumentError, "Slack runtime configuration must be a map or keyword list"
+  defp normalize_configuration!(configuration) do
+    Options.normalize!(configuration, @fields, @required_fields,
+      list: "Slack runtime configuration must use unique fields",
+      map: "Slack runtime configuration has missing or unknown fields",
+      other: "Slack runtime configuration must be a map or keyword list"
+    )
   end
 
   defp validate_identity!(%{} = identity) do

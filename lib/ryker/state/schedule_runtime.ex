@@ -1,7 +1,7 @@
 defmodule Ryker.State.ScheduleRuntime do
   @moduledoc false
 
-  alias Ryker.Reference
+  alias Ryker.{Options, Reference}
   alias Ryker.State.ScheduleWorker
 
   @fields [
@@ -79,22 +79,13 @@ defmodule Ryker.State.ScheduleRuntime do
     }
   end
 
-  defp normalize!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration),
-       do: configuration |> Map.new() |> normalize!(),
-       else: raise(ArgumentError, "schedule configuration must use unique known fields")
+  defp normalize!(configuration) do
+    Options.normalize!(configuration, @fields, @required,
+      list: "schedule configuration must use unique known fields",
+      map: "schedule configuration has missing or unknown fields",
+      other: "schedule configuration must be a map or keyword list"
+    )
   end
-
-  defp normalize!(%{} = configuration) do
-    if Map.keys(configuration) -- @fields == [] and
-         Enum.all?(@required, &Map.has_key?(configuration, &1)),
-       do: configuration,
-       else: raise(ArgumentError, "schedule configuration has missing or unknown fields")
-  end
-
-  defp normalize!(_configuration),
-    do: raise(ArgumentError, "schedule configuration must be a map or keyword list")
 
   defp repositories!(repositories) when is_map(repositories) do
     Map.new(repositories, fn {repository, policy} ->

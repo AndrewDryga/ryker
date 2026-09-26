@@ -4,6 +4,7 @@ defmodule Ryker.CoopFleet.Server do
   """
 
   alias Ryker.CoopFleet.Router
+  alias Ryker.Options
 
   @fields [
     :cacertfile,
@@ -89,35 +90,23 @@ defmodule Ryker.CoopFleet.Server do
     end
   end
 
-  defp normalize!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration),
-       do: configuration |> Map.new() |> normalize!(),
-       else: raise(ArgumentError, "Coop worker gateway configuration must use unique fields")
+  defp normalize!(configuration) do
+    required = [
+      :cacertfile,
+      :ca_keyfile,
+      :certfile,
+      :checkpoint_key,
+      :checkpoint_secrets,
+      :keyfile,
+      :port
+    ]
+
+    Options.normalize!(configuration, @fields, required,
+      list: "Coop worker gateway configuration must use unique fields",
+      map: "Coop worker gateway configuration is incomplete",
+      other: "Coop worker gateway configuration must be a map"
+    )
   end
-
-  defp normalize!(%{} = configuration) do
-    keys = Map.keys(configuration)
-
-    if Enum.sort(keys -- @fields) == [] and
-         Enum.all?(
-           [
-             :cacertfile,
-             :ca_keyfile,
-             :certfile,
-             :checkpoint_key,
-             :checkpoint_secrets,
-             :keyfile,
-             :port
-           ],
-           &(&1 in keys)
-         ),
-       do: configuration,
-       else: raise(ArgumentError, "Coop worker gateway configuration is incomplete")
-  end
-
-  defp normalize!(_configuration),
-    do: raise(ArgumentError, "Coop worker gateway configuration must be a map")
 
   defp valid_ip?(ip) when is_tuple(ip) and tuple_size(ip) == 4,
     do: ip |> Tuple.to_list() |> Enum.all?(&(is_integer(&1) and &1 >= 0 and &1 <= 255))

@@ -17,6 +17,7 @@ defmodule Ryker.Slack.CapabilityTools do
   """
 
   alias Ryker.Delivery.PlatformActionCustody
+  alias Ryker.Options
 
   alias Ryker.Slack.CapabilityTools.{
     Actions,
@@ -338,13 +339,7 @@ defmodule Ryker.Slack.CapabilityTools do
 
   @doc false
   @spec options!(map() | keyword()) :: map()
-  def options!(options) when is_list(options) do
-    if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),
-      do: options |> Map.new() |> options!(),
-      else: raise(ArgumentError, "Slack capability-tool options are invalid")
-  end
-
-  def options!(%{} = options) do
+  def options!(options) do
     allowed = [
       :action_tokens,
       :api,
@@ -361,10 +356,13 @@ defmodule Ryker.Slack.CapabilityTools do
       :workspace_ref
     ]
 
-    required = [:action_tokens, :api, :client, :workspace_ref]
-
-    unless valid_option_fields?(options, allowed, required),
-      do: raise(ArgumentError, "Slack capability-tool options are invalid")
+    options =
+      Options.normalize!(
+        options,
+        allowed,
+        [:action_tokens, :api, :client, :workspace_ref],
+        "Slack capability-tool options are invalid"
+      )
 
     api = options.api
     action_tokens = options.action_tokens
@@ -410,12 +408,6 @@ defmodule Ryker.Slack.CapabilityTools do
     |> Map.put(:propose_post, propose_post)
     |> Map.put(:reaction_added, reaction_added)
     |> Map.put(:requester_ref, requester_ref)
-  end
-
-  def options!(_options), do: raise(ArgumentError, "Slack capability-tool options are invalid")
-
-  defp valid_option_fields?(options, allowed, required) do
-    Map.keys(options) -- allowed == [] and Enum.all?(required, &Map.has_key?(options, &1))
   end
 
   defp valid_authority?(api, action_tokens, callbacks, workspace_ref) do

@@ -7,6 +7,7 @@ defmodule Ryker.Publication.Runtime do
 
   alias Ryker.Coop.Client
   alias Ryker.Delivery.Adapters
+  alias Ryker.Options
   alias Ryker.Publication.{FollowupWorker, Worker}
 
   @fields [
@@ -140,26 +141,26 @@ defmodule Ryker.Publication.Runtime do
     }
   end
 
-  defp normalize!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration),
-       do: configuration |> Map.new() |> normalize!(),
-       else: raise(ArgumentError, "publication configuration must use unique known fields")
-  end
+  defp normalize!(configuration) do
+    missing_or_unknown = "publication configuration has missing or unknown fields"
 
-  defp normalize!(%{} = configuration) do
-    required = [:delivery_adapters, :publisher, :publisher_binding, :worker_ref]
+    configuration =
+      Options.normalize!(
+        configuration,
+        @fields,
+        [:delivery_adapters, :publisher, :publisher_binding, :worker_ref],
+        list: "publication configuration must use unique known fields",
+        map: missing_or_unknown,
+        other: "publication configuration must be a map or keyword list"
+      )
+
     keys = Map.keys(configuration)
 
-    if keys -- @fields == [] and Enum.all?(required, &Map.has_key?(configuration, &1)) and
-         ((:socket in keys and :coop_api not in keys and :coop_client not in keys) or
-            (:socket not in keys and :coop_api in keys and :coop_client in keys)),
+    if (:socket in keys and :coop_api not in keys and :coop_client not in keys) or
+         (:socket not in keys and :coop_api in keys and :coop_client in keys),
        do: configuration,
-       else: raise(ArgumentError, "publication configuration has missing or unknown fields")
+       else: raise(ArgumentError, missing_or_unknown)
   end
-
-  defp normalize!(_configuration),
-    do: raise(ArgumentError, "publication configuration must be a map or keyword list")
 
   defp validate_integer!(value, minimum, maximum, _field)
        when is_integer(value) and value >= minimum and value <= maximum,

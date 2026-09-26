@@ -3,7 +3,7 @@ defmodule Ryker.Retention.Runtime do
 
   use Supervisor
 
-  alias Ryker.Reference
+  alias Ryker.{Options, Reference}
   alias Ryker.Retention.Worker
 
   @required [
@@ -101,24 +101,13 @@ defmodule Ryker.Retention.Runtime do
     settings
   end
 
-  defp normalize!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration),
-       do: configuration |> Map.new() |> normalize!(),
-       else: raise(ArgumentError, "retention configuration must use unique known fields")
+  defp normalize!(configuration) do
+    Options.normalize!(configuration, @required ++ @optional, @required,
+      list: "retention configuration must use unique known fields",
+      map: "retention configuration has missing or unknown fields",
+      other: "retention configuration must be a map or keyword list"
+    )
   end
-
-  defp normalize!(%{} = configuration) do
-    keys = Map.keys(configuration)
-
-    if keys -- (@required ++ @optional) == [] and
-         Enum.all?(@required, &Map.has_key?(configuration, &1)),
-       do: configuration,
-       else: raise(ArgumentError, "retention configuration has missing or unknown fields")
-  end
-
-  defp normalize!(_configuration),
-    do: raise(ArgumentError, "retention configuration must be a map or keyword list")
 
   defp validate!(settings) do
     positive_fields = [
