@@ -540,6 +540,35 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert Activity.list(%{"q" => "weekday open incident"}).total == 1
   end
 
+  # Manual testing, 2026-09-26: deleting a message added a second row,
+  # "Message deleted · No response needed", beside the message's own row, and
+  # counted the deletion as one more request.
+  test "a deleted message stays one row, and its deletion is not a request of its own" do
+    for {kind, revision, ref} <- [
+          {:message, 1, "Ev-activity-delete-1"},
+          {:delete, 2, "Ev-activity-delete-2"}
+        ] do
+      {:ok, input} =
+        Input.new(%{
+          actor: %{kind: :user, ref: "U123"},
+          channel_ref: "C456",
+          content: %{"text" => "thanks"},
+          event_kind: kind,
+          event_ref: ref,
+          message_ref: "1787832188.000100",
+          occurred_at: DateTime.add(DateTime.utc_now(), revision),
+          revision: revision,
+          thread_ref: nil,
+          workspace_ref: "T123"
+        })
+
+      {:ok, _recorded} = Inbox.record(input)
+    end
+
+    assert %{total: 1, items: [row]} = Activity.list(%{})
+    assert row.kind == "admission"
+  end
+
   test "every workload count opens a view that lists exactly that many requests" do
     # QA, 2026-09-25: Activity led with "3 active · 2 waiting · 1 blocked" while
     # In progress listed nothing, and "waiting" and "blocked" both opened the

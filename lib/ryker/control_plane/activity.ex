@@ -280,13 +280,18 @@ defmodule Ryker.ControlPlane.Activity do
         }
       )
 
+    # A deletion is a revision of a message that already has its row, which
+    # reads "Message deleted" from then on; as a row of its own it was a
+    # second "Message deleted" counted as one more request (manual testing,
+    # 2026-09-26). Routing settles deletions without a model, so no spend
+    # loses its row.
     admissions =
       from(entry in Entry,
         join: current in subquery(CurrentInputs.latest()),
         on:
           current.native_input_id == entry.native_input_id and
             current.execution_mode == entry.execution_mode,
-        where: is_nil(entry.episode_id),
+        where: is_nil(entry.episode_id) and entry.event_kind != :delete,
         select: %{
           id: entry.id,
           kind: type(^"admission", :string),
