@@ -154,7 +154,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         details:
           validation_details(
             Keyword.fetch!(options, :parse),
-            Keyword.fetch!(options, :response_bytes)
+            Keyword.fetch!(options, :response_bytes),
+            violations
           ),
         stage: "Validation",
         state: state,
@@ -451,13 +452,23 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp measurement_issue(%Turn{usage_recorded: false}), do: "Usage was not reported."
   defp measurement_issue(_turn), do: nil
 
-  defp validation_details(parse, response_bytes),
-    do: compact_details([{"Parse", parse}, {"Response bytes", response_bytes}])
+  # The exact correction sent to the model is for inspection, under Details;
+  # the step says why in a sentence (QA re-test, 2026-09-26: the step quoted
+  # "Call validate_final with this exact candidate…").
+  defp validation_details(parse, response_bytes, violations),
+    do:
+      compact_details([
+        {"What Ryker told the model", if(violations != [], do: Enum.join(violations, " "))},
+        {"Parse", parse},
+        {"Response bytes", response_bytes}
+      ])
 
   defp validation_summary("reject", [], _attempt, _turn),
     do: "Ryker rejected this answer and asked the model to correct it."
 
-  defp validation_summary("reject", violations, _attempt, _turn), do: Enum.join(violations, " ")
+  defp validation_summary("reject", _violations, _attempt, _turn),
+    do:
+      "Ryker sent this answer back for the model to fix. What it told the model is under Details."
 
   defp validation_summary("accept", _violations, 1, _turn),
     do: "Ryker checked the answer and accepted it on the first try."

@@ -580,11 +580,18 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert {:ok, validation_detail} = Projection.episode(episode_key!(measured.episode_id))
     validation_steps = Enum.filter(validation_detail.trace.steps, &(&1.stage == "Validation"))
 
+    # QA re-test, 2026-09-26: a rejected answer's step quoted the correction
+    # sent to the model ("Call validate_final with this exact candidate…").
+    # It says why in a sentence; the exact correction is under Details.
     assert Enum.map(validation_steps, & &1.summary) == [
-             "Supply the missing evidence.",
+             "Ryker sent this answer back for the model to fix. What it told the model is under Details.",
              "Ryker checked the answer and accepted it on try 3.",
              "Ryker rejected this answer and asked the model to correct it."
            ]
+
+    assert %{label: "What Ryker told the model", value: "Supply the missing evidence."} in hd(
+             validation_steps
+           ).details
 
     for provider_ms <- [120_000, 7_200_000] do
       Repo.update_all(
