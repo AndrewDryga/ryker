@@ -1565,6 +1565,7 @@
 .lab-directory-item + .lab-directory-item { border-top:1px solid color-mix(in srgb, var(--ryker-text) 6%, transparent); }
 .ryker-app .lab-directory-item:hover { background:var(--ryker-hover-bg); text-decoration:none; }
 .ryker-app .lab-directory-item[aria-current=page] { background:var(--ryker-selected-bg); box-shadow:inset 2px 0 0 var(--ryker-selected-accent); }
+.lab-directory-draft .lab-directory-item { cursor:default; }
 .lab-directory-title { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ryker-text); font-size:14px; line-height:20px; font-weight:600; }
 .lab-directory-time { font-size:12px; line-height:20px; color:var(--ryker-text-secondary); font-variant-numeric:tabular-nums; white-space:nowrap; }
 .lab-directory-meta { grid-column:1 / -1; display:flex; min-width:0; }
@@ -1588,6 +1589,8 @@
 .lab-environment label { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); white-space:nowrap; }
 .ryker-app .lab-environment select { box-sizing:border-box; min-height:32px; max-width:240px; padding:5px 32px 5px 10px; border:1px solid var(--ryker-control-border); border-radius:8px; background-color:var(--ryker-control-bg); background-position:right 15px center,right 10px center; color:var(--ryker-control-text); font:inherit; font-size:13px; line-height:20px; }
 .ryker-app .lab-environment select:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:1px; }
+.lab-environment-none { margin:0 0 0 auto; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.lab-environment-none .lab-environment-label { margin-right:4px; }
 .lab-chat-message { position:relative; padding:14px 0 14px 44px; }
 .lab-avatar { position:absolute; left:0; top:14px; width:32px; height:32px; border-radius:9px; display:grid; place-items:center; font-size:13px; font-weight:600; color:var(--ryker-text); background:color-mix(in srgb, var(--ryker-text) 10%, transparent); }
 .lab-chat-message.actor-ryker .lab-avatar { background:color-mix(in srgb, var(--ryker-accent) 12%, transparent); }

@@ -178,7 +178,10 @@ defmodule Ryker.ControlPlane.LabPageTest do
   # about staging was answered from production's repositories and Emisar
   # account. The conversation's head now names its environment in one compact
   # select beside its title, and one quiet line says where its messages work.
-  test "the conversation's head lists the environments, marks its own and says where it works" do
+  # Andrew, 2026-09-26: the head's title and its "Works without code" line
+  # "just duplicate the one on the side panel". The head is where a
+  # conversation picks its environment, and nothing else.
+  test "the conversation's head holds only its environment choice, never a second title" do
     environments = [
       %{
         ref: "production",
@@ -208,7 +211,8 @@ defmodule Ryker.ControlPlane.LabPageTest do
     end
 
     staging = head.(environments: environments, environment: "staging")
-    assert LazyHTML.query(staging, "h2.lab-chat-title") |> LazyHTML.text() == "Yesterday's thread"
+    assert Enum.empty?(LazyHTML.query(staging, "h2, .lab-chat-title, .lab-chat-place"))
+    refute LazyHTML.text(staging) =~ "Yesterday's thread"
 
     [form] = LazyHTML.query(staging, "form.lab-environment") |> Enum.to_list()
     assert LazyHTML.attribute(form, "phx-change") == ["select-conversation-environment"]
@@ -226,46 +230,31 @@ defmodule Ryker.ControlPlane.LabPageTest do
              {"No environment", [""], []}
            ]
 
-    assert LazyHTML.query(staging, "p.lab-chat-place") |> LazyHTML.text() |> squish() ==
-             "Works in Staging: acme/api"
-
-    # The default with two repositories and an Emisar account.
-    production = head.(environments: environments, environment: "production")
-
-    assert LazyHTML.query(production, "option[selected]") |> LazyHTML.text() |> squish() ==
-             "Production"
-
-    assert LazyHTML.query(production, "p.lab-chat-place") |> LazyHTML.text() |> squish() ==
-             "Works in Production: acme/api, acme/web · Emisar connected"
-
-    # No environment is a choice: the messages then run without code.
     none = head.(environments: environments, environment: nil)
 
     assert LazyHTML.query(none, "option[selected]") |> LazyHTML.text() |> squish() ==
              "No environment"
 
-    assert LazyHTML.query(none, "p.lab-chat-place") |> LazyHTML.text() |> squish() ==
-             "Works without code"
-
-    # With no environment to choose there is nothing to select, only where it works.
+    # With no environment to choose, the head says so and where to add one,
+    # so the choice can be found at all ("how can I select which environment
+    # to use?", the same day).
     bare = head.(environments: [], environment: nil)
     assert Enum.empty?(LazyHTML.query(bare, "form.lab-environment, select"))
+    assert squish(LazyHTML.text(bare)) =~ "Environment None yet"
 
-    assert LazyHTML.query(bare, "p.lab-chat-place") |> LazyHTML.text() |> squish() ==
-             "Works without code"
+    assert LazyHTML.query(bare, "a[href='/environments?edit=new']") |> LazyHTML.text() ==
+             "Add one"
   end
 
-  # Andrew, 2026-09-26: while a new conversation was being written, the top
-  # of Chat showed "New conversation · Works without code" on a raised band
-  # that read as one more conversation in the list, though nothing existed
-  # yet. A new conversation now shows only real conversations; its head keeps
-  # just the environment choice, when there is one to make.
-  test "a new conversation shows no placeholder conversation, only where it will work" do
+  # Andrew, 2026-09-26: while a new conversation is being written, the list
+  # beside it shows it too, as the conversation being written, at the top and
+  # marked as the one on screen ("you forgot to add a new dummy entry").
+  test "a conversation being written shows at the top of the list as the one on screen" do
     draft = [
       snapshot: %{conversation_id: "draft", messages: [], admission_progress: [], draft: true}
     ]
 
-    with_choice =
+    page =
       render_component(
         &LabPage.render/1,
         lab_assigns(directory(), "draft") ++
@@ -273,27 +262,28 @@ defmodule Ryker.ControlPlane.LabPageTest do
       )
       |> LazyHTML.from_fragment()
 
-    refute LazyHTML.text(with_choice) =~ "New conversation"
-    refute LazyHTML.text(with_choice) =~ "Works "
-    assert Enum.empty?(LazyHTML.query(with_choice, ".lab-chat-title, .lab-chat-place"))
+    [first | _rest] =
+      LazyHTML.query(page, ".lab-directory-list .lab-directory-item") |> Enum.to_list()
 
-    assert LazyHTML.query(
-             with_choice,
-             "header.lab-chat-head select#lab-environment option[selected]"
-           )
+    assert squish(LazyHTML.text(first)) =~ "New conversation"
+    assert squish(LazyHTML.text(first)) =~ "Not sent yet"
+    assert LazyHTML.attribute(first, "aria-current") == ["page"]
+
+    # Every real conversation is still listed, and none is marked as open.
+    links = LazyHTML.query(page, ".lab-directory-list a.lab-directory-item")
+    assert Enum.count(links) == length(directory())
+    assert Enum.empty?(LazyHTML.query(page, ".lab-directory-list a[aria-current=page]"))
+
+    assert LazyHTML.query(page, "header.lab-chat-head select#lab-environment option[selected]")
            |> LazyHTML.text()
            |> squish() == "Production"
 
-    # The list holds the real conversations and nothing else.
-    assert LazyHTML.query(with_choice, ".lab-directory-list a.lab-directory-item") |> Enum.count() ==
-             length(directory())
-
-    without_choice =
-      render_component(&LabPage.render/1, lab_assigns(directory(), "draft") ++ draft)
+    # A saved conversation has no such row.
+    saved =
+      render_component(&LabPage.render/1, lab_assigns(directory(), "c"))
       |> LazyHTML.from_fragment()
 
-    assert Enum.empty?(LazyHTML.query(without_choice, "header.lab-chat-head"))
-    refute LazyHTML.text(without_choice) =~ "Works without code"
+    refute LazyHTML.text(saved) =~ "New conversation"
   end
 
   # The head is a header element, and the stylesheet's first rule dresses

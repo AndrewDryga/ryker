@@ -57,7 +57,6 @@ defmodule Ryker.ControlPlane.LabPage do
       |> assign_new(:environments, fn -> [] end)
       |> assign_new(:environment, fn -> nil end)
       |> then(&assign(&1, :days, directory_days(filtered(&1.items, &1.filter), &1.now)))
-      |> then(&assign(&1, :title, title(&1.snapshot, &1.items)))
       |> assign(:progress, progress_by_input(assigns.snapshot))
       |> assign_new(:readiness, fn ->
         %{
@@ -113,7 +112,13 @@ defmodule Ryker.ControlPlane.LabPage do
           />
         </form>
         <div class="lab-directory-list">
-          <div :if={@items == []} class="lab-directory-empty">
+          <section :if={@snapshot[:draft]} class="lab-directory-day lab-directory-draft">
+            <span class="lab-directory-item" aria-current="page"><span class="lab-directory-title">New conversation</span><span class="lab-directory-meta"><Kit.state
+              tone={:off}
+              word="Not sent yet"
+            /></span></span>
+          </section>
+          <div :if={@items == [] and !@snapshot[:draft]} class="lab-directory-empty">
             <strong>No conversations yet</strong>
             <p>Send a message and it will appear here.</p>
           </div>
@@ -154,12 +159,7 @@ defmodule Ryker.ControlPlane.LabPage do
           {@announcement}
         </p>
         <div class="lab-column">
-          <.conversation_head
-            :if={@title || @environments != []}
-            title={@title}
-            environments={@environments}
-            environment={@environment}
-          />
+          <.conversation_head environments={@environments} environment={@environment} />
           <div
             id="lab-history"
             phx-hook="ConversationHistory"
@@ -291,11 +291,6 @@ defmodule Ryker.ControlPlane.LabPage do
     """
   end
 
-  attr(:title, :string,
-    default: nil,
-    doc: "The conversation's title; nil for a new one, which is not a conversation yet"
-  )
-
   attr(:environments, :list, required: true, doc: "What environment_choices/1 offers")
 
   attr(:environment, :string,
@@ -303,22 +298,15 @@ defmodule Ryker.ControlPlane.LabPage do
     doc: "The ref of the conversation's environment; nil is no environment"
   )
 
-  # The head of the conversation (2026-09-25, "Chat picks its environment"):
-  # its title, one quiet line saying where its messages work, and the
-  # environment they run in as one compact select, when there is one to
-  # choose. The choice is saved for the conversation, not the browser. A new
-  # conversation has no title and no line (2026-09-26: "New conversation ·
-  # Works without code" read as a conversation that did not exist), only the
-  # choice of where it will work.
+  # The head of a conversation is where it picks its environment, and nothing
+  # else: its title and a "Works without code" line repeated the conversation
+  # list beside it (Andrew, 2026-09-26: "it just duplicates the one on the side
+  # panel"). With no environment to choose, it says so and where to add one,
+  # so the choice can be found at all (the same day: "how can I select which
+  # environment to use?").
   defp conversation_head(assigns) do
-    assigns = assign(assigns, :place, works_in(assigns.environment, assigns.environments))
-
     ~H"""
     <header class="lab-chat-head">
-      <div :if={@title} class="lab-chat-head-main">
-        <h2 class="lab-chat-title">{@title}</h2>
-        <p class="lab-chat-place">{@place}</p>
-      </div>
       <form
         :if={@environments != []}
         id="lab-environment-form"
@@ -338,6 +326,12 @@ defmodule Ryker.ControlPlane.LabPage do
           <option value="" selected={is_nil(@environment)}>No environment</option>
         </select>
       </form>
+      <p :if={@environments == []} class="lab-environment lab-environment-none">
+        <span class="lab-environment-label">Environment</span>
+        <span>None yet</span>
+        <span aria-hidden="true">·</span>
+        <.link navigate="/environments?edit=new">Add one</.link>
+      </p>
     </header>
     """
   end
@@ -363,40 +357,6 @@ defmodule Ryker.ControlPlane.LabPage do
         emisar: is_binary(environment.emisar_connection_ref)
       }
     end)
-  end
-
-  # Where the conversation's next messages work, in one line: the
-  # environment's repositories and its Emisar account, or no code at all.
-  defp works_in(nil, _choices), do: "Works without code"
-
-  defp works_in(ref, choices) do
-    case Enum.find(choices, &(&1.ref == ref)) do
-      nil ->
-        "Works without code"
-
-      %{repositories: [], name: name} = choice ->
-        "Works in #{name} without code" <> emisar(choice)
-
-      %{repositories: repositories, name: name} = choice ->
-        "Works in #{name}: " <> Enum.join(repositories, ", ") <> emisar(choice)
-    end
-  end
-
-  defp emisar(%{emisar: true}), do: " · Emisar connected"
-  defp emisar(_choice), do: ""
-
-  # What the head calls the conversation: the directory's title for it, what
-  # one with no messages yet is, or the plain word for one the directory (its
-  # newest hundred) does not list. A new conversation, still being written,
-  # is not one yet and has no title.
-  defp title(%{draft: true}, _items), do: nil
-
-  defp title(snapshot, items) do
-    case Enum.find(items, &(&1.id == snapshot.conversation_id)) do
-      %{title: title} when is_binary(title) and title != "" -> title
-      _unlisted when snapshot.messages == [] -> "New conversation"
-      _unlisted -> "Conversation"
-    end
   end
 
   attr(:id, :string, required: true)

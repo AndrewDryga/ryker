@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.LiveTest do
     Actions,
     BehaviorLibrary,
     ConversationLab,
-    Environments,
     Kit,
     LabPage,
     LiveSocket,
@@ -953,10 +952,15 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   test "the directory reads as grouped titles and says when it is empty" do
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, empty, _} = live(conn, "/conversations")
+
+    # A new conversation is the one entry of an empty list while it is written.
+    {:ok, writing, _} = live(conn, "/conversations")
+    assert has_element?(writing, ".lab-directory-draft [aria-current=page]", "New conversation")
+    refute has_element?(writing, ".lab-directory-empty")
+
+    {:ok, empty, _} = live(conn, "/conversations/#{Ecto.UUID.generate()}")
     assert has_element?(empty, ".lab-directory-empty", "No conversations yet")
     assert has_element?(empty, ".lab-directory-empty", "Send a message and it will appear here.")
-    refute has_element?(empty, ".lab-directory-empty .ui-icon")
     refute has_element?(empty, ".lab-directory-empty a, .lab-directory-empty button")
     refute has_element?(empty, ".lab-directory-day")
 
@@ -1103,15 +1107,12 @@ defmodule Ryker.ControlPlane.LiveTest do
     })
 
     ChannelEnvironments.environment!("staging", %{repositories: ["acme-api"]})
-    snapshot = Ryker.Settings.fetch!()
-    name = &Environments.repository_name(snapshot, &1)
     conn = build_conn() |> Map.put(:host, "localhost")
 
-    # A new conversation starts in the default environment. It is not a
-    # conversation yet, so its head holds only that choice (2026-09-26: its
-    # "New conversation" line read as one more conversation in the list).
+    # A new conversation starts in the default environment; the head holds
+    # only that choice (2026-09-26: a title there duplicated the list).
     {:ok, draft, _} = live(conn, "/conversations")
-    refute has_element?(draft, ".lab-chat-title, .lab-chat-place")
+    refute has_element?(draft, "header.lab-chat-head h2")
 
     assert has_element?(
              draft,
@@ -1122,12 +1123,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     id = Ecto.UUID.generate()
     {:ok, view, html} = live(conn, "/conversations/#{id}")
     assert has_element?(view, "form.lab-environment option[selected][value=production]")
-
-    assert has_element?(
-             view,
-             "header.lab-chat-head .lab-chat-place",
-             "Works in Production: #{name.("acme-api")}, #{name.("acme-web")}"
-           )
+    refute has_element?(view, "header.lab-chat-head h2")
 
     assert html
            |> LazyHTML.from_document()
@@ -1139,7 +1135,6 @@ defmodule Ryker.ControlPlane.LiveTest do
     view |> element("form.lab-environment") |> render_change(%{"environment" => "staging"})
     assert ConversationLab.environment(id) == {:ok, "staging"}
     assert has_element?(view, "form.lab-environment option[selected][value=staging]", "Staging")
-    assert has_element?(view, ".lab-chat-place", "Works in Staging: #{name.("acme-api")}")
     refute has_element?(view, "form.lab-environment option[selected][value=production]")
 
     # It survives a reload and the routine refresh.
@@ -1157,8 +1152,6 @@ defmodule Ryker.ControlPlane.LiveTest do
              "form.lab-environment option[selected][value='']",
              "No environment"
            )
-
-    assert has_element?(again, ".lab-chat-place", "Works without code")
 
     # An environment that no longer exists cannot be chosen; the head keeps
     # saying what is true.
