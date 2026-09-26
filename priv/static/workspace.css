@@ -2177,6 +2177,13 @@
 .kit-toolbar > .filter-toolbar { flex:0 1 auto; margin:0; }
 .kit-toolbar > .filter-toolbar .search-field { flex:0 1 340px; width:340px; max-width:100%; }
 .kit-toolbar .segmented { flex:none; max-width:100%; overflow-x:auto; }
+/* On a phone the views wrap onto another line rather than scroll the last
+   ones out of sight with nothing saying they are there (Learning's
+   "Sources changed" read "Sources c…" at 390px, 2026-09-25). */
+@media (max-width:580px) {
+  .kit-toolbar .segmented { flex-wrap:wrap; gap:6px; overflow:visible; border:0; border-radius:0; }
+  .kit-toolbar .segmented a, .kit-toolbar .segmented a + a { border:1px solid var(--ryker-stroke); border-radius:8px; }
+}
 /* Custom filters come last in the row, after the view switch (Activity's
    chips and "+ Filter", finished like the search form's controls). The row
    holds no count: the page's counts say how many it lists. */

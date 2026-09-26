@@ -162,7 +162,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     budget_version: 0,
     at: @at,
     completed_at: nil,
-    next_attempt_at: nil,
+    next_check: nil,
     error:
       "The approved model starts were used. Inspect the attempts before granting one more start.",
     error_code: "learning_retry_exhausted",
@@ -615,7 +615,8 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert LazyHTML.query(row, ".entity-text") |> LazyHTML.text() =~
                "approved model starts were used"
 
-      assert LazyHTML.query(row, ".entity-meta") |> LazyHTML.text() =~ "3 of 3 model starts used"
+      assert LazyHTML.query(row, ".entity-meta") |> LazyHTML.text() =~ "3 model starts used"
+      refute LazyHTML.query(row, ".entity-meta") |> LazyHTML.text() =~ "of 3"
 
       assert LazyHTML.query(row, ".entity-actions a.ui-button") |> LazyHTML.attribute("href") == [
                @deferred.path

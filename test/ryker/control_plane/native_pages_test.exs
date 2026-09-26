@@ -282,6 +282,23 @@ defmodule Ryker.ControlPlane.NativePagesTest do
            |> LazyHTML.text() == "Request state"
   end
 
+  # QA, 2026-09-25, at 390px: Learning's outcome views scrolled "Sources
+  # changed" out of sight as "Sources c…", with nothing saying more was
+  # there. On a phone a toolbar's views wrap onto another line instead.
+  test "a toolbar's views wrap on a phone instead of scrolling out of sight" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    phone =
+      ~r/@media\s*\(max-width:\s*(\d+)px\)\s*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/
+      |> Regex.scan(css, capture: :all_but_first)
+      |> Enum.filter(fn [width, _rules] -> String.to_integer(width) >= 390 end)
+      |> Enum.map_join("\n", &List.last/1)
+
+    assert phone =~
+             ~r/\.kit-toolbar \.segmented\s*\{[^}]*flex-wrap:\s*wrap[^}]*overflow:\s*visible/,
+           "no phone rule wraps a toolbar's views"
+  end
+
   # Moving the custom filters after the view switch took them out of the
   # search form's `.filter-toolbar`, whose control finish every chip and
   # "+ Filter" wore: without it "+ Filter" turns bold on another ground and

@@ -9,6 +9,8 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   alias Ryker.ControlPlane.{
     Activity,
+    ConversationMemory,
+    ConversationProjection,
     InspectionRedactor,
     LearningReceipt,
     PagedRelation,
@@ -20,7 +22,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   alias Ryker.Learning.{Batch, Batches, InputMembership, Runtime}
   alias Ryker.Repo
   alias Ryker.Settings.Learning, as: LearningSetting
-  alias Ryker.State.LearningRun
+  alias Ryker.State.{ConversationKnowledge, LearningRun}
   alias Ryker.Work.Turn
 
   @page_size 20
@@ -96,11 +98,43 @@ defmodule Ryker.ControlPlane.LearningActivity do
       from(b in Batch, where: b.status in ^statuses)
       |> read(key, [desc: :inserted_at, desc: :id], params)
 
+    context = context(page.items)
+
     %{
-      items: Enum.map(page.items, &batch(&1, secrets)),
+      items: Enum.map(page.items, &batch(&1, secrets, context)),
       page: page.page,
       pages: page.pages,
       total: page.total
+    }
+  end
+
+  # What a page of batches needs beyond each row: the names of its direct
+  # conversations and which stopped batches Ryker still checks on.
+  defp context(rows) do
+    direct =
+      for row <- rows, row.transport == "control_plane", uniq: true, do: row.conversation_ref
+
+    stopped = for row <- rows, row.status == :deferred, do: row.id
+
+    rechecked =
+      if stopped == [],
+        do: MapSet.new(),
+        else:
+          Repo.all(
+            from(r in LearningRun,
+              where:
+                r.batch_id in ^stopped and not is_nil(r.started_at) and
+                  is_nil(r.remote_stopped_at),
+              distinct: true,
+              select: r.batch_id
+            )
+          )
+          |> MapSet.new()
+
+    %{
+      titles: ConversationProjection.titles(direct),
+      rechecked: rechecked,
+      now: DateTime.utc_now()
     }
   end
 
@@ -208,6 +242,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
     # scope-wide execution guards inside its locked, audited transaction.
     outstanding = outstanding_execution?(row)
     busy = scope_busy?(row)
+    relearn = if row.status == :deferred, do: relearn_topics(row), else: []
 
     {policy, configuration_error} =
       case Runtime.configured_options() do
@@ -215,17 +250,58 @@ defmodule Ryker.ControlPlane.LearningActivity do
         {:error, reason} -> {nil, error(reason)}
       end
 
-    batch(row, secrets)
+    batch(row, secrets, context([row]))
     |> Map.merge(attempts(row, params))
     |> Map.merge(%{
+      relearn: relearn,
       retry_policy: policy,
       retry_available:
-        row.status == :deferred and not outstanding and not busy and not is_nil(policy),
+        row.status == :deferred and relearn == [] and not outstanding and not busy and
+          not is_nil(policy),
       retry_blocked:
         retry_reason(row.status, outstanding, busy) ||
           if(row.status == :deferred, do: configuration_error)
     })
   end
+
+  @doc """
+  The learned topics a batch stopped on because they lost the messages they
+  were learned from, each with where to relearn it.
+
+  Only a batch stopped by such a topic has any. Every start meets the same
+  topic until it is relearned from messages that still exist, so these, not
+  another start, are what moves the batch; once none is left, one more start
+  can update it.
+  """
+  @spec relearn_topics(Batch.t()) :: [%{id: String.t(), title: String.t(), path: String.t()}]
+  def relearn_topics(%Batch{error_code: "knowledge_target_unavailable"} = batch) do
+    repository =
+      if is_nil(batch.repository_ref),
+        do: dynamic([k], is_nil(k.repository_ref)),
+        else: dynamic([k], k.repository_ref == ^batch.repository_ref)
+
+    topics =
+      Repo.all(
+        from(k in ConversationKnowledge,
+          where:
+            k.transport == ^batch.transport and k.conversation_ref == ^batch.conversation_ref,
+          where: ^repository,
+          order_by: [desc: k.updated_at, desc: k.id],
+          limit: 20
+        )
+      )
+
+    available = ConversationMemory.available_ids(topics)
+
+    topics
+    |> Enum.reject(&MapSet.member?(available, &1.id))
+    |> ConversationMemory.present()
+    |> Enum.map(
+      &%{id: &1.id, title: &1.title, path: ConversationMemory.topic_path(&1.id) <> "#relearn"}
+    )
+  end
+
+  def relearn_topics(_batch), do: []
 
   defp outstanding_execution?(row) do
     Repo.exists?(
@@ -331,13 +407,12 @@ defmodule Ryker.ControlPlane.LearningActivity do
     )
   end
 
-  @doc "One batch as the page lists it; a caller with the page's secrets passes them once."
-  def batch(row, secrets \\ InspectionRedactor.configured_secrets()),
+  defp batch(row, secrets, context),
     do: %{
       id: row.id,
       status: row.status,
       label: label(row.status),
-      conversation: SlackNames.destination(row.conversation_ref),
+      conversation: conversation(row, context.titles),
       conversation_path: Activity.conversation_path(row.transport, row.conversation_ref),
       repository: row.repository_ref,
       mode: row.execution_mode,
@@ -347,11 +422,35 @@ defmodule Ryker.ControlPlane.LearningActivity do
       budget_version: row.budget_version,
       at: row.inserted_at,
       completed_at: row.completed_at,
-      next_attempt_at: row.next_attempt_at,
+      next_check: next_check(row, context),
       error: error(row.error_code),
       error_code: safe_code(row.error_code, secrets),
       path: path(row.id)
     }
+
+  # A direct conversation is named by its title, like Chat names it; every
+  # one of them read "Direct conversation" on its own.
+  defp conversation(%{transport: "control_plane", conversation_ref: ref}, titles) do
+    case titles[ref] do
+      nil -> SlackNames.destination(ref)
+      title -> "Direct conversation · " <> title
+    end
+  end
+
+  defp conversation(row, _titles), do: SlackNames.destination(row.conversation_ref)
+
+  # When Ryker looks at the batch again, only while that is still ahead: a
+  # queued batch waiting out its delay, or a stopped one whose model run it
+  # still reconciles. A stopped batch nothing checks again has no next check.
+  defp next_check(%{next_attempt_at: %DateTime{} = at} = row, context) do
+    scheduled =
+      row.status == :queued or
+        (row.status == :deferred and MapSet.member?(context.rechecked, row.id))
+
+    if scheduled and DateTime.compare(at, context.now) == :gt, do: at
+  end
+
+  defp next_check(_row, _context), do: nil
 
   @doc "Where one batch opens on the Learning page."
   def path(id), do: "/memory/learning?" <> URI.encode_query(%{"batch" => id})

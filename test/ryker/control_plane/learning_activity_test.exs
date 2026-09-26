@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   alias Ryker.CanonicalJSON
 
   alias Ryker.ControlPlane.{
+    ConversationMemory,
     CSRF,
     LearningActivity,
     LearningPage,
@@ -11,11 +12,12 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     Router
   }
 
+  alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, Batches, InputMembership}
   alias Ryker.Operator.Action
-  alias Ryker.State.LearningRun
+  alias Ryker.State.{ConversationKnowledge, LearningRun}
   alias Ryker.Work.{Custody, Turn}
 
   @settings %{
@@ -116,6 +118,111 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     selected = LearningActivity.project(params).selected
     refute selected.retry_available
     assert selected.retry_blocked =~ "configuration"
+  end
+
+  test "a batch stopped by a topic that lost its sources points to relearning it, not another start" do
+    # QA, 2026-09-25, batch 96368bd7: a learned topic's own messages were gone,
+    # so every attempt stopped on it. The page offered "Grant one more start",
+    # which ran again and stopped the same way. Relearning the topic from the
+    # messages that still exist is what lets these messages update it.
+    topic = stale_topic!()
+    assert {:ok, claim} = Batches.claim("inspection-test", @settings)
+    assert {:ok, _} = Batches.finish(claim, :deferred, "knowledge_target_unavailable")
+    params = %{"batch" => claim.batch.id}
+
+    selected = LearningActivity.project(params).selected
+    refute selected.retry_available
+    relearn = ConversationMemory.topic_path(topic.id) <> "#relearn"
+    assert [%{title: "Checkout readiness history", path: ^relearn}] = selected.relearn
+
+    document = params |> render() |> LazyHTML.from_fragment()
+    assert LazyHTML.query(document, "#retry") |> Enum.empty?()
+    refute LazyHTML.text(document) =~ "Grant one more start"
+
+    assert LazyHTML.query(document, "#relearn-topics a[href='#{relearn}']") |> LazyHTML.text() =~
+             "Relearn it"
+
+    # Once the topic is relearned the cause is gone, and one more start can
+    # update it.
+    Repo.delete_all(ConversationKnowledge)
+    selected = LearningActivity.project(params).selected
+    assert selected.relearn == []
+    assert selected.retry_available
+  end
+
+  test "a stopped batch says the starts it used, and a next check is never in the past" do
+    # QA, 2026-09-25: a stopped batch read "1 of 3 model starts used", then
+    # "2 of 2" after one more start was granted, and "Next check 58 min ago"
+    # for a batch nothing checks again. The limit only matters while the batch
+    # can still start, and a check is shown only when one is scheduled ahead.
+    inputs!()
+    assert {:ok, claim} = Batches.claim("inspection-test", @settings)
+    assert {:ok, run} = Batches.prepare(claim)
+    assert {:ok, _} = Batches.begin_execution(claim, run.id)
+    assert render(%{"batch" => claim.batch.id}) =~ "1 of 3 model starts used"
+
+    assert {:ok, _} = Batches.finish(claim, :deferred, "learning_judgment_deferred")
+
+    Repo.update_all(Batch,
+      set: [next_attempt_at: DateTime.add(DateTime.utc_now(), -58 * 60)]
+    )
+
+    for html <- [render(%{}), render(%{"batch" => claim.batch.id})] do
+      assert html =~ "1 model start used"
+      refute html =~ "of 3 model starts"
+      refute html =~ "Next check"
+    end
+
+    set_batch_status!(Repo.get!(Batch, claim.batch.id), :queued)
+
+    Repo.update_all(Batch,
+      set: [next_attempt_at: DateTime.add(DateTime.utc_now(), 30 * 60)]
+    )
+
+    assert render(%{"batch" => claim.batch.id}) =~ ~r/Next check in (29|30) min/
+  end
+
+  test "learning from a chat is named by that chat, not only as a direct conversation" do
+    # QA, 2026-09-25: every Learning row from Chat read "Direct conversation",
+    # so no two of them could be told apart, least of all on a phone.
+    conversation = "control-plane:lab:" <> Ecto.UUID.generate()
+
+    {:ok, input} =
+      Ryker.Ingress.Input.new(%{
+        actor: %{kind: :user, ref: "local-operator"},
+        content: %{"text" => "Weekday incident status"},
+        destination: %{
+          transport: "control_plane",
+          conversation_ref: conversation,
+          thread_ref: conversation
+        },
+        event_kind: :message,
+        event_ref: "chat-title",
+        native_input_id: "chat-title:" <> conversation,
+        occurred_at: DateTime.utc_now(),
+        occurred_at_source: :ingress,
+        revision: 1,
+        source: %{kind: "control_plane", ref: "local"},
+        source_capabilities: %{},
+        source_item_ref: "chat-title"
+      })
+
+    {:ok, _} = Ryker.Ingress.Inbox.record(input)
+
+    Repo.insert!(%Batch{
+      id: Ecto.UUID.generate(),
+      scope_key: "chat-title:" <> conversation,
+      transport: "control_plane",
+      conversation_ref: conversation,
+      execution_mode: :live,
+      policy: @settings.policy,
+      policy_digest: @settings.policy_digest,
+      status: :applied,
+      input_count: 1,
+      completed_at: DateTime.utc_now()
+    })
+
+    assert render(%{}) =~ "Direct conversation · Weekday incident status"
   end
 
   test "no-change batches and every rejected frozen attempt remain inspectable without a topic revision" do
@@ -534,6 +641,29 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
     Repo.update_all(Entry, set: [inserted_at: now, updated_at: now])
     entries
+  end
+
+  # A learned topic whose only message was deleted: Ryker no longer uses it,
+  # and learning from its conversation stops on it until it is relearned.
+  defp stale_topic! do
+    [old, _current] = inputs!()
+
+    proposal = %{
+      "topic_key" => "checkout-readiness-history",
+      "title" => "Checkout readiness history",
+      "summary" =>
+        "This message reports a historical checkout readiness alert; current health is unverified.",
+      "topics" => ["checkout"],
+      "anchors" => [],
+      "target_ref" => nil,
+      "expected_version" => 0
+    }
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn -> KnowledgeFixtures.record_topic(old, proposal, []) end)
+
+    KnowledgeFixtures.revoke!(old)
+    Repo.one!(ConversationKnowledge)
   end
 
   defp set_batch_status!(claimed, status) do
