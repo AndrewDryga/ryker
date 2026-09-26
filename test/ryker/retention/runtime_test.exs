@@ -64,6 +64,24 @@ defmodule Ryker.Retention.RuntimeTest do
     end
   end
 
+  test "cleanup starts only on an explicit Coop adapter" do
+    # A missing adapter used to fall back to the local Unix-socket client, which
+    # is eval-only and left the release: cleanup must stop before supervision
+    # rather than at its first Coop call.
+    for invalid <- [
+          Map.delete(configuration(), :api),
+          Map.put(configuration(), :api, nil),
+          Map.put(configuration(), :learning_api, nil)
+        ] do
+      assert_raise ArgumentError, fn -> Runtime.options!(invalid) end
+    end
+
+    options = Runtime.options!(configuration())
+    assert options.api == Ryker.CoopFleet.Client
+    assert options.learning_api == Ryker.CoopFleet.Client
+    assert options.learning_client == :client
+  end
+
   test "worker survives every dispatcher outcome and keeps polling" do
     for response <- [
           {:ok, pass(0, %{idle: true})},
@@ -137,6 +155,7 @@ defmodule Ryker.Retention.RuntimeTest do
 
   defp configuration do
     %{
+      api: Ryker.CoopFleet.Client,
       audit_data_seconds: 2_592_000,
       batch_limit: 25,
       batch_seconds: 30,

@@ -930,6 +930,23 @@ defmodule Ryker.Work.ExecutorTest do
     assert FakeAPI.state(fake).cancel_keys == []
   end
 
+  test "a work executor without an explicit Coop adapter refuses before Coop" do
+    # A missing adapter used to fall back to the local Unix-socket client, which
+    # is eval-only and left the release: the executor must refuse the claim
+    # before creating a session, not fail at its first Coop call.
+    claim = claim_episode!("no-adapter")
+    {:ok, fake} = FakeAPI.start_link([reply("Investigation complete.")])
+
+    assert Executor.run(claim, Keyword.delete(options(fake), :api)) ==
+             {:error, {:invalid_work_executor, :options}}
+
+    assert Executor.run(claim, Keyword.put(options(fake), :api, nil)) ==
+             {:error, {:invalid_work_executor, :api}}
+
+    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).status == :pending
+    assert FakeAPI.state(fake).create_count == 0
+  end
+
   test "confirmed completion is durable before fallible host finalization starts" do
     # A process crash between remote completion and checkpointing must not erase
     # the fence that prevents workspace replacement and model replay on restart.

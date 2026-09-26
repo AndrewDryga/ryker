@@ -2,15 +2,14 @@ defmodule Ryker.Work.Runtime do
   @moduledoc """
   Supervises a bounded pool of workers sharing one configured Coop API adapter.
 
-  Each slot receives only the shared Coop socket and a distinct lease identity.
-  Episode authority is pinned during admission and cannot be selected by a
-  worker. Product mode supplies the durable outbound fleet adapter; component
-  tests may explicitly supply the private Unix-socket adapter.
+  Each slot receives only the shared Coop adapter and a distinct lease
+  identity. Episode authority is pinned during admission and cannot be selected
+  by a worker. Product assembly supplies the durable outbound fleet adapter;
+  component tests supply a test double in its place.
   """
 
   use Supervisor
 
-  alias Ryker.Coop.Client
   alias Ryker.Options
   alias Ryker.Work.{ActivitySyncWorker, Session, StateBinding, Turn, Worker}
 
@@ -22,7 +21,6 @@ defmodule Ryker.Work.Runtime do
     :platform_tools,
     :poll_interval_ms,
     :receive_timeout_ms,
-    :socket,
     :state_tool_capabilities,
     :state_tools_endpoint,
     :state_tools_secret,
@@ -120,7 +118,7 @@ defmodule Ryker.Work.Runtime do
     validate_ref!(worker_ref, :worker_ref)
     validate_state_tools!(state_tools_endpoint, state_tools_secret)
     validate_state_tool_capabilities!(state_tool_capabilities, state_tools_endpoint)
-    {api, client} = coop_adapter!(configuration, receive_timeout_ms)
+    {api, client} = coop_adapter!(configuration)
 
     %{
       api: api,
@@ -138,21 +136,11 @@ defmodule Ryker.Work.Runtime do
   end
 
   defp normalize_configuration!(configuration) do
-    missing_or_unknown = "work configuration has missing or unknown fields"
-
-    configuration =
-      Options.normalize!(configuration, @fields, [:worker_ref],
-        list: "work configuration must use unique known fields",
-        map: missing_or_unknown,
-        other: "work configuration must be a map or keyword list"
-      )
-
-    keys = Map.keys(configuration)
-
-    if (:socket in keys and :api not in keys and :client not in keys) or
-         (:socket not in keys and :api in keys and :client in keys),
-       do: configuration,
-       else: raise(ArgumentError, missing_or_unknown)
+    Options.normalize!(configuration, @fields, [:api, :client, :worker_ref],
+      list: "work configuration must use unique known fields",
+      map: "work configuration has missing or unknown fields",
+      other: "work configuration must be a map or keyword list"
+    )
   end
 
   defp validate_positive!(value, _field) when is_integer(value) and value > 0, do: :ok
@@ -202,25 +190,15 @@ defmodule Ryker.Work.Runtime do
           "work receive_timeout_ms must fit within the durable lease heartbeat window"
   end
 
-  defp coop_adapter!(%{api: api, client: client}, _receive_timeout_ms)
-       when is_atom(api) and not is_nil(client) do
+  defp coop_adapter!(%{api: api, client: client})
+       when is_atom(api) and not is_nil(api) and not is_nil(client) do
     if Code.ensure_loaded?(api) and function_exported?(api, :get_session, 2),
       do: {api, client},
       else: raise(ArgumentError, "work api must implement the Coop session contract")
   end
 
-  defp coop_adapter!(%{socket: socket}, receive_timeout_ms) do
-    validate_ref!(socket, :socket)
-
-    case Client.new(
-           finch: Ryker.CoopFinch,
-           receive_timeout: receive_timeout_ms,
-           socket: socket
-         ) do
-      {:ok, client} -> {Client, client}
-      {:error, reason} -> raise ArgumentError, "invalid work Coop client: #{inspect(reason)}"
-    end
-  end
+  defp coop_adapter!(_configuration),
+    do: raise(ArgumentError, "work requires a trusted Coop adapter")
 
   defp validate_ref!(value, _field) when is_binary(value) do
     if String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and

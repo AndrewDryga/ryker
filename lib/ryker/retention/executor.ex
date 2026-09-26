@@ -406,15 +406,15 @@ defmodule Ryker.Retention.Executor do
   defp settings(%{} = options) do
     allowed = [:api, :client, :closed_session_grace_seconds, :retained_recheck_seconds]
 
-    if Map.keys(options) -- allowed == [] and Map.has_key?(options, :client) do
+    if Map.keys(options) -- allowed == [] and match?(%{api: _, client: _}, options) do
       settings = %{
-        api: Map.get(options, :api, Ryker.Coop.Client),
+        api: options.api,
         client: options.client,
         closed_session_grace_seconds: Map.get(options, :closed_session_grace_seconds, 900),
         retained_recheck_seconds: Map.get(options, :retained_recheck_seconds, 21_600)
       }
 
-      if is_atom(settings.api) and is_integer(settings.closed_session_grace_seconds) and
+      if adapter?(settings.api) and is_integer(settings.closed_session_grace_seconds) and
            settings.closed_session_grace_seconds >= 0 and
            is_integer(settings.retained_recheck_seconds) and
            settings.retained_recheck_seconds > 0,
@@ -426,6 +426,8 @@ defmodule Ryker.Retention.Executor do
   end
 
   defp settings(_options), do: {:error, {:invalid_retention_executor, :options}}
+
+  defp adapter?(api), do: is_atom(api) and not is_nil(api)
 
   defp reference(value, _field) when is_binary(value) do
     if Reference.valid?(value), do: :ok, else: {:error, {:coop_protocol_error, :reference}}

@@ -245,7 +245,7 @@ defmodule Ryker.Work.Executor do
       state_tools_endpoint = Keyword.get(options, :state_tools_endpoint)
 
       validate_settings(%{
-        api: Keyword.get(options, :api, Ryker.Coop.Client),
+        api: Keyword.fetch!(options, :api),
         client: Keyword.fetch!(options, :client),
         connected: Keyword.get(options, :connected),
         lease_seconds: Keyword.get(options, :lease_seconds, 300),
@@ -282,6 +282,8 @@ defmodule Ryker.Work.Executor do
 
   defp settings(_options), do: {:error, {:invalid_work_executor, :options}}
 
+  defp adapter?(api), do: is_atom(api) and not is_nil(api)
+
   # What the running system connected, when it says: Slack and GitHub, each on
   # or off. Absent, the model is told nothing rather than something false.
   defp valid_connected?(nil), do: true
@@ -295,7 +297,7 @@ defmodule Ryker.Work.Executor do
     safe_window = div(settings.lease_seconds * 1_000, 3)
 
     validations = [
-      {is_atom(settings.api), :api},
+      {adapter?(settings.api), :api},
       {valid_connected?(settings.connected), :connected},
       {is_integer(settings.lease_seconds) and settings.lease_seconds > 0, :lease_seconds},
       {is_integer(settings.max_block_ms) and settings.max_block_ms > 0 and

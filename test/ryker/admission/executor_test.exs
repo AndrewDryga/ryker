@@ -758,6 +758,27 @@ defmodule Ryker.Admission.ExecutorTest do
     assert FakeAPI.state(fake).submit_count == 0
   end
 
+  test "an admission executor without an explicit Coop adapter refuses before Coop" do
+    # A missing adapter used to fall back to the local Unix-socket client, which
+    # is eval-only and left the release: the executor must refuse the input
+    # before touching it, not fail at its first Coop call.
+    entry = record_slack_input!("Ev-executor-no-adapter")
+    lease_ref = claim!(entry)
+    {:ok, fake} = FakeAPI.start_link([decision("reply")])
+    options = executor_options(fake, lease_ref)
+
+    assert Executor.run(Inbox.ref(entry), Keyword.delete(options, :api)) ==
+             {:error, {:invalid_admission_executor, :options}}
+
+    assert Executor.run(Inbox.ref(entry), Keyword.put(options, :api, nil)) ==
+             {:error, {:invalid_admission_executor, :api}}
+
+    assert {:ok, pending} = Inbox.fetch(Inbox.ref(entry))
+    assert pending.status == :pending
+    assert pending.decision_ref == nil
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
   test "a crossed Coop turn cannot decide another admission session" do
     entry = record_slack_input!("Ev-executor-crossed-turn")
     lease_ref = claim!(entry)

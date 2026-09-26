@@ -14,6 +14,12 @@ defmodule Ryker.Publication.RuntimeTest do
     def get_publication_status(_client, _repository, _number), do: {:error, :not_used}
   end
 
+  defmodule ReviewAPI do
+    def get_session(_client, _session_id), do: {:error, :not_used}
+    def get_review_patch(_client, _artifact_id, _sha256, _bytes), do: {:error, :not_used}
+    def run_review(_client, _session_id, _key, _revision), do: {:error, :not_used}
+  end
+
   defmodule MessagePublisher do
     @behaviour Ryker.Delivery.Platform
     @behaviour Ryker.Delivery.MessagePublisher
@@ -36,8 +42,8 @@ defmodule Ryker.Publication.RuntimeTest do
     assert options.worker_ref == "publication-worker:test"
     assert options.status_api == StatusAPI
     assert options.status_client == :status_client
-    assert options.coop_api == Ryker.Coop.Client
-    assert options.coop_client.socket == "/tmp/coop-publication-test.sock"
+    assert options.coop_api == ReviewAPI
+    assert options.coop_client == :coop_client
 
     assert %{id: Runtime, type: :supervisor} = Runtime.child_spec(configuration())
 
@@ -111,7 +117,7 @@ defmodule Ryker.Publication.RuntimeTest do
       %{configuration() | publisher: String},
       %{configuration() | publisher_binding: %{}},
       %{configuration() | delivery_adapters: %{}},
-      %{configuration() | socket: ""}
+      %{configuration() | coop_api: StatusAPI}
     ]
 
     Enum.each(invalid, fn configuration ->
@@ -119,9 +125,29 @@ defmodule Ryker.Publication.RuntimeTest do
     end)
   end
 
+  test "publication starts only on an explicit Coop adapter, never a local socket" do
+    # Product builds review and publish work through the enrolled worker fleet.
+    # The local Unix-socket client a `socket` used to build is eval-only and
+    # left the release, so a configuration naming a socket, or no adapter at
+    # all, must stop before supervision rather than at its first Coop call.
+    adapterless = Map.drop(configuration(), [:coop_api, :coop_client])
+
+    for invalid <- [
+          Map.put(adapterless, :socket, "/tmp/coop-publication-test.sock"),
+          adapterless,
+          Map.put(adapterless, :coop_api, ReviewAPI),
+          %{configuration() | coop_client: nil},
+          %{configuration() | coop_api: nil}
+        ] do
+      assert_raise ArgumentError, fn -> Runtime.options!(invalid) end
+    end
+  end
+
   defp configuration do
     %{
       concurrency: 2,
+      coop_api: ReviewAPI,
+      coop_client: :coop_client,
       delivery_adapters: %{
         "slack" => %{
           binding: :delivery_client,
@@ -137,7 +163,6 @@ defmodule Ryker.Publication.RuntimeTest do
       receive_timeout_ms: 1_000,
       retry_base_seconds: 1,
       retry_max_seconds: 30,
-      socket: "/tmp/coop-publication-test.sock",
       worker_ref: "publication-worker:test"
     }
   end

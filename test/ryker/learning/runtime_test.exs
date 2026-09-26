@@ -38,18 +38,25 @@ defmodule Ryker.Learning.RuntimeTest do
     end
   end
 
-  test "local learning uses the application's existing Coop HTTP pool" do
-    # Internal deployment preflight failed before startup: fleet-only tests did
-    # not catch the local adapter omitting Client's required Finch owner.
-    config =
-      @config
-      |> Map.drop([:api, :client])
-      |> Map.put(:socket, "/tmp/ryker-learning-test.sock")
+  test "learning starts only on an explicit Coop adapter, never a local socket" do
+    # Product builds place learning on the enrolled worker fleet. The local
+    # Unix-socket client a `socket` used to build is eval-only and left the
+    # release, so a configuration naming a socket, or no adapter at all, must
+    # stop before supervision rather than at its first Coop call.
+    adapterless = Map.drop(@config, [:api, :client])
 
-    settings = Runtime.options!(config)
-    assert settings.api == Ryker.Coop.Client
-    assert settings.client.finch == Ryker.CoopFinch
-    assert settings.client.socket == config.socket
-    assert settings.client.receive_timeout == 30_000
+    for invalid <- [
+          Map.put(adapterless, :socket, "/tmp/ryker-learning-test.sock"),
+          adapterless,
+          Map.put(adapterless, :api, Ryker.TestSupport.FakeCoopAPI),
+          %{@config | client: nil},
+          %{@config | api: nil}
+        ] do
+      assert_raise ArgumentError, fn -> Runtime.options!(invalid) end
+    end
+
+    settings = Runtime.options!(@config)
+    assert settings.api == Ryker.TestSupport.FakeCoopAPI
+    assert settings.client == :test
   end
 end

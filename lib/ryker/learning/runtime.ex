@@ -1,11 +1,10 @@
 defmodule Ryker.Learning.Runtime do
   @moduledoc "A small supervised learning pool, configured by the host rather than incoming messages."
   use Supervisor
-  alias Ryker.Coop.Client
   alias Ryker.Learning.Worker
   alias Ryker.{Options, Reference}
 
-  @fields ~w(api client socket policy policy_digest worker_ref concurrency batch_size quiet_seconds
+  @fields ~w(api client policy policy_digest worker_ref concurrency batch_size quiet_seconds
     maximum_delay_seconds poll_interval_ms receive_timeout_ms execution_timeout_seconds)a
 
   @doc "The current host configuration, used only when explicitly requesting new learning work."
@@ -51,8 +50,8 @@ defmodule Ryker.Learning.Runtime do
 
     validate_identity!(config)
 
-    timeout = integer!(config, :receive_timeout_ms, 30_000, 1..30_000)
-    {api, client} = adapter!(config, timeout)
+    integer!(config, :receive_timeout_ms, 30_000, 1..30_000)
+    {api, client} = adapter!(config)
     quiet = integer!(config, :quiet_seconds, 10, 0..300)
     maximum_delay = integer!(config, :maximum_delay_seconds, 60, 1..600)
 
@@ -89,21 +88,11 @@ defmodule Ryker.Learning.Runtime do
       do: raise(ArgumentError, "learning #{key} must be a bounded nonblank reference")
   end
 
-  defp adapter!(%{socket: socket} = config, timeout) do
-    if Map.has_key?(config, :api) or Map.has_key?(config, :client),
-      do: raise(ArgumentError, "learning cannot select both local and fleet execution")
-
-    case Client.new(finch: Ryker.CoopFinch, socket: socket, receive_timeout: timeout) do
-      {:ok, client} -> {Client, client}
-      {:error, _} -> raise ArgumentError, "invalid learning Coop socket"
-    end
-  end
-
-  defp adapter!(%{api: api, client: client}, _timeout)
+  defp adapter!(%{api: api, client: client})
        when is_atom(api) and not is_nil(api) and not is_nil(client),
        do: {api, client}
 
-  defp adapter!(_, _), do: raise(ArgumentError, "learning requires a trusted Coop adapter")
+  defp adapter!(_config), do: raise(ArgumentError, "learning requires a trusted Coop adapter")
 
   defp integer!(config, key, default, range) do
     value = Map.get(config, key, default)
