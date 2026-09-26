@@ -133,7 +133,7 @@ defmodule Ryker.Evals.LearningRunner do
       {head, 0} = System.cmd("git", ["-C", options.scratch_repository, "rev-parse", "HEAD"])
 
       settings =
-        Runtime.options!(%{
+        %{
           api: ScratchAPI,
           client: %{api: options.api, client: options.client, scratch_head: String.trim(head)},
           policy: options.policy,
@@ -141,9 +141,12 @@ defmodule Ryker.Evals.LearningRunner do
           worker_ref: "learning-eval",
           quiet_seconds: 0,
           batch_size: 1
-        })
+        }
+        |> Runtime.options!()
+        |> Map.put(:step_delay_seconds, step_delay(options))
 
-      steps = execute(sequence, settings, Map.get(options, :max_polls, 2200), [])
+      polls = %{budget: Map.get(options, :max_polls, 2200), pause_ms: poll_interval(options)}
+      steps = execute(sequence, settings, polls, [])
       learned = length(steps) == length(sequence) and Enum.all?(steps, & &1.passed)
 
       probe =
@@ -199,15 +202,28 @@ defmodule Ryker.Evals.LearningRunner do
       Enum.any?(@runtime_keys, &Application.get_env(:ryker, &1)) ->
         {:error, :learning_eval_background_runtime_configured}
 
-      Map.get(options, :max_polls, 2200) not in 1..2200 ->
-        {:error, :learning_eval_invalid_poll_budget}
-
-      options[:probe_question] != nil and
-          not (is_binary(options.probe_question) and byte_size(options.probe_question) in 1..4000) ->
-        {:error, :learning_eval_invalid_probe_question}
+      problem = option_problem(options) ->
+        {:error, problem}
 
       true ->
         with :ok <- empty_database(), do: empty_scratch(options[:scratch_repository])
+    end
+  end
+
+  defp option_problem(options) do
+    cond do
+      Map.get(options, :max_polls, 2200) not in 1..2200 ->
+        :learning_eval_invalid_poll_budget
+
+      poll_interval(options) not in 0..60_000 or step_delay(options) not in 0..60 ->
+        :learning_eval_invalid_poll_interval
+
+      options[:probe_question] != nil and
+          not (is_binary(options.probe_question) and byte_size(options.probe_question) in 1..4000) ->
+        :learning_eval_invalid_probe_question
+
+      true ->
+        nil
     end
   end
 
@@ -302,7 +318,7 @@ defmodule Ryker.Evals.LearningRunner do
     started = System.monotonic_time(:millisecond)
     entry = persist!(step.input, settings)
     controlled_race = prepare_concurrent_topic(step, entry, settings)
-    result = drive(entry.id, settings, polls)
+    result = drive(entry.id, settings, polls.pause_ms, polls.budget)
     after_heads = heads()
     provider_receipts = provider_receipts(entry.id, settings)
     cleanup = cleanup(settings, 20)
@@ -479,10 +495,15 @@ defmodule Ryker.Evals.LearningRunner do
     end
   end
 
-  defp drive(_id, _settings, 0),
+  # A model takes seconds per step, so a live run waits between polls and
+  # between learning steps; recorded runs answer at once and need neither.
+  defp poll_interval(options), do: Map.get(options, :poll_interval_ms, 1_000)
+  defp step_delay(options), do: Map.get(options, :step_delay_seconds, 2)
+
+  defp drive(_id, _settings, _pause_ms, 0),
     do: %{"status" => "unfinished", "error_code" => "evaluation_poll_budget_exhausted"}
 
-  defp drive(id, settings, left) do
+  defp drive(id, settings, pause_ms, left) do
     result = Dispatcher.run_once(settings)
 
     batch =
@@ -503,8 +524,8 @@ defmodule Ryker.Evals.LearningRunner do
         %{"status" => "failed", "error_code" => inspect(result)}
 
       true ->
-        Process.sleep(1000)
-        drive(id, settings, left - 1)
+        Process.sleep(pause_ms)
+        drive(id, settings, pause_ms, left - 1)
     end
   end
 
