@@ -4,7 +4,7 @@ defmodule Ryker.RenameAuditTest do
   @moduledoc """
   The product was renamed from Responder to Ryker on 2026-09-13. Every occurrence
   of the old name that remains in the tracked tree is either immutable evidence
-  (harvested fixtures, recorded corpora, historical migrations, append-only logs)
+  (harvested fixtures, recorded corpora, append-only logs)
   or a contract with another party that this repository cannot rename alone
   (co:op wire names and inbound webhook headers). Each is
   listed below with its reason; anything else is a rename that was missed, and
@@ -20,8 +20,6 @@ defmodule Ryker.RenameAuditTest do
     {~r{^test/.*/fixtures/.*\.json$},
      "recorded episodes, replies and threads (harvested, never invented)"},
     {~r{^test/.*/fixtures/README\.md$|\.PROVENANCE\.md$}, "provenance of the recorded fixtures"},
-    {~r{^priv/repo/migrations/},
-     "historical migrations create the objects under their old names; the 2026-09-13 migration renames them and earlier files stay exactly as they ran"},
     {~r{^CHANGELOG\.md$}, "append-only release history"},
     {~r{^test/ryker/rename_audit_test\.exs$}, "this allowlist"}
   ]
@@ -67,8 +65,6 @@ defmodule Ryker.RenameAuditTest do
      "the manifest update step names the command it replaces"},
     {~r{^test/ryker/slack/app_manifest_test\.exs$}, ~r/"responder"/,
      "asserts the manifest copy no longer names the old product"},
-    {~r{^test/ryker/ingress/migration_upgrade_test\.exs$}, ~r/[Rr]esponder/,
-     "the migration ladder test drives historical schema states by their names, including the rename migration's own up and down"},
     # --- the English word
     {~r//,
      ~r/\b(first|on-call|configured|coordinate|invited) responders?\b|\ba responder to read\b|\bresponders\b/i,
