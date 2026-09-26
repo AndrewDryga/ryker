@@ -30,6 +30,10 @@ defmodule Ryker.Operator.Failures do
 
   @kinds ~w(admission delivery emisar retention slack_incident slack_interaction slack_task_card slack_thread_status work)
   @spec list(map()) :: {:ok, [map()]} | {:error, term()}
+  @doc "Every kind of failure a person can retry, in the one order help texts list them."
+  @spec kinds() :: [String.t()]
+  def kinds, do: @kinds
+
   def list(params \\ %{})
   def list(params) when is_map(params), do: FailureProjection.list(params)
   def list(_params), do: {:error, {:invalid_operator_failure, :params}}

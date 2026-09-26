@@ -16,11 +16,15 @@ defmodule Ryker.IntegrationSetup do
   @actor "control-plane:local"
   @minimum_signing_secret_bytes 32
   @slack_scopes ~w(
-    app_mentions:read assistant:write bookmarks:read canvases:write channels:history
+    app_mentions:read assistant:write bookmarks:read channels:history
     channels:join channels:manage channels:read chat:write commands files:read files:write
     groups:history groups:read groups:write im:history im:read mpim:read pins:write
     reactions:read reactions:write usergroups:read users:read
   )
+
+  @doc "The Slack bot scopes connecting verifies; the shipped app manifest asks for exactly these."
+  @spec slack_scopes() :: [String.t()]
+  def slack_scopes, do: @slack_scopes
 
   @spec connect_slack(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def connect_slack(params, options \\ []) when is_map(params) do

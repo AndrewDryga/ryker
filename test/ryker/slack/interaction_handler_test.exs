@@ -275,6 +275,18 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert_receive {:incident_requested, confirmation}
     assert confirmation.policy.name == "incident-investigate"
 
+    # A full set of open rooms is not a stale control: the person who pressed
+    # was told "no longer current" and nothing else (docs audit, 2026-09-26).
+    full =
+      %{
+        options(["U123"])
+        | operators: MapSet.new(["U123"]),
+          request_incident_room: fn _attributes -> {:error, :incident_room_capacity} end
+      }
+
+    assert {:ok, %{outcome: :room_capacity}} =
+             InteractionHandler.handle(interaction("ryker_open_incident", "incident"), full)
+
     # Investigate shares the offer identity, the operator gate and the incident
     # policy with Create incident room; it never touches a repository.
     assert {:ok, %{outcome: :denied}} =

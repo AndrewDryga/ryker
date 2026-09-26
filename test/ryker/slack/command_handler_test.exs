@@ -110,6 +110,37 @@ defmodule Ryker.Slack.CommandHandlerTest do
     assert override["text"] =~ "Proactive: on (installation default)"
   end
 
+  # Rules made since the source-event rewrite store a title and a task, not the
+  # old "action", and `/ryker assignments` read the action with Map.fetch!: in
+  # any channel holding a current rule the command crashed instead of listing
+  # it (found by the 2026-09-26 docs audit). Older rules keep their action.
+  test "the assignments list names current rules by their title and older ones by their action" do
+    rules = [
+      %{
+        payload: %{
+          "source_kind" => "slack",
+          "task" => "Summarize the Terraform plan and name risky resources.",
+          "title" => "Review Terraform plans"
+        },
+        ref: "behavior:assignment:current",
+        status: :active
+      },
+      %{
+        payload: %{"action" => "review_terraform_plan"},
+        ref: "behavior:assignment:older",
+        status: :disabled
+      }
+    ]
+
+    options = %{options() | list_assignments: fn _workspace, _conversation -> rules end}
+
+    assert {:ok, listed} =
+             CommandHandler.handle(command("assignments", "event:list-current"), options)
+
+    assert listed["text"] =~ "`behavior:assignment:current` — Review Terraform plans (active)"
+    assert listed["text"] =~ "`behavior:assignment:older` — review_terraform_plan (disabled)"
+  end
+
   test "assignment creation is conversational while scoped grants can be listed or withdrawn" do
     options = options()
 

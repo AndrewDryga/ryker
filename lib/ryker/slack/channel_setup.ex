@@ -722,13 +722,28 @@ defmodule Ryker.Slack.ChannelSetup do
 
   defp answer_step(text, _original, %{step: :alerts}) do
     case text do
-      value when value in ["reply", "reply in place", "investigate"] ->
+      # Each card button's own label works typed, as well as the short forms.
+      value when value in ["investigate here", "investigate", "reply", "reply in place"] ->
         {:ok, :alerts, :reply}
 
-      value when value in ["offer", "offer a choice", "offer incident", "offer an incident"] ->
+      value
+      when value in [
+             "offer a room",
+             "offer",
+             "offer a choice",
+             "offer incident",
+             "offer an incident"
+           ] ->
         {:ok, :alerts, :offer}
 
-      value when value in ["automatic", "automatically create", "create automatically", "auto"] ->
+      value
+      when value in [
+             "always open a room",
+             "automatic",
+             "automatically create",
+             "create automatically",
+             "auto"
+           ] ->
         {:ok, :alerts, :automatic}
 
       _other ->
@@ -741,7 +756,15 @@ defmodule Ryker.Slack.ChannelSetup do
     groups = captures(@group_mention, original)
 
     cond do
-      text in ["none", "no one", "no invitations", "operators only", "on-call responders only"] ->
+      text in [
+        "nobody automatically",
+        "nobody",
+        "none",
+        "no one",
+        "no invitations",
+        "operators only",
+        "on-call responders only"
+      ] ->
         {:ok, :audience, :none}
 
       users != [] or groups != [] ->

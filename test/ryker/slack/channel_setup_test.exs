@@ -915,6 +915,54 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert ChannelConfigurations.configuration(@workspace, "C456").revision == 1
   end
 
+  # The setup card offers "Investigate here", "Offer a room", "Always open a
+  # room" and "Nobody automatically", but a person who typed those words
+  # instead of pressing got "I didn't understand": only the older phrasings
+  # parsed (found by the 2026-09-26 docs audit).
+  test "every setup button label also works as a typed answer", %{options: options} do
+    assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
+
+    for {alerts, attempt} <-
+          Enum.with_index(["Investigate here", "Offer a room", "Always open a room"]) do
+      assert {:ok, %{outcome: :started}} =
+               ChannelSetup.handle_message(
+                 typed("<@UBOT> configure this channel", attempt, :mention),
+                 options
+               )
+
+      for text <- ["Be proactive", "Staging", alerts, "Nobody automatically"] do
+        assert {:ok, %{outcome: :advanced}} =
+                 ChannelSetup.handle_message(typed(text, attempt), options),
+               "#{alerts}: #{text}"
+      end
+
+      assert {:ok, %{outcome: outcome}} =
+               ChannelSetup.handle_message(typed("Save settings", attempt), options)
+
+      assert outcome in [:saved, :completed], "#{alerts}: #{inspect(outcome)}"
+    end
+  end
+
+  # One typed message per setup attempt: the same words typed in a later
+  # attempt are a new message, not a redelivered one.
+  defp typed(text, attempt, audience \\ :ambient) do
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: "C456",
+        content: %{"text" => text},
+        event_kind: :message,
+        event_ref: "event:U123:#{attempt}:#{text}",
+        message_ref: "4.00#{attempt}001",
+        occurred_at: @now,
+        revision: 1,
+        thread_ref: nil,
+        workspace_ref: @workspace
+      })
+
+    %{audience: audience, input: input, platform_thread_ref: nil}
+  end
+
   test "unaddressed, denied, and malformed setup messages remain recoverable", %{
     options: options
   } do

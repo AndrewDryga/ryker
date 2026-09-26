@@ -156,13 +156,18 @@ defmodule Ryker.Slack.CommandHandler do
           Enum.map(values, fn assignment ->
             ref = Map.fetch!(assignment, :ref)
             status = Map.fetch!(assignment, :status)
-            action = assignment |> Map.fetch!(:payload) |> Map.fetch!("action")
-            "- `#{ref}` — #{action} (#{status})"
+            "- `#{ref}` — #{assignment_name(Map.fetch!(assignment, :payload))} (#{status})"
           end)
       end
 
     {:ok, response(Enum.join(["Standing assignments" | lines], "\n"))}
   end
+
+  # A rule made since the source-event rewrite has a title; an older one names
+  # its action.
+  defp assignment_name(%{"title" => title}) when is_binary(title), do: title
+  defp assignment_name(%{"action" => action}) when is_binary(action), do: action
+  defp assignment_name(_payload), do: "untitled rule"
 
   defp effective(command, options) do
     case options.effective_settings.(command.workspace_ref, conversation_ref(command)) do

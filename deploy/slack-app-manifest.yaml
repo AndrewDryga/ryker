@@ -70,7 +70,6 @@ oauth_config:
       - app_mentions:read
       - assistant:write
       - bookmarks:read
-      - canvases:write
       - channels:history
       - channels:join
       - channels:manage

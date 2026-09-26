@@ -451,8 +451,8 @@ defmodule Ryker.Slack.Gateway do
       {:ok, %{outcome: :selection_required}} ->
         {:ack, {:interaction, :selection_required}, interaction_feedback(:selection_required)}
 
-      {:ok, %{outcome: outcome}} when outcome in [:denied, :invalid] ->
-        acknowledge_interaction(interaction, outcome, outcome, settings)
+      {:ok, %{outcome: outcome}} when outcome in [:denied, :invalid, :room_capacity] ->
+        refuse_interaction(interaction, outcome, settings)
 
       {:ok, %{outcome: outcome}}
       when outcome in [:confirmed, :duplicate] and
@@ -475,6 +475,17 @@ defmodule Ryker.Slack.Gateway do
         {:retry, reason}
     end
   end
+
+  # A refused control is audited as denied or invalid; a full set of incident
+  # rooms is audited as invalid, but the person hears that the rooms are full.
+  defp refuse_interaction(interaction, :room_capacity, settings) do
+    with {:ack, result, _feedback} <-
+           acknowledge_interaction(interaction, :room_capacity, :invalid, settings),
+         do: {:ack, result, interaction_feedback(:room_capacity)}
+  end
+
+  defp refuse_interaction(interaction, outcome, settings),
+    do: acknowledge_interaction(interaction, outcome, outcome, settings)
 
   defp acknowledge_interaction(interaction, outcome, audit_outcome, settings) do
     case audit_interaction(interaction, audit_outcome, settings) do
@@ -511,6 +522,15 @@ defmodule Ryker.Slack.Gateway do
     %{
       "response_type" => "ephemeral",
       "text" => "That control is no longer current. Use the refreshed message instead."
+    }
+  end
+
+  defp interaction_feedback(:room_capacity) do
+    %{
+      "response_type" => "ephemeral",
+      "text" =>
+        "Ryker already has as many incident rooms open as it keeps. Archive a room " <>
+          "whose incident is over, then press again."
     }
   end
 

@@ -47,6 +47,15 @@ defmodule Ryker.Slack.AppManifestTest do
     assert get_in(manifest, ["display_information", "long_description"]) =~ "through Emisar"
   end
 
+  # The manifest asked for canvases:write, which nothing in Ryker uses: a
+  # workspace admin approving the app granted it write access to canvases for
+  # no reason (docs audit, 2026-09-26). The manifest asks for exactly the
+  # scopes connecting Slack verifies, and that list holds none Ryker never uses.
+  test "the shipped Slack app asks for exactly the scopes Ryker verifies and uses" do
+    assert Enum.sort(bot_scopes!()) == Enum.sort(Ryker.IntegrationSetup.slack_scopes())
+    refute "canvases:write" in bot_scopes!()
+  end
+
   defp bot_scopes! do
     {:ok, manifest} = @manifest_path |> File.read!() |> YamlElixir.read_from_string()
     get_in(manifest, ["oauth_config", "scopes", "bot"])

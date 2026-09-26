@@ -26,7 +26,6 @@ defmodule Ryker.Slack.InteractionHandler do
     :incident_offer_not_found,
     :incident_offer_stale,
     :incident_offer_workspace_mismatch,
-    :incident_room_capacity,
     :publication_not_found,
     :publication_not_publishable,
     :publication_not_reviewed,
@@ -260,6 +259,8 @@ defmodule Ryker.Slack.InteractionHandler do
       {:ok, false} -> {:ok, %{outcome: :denied}}
       {:error, :operator_required} -> {:ok, %{outcome: :denied}}
       {:error, reason} when reason in @invalid_offer_errors -> {:ok, %{outcome: :invalid}}
+      # Every room slot is in use: the control is fine, the rooms are full.
+      {:error, :incident_room_capacity} -> {:ok, %{outcome: :room_capacity}}
       {:error, {:automation_revision_conflict, _revision}} -> {:ok, %{outcome: :invalid}}
       {:error, :slack_action_mismatch} -> {:ok, %{outcome: :invalid}}
       {:error, :state_record_not_found} -> {:ok, %{outcome: :invalid}}
