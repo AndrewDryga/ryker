@@ -1027,6 +1027,7 @@
 .context-rows dd { min-width:0; margin:0; color:var(--ink); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
 .context-rows > div { display:grid; grid-template-columns:minmax(88px,144px) minmax(0,1fr); gap:8px 12px; padding:8px 0; border-top:1px solid var(--ryker-stroke); }
 .context-rows > div:first-child { border-top:0; }
+.context-tools dt code { font-size:12px; overflow-wrap:anywhere; }
 @media (max-width:580px) { .context-rows > div { grid-template-columns:minmax(0,1fr); gap:2px; } }
 
 /* Configuration pages */

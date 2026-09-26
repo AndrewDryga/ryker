@@ -1,7 +1,8 @@
 defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   use ExUnit.Case, async: true
-  alias Ryker.ControlPlane.{CallRun, RequestContextHTML}
+  alias Ryker.ControlPlane.{CallRun, CapabilityTools, RequestContextHTML}
   alias Ryker.InspectionRedactor
+  alias Ryker.StateTools.FixedTools
 
   test "retained Work history exposes its messages, limits and summary availability" do
     # The live Work card hid all eleven retained messages and both summaries
@@ -310,6 +311,103 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   # base status, Version, Workspace base revision — before the reader learned
   # which repository the model could see. The shape below is the real one from
   # a production submission; `source` is a sibling of `primary`, not its child.
+  test "each tool the request could use says in a line what it is for" do
+    # Andrew, 2026-09-26: the list headed "State operations advertised to this
+    # request. Availability is not a receipt that a tool ran." showed eighteen
+    # bare names. Each keeps its name, which the timeline's tool steps show,
+    # and says what it is for. The tool lists are the harvested Work prompt's.
+    %{"work" => work} =
+      "testdata/control_plane/submitted-prompts/work-full.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    document =
+      work
+      |> Map.take(["responder_state_tools", "source_and_action_tools"])
+      |> Map.update!("responder_state_tools", &(&1 ++ ["record_emisar_approval"]))
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "tools")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    state = LazyHTML.query(document, "[data-source=responder_state_tools]")
+
+    assert LazyHTML.text(state) =~
+             "Tools Ryker could use for this request. Listed here does not mean it used them."
+
+    refute LazyHTML.text(state) =~ "State operations advertised"
+    refute LazyHTML.text(state) =~ "receipt"
+
+    for {source, names} <- [
+          {"responder_state_tools", work["responder_state_tools"] ++ ["record_emisar_approval"]},
+          {"source_and_action_tools", work["source_and_action_tools"]}
+        ] do
+      rows =
+        document
+        |> LazyHTML.query("[data-source=#{source}] .context-rows > div")
+        |> Enum.map(fn row ->
+          {row |> LazyHTML.query("dt") |> LazyHTML.text(),
+           row |> LazyHTML.query("dd") |> LazyHTML.text()}
+        end)
+
+      assert Enum.map(rows, &elem(&1, 0)) == names
+
+      for {name, description} <- rows do
+        assert description =~ ~r/^[A-Z][^_]+\.$/, "#{name} has no plain description"
+      end
+    end
+
+    rows = LazyHTML.query(document, "[data-source=responder_state_tools] .context-rows > div")
+
+    assert Enum.find_value(rows, fn row ->
+             if LazyHTML.text(LazyHTML.query(row, "dt")) == "request_input",
+               do: LazyHTML.text(LazyHTML.query(row, "dd"))
+           end) == "Asks a person a question and waits for the answer."
+  end
+
+  test "every tool Ryker can offer a request has words for what it is for" do
+    # A tool added to the catalog without a line here would show as a bare
+    # name again.
+    names =
+      FixedTools.names() ++
+        ["record_emisar_approval"] ++ Enum.map(CapabilityTools.list(), & &1["name"])
+
+    described =
+      %{"responder_state_tools" => names}
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "catalog")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[data-source=responder_state_tools] .context-rows > div")
+      |> Enum.map(fn row ->
+        {row |> LazyHTML.query("dt") |> LazyHTML.text(),
+         row |> LazyHTML.query("dd") |> LazyHTML.text() |> String.trim()}
+      end)
+
+    assert Enum.map(described, &elem(&1, 0)) == names
+    assert for({name, ""} <- described, do: name) == []
+  end
+
+  test "a tool this view has no words for keeps its name and gains no invented description" do
+    document =
+      %{"responder_state_tools" => ["validate_final", "retired_tool"]}
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "tools")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    rows =
+      document
+      |> LazyHTML.query("[data-source=responder_state_tools] .context-rows > div")
+      |> Enum.map(fn row ->
+        {row |> LazyHTML.query("dt") |> LazyHTML.text(),
+         row |> LazyHTML.query("dd") |> LazyHTML.text() |> String.trim()}
+      end)
+
+    assert [{"validate_final", checks}, {"retired_tool", ""}] = rows
+    assert checks != ""
+  end
+
   test "the workspace block names the repository, access and checkout, not every field" do
     artifact =
       InspectionRedactor.artifact(%{
