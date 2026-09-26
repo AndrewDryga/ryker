@@ -288,11 +288,12 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How usage and cost work", [
       {"What this page shows",
        [
-         "How much work Ryker ran and what it cost, over the last 24 hours, 7 days, 30 days or all time. It covers every model call: routing messages, replies, investigations, tasks and background learning."
+         "How much work Ryker ran and what it cost, over the last 24 hours, 7 days, 30 days or all time. It covers every model call: routing messages, replies, investigations, tasks and background learning.",
+         "It opens on live work, like Activity. All work adds evaluation runs."
        ]},
       {"Read the tables",
        [
-         "The top figures show cost, runs and tokens. The tables break the same numbers down by model, channel, repository, kind of work and person.",
+         "The top figures show cost, requests, runs and tokens. The tables break the same numbers down by model, channel, repository, kind of work and person.",
          "Click a row to see the requests behind it on Activity."
        ]},
       {"How cost is counted",
@@ -609,6 +610,10 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"What the states mean",
        [
          "Explained: the evidence shows why it happened. Expected and Out of scope come with Ryker's reason. Not explained yet: the question is still open."
+       ]},
+      {"Find a finding",
+       [
+         "The counts at the top say how many findings there are and how many are not explained yet. Search matches what a finding concluded, why, and where it applies."
        ]},
       {"Check the evidence",
        [
