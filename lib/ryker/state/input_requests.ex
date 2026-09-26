@@ -55,21 +55,11 @@ defmodule Ryker.State.InputRequests do
     with true <- Repo.in_transaction?(),
          {:ok, record, episode, turn} <- lock_request(ref),
          :ok <- current_wait?(episode, ref) do
-      unanswered? = is_nil(Repo.get_by(Response, record_id: record.id))
-
-      cond do
-        # An edit of an earlier message is not a reply: the question was asked
-        # about the old wording, and the edited message starts the work again.
-        # Taking it as the answer marked the question "answered" when nobody
-        # had answered it (QA re-test, 2026-09-26).
-        edit?(entry) and unanswered? and asked_here?(entry, episode, turn) ->
-          supersede(record)
-
-        not edit?(entry) and unanswered? and typed_answer_source?(entry, episode, turn) ->
-          persist_typed_response(record, entry, turn)
-
-        true ->
-          :ok
+      if typed_answer_source?(entry, episode, turn) and
+           is_nil(Repo.get_by(Response, record_id: record.id)) do
+        persist_typed_response(record, entry, turn)
+      else
+        :ok
       end
     else
       false -> {:error, :state_record_transaction_required}
@@ -96,14 +86,7 @@ defmodule Ryker.State.InputRequests do
     end
   end
 
-  defp typed_answer_source?(entry, episode, %Turn{} = turn) do
-    asked_here?(entry, episode, turn) and
-      DateTime.compare(entry.occurred_at, turn.delivered_at) == :gt
-  end
-
-  # The message came in the conversation and thread where the question was
-  # delivered.
-  defp asked_here?(entry, episode, %Turn{external_receipt: receipt} = turn)
+  defp typed_answer_source?(entry, episode, %Turn{external_receipt: receipt} = turn)
        when is_map(receipt) do
     target = %{
       transport: entry.destination_transport,
@@ -112,19 +95,11 @@ defmodule Ryker.State.InputRequests do
       message_ref: receipt["message_ref"]
     }
 
-    delivered_from?(episode, turn, target) == :ok
+    delivered_from?(episode, turn, target) == :ok and
+      DateTime.compare(entry.occurred_at, turn.delivered_at) == :gt
   end
 
-  defp asked_here?(_entry, _episode, _turn), do: false
-
-  defp edit?(%Entry{revision: revision}), do: is_integer(revision) and revision > 1
-
-  defp supersede(record) do
-    case record |> Ecto.Changeset.change(status: :superseded) |> Repo.update() do
-      {:ok, _record} -> :ok
-      {:error, _changeset} -> {:error, :state_record_persistence_failed}
-    end
-  end
+  defp typed_answer_source?(_entry, _episode, _turn), do: false
 
   @spec answer(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def answer(attributes) do
