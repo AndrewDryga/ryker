@@ -108,7 +108,7 @@ rebases execution time to keep a wait or retention horizon valid, record that se
 Use an isolated PostgreSQL test database for owning memory tests:
 
 ```console
-RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh test/ryker/learning test/ryker/state/learning_test.exs test/ryker/state/learning_failure_test.exs test/ryker/state/knowledge_concurrency_test.exs test/ryker/state/knowledge_sources_test.exs test/ryker/state/learning_work_boundary_test.exs test/ryker/state/knowledge_snapshot_capacity_test.exs test/ryker/state_tools/memory_search_test.exs
+RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh test/ryker/learning test/ryker/learning/learning_test.exs test/ryker/learning/learning_failure_test.exs test/ryker/knowledge/knowledge_concurrency_test.exs test/ryker/knowledge/knowledge_sources_test.exs test/ryker/learning/learning_work_boundary_test.exs test/ryker/knowledge/knowledge_snapshot_capacity_test.exs test/ryker/state_tools/memory_search_test.exs
 RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh test/ryker/evals test/ryker/capability_contract_test.exs
 ```
 

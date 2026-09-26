@@ -126,7 +126,7 @@ defmodule Ryker.Retention.DispatcherTest do
 
     {_count, nil} =
       Repo.update_all(
-        from(record in Ryker.State.Record,
+        from(record in Ryker.Records.Record,
           where: record.episode_id == ^episode.id and record.status == :open
         ),
         set: [status: :dismissed]

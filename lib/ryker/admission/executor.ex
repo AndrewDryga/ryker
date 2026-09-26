@@ -13,7 +13,8 @@ defmodule Ryker.Admission.Executor do
   alias Ryker.Admission
   alias Ryker.Admission.{Attempts, Context, Decision, Prompt}
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
-  alias Ryker.State.{Knowledge, Observations}
+  alias Ryker.Knowledge
+  alias Ryker.Learning.Observations
 
   @retryable_terminal_turn_states ~w(failed)
   @stopped_turn_states ~w(cancelled interrupted budget_exhausted)

@@ -16,9 +16,11 @@ defmodule Ryker.Slack.Collections do
 
   import Ecto.Query
 
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Memories.MemoryEntry
   alias Ryker.Repo
+  alias Ryker.Schedules.Schedule
   alias Ryker.Slack.SavedEntity
-  alias Ryker.State.{Behavior, MemoryEntry, Schedule}
 
   @page_size 5
   @kinds [:schedules, :standing_rules, :knowledge]

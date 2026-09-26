@@ -8,8 +8,9 @@ defmodule Ryker.Slack.AppHomeActionsTest do
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Repo
+  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Slack.{AppHomeActions, AppHomeProjection, HomeInteraction}
-  alias Ryker.State.{Schedule, ScheduleChangeset}
   alias Ryker.Work.Custody
 
   @now ~U[2026-09-04 12:00:00.000000Z]

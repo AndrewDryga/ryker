@@ -28,8 +28,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Publication.Publication
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.Record
   alias Ryker.Work.Turn
 
   @prefix "control-plane:lab:"

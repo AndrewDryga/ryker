@@ -18,8 +18,9 @@ defmodule Ryker.Observability.Queues do
   alias Ryker.Observability.Query
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, LifecycleEvent, Publication}
+  alias Ryker.Records.Record
   alias Ryker.Retention.Custody, as: RetentionCustody
-  alias Ryker.State.{Record, Schedule}
+  alias Ryker.Schedules.Schedule
   alias Ryker.Work.Custody, as: WorkCustody
   alias Ryker.Work.Turn
 

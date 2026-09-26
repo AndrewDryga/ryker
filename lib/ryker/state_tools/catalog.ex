@@ -1,8 +1,10 @@
 defmodule Ryker.StateTools.Catalog do
   @moduledoc false
 
+  alias Ryker.Continuity.ConversationSummaryState
   alias Ryker.Ingress.Adapters, as: IngressAdapters
-  alias Ryker.State.{ConversationSummaryState, InvestigationPayload, ScheduleRecurrence}
+  alias Ryker.Records.InvestigationPayload
+  alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.Work.{Final, RepositorySource}
 
   @maximum_automation_proposals 4

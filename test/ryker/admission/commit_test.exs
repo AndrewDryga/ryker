@@ -13,9 +13,10 @@ defmodule Ryker.Admission.CommitTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.State.{EventSubscriptions, Records}
+  alias Ryker.Waits.EventSubscriptions
   alias Ryker.Work.{Cancellation, Custody, Session, Submission}
 
   @now ~U[2026-08-27 12:00:00.000000Z]
@@ -70,10 +71,10 @@ defmodule Ryker.Admission.CommitTest do
 
     assert result.episode.state == :waiting_for_input
     assert result.episode.owner_ref == question.ref
-    assert Repo.get!(Ryker.State.Record, question.id).status == :open
+    assert Repo.get!(Ryker.Records.Record, question.id).status == :open
     assert result.entry.episode_id == original.id
     assert result.episode.queued_input_refs != []
-    assert Repo.aggregate(Ryker.State.Response, :count) == 0
+    assert Repo.aggregate(Ryker.Records.Response, :count) == 0
   end
 
   for next_actor <- [:app, :bot, :user] do
@@ -153,9 +154,9 @@ defmodule Ryker.Admission.CommitTest do
       assert result.episode.id == original.id
       assert result.episode.state == :working
       assert result.episode.destination_thread_ref == original.destination_thread_ref
-      assert Repo.get!(Ryker.State.Record, wait.id).status == :answered
+      assert Repo.get!(Ryker.Records.Record, wait.id).status == :answered
 
-      assert Repo.get_by!(Ryker.State.EventSubscription, record_id: wait.id).resolution_kind ==
+      assert Repo.get_by!(Ryker.Waits.EventSubscription, record_id: wait.id).resolution_kind ==
                :input
 
       assert Repo.get_by!(Session, episode_id: original.id).id == session.id
@@ -225,7 +226,7 @@ defmodule Ryker.Admission.CommitTest do
       decision = decision!(:continue_episode, candidate.ref, :same_work)
       assert {:ok, result} = Admission.commit(context, decision, "question-#{@kind}")
       assert result.episode.state == :working
-      assert Repo.get!(Ryker.State.Record, question.id).status == @status
+      assert Repo.get!(Ryker.Records.Record, question.id).status == @status
 
       # The timeline says what ended the wait; an edit read "What Ryker was
       # waiting for arrived".
@@ -284,7 +285,7 @@ defmodule Ryker.Admission.CommitTest do
     assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 0
     assert Repo.aggregate(Ryker.Delivery.RoutingResponse, :count) == 0
     assert Repo.aggregate(Ryker.Work.Turn, :count) == 0
-    assert Repo.aggregate(Ryker.State.ConversationKnowledge, :count) == 0
+    assert Repo.aggregate(Ryker.Knowledge.ConversationKnowledge, :count) == 0
   end
 
   test "starts one episode under the current Slack message and reconciles a lost response" do

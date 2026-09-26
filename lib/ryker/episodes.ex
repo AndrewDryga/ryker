@@ -23,8 +23,9 @@ defmodule Ryker.Episodes do
     Transition
   }
 
+  alias Ryker.Memories.Cases
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.State.{Cases, Records}
   alias Ryker.Work.Turn
 
   @spec apply(Command.t()) :: {:ok, Transition.t()} | {:error, term()}

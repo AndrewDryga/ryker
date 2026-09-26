@@ -4,8 +4,8 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
   alias Ryker.ControlPlane.{FindingsPage, Pages, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.State.Records
   alias Ryker.StateTools.Tools
   alias Ryker.Work.Custody
 
@@ -44,8 +44,8 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     assert finding.what == args["what"]
     assert [%{text: observation, path: path}] = finding.evidence
     assert observation =~ "deliberately disables"
-    evidence = Repo.get_by!(Ryker.State.Record, ref: evidence_ref)
-    record = Repo.get_by!(Ryker.State.Record, ref: ref)
+    evidence = Repo.get_by!(Ryker.Records.Record, ref: evidence_ref)
+    record = Repo.get_by!(Ryker.Records.Record, ref: ref)
     episode_path = "/timeline/" <> URI.encode_www_form(claim.episode.key)
     # Findings and evidence must land on actual timeline cards, not dead fragments.
     assert path == episode_path <> "#event-record-" <> evidence.id
@@ -60,7 +60,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     assert html =~ "1 piece of evidence"
     assert html =~ "Open investigation"
     refute html =~ ">Open<"
-    refute html =~ Repo.get_by!(Ryker.State.Record, ref: ref).payload_fingerprint
+    refute html =~ Repo.get_by!(Ryker.Records.Record, ref: ref).payload_fingerprint
     assert FindingsPage.html(view) |> IO.iodata_to_binary() =~ "Zero instances are intentional"
   end
 
@@ -263,8 +263,8 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     }
 
     assert {:ok, %{"record_ref" => ref}} = Tools.call("record_finding", args, options)
-    original = Repo.get_by!(Ryker.State.Record, ref: ref)
-    template = Map.take(original, Ryker.State.Record.__schema__(:fields) -- [:sequence])
+    original = Repo.get_by!(Ryker.Records.Record, ref: ref)
+    template = Map.take(original, Ryker.Records.Record.__schema__(:fields) -- [:sequence])
 
     newer =
       Enum.map(1..500, fn index ->
@@ -279,7 +279,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
         })
       end)
 
-    Repo.insert_all(Ryker.State.Record, newer)
+    Repo.insert_all(Ryker.Records.Record, newer)
     assert {:ok, detail} = Projection.episode(claim.episode.key)
     refute Enum.any?(detail.trace.steps, &(&1.id == "record-#{original.id}"))
     assert [finding] = Projection.findings(%{}).items

@@ -7,8 +7,8 @@ defmodule Ryker.Emisar.ConnectionsTest do
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Operator.Emisar, as: EmisarOperator
+  alias Ryker.Records
   alias Ryker.Settings
-  alias Ryker.State.Records
   alias Ryker.Work.Custody
 
   @actor "control-plane:local"

@@ -16,7 +16,7 @@ defmodule Ryker.Work.Custody.Delivery do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Origin}
   alias Ryker.Repo
-  alias Ryker.State.EventSubscriptions
+  alias Ryker.Waits.EventSubscriptions
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.Custody.{Cancellation, Sessions}
   alias Ryker.Work.{DeliveryReceipt, Turn, TurnChangeset}

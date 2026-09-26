@@ -2,8 +2,9 @@ defmodule Ryker.Learning.ProviderFailureTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Learning.{Batch, Dispatcher}
-  alias Ryker.State.{KnowledgeRevision, LearningRun}
+  alias Ryker.Learning.LearningRun
   alias Ryker.TestSupport.FakeCoopAPI
 
   defmodule API do

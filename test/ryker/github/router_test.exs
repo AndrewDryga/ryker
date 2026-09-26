@@ -8,8 +8,10 @@ defmodule Ryker.GitHub.RouterTest do
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.GitHub.{Auth, Binding, Router}
   alias Ryker.Ingress.Inbox
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.LearningSources
   alias Ryker.Publication.{Followup, Followups, LifecycleEvent}
-  alias Ryker.State.{ConversationObservation, KnowledgeSnapshot, LearningSources}
   alias Ryker.Work.{Custody, SubmissionBuilder}
 
   @secret String.duplicate("s", 32)

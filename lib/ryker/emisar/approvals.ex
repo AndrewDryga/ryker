@@ -14,8 +14,9 @@ defmodule Ryker.Emisar.Approvals do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Ingress.Input
+  alias Ryker.Records.Record
+  alias Ryker.Records.RecordChangeset
   alias Ryker.Repo
-  alias Ryker.State.{Record, RecordChangeset}
   alias Ryker.Work.{Session, Turn}
 
   @spec ensure_registered_in_transaction(Record.t()) :: :ok | {:error, term()}

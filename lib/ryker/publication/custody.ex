@@ -23,8 +23,10 @@ defmodule Ryker.Publication.Custody do
     Review
   }
 
+  alias Ryker.Records
+  alias Ryker.Records.CardDelivery
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.{CardDelivery, Record, Records}
   alias Ryker.Work.{DeliveryReceipt, Session, Turn}
 
   @claimable [:review_pending, :review_ready, :publish_pending, :published_ready]

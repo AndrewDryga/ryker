@@ -11,7 +11,7 @@ defmodule Ryker.Work.Executor.Remote do
   """
 
   alias Ryker.Artifacts
-  alias Ryker.State.KnowledgeSnapshot
+  alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Work.{Custody, Session, StateBinding}
 
   @git_commit_regex ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/

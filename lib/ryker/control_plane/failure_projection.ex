@@ -31,7 +31,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     ThreadStatus
   }
 
-  alias Ryker.State.LearningRun
+  alias Ryker.Learning.LearningRun
   alias Ryker.Work.{Cancellation, FailureCause, Recovery, Session, Turn}
 
   # The phases Ryker is still retrying. A recorded failure there is a stuck

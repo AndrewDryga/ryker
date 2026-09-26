@@ -682,7 +682,7 @@ workspace retained only for unpublished, unmerged commits may be explicitly disc
 action always obtains a fresh Coop plan with unmerged acceptance; dirty work remains retained. Both
 actions are idempotent and leave an audit row.
 
-Before a finished episode becomes eligible for that history cleanup, `Ryker.State.Cases`
+Before a finished episode becomes eligible for that history cleanup, `Ryker.Memories.Cases`
 captures its compact case: the problem, the occurrence identities it was reported under, the
 evidence-backed cause when one was actually established, what was attempted, how it ended, and the
 links back to the sources. The case holds no raw payload, keeps the source identities it was built

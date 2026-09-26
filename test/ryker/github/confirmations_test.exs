@@ -4,11 +4,15 @@ defmodule Ryker.GitHub.ConfirmationsTest do
 
   import ExUnit.CaptureLog
 
+  alias Ryker.Behaviors.Behavior
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.GitHub.{Binding, Confirmations, Input}
+  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.{Behavior, MemoryEntry, Record, Records, Schedule}
+  alias Ryker.Schedules.Schedule
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]

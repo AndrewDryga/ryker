@@ -10,7 +10,8 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
 
   alias Ryker.ControlPlane.ScheduleProjection
   alias Ryker.Fixtures.SavedEntities
-  alias Ryker.State.{Schedule, ScheduleOccurrenceChangeset}
+  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules.ScheduleOccurrenceChangeset
 
   test "current schedules put the next run first and paused ones after it, never alphabetical by status" do
     # Until 2026-09-24 the list sorted on the status column's text, so Paused

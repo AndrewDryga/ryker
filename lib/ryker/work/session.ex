@@ -9,7 +9,7 @@ defmodule Ryker.Work.Session do
   schema "episode_work_sessions" do
     belongs_to(:episode, Ryker.Episodes.Episode)
     belongs_to(:admission_input, Ryker.Ingress.Inbox.Entry)
-    belongs_to(:learning_run, Ryker.State.LearningRun)
+    belongs_to(:learning_run, Ryker.Learning.LearningRun)
     field(:execution_kind, Ecto.Enum, values: [:work, :admission, :learning], default: :work)
     field(:policy, :string)
     field(:policy_digest, :string)

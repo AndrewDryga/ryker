@@ -11,8 +11,9 @@ defmodule Ryker.Evals.WorldEvidence do
 
   alias Ryker.Evals.{Evidence, WorldCase, WorldCassette, WorldInputs}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.{Record, Records}
   alias Ryker.Work.{ActivityEvent, Measurement, Turn}
 
   @doc """

@@ -12,8 +12,8 @@ defmodule Ryker.Work.Executor.Validation do
 
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.{PlatformActionCustody, Presentation}
+  alias Ryker.Records
   alias Ryker.Slack.Mentions
-  alias Ryker.State.Records
   alias Ryker.Work.{Custody, FinalPreflight, StateBinding, Validator}
   alias Ryker.Work.Executor.{Remote, Turns}
 

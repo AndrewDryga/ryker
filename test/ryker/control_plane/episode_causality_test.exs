@@ -20,8 +20,8 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Records
   alias Ryker.Slack.Input
-  alias Ryker.State.Records
   alias Ryker.Work.{ActivityEvent, Custody, SubmissionBuilder, Turn}
 
   @now ~U[2026-09-04 22:51:44.000000Z]

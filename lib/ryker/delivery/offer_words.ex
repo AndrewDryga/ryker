@@ -9,7 +9,8 @@ defmodule Ryker.Delivery.OfferWords do
   out instead of showing a blank or an internal value.
   """
 
-  alias Ryker.State.{ScheduleCadence, ScheduleRecurrence}
+  alias Ryker.Schedules.ScheduleCadence
+  alias Ryker.Schedules.ScheduleRecurrence
 
   @doc "Who a saved memory, preference or guidance applies to."
   @spec applies_to(String.t() | nil, String.t() | nil) :: String.t() | nil

@@ -1,8 +1,8 @@
 defmodule Ryker.Slack.SavedEntityTest do
   use ExUnit.Case, async: true
 
+  alias Ryker.Schedules.Schedule
   alias Ryker.Slack.SavedEntity
-  alias Ryker.State.Schedule
 
   # QA, 2026-09-25: the saved schedule in Slack said "Every monday at 09:00:00
   # · Etc/UTC" in words of its own, and had none for a weekday schedule. It

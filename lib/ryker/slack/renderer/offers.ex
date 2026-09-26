@@ -9,7 +9,7 @@ defmodule Ryker.Slack.Renderer.Offers do
   import Ryker.Slack.Renderer.Fields
 
   alias Ryker.Delivery.OfferWords
-  alias Ryker.State.ScheduleCadence
+  alias Ryker.Schedules.ScheduleCadence
 
   # A task brief shows this many checks and limits, each cut to this length,
   # and counts the rest.

@@ -5,13 +5,11 @@ defmodule Ryker.Learning.Batches do
   alias Ryker.Learning.{Batch, InputMembership, Rebuilds, Runtime}
   alias Ryker.Repo
 
-  alias Ryker.State.{
-    ConversationObservation,
-    Learning,
-    LearningRun,
-    LearningSources,
-    Observations
-  }
+  alias Ryker.Learning
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.LearningRun
+  alias Ryker.Learning.LearningSources
+  alias Ryker.Learning.Observations
 
   def claim(worker, settings) do
     Repo.transaction(fn ->

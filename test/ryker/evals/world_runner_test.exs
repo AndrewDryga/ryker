@@ -22,12 +22,15 @@ defmodule Ryker.Evals.WorldRunnerTest do
     WorldRunner
   }
 
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Settings.PricingRate
   alias Ryker.Slack.ChannelConfiguration
-  alias Ryker.State.{EventSubscription, EventWaits, Record, Records}
   alias Ryker.StateTools.Tools
   alias Ryker.TestSupport.{FakeWorkCoopAPI, WorldHostReplay}
+  alias Ryker.Waits.EventSubscription
+  alias Ryker.Waits.EventWaits
   alias Ryker.Work.{Custody, Submission, Turn}
   alias Ryker.Work.Dispatcher, as: WorkDispatcher
 
@@ -2588,7 +2591,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
       :stale ->
         Repo.update_all(
-          from(value in Ryker.State.Record, where: value.id == ^record_id),
+          from(value in Ryker.Records.Record, where: value.id == ^record_id),
           set: [status: :dismissed]
         )
     end

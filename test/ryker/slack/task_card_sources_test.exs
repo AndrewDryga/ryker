@@ -14,13 +14,11 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
     TaskCardWorker
   }
 
-  alias Ryker.State.{
-    ConversationObservation,
-    KnowledgeSnapshot,
-    Observations,
-    Record,
-    Records
-  }
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.Observations
+  alias Ryker.Records
+  alias Ryker.Records.Record
 
   alias Ryker.Work.{Custody, Session}
 

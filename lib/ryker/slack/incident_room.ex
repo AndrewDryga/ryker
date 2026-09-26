@@ -13,7 +13,7 @@ defmodule Ryker.Slack.IncidentRoom do
 
   schema "slack_incident_rooms" do
     field(:ref, :string)
-    belongs_to(:record, Ryker.State.Record)
+    belongs_to(:record, Ryker.Records.Record)
     belongs_to(:source_episode, Ryker.Episodes.Episode)
     belongs_to(:episode, Ryker.Episodes.Episode)
     field(:status, Ecto.Enum, values: [:requested, :ready, :blocked, :closed])

@@ -24,8 +24,8 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.State.Records
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, SubmissionBuilder, Turn}
 
   @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21d8a01"

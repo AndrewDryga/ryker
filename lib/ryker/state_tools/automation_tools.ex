@@ -1,8 +1,9 @@
 defmodule Ryker.StateTools.AutomationTools do
   @moduledoc false
 
+  alias Ryker.Behaviors.Automations
   alias Ryker.Repo
-  alias Ryker.State.{Automations, ScheduleRecurrence}
+  alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.StateTools.RecordWriter
 
   @spec list_automations(map(), map()) :: {:ok, map()} | {:error, term()}

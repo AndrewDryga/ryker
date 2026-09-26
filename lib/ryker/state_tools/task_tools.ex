@@ -1,7 +1,8 @@
 defmodule Ryker.StateTools.TaskTools do
   @moduledoc false
 
-  alias Ryker.State.{Record, Records}
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.StateTools.RecordWriter
   alias Ryker.Work.RepositorySource
 

@@ -23,13 +23,11 @@ defmodule Ryker.ControlPlane.ChannelContext do
   alias Ryker.Learning.{Batch, InputMembership}
   alias Ryker.Repo
 
-  alias Ryker.State.{
-    Behavior,
-    ConversationKnowledge,
-    ConversationSummary,
-    ConversationSummaryDraft,
-    MemoryEntry
-  }
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Continuity.ConversationSummaryDraft
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Memories.MemoryEntry
 
   alias Ryker.Work.Turn
 

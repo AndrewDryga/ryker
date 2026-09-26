@@ -20,8 +20,8 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.InspectionRedactor
   alias Ryker.Learning.{Batch, Batches}
+  alias Ryker.Memories.Forgetting
   alias Ryker.Operator.Action
-  alias Ryker.State.Forgetting
 
   @settings %{
     policy: "relearn-ui",

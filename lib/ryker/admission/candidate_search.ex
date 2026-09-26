@@ -23,8 +23,8 @@ defmodule Ryker.Admission.CandidateSearch do
     RoutingDigests
   }
 
+  alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Repo
-  alias Ryker.State.KnowledgeAnchors
   alias Ryker.Work.Session
 
   @lane_limit 50

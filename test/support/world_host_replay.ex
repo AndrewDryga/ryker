@@ -2,7 +2,7 @@ defmodule Ryker.TestSupport.WorldHostReplay do
   @moduledoc false
 
   alias Ryker.Evals.{WorldCase, WorldCassette}
-  alias Ryker.State.Records
+  alias Ryker.Records
   alias Ryker.StateTools.Tools
   alias Ryker.TestSupport.FakeWorkCoopAPI
 

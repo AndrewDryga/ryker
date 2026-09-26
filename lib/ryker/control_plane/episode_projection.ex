@@ -10,8 +10,8 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
 
   alias Ryker.ControlPlane.{Activity, EpisodeTrace, ModelRequests, UsageProjection}
   alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.Record
 
   @record_limit 500
 

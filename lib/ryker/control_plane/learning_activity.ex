@@ -18,12 +18,13 @@ defmodule Ryker.ControlPlane.LearningActivity do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
+  alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning.{Batch, Batches, InputMembership, Runtime}
+  alias Ryker.Learning.LearningRun
   alias Ryker.Repo
   alias Ryker.Settings.Installation
   alias Ryker.Settings.Learning, as: LearningSetting
   alias Ryker.Slack.Names
-  alias Ryker.State.{ConversationKnowledge, LearningRun}
   alias Ryker.Work.Turn
 
   @page_size 20

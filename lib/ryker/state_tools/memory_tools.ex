@@ -3,9 +3,11 @@ defmodule Ryker.StateTools.MemoryTools do
 
   import Ecto.Query
 
+  alias Ryker.Continuity
+  alias Ryker.Memories
+  alias Ryker.Memories.MemorySearch
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
-  alias Ryker.State.{Continuity, Memories, MemorySearch}
   alias Ryker.StateTools.RecordWriter
 
   @spec search_memory(map(), map()) :: {:ok, map()} | {:error, term()}

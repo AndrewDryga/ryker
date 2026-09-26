@@ -7,8 +7,11 @@ defmodule Ryker.ControlPlane.CapabilityToolsTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Memories.MemorySourceLink
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.{MemoryEntry, MemorySourceLink, Record, Records}
   alias Ryker.StateTools.LookupContext
   alias Ryker.Work.Custody
 

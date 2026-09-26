@@ -2,8 +2,8 @@ defmodule Ryker.StateTools.LookupContext do
   @moduledoc false
 
   alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.Memories.MemorySearch
   alias Ryker.Slack.SourceRef
-  alias Ryker.State.MemorySearch
   alias Ryker.StateTools.{LookupBoundary, LookupOriginals}
 
   @maximum_bytes 128 * 1_024

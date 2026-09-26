@@ -10,8 +10,8 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   alias Ryker.ControlPlane.{PagedRelation, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.InspectionRedactor
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.Record
 
   # The timeline shows an episode's newest records up to this bound, so a
   # finding older than that links to the episode rather than to an anchor the

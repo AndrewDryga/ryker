@@ -17,9 +17,10 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning.{Batch, Batches, InputMembership}
+  alias Ryker.Learning.LearningRun
   alias Ryker.Operator.Action
-  alias Ryker.State.{ConversationKnowledge, LearningRun}
   alias Ryker.Work.{Custody, Turn}
 
   @settings %{

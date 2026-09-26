@@ -15,9 +15,10 @@ defmodule Ryker.Slack.ChannelConfigurations do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Continuity
+  alias Ryker.Memories
   alias Ryker.Repo
   alias Ryker.Settings.Environment
-  alias Ryker.State.{Continuity, Memories}
 
   alias Ryker.Slack.{
     ChannelConfiguration,

@@ -4,9 +4,10 @@ defmodule Ryker.Retention.PolicyTest do
   import Ecto.Query
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Learning
   alias Ryker.Learning.{Batch, Batches, InputMembership}
+  alias Ryker.Learning.LearningRun
   alias Ryker.Retention.Policy
-  alias Ryker.State.{Learning, LearningRun}
 
   test "every migrated table has one explained retention owner" do
     policies = Policy.all()

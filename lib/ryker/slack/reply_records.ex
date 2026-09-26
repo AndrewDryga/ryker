@@ -13,11 +13,15 @@ defmodule Ryker.Slack.ReplyRecords do
 
   import Ecto.Query
 
+  alias Ryker.Behaviors.Behavior
   alias Ryker.Delivery.PlatformAction
+  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Records.SlackPostOffers
   alias Ryker.Repo
+  alias Ryker.Schedules.Schedule
   alias Ryker.Settings
   alias Ryker.Slack.{IncidentRoom, Permalink, SavedEntity}
-  alias Ryker.State.{Behavior, EventWaitTiming, MemoryEntry, Schedule, SlackPostOffers}
+  alias Ryker.Waits.EventWaitTiming
   alias Ryker.Work.{ActivityEvent, ActivityRetention}
 
   @saved_offer_kinds ~w(guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)

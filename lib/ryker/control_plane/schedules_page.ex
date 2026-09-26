@@ -18,8 +18,8 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, ShortTime}
+  alias Ryker.Schedules.ScheduleCadence
   alias Ryker.Slack.Names
-  alias Ryker.State.ScheduleCadence
 
   @list_limit 100
   @runs_limit 200

@@ -250,7 +250,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     source = SavedEntities.source!("slack:T123:C456")
     active = rule!(source, "Watch Terraform applies and report readiness.")
     archived = rule!(source, "Retired: page the old rota.", status: :deleted)
-    before = Repo.get!(Ryker.State.Behavior, active.id)
+    before = Repo.get!(Ryker.Behaviors.Behavior, active.id)
     rows = "main .behavior-page > .entity-list article.entity-row"
 
     conn = build_conn() |> Map.put(:host, "localhost")
@@ -284,8 +284,8 @@ defmodule Ryker.ControlPlane.LiveTest do
     confirmation = get(conn, "/actions/behavior/#{ref}/deleted")
     assert confirmation.status == 200
     assert confirmation.resp_body =~ "Delete"
-    assert Repo.get!(Ryker.State.Behavior, active.id) == before
-    assert Repo.get!(Ryker.State.Behavior, archived.id).status == :deleted
+    assert Repo.get!(Ryker.Behaviors.Behavior, active.id) == before
+    assert Repo.get!(Ryker.Behaviors.Behavior, archived.id).status == :deleted
   end
 
   test "current and past select the rows they name, and search stays inside the chosen view" do

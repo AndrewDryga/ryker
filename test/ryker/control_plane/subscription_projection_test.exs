@@ -11,8 +11,10 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Records
   alias Ryker.Slack.Input
-  alias Ryker.State.{EventSubscription, EventSubscriptionChangeset, Records}
+  alias Ryker.Waits.EventSubscription
+  alias Ryker.Waits.EventSubscriptionChangeset
   alias Ryker.Work.Custody
 
   @endpoint Endpoint

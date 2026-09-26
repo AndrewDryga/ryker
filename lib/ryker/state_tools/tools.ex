@@ -3,7 +3,7 @@ defmodule Ryker.StateTools.Tools do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Emisar.ApprovalContract
-  alias Ryker.State.Records
+  alias Ryker.Records
   alias Ryker.StateTools.{ErrorCode, FixedTools}
 
   @fixed_tool_names FixedTools.names()

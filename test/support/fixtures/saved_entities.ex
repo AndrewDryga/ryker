@@ -8,9 +8,12 @@ defmodule Ryker.Fixtures.SavedEntities do
   differently shaped hand-written sets.
   """
 
+  alias Ryker.Behaviors.Behavior
   alias Ryker.{Episodes, Repo}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.State.{Behavior, MemoryEntry, Records, Schedule}
+  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Records
+  alias Ryker.Schedules.Schedule
   alias Ryker.Work.Custody
 
   @now ~U[2026-08-28 12:00:00.000000Z]

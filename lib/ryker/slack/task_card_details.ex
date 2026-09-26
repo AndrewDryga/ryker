@@ -9,7 +9,7 @@ defmodule Ryker.Slack.TaskCardDetails do
 
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1, section: 1, truncate: 2]
 
-  alias Ryker.State.InvestigationPayload
+  alias Ryker.Records.InvestigationPayload
   alias Ryker.Work.TaskStages
 
   @goal_states InvestigationPayload.goal_states()

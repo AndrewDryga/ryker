@@ -12,9 +12,9 @@ defmodule Ryker.Slack.Renderer.Records do
   import Ryker.Slack.Renderer.Fields
 
   alias Ryker.Publication.Card, as: PublicationCard
+  alias Ryker.Records.RecordPayload
   alias Ryker.Slack.Renderer.{EmisarReview, Offers, SavedEntityCard}
   alias Ryker.Slack.ReplyRecords
-  alias Ryker.State.RecordPayload
 
   @maximum_records 64
   # Investigation records render nothing; at most this many of the rest may

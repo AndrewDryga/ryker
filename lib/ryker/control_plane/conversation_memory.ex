@@ -17,18 +17,16 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   alias Ryker.Slack.Names
 
-  alias Ryker.State.{
-    Continuity,
-    ConversationKnowledge,
-    ConversationObservation,
-    ConversationSummary,
-    Forgetting,
-    Knowledge,
-    KnowledgeRevision,
-    KnowledgeSource,
-    LearningSources,
-    MemoryEntry
-  }
+  alias Ryker.Continuity
+  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Knowledge
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Knowledge.KnowledgeSource
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.LearningSources
+  alias Ryker.Memories.Forgetting
+  alias Ryker.Memories.MemoryEntry
 
   @page_size 30
   @history_size 50

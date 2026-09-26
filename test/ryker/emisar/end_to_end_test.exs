@@ -17,10 +17,12 @@ defmodule Ryker.Emisar.EndToEndTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.Publisher
-  alias Ryker.State.{KnowledgeSnapshot, Record, Records}
   alias Ryker.StateTools.Tools
   alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Custody, DeliveryReceipt, Executor, Turn}

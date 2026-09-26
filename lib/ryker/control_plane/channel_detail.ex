@@ -23,9 +23,9 @@ defmodule Ryker.ControlPlane.ChannelDetail do
 
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
+  alias Ryker.Schedules.Schedule
   alias Ryker.Settings.Environment
   alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, ChannelSettings, IncidentRoom}
-  alias Ryker.State.Schedule
 
   @type collection :: PagedRelation.t()
 

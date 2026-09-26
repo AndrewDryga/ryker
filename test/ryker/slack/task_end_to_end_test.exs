@@ -25,7 +25,10 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     WorkControls
   }
 
-  alias Ryker.State.{KnowledgeSnapshot, Record, Records, TaskOffers}
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Records
+  alias Ryker.Records.Record
+  alias Ryker.Records.TaskOffers
   alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Custody, Executor, Session, SubmissionBuilder, Turn}
 

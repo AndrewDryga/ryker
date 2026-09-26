@@ -7,9 +7,10 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.{Changeset, Publication}
   alias Ryker.Publication.Custody, as: PublicationCustody
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.TaskCardProjection
-  alias Ryker.State.{Record, Records}
 
   alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, SubmissionBuilder}
 

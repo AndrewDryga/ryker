@@ -57,8 +57,8 @@ defmodule Ryker.Runtime.Assembly do
     {:publication, Ryker.Publication.Runtime},
     {:delivery, Ryker.Delivery.Runtime},
     {:emisar, Ryker.Emisar.Runtime},
-    {:event_waits, Ryker.State.EventWaitWorker},
-    {:schedules, Ryker.State.ScheduleRuntime},
+    {:event_waits, Ryker.Waits.EventWaitWorker},
+    {:schedules, Ryker.Schedules.ScheduleRuntime},
     {:slack, Ryker.Slack.Runtime},
     {:webhooks, Ryker.Webhooks.Server},
     {:control_plane, Ryker.ControlPlane.Server}
@@ -1506,7 +1506,7 @@ defmodule Ryker.Runtime.Assembly do
 
   # The event-wait worker takes one interval and checks it in start_link; it
   # has no options!/1 to ask.
-  defp validate_runtime!(Ryker.State.EventWaitWorker, _configuration), do: :ok
+  defp validate_runtime!(Ryker.Waits.EventWaitWorker, _configuration), do: :ok
   defp validate_runtime!(module, configuration), do: module.options!(configuration)
 
   defp json_client!(base_url, receive_timeout, token_provider) do

@@ -5,8 +5,8 @@ defmodule Ryker.StateTools.Binding do
 
   alias Ryker.CoopFleet.Placement
   alias Ryker.Episodes.Episode
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.State.Records
   alias Ryker.Work.{Session, StateBinding, Turn}
 
   @spec authorize(binary()) :: :ok | {:error, :state_tools_binding_not_authorized}

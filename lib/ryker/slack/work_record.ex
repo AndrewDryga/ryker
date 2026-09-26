@@ -12,9 +12,9 @@ defmodule Ryker.Slack.WorkRecord do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Episodes.Words
   alias Ryker.Publication.Publication
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.WorkTarget
-  alias Ryker.State.Record
   alias Ryker.Work.Recovery
   alias Ryker.Work.Turn
 

@@ -9,20 +9,18 @@ defmodule Ryker.StateTools.MemorySearchTest do
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
   alias Ryker.Slack.SourceRef
 
-  alias Ryker.State.{
-    Behavior,
-    ConversationObservation,
-    ConversationRollup,
-    ConversationSummary,
-    KnowledgeSnapshot,
-    LearningSources,
-    MemoryEntry,
-    MemorySearch,
-    Observations,
-    Record,
-    Records,
-    SourceExposure
-  }
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Continuity.ConversationRollup
+  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.LearningSources
+  alias Ryker.Learning.Observations
+  alias Ryker.Learning.SourceExposure
+  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Memories.MemorySearch
+  alias Ryker.Records
+  alias Ryker.Records.Record
 
   alias Ryker.StateTools.{LookupContext, Router, Tools}
   alias Ryker.Work.Custody

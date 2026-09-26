@@ -12,9 +12,9 @@ defmodule Ryker.GitHub.EndToEndTest do
   alias Ryker.GitHub.{Auth, Binding, Client, Publisher, Router}
   alias Ryker.Ingress.Inbox
   alias Ryker.Publication.{FollowupDispatcher, LifecycleEvent}
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.Publisher, as: SlackPublisher
-  alias Ryker.State.Records
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Custody, Dispatcher, Executor, Final, Session, SubmissionBuilder, Turn}
 

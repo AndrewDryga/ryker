@@ -8,10 +8,12 @@ defmodule Ryker.Retention.Data do
   audit horizon. Every age comparison uses PostgreSQL time.
   """
 
+  alias Ryker.Continuity.Compaction
+  alias Ryker.Knowledge.KnowledgeRetention
+  alias Ryker.Learning
+  alias Ryker.Memories.Cases
+  alias Ryker.Memories.Reviews
   alias Ryker.Repo
-  alias Ryker.State.{Cases, KnowledgeRetention, Learning}
-  alias Ryker.State.Continuity.Compaction
-  alias Ryker.State.Memories.Reviews
   alias Ryker.Work.ActivityRetention
 
   @advisory_lock 7_152_019_552_843_111

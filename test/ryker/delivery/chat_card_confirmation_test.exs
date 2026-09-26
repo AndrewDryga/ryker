@@ -9,8 +9,8 @@ defmodule Ryker.Delivery.ChatCardConfirmationTest do
   alias Ryker.ControlPlane.HTML
   alias Ryker.Delivery.ChatCard
   alias Ryker.Fixtures.SavedEntities
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.Record
 
   # QA, 2026-09-25: after "Schedule this" or "Remember this" the button went
   # away and nothing said it had worked, and the schedule card went on saying

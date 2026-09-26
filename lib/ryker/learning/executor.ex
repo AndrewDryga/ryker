@@ -1,7 +1,7 @@
 defmodule Ryker.Learning.Executor do
   @moduledoc "One resumable, bounded learning step. All remote effects use the frozen run identity."
+  alias Ryker.{Learning, Repo}
   alias Ryker.Learning.{Batches, FleetSession}
-  alias Ryker.{Repo, State.Learning}
   alias Ryker.Work.Session
 
   @terminal ~w(completed failed cancelled interrupted budget_exhausted)
@@ -123,7 +123,7 @@ defmodule Ryker.Learning.Executor do
     do: call(claim, settings, :get_session, [id])
 
   defp remote_turn(claim, run, session, settings, mode) do
-    run = Repo.get!(Ryker.State.LearningRun, run.id)
+    run = Repo.get!(Ryker.Learning.LearningRun, run.id)
 
     result =
       if run.coop_turn_id do
@@ -258,7 +258,7 @@ defmodule Ryker.Learning.Executor do
            ] ->
         # The retained candidate and exact alternatives survive this generation.
         # Semantic retries get a fresh briefing, never an in-turn prose patch.
-        case stop(claim, Repo.get!(Ryker.State.LearningRun, run.id), reason, settings) do
+        case stop(claim, Repo.get!(Ryker.Learning.LearningRun, run.id), reason, settings) do
           {:ok, :stopped} -> error
           other -> other
         end

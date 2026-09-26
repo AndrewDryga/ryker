@@ -15,10 +15,10 @@ defmodule Ryker.Publication.Followups.Signals do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Input
+  alias Ryker.Learning.Observations
   alias Ryker.Publication.{DeploymentSignal, Followup, LifecycleEvent, Publication}
   alias Ryker.Publication.Followups.Store
   alias Ryker.Repo
-  alias Ryker.State.Observations
 
   def observe_input(
         %Input{

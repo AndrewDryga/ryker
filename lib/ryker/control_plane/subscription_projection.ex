@@ -12,8 +12,9 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   alias Ryker.ControlPlane.{Activity, Search, SubscriptionPresentation}
   alias Ryker.Episodes.Episode
   alias Ryker.InspectionRedactor
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.{EventSubscription, Record}
+  alias Ryker.Waits.EventSubscription
 
   @list_limit 100
   @views %{"current" => [:active], "past" => [:resolved, :timed_out, :cancelled]}

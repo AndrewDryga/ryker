@@ -15,7 +15,7 @@ defmodule Ryker.Work.Executor do
   is the Coop call layer they all share.
   """
 
-  alias Ryker.State.KnowledgeSnapshot
+  alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Work.{Custody, StateBinding, SubmissionBuilder}
   alias Ryker.Work.Executor.{Cancellation, Remote, Sessions, Turns, Validation, Workspace}
 

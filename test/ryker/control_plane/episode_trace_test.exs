@@ -49,7 +49,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
     payload = %{"title" => source["title"]}
 
-    Repo.insert!(%Ryker.State.Record{
+    Repo.insert!(%Ryker.Records.Record{
       id: Ecto.UUID.generate(),
       episode_id: parent.id,
       turn_id: parent_claim.turn.id,
@@ -154,7 +154,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   test "the timeline keeps the reference a citation was made from" do
     source = "admit_input:63c450ccc15dd8fb105ed9574cdec80d95645bc20891a5fdefb3640b230cda46"
 
-    record = %Ryker.State.Record{
+    record = %Ryker.Records.Record{
       id: Ecto.UUID.generate(),
       inserted_at: @received,
       kind: "evidence",
@@ -332,7 +332,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       {_entry, episode} = admitted_input!()
       {:ok, detail} = Projection.episode(episode.key)
 
-      record = %Ryker.State.Record{
+      record = %Ryker.Records.Record{
         id: Ecto.UUID.generate(),
         ref: "record:event_wait:malformed-deadline",
         kind: "event_wait",
@@ -535,7 +535,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     # The real infrastructure trace jumped answer -> work -> answer before its first delivery.
     {_entry, episode} = admitted_input!()
 
-    record = %Ryker.State.Record{
+    record = %Ryker.Records.Record{
       id: Ecto.UUID.generate(),
       kind: "input_request",
       status: :answered,

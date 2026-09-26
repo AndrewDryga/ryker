@@ -2,8 +2,10 @@ defmodule Ryker.Fixtures.Knowledge do
   @moduledoc false
   alias Ryker.Admission.Decision
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Knowledge
+  alias Ryker.Learning.LearningSources
+  alias Ryker.Learning.Observations
   alias Ryker.Repo
-  alias Ryker.State.{Knowledge, LearningSources, Observations}
 
   @doc "Store-contract fixture, not an admission memory API or a model-result recording."
   def record_topic(entry, proposal, offered, omissions \\ []) do

@@ -341,18 +341,18 @@ Verified in the source revision above; local links identify owners, not future A
 | Area | What exists / what needs changing |
 |---|---|
 | Listening | [Admission](../../lib/ryker/admission.ex) can apply observations and knowledge with its decision; do not repeat the outdated claim that ignore always prevents learning |
-| Separate learning | [Learning](../../lib/ryker/state/learning.ex) persists frozen learning-only judgments; its retry bound currently covers only one error class per exact batch; [Application](../../lib/ryker/application.ex) does not wire a learning runtime |
+| Separate learning | [Learning](../../lib/ryker/learning.ex) persists frozen learning-only judgments; its retry bound currently covers only one error class per exact batch; [Application](../../lib/ryker/application.ex) does not wire a learning runtime |
 | Search | [FixedTools](../../lib/ryker/state_tools/fixed_tools.ex) already exposes `search_memory`; fact → guidance → continuity category order spends the limit; dispatch returns a nil cursor |
-| Selection | [Knowledge](../../lib/ryker/state/knowledge.ex) has ranked full-text related selection, but fills remaining slots from recent unrelated heads; explicit search is substring matching, not that full-text path |
+| Selection | [Knowledge](../../lib/ryker/knowledge.ex) has ranked full-text related selection, but fills remaining slots from recent unrelated heads; explicit search is substring matching, not that full-text path |
 | Prompt fit | [SubmissionBuilder](../../lib/ryker/work/submission_builder.ex) drops optional observations/knowledge to fit the budget without equivalent retrieval hints |
-| Topic history | [KnowledgeRevision](../../lib/ryker/state/knowledge_revision.ex) and [ConversationMemory](../../lib/ryker/control_plane/conversation_memory.ex) already exist; do not rebuild history |
-| Source accounting | [LearningSources](../../lib/ryker/state/learning_sources.ex) merges flattened receipts under 128-source/65,536-byte caps; [KnowledgeSnapshot](../../lib/ryker/state/knowledge_snapshot.ex) tracks session disclosures and reauthorization |
-| Summary capacity | `KnowledgeSnapshot.session_sources` reads at most 129 exposures then merges; [Continuity](../../lib/ryker/state/continuity.ex) can skip a summary when it lacks a valid merged source set |
+| Topic history | [KnowledgeRevision](../../lib/ryker/knowledge/knowledge_revision.ex) and [ConversationMemory](../../lib/ryker/control_plane/conversation_memory.ex) already exist; do not rebuild history |
+| Source accounting | [LearningSources](../../lib/ryker/learning/learning_sources.ex) merges flattened receipts under 128-source/65,536-byte caps; [KnowledgeSnapshot](../../lib/ryker/knowledge/knowledge_snapshot.ex) tracks session disclosures and reauthorization |
+| Summary capacity | `KnowledgeSnapshot.session_sources` reads at most 129 exposures then merges; [Continuity](../../lib/ryker/continuity.ex) can skip a summary when it lacks a valid merged source set |
 | Expansion | [Slack capability tools](../../lib/ryker/slack/capability_tools.ex) already provide search and source/thread reads; bridge to these rather than add another Slack history service |
-| Confirmed knowledge | [Memories](../../lib/ryker/state/memories.ex) and [Behaviors](../../lib/ryker/state/behaviors.ex) own confirmation and scope; learning must not bypass them |
+| Confirmed knowledge | [Memories](../../lib/ryker/memories.ex) and [Behaviors](../../lib/ryker/behaviors.ex) own confirmation and scope; learning must not bypass them |
 | Execution | [Work contract](../elixir-work-runtime.md): episodes can contain multiple inputs/turns; shared knowledge does not require sharing an execution session or guarantee provider cache reuse |
-| Cross-transport knowledge | `Knowledge.visible_query` requires equal `workspace_ref`; [Continuity](../../lib/ryker/state/continuity.ex) assigns different Slack/GitHub workspace namespaces. This topic-recall path does not currently bridge the two transports |
-| Exact topic anchors | [KnowledgeUpdate](../../lib/ryker/state/knowledge_update.ex) has a topic key and prose but no indexed external-identity field; source URLs in text are not an existing exact-match topic index |
+| Cross-transport knowledge | `Knowledge.visible_query` requires equal `workspace_ref`; [Continuity](../../lib/ryker/continuity.ex) assigns different Slack/GitHub workspace namespaces. This topic-recall path does not currently bridge the two transports |
+| Exact topic anchors | [KnowledgeUpdate](../../lib/ryker/knowledge/knowledge_update.ex) has a topic key and prose but no indexed external-identity field; source URLs in text are not an existing exact-match topic index |
 
 ### Local failures this design must actually fix
 
@@ -384,12 +384,12 @@ These are source-path findings, not newly reproduced production incidents:
 
 | Finding | Mechanism and consequence | Owning source |
 |---|---|---|
-| Disclosure amplification | Learning inherits every offered topic's roots into every proposed update. Unrelated fallback makes topic dependencies converge toward unrelated channel history. Per-item validation locks and checks those roots; relational storage alone does not bound that work | [Learning](../../lib/ryker/state/learning.ex), [Knowledge](../../lib/ryker/state/knowledge.ex), [LearningSources](../../lib/ryker/state/learning_sources.ex) |
-| Silent capacity loss | `save_update` returns success when the merged receipts do not fit; capacity omissions can authorize a new generation without prior understanding. Summary persistence also returns success on an unsourced result | [Knowledge](../../lib/ryker/state/knowledge.ex), [Continuity](../../lib/ryker/state/continuity.ex) |
-| Observation loss/amplification | Admission observation notes inherit its whole disclosed context, including older notes. If required context still cannot fit after optional items are removed, dependencies become nil and `write_source` drops the proposed note while retaining the source row. A source row is not proof that observation prose survived | [LearningSources.freeze/fit](../../lib/ryker/state/learning_sources.ex), [Observations.write_source](../../lib/ryker/state/observations.ex) |
-| Compaction starvation risk | An over-capacity group returns `:skipped` without removing its summaries. Such groups can repeatedly occupy the oldest-100 window and prevent later eligible work; this needs a deterministic regression, not a claim that every skip starves all work | [Continuity.Compaction.compact_locked/complete_compaction](../../lib/ryker/state/continuity/compaction.ex) |
-| Late-event loss | An update whose source `occurred_at` precedes the head's `latest_source_at` returns success without writing. Transport edit-time semantics still need a harvested test | [Knowledge.apply_update](../../lib/ryker/state/knowledge.ex) |
-| Retry-budget holes | Only `output_contract_failed` contributes to the failure count; host-rejected duplicate topic keys use another code. Changing one input changes the exact batch key and starts a different counter | [Learning.new_attempt/parse_updates/mark_failed](../../lib/ryker/state/learning.ex) |
+| Disclosure amplification | Learning inherits every offered topic's roots into every proposed update. Unrelated fallback makes topic dependencies converge toward unrelated channel history. Per-item validation locks and checks those roots; relational storage alone does not bound that work | [Learning](../../lib/ryker/learning.ex), [Knowledge](../../lib/ryker/knowledge.ex), [LearningSources](../../lib/ryker/learning/learning_sources.ex) |
+| Silent capacity loss | `save_update` returns success when the merged receipts do not fit; capacity omissions can authorize a new generation without prior understanding. Summary persistence also returns success on an unsourced result | [Knowledge](../../lib/ryker/knowledge.ex), [Continuity](../../lib/ryker/continuity.ex) |
+| Observation loss/amplification | Admission observation notes inherit its whole disclosed context, including older notes. If required context still cannot fit after optional items are removed, dependencies become nil and `write_source` drops the proposed note while retaining the source row. A source row is not proof that observation prose survived | [LearningSources.freeze/fit](../../lib/ryker/learning/learning_sources.ex), [Observations.write_source](../../lib/ryker/learning/observations.ex) |
+| Compaction starvation risk | An over-capacity group returns `:skipped` without removing its summaries. Such groups can repeatedly occupy the oldest-100 window and prevent later eligible work; this needs a deterministic regression, not a claim that every skip starves all work | [Continuity.Compaction.compact_locked/complete_compaction](../../lib/ryker/continuity/compaction.ex) |
+| Late-event loss | An update whose source `occurred_at` precedes the head's `latest_source_at` returns success without writing. Transport edit-time semantics still need a harvested test | [Knowledge.apply_update](../../lib/ryker/knowledge.ex) |
+| Retry-budget holes | Only `output_contract_failed` contributes to the failure count; host-rejected duplicate topic keys use another code. Changing one input changes the exact batch key and starts a different counter | [Learning.new_attempt/parse_updates/mark_failed](../../lib/ryker/learning.ex) |
 
 No implementation or execution test was performed for these findings in this research task.
 
@@ -463,7 +463,7 @@ then, use only independently authorized source-reading capabilities; do not clai
 
 There is a narrower existing bridge: episode-routed GitHub review feedback is retained as a
 private source under its destination conversation, which may be Slack, without an Inbox entry
-([Observations.record_publication_feedback_in_transaction](../../lib/ryker/state/observations.ex)).
+([Observations.record_publication_feedback_in_transaction](../../lib/ryker/learning/observations.ex)).
 That grants access to the routed conversation, not general Slack/workspace recall. Do not broaden
 it during deduplication. The initial Inbox-driven learner does not consume these separate lifecycle
 events; including them needs an explicit adapter with the same source/privacy contract.

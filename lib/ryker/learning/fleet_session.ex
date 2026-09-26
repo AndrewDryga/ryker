@@ -1,8 +1,8 @@
 defmodule Ryker.Learning.FleetSession do
   @moduledoc "A workspace-free execution session owned by one frozen learning judgment."
   import Ecto.Query
+  alias Ryker.Learning.LearningRun
   alias Ryker.Repo
-  alias Ryker.State.LearningRun
   alias Ryker.Work.Session
 
   def external_ref(%LearningRun{id: id}), do: "ryker-learning:#{id}"

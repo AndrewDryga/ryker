@@ -16,8 +16,9 @@ defmodule Ryker.Ingress.Inbox do
   alias Ryker.Ingress.Projections
   alias Ryker.Ingress.WorkProfile
   alias Ryker.InspectionRedactor
+  alias Ryker.Learning.Observations
+  alias Ryker.Memories
   alias Ryker.Repo
-  alias Ryker.State.{Memories, Observations}
 
   @ref_prefix "ingress-input:"
 

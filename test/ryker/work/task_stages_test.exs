@@ -3,7 +3,8 @@ defmodule Ryker.Work.TaskStagesTest do
 
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.{Followup, Publication}
-  alias Ryker.State.{Record, Records}
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Work.{Session, TaskStages, Turn}
 
   @stages ~w(workspace_setup planning implementation self_review draft_pr ci review_and_merge)

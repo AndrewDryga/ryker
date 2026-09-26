@@ -15,11 +15,13 @@ defmodule Ryker.Work.Custody.Turns do
 
   alias Ryker.Artifacts.References, as: ArtifactReferences
   alias Ryker.CanonicalJSON
+  alias Ryker.Continuity
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, RoutingDigests}
+  alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Repo
-  alias Ryker.State.{Continuity, EventSubscriptions, KnowledgeSnapshot}
+  alias Ryker.Waits.EventSubscriptions
   alias Ryker.Work.Custody.{Claims, Delivery}
 
   alias Ryker.Work.{

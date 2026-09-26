@@ -20,18 +20,16 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Slack.Runtime, as: SlackRuntime
   alias Ryker.Slack.WorkRecord
 
-  alias Ryker.State.{
-    Automations,
-    Behaviors,
-    Forgetting,
-    InputRequests,
-    Memories,
-    Record,
-    Schedule,
-    Schedules,
-    SlackPostOffers,
-    TaskOffers
-  }
+  alias Ryker.Behaviors
+  alias Ryker.Behaviors.Automations
+  alias Ryker.Memories
+  alias Ryker.Memories.Forgetting
+  alias Ryker.Records.InputRequests
+  alias Ryker.Records.Record
+  alias Ryker.Records.SlackPostOffers
+  alias Ryker.Records.TaskOffers
+  alias Ryker.Schedules
+  alias Ryker.Schedules.Schedule
 
   alias Ryker.Work.{Custody, Session, Turn}
 
@@ -112,8 +110,10 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp resolve_memory_review(review_ref, action, replacement) do
-    case Repo.one(from(review in Ryker.State.MemoryReviewItem, where: review.ref == ^review_ref)) do
-      %Ryker.State.MemoryReviewItem{workspace_ref: workspace_ref} ->
+    case Repo.one(
+           from(review in Ryker.Memories.MemoryReviewItem, where: review.ref == ^review_ref)
+         ) do
+      %Ryker.Memories.MemoryReviewItem{workspace_ref: workspace_ref} ->
         Memories.resolve_review(review_ref, action, @actor_ref, workspace_ref, replacement)
 
       nil ->

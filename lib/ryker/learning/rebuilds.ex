@@ -6,16 +6,14 @@ defmodule Ryker.Learning.Rebuilds do
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
 
-  alias Ryker.State.{
-    Continuity,
-    ConversationKnowledge,
-    ConversationObservation,
-    Knowledge,
-    KnowledgeSource,
-    LearningRun,
-    LearningSources,
-    Observations
-  }
+  alias Ryker.Continuity
+  alias Ryker.Knowledge
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Knowledge.KnowledgeSource
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.LearningRun
+  alias Ryker.Learning.LearningSources
+  alias Ryker.Learning.Observations
 
   @page_size 20
   @terminal [:no_change, :deferred, :superseded]

@@ -3,7 +3,9 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
 
   alias Ecto.Adapters.SQL
   alias Ryker.{CanonicalJSON, Release}
-  alias Ryker.State.{ConversationKnowledge, KnowledgeRevision, KnowledgeSource}
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Knowledge.KnowledgeSource
 
   defmodule MigrationRepo do
     use Ecto.Repo,

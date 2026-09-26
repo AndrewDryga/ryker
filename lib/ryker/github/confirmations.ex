@@ -13,11 +13,16 @@ defmodule Ryker.GitHub.Confirmations do
 
   require Logger
 
+  alias Ryker.Behaviors
+  alias Ryker.Behaviors.Automations
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Input
+  alias Ryker.Memories
   alias Ryker.Options
+  alias Ryker.Records.Record
+  alias Ryker.Records.TaskOffers
   alias Ryker.Repo
-  alias Ryker.State.{Automations, Behaviors, Memories, Record, Schedules, TaskOffers}
+  alias Ryker.Schedules
   alias Ryker.Work.Turn
 
   @command_prefix "/ryker confirm"

@@ -24,7 +24,10 @@ defmodule Ryker.Slack.IncidentRooms do
     MembershipTransition
   }
 
-  alias Ryker.State.{CardDelivery, Record, RecordChangeset, TaskOffers}
+  alias Ryker.Records.CardDelivery
+  alias Ryker.Records.Record
+  alias Ryker.Records.RecordChangeset
+  alias Ryker.Records.TaskOffers
   alias Ryker.Work.{Custody, Session, Turn}
 
   @request_fields [

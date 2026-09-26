@@ -25,10 +25,10 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Records
   alias Ryker.Settings
   alias Ryker.Slack.IncidentRoomChangeset
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.State.Records
   alias Ryker.Work.{Custody, Session, Submission, Turn}
 
   @actor "control-plane:local"

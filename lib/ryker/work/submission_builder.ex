@@ -18,16 +18,14 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Settings
   alias Ryker.Slack.SourceRef, as: SlackSourceRef
 
-  alias Ryker.State.{
-    Behaviors,
-    Cases,
-    Continuity,
-    DerivedContext,
-    LearningSources,
-    Memories,
-    Outcomes,
-    Records
-  }
+  alias Ryker.Behaviors
+  alias Ryker.Continuity
+  alias Ryker.Learning.LearningSources
+  alias Ryker.Memories
+  alias Ryker.Memories.Cases
+  alias Ryker.Records
+  alias Ryker.Records.DerivedContext
+  alias Ryker.Records.Outcomes
 
   alias Ryker.StateTools.FixedTools
   alias Ryker.StateTools.ToolVisibility

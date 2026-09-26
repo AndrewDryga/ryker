@@ -10,13 +10,11 @@ defmodule Ryker.Learning.RebuildsTest do
   alias Ryker.Operator.Actions
   alias Ryker.Operator.Learning, as: LearningOperator
 
-  alias Ryker.State.{
-    ConversationKnowledge,
-    KnowledgeRevision,
-    Learning,
-    LearningRun,
-    LearningSources
-  }
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Learning
+  alias Ryker.Learning.LearningRun
+  alias Ryker.Learning.LearningSources
 
   @settings %{
     policy: "recorded-read-only-policy",
@@ -298,7 +296,7 @@ defmodule Ryker.Learning.RebuildsTest do
 
     KnowledgeFixtures.revoke!(current)
     assert {:ok, %{inputs: []}} = Batches.retire_unavailable(again)
-    retired = Repo.get!(Ryker.State.LearningRun, unstarted.id)
+    retired = Repo.get!(Ryker.Learning.LearningRun, unstarted.id)
     assert retired.status == :stale
     assert retired.error_code == "learning_source_stale"
     assert retired.started_at == nil
@@ -314,7 +312,7 @@ defmodule Ryker.Learning.RebuildsTest do
     assert next.source_dependencies == LearningSources.for_entry(fresh)
     assert prompt["knowledge"] == []
     refute next.prompt =~ topic.state["summary"]
-    assert Repo.get!(Ryker.State.LearningRun, first.id).prompt == first.prompt
+    assert Repo.get!(Ryker.Learning.LearningRun, first.id).prompt == first.prompt
     assert Repo.get!(Batch, selected.batch.id).start_count == 1
     assert Repo.get!(Batch, selected.batch.id).start_limit == 2
     assert Repo.get!(Batch, selected.batch.id).budget_version == 2

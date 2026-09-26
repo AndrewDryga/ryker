@@ -10,8 +10,11 @@ defmodule Ryker.Work.ExecutorTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.{ConversationKnowledge, KnowledgeSnapshot, Record, Records}
   alias Ryker.StateTools.FixedTools
   alias Ryker.TestSupport.FakeWorkCoopAPI, as: FakeAPI
 
@@ -110,7 +113,7 @@ defmodule Ryker.Work.ExecutorTest do
       assert episode.state == :waiting_for_event
       assert episode.owner_ref == wait.ref
       assert episode.owner_deadline_at == nil
-      subscription = Repo.get_by!(Ryker.State.EventSubscription, record_id: wait.id)
+      subscription = Repo.get_by!(Ryker.Waits.EventSubscription, record_id: wait.id)
       assert subscription.status == :active
       assert subscription.poll_after == nil
       assert {:ok, nil} = Custody.claim_next("quiet-wait-proof", 60, :work)

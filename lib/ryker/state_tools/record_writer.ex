@@ -6,7 +6,8 @@ defmodule Ryker.StateTools.RecordWriter do
   # bounded result the model reads back.
 
   alias Ryker.CanonicalJSON
-  alias Ryker.State.{Record, Records}
+  alias Ryker.Records
+  alias Ryker.Records.Record
 
   @contract_version "responder-state:v1"
 

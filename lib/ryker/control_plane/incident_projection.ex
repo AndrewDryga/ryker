@@ -13,9 +13,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.FailureDetail
   alias Ryker.Publication.Publication
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent}
-  alias Ryker.State.Record
 
   @list_limit 100
   @detail_limit 200

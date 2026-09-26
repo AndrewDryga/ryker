@@ -2,11 +2,11 @@ defmodule Ryker.Ingress.InboxConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.State.StandingRuleInventory
 
   test "simultaneous Slack retries converge on one inbox record" do
     Sandbox.unboxed_run(Repo, fn ->

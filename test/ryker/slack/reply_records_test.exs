@@ -4,8 +4,9 @@ defmodule Ryker.Slack.ReplyRecordsTest do
 
   alias Ryker.{Episodes, Repo}
   alias Ryker.Fixtures.Episodes, as: Fixtures
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Slack.ReplyRecords
-  alias Ryker.State.{Record, Records}
   alias Ryker.Work.{Activity, ActivityEvent, Custody, Turn}
 
   @fixture Path.expand("../../../testdata/slack/terraform-source-activity.json", __DIR__)

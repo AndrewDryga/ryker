@@ -16,9 +16,9 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   alias Ryker.ControlPlane.SourcePage
   alias Ryker.Delivery.PlatformActionCustody
   alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
-  alias Ryker.State.Records
   alias Ryker.StateTools.Binding
   alias Ryker.Work.Turn
 

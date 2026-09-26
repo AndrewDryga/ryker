@@ -6,9 +6,10 @@ defmodule Ryker.Fixtures.AnswerMemory do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.EntryChangeset
+  alias Ryker.Records
+  alias Ryker.Records.ResponseChangeset
   alias Ryker.Repo
   alias Ryker.Slack.Input
-  alias Ryker.State.{Records, ResponseChangeset}
   alias Ryker.Work.Custody
 
   def answered!(value, occurred_at) do
