@@ -12,6 +12,7 @@ defmodule Ryker.Slack.MembershipReconciler do
   require Logger
 
   alias Ryker.Options
+  alias Ryker.Slack.Names
 
   @default_interval_ms 5 * 60 * 1_000
 
@@ -39,6 +40,7 @@ defmodule Ryker.Slack.MembershipReconciler do
     snapshot_started_at = DateTime.utc_now()
 
     with {:ok, channels} <- options.api.joined_conversations(options.client),
+         :ok <- remember_names(channels, options.workspace_ref),
          managed_channel_refs <- managed_channel_refs(channels, options),
          {:ok, results} <-
            options.configurations.reconcile_joined(
@@ -94,6 +96,18 @@ defmodule Ryker.Slack.MembershipReconciler do
   end
 
   defp managed_channel_refs(_channel_refs, _options), do: []
+
+  # Slack's listing names every channel Ryker is in, so pages show those
+  # names from the first sweep after a start. Before, every channel read
+  # "Slack channel C0…" until the names cache had asked Slack about each one
+  # in turn, one every 1.6 s, and Setup said "Ryker is in Slack channel
+  # C0BLU1GACKC and 3 other channels" after each deploy.
+  defp remember_names(channels, workspace_ref) do
+    Names.remember(
+      for %{channel_ref: ref, name: name} when is_binary(name) <- channels,
+          do: {workspace_ref, ref, name}
+    )
+  end
 
   # Only a membership the reconciler itself repaired gets a welcome. Channels
   # that were already joined keep their existing welcome (or none): a periodic

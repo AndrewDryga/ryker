@@ -3,7 +3,55 @@ defmodule Ryker.Slack.NamesTest do
   alias Ryker.ControlPlane.SlackMarkdown
   use ExUnit.Case, async: false
   alias Ryker.InspectionRedactor
-  alias Ryker.Slack.Names
+  alias Ryker.Slack.{MembershipReconciler, Names}
+  alias Ryker.TestSupport.FakeSlackAPI
+
+  defmodule Unchanged do
+    def reconcile_joined(_workspace_ref, _channels, _catalog), do: {:ok, []}
+    def reconcile_absent(_workspace_ref, _channels, _snapshot_started_at), do: {:ok, 0}
+  end
+
+  # After every restart the Channels and Setup pages read "Slack channel
+  # C0BLU1GACKC and 3 other channels" until the cache had asked Slack about
+  # each channel in turn, one every 1.6 s, although the membership sweep that
+  # runs at start had just listed every channel with its name. Andrew,
+  # 2026-09-26: people and channels read by name, never by Slack ID.
+  test "the channel sweep at start names every channel Ryker is in, with no lookup for each" do
+    parent = self()
+
+    start_supervised!(
+      {Names,
+       workspace: "T123",
+       fetch: fn ref ->
+         send(parent, {:lookup, ref})
+         {:error, :unavailable}
+       end}
+    )
+
+    slack =
+      start_supervised!(
+        {FakeSlackAPI,
+         channels: [
+           %{channel_ref: "C456", name: "infra", external_shared: false, private: false},
+           %{channel_ref: "G789", external_shared: false, private: true}
+         ]}
+      )
+
+    assert {:ok, %{channels: 2}} =
+             MembershipReconciler.run_once(%{
+               api: FakeSlackAPI,
+               client: slack,
+               configurations: Unchanged,
+               setup_handler: nil,
+               setup_options: %{catalog: nil},
+               workspace_ref: "T123"
+             })
+
+    assert Names.name("T123", "C456") == "#infra"
+    assert Names.name("T123", "G789") == "Slack channel G789"
+    assert :ok = GenServer.call(Names, :refresh)
+    refute_received {:lookup, "C456"}
+  end
 
   test "names are scoped to the configured workspace and unavailable names do not block rendering" do
     parent = self()
