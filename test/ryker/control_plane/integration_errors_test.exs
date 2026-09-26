@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.IntegrationErrorsTest do
   # the Slack, GitHub, Emisar and webhook pages.
   @refusals [
     {:invalid_credential, :app_token},
+    {:invalid_credential, :swapped_tokens},
     {:invalid_credential, :bot_token},
     {:invalid_credential, :token},
     {:invalid_credential, :ref},

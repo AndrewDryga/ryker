@@ -31,7 +31,8 @@ defmodule Ryker.IntegrationSetup do
     app_token = text(params, "app_token")
     bot_token = text(params, "bot_token")
 
-    with :ok <- prefix(app_token, "xapp-", :app_token),
+    with :ok <- not_swapped(app_token, bot_token),
+         :ok <- prefix(app_token, "xapp-", :app_token),
          :ok <- prefix(bot_token, "xoxb-", :bot_token),
          {:ok, app_http} <- slack_http(app_token, options),
          {:ok, %{body: %{"ok" => true, "url" => socket_url}, status: 200}} <-
@@ -919,6 +920,12 @@ defmodule Ryker.IntegrationSetup do
 
   defp normalize_slack_url(value) when is_binary(value), do: String.trim_trailing(value, "/")
   defp normalize_slack_url(_value), do: nil
+
+  # Each token pasted into the other's box: both are right, just misplaced.
+  defp not_swapped("xoxb-" <> _app_token, "xapp-" <> _bot_token),
+    do: {:error, {:invalid_credential, :swapped_tokens}}
+
+  defp not_swapped(_app_token, _bot_token), do: :ok
 
   defp prefix(value, prefix, field) do
     if is_binary(value) and byte_size(value) in 16..4_096 and String.starts_with?(value, prefix),
