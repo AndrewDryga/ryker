@@ -47,6 +47,15 @@ a turn frozen before that column, or stopped before it chose its messages,
 names no inputs in its heading and is never reconstructed from today's episode
 state. A record a turn saved stays with that turn.
 
+A person reads the engine's objects in their own words: a Work turn is a
+**run** ("Run 3 · Continues Run 2", "Run 2 finished"), the episode is the
+**request**, and each kernel transition is a plain sentence that says what
+happened to the request ("Message added", "Handed to a new run", "Waiting for
+an answer", "Picked up again after waiting", "Answer accepted", "Request
+stopped"). `EpisodeTrace.Input.lifecycle_title/1` is the one vocabulary, shared
+with the Slack work record; the kernel's names stay in the code and the logs,
+and no heading, badge or label on the page says turn, owner, episode or lease.
+
 Getting ready runs, per input, **Participation settings**, then **Standing
 rules**, then the **Engagement** decision. The first and last read
 `ingress_inbox_entries.engagement_receipt`, written by the adapter that admitted
@@ -877,6 +886,12 @@ in place: Edit swaps the rendered body for an editor at the same width, Enter
 adds a line, Cmd/Ctrl+Enter saves one new revision through the message's own
 edit route, Escape cancels without a request, a rejected save keeps the text with
 an error beside it, and an open editor survives live patches and reconnects.
+While Ryker works, "Ryker is working on a reply" (or, when the work stops, the
+failure and its Retry) sits only under the message its current run answers:
+the request's active inputs, not every message the request holds. A reply whose
+run answered a message that was edited afterwards says "Answered your earlier
+wording" in its byline, and an edit refreshes that earlier reply even when it
+is not on the latest page.
 Reactions sit in one row under a reply, as in Slack: compact pills showing each
 recorded emoji with the count of its current reactors and a pressed state for the
 operator's own, then an icon-only "Add reaction" button. Clicking a pill posts the

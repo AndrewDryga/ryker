@@ -561,7 +561,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp retention_cause(%{summary: "coop_protocol_error"}) do
     cause(
       "The worker’s answer did not match this session, so Ryker stopped rather than risk removing the wrong files.",
-      "The worker answered about a session whose identity, owner or state did not match what Ryker recorded for this one.",
+      "The worker answered about a session whose identity or state did not match what Ryker recorded for this one.",
       :unknown,
       "It works only if the session has since settled on the worker. If it stops again, check the session on the worker."
     )

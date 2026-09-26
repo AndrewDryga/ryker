@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
         kernel_band(event.kind),
         event.occurred_at,
         %{
-          actor: "Episode kernel",
+          actor: "Ryker",
           input_id: input && input.id,
           owner: if(input, do: {:input, input.id}, else: :episode),
           delivery_ref: get_in(event.payload || %{}, ["expected_delivery_ref"]),
@@ -94,9 +94,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
           # timeline look like it contained new evidence when it did not.
           details: [],
           stage: kernel_stage(event.kind),
-          state: event.kind,
-          summary: kernel_summary(event.kind),
-          title: kernel_title(event.kind),
+          # The title says what happened; a badge would only repeat the
+          # kernel's own name for it.
+          state: nil,
+          summary: lifecycle_summary(event.kind, event.payload),
+          title: lifecycle_title(event.kind),
           tone: kernel_tone(event.kind)
         }
       )
@@ -123,33 +125,60 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   defp kernel_stage(:episode_cancelled), do: "Cancellation"
   defp kernel_stage(_kind), do: "Lifecycle"
 
-  defp kernel_title(kind), do: kind |> human() |> capitalize()
+  @doc """
+  What one kernel transition means to the person whose request it is, in the
+  words every surface that lists them uses: the timeline and the Slack work
+  record. The kernel's own names ("owner transferred", "wait resumed") stay in
+  the code and the logs.
+  """
+  @spec lifecycle_title(atom()) :: String.t()
+  def lifecycle_title(:input_admitted), do: "Message added"
+  def lifecycle_title(:owner_transferred), do: "Handed to a new run"
+  def lifecycle_title(:input_wait_started), do: "Waiting for an answer"
+  def lifecycle_title(:event_wait_started), do: "Waiting for an event"
+  def lifecycle_title(:wait_resumed), do: "Picked up again after waiting"
+  def lifecycle_title(:result_accepted), do: "Answer accepted"
+  def lifecycle_title(:delivery_confirmed), do: "Delivery confirmed"
+  def lifecycle_title(:episode_cancelled), do: "Request stopped"
+  def lifecycle_title(:reaction_recorded), do: "Reaction recorded"
+  def lifecycle_title(_kind), do: "Request updated"
 
-  defp kernel_summary(:input_admitted), do: "Message added to this request."
+  defp lifecycle_summary(:input_admitted, _payload), do: "Message added to this request."
 
-  defp kernel_summary(:owner_transferred),
-    do: "The kernel transferred exclusive responsibility for the next transition."
+  # A run is handed on when the one that stopped is started again: for a newer
+  # message, once the conversation can be reached again, or by a person's retry.
+  defp lifecycle_summary(:owner_transferred, %{"required_input_ref" => ref}) when is_binary(ref),
+    do: "A newer message arrived, so Ryker stopped the earlier run and started a new one with it."
 
-  defp kernel_summary(:input_wait_started),
-    do: "Work parked until a person supplies the requested information."
+  defp lifecycle_summary(:owner_transferred, %{
+         "transfer_ref" => "transfer:resume-destination:" <> _
+       }),
+       do: "Ryker could reach the conversation again, so it started a new run to finish the work."
 
-  defp kernel_summary(:event_wait_started),
-    do: "Work parked until an exact event or deadline resumes it."
+  defp lifecycle_summary(:owner_transferred, _payload),
+    do: "The run that stopped was started again as a new run."
 
-  defp kernel_summary(:wait_resumed),
-    do: "The recorded wait matched and work became eligible again."
+  defp lifecycle_summary(:input_wait_started, _payload),
+    do: "Ryker asked a question and paused until someone answers it."
 
-  defp kernel_summary(:result_accepted), do: "Ryker accepted the host-validated result."
+  defp lifecycle_summary(:event_wait_started, _payload),
+    do: "Ryker paused until the event it waits for happens or its deadline passes."
 
-  defp kernel_summary(:delivery_confirmed),
-    do: "Delivery was confirmed."
+  defp lifecycle_summary(:wait_resumed, _payload),
+    do: "What Ryker was waiting for arrived, so the work continues."
 
-  defp kernel_summary(:episode_cancelled), do: "The episode reached a durable cancelled state."
+  defp lifecycle_summary(:result_accepted, _payload),
+    do: "Ryker checked the answer and accepted it."
 
-  defp kernel_summary(:reaction_recorded),
-    do: "Conversation feedback was recorded for the next logical turn."
+  defp lifecycle_summary(:delivery_confirmed, _payload), do: "Delivery was confirmed."
 
-  defp kernel_summary(_kind), do: "Durable lifecycle transition recorded."
+  defp lifecycle_summary(:episode_cancelled, _payload),
+    do: "This request was stopped and will not continue."
+
+  defp lifecycle_summary(:reaction_recorded, _payload),
+    do: "Ryker noted the reaction for its next run."
+
+  defp lifecycle_summary(_kind, _payload), do: "Ryker recorded a change to this request."
 
   defp kernel_tone(kind) when kind in [:result_accepted, :delivery_confirmed, :wait_resumed],
     do: :good
@@ -177,7 +206,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   defp gathered_steps(episode, origins, conversations) do
     [
       step("origins-#{episode.id}", :ready, List.last(origins).occurred_at, %{
-        actor: "Episode kernel",
+        actor: "Ryker",
         stage: "Routing",
         state: "",
         title: "Evidence joined from #{length(conversations)} conversations",
@@ -220,19 +249,19 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   end
 
   defp correction_title(%{kind: :merge, source_episode_id: id}, %Episode{id: id}),
-    do: "Merged into another episode by an audited correction"
+    do: "Merged into another request by a person's correction"
 
   defp correction_title(%{kind: :merge}, _episode),
-    do: "Absorbed another episode by an audited correction"
+    do: "Another request merged into this one by a person's correction"
 
   defp correction_title(%{kind: :split}, _episode),
-    do: "Messages removed from this work by an audited correction"
+    do: "Messages removed from this request by a person's correction"
 
   defp correction_title(%{kind: :reassign, source_episode_id: id}, %Episode{id: id}),
-    do: "Messages moved to another episode by an audited correction"
+    do: "Messages moved to another request by a person's correction"
 
   defp correction_title(%{kind: :reassign}, _episode),
-    do: "Messages moved into this episode by an audited correction"
+    do: "Messages moved into this request by a person's correction"
 
   @doc "A link to the source message of the first input that has one, or nil."
   def source_link(episode, events, inputs) do

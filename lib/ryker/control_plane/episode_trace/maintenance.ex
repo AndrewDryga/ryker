@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   @moduledoc """
-  "Maintenance": what happened to the temporary session and workspace
-  afterwards, at its own time. Closing is not removing, a kept workspace is
+  "Cleanup": what happened afterwards to the worker session and the working
+  copy, at its own time. Closing is not removing, a kept workspace is
   not a failure, and a local session that never bound a remote one had nothing
   to delete.
   """
@@ -22,7 +22,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
               actor: "Ryker",
               stage: "Maintenance",
               state: "session closed",
-              title: "Session closed",
+              title: "Worker session closed",
               summary: cleanup_repository(session),
               tone: nil,
               details:
@@ -68,8 +68,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
       step("maintenance-#{session.id}-retained", :maintenance, session.updated_at, %{
         actor: "Ryker",
         stage: "Maintenance",
-        state: "workspace kept · current",
-        title: "Workspace kept",
+        state: "working copy kept · current",
+        title: "Working copy kept",
         summary: retained_reason(session.retained_reason),
         tone: nil,
         details:
@@ -110,7 +110,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     do: "The worker session was closed. No repository working copy was bound to it."
 
   defp cleanup_repository(%Session{repository_ref: repository}),
-    do: "#{repository}'s worker session was closed. Closing is not removing its workspace."
+    do: "#{repository}'s worker session was closed. Closing it does not remove its working copy."
 
   # What the cleanup receipt proves, by the kind cleanup writes. Only
   # "discarded" is a removal this pass made.
@@ -121,30 +121,30 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
   defp cleanup_outcome("already_discarded"),
     do:
-      {"Workspace already gone",
-       "The worker reported the workspace was already gone; this pass observed that, it did not delete it."}
+      {"Working copy already gone",
+       "The worker reported the working copy was already gone; Ryker saw that, it did not delete it."}
 
   defp cleanup_outcome("remote_absent"),
     do:
-      {"Workspace already gone",
+      {"Working copy already gone",
        "The worker no longer knew this session, so there was nothing left to close or remove."}
 
   defp cleanup_outcome("worker_removed"),
     do:
-      {"Workspace left on a removed worker",
+      {"Working copy left on a removed worker",
        "The worker holding it was removed from Ryker, so Ryker cannot reach it to close or remove it."}
 
   defp cleanup_outcome(_kind),
     do:
-      {"Workspace removed",
-       "The temporary workspace was discarded. Retained inspection evidence is unaffected."}
+      {"Working copy removed",
+       "The temporary working copy was removed. What this page shows about the work is unaffected."}
 
   defp retained_reason("dirty" <> _),
-    do: "The workspace was kept: it still holds uncommitted changes."
+    do: "The working copy was kept: it still holds uncommitted changes."
 
   defp retained_reason("unmerged" <> _),
-    do: "The workspace was kept: it still holds commits that were never published."
+    do: "The working copy was kept: it still holds commits that were never published."
 
-  defp retained_reason(nil), do: "The workspace was kept. No reason was recorded."
-  defp retained_reason(reason), do: "The workspace was kept: " <> human(reason) <> "."
+  defp retained_reason(nil), do: "The working copy was kept. No reason was recorded."
+  defp retained_reason(reason), do: "The working copy was kept: " <> human(reason) <> "."
 end

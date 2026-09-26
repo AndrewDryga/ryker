@@ -41,7 +41,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
             stage: "Routing",
             state: "",
             summary: "The new input was queued for model work.",
-            title: "Turn #{ordinal} queued",
+            title: "Run #{ordinal} queued",
             tone: nil
           }
         )
@@ -72,7 +72,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         stage: "Execution",
         state: work_state(turn),
         summary: issue,
-        title: "Turn #{ordinal} finished",
+        title: "Run #{ordinal} finished",
         tone: if(issue, do: :warn)
       }
     )
@@ -190,7 +190,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         stage: "Result",
         state: "accepted",
         summary: delivery_summary(turn.delivery_document),
-        title: "Turn #{ordinal} result accepted",
+        title: "Run #{ordinal} answer accepted",
         tone: :good
       }
     )
@@ -414,9 +414,19 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   defp coop_band(kind) when kind in ["turn", "candidate", "validation"], do: :work
   defp coop_band(_kind), do: :ready
-  defp coop_title(kind), do: "Worker · #{human(kind)}"
+  # What the worker reported, named for what it is to the reader: its run of
+  # the model, the answer it returned, the working copy it kept.
+  defp coop_title("operation"), do: "Worker finished an operation"
+  defp coop_title("session"), do: "Worker session update"
+  defp coop_title("turn"), do: "Worker run update"
+  defp coop_title("candidate"), do: "Worker returned an answer"
+  defp coop_title("validation"), do: "Worker checked the answer"
+  defp coop_title("workspace"), do: "Working copy update"
+  defp coop_title("checkpoint"), do: "Working copy saved"
+  defp coop_title("capacity"), do: "Worker capacity update"
+  defp coop_title(_kind), do: "Worker update"
   defp coop_summary(%{"state" => state}), do: "Worker reported #{human(state)}."
-  defp coop_summary(_payload), do: "Bound worker event recorded."
+  defp coop_summary(_payload), do: "The worker sent an update about this request."
   defp coop_tone(kind) when kind in ["candidate", "validation"], do: :good
   defp coop_tone(_kind), do: nil
 

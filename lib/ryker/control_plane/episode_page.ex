@@ -706,7 +706,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     do: "Inputs: " <> Enum.map_join(ordinals, " + ", &"Message #{&1}")
 
   defp continuation(nil), do: nil
-  defp continuation(ordinal), do: "Continues Turn #{ordinal}"
+  defp continuation(ordinal), do: "Continues Run #{ordinal}"
 
   defp phase_band(:input), do: :ready
   defp phase_band(:outcome), do: :answer
@@ -1666,19 +1666,20 @@ defmodule Ryker.ControlPlane.EpisodePage do
       message.actor == "Ryker" && message[:delivery_ref] &&
         (message[:delivered] || message[:status] == "Response sent")
 
-  defp redundant_step?(%{state: "input admitted"} = step, copies),
+  # Kernel transitions are recognised by their durable id and stage, never by
+  # the words a person reads for them.
+  defp redundant_step?(%{id: "kernel-" <> _, stage: "Input"} = step, copies),
     do: step[:input_id] in copies.input_ids
 
-  defp redundant_step?(%{state: "result accepted"} = step, copies),
+  defp redundant_step?(%{id: "kernel-" <> _, stage: "Result"} = step, copies),
     do: step[:result_ref] in copies.result_refs
 
   # The message body can expire independently of its delivery receipt. Keep the
   # exact turn receipt and hide only its matching kernel lifecycle confirmation.
-  defp redundant_step?(%{stage: "Delivery", state: "delivery confirmed"} = step, copies),
+  defp redundant_step?(%{id: "kernel-" <> _, stage: "Delivery"} = step, copies),
     do:
       step[:delivery_ref] in copies.delivery_refs ||
-        (String.starts_with?(step.id, "kernel-") &&
-           step[:delivery_ref] in copies.confirmed_delivery_refs)
+        step[:delivery_ref] in copies.confirmed_delivery_refs
 
   defp redundant_step?(%{stage: "Delivery", state: "delivered"} = step, copies),
     do: step[:delivery_ref] in copies.delivery_refs

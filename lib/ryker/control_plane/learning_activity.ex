@@ -258,7 +258,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp handover_error(_),
     do:
-      "Conversation context could not be saved. Inspect the original work turn for its retained inputs."
+      "Conversation context could not be saved. Inspect the original run for its retained inputs."
 
   defp selected(row, params, secrets) do
     # SELECTs only. The mutation owner rechecks source eligibility and both
@@ -509,7 +509,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   """
   def attempt_error(%{stop_receipt: %{"kind" => "attempt_expired"}}),
     do:
-      "The worker never confirmed that this attempt stopped. No worker turn runs longer than a day, so Ryker closed it after that and learned from these messages again."
+      "The worker never confirmed that this attempt stopped. No worker run lasts longer than a day, so Ryker closed it after that and learned from these messages again."
 
   def attempt_error(%{error_code: "learning_remote_unresolved", stop_receipt: %{} = stop}) do
     if stop["kind"] == "never_submitted",

@@ -370,11 +370,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
       event.occurred_at,
       %{
         actor: "Coop",
-        details: compact_details([{"Dropped events", event.payload["dropped"]}]),
+        details: compact_details([{"Updates left out", event.payload["dropped"]}]),
         stage: "Recorder",
-        state: "bounded",
-        summary: "The turn exceeded its bounded narration budget.",
-        title: "Some activity was elided",
+        state: nil,
+        summary:
+          "This run sent more updates than Ryker keeps for one run, so some were left out.",
+        title: "Some activity was left out",
         tone: :warn
       }
     )
@@ -421,8 +422,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         actor: "Coop",
         details: [],
         stage: "Worker activity",
-        state: "recorded",
-        summary: "Bounded activity event recorded.",
+        state: nil,
+        summary: "The worker reported activity Ryker has no card for.",
         title: capitalize(human(event.kind)),
         tone: nil
       }
@@ -649,7 +650,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     |> Enum.filter(&is_binary/1)
     |> Enum.join(", ")
     |> case do
-      "" -> "Coop paused this turn at the provider's rate limit."
+      "" -> "The worker paused this run at the provider's rate limit."
       summary -> summary <> "."
     end
   end

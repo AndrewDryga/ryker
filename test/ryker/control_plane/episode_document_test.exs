@@ -171,7 +171,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       ])
 
     html = render_episode(snapshot, [])
-    refute html =~ "Input admitted"
+    refute html =~ "Message added"
     refute html =~ "Delivery confirmed"
     refute html =~ "Reply delivered"
     assert html =~ "Response sent"

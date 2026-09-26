@@ -103,7 +103,8 @@ defmodule Ryker.ControlPlane.EpisodeCausality do
           owner: {:turn, id},
           kind: :turn,
           ordinal: turn.ordinal,
-          label: "Turn #{turn.ordinal}",
+          # A person reads a Work turn as one run of the model on their request.
+          label: "Run #{turn.ordinal}",
           continues: turn.continues,
           inputs: input_ordinals(index, turn.input_ids)
         }

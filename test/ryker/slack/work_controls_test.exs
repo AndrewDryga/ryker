@@ -121,7 +121,7 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert {:ok, timeline} =
              WorkRecord.build(fixture.card.ref, attributes(fixture.card.ref).target, :timeline)
 
-    assert timeline["message"] =~ "Input admitted"
+    assert timeline["message"] =~ "Message added"
     assert timeline["message"] =~ "Evidence recorded"
     assert timeline["message"] =~ "Goal state recorded"
     assert timeline["message"] =~ "Input request recorded"
@@ -335,7 +335,7 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert [{"C456", "1787832000.000100", %{"message" => message}, delivery_ref}] =
              Agent.get(slack, & &1.posts)
 
-    assert message =~ "Input admitted"
+    assert message =~ "Message added"
     assert delivery_ref == "work-record:#{fixture.card.ref}:timeline"
 
     assert {:ok, second} = WorkControls.show_record(timeline, options)

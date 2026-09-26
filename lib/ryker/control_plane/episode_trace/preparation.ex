@@ -509,7 +509,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     do: "Ryker processed this message because it was sent directly to or mentioned Ryker."
 
   defp live_reason(:existing_episode),
-    do: "Ryker processed this message because it continued an existing episode."
+    do: "Ryker processed this message because it continued earlier work."
 
   defp live_reason({:rule, title}),
     do: "Ryker processed this message because the standing rule “#{bounded(title, 160)}” matched."
@@ -536,7 +536,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
           " and it qualified because Ryker was addressed directly"
 
         :existing_episode ->
-          " and it qualified because it continued an existing episode"
+          " and it qualified because it continued earlier work"
 
         {:rule, title} ->
           " and it qualified because the standing rule “#{bounded(title, 160)}” matched"
@@ -733,19 +733,19 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp setup_diagnostics(:blocked, turn, nil, _placement),
     do:
       compact_details([
-        {"Turn ID", turn.turn_ref, identifier: true},
-        {"Work claims", turn.work_attempt_count}
+        {"Run ID", turn.turn_ref, identifier: true},
+        {"Start attempts", turn.work_attempt_count}
       ])
 
   defp setup_diagnostics(:blocked, turn, session, placement) do
     compact_details([
       {"Worker", setup_worker(session, placement)},
       {"Execution policy", session.policy},
-      {"Turn ID", turn.turn_ref, identifier: true},
+      {"Run ID", turn.turn_ref, identifier: true},
       {"Session ID", session.id, identifier: true},
       {"Remote session", session.coop_session_id, identifier: true},
-      {"Remote turn", turn.coop_turn_id, identifier: true},
-      {"Work claims", turn.work_attempt_count}
+      {"Worker run", turn.coop_turn_id, identifier: true},
+      {"Start attempts", turn.work_attempt_count}
     ])
   end
 
@@ -753,7 +753,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     %{
       kind: :selected,
       label: "Setup selected",
-      summary: "Waiting for a Work claim. Preparation has not started.",
+      summary: "Waiting for a worker to pick it up. Preparation has not started.",
       tone: nil,
       current: true,
       ordinal: nil,

@@ -113,8 +113,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
            ]
 
     assert Enum.map(snapshot.related_episodes.items, & &1.relation) == [
-             "Previous episode",
-             "Follow-up episode"
+             "Earlier request",
+             "Follow-up request"
            ]
 
     assert Enum.all?(snapshot.related_episodes.items, &(is_binary(&1.title) and &1.title != ""))
@@ -234,8 +234,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert Enum.map(detail.trace.steps, & &1.title) ==
              [
-               "Input admitted",
-               "Input wait started",
+               "Message added",
+               "Waiting for an answer",
                "Participation",
                "Queue"
              ]
@@ -466,23 +466,23 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert snapshot.totals.average_host_ms == measured.usage_host_ms
 
     assert {:ok, detail} = Projection.episode(episode_key!(measured.episode_id))
-    prepared = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 queued"))
+    prepared = Enum.find(detail.trace.steps, &(&1.title == "Run 1 queued"))
     prepared_details = Map.new(prepared.details, &{&1.label, &1.value})
 
     assert Map.keys(prepared_details) == ["Execution policy"]
     assert prepared.state == ""
     refute inspect(detail.trace) =~ "redacted by projection"
 
-    assert Enum.any?(detail.trace.steps, &(&1.title == "Turn 1 finished"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Run 1 finished"))
     # A completed execution used to be stamped at its start, above tools it had not run yet.
-    model_work = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 finished"))
+    model_work = Enum.find(detail.trace.steps, &(&1.title == "Run 1 finished"))
     assert model_work.at == measured.remote_finished_at
     assert model_work.duration_ms == measured.usage_provider_ms
     assert model_work.summary == nil
     assert model_work.details == []
 
     assert {:ok, unmeasured_detail} = Projection.episode(episode_key!(unmeasured.episode_id))
-    unmeasured_work = Enum.find(unmeasured_detail.trace.steps, &(&1.title == "Turn 1 finished"))
+    unmeasured_work = Enum.find(unmeasured_detail.trace.steps, &(&1.title == "Run 1 finished"))
     assert unmeasured_work.at == unmeasured.accepted_at
     assert unmeasured_work.duration_ms == nil
     assert unmeasured_work.summary == "Timing and usage were not reported."
@@ -512,7 +512,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     )
 
     assert Enum.any?(detail.trace.steps, &(&1.title == "Answer validated"))
-    assert Enum.any?(detail.trace.steps, &(&1.title == "Turn 1 result accepted"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Run 1 answer accepted"))
     assert Enum.any?(detail.trace.chapters, &(&1.title == "The answer"))
 
     for {candidate, expected_parse} <- [
@@ -593,7 +593,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       )
 
       assert {:ok, duration_detail} = Projection.episode(episode_key!(measured.episode_id))
-      work_step = Enum.find(duration_detail.trace.steps, &(&1.title == "Turn 1 finished"))
+      work_step = Enum.find(duration_detail.trace.steps, &(&1.title == "Run 1 finished"))
       work_details = Map.new(work_step.details, &{&1.label, &1.value})
       assert work_step.duration_ms == provider_ms
       assert work_details == %{}
@@ -1047,7 +1047,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert {:ok, retried} = Projection.episode(episode.key)
     assert Enum.find(retried.trace.steps, &(&1.id == queued.id)) == queued
-    accepted = Enum.find(pending.trace.steps, &(&1.title == "Turn 1 result accepted"))
+    accepted = Enum.find(pending.trace.steps, &(&1.title == "Run 1 answer accepted"))
     accepted_details = Map.new(accepted.details, &{&1.label, &1.value})
     assert accepted.summary == "Ryker accepted this response for delivery."
     refute Map.has_key?(accepted_details, "Reply preview")
@@ -1352,7 +1352,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert Enum.any?(detail.trace.steps, &(&1.title == "Model plan updated"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Tool permission decided"))
-    assert Enum.any?(detail.trace.steps, &(&1.title == "Some activity was elided"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Some activity was left out"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Provider rate limit"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Provider is still responding"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Custom.notice"))
@@ -1478,7 +1478,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              )
 
     assert {:ok, transferred_detail} = Projection.episode(transferred.episode.key)
-    assert Enum.any?(transferred_detail.trace.steps, &(&1.title == "Owner transferred"))
+    assert Enum.any?(transferred_detail.trace.steps, &(&1.title == "Handed to a new run"))
 
     resumed = start_episode!("resumed")
     wait_ref = "wait:input:#{resumed.episode.id}"
@@ -1520,7 +1520,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              )
 
     assert {:ok, resumed_detail} = Projection.episode(resumed.episode.key)
-    assert Enum.any?(resumed_detail.trace.steps, &(&1.title == "Wait resumed"))
+    assert Enum.any?(resumed_detail.trace.steps, &(&1.title == "Picked up again after waiting"))
     refute inspect(resumed_detail.trace) =~ "Continue without exposing"
 
     overview = Projection.overview()
@@ -1544,10 +1544,10 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert waiting_detail.trace.stopped.headline == "Waiting for an event"
 
     assert {:ok, delivery_detail} = Projection.episode(delivery.episode.key)
-    assert Enum.any?(delivery_detail.trace.steps, &(&1.title == "Result accepted"))
+    assert Enum.any?(delivery_detail.trace.steps, &(&1.title == "Answer accepted"))
 
     assert {:ok, complete_detail} = Projection.episode(complete.episode.key)
-    assert Enum.any?(complete_detail.trace.steps, &(&1.title == "Result accepted"))
+    assert Enum.any?(complete_detail.trace.steps, &(&1.title == "Answer accepted"))
 
     assert {:ok, cancelled_detail} = Projection.episode(cancelled.episode.key)
     assert cancelled_detail.trace.stopped.headline == "Request stopped"
@@ -2228,10 +2228,10 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Incident room requested"))
     assert Enum.count(episode_detail.trace.steps, &(&1.title == "Publication requested")) == 2
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Schedule created"))
-    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Worker · turn"))
-    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Worker · candidate"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Worker run update"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Worker returned an answer"))
 
-    worker_step = Enum.find(episode_detail.trace.steps, &(&1.title == "Worker · turn"))
+    worker_step = Enum.find(episode_detail.trace.steps, &(&1.title == "Worker run update"))
     worker_detail = Enum.find(worker_step.details, &(&1.label == "Worker"))
     assert worker_detail.identifier
     refute Enum.any?(worker_step.details, &(&1.label in ["Event", "Payload"]))

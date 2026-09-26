@@ -432,7 +432,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     assert task_view.status == 200
     assert task_view.resp_body =~ "Durable timeline"
-    assert task_view.resp_body =~ "Input admitted"
+    assert task_view.resp_body =~ "Message added"
 
     assert_received {:lab_task_view, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
                      "record:task_offer:confirmed", :timeline, %{}}
@@ -783,7 +783,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       )
 
     assert html =~ "Execution timeline"
-    assert html =~ "Input admitted"
+    assert html =~ "Message added"
     assert html =~ "Work needs operator recovery"
     assert html =~ "3 answers checked"
     assert html =~ "/failures/work/episode%3Aone"

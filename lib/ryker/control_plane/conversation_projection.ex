@@ -434,13 +434,14 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     case Ecto.UUID.cast(conversation_id) do
       {:ok, conversation_id} ->
         ref = @prefix <> conversation_id
+        revised = revised_input_ids(ref, since, limit)
 
         candidates =
           candidates(
             ref,
             %{
-              input: changed_inputs(ref, since, limit),
-              reply: changed_replies(ref, since, limit),
+              input: changed_inputs(ref, revised, since, limit),
+              reply: changed_replies(ref, revised, since, limit),
               action: changed_actions(ref, since, limit),
               publication: changed_publications(ref, since, limit)
             },
@@ -456,8 +457,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   def changes(_conversation_id, _since, _limit), do: :not_found
 
-  defp changed_inputs(ref, since, limit) do
-    revised = revised_input_ids(ref, since, limit)
+  defp changed_inputs(ref, revised, since, limit) do
     reacted = reacted_item_refs(ref, since, limit)
 
     if revised == [] and reacted == [],
@@ -508,9 +508,10 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       )
   end
 
-  defp changed_replies(ref, since, limit) do
+  defp changed_replies(ref, revised, since, limit) do
     turn_ids =
-      updated_turn_ids(ref, since, limit) ++ moved_record_turn_ids(ref, since, limit)
+      updated_turn_ids(ref, since, limit) ++
+        moved_record_turn_ids(ref, since, limit) ++ revised_answer_turn_ids(revised, limit)
 
     delivery_refs = reacted_delivery_refs(ref, since, limit)
 
@@ -528,6 +529,25 @@ defmodule Ryker.ControlPlane.ConversationProjection do
           episode.destination_transport == "control_plane" and
             episode.destination_conversation_ref == ^ref and
             episode.destination_thread_ref == ^ref and turn.updated_at >= ^since,
+        select: turn.id,
+        limit: ^limit
+      )
+    )
+  end
+
+  # An edit changes what the earlier replies to that message say about
+  # themselves ("Answered your earlier wording"), though their own rows did not.
+  defp revised_answer_turn_ids([], _limit), do: []
+
+  defp revised_answer_turn_ids(native_ids, limit) do
+    Repo.all(
+      from(turn in Turn,
+        join: entry in Entry,
+        on: entry.episode_id == turn.episode_id,
+        where:
+          entry.source_kind == "control_plane" and entry.source_ref == "local" and
+            entry.native_input_id in ^native_ids,
+        distinct: true,
         select: turn.id,
         limit: ^limit
       )

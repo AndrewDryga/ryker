@@ -207,7 +207,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     {:ok, _} = Episodes.apply(EpisodeFixtures.accept_result())
     {:ok, _} = Episodes.apply(EpisodeFixtures.confirm_delivery())
     {:ok, detail} = Projection.episode(episode.key)
-    receipt = Enum.find(detail.trace.steps, &(&1.state == "delivery confirmed"))
+    receipt = Enum.find(detail.trace.steps, &(&1.id =~ ~r/^kernel-/ and &1.stage == "Delivery"))
     assert receipt.summary == "Delivery was confirmed."
     refute receipt.summary =~ "Slack"
     refute receipt.summary =~ "bound transport"
@@ -226,7 +226,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
              transport: "Slack"
            }
 
-    step = Enum.find(detail.trace.steps, &(&1.title == "Input admitted"))
+    step = Enum.find(detail.trace.steps, &(&1.title == "Message added"))
     assert step.details == []
     refute String.starts_with?(entry.dedupe_key, "admit_input:")
   end
@@ -846,7 +846,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     assert inspect(gathered.details) =~ "slack:TC9F5B40D364C:C456"
 
     moved = Enum.find(trace.steps, &(&1.id == "association-#{correction.id}"))
-    assert moved.title == "Messages moved into this episode by an audited correction"
+    assert moved.title == "Messages moved into this request by a person's correction"
     assert moved.summary == correction.reason
     assert inspect(moved.details) =~ "operator-confirmation:trace"
   end
