@@ -163,6 +163,17 @@ defmodule Ryker.IntegrationSetupTest do
     end
   end
 
+  # Slack answering for tokens of another workspace.
+  defmodule OtherWorkspaceRequester do
+    def request(client, :post, "/auth.test", body, headers) do
+      {:ok, response} = Requester.request(client, :post, "/auth.test", body, headers)
+      {:ok, %{response | body: %{response.body | "team_id" => "T9999999999", "team" => "Other"}}}
+    end
+
+    def request(client, method, path, body, headers),
+      do: Requester.request(client, method, path, body, headers)
+  end
+
   setup do
     {:ok, _snapshot} = Settings.initialize(@actor)
     :ok
@@ -191,6 +202,45 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert {:ok, [%{id: "U1", name: "Ada"}, %{id: "U2", name: "Zoe"}]} =
              IntegrationSetup.slack_members(requester: Requester)
+  end
+
+  test "new tokens for the workspace Slack works in keep it on; another workspace's switch it off" do
+    # Replacing the tokens saved Slack as off every time, so a working Slack
+    # stopped reading and replying until someone chose the same people again.
+    # The people who manage Ryker are the workspace's people: tokens for the
+    # same workspace change nobody, and only another workspace's tokens need
+    # them chosen again, from that workspace.
+    tokens = %{
+      "app_token" => "xapp-this-is-a-long-app-token",
+      "bot_token" => "xoxb-this-is-a-long-bot-token"
+    }
+
+    {:ok, _result} = IntegrationSetup.connect_slack(tokens, requester: Requester)
+    refute Settings.fetch!().slack.enabled
+
+    {:ok, _snapshot} =
+      Settings.save_slack(
+        %{enabled: true, operators: ["U1"]},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    replaced = %{tokens | "bot_token" => "xoxb-this-is-a-replaced-bot-token"}
+
+    assert {:ok, %{enabled: true}} =
+             IntegrationSetup.connect_slack(replaced, requester: Requester)
+
+    assert %{enabled: true, operators: ["U1"], workspace_ref: "T0123456789"} =
+             Settings.fetch!().slack
+
+    assert {:ok, %{enabled: false}} =
+             IntegrationSetup.connect_slack(replaced, requester: OtherWorkspaceRequester)
+
+    assert %{enabled: false, workspace_ref: "T9999999999"} = Settings.fetch!().slack
+
+    # Slack that was never switched on stays off when its tokens are replaced.
+    {:ok, _result} = IntegrationSetup.connect_slack(replaced, requester: OtherWorkspaceRequester)
+    refute Settings.fetch!().slack.enabled
   end
 
   test "Choose people offers the people in the workspace, never Slackbot or an app" do

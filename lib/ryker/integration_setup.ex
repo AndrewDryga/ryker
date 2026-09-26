@@ -44,6 +44,7 @@ defmodule Ryker.IntegrationSetup do
          {:ok, _bot} <- Credentials.verify(:slack_bot, "primary", :verified, @actor) do
       {:ok,
        %{
+         enabled: snapshot.slack.enabled,
          identity: identity,
          settings_revision: snapshot.installation.revision,
          socket_mode: :verified,
@@ -580,12 +581,17 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
+  # The people who manage Ryker are the people of one workspace. New tokens
+  # for the workspace Slack already works in change none of them, so Slack
+  # stays as it was; until 2026-09-26 every replacement switched it off until
+  # someone chose the same people again. Tokens for another workspace, or a
+  # first connection, leave Slack off until someone there is chosen.
   defp save_slack_identity(identity) do
     snapshot = Settings.fetch!()
 
     Settings.save_slack(
       %{
-        enabled: false,
+        enabled: snapshot.slack.enabled and snapshot.slack.workspace_ref == identity.workspace_id,
         workspace_ref: identity.workspace_id,
         workspace_url: identity.workspace_url,
         workspace_name: identity.workspace_name,

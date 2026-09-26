@@ -675,7 +675,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Who can manage Ryker",
        [
-         "These people can change Ryker's settings from Slack, such as a channel's setup or a new rule."
+         "These people can change Ryker's settings from Slack, such as a channel's setup or a new rule.",
+         "New tokens for the same workspace keep them, and Slack stays on. Tokens for another workspace switch Slack off until you choose people there."
        ]},
       {"New channels and incident rooms",
        [
