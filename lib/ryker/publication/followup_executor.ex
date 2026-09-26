@@ -2,7 +2,8 @@ defmodule Ryker.Publication.FollowupExecutor do
   @moduledoc false
 
   alias Ryker.Delivery.Adapters
-  alias Ryker.Publication.{Callback, Followups}
+  alias Ryker.LeasedCall
+  alias Ryker.Publication.Followups
 
   def run_poll(
         %{followup: followup, lease_ref: lease_ref, publication: publication} = claim,
@@ -69,74 +70,28 @@ defmodule Ryker.Publication.FollowupExecutor do
   end
 
   defp leased_call(claim, phase, settings, callback) do
-    result_ref = make_ref()
-
-    {pid, monitor} =
-      Callback.start(result_ref, fn ->
-        try do
-          callback.()
-        rescue
-          exception ->
-            {:error, {:publication_followup_callback_crashed, Exception.message(exception)}}
-        catch
-          kind, reason -> {:error, {:publication_followup_callback_crashed, kind, reason}}
-        end
-      end)
-
-    cadence_ms = max(div(settings.lease_seconds * 1_000, 3), 1)
-
-    try do
-      await_call(result_ref, pid, monitor, claim, phase, settings, cadence_ms)
-    after
-      Callback.finish(pid, monitor, result_ref)
-    end
+    LeasedCall.run(
+      fn -> contained(callback) end,
+      fn -> renew(claim, phase, settings) end,
+      settings.lease_seconds,
+      :publication_followup_callback_exit
+    )
   end
 
-  defp await_call(result_ref, pid, monitor, claim, phase, settings, cadence_ms) do
-    receive do
-      {^result_ref, result} ->
-        Process.demonitor(monitor, [:flush])
-
-        case renew(claim, phase, settings) do
-          :ok -> result
-          {:error, _reason} = error -> error
-        end
-
-      {:DOWN, ^monitor, :process, ^pid, reason} ->
-        {:error, {:publication_followup_callback_exit, reason}}
-    after
-      cadence_ms ->
-        case renew(claim, phase, settings) do
-          :ok ->
-            await_call(result_ref, pid, monitor, claim, phase, settings, cadence_ms)
-
-          {:error, _reason} = error ->
-            error
-        end
-    end
+  defp contained(callback) do
+    callback.()
+  rescue
+    exception -> {:error, {:publication_followup_callback_crashed, Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {:publication_followup_callback_crashed, kind, reason}}
   end
 
-  defp renew(claim, :poll, settings) do
-    case settings.custody.renew_poll(
-           claim.publication.ref,
-           claim.lease_ref,
-           settings.lease_seconds
-         ) do
-      {:ok, _followup} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
+  defp renew(claim, :poll, settings),
+    do:
+      settings.custody.renew_poll(claim.publication.ref, claim.lease_ref, settings.lease_seconds)
 
-  defp renew(claim, :delivery, settings) do
-    case settings.custody.renew_delivery(
-           claim.event.ref,
-           claim.lease_ref,
-           settings.lease_seconds
-         ) do
-      {:ok, _event} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
+  defp renew(claim, :delivery, settings),
+    do: settings.custody.renew_delivery(claim.event.ref, claim.lease_ref, settings.lease_seconds)
 
   defp settings(options) when is_list(options) do
     allowed = [:adapters, :api, :client, :custody, :interval_seconds, :lease_seconds]

@@ -8,7 +8,8 @@ defmodule Ryker.Publication.Executor do
   """
 
   alias Ryker.Delivery.Adapters
-  alias Ryker.Publication.{Callback, Custody, Request, Review}
+  alias Ryker.LeasedCall
+  alias Ryker.Publication.{Custody, Request, Review}
   alias Ryker.Work.Session
 
   @review_states ~w(open exhausted)
@@ -237,61 +238,22 @@ defmodule Ryker.Publication.Executor do
   end
 
   defp leased_call(claim, settings, function) do
-    result_ref = make_ref()
-
-    {pid, monitor} =
-      Callback.start(result_ref, fn ->
-        try do
-          function.()
-        rescue
-          exception -> {:error, {:publication_callback_crashed, Exception.message(exception)}}
-        catch
-          kind, reason -> {:error, {:publication_callback_crashed, kind, reason}}
-        end
-      end)
-
-    cadence_ms = max(div(settings.lease_seconds * 1_000, 3), 1)
-
-    try do
-      await_call(result_ref, pid, monitor, claim, settings, cadence_ms)
-    after
-      Callback.finish(pid, monitor, result_ref)
-    end
+    LeasedCall.run(
+      fn -> contained(function) end,
+      fn ->
+        settings.custody.renew(claim.publication.ref, claim.lease_ref, settings.lease_seconds)
+      end,
+      settings.lease_seconds,
+      :publication_callback_exit
+    )
   end
 
-  defp await_call(result_ref, pid, monitor, claim, settings, cadence_ms) do
-    receive do
-      {^result_ref, result} ->
-        Process.demonitor(monitor, [:flush])
-
-        case renew(claim, settings) do
-          :ok -> result
-          {:error, _reason} = error -> error
-        end
-
-      {:DOWN, ^monitor, :process, ^pid, reason} ->
-        {:error, {:publication_callback_exit, reason}}
-    after
-      cadence_ms ->
-        case renew(claim, settings) do
-          :ok ->
-            await_call(result_ref, pid, monitor, claim, settings, cadence_ms)
-
-          {:error, _reason} = error ->
-            error
-        end
-    end
-  end
-
-  defp renew(claim, settings) do
-    case settings.custody.renew(
-           claim.publication.ref,
-           claim.lease_ref,
-           settings.lease_seconds
-         ) do
-      {:ok, _publication} -> :ok
-      {:error, _reason} = error -> error
-    end
+  defp contained(function) do
+    function.()
+  rescue
+    exception -> {:error, {:publication_callback_crashed, Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {:publication_callback_crashed, kind, reason}}
   end
 
   defp settings(options) do
