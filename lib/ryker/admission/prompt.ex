@@ -74,6 +74,10 @@ defmodule Ryker.Admission.Prompt do
   The class chooses compute from a host-owned profile. It never changes repository, tools, credentials,
   or write authority. Do not choose deep merely because the message is long, urgent, or asks for edits.
 
+  People read reason in the request's history. Write it in plain words about the conversation and the
+  work, for example "A new question, not part of the checkout investigation", never in terms of
+  episodes, candidates, relations, references or the host.
+
   Use history_only when the older episode is useful background but the current event is new work. A
   history link never reuses the older destination. Use only candidate references and relations
   present in the supplied context. Do not invent identifiers.
