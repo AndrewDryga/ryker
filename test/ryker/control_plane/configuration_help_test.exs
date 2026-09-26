@@ -24,8 +24,11 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
     assert commands =~ "What each kind of work may do"
     assert commands =~ "coop sessions doctor"
     assert commands =~ "coop sessions connect"
-    assert commands =~ "MIX_ENV=prod mix ryker.doctor"
-    refute commands =~ "ryker.doctor --config"
+    # A Compose install is a release with no Mix; its commands run through
+    # scripts/compose.sh.
+    assert commands =~ "scripts/compose.sh worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF"
+    assert commands =~ "scripts/compose.sh doctor"
+    refute commands =~ "mix ryker"
     assert commands =~ "0600"
     refute page =~ "<form"
   end

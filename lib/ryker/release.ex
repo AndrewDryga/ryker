@@ -7,6 +7,11 @@ defmodule Ryker.Release do
   never interprets a stale version as permission to remove several migrations.
   """
 
+  alias Ryker.{Bootstrap, Settings}
+  alias Ryker.CoopFleet.Enrollment
+  alias Ryker.Operator.Preflight
+  alias Ryker.Runtime.Assembly
+
   @app :ryker
   @fields [:log, :migrations_path, :pool_size, :prefix, :repo]
 
@@ -81,6 +86,53 @@ defmodule Ryker.Release do
     settings = settings!(options)
     with_repo!(settings, fn _repo -> Ryker.BundledCoop.ready?() end)
   end
+
+  @doc """
+  Issues a one-time enrolment token for a worker the installation does not
+  run itself, and prints it once as JSON. `scripts/compose.sh worker-token`
+  runs this inside the container, where there is no Mix.
+  """
+  @spec issue_worker_token(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def issue_worker_token(worker_id, workspace_ref, operator_ref, options \\ []) do
+    settings = settings!(options)
+
+    with_repo!(settings, fn _repo ->
+      with {:ok, issued} <-
+             Enrollment.issue_token(worker_id, workspace_ref, operator_ref) do
+        report(settings, issued)
+        {:ok, issued}
+      end
+    end)
+  end
+
+  @doc """
+  Runs every read-only preflight check against the saved settings and prints
+  the report as JSON: whether the settings were applied and the durable queues
+  are ready. `scripts/compose.sh doctor` runs this inside the container.
+  """
+  @spec doctor(keyword()) :: {:ok, map()} | {:error, term()}
+  def doctor(options \\ []) do
+    settings = settings!(options)
+
+    with_repo!(settings, fn _repo ->
+      with {:ok, stored} <- Settings.fetch(),
+           {:ok, configuration} <- Assembly.build(Bootstrap.load!(), stored) do
+        configuration |> preflight() |> tap(&report_preflight(settings, &1))
+      end
+    end)
+  end
+
+  defp preflight(configuration),
+    do: Preflight.run(configuration: configuration, check_progress: false, check_runtimes: false)
+
+  defp report_preflight(settings, {_status, report}) when is_map(report),
+    do: report(settings, report)
+
+  defp report_preflight(_settings, _result), do: :ok
+
+  defp report(%{log: false}, _value), do: :ok
+  defp report(_settings, value), do: IO.puts(Jason.encode!(value))
 
   defp latest_applied(repo, settings) do
     repo

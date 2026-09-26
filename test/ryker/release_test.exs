@@ -1,6 +1,8 @@
 defmodule Ryker.ReleaseTest do
   use Ryker.DataCase, async: false
 
+  import Ecto.Query
+
   alias Ryker.Release
 
   @root Path.expand("../..", __DIR__)
@@ -301,6 +303,39 @@ defmodule Ryker.ReleaseTest do
     assert_raise ArgumentError, ~r/migrations path must be absolute/, fn ->
       Release.migrations(migrations_path: "relative/migrations")
     end
+  end
+
+  test "a Compose install enrols its own workers and checks its settings through the release" do
+    # Settings › Advanced told people with their own workers to run
+    # `MIX_ENV=prod mix ryker.coop_worker enroll` and `mix ryker.doctor`, which
+    # a Compose install (a release, with no Mix) cannot run. The release has
+    # both, and scripts/compose.sh runs them inside the container.
+    assert {:ok, %{token: token, worker_id: "worker-own-1"}} =
+             Release.issue_worker_token("worker-own-1", "workspace-own", "operator:local",
+               log: false
+             )
+
+    assert is_binary(token) and byte_size(token) > 20
+
+    assert Repo.exists?(
+             from(t in Ryker.CoopFleet.EnrollmentToken, where: t.worker_id == "worker-own-1")
+           )
+
+    assert {:error, _reason} =
+             Release.issue_worker_token("bad id with spaces", "workspace-own", "operator:local",
+               log: false
+             )
+
+    # With nothing saved yet the preflight says so instead of crashing; with
+    # settings it returns its report.
+    assert {status, _report} = Release.doctor(log: false)
+    assert status in [:ok, :error]
+
+    compose = read!("scripts/compose.sh")
+    assert compose =~ "worker-token)"
+    assert compose =~ "Ryker.Release.issue_worker_token("
+    assert compose =~ "doctor)"
+    assert compose =~ "Ryker.Release.doctor()"
   end
 
   # A release-shaped archive with nothing trustworthy in it: the checker must

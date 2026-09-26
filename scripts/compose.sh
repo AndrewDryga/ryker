@@ -10,7 +10,7 @@ state_dir=${RYKER_INSTALL_STATE:-$repository/.ryker}
 env_file=$state_dir/compose.env
 
 usage() {
-  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|model-login [PROVIDER]|backup|restore FILE|uninstall|destroy" >&2
+  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|doctor|backup|restore FILE|uninstall|destroy" >&2
   exit 2
 }
 
@@ -262,6 +262,27 @@ case "$command" in
     [ "$#" -le 2 ] || usage
     compose run --rm --no-deps --entrypoint coop ryker-coop login "$provider"
     compose restart ryker-coop
+    ;;
+  worker-token)
+    # A one-time enrolment token for a worker this installation does not run
+    # itself, printed once. Each value is a plain reference, never Elixir.
+    require_install
+    [ "$#" -eq 4 ] || usage
+    for value in "$2" "$3" "$4"; do
+      case $value in
+        '' | *[!A-Za-z0-9._:-]*)
+          echo "Worker, workspace and operator references use letters, digits, '.', '_', ':' and '-'." >&2
+          exit 1
+          ;;
+      esac
+    done
+    compose exec -T ryker /opt/ryker/bin/ryker eval \
+      "Ryker.Release.issue_worker_token(\"$2\", \"$3\", \"$4\")"
+    ;;
+  doctor)
+    require_install
+    [ "$#" -eq 1 ] || usage
+    compose exec -T ryker /opt/ryker/bin/ryker eval 'Ryker.Release.doctor()'
     ;;
   backup)
     require_install
