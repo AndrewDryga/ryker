@@ -12,8 +12,14 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   alias Ryker.ControlPlane.{Components, Integrations, Kit, ShortTime}
   alias Ryker.Episodes.Words
 
-  # The App permissions work needs; anything missing is named on the row.
-  @required_permissions ~w(metadata contents pull_requests checks actions deployments issues)
+  # The App permissions a repository cannot be set up or worked in without;
+  # anything missing is named on the row and needs a person.
+  @required_permissions ~w(metadata contents pull_requests)
+  # Each of these only turns one feature on: reading CI (checks), rerunning it
+  # (actions), issue events (issues) and deployment events (deployments), so
+  # one that is missing is a detail. Flagging a missing deployments permission
+  # put Andrew's repository in Needs attention (2026-09-26).
+  @optional_permissions ~w(checks actions deployments issues)
 
   @doc "The search phrase from the page's query."
   @spec view(map()) :: %{q: String.t()}
@@ -177,8 +183,8 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
 
   defp problem(_item), do: nil
 
-  defp missing_permissions(permissions) do
-    @required_permissions
+  defp missing_permissions(permissions, wanted \\ @required_permissions) do
+    wanted
     |> Enum.reject(&Map.has_key?(permissions, &1))
     |> Enum.map(&String.replace(&1, "_", " "))
   end
@@ -352,9 +358,11 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   defp knowledge(_repository), do: "Not written yet"
 
   defp permissions(permissions) when is_map(permissions) do
-    case missing_permissions(permissions) do
-      [] -> "Everything Ryker needs"
-      missing -> "Missing " <> Enum.join(missing, ", ")
+    case {missing_permissions(permissions),
+          missing_permissions(permissions, @optional_permissions)} do
+      {[], []} -> "Everything Ryker needs"
+      {[], optional} -> "Enough to work here. Not shared: " <> Enum.join(optional, ", ")
+      {missing, _optional} -> "Missing " <> Enum.join(missing, ", ")
     end
   end
 
