@@ -232,7 +232,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp write(socket, {:ok, snapshot}, next) do
     view = SettingsView.view(snapshot)
-    send(self(), {:settings_saved, view})
+    send(self(), {:settings_editor_saved, view})
 
     socket
     |> assign(:view, view)

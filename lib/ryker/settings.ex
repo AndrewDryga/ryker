@@ -41,8 +41,6 @@ defmodule Ryker.Settings do
 
   @actor "control-plane:local"
   @lock_tag "ryker-settings"
-  @pubsub Ryker.PubSub
-  @topic "settings"
   @day 86_400
   @retention_defaults %{
     operational_data_seconds: 30 * @day,
@@ -74,46 +72,21 @@ defmodule Ryker.Settings do
   def retention_defaults, do: @retention_defaults
 
   @doc """
-  Delivers `{:settings_saved, revision}` to the caller after every committed write.
-
-  The runtime owner applies a revision when it hears of one. Without this a
-  save reached the database and nothing else: it sat pending until the next
-  restart, while the settings page said the runtime would pick it up.
-  """
-  @spec subscribe() :: :ok | {:error, term()}
-  def subscribe, do: Phoenix.PubSub.subscribe(@pubsub, @topic)
-
-  @doc """
   Runs several settings writes as one change.
 
   The writes `operation` makes commit together or not at all, and the runtime
-  hears the saved revision once, after the commit. `operation` returns
-  `{:ok, value}` or `{:error, reason}`; an error rolls every write back.
-
-  Wrap any settings write that shares a transaction with other writes in
-  this. A write inside a bare `Repo.transaction` cannot announce itself: the
-  runtime would read the settings before they were visible and miss them.
+  hears the saved revision once, after the commit (`subscribe/0`).
+  `operation` returns `{:ok, value}` or `{:error, reason}`; an error rolls
+  every write back.
   """
   @spec atomically((-> {:ok, term()} | {:error, term()})) :: {:ok, term()} | {:error, term()}
   def atomically(operation) when is_function(operation, 0) do
-    nested? = Repo.in_transaction?()
-
-    result =
-      Repo.transaction(fn ->
-        case operation.() do
-          {:ok, value} -> value
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
-
-    with {:ok, _value} <- result,
-         false <- nested?,
-         revision when is_integer(revision) <-
-           Repo.one(from(installation in Installation, select: installation.revision)) do
-      announce(revision)
-    end
-
-    result
+    Repo.transaction(fn ->
+      case operation.() do
+        {:ok, value} -> value
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
   end
 
   @doc "The current consistent snapshot, or an explicit not-initialized error."
@@ -186,7 +159,7 @@ defmodule Ryker.Settings do
   def record_application(revision, result) when is_integer(revision) and revision > 0 do
     with {:ok, failure_code} <- application_result(result),
          {:ok, :ok} <- transaction(fn -> record_application_locked(revision, failure_code) end) do
-      :ok
+      broadcast_settings_applied(revision)
     end
   end
 
@@ -676,17 +649,13 @@ defmodule Ryker.Settings do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [@lock_tag])
   end
 
-  # A committed write is announced after the transaction, so a subscriber
+  # A committed write is announced after the outermost commit, so a subscriber
   # that reads the revision it heard about finds it. A no-op save announces
   # the revision it left in place; the owner answers that with :unchanged.
-  # A write inside a larger change commits with it, so atomically/1 announces
-  # it instead.
   defp transaction(operation) do
-    nested? = Repo.in_transaction?()
-
     case Repo.transaction(operation) do
-      {:ok, %{installation: %Installation{revision: revision}} = snapshot} ->
-        unless nested?, do: announce(revision)
+      {:ok, %{installation: %Installation{}} = snapshot} ->
+        broadcast_settings_saved()
         {:ok, snapshot}
 
       {:ok, result} ->
@@ -697,8 +666,55 @@ defmodule Ryker.Settings do
     end
   end
 
-  defp announce(revision),
-    do: Phoenix.PubSub.broadcast(@pubsub, @topic, {:settings_saved, revision})
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Delivers `{:settings_saved, revision}` to the caller after every committed
+  write, the revision current once it committed.
+
+  The runtime owner applies a revision when it hears of one. Without this a
+  save reached the database and nothing else: it sat pending until the next
+  restart, while the settings page said the runtime would pick it up. Several
+  writes committed together (`atomically/1`, or any transaction they share)
+  are heard once.
+  """
+  @spec subscribe() :: :ok | {:error, term()}
+  def subscribe, do: Ryker.PubSub.subscribe(saves_topic())
+
+  def unsubscribe, do: Ryker.PubSub.unsubscribe(saves_topic())
+
+  @doc """
+  Delivers `{:settings_applied, revision}` after the runtime records applying
+  a saved revision, or failing to (`record_application/2`), so a page that
+  says whether the running system has caught up can say it again.
+  """
+  @spec subscribe_application() :: :ok | {:error, term()}
+  def subscribe_application, do: Ryker.PubSub.subscribe(application_topic())
+
+  def unsubscribe_application, do: Ryker.PubSub.unsubscribe(application_topic())
+
+  defp saves_topic, do: "settings"
+  defp application_topic, do: "settings:application"
+
+  # One capture however many writes the transaction made, so the commit is
+  # announced once, with the revision it left.
+  defp broadcast_settings_saved, do: Repo.after_commit(&announce_saved_revision/0)
+
+  defp announce_saved_revision do
+    case Repo.one(from(installation in Installation, select: installation.revision)) do
+      revision when is_integer(revision) ->
+        Ryker.PubSub.broadcast(saves_topic(), {:settings_saved, revision})
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp broadcast_settings_applied(revision),
+    do:
+      Repo.after_commit(fn ->
+        Ryker.PubSub.broadcast(application_topic(), {:settings_applied, revision})
+      end)
 
   # The local console is trusted by reach. A Slack actor is trusted only when
   # the saved settings let that person manage Ryker: chosen by name, or an admin

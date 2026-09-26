@@ -12,8 +12,6 @@ defmodule Ryker.Credentials do
   alias Ryker.Repo
 
   @key_version 1
-  @pubsub Ryker.PubSub
-  @topic "credentials"
   @nonce_bytes 12
   @tag_bytes 16
   @minimum_bytes 8
@@ -23,9 +21,6 @@ defmodule Ryker.Credentials do
 
   @type kind ::
           :slack_app | :slack_bot | :github_private_key | :github_webhook | :emisar | :webhook
-
-  @doc "Notifies a runtime owner after committed credential changes."
-  def subscribe, do: Phoenix.PubSub.subscribe(@pubsub, @topic)
 
   @spec put(kind(), String.t(), binary(), String.t()) ::
           {:ok, map()} | {:error, term()}
@@ -296,11 +291,31 @@ defmodule Ryker.Credentials do
   defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp notify({:ok, _value} = result, kind, name) do
-    Phoenix.PubSub.broadcast(@pubsub, @topic, {:credentials_changed, kind, name})
+    broadcast_credentials_changed(kind, name)
     result
   end
 
   defp notify(result, _kind, _name), do: result
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Delivers `{:credentials_changed, kind, name}` after a credential is stored,
+  verified or deleted, and its transaction committed. The payload names the
+  credential, never its value. The runtime owner reassembles what uses it; a
+  page that shows whether a credential is configured or verified redraws.
+  """
+  def subscribe, do: Ryker.PubSub.subscribe(topic())
+
+  def unsubscribe, do: Ryker.PubSub.unsubscribe(topic())
+
+  defp topic, do: "credentials"
+
+  defp broadcast_credentials_changed(kind, name),
+    do:
+      Repo.after_commit(fn ->
+        Ryker.PubSub.broadcast(topic(), {:credentials_changed, kind, name})
+      end)
 
   defp unwrap_transaction({:ok, value}), do: {:ok, value}
   defp unwrap_transaction({:error, reason}), do: {:error, reason}

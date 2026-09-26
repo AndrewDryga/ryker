@@ -109,7 +109,7 @@ defmodule Ryker.ControlPlane.LiveTest do
        [
          server: false,
          secret_key_base: String.duplicate("s", 64),
-         pubsub_server: Ryker.PubSub,
+         pubsub_server: Ryker.PubSub.Server,
          live_view: [signing_salt: "control-plane-test"],
          check_origin: ["//localhost:4321"],
          url: [host: "localhost", port: 4321],
@@ -133,8 +133,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     Agent.update(counters, &Map.put(&1, :active, 7))
 
-    Phoenix.PubSub.broadcast(
-      Ryker.PubSub,
+    Ryker.PubSub.broadcast(
       "control-plane",
       :control_plane_changed
     )
@@ -1344,8 +1343,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert {:ok, %{admission_progress: [%{phase: "Working"}]}} =
              Projection.lab_conversation(id)
 
-    Phoenix.PubSub.broadcast(
-      Ryker.PubSub,
+    Ryker.PubSub.broadcast(
       "control-plane:conversations",
       :control_plane_changed
     )
@@ -1904,8 +1902,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert {:ok, _receipt} =
              ConversationLab.send_message(id, "Inspect the request behind this answer", profile)
 
-    Phoenix.PubSub.broadcast(
-      Ryker.PubSub,
+    Ryker.PubSub.broadcast(
       "control-plane",
       :control_plane_changed
     )
@@ -1951,8 +1948,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     {:ok, view, _html} = live(conn, "/")
     Agent.update(counters, &Map.put(&1, :active, 9))
 
-    Phoenix.PubSub.broadcast(
-      Ryker.PubSub,
+    Ryker.PubSub.broadcast(
       "control-plane",
       :control_plane_changed
     )

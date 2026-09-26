@@ -181,7 +181,7 @@ defmodule Ryker.Slack.NamesTest do
   # The page that asked for a name was drawn before Slack answered, and
   # nothing drew it again: the name only appeared after a reload.
   test "a name found in the background redraws the pages showing it, once per change" do
-    :ok = Phoenix.PubSub.subscribe(Ryker.PubSub, "control-plane")
+    :ok = Ryker.PubSub.subscribe("control-plane")
     start_supervised!({Names, workspace: "T123", fetch: fn _ref -> {:ok, "Andrew"} end})
 
     Names.name("T123", "U456")
