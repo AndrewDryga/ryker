@@ -92,6 +92,46 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     end
   end
 
+  # Andrew, 2026-09-26: 37 repositories started ticked, so choosing 5 meant
+  # unticking 32, and "Add all 37" beside his 5 read as a wrong count.
+  # Selection itself is test/js/repository_picker_test.mjs; this pins what the
+  # server draws before the hook runs.
+  test "the repository picker starts with nothing ticked and counts what it will add" do
+    view = %{
+      github_connection: :ready,
+      snapshot: %{repositories: [], github: %{auto_add_repositories: false}}
+    }
+
+    repositories =
+      for {name, id, present} <- [
+            {"acme/api", 1, false},
+            {"acme/web", 2, true},
+            {"acme/docs", 3, false}
+          ] do
+        %{full_name: name, repository_id: id, default_branch: "main", already_present: present}
+      end
+
+    picker =
+      render_component(&RepositoryImport.repository_import/1,
+        view: view,
+        repositories: repositories
+      )
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("form#repository-picker[phx-hook=RepositoryPicker]")
+
+    assert Enum.empty?(LazyHTML.query(picker, "input[name='repository_ids[]'][checked]"))
+
+    assert LazyHTML.query(picker, "button[data-repository-select=all]") |> LazyHTML.text() =~
+             "Select all shown"
+
+    assert LazyHTML.query(picker, "button[data-repository-select=none]") |> LazyHTML.text() =~
+             "Select none"
+
+    add_selected = LazyHTML.query(picker, "button[data-repository-add-selected][disabled]")
+    assert LazyHTML.text(add_selected) =~ "Add 0 selected"
+    assert LazyHTML.query(picker, "button[value=all]") |> LazyHTML.text() =~ "Add all 2"
+  end
+
   test "adding repositories says they join the default environment" do
     # Channels choose environments, not repositories, since 2026-09-25. An
     # imported repository joins the default environment (Ryker creates

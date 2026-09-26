@@ -7,6 +7,7 @@ import {applyFilterChange} from "/assets/filter-toolbar.mjs"
 import {ConversationHistory} from "/assets/history.mjs"
 import {FilterMenu} from "/assets/filter-menu.mjs"
 import {ElapsedTime} from "/assets/elapsed-time.mjs"
+import {RepositoryPicker} from "/assets/repository-picker.mjs"
 import {copyValueFromEvent} from "/assets/copy-value.mjs"
 import {setupTooltips} from "/assets/tooltips.mjs"
 import {setupPromptParts} from "/assets/prompt-parts.mjs"
@@ -48,22 +49,10 @@ const PrivateKeyFile = {
   },
   destroyed() { this.el.removeEventListener("change", this.read) }
 }
-const RepositorySearch = {
-  mounted() {
-    this.filter = () => {
-      const query = this.el.value.trim().toLowerCase()
-      this.el.closest("form").querySelectorAll("[data-repository-name]").forEach(row => {
-        row.hidden = query !== "" && !row.dataset.repositoryName.toLowerCase().includes(query)
-      })
-    }
-    this.el.addEventListener("input", this.filter)
-  },
-  destroyed() { this.el.removeEventListener("input", this.filter) }
-}
 
 const csrfToken = document.querySelector("meta[name=csrf-token]").content
 const liveSocket = new LiveSocket("/live", Socket, {
   params: {_csrf_token: csrfToken},
-  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PageHelp, PrivateKeyFile, RepositorySearch, ConversationHistory, FilterMenu, ElapsedTime}
+  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PageHelp, PrivateKeyFile, RepositoryPicker, ConversationHistory, FilterMenu, ElapsedTime}
 })
 liveSocket.connect()
