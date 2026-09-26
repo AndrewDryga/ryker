@@ -2315,6 +2315,53 @@ defmodule Ryker.Work.ExecutorTest do
     assert persisted_turn.submission["context"]["mode"] == "full"
   end
 
+  # Editing a Chat message on 2026-09-25 stopped its reply for good. The new
+  # request moved the conversation onto a fresh Coop session, and the executor
+  # bound the turn's state tools before that session was placed on a worker,
+  # so the binding named no placement. Once the fleet had placed it, the next
+  # step derived the placement's binding, found the first one, and blocked the
+  # turn as a binding conflict; only "Run the task again" got it moving.
+  test "a session moved to its next generation binds its state tools where it was placed" do
+    claim = claim_with_bound_empty_session!("rotated-session-placement")
+    endpoint = "https://ryker.example/v1/state-tools/mcp"
+    candidate = reply("The replacement session completed the work.")
+
+    # A bound turn's final answer carries the preflight its tools recorded.
+    assert {:ok, _turn} =
+             Custody.record_final_preflight(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               FinalPreflight.candidate_sha256(Jason.decode!(candidate)),
+               FinalPreflight.ledger_sha256(claim.episode.id, claim.episode.semantic_version, []),
+               claim.episode.semantic_version
+             )
+
+    {:ok, fake} = fake_for(claim, [candidate], on_create_session: &place_session!/1)
+
+    FakeAPI.update(fake, fn state ->
+      %{state | session: Map.put(state.session, "state", "exhausted")}
+    end)
+
+    run_options =
+      fake
+      |> options()
+      |> Keyword.put(:state_tools_endpoint, endpoint)
+      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
+
+    turn = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    session = Repo.get!(Session, turn.session_id)
+    assert session.generation == 2
+    placement = Repo.get_by!(Ryker.CoopFleet.Placement, session_id: session.id)
+
+    assert [binding] = FakeAPI.state(fake).bindings
+    assert binding["endpoint"] == endpoint
+    assert StateBinding.scope_matches?(binding["token"], StateBinding.placement_scope(placement))
+    assert turn.state_tools_token_sha256 == StateBinding.sha256(binding["token"])
+  end
+
   test "a model changed in Settings moves a created session onto its policy's current digest" do
     # The conversation's session was created under the old model. Choosing
     # another model gave the policy a new digest, no worker offered the old one
@@ -4282,6 +4329,55 @@ defmodule Ryker.Work.ExecutorTest do
 
     assert {:ok, claim} = Custody.claim_next("worker:cancel:#{suffix}", 60, :work)
     claim
+  end
+
+  # Places the session the fake just created on a worker, as the fleet does
+  # once Coop has the session: its state tools are scoped to this placement.
+  defp place_session!(coop_task_ref) do
+    session = Repo.get_by!(Session, external_ref: coop_task_ref)
+    worker_id = "worker-#{session.id}"
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    Repo.insert!(%Ryker.CoopFleet.Worker{
+      id: worker_id,
+      workspace_ref: "workspace-#{session.id}",
+      certificate_sha256: String.duplicate("c", 64),
+      protocol_version: "1",
+      build_version: "coop-test",
+      clock_at: now,
+      sandbox_digest: String.duplicate("d", 64),
+      policy_digests: %{session.policy => session.policy_digest},
+      policy_authority_digests: %{},
+      repositories: [],
+      capabilities: [%{"name" => "responder-state", "version" => "1"}],
+      capacity: %{
+        "cooldown_until" => nil,
+        "session_slots_free" => 1,
+        "session_slots_total" => 1,
+        "state" => "eligible",
+        "turn_slots_free" => 1,
+        "turn_slots_total" => 1,
+        "workspace_slots_free" => 1,
+        "workspace_slots_total" => 1
+      },
+      state: :eligible,
+      last_seen_at: now
+    })
+
+    requirements = %{"repository_ref" => session.repository_ref}
+
+    Repo.insert!(%Ryker.CoopFleet.Placement{
+      id: Ecto.UUID.generate(),
+      session_id: session.id,
+      episode_id: session.episode_id,
+      worker_id: worker_id,
+      generation: 1,
+      lease_ref: "lease-#{session.id}",
+      lease_expires_at: DateTime.add(now, 300, :second),
+      state: :active,
+      requirements: requirements,
+      requirements_fingerprint: Ryker.CanonicalJSON.digest(requirements)
+    })
   end
 
   defp fake_for(claim, candidates, options \\ []) do

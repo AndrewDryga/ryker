@@ -10,7 +10,7 @@ defmodule Ryker.Work.Executor.Sessions do
   """
 
   alias Ryker.State.KnowledgeSnapshot
-  alias Ryker.Work.{Custody, Executor, Session}
+  alias Ryker.Work.{Custody, Session}
   alias Ryker.Work.Executor.Remote
 
   @doc false
@@ -83,8 +83,11 @@ defmodule Ryker.Work.Executor.Sessions do
   defp rotate_session(claim, settings),
     do: continue_on_next_generation(claim, settings, &Custody.rotate_session/4)
 
-  # Custody mints the next session generation for this turn; the executor
-  # rebinds its state tools to the new session and starts over from there.
+  # Custody mints the next session generation for this turn, which clears its
+  # state tools binding, and the executor starts over from there. The binding
+  # is made again only after the new session is placed on a worker: bound
+  # before, it named no placement, and the binding made after placement
+  # conflicted with it and blocked the turn.
   defp continue_on_next_generation(claim, settings, rotate) do
     with {:ok, rotated} <-
            rotate.(
@@ -92,13 +95,11 @@ defmodule Ryker.Work.Executor.Sessions do
              claim.turn.turn_ref,
              claim.lease_ref,
              claim.session.generation
-           ),
-         {:ok, rebound} <-
-           Executor.ensure_state_binding(
-             %{claim | session: rotated.session, turn: rotated.turn},
-             settings
            ) do
-      ensure_session(rebound, settings)
+      claim
+      |> Map.merge(%{session: rotated.session, turn: rotated.turn})
+      |> Map.delete(:state_binding)
+      |> ensure_session(settings)
     end
   end
 
