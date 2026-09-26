@@ -3,18 +3,34 @@ defmodule Ryker.Work.ExecutionTarget do
   One presentation of a retained co:op execution target.
 
   The canonical value remains available for copying and configuration while
-  operator surfaces receive labelled model, effort, provider and profile parts.
+  operator surfaces receive labelled model, effort, provider and account parts.
   Unknown shapes stay literal instead of being guessed into those roles.
+
+  A kind of work saves a list of targets, its model and then the fallbacks
+  Coop moves to in order; a list reads as its first target, then each fallback.
   """
 
-  @spec present(String.t() | nil) :: map()
+  @spec present(String.t() | [String.t()] | nil) :: map()
   def present(nil), do: unrecorded("Model not recorded", nil)
+  def present([]), do: present(nil)
+  def present([target]), do: present(target)
+
+  # A list is kept as Coop writes a ladder back: its targets joined by spaces.
+  def present([_first | _fallbacks] = targets) do
+    [first | _rest] = presentations = Enum.map(targets, &present/1)
+
+    %{
+      first
+      | canonical: Enum.join(targets, " "),
+        compact: Enum.map_join(presentations, ", then ", & &1.compact)
+    }
+  end
 
   def present(target) when is_binary(target) do
     case parts(target) do
       %{provider: provider, model: model} = parts ->
         meta =
-          [effort(parts.effort), provider(provider), profile(parts.profile)]
+          [effort(parts.effort), provider_name(provider), account(parts.account)]
           |> Enum.reject(&is_nil/1)
           |> Enum.join(" · ")
 
@@ -33,8 +49,8 @@ defmodule Ryker.Work.ExecutionTarget do
 
   @spec parts(String.t() | nil) :: map() | nil
   def parts(target) when is_binary(target) do
-    with [head | profile] <- String.split(target, "@", parts: 2),
-         true <- valid_profile?(profile),
+    with [head | account] <- String.split(target, "@", parts: 2),
+         true <- valid_account?(account),
          [provider, model] when provider != "" and model != "" <-
            String.split(head, ":", parts: 2),
          [model | effort] <- String.split(model, "/", parts: 2),
@@ -43,7 +59,7 @@ defmodule Ryker.Work.ExecutionTarget do
         provider: provider,
         model: model,
         effort: List.first(effort),
-        profile: List.first(profile)
+        account: List.first(account)
       }
     else
       _ -> nil
@@ -52,9 +68,9 @@ defmodule Ryker.Work.ExecutionTarget do
 
   def parts(_target), do: nil
 
-  defp valid_profile?([]), do: true
+  defp valid_account?([]), do: true
 
-  defp valid_profile?([value]),
+  defp valid_account?([value]),
     do: value != "" and not String.contains?(value, "@")
 
   defp unrecorded(label, canonical) do
@@ -74,13 +90,15 @@ defmodule Ryker.Work.ExecutionTarget do
   def effort_name("xhigh"), do: "Extra high"
   def effort_name(value), do: human(value)
 
-  defp provider("codex"), do: "Codex"
-  defp provider("openai"), do: "OpenAI"
-  defp provider("anthropic"), do: "Anthropic"
-  defp provider(value), do: human(value)
+  @doc "A provider in the words every page uses: Codex, Claude."
+  @spec provider_name(String.t()) :: String.t()
+  def provider_name("codex"), do: "Codex"
+  def provider_name("openai"), do: "OpenAI"
+  def provider_name("anthropic"), do: "Anthropic"
+  def provider_name(value), do: human(value)
 
-  defp profile(nil), do: nil
-  defp profile(value), do: human(value) <> " profile"
+  defp account(nil), do: nil
+  defp account(value), do: human(value) <> " account"
 
   defp human(value) do
     value

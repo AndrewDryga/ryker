@@ -34,7 +34,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
   }
 
   alias Ryker.Settings
-  alias Ryker.Settings.Work
   alias Ryker.Work.ExecutionTarget
 
   @doc "The title of one page: the name it has in the sidebar, or Set up Ryker."
@@ -272,7 +271,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
     end
   end
 
-  defp sets(:model), do: "The model and reasoning effort for each kind of work."
+  defp sets(:model),
+    do: "The model, reasoning effort and account for each kind of work, and its fallbacks."
+
   defp sets(:retention), do: "How many days Ryker keeps each kind of data before deleting it."
 
   defp sets(:pricing),
@@ -280,15 +281,29 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   defp sets(:system), do: "Where work runs and what each kind of work may do."
 
+  # The first model of each kind of work, then which kinds have fallbacks.
   defp set_now(:model, view) do
+    lists = Enum.map(section!(:model).fields, &{&1.label, Map.get(view.snapshot.work, &1.name)})
+
     models =
-      Work.model_fields()
-      |> Enum.map(&(ExecutionTarget.parts(Map.get(view.snapshot.work, &1)) || %{}))
-      |> Enum.map(& &1[:model])
+      lists
+      |> Enum.flat_map(fn {_label, models} -> Enum.take(models || [], 1) end)
+      |> Enum.map(&(ExecutionTarget.parts(&1) || %{})[:model])
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    if models != [], do: "Uses " <> Environments.sentence(models)
+    fallbacks = for {label, [_first, _fallback | _more]} <- lists, do: label
+
+    cond do
+      models == [] ->
+        nil
+
+      fallbacks == [] ->
+        "Uses " <> Environments.sentence(models)
+
+      true ->
+        "Uses #{Environments.sentence(models)}, with fallbacks for #{Environments.sentence(fallbacks)}"
+    end
   end
 
   defp set_now(:retention, view) do
@@ -1164,7 +1179,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # A person as a row's name: the one rendering every page uses for people.
   defp person(person), do: Kit.person(%{person: person, class: nil, __changed__: nil})
 
-  defp editors(:model), do: [:model]
+  defp editors(:model), do: [:model, :model_accounts]
   defp editors(:retention), do: [:retention]
   defp editors(:pricing), do: [:pricing]
   defp editors(:system), do: [:work, :policies]
@@ -1240,7 +1255,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
     do: %{
       title: "Models",
       description:
-        "The model and reasoning effort for each kind of work. A change reaches new work within seconds."
+        "The model, reasoning effort and account for each kind of work, and the fallbacks it " <>
+          "moves to when one cannot run. A change reaches new work within seconds."
     }
 
   defp page(:retention),

@@ -26,6 +26,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   alias Ryker.ControlPlane.{
     Components,
+    Environments,
     Integrations,
     Kit,
     SettingsRows,
@@ -33,7 +34,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     SettingsView
   }
 
+  alias Ryker.Settings.Work
   alias Ryker.Slack.Names
+  alias Ryker.Work.ExecutionTarget
 
   @impact_words %{
     "ingress inputs" => "received messages",
@@ -113,6 +116,29 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     {:noreply, write(socket, save_command(socket, payload))}
   end
 
+  # Adding, removing and moving a model on a kind of work's list changes only
+  # the draft; nothing is saved until Save changes, as with every other edit.
+  def handle_event("ladder", %{"field" => name, "action" => action} = params, socket) do
+    %{section: section, draft: draft} = socket.assigns
+
+    if Enum.any?(
+         section.fields,
+         &(&1.kind == :ladder and SettingsSections.field_name(&1) == name)
+       ) do
+      entries =
+        draft
+        |> Map.get(name, [])
+        |> SettingsSections.ladder_step(action, position(params["index"]), socket.assigns.view)
+
+      draft = Map.put(draft, name, entries)
+
+      {:noreply,
+       assign(socket, draft: draft, dirty: draft != socket.assigns.baseline, message: "")}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("ask-remove", %{"item" => key}, socket) when is_binary(key),
     do: {:noreply, assign(socket, removing: key, remove_error: nil, message: "")}
 
@@ -164,6 +190,15 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   end
 
   defp expected(socket), do: socket.assigns.expected_revision
+
+  defp position(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {position, ""} -> position
+      _not_a_position -> nil
+    end
+  end
+
+  defp position(_absent), do: nil
 
   defp removed(socket, {:ok, _snapshot} = result), do: write(socket, result, :new)
 
@@ -597,6 +632,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
             options={options(field, @view)}
             error={field_error(@errors, field, @draft)}
             locked={field[:identity] && not is_nil(@item_key)}
+            view={@view}
+            myself={@myself}
           />
         </div>
         <div :if={@impact} class="settings-impact" role="alert">
@@ -659,6 +696,173 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   attr(:options, :list, default: [])
   attr(:error, :string, default: nil)
   attr(:locked, :boolean, default: false)
+
+  attr(:view, :map,
+    default: nil,
+    doc: "The settings view, for a control that lists what is saved"
+  )
+
+  attr(:myself, :any, default: nil, doc: "This editor, for a control's own buttons")
+
+  # A kind of work's models, in the order Coop tries them: the first choice,
+  # then each fallback, each a model, a reasoning effort and an account. The
+  # buttons change only the draft; the account choice lists the accounts of
+  # the chosen model's provider, and says so when there is none yet.
+  defp field(%{field: %{kind: :ladder}} = assigns) do
+    %{field: field, value: entries, view: view} = assigns
+    saved = Map.get(view.snapshot.work, field.name) || []
+    models = SettingsSections.ladder_models(view, saved, entries)
+    efforts = SettingsSections.ladder_efforts()
+
+    rows =
+      entries
+      |> Enum.with_index()
+      |> Enum.map(fn {entry, index} ->
+        accounts = SettingsSections.ladder_accounts(view, entry["model"])
+
+        %{
+          index: index,
+          rung: SettingsSections.ladder_rung(index),
+          entry: entry,
+          accounts: accounts,
+          model_prompt: not offered?(models, entry["model"]),
+          effort_prompt: not List.keymember?(efforts, entry["effort"], 0),
+          account_prompt: account_prompt(entry, accounts)
+        }
+      end)
+
+    assigns =
+      assign(assigns,
+        name: SettingsSections.field_name(field),
+        models: models,
+        efforts: efforts,
+        rows: rows,
+        count: length(entries),
+        most: Work.most_models()
+      )
+
+    ~H"""
+    <fieldset
+      class="settings-field settings-ladder"
+      id={@id}
+      aria-describedby={described_by(@id, @field)}
+    >
+      <legend>{@field.label}</legend>
+      <p :if={@field[:help]} class="settings-help" id={"#{@id}-help"}>{@field.help}</p>
+      <ol class="settings-ladder-list">
+        <li :for={row <- @rows} id={"#{@id}-#{row.index}"} class="settings-ladder-entry">
+          <fieldset class="settings-ladder-choice">
+            <legend>{row.rung}</legend>
+            <div class="settings-composite">
+              <div>
+                <label for={"#{@id}-#{row.index}-model"}>Model</label>
+                <select
+                  id={"#{@id}-#{row.index}-model"}
+                  name={"#{@name}[#{row.index}][model]"}
+                  aria-invalid={to_string(not is_nil(@error))}
+                >
+                  <option :if={row.model_prompt} value="" selected>Choose a model</option>
+                  <optgroup :for={{provider, options} <- @models} label={provider}>
+                    <option
+                      :for={{value, label} <- options}
+                      value={value}
+                      selected={row.entry["model"] == value}
+                    >
+                      {label}
+                    </option>
+                  </optgroup>
+                </select>
+              </div>
+              <div>
+                <label for={"#{@id}-#{row.index}-effort"}>Reasoning effort</label>
+                <select
+                  id={"#{@id}-#{row.index}-effort"}
+                  name={"#{@name}[#{row.index}][effort]"}
+                  aria-invalid={to_string(not is_nil(@error))}
+                >
+                  <option :if={row.effort_prompt} value="" selected>Choose an effort</option>
+                  <option
+                    :for={{value, label} <- @efforts}
+                    value={value}
+                    selected={row.entry["effort"] == value}
+                  >
+                    {label}
+                  </option>
+                </select>
+              </div>
+              <div>
+                <label for={"#{@id}-#{row.index}-account"}>Account</label>
+                <select
+                  id={"#{@id}-#{row.index}-account"}
+                  name={"#{@name}[#{row.index}][account]"}
+                  aria-invalid={to_string(not is_nil(@error))}
+                >
+                  <option :if={row.account_prompt} value="" selected>{row.account_prompt}</option>
+                  <option
+                    :for={account <- row.accounts}
+                    value={account}
+                    selected={row.entry["account"] == account}
+                  >
+                    {account}
+                  </option>
+                </select>
+              </div>
+            </div>
+          </fieldset>
+          <div class="settings-ladder-actions">
+            <button
+              :if={row.index > 0}
+              type="button"
+              class="ui-button quiet"
+              phx-click="ladder"
+              phx-value-field={@name}
+              phx-value-action="up"
+              phx-value-index={row.index}
+              phx-target={@myself}
+              aria-label={"Move #{String.downcase(row.rung)} up"}
+            >Move up</button>
+            <button
+              :if={row.index < @count - 1}
+              type="button"
+              class="ui-button quiet"
+              phx-click="ladder"
+              phx-value-field={@name}
+              phx-value-action="down"
+              phx-value-index={row.index}
+              phx-target={@myself}
+              aria-label={"Move #{String.downcase(row.rung)} down"}
+            >Move down</button>
+            <button
+              :if={@count > 1}
+              type="button"
+              class="ui-button quiet"
+              phx-click="ladder"
+              phx-value-field={@name}
+              phx-value-action="remove"
+              phx-value-index={row.index}
+              phx-target={@myself}
+              aria-label={"Remove #{String.downcase(row.rung)}"}
+            >Remove</button>
+          </div>
+        </li>
+      </ol>
+      <button
+        :if={@count < @most}
+        type="button"
+        class="ui-button secondary settings-ladder-add"
+        phx-click="ladder"
+        phx-value-field={@name}
+        phx-value-action="add"
+        phx-target={@myself}
+        aria-label={"Add a fallback for #{@field.label}"}
+      ><Components.icon name={:plus} />Add fallback</button>
+      <p :if={@field[:used]} class="settings-help settings-used" id={"#{@id}-used"}>
+        {@field.used}
+      </p>
+      <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
+    </fieldset>
+    """
+  end
 
   # An optional composite stays folded until someone needs it.
   defp field(%{field: %{kind: :lifecycle}} = assigns) do
@@ -1050,11 +1254,13 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp slack_notice(_slack), do: nil
 
+  # A model or fallback no price covers still runs; its cost reads as not
+  # priced, and the page says which one before anyone wonders why.
   defp notice(%{key: :model} = section, view) do
     unpriced =
       for field <- section.fields,
-          not SettingsSections.priced?(Map.fetch!(view.snapshot.work, field.name), view),
-          do: field.label
+          phrase = unpriced(field, Map.fetch!(view.snapshot.work, field.name), view),
+          do: phrase
 
     cond do
       not BundledCoop.distribution?() ->
@@ -1067,8 +1273,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       unpriced != [] ->
         %{
           text:
-            "No price covers the model for #{Enum.join(unpriced, ", ")}, " <>
-              "so its cost will show as not priced.",
+            "No price covers #{Environments.sentence(unpriced)}, so " <>
+              if(length(unpriced) == 1, do: "its", else: "their") <>
+              " cost will show as not priced.",
           link: "Add a price",
           href: "/settings/prices"
         }
@@ -1079,6 +1286,16 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   end
 
   defp notice(_section, _view), do: nil
+
+  defp unpriced(field, [first | _fallbacks] = models, view) do
+    case Enum.reject(models, &SettingsSections.priced?(&1, view)) do
+      [] -> nil
+      [^first | _others] -> "the model for #{field.label}"
+      _fallbacks -> "a fallback for #{field.label}"
+    end
+  end
+
+  defp unpriced(_field, _models, _view), do: nil
 
   defp impact_lines(section, %{impact: impact}) do
     for {field, rows} <- impact,
@@ -1110,6 +1327,28 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp options(field, view),
     do: if(field[:options], do: SettingsSections.options(field, view), else: [])
+
+  defp offered?(models, model),
+    do: Enum.any?(models, fn {_provider, options} -> List.keymember?(options, model, 0) end)
+
+  # What an account choice says while its model has no listed account chosen:
+  # that none is listed for the provider yet, or to choose one of those that are.
+  defp account_prompt(entry, accounts) do
+    cond do
+      entry["account"] in accounts ->
+        nil
+
+      entry["model"] in [nil, ""] ->
+        "Choose a model first"
+
+      accounts == [] ->
+        provider = entry["model"] |> String.split(":", parts: 2) |> hd()
+        "No #{ExecutionTarget.provider_name(provider)} account yet"
+
+      true ->
+        "Choose an account"
+    end
+  end
 
   # A field that knows what to ask for says it in its own words (the Slack
   # prefix says what a prefix may hold, a second price for a day names the

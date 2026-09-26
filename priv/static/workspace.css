@@ -2004,6 +2004,15 @@
 .settings-composite > div { display:grid; gap:4px; min-width:0; }
 .settings-composite label { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .settings-field .settings-composite input { max-width:none; }
+.settings-ladder { gap:10px; }
+.settings-ladder-list { display:grid; gap:12px; margin:0; padding:0; list-style:none; }
+.settings-ladder-entry { display:flex; flex-wrap:wrap; align-items:end; gap:8px 16px; }
+.settings-ladder-choice { flex:1 1 480px; min-width:0; margin:0; padding:0; border:0; }
+.settings-ladder-choice > legend { margin:0 0 4px; padding:0; font-size:13px; line-height:18px; font-weight:600; color:var(--ryker-text-secondary); }
+.settings-ladder-choice .settings-composite { grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); }
+.settings-field .settings-ladder-choice select { max-width:none; }
+.settings-ladder-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.settings-ladder-add { justify-self:start; }
 .settings-evidence { font:12px/18px var(--ryker-font-mono); color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
 .settings-optional-field > summary { width:fit-content; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); cursor:pointer; }
 .settings-optional-field > summary span { margin-left:6px; font-size:13px; font-weight:400; color:var(--ryker-text-secondary); }

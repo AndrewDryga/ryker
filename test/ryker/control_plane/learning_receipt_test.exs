@@ -61,7 +61,7 @@ defmodule Ryker.ControlPlane.LearningReceiptTest do
     assert html =~ "estimated tokens"
     assert html =~ "2 messages"
     assert html =~ "gpt-5.6-sol"
-    assert html =~ "Medium reasoning · Codex · Default profile"
+    assert html =~ "Medium reasoning · Codex · Default account"
     refute html =~ ">codex:gpt-5.6-sol/medium@default<"
     assert html =~ "No reply was sent by this learning pass."
 

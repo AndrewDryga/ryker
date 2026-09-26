@@ -810,7 +810,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert Ryker.Instructions.get(:global).text == "Existing guidance"
   end
 
-  test "each kind of work has its own model, chosen by name and effort" do
+  test "each kind of work has its own models, chosen by model, effort and account" do
     # One model for every kind of work meant a quick chat reply and a deep
     # investigation paid for the same reasoning.
     initialize!()
@@ -819,41 +819,34 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     # Outside the Compose distribution, workers' own policies choose models.
     assert has_element?(view, ".settings-notice", "separately managed workers")
 
-    previous = System.get_env("RYKER_BUNDLED_COOP_ROOT")
-    System.put_env("RYKER_BUNDLED_COOP_ROOT", System.tmp_dir!())
-
-    on_exit(fn ->
-      if previous,
-        do: System.put_env("RYKER_BUNDLED_COOP_ROOT", previous),
-        else: System.delete_env("RYKER_BUNDLED_COOP_ROOT")
-    end)
-
+    bundled_worker!()
     {:ok, view, _html} = open("/settings/models")
     refute has_element?(view, ".settings-notice")
-    refute has_element?(view, "#settings-model-form option[value='']")
 
-    for group <- ["Routing and replies", "Work", "Other work"] do
-      assert has_element?(view, "#settings-model-form .section-head h2", group)
+    for group <- ["Routing and replies", "Work", "Other work", "Model accounts"] do
+      assert has_element?(view, ".section-head h2", group)
     end
 
     for name <-
-          ~w(routing_model conversation_model standard_model deep_model contributor_model schedule_model incident_model learning_model) do
-      assert has_element?(view, "#settings-model-form select[name=#{name}]")
+          ~w(routing_models conversation_models standard_models deep_models contributor_models schedule_models incident_models learning_models),
+        part <- ~w(model effort account) do
+      assert has_element?(view, "#settings-model-form select[name='#{name}[0][#{part}]']")
     end
 
-    assert has_element?(
-             view,
-             "#settings-model-form select[name=deep_model] option[value='codex:gpt-5.6-sol/xhigh@default'][selected]",
-             "gpt-5.6-sol · Extra high reasoning"
-           )
+    deep = "#settings-model-form select[name='deep_models[0]"
+    assert has_element?(view, deep <> "[model]'] option[value='codex:gpt-5.6-sol'][selected]")
+    assert has_element?(view, deep <> "[effort]'] option[value=xhigh][selected]", "Extra high")
+    assert has_element?(view, deep <> "[account]'] option[value=default][selected]", "default")
 
     view
-    |> form("#settings-model-form", %{"deep_model" => "codex:gpt-5.6-luna/high@default"})
+    |> form("#settings-model-form", %{
+      "deep_models" => %{"0" => %{"model" => "codex:gpt-5.6-luna", "effort" => "high"}}
+    })
     |> render_submit()
 
     work = Settings.fetch!().work
-    assert work.deep_model == "codex:gpt-5.6-luna/high@default"
-    assert work.standard_model == "codex:gpt-5.6-sol/medium@default"
+    assert work.deep_models == ["codex:gpt-5.6-luna/high@default"]
+    assert work.standard_models == ["codex:gpt-5.6-sol/medium@default"]
 
     # A model no price covers is still runnable, but its cost is not priced.
     snapshot = Settings.fetch!()
@@ -868,7 +861,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert has_element?(
              view,
-             "#settings-model-form select[name=deep_model] option[value='codex:gpt-5.6-luna/high@default'][selected]"
+             deep <> "[model]'] option[value='codex:gpt-5.6-luna'][selected]",
+             "gpt-5.6-luna (no price)"
            )
   end
 
@@ -885,42 +879,42 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, view, _html} = open("/settings/models")
 
     for {name, used} <- [
-          {"routing_model",
+          {"routing_models",
            "Runs first on every message and event Ryker picks up, from Slack, Chat, GitHub and " <>
              "webhooks. It decides whether to answer, start work, add it to earlier work or " <>
              "stay quiet, and picks Conversation, Standard or Deep work for it. It runs more " <>
              "often than anything else, so speed and price matter most here."},
-          {"conversation_model",
+          {"conversation_models",
            "Writes the replies Ryker can give straight away, without a longer investigation: " <>
              "answers from what it already knows, quick questions and small lookups. Where " <>
              "there is no repository to work in, it does the standard and deep work too."},
-          {"standard_model",
+          {"standard_models",
            "Investigations that use tools: reading code, checking logs, running read-only " <>
              "commands and asking Emisar to run something. Routing picks it for most work " <>
              "that needs more than a quick answer."},
-          {"deep_model",
+          {"deep_models",
            "The same kind of work, when routing judges the request hard, ambiguous or risky."},
-          {"contributor_model",
+          {"contributor_models",
            "Tasks that change code, once a person confirms them. When pull requests are on, " <>
              "Ryker opens one for the change."},
-          {"schedule_model",
+          {"schedule_models",
            "Work that starts on its own when a schedule is due: the reminders and recurring " <>
              "checks people set up by asking Ryker."},
-          {"incident_model",
+          {"incident_models",
            "Everything Ryker does in an incident room, the Slack channel it opens for an " <>
              "incident: the investigation and every reply there. It also runs an incident " <>
              "investigated in its own thread instead of a room."},
-          {"learning_model",
+          {"learning_models",
            "Reads the messages Ryker picks up in the background, including ones it did not " <>
              "answer, and notes what is worth remembering about each conversation. It never " <>
              "replies, and runs only while learning is on."}
         ] do
       id = "settings-model-#{name}-used"
 
-      # Under the choice it explains, and read out with it.
+      # Under the models it explains, and read out with them.
       assert has_element?(
                view,
-               "#settings-model-form select[name=#{name}][aria-describedby~='#{id}'] + p##{id}.settings-help"
+               "fieldset#settings-model-#{name}[aria-describedby~='#{id}'] p##{id}.settings-help"
              ),
              name
 
@@ -934,7 +928,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     end
   end
 
-  test "every model choice lists the same models in one order and marks the saved one" do
+  test "every model choice lists the same models in one order, under their provider" do
     # QA, 2026-09-25: each select put its saved model first, so the same list
     # came in eight different orders and nothing said which one was in use.
     initialize!()
@@ -942,14 +936,14 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     {:ok, _snapshot} =
       Settings.save_work(
-        %{deep_model: "codex:gpt-5.6-luna/high@default"},
+        %{deep_models: ["codex:gpt-5.6-luna/high@default"]},
         snapshot.installation.revision,
         @actor
       )
 
     {:ok, _view, html} = open("/settings/models")
     document = LazyHTML.from_document(html)
-    selects = LazyHTML.query(document, "#settings-model-form select")
+    selects = LazyHTML.query(document, "#settings-model-form select[name$='[model]']")
     assert Enum.count(selects) == 8
 
     orders =
@@ -957,23 +951,251 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
           do: select |> LazyHTML.query("option") |> LazyHTML.attribute("value")
 
     assert orders |> Enum.uniq() |> length() == 1
+    assert hd(orders) == ~w(codex:gpt-5.6-luna codex:gpt-5.6-sol codex:gpt-5.6-terra)
 
-    assert hd(orders) ==
-             for(
-               model <- ~w(gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra),
-               effort <- ~w(low medium high xhigh),
-               do: "codex:#{model}/#{effort}@default"
-             )
+    deep = LazyHTML.query(document, "#settings-model-form select[name='deep_models[0][model]']")
+    assert deep |> LazyHTML.query("optgroup") |> LazyHTML.attribute("label") == ["Codex"]
 
-    deep = LazyHTML.query(document, "#settings-model-form select[name=deep_model] option")
-    marked = Enum.filter(deep, &(LazyHTML.text(&1) =~ "(current)"))
-
-    assert Enum.map(marked, &LazyHTML.attribute(&1, "value")) == [
-             ["codex:gpt-5.6-luna/high@default"]
+    assert deep |> LazyHTML.query("option[selected]") |> LazyHTML.attribute("value") == [
+             "codex:gpt-5.6-luna"
            ]
 
-    assert Enum.map(marked, &LazyHTML.attribute(&1, "selected")) == [[""]]
+    efforts =
+      LazyHTML.query(
+        document,
+        "#settings-model-form select[name='deep_models[0][effort]'] option"
+      )
+
+    assert LazyHTML.attribute(efforts, "value") == ~w(low medium high xhigh)
+    assert texts(efforts) == ["Low", "Medium", "High", "Extra high"]
   end
+
+  # Andrew, 2026-09-26: "Can I have fallbacks between models/providers like
+  # coop allows?" Each kind of work named one model, so a usage limit on its
+  # account stopped that work until the limit reset, although Coop can move
+  # down a list of models on its own.
+  test "fallbacks are added, reordered and removed, and saved in the order shown" do
+    initialize!()
+    snapshot = Settings.fetch!()
+
+    {:ok, _snapshot} =
+      Settings.save_work(
+        %{model_accounts: ["codex@default", "codex@personal"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, view, _html} = open("/settings/models")
+
+    assert has_element?(
+             view,
+             "#settings-model .settings-form-help",
+             "A fallback is used only when the one above it hits a usage limit or its sign-in " <>
+               "stops working."
+           )
+
+    ladder = "button[phx-click=ladder][phx-value-field=routing_models]"
+
+    click = fn action, index ->
+      view |> element(button(ladder, action, index)) |> render_click()
+    end
+
+    refute has_element?(view, button(ladder, "remove", 0))
+
+    # A fallback starts as the same model on the next account.
+    click.("add", nil)
+    assert has_element?(view, "#settings-model-routing_models-1 legend", "Fallback 1")
+
+    assert has_element?(
+             view,
+             "select[name='routing_models[1][account]'] option[value=personal][selected]"
+           )
+
+    view
+    |> form("#settings-model-form", %{
+      "routing_models" => %{"1" => %{"model" => "codex:gpt-5.6-terra", "effort" => "low"}}
+    })
+    |> render_change()
+
+    click.("up", 1)
+    assert has_element?(view, "#settings-model-routing_models-0 legend", "First choice")
+
+    assert has_element?(
+             view,
+             "select[name='routing_models[0][model]'] option[value='codex:gpt-5.6-terra'][selected]"
+           )
+
+    view |> form("#settings-model-form") |> render_submit()
+
+    assert Settings.fetch!().work.routing_models == [
+             "codex:gpt-5.6-terra/low@personal",
+             "codex:gpt-5.6-sol/medium@default"
+           ]
+
+    # One model and at most three fallbacks.
+    click.("add", nil)
+    click.("add", nil)
+    assert has_element?(view, "#settings-model-routing_models-3 legend", "Fallback 3")
+    refute has_element?(view, button(ladder, "add", nil))
+
+    # The last fallback repeats the one above it, and saving says so.
+    view |> form("#settings-model-form") |> render_submit()
+
+    assert has_element?(
+             view,
+             "#settings-model-routing_models .settings-error",
+             "The same model, effort and account is listed twice. Change one or remove it."
+           )
+
+    click.("remove", 3)
+    click.("remove", 0)
+    view |> form("#settings-model-form") |> render_submit()
+
+    assert Settings.fetch!().work.routing_models == [
+             "codex:gpt-5.6-sol/medium@default",
+             "codex:gpt-5.6-sol/medium@personal"
+           ]
+  end
+
+  test "a Claude model is offered once its price is saved, on a Claude account" do
+    initialize!()
+    {:ok, view, _html} = open("/settings/models")
+    model = "select[name='routing_models[0][model]']"
+    refute has_element?(view, model <> " optgroup[label=Claude]")
+    assert has_element?(view, "#settings-model .settings-form-help", "add its price")
+
+    snapshot = Settings.fetch!()
+
+    {:ok, _snapshot} =
+      Settings.put_pricing_rate(
+        %{
+          execution_target: "claude:claude-opus-4-6",
+          input_usd_per_million: "5",
+          cached_input_usd_per_million: "0.5",
+          output_usd_per_million: "25",
+          effective_from: ~D[2026-09-26],
+          provenance: "https://www.anthropic.com/pricing"
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, view, _html} = open("/settings/models")
+
+    assert has_element?(
+             view,
+             model <> " optgroup[label=Claude] option[value='claude:claude-opus-4-6']",
+             "claude-opus-4-6"
+           )
+
+    view
+    |> element("button[phx-click=ladder][phx-value-field=routing_models][phx-value-action=add]")
+    |> render_click()
+
+    view
+    |> form("#settings-model-form", %{
+      "routing_models" => %{"1" => %{"model" => "claude:claude-opus-4-6"}}
+    })
+    |> render_change()
+
+    # No Claude account is listed yet, and the choice says so.
+    assert has_element?(
+             view,
+             "select[name='routing_models[1][account]'] option[value=''][selected]",
+             "No Claude account yet"
+           )
+
+    view |> form("#settings-model-form") |> render_submit()
+
+    assert has_element?(
+             view,
+             "#settings-model-routing_models .settings-error",
+             "Choose a model, a reasoning effort and an account for each one."
+           )
+
+    # Listing the account keeps the unsaved models above and offers it there.
+    view
+    |> form("#settings-model_accounts-form", %{"model_accounts" => "codex@default, claude@work"})
+    |> render_submit()
+
+    view
+    |> form("#settings-model-form", %{"routing_models" => %{"1" => %{"account" => "work"}}})
+    |> render_submit()
+
+    assert Settings.fetch!().work.routing_models == [
+             "codex:gpt-5.6-sol/medium@default",
+             "claude:claude-opus-4-6/medium@work"
+           ]
+
+    # A fallback no price covers is warned about like a first choice.
+    bundled_worker!()
+    snapshot = Settings.fetch!()
+    rate = Enum.find(snapshot.pricing_rates, &(&1.execution_target == "claude:claude-opus-4-6"))
+
+    {:ok, _snapshot} =
+      Settings.delete_pricing_rate(rate.id, snapshot.installation.revision, @actor)
+
+    {:ok, view, _html} = open("/settings/models")
+
+    assert has_element?(
+             view,
+             ".settings-notice",
+             "No price covers a fallback for Routing, so its cost will show as not priced."
+           )
+
+    assert has_element?(
+             view,
+             "select[name='routing_models[1][model]'] option[value='claude:claude-opus-4-6'][selected]",
+             "claude-opus-4-6 (no price)"
+           )
+  end
+
+  # Ryker cannot see which accounts the worker has signed in, and Coop refuses
+  # the whole policy file while one of its models names an account that is
+  # not signed in: every kind of work would stop, not only the one changed.
+  test "an account not listed under Model accounts is refused in plain words" do
+    initialize!()
+    {:ok, view, _html} = open("/settings/models")
+
+    assert has_element?(
+             view,
+             "#settings-model_accounts-model_accounts-help",
+             "scripts/compose.sh model-login claude@work"
+           )
+
+    # A form sent from a page that still offered an account since removed.
+    view
+    |> element("#settings-model-form")
+    |> render_submit(%{"routing_models" => %{"0" => %{"account" => "personal"}}})
+
+    assert has_element?(
+             view,
+             "#settings-model-routing_models .settings-error",
+             "Choose an account listed under Model accounts. To use another account, sign it " <>
+               "in on the worker, then add it there."
+           )
+
+    assert Settings.fetch!().work.routing_models == ["codex:gpt-5.6-sol/medium@default"]
+
+    # An account a saved model still uses cannot be removed from the list.
+    view
+    |> form("#settings-model_accounts-form", %{"model_accounts" => "codex@personal"})
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "#settings-model_accounts .settings-error",
+             "A model above still uses an account you removed. Choose another account for it " <>
+               "first, then remove the account."
+           )
+
+    assert Settings.fetch!().work.model_accounts == ["codex@default"]
+  end
+
+  defp button(selector, action, nil), do: "#{selector}[phx-value-action=#{action}]"
+
+  defp button(selector, action, index),
+    do: "#{selector}[phx-value-action=#{action}][phx-value-index='#{index}']"
 
   test "a refused price says what to fill in and which price already has that day" do
     # QA, 2026-09-25: an empty source read as filled in behind its example,

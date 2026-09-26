@@ -797,8 +797,18 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How model settings work", [
       {"What this page sets",
        [
-         "The model and reasoning effort for each kind of work: routing each message, conversation, standard and deep work, code changes, scheduled runs, incident rooms and learning.",
+         "The model, reasoning effort and account for each kind of work: routing each message, conversation, standard and deep work, code changes, scheduled runs, incident rooms and learning.",
          "A change reaches new work within seconds."
+       ]},
+      {"Fallbacks",
+       [
+         "Ryker uses the first model of each kind of work. A fallback is used only when the one above it hits a usage limit or its sign-in stops working. Move up and Move down set the order.",
+         "Conversation, Standard and Deep work use the same accounts in the same order, because a request can move between them. Their models and efforts can differ."
+       ]},
+      {"Models and accounts",
+       [
+         "The models offered are those with a price under Model prices, so a Claude model appears once its price is saved there, written like claude:claude-opus-4-6.",
+         "Ryker cannot see which accounts the worker has signed in, so Model accounts lists them. Sign one in first with scripts/compose.sh model-login claude@work; a model on an account that is not signed in stops the worker's work."
        ]},
       {"Choosing",
        [

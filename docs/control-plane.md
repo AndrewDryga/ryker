@@ -637,6 +637,18 @@ episode.
   rates. Each section saves explicitly at the revision it was read at, keeps its
   draft when a save is refused, and shows what is saved now when another writer
   got there first
+- Models: each kind of work keeps an ordered list of up to four models, each a
+  provider, model, reasoning effort and account. The first is used; Coop moves to
+  the next when one hits a usage limit or its account's sign-in fails. The
+  bundled worker writes one model as the plain `target:` string it always was and
+  a longer list as a YAML list, which Coop reads as that ladder. Models are offered
+  from Model prices, so a Claude model appears once its `claude:` price is saved.
+  Ryker cannot see the worker's sign-ins, so Model accounts lists them
+  (`provider@name`, from `scripts/compose.sh model-login claude@work`), and a
+  model may only name a listed account: Coop refuses the whole policy file while
+  any model names an account that is not signed in. Conversation, standard and
+  deep work must use the same accounts in the same order, because Coop counts
+  each model's provider and account in the authority digest their policies share
 - Settings explain themselves in plain words: each model says under its choice
   where Ryker uses it, as the code decides it; Advanced opens with what a worker
   is, and says what a policy is; a policy row reads as the kind of work, where it
@@ -785,7 +797,7 @@ For adapters that report tokens but not money, the versioned rates under
 input, output and reasoning tokens, each with the day it starts and where it
 came from. A price names its provider and model joined by a colon
 (`codex:gpt-5.6-sol`); an execution uses the price saved for its provider and
-model (its target without the effort and profile) with the latest start day on
+model (its target without the effort and account) with the latest start day on
 or before the UTC day it was recorded, so a new price never reprices earlier
 work. Reasoning is charged only at a reasoning rate of its own: Codex and
 Claude count it in output, so their prices leave it empty. The usage ledger,

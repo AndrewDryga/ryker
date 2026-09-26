@@ -274,7 +274,7 @@ defmodule Ryker.BundledCoopTest do
 
     {:ok, _snapshot} =
       Settings.save_work(
-        %{learning_model: "codex:gpt-5.6-luna/high@default"},
+        %{learning_models: ["codex:gpt-5.6-luna/high@default"]},
         snapshot.installation.revision,
         @actor
       )
@@ -299,7 +299,7 @@ defmodule Ryker.BundledCoopTest do
 
     {:ok, _snapshot} =
       Settings.save_work(
-        %{routing_model: "codex:gpt-5.6-terra/low@default"},
+        %{routing_models: ["codex:gpt-5.6-terra/low@default"]},
         snapshot.installation.revision,
         @actor
       )
@@ -313,6 +313,137 @@ defmodule Ryker.BundledCoopTest do
     assert eventually(fn ->
              policy_targets(policy_file)["ryker-admission"] == "codex:gpt-5.6-terra/low@default"
            end)
+  end
+
+  # Andrew, 2026-09-26: "Can I have fallbacks between models/providers like
+  # coop allows?" Coop moves down a policy's target list when a model hits a
+  # usage limit or its account's sign-in fails, but the bundled worker wrote
+  # one model per policy, so one exhausted account stopped that kind of work
+  # until the limit reset.
+  test "a fallback list reaches the worker's policy file in order" do
+    {root, _shared} = configure_distribution_root!()
+    assert :ok = BundledCoop.prepare_distribution!()
+    policy_file = Path.join(root, "session-policies.yaml")
+    snapshot = price!(Settings.fetch!(), "claude:claude-sonnet-4-6")
+
+    {:ok, snapshot} =
+      Settings.save_work(
+        %{model_accounts: ["codex@default", "codex@personal", "claude@work"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    ladder = [
+      "codex:gpt-5.6-sol/medium@default",
+      "codex:gpt-5.6-sol/medium@personal",
+      "claude:claude-sonnet-4-6/high@work"
+    ]
+
+    {:ok, _snapshot} =
+      Settings.save_work(%{routing_models: ladder}, snapshot.installation.revision, @actor)
+
+    assert :ok = BundledCoop.sync_policies()
+    policies = read_policies!(root)
+    assert policies["ryker-admission"]["target"] == ladder
+
+    assert File.read!(policy_file) =~
+             ~s(    target: ["codex:gpt-5.6-sol/medium@default", ) <>
+               ~s("codex:gpt-5.6-sol/medium@personal", "claude:claude-sonnet-4-6/high@work"]\n)
+  end
+
+  # Coop reads one model and a one-model list alike, with the same policy
+  # digest. One model stays the plain string every worker has read, so an
+  # upgrade leaves the file byte for byte as it was, and the worker, which
+  # reloads when the file's checksum changes, sees nothing new.
+  test "a single model is still written as the one target the worker has always read" do
+    {root, _shared} = configure_distribution_root!()
+    assert :ok = BundledCoop.prepare_distribution!()
+    policy_file = Path.join(root, "session-policies.yaml")
+    single = File.read!(policy_file)
+
+    assert single =~
+             ~s(  ryker-admission:\n) <>
+               ~s(    repository: "#{Path.join(root, "seed")}"\n) <>
+               ~s(    target: "codex:gpt-5.6-sol/medium@default"\n)
+
+    assert read_policies!(root)["ryker-chat"]["target"] == "codex:gpt-5.6-terra/medium@default"
+    snapshot = Settings.fetch!()
+
+    {:ok, snapshot} =
+      Settings.save_work(
+        %{model_accounts: ["codex@default", "codex@personal"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, snapshot} =
+      Settings.save_work(
+        %{
+          routing_models: [
+            "codex:gpt-5.6-sol/medium@default",
+            "codex:gpt-5.6-sol/medium@personal"
+          ]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    assert :ok = BundledCoop.sync_policies()
+    refute File.read!(policy_file) == single
+
+    {:ok, _snapshot} =
+      Settings.save_work(
+        %{routing_models: ["codex:gpt-5.6-sol/medium@default"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    assert :ok = BundledCoop.sync_policies()
+    assert File.read!(policy_file) == single
+  end
+
+  # Coop counts the provider and account of every model a policy may run on
+  # as part of what the policy may do, and a Work profile needs one such
+  # authority across a repository's conversation, standard and deep policies.
+  test "conversation, standard and deep fallbacks keep one authority for a repository" do
+    {root, _shared} = configure_distribution_root!()
+    assert :ok = BundledCoop.prepare_distribution!()
+    snapshot = Settings.fetch!()
+
+    {:ok, snapshot} =
+      Settings.put_repository(%{ref: "app"}, snapshot.installation.revision, @actor)
+
+    {:ok, snapshot} =
+      Settings.save_work(
+        %{model_accounts: ["codex@default", "codex@personal"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    ladder = fn model, effort ->
+      ["codex:#{model}/#{effort}@default", "codex:#{model}/#{effort}@personal"]
+    end
+
+    {:ok, _snapshot} =
+      Settings.save_work(
+        %{
+          conversation_models: ladder.("gpt-5.6-terra", "low"),
+          standard_models: ladder.("gpt-5.6-sol", "medium"),
+          deep_models: ladder.("gpt-5.6-sol", "xhigh")
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    materialize!(root, "app")
+    assert :ok = BundledCoop.sync_policies()
+    policies = read_policies!(root)
+    conversation = authority(policies["ryker-repo-app-conversation"])
+    assert conversation["accounts"] == ["codex@default", "codex@personal"]
+
+    for suffix <- ~w(standard deep) do
+      assert authority(policies["ryker-repo-app-#{suffix}"]) == conversation, suffix
+    end
   end
 
   test "the bundled learning policy makes the isolated sessions background learning requires" do
@@ -409,12 +540,37 @@ defmodule Ryker.BundledCoopTest do
     |> Map.fetch!("policies")
   end
 
-  # The fields Coop hashes into a policy's authority digest; the model is not one.
+  # The fields Coop hashes into a policy's authority digest. The model and its
+  # effort are not among them; the provider and account of each model, in
+  # order, are.
   defp authority(policy) do
-    Map.take(
-      policy,
-      ~w(repository companions repository_read_only project_env project_mcp egress)
-    )
+    policy
+    |> Map.take(~w(repository companions repository_read_only project_env project_mcp egress))
+    |> Map.put("accounts", policy["target"] |> List.wrap() |> Enum.map(&account/1))
+  end
+
+  defp account(target) do
+    [head, account] = String.split(target, "@", parts: 2)
+    [provider | _model] = String.split(head, ":", parts: 2)
+    provider <> "@" <> account
+  end
+
+  defp price!(snapshot, execution_target) do
+    {:ok, snapshot} =
+      Settings.put_pricing_rate(
+        %{
+          execution_target: execution_target,
+          input_usd_per_million: "3",
+          cached_input_usd_per_million: "0.3",
+          output_usd_per_million: "15",
+          effective_from: ~D[2026-09-26],
+          provenance: "https://www.anthropic.com/pricing"
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    snapshot
   end
 
   defp configure_distribution_root! do

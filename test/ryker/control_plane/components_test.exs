@@ -148,7 +148,7 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert LazyHTML.query(document, ".execution-target-model") |> LazyHTML.text() == "gpt-5.6-sol"
 
     assert LazyHTML.query(document, ".execution-target-meta") |> LazyHTML.text() ==
-             "Medium reasoning · Codex · Default profile"
+             "Medium reasoning · Codex · Default account"
 
     assert LazyHTML.query(document, ".execution-target") |> LazyHTML.attribute("title") == [
              "codex:gpt-5.6-sol/medium@default"
@@ -278,7 +278,7 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert LazyHTML.query(html, ".execution-target-model") |> LazyHTML.text() == "gpt-5.6-sol"
 
     assert LazyHTML.query(html, ".execution-target-meta") |> LazyHTML.text() ==
-             "Medium reasoning · Codex · Default profile"
+             "Medium reasoning · Codex · Default account"
 
     refute LazyHTML.text(html) =~ "codex:gpt-5.6-sol/medium@default"
   end

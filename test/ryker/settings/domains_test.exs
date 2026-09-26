@@ -19,38 +19,202 @@ defmodule Ryker.Settings.DomainsTest do
              Enum.sort(["codex:gpt-5.6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna"])
   end
 
-  test "each kind of work has its own model, and only one the worker can run is saved",
+  test "each kind of work has its own models, and only a list the worker can run is saved",
        %{snapshot: snapshot} do
-    # A model is written into the bundled policies for its kind of work. A
-    # malformed one would stop that lane at the worker's next reload, so it
-    # never reaches disk.
-    assert snapshot.work.routing_model == "codex:gpt-5.6-sol/medium@default"
-    assert snapshot.work.conversation_model == "codex:gpt-5.6-terra/medium@default"
-    assert snapshot.work.deep_model == "codex:gpt-5.6-sol/xhigh@default"
+    # The models are written into the bundled policies for their kind of work.
+    # A malformed list would stop the worker at its next reload, so it never
+    # reaches disk. Coop takes one model and at most three fallbacks.
+    assert snapshot.work.routing_models == ["codex:gpt-5.6-sol/medium@default"]
+    assert snapshot.work.conversation_models == ["codex:gpt-5.6-terra/medium@default"]
+    assert snapshot.work.deep_models == ["codex:gpt-5.6-sol/xhigh@default"]
+    assert snapshot.work.model_accounts == ["codex@default"]
 
-    for target <- [
-          "",
-          "gpt-5.6-sol",
-          "claude:opus/high@default",
-          "codex:gpt-5.6-sol/max@default",
-          "codex:gpt-5.6-sol@default",
-          "codex:gpt-5.6-sol/medium@default\n"
+    sol = "codex:gpt-5.6-sol/medium@default"
+
+    for {models, reason} <- [
+          {[], :length},
+          {[
+             sol,
+             "codex:gpt-5.6-sol/high@default",
+             "codex:gpt-5.6-sol/low@default",
+             "codex:gpt-5.6-terra/low@default",
+             "codex:gpt-5.6-luna/low@default"
+           ], :length},
+          {["/@"], :format},
+          {["gpt-5.6-sol"], :format},
+          {["gemini:gemini-3-pro/low@default"], :format},
+          {["codex:gpt-5.6-sol/max@default"], :format},
+          {["codex:gpt-5.6-sol@default"], :format},
+          {["codex:gpt-5.6-sol/medium@default\n"], :format},
+          {[sol, sol], :duplicate}
         ] do
-      result = Settings.save_work(%{deep_model: target}, snapshot.installation.revision, @actor)
-      refute match?({:ok, %{work: %{deep_model: ^target}}}, result), inspect(target)
+      assert {:error, {:invalid_settings, [{:routing_models, ^reason}]}} =
+               Settings.save_work(
+                 %{routing_models: models},
+                 snapshot.installation.revision,
+                 @actor
+               ),
+             inspect(models)
     end
 
-    assert Settings.fetch!().work.deep_model == "codex:gpt-5.6-sol/xhigh@default"
+    assert {:error, {:invalid_settings, [{:routing_models, _cast}]}} =
+             Settings.save_work(%{routing_models: sol}, snapshot.installation.revision, @actor)
+
+    assert Settings.fetch!().work.routing_models == [sol]
 
     assert {:ok, saved} =
              Settings.save_work(
-               %{deep_model: "codex:gpt-5.6-terra/high@default"},
+               %{deep_models: ["codex:gpt-5.6-terra/high@default"]},
                snapshot.installation.revision,
                @actor
              )
 
-    assert saved.work.deep_model == "codex:gpt-5.6-terra/high@default"
-    assert saved.work.standard_model == "codex:gpt-5.6-sol/medium@default"
+    assert saved.work.deep_models == ["codex:gpt-5.6-terra/high@default"]
+    assert saved.work.standard_models == [sol]
+  end
+
+  # Andrew, 2026-09-26: "Can I have fallbacks between models/providers like
+  # coop allows?" A fallback runs on another account, and Ryker cannot see
+  # which accounts the worker has signed in: Model accounts is that list. A
+  # model on an account missing from it would reach the worker's policy file,
+  # and Coop refuses the whole file while one account is not signed in, which
+  # stops every kind of work, not only the one that named it.
+  test "an account not listed under Model accounts is refused", %{snapshot: snapshot} do
+    fallback = "codex:gpt-5.6-sol/medium@personal"
+    routing = ["codex:gpt-5.6-sol/medium@default", fallback]
+
+    assert {:error, {:invalid_settings, [{:routing_models, :unknown_account}]}} =
+             Settings.save_work(
+               %{routing_models: routing},
+               snapshot.installation.revision,
+               @actor
+             )
+
+    assert {:ok, saved} =
+             Settings.save_work(
+               %{model_accounts: ["codex@default", "codex@personal"], routing_models: routing},
+               snapshot.installation.revision,
+               @actor
+             )
+
+    assert saved.work.routing_models == routing
+
+    # Removing an account a saved model still uses is refused at the account.
+    assert {:error, {:invalid_settings, [{:model_accounts, :in_use}]}} =
+             Settings.save_work(
+               %{model_accounts: ["codex@default"]},
+               saved.installation.revision,
+               @actor
+             )
+
+    for {accounts, reason} <- [
+          {[], :length},
+          {["default"], :format},
+          {["gemini@default"], :format},
+          {["codex@default", "codex@default"], :list}
+        ] do
+      assert {:error, {:invalid_settings, [{:model_accounts, ^reason}]}} =
+               Settings.save_work(
+                 %{model_accounts: accounts},
+                 saved.installation.revision,
+                 @actor
+               ),
+             inspect(accounts)
+    end
+  end
+
+  # A request can move between conversation, standard and deep work, so Ryker
+  # pins one set of permissions for all three, and Coop counts the accounts a
+  # policy's models run on as part of that set. Different accounts on the
+  # three would leave no repository able to take work at all.
+  test "conversation, standard and deep work keep the same accounts in the same order",
+       %{snapshot: snapshot} do
+    {:ok, snapshot} =
+      Settings.save_work(
+        %{model_accounts: ["codex@default", "codex@personal"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    ladder = fn model, effort ->
+      ["codex:#{model}/#{effort}@default", "codex:#{model}/#{effort}@personal"]
+    end
+
+    assert {:error, {:invalid_settings, errors}} =
+             Settings.save_work(
+               %{standard_models: ladder.("gpt-5.6-sol", "medium")},
+               snapshot.installation.revision,
+               @actor
+             )
+
+    assert errors == [{:standard_models, :shared_accounts}]
+
+    # The same accounts in the same order may carry different models and efforts.
+    assert {:ok, saved} =
+             Settings.save_work(
+               %{
+                 conversation_models: ladder.("gpt-5.6-terra", "low"),
+                 standard_models: ladder.("gpt-5.6-sol", "medium"),
+                 deep_models: ladder.("gpt-5.6-sol", "xhigh")
+               },
+               snapshot.installation.revision,
+               @actor
+             )
+
+    assert saved.work.deep_models == ladder.("gpt-5.6-sol", "xhigh")
+  end
+
+  # A model is offered once a price covers it, so its cost can be estimated.
+  # One already saved for a kind of work stays: removing its price later only
+  # makes its cost show as not priced.
+  test "a model no price covers is refused unless that kind of work already runs it",
+       %{snapshot: snapshot} do
+    {:ok, snapshot} =
+      Settings.save_work(
+        %{model_accounts: ["codex@default", "claude@work"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    claude = ["codex:gpt-5.6-sol/medium@default", "claude:claude-opus-4-6/high@work"]
+
+    assert {:error, {:invalid_settings, [{:routing_models, :unpriced}]}} =
+             Settings.save_work(%{routing_models: claude}, snapshot.installation.revision, @actor)
+
+    {:ok, snapshot} =
+      Settings.put_pricing_rate(
+        %{
+          execution_target: "claude:claude-opus-4-6",
+          input_usd_per_million: "5",
+          cached_input_usd_per_million: "0.5",
+          output_usd_per_million: "25",
+          effective_from: ~D[2026-09-26],
+          provenance: "https://www.anthropic.com/pricing"
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    assert {:ok, saved} =
+             Settings.save_work(%{routing_models: claude}, snapshot.installation.revision, @actor)
+
+    rate = Enum.find(saved.pricing_rates, &(&1.execution_target == "claude:claude-opus-4-6"))
+    {:ok, saved} = Settings.delete_pricing_rate(rate.id, saved.installation.revision, @actor)
+
+    # Still saved for routing, at another effort too; not newly for deep work.
+    assert {:ok, saved} =
+             Settings.save_work(
+               %{routing_models: ["claude:claude-opus-4-6/low@work"]},
+               saved.installation.revision,
+               @actor
+             )
+
+    assert {:error, {:invalid_settings, [{:incident_models, :unpriced}]}} =
+             Settings.save_work(
+               %{incident_models: ["claude:claude-opus-4-6/low@work"]},
+               saved.installation.revision,
+               @actor
+             )
   end
 
   test "a new installation learns by default", %{snapshot: snapshot} do
