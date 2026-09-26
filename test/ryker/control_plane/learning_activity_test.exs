@@ -69,8 +69,16 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   test "learning turned on in settings but unable to run says so instead of reading as off" do
     # The saved choice and the runtime disagree when learning has no worker or
     # model yet; "Learning is off" beside a switch that reads "on" misleads.
+    # Until the runtime has applied the choice it is starting, not broken.
     Application.delete_env(:ryker, :learning)
-    assert {:ok, %{learning: %{enabled: true}}} = Ryker.Settings.initialize("control-plane:local")
+
+    assert {:ok, %{learning: %{enabled: true}, installation: installation}} =
+             Ryker.Settings.initialize("control-plane:local")
+
+    assert LearningActivity.project(%{}).state == :starting
+    assert render(%{}) =~ "Learning is starting"
+
+    assert :ok = Ryker.Settings.record_application(installation.revision, :ok)
     assert LearningActivity.project(%{}).state == :cannot_start
     assert render(%{}) =~ "Learning can’t start"
 

@@ -318,6 +318,7 @@ defmodule Ryker.ControlPlane.LearningPage do
   end
 
   defp state_word(:on), do: {:on, "Learning is on"}
+  defp state_word(:starting), do: {:busy, "Learning is starting"}
   defp state_word(:paused), do: {:warn, "Learning is paused"}
   defp state_word(:not_running), do: {:warn, "Learning is not running here"}
   defp state_word(:cannot_start), do: {:warn, "Learning can’t start"}
@@ -326,6 +327,9 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp state_note(:off),
     do:
       "Ryker keeps new messages but learns nothing from them until learning is on. What it already learned stays available."
+
+  defp state_note(:starting),
+    do: "Ryker is applying the change. New messages are learned from once it runs."
 
   defp state_note(:cannot_start),
     do: "Learning is turned on, but Ryker has no worker or model to learn with yet."

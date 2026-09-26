@@ -41,7 +41,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # Who a choice made on these pages is recorded as, like every other
   # control-plane write.
   @actor_ref "control-plane:local"
-  @confirmed_settings_actions ~w(disconnect-slack disconnect-github delete-emisar delete-environment delete-webhook-credential)
+  @confirmed_settings_actions ~w(disconnect-slack disconnect-github delete-emisar delete-environment delete-webhook-credential turn-off-learning)
   @settings_pages %{
     ["setup"] => :setup,
     ["environments"] => :environments,
@@ -200,6 +200,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   def handle_info({:settings_saved, view}, socket) do
     {:noreply, assign(socket, settings: {:ok, view}, settings_error: nil)}
+  end
+
+  # The Learning page says whether learning is on in its body, so the switch
+  # redraws the page at once; waiting for the next refresh left the line one
+  # step behind the button.
+  def handle_info({:learning_switched, view}, socket) do
+    {:noreply,
+     socket
+     |> assign(settings: {:ok, view}, settings_error: nil, settings_confirm: nil)
+     |> refresh()}
   end
 
   # A saved environment closes its editor and says so on the list.
@@ -1788,6 +1798,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
                   id="learning-switch"
                   view={elem(@settings, 1)}
                   commands={@settings_commands}
+                  confirm={@settings_confirm}
                 />
               </:action>
             </Components.page_header>
