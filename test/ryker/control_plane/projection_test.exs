@@ -42,15 +42,13 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
   alias Ryker.Slack.Input, as: SlackInput
 
-  alias Ryker.State.{
-    BehaviorChangeset,
-    EventSubscriptionChangeset,
-    MemoryEntryChangeset,
-    Records,
-    Schedule,
-    ScheduleChangeset,
-    ScheduleOccurrenceChangeset
-  }
+  alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Memories.MemoryEntryChangeset
+  alias Ryker.Records
+  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules.ScheduleChangeset
+  alias Ryker.Schedules.ScheduleOccurrenceChangeset
+  alias Ryker.Waits.EventSubscriptionChangeset
 
   alias Ryker.Work.{
     ActivityEvent,
@@ -2143,7 +2141,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
           {%{"kind" => "future"}, nil}
         ] do
       Repo.update_all(
-        from(saved in Ryker.State.Schedule, where: saved.id == ^schedule.id),
+        from(saved in Ryker.Schedules.Schedule, where: saved.id == ^schedule.id),
         set: [recurrence: recurrence]
       )
 

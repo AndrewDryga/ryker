@@ -9,8 +9,8 @@ defmodule Ryker.Evals.WorldAssertions do
   import Ecto.Query
 
   alias Ryker.Evals.{WorldCase, WorldEvidence, WorldInputs, WorldMatch}
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.Record
 
   @authority_record_kinds %{
     "operator" => ~w(

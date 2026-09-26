@@ -10,8 +10,8 @@ defmodule Ryker.Publication.CustodyTest do
   alias Ryker.Publication.Changeset, as: PublicationChangeset
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, Publication, Review}
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.State.Records
 
   alias Ryker.Work.{
     Cancellation,
@@ -1705,7 +1705,7 @@ defmodule Ryker.Publication.CustodyTest do
 
     {1, _rows} =
       Repo.update_all(
-        from(record in Ryker.State.Record, where: record.id == ^task.id),
+        from(record in Ryker.Records.Record, where: record.id == ^task.id),
         set: confirmation
       )
 

@@ -8,8 +8,9 @@ defmodule Ryker.ControlPlane.LearningReceipt do
   alias Ryker.ControlPlane.{LearningActivity, PromptDocument, SlackMarkdown, SourceText}
   alias Ryker.InspectionRedactor
 
+  alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Learning.LearningRun
   alias Ryker.Repo
-  alias Ryker.State.{KnowledgeRevision, LearningRun}
 
   def project(id, version, secrets) when is_binary(id) and is_binary(version) do
     with {number, ""} when number in 1..9_223_372_036_854_775_807 <- Integer.parse(version),

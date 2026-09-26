@@ -9,9 +9,9 @@ defmodule Ryker.ControlPlane.ActivityTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
+  alias Ryker.Schedules.ScheduleOccurrenceChangeset
   alias Ryker.Slack.Input
   alias Ryker.Slack.Names
-  alias Ryker.State.ScheduleOccurrenceChangeset
   alias Ryker.Work.Custody
   alias Ryker.Work.Session
   alias Ryker.Work.Turn

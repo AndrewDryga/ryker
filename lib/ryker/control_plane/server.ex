@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.Server do
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Observability
-  alias Ryker.State.ScheduleRuntime
+  alias Ryker.Schedules.ScheduleRuntime
   alias Ryker.Work.RepositoryContext
 
   @loopback_v4 {127, 0, 0, 1}

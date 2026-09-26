@@ -9,13 +9,11 @@ defmodule Ryker.ControlPlane.ConversationMemoryReadOnlyTest do
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
 
-  alias Ryker.State.{
-    Continuity,
-    ConversationKnowledge,
-    ConversationObservation,
-    Knowledge,
-    LearningSources
-  }
+  alias Ryker.Continuity
+  alias Ryker.Knowledge
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.LearningSources
 
   test "read-only inspection shows usable knowledge and revision history without acquiring write locks" do
     # The restored Tenant inspection server rejected FOR SHARE and hid every
@@ -171,7 +169,7 @@ defmodule Ryker.ControlPlane.ConversationMemoryReadOnlyTest do
         # Inject age into the normalized inherited receipt, not its owner pointer.
         for source <-
               Repo.all(
-                from(s in Ryker.State.KnowledgeSource,
+                from(s in Ryker.Knowledge.KnowledgeSource,
                   where: s.knowledge_id == ^copied.id
                 )
               ),

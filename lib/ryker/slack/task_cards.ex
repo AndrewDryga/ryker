@@ -10,9 +10,9 @@ defmodule Ryker.Slack.TaskCards do
   import Ecto.Query
 
   alias Ryker.Episodes.Episode
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.{TaskCard, TaskCardChangeset}
-  alias Ryker.State.Record
   alias Ryker.Work.Turn
 
   @maximum_error_detail_bytes 4_096

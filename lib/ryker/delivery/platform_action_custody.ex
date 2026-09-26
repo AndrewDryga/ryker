@@ -12,8 +12,8 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{PlatformAction, Request}
   alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.Record
   alias Ryker.Work.{DeliveryReceipt, Turn}
 
   @fields [

@@ -14,8 +14,8 @@ defmodule Ryker.Slack.AppHomeActions do
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Publication.Publication
   alias Ryker.Repo
+  alias Ryker.Schedules.Schedule
   alias Ryker.Slack.{HomeInteraction, HomeSubmission}
-  alias Ryker.State.Schedule
   alias Ryker.Work.Session
 
   @destination_actions [

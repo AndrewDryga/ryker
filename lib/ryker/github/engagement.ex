@@ -3,12 +3,12 @@ defmodule Ryker.GitHub.Engagement do
 
   import Ecto.Query
 
+  alias Ryker.Behaviors
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.Binding
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
   alias Ryker.Repo
-  alias Ryker.State.Behaviors
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 

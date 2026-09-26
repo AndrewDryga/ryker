@@ -28,9 +28,10 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
-  alias Ryker.State.{Record, Records}
   alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
 
   alias Ryker.Work.{

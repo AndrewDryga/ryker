@@ -27,8 +27,8 @@ defmodule Ryker.Delivery.DispatcherTest do
   alias Ryker.Ingress.Input, as: IngressInput
   alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.PollingWorker
+  alias Ryker.Records
   alias Ryker.Slack.Input
-  alias Ryker.State.Records
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]

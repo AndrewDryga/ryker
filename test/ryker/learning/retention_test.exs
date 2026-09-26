@@ -1,9 +1,9 @@
 defmodule Ryker.Learning.RetentionTest do
   use Ryker.DataCase, async: false
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Learning
   alias Ryker.Learning.FleetSession
   alias Ryker.Retention.{Custody, Dispatcher}
-  alias Ryker.State.Learning
 
   test "terminal learning sessions clean up through the learning execution client" do
     # The internal component runs Work through the fleet but learning directly. Cleanup sent

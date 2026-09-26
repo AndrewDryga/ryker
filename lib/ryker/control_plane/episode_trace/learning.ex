@@ -10,8 +10,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Learning do
 
   alias Ryker.ControlPlane.LearningActivity
   alias Ryker.Learning.InputMembership
+  alias Ryker.Learning.LearningRun
   alias Ryker.Repo
-  alias Ryker.State.LearningRun
 
   @doc """
   Learning is a peer of the work, not a step inside it: it runs on decided

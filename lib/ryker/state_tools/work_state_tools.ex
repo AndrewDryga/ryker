@@ -4,8 +4,10 @@ defmodule Ryker.StateTools.WorkStateTools do
   alias Ryker.Artifacts.Outputs
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{PlatformActionCustody, Presentation}
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Records
+  alias Ryker.Records.DerivedContext
   alias Ryker.Slack.Mentions
-  alias Ryker.State.{DerivedContext, KnowledgeSnapshot, Records}
   alias Ryker.Work.{Custody, Final, FinalPreflight, Validator}
 
   @spec get_work_state(map(), map()) :: {:ok, map()} | {:error, term()}

@@ -9,8 +9,9 @@ defmodule Ryker.Emisar.ApprovalsTest do
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Operator.Emisar, as: EmisarOperator
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Settings
-  alias Ryker.State.{Record, Records}
   alias Ryker.Work.Custody
 
   @actor "control-plane:local"

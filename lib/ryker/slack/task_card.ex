@@ -7,7 +7,7 @@ defmodule Ryker.Slack.TaskCard do
   @foreign_key_type :binary_id
 
   schema "slack_task_cards" do
-    belongs_to(:record, Ryker.State.Record)
+    belongs_to(:record, Ryker.Records.Record)
     belongs_to(:episode, Ryker.Episodes.Episode)
     field(:ref, :string)
     field(:workspace_ref, :string)

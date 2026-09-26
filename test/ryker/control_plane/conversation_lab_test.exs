@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Admission.Decision
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Artifact
+  alias Ryker.Behaviors.Behavior
   alias Ryker.ControlPlane.{Actions, ConversationLab, Projection}
   alias Ryker.ControlPlane.WorkChanges
   alias Ryker.Episodes
@@ -20,8 +21,9 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.State.{Behavior, Records, Schedule}
+  alias Ryker.Schedules.Schedule
   alias Ryker.TestSupport.FakeWorkCoopAPI
 
   alias Ryker.Work.{

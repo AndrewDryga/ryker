@@ -613,7 +613,7 @@ defmodule Ryker.Retention.CustodyTest do
 
     {record_id, turn_id} =
       Repo.one!(
-        from(record in Ryker.State.Record,
+        from(record in Ryker.Records.Record,
           where: record.episode_id == ^session.episode_id,
           select: {record.id, record.turn_id},
           limit: 1
@@ -622,7 +622,7 @@ defmodule Ryker.Retention.CustodyTest do
 
     {1, nil} =
       Repo.update_all(
-        from(record in Ryker.State.Record, where: record.id == ^record_id),
+        from(record in Ryker.Records.Record, where: record.id == ^record_id),
         set: [status: :dismissed]
       )
 

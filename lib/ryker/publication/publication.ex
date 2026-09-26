@@ -8,7 +8,7 @@ defmodule Ryker.Publication.Publication do
 
   schema "episode_publications" do
     belongs_to(:episode, Ryker.Episodes.Episode)
-    belongs_to(:record, Ryker.State.Record)
+    belongs_to(:record, Ryker.Records.Record)
     belongs_to(:session, Ryker.Work.Session)
 
     field(:ref, :string)

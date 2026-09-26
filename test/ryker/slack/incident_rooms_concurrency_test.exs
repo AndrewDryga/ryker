@@ -9,9 +9,11 @@ defmodule Ryker.Slack.IncidentRoomsConcurrencyTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoom, IncidentRooms}
-  alias Ryker.State.{KnowledgeSnapshot, Record, Records}
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, SubmissionBuilder, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]

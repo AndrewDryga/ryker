@@ -3,7 +3,7 @@ defmodule Ryker.Work.FinalPreflight do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.PlatformActionCustody
-  alias Ryker.State.Records
+  alias Ryker.Records
 
   # A missing title and a null one both keep the episode's name, so they are
   # the same candidate: a model that preflights without the key and returns the

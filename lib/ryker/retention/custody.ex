@@ -18,11 +18,11 @@ defmodule Ryker.Retention.Custody do
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Learning.LearningRun
   alias Ryker.Publication.Publication
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Retention.Plan
-  alias Ryker.State.LearningRun
   alias Ryker.Work.{Session, Turn}
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]

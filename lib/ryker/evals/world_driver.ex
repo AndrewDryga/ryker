@@ -12,8 +12,11 @@ defmodule Ryker.Evals.WorldDriver do
   alias Ryker.Episodes.Episode
   alias Ryker.Evals.{WorldCase, WorldInputs}
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.{EventSubscription, EventWaits, Record, Records}
+  alias Ryker.Waits.EventSubscription
+  alias Ryker.Waits.EventWaits
   alias Ryker.Work.{Custody, Turn}
   alias Ryker.Work.Dispatcher, as: WorkDispatcher
 

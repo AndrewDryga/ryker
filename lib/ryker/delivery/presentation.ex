@@ -10,8 +10,8 @@ defmodule Ryker.Delivery.Presentation do
   alias Ryker.Delivery.ChatCard
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.Renderer, as: GitHubRenderer
+  alias Ryker.Records
   alias Ryker.Slack.{Mentions, Renderer, ReplyRecords}
-  alias Ryker.State.Records
   alias Ryker.Work.Final
 
   @spec validate(Episode.t(), Ecto.UUID.t(), Final.t()) :: :ok | {:error, term()}

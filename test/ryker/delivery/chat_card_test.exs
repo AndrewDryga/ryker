@@ -4,7 +4,8 @@ defmodule Ryker.Delivery.ChatCardTest do
   alias Ryker.ControlPlane.HTML
   alias Ryker.Delivery.ChatCard
   alias Ryker.Publication.Publication
-  alias Ryker.State.{Record, RecordPayload}
+  alias Ryker.Records.Record
+  alias Ryker.Records.RecordPayload
 
   @digest String.duplicate("a", 64)
   @git String.duplicate("b", 40)

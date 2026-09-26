@@ -7,7 +7,7 @@ defmodule Ryker.Emisar.Approval do
   @foreign_key_type :binary_id
 
   schema "episode_emisar_approvals" do
-    belongs_to(:record, Ryker.State.Record)
+    belongs_to(:record, Ryker.Records.Record)
     belongs_to(:episode, Ryker.Episodes.Episode)
 
     field(:connection_ref, :string)

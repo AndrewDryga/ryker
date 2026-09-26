@@ -13,9 +13,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   alias Ryker.Episodes.{Episode, RoutingDigests}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.Names
-  alias Ryker.State.Record
   alias Ryker.Work.{Session, Turn}
 
   @doc """

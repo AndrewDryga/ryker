@@ -18,9 +18,9 @@ defmodule Ryker.Operator.Emisar do
   alias Ryker.Credentials
   alias Ryker.Emisar.{Approval, ApprovalChangeset, Approvals}
   alias Ryker.Episodes.Episode
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Settings.EmisarConnection
-  alias Ryker.State.Record
 
   # The Failures page reads as deep as the page it shows (a hundred a page).
   @maximum_list 10_001

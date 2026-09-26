@@ -27,8 +27,8 @@ defmodule Ryker.Work.ActivityTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Learning
   alias Ryker.Learning.FleetSession
-  alias Ryker.State.Learning
   alias Ryker.Work.{Activity, ActivitySyncWorker, Custody}
 
   @now ~U[2026-09-04 12:00:00.000000Z]

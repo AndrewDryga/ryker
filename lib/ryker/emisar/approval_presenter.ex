@@ -10,8 +10,8 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   alias Ryker.Delivery.{Adapters, Request}
   alias Ryker.Emisar.{Approval, ApprovalStatus, Review, RunState}
   alias Ryker.Episodes.Episode
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.Record
   alias Ryker.Work.{DeliveryReceipt, Turn}
 
   @spec publish(Approval.t(), RunState.t(), map()) :: :ok | {:error, term()}

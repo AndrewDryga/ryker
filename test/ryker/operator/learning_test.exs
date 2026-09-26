@@ -1,10 +1,11 @@
 defmodule Ryker.Operator.LearningTest do
   use Ryker.DataCase, async: false
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Learning
   alias Ryker.Learning.{Batch, Batches, InputMembership}
+  alias Ryker.Learning.LearningRun
   alias Ryker.Operator.Actions
   alias Ryker.Operator.Learning, as: LearningOperator
-  alias Ryker.State.{Learning, LearningRun}
 
   @settings %{
     policy: "recorded-read-only-policy",

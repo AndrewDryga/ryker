@@ -16,9 +16,9 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode
   alias Ryker.Learning.Batch, as: LearningBatch
+  alias Ryker.Learning.LearningRun
   alias Ryker.Repo
   alias Ryker.Retention.Custody, as: RetentionCustody
-  alias Ryker.State.LearningRun
   alias Ryker.Work.Session
 
   @doc "Current worker sessions followed by recent removed history, with safe actions."

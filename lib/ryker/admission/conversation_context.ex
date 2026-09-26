@@ -22,8 +22,8 @@ defmodule Ryker.Admission.ConversationContext do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
+  alias Ryker.Memories.MemorySourceLink
   alias Ryker.Repo
-  alias Ryker.State.MemorySourceLink
   alias Ryker.Work.Turn
 
   @default_limit 20

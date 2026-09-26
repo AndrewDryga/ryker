@@ -16,8 +16,10 @@ defmodule Ryker.Learning.SessionCustodyTest do
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Learning
   alias Ryker.Learning.{Batch, Batches, Dispatcher, FleetSession}
-  alias Ryker.State.{KnowledgeRevision, Learning, LearningRun}
+  alias Ryker.Learning.LearningRun
   alias Ryker.TestSupport.FakeCoopAPI
   alias Ryker.Work.{Session, Turn}
 

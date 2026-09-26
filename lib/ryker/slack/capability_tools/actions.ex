@@ -6,8 +6,8 @@ defmodule Ryker.Slack.CapabilityTools.Actions do
   """
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Records
   alias Ryker.Slack.SourceRef
-  alias Ryker.State.Records
 
   @doc "The platform action a reaction request freezes on the current human input."
   @spec reaction_attributes(map(), map(), String.t(), String.t()) :: map()

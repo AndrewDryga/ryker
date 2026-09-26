@@ -1,9 +1,9 @@
 defmodule Ryker.Ingress.Projections do
   @moduledoc false
 
+  alias Ryker.Behaviors
   alias Ryker.Ingress.Input
   alias Ryker.Publication.Followups
-  alias Ryker.State.Behaviors
 
   @spec observe(Input.t(), String.t()) :: :ok | {:error, term()}
   def observe(%Input{} = input, input_ref) when is_binary(input_ref) do

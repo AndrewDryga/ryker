@@ -27,7 +27,9 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     WorkTarget
   }
 
-  alias Ryker.State.{KnowledgeSnapshot, Record, Records}
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Records
+  alias Ryker.Records.Record
 
   alias Ryker.Work.{
     Cancellation,

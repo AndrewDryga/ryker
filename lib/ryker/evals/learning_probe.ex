@@ -14,7 +14,8 @@ defmodule Ryker.Evals.LearningProbe do
   alias Ryker.Evals.SlackDeliveryPublisher
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.State.{KnowledgeExposure, LearningRun}
+  alias Ryker.Knowledge.KnowledgeExposure
+  alias Ryker.Learning.LearningRun
   alias Ryker.Work.{Session, Turn}
 
   @doc false

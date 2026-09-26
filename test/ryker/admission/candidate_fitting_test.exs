@@ -5,8 +5,8 @@ defmodule Ryker.Admission.CandidateFittingTest do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Learning.LearningSources
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.State.LearningSources
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 

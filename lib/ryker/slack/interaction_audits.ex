@@ -12,8 +12,8 @@ defmodule Ryker.Slack.InteractionAudits do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.Record
   alias Ryker.Work.Turn
 
   alias Ryker.Slack.{Interaction, InteractionAudit, InteractionAuditChangeset}

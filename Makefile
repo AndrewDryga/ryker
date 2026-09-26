@@ -82,10 +82,10 @@ product-e2e:
 		test/ryker/github/end_to_end_test.exs \
 		test/ryker/webhooks/end_to_end_test.exs \
 		test/ryker/emisar/end_to_end_test.exs \
-		test/ryker/state/schedules_test.exs \
-		test/ryker/state/automations_test.exs \
-		test/ryker/state/memories_test.exs \
-		test/ryker/state/behaviors_test.exs \
+		test/ryker/schedules/schedules_test.exs \
+		test/ryker/behaviors/automations_test.exs \
+		test/ryker/memories/memories_test.exs \
+		test/ryker/behaviors/behaviors_test.exs \
 		test/ryker/coop_fleet/failover_end_to_end_test.exs \
 		test/ryker/evals/world_runner_test.exs
 

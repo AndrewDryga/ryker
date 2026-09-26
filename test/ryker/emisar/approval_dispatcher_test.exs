@@ -8,8 +8,8 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Records
   alias Ryker.Settings
-  alias Ryker.State.Records
   alias Ryker.Work.Custody
 
   @policy_digest String.duplicate("b", 64)

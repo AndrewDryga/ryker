@@ -24,8 +24,8 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, InputMembership}
+  alias Ryker.Learning.LearningRun
   alias Ryker.Slack.Input
-  alias Ryker.State.LearningRun
   alias Ryker.Work.{Custody, Session}
 
   @now ~U[2026-09-04 22:51:44.000000Z]

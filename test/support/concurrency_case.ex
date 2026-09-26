@@ -6,10 +6,11 @@ defmodule Ryker.ConcurrencyCase do
   import Ecto.Query
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Learning.ConversationObservation
   alias Ryker.Repo
-  alias Ryker.State.{ConversationObservation, StandingRuleInventory}
 
   using do
     quote do

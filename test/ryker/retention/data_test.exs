@@ -24,21 +24,19 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.StateTools.{CallLog, CallRecord}
 
-  alias Ryker.State.{
-    BehaviorChangeset,
-    Behaviors,
-    CaseRecord,
-    Learning,
-    Record,
-    RecordChangeset,
-    Schedule,
-    ScheduleChangeset,
-    ScheduleOccurrence,
-    ScheduleOccurrenceChangeset,
-    StandingAssignmentRun,
-    StandingAssignmentRunChangeset,
-    StandingRuleInventory
-  }
+  alias Ryker.Behaviors
+  alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Behaviors.StandingAssignmentRun
+  alias Ryker.Behaviors.StandingAssignmentRunChangeset
+  alias Ryker.Behaviors.StandingRuleInventory
+  alias Ryker.Learning
+  alias Ryker.Memories.CaseRecord
+  alias Ryker.Records.Record
+  alias Ryker.Records.RecordChangeset
+  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules.ScheduleChangeset
+  alias Ryker.Schedules.ScheduleOccurrence
+  alias Ryker.Schedules.ScheduleOccurrenceChangeset
 
   alias Ryker.Work.{
     Activity,
@@ -780,12 +778,12 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get!(Ryker.Episodes.Episode, question.episode.id).history_pruned_at == nil
 
     assert Repo.aggregate(
-             from(r in Ryker.State.Record, where: r.episode_id == ^fact.episode.id),
+             from(r in Ryker.Records.Record, where: r.episode_id == ^fact.episode.id),
              :count
            ) == 0
 
     assert Repo.aggregate(
-             from(r in Ryker.State.Record, where: r.episode_id == ^question.episode.id),
+             from(r in Ryker.Records.Record, where: r.episode_id == ^question.episode.id),
              :count
            ) == 1
   end

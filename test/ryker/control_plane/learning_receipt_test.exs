@@ -3,8 +3,9 @@ defmodule Ryker.ControlPlane.LearningReceiptTest do
   alias Ryker.ControlPlane.{ConversationMemory, LearnedPage, Projection}
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.InspectionRedactor
+  alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Learning
   alias Ryker.Repo
-  alias Ryker.State.{KnowledgeRevision, Learning}
 
   @policy %{policy: "receipt-test", policy_digest: String.duplicate("a", 64)}
 

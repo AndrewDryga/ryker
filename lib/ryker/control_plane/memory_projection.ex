@@ -11,9 +11,12 @@ defmodule Ryker.ControlPlane.MemoryProjection do
 
   import Ecto.Query
 
+  alias Ryker.Behaviors.Behavior
   alias Ryker.InspectionRedactor
+  alias Ryker.Memories
+  alias Ryker.Memories.MemoryEntry
   alias Ryker.Repo
-  alias Ryker.State.{Behavior, Memories, MemoryEntry, Schedule}
+  alias Ryker.Schedules.Schedule
 
   @doc "The query keys the Facts page reads."
   def query_keys, do: ["q"]

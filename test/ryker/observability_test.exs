@@ -13,7 +13,9 @@ defmodule Ryker.ObservabilityTest do
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Learning
   alias Ryker.Learning.FleetSession
+  alias Ryker.Learning.LearningRun
   alias Ryker.Observability
   alias Ryker.Observability.Progress
   alias Ryker.Operator.Retention, as: RetentionOperator
@@ -21,7 +23,6 @@ defmodule Ryker.ObservabilityTest do
   alias Ryker.Runtime.Owner
   alias Ryker.Settings
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.State.{Learning, LearningRun}
   alias Ryker.Work.Custody
   alias Ryker.Work.Session
 

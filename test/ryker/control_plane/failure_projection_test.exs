@@ -30,11 +30,12 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.Inbox
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Learning
   alias Ryker.Learning.Batch, as: LearningBatch
   alias Ryker.Learning.FleetSession, as: LearningFleetSession
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.State.{ConversationKnowledge, Learning}
   alias Ryker.Work.{Cancellation, Custody, Session, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]

@@ -12,8 +12,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   alias Ryker.InspectionRedactor
   alias Ryker.Publication.Publication
   alias Ryker.Repo
+  alias Ryker.Schedules.Schedule
   alias Ryker.Slack.IncidentRoom
-  alias Ryker.State.Schedule
 
   @doc "The episode's platform actions, oldest first, bounded."
   def platform_actions(episode_id) do

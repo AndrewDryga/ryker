@@ -2,10 +2,11 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
   use Ryker.DataCase, async: false
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Continuity.ConversationSummary
   alias Ryker.ControlPlane.{ConversationMemory, LearnedPage, Projection}
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Learning.LearningSources
   alias Ryker.Repo
-  alias Ryker.State.{ConversationSummary, LearningSources}
 
   setup do
     retention = Application.fetch_env(:ryker, :retention)

@@ -17,8 +17,8 @@ defmodule Ryker.Observability do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Observability.{Fleet, Metrics, Progress, Query, Queues, Readiness, Retention}
   alias Ryker.Publication.Publication
+  alias Ryker.Schedules.Schedule
   alias Ryker.Slack.{IncidentRoom, TaskCard}
-  alias Ryker.State.Schedule
   alias Ryker.Work.Turn
 
   @default_stall_after_seconds 15 * 60

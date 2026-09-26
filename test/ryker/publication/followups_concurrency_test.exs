@@ -6,10 +6,13 @@ defmodule Ryker.Publication.FollowupsConcurrencyTest do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Ingress.Input
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.LearningSources
   alias Ryker.Publication.{Followups, LifecycleEvent, Publication}
+  alias Ryker.Records.Record
+  alias Ryker.Records.Response
   alias Ryker.Repo
   alias Ryker.Slack.TaskCard
-  alias Ryker.State.{ConversationObservation, LearningSources, Record, Response}
   alias Ryker.Work.{Session, Turn}
 
   test "equivalent GitHub feedback under real publication lock contention retains one wakeup" do

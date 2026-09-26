@@ -1,9 +1,9 @@
 defmodule Ryker.Learning.FleetSessionTest do
   use Ryker.DataCase, async: false
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Learning
   alias Ryker.Learning.FleetSession
   alias Ryker.Repo
-  alias Ryker.State.Learning
   alias Ryker.Work.Session
 
   test "a learning session owns no episode repository workspace or action authority" do

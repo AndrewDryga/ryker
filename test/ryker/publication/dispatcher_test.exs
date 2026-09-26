@@ -9,7 +9,7 @@ defmodule Ryker.Publication.DispatcherTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Dispatcher, Publication}
-  alias Ryker.State.Records
+  alias Ryker.Records
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]

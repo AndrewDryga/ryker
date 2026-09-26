@@ -36,16 +36,14 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   alias Ryker.Learning.Batch
   alias Ryker.Slack.{ChannelConfigurationChangeset, IncidentRoomChangeset, Input}
 
-  alias Ryker.State.{
-    Behavior,
-    ConversationKnowledge,
-    ConversationRollup,
-    ConversationSummary,
-    ConversationSummaryDraft,
-    MemoryEntry,
-    Records,
-    Schedule
-  }
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Continuity.ConversationRollup
+  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Continuity.ConversationSummaryDraft
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Records
+  alias Ryker.Schedules.Schedule
 
   alias Ryker.Work.Turn
 

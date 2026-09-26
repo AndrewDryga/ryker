@@ -10,13 +10,11 @@ defmodule Ryker.Publication.FollowupsTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Publication.{Custody, Followup, Followups, LifecycleEvent, Publication}
 
-  alias Ryker.State.{
-    Continuity,
-    ConversationObservation,
-    KnowledgeSnapshot,
-    LearningSources,
-    Observations
-  }
+  alias Ryker.Continuity
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.LearningSources
+  alias Ryker.Learning.Observations
 
   alias Ryker.Work.Custody, as: WorkCustody
   alias Ryker.Work.DeliveryReceipt

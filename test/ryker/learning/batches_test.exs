@@ -3,9 +3,12 @@ defmodule Ryker.Learning.BatchesTest do
   import Ecto.Query
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Learning
   alias Ryker.Learning.{Batch, Batches, InputMembership}
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.LearningRun
+  alias Ryker.Learning.Observations
   alias Ryker.Repo
-  alias Ryker.State.{ConversationObservation, Learning, LearningRun, Observations}
 
   @settings %{
     policy: "recorded-read-only-policy",

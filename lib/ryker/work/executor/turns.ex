@@ -12,7 +12,7 @@ defmodule Ryker.Work.Executor.Turns do
 
   alias Ryker.Artifacts.Outputs
   alias Ryker.CoopFleet.SessionEvidenceCapture
-  alias Ryker.State.Records
+  alias Ryker.Records
   alias Ryker.Work.{Activity, Custody, Measurement, StateBinding, ValidationIntent}
   alias Ryker.Work.Executor.{Remote, Validation}
 

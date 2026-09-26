@@ -8,14 +8,12 @@ defmodule Ryker.Delivery.ChatCard do
   alias Ryker.Repo
   alias Ryker.Slack.TaskCardProjection
 
-  alias Ryker.State.{
-    Behavior,
-    MemoryEntry,
-    Record,
-    RecordPayload,
-    Schedule,
-    ScheduleCadence
-  }
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Records.Record
+  alias Ryker.Records.RecordPayload
+  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules.ScheduleCadence
 
   @doc "Only a lifecycle state that changes the card's meaning is shown."
   def display_status(%{status: status})

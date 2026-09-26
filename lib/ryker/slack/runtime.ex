@@ -57,17 +57,15 @@ defmodule Ryker.Slack.Runtime do
 
   alias Ryker.Slack.Supervisor, as: SlackSupervisor
 
-  alias Ryker.State.{
-    Automations,
-    Behaviors,
-    InputRequests,
-    Memories,
-    Records,
-    ScheduleRuntime,
-    Schedules,
-    SlackPostOffers,
-    TaskOffers
-  }
+  alias Ryker.Behaviors
+  alias Ryker.Behaviors.Automations
+  alias Ryker.Memories
+  alias Ryker.Records
+  alias Ryker.Records.InputRequests
+  alias Ryker.Records.SlackPostOffers
+  alias Ryker.Records.TaskOffers
+  alias Ryker.Schedules
+  alias Ryker.Schedules.ScheduleRuntime
 
   @fields [
     :app_http,

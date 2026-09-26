@@ -21,17 +21,15 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Slack.{InteractionAudit, InteractionFeedbackWorker}
 
-  alias Ryker.State.{
-    EventSubscription,
-    EventSubscriptions,
-    InputRequests,
-    KnowledgeSnapshot,
-    Memories,
-    MemoryEntry,
-    Record,
-    Records,
-    Response
-  }
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Memories
+  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Records
+  alias Ryker.Records.InputRequests
+  alias Ryker.Records.Record
+  alias Ryker.Records.Response
+  alias Ryker.Waits.EventSubscription
+  alias Ryker.Waits.EventSubscriptions
 
   alias Ryker.StateTools.{Router, Tools}
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}

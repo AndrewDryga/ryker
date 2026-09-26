@@ -11,9 +11,10 @@ defmodule Ryker.Slack.IncidentRoomCard do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.IncidentRoom
-  alias Ryker.State.{Record, Records}
   alias Ryker.Work.{Session, Turn}
 
   @ui_revision 2

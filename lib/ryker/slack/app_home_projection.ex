@@ -9,11 +9,14 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   import Ecto.Query
 
+  alias Ryker.Behaviors.Behavior
   alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Memories
+  alias Ryker.Memories.MemoryEntry
   alias Ryker.Publication.Publication
   alias Ryker.Repo
+  alias Ryker.Schedules.Schedule
   alias Ryker.Slack.{Collections, IncidentRoom, SavedEntity}
-  alias Ryker.State.{Behavior, Memories, MemoryEntry, Schedule}
   alias Ryker.Work.{Session, Turn}
 
   @active_episode_states [:working, :waiting_for_input, :waiting_for_event]

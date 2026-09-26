@@ -7,11 +7,12 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   (on or paused) or Past (expired, deleted or replaced) entries.
   """
   import Ecto.Query
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.ControlPlane.{PagedRelation, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.State.{Behavior, StandingAssignmentRun}
 
   @payload_fields ~w(title task trigger source_kind source_filter filter action repository key value subject summary text visibility context_channel delivery_channel)
   @shown %{"preferences" => :preference, "guidance" => :guidance}

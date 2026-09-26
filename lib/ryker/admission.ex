@@ -41,14 +41,12 @@ defmodule Ryker.Admission do
   alias Ryker.Repo
   alias Ryker.Settings.Repository
 
-  alias Ryker.State.{
-    Behaviors,
-    InputRequests,
-    Knowledge,
-    LearningSources,
-    Observations,
-    Records
-  }
+  alias Ryker.Behaviors
+  alias Ryker.Knowledge
+  alias Ryker.Learning.LearningSources
+  alias Ryker.Learning.Observations
+  alias Ryker.Records
+  alias Ryker.Records.InputRequests
 
   alias Ryker.Work.{Custody, Turn}
 

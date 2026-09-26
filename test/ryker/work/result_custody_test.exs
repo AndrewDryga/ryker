@@ -6,7 +6,8 @@ defmodule Ryker.Work.ResultCustodyTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{RoutingDigest, RoutingDigests}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.State.{EventSubscription, Records}
+  alias Ryker.Records
+  alias Ryker.Waits.EventSubscription
 
   alias Ryker.Work.{
     Custody,

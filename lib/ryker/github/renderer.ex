@@ -9,7 +9,8 @@ defmodule Ryker.GitHub.Renderer do
   """
 
   alias Ryker.Emisar.ApprovalStatus
-  alias Ryker.State.{RecordPayload, ScheduleCadence}
+  alias Ryker.Records.RecordPayload
+  alias Ryker.Schedules.ScheduleCadence
 
   @maximum_records 64
   @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)

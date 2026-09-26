@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
   import Ecto.Query
   import Phoenix.LiveViewTest
 
+  alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection}
   alias Ryker.Episodes
@@ -20,7 +21,6 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Slack.Input
-  alias Ryker.State.StandingRuleInventory
 
   @now ~U[2026-09-04 22:51:44.000000Z]
 
@@ -397,7 +397,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
 
     {:ok, %{entry: entry}} = Inbox.record(input, options)
     # This fixture drives the card directly; the recorder's own path is covered
-    # in Ryker.State.StandingRuleInventoryTest.
+    # in Ryker.Behaviors.StandingRuleInventoryTest.
     Repo.delete_all(StandingRuleInventory)
 
     {:ok, %{episode: episode}} =

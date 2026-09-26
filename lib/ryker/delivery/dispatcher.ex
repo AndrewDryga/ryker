@@ -10,8 +10,8 @@ defmodule Ryker.Delivery.Dispatcher do
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, RoutingResponseCustody}
   alias Ryker.LeasedCall
+  alias Ryker.Records
   alias Ryker.Slack.ReplyRecords
-  alias Ryker.State.Records
   alias Ryker.Work.Custody
 
   @maximum_error_detail_bytes 4_096

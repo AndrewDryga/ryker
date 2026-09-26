@@ -23,7 +23,8 @@ defmodule Ryker.Slack.InteractionRepaint do
     TaskCardProjection
   }
 
-  alias Ryker.State.{DerivedContext, Records}
+  alias Ryker.Records
+  alias Ryker.Records.DerivedContext
   alias Ryker.Work.{Session, Turn}
 
   @confirmation_kinds ~w(preference_offer guidance_offer standing_assignment_offer memory_offer schedule_offer automation_change_offer)

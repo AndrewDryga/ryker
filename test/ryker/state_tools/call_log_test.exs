@@ -11,7 +11,7 @@ defmodule Ryker.StateTools.CallLogTest do
   alias Ryker.ControlPlane.{Projection, ToolCard}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.State.Records
+  alias Ryker.Records
   alias Ryker.StateTools.{CallLog, ErrorCode, Router}
   alias Ryker.Work.{Activity, Custody, Turn}
 

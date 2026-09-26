@@ -13,9 +13,11 @@ defmodule Ryker.Admission.ConversationSummaries do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Continuity
+  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Learning.LearningSources
   alias Ryker.Repo
-  alias Ryker.State.{Continuity, ConversationSummary, LearningSources}
 
   @freshness_window 24 * 60 * 60
 

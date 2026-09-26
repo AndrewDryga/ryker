@@ -5,6 +5,7 @@ defmodule Ryker.Admission.ConversationContextTest do
 
   alias Ryker.Admission.{ConversationContext, ConversationSummaries}
   alias Ryker.CanonicalJSON
+  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -12,7 +13,6 @@ defmodule Ryker.Admission.ConversationContextTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.State.ConversationSummary
   alias Ryker.Work.{Custody, Turn}
 
   @workspace "TCONTEXT"

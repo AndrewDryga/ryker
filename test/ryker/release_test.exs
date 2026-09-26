@@ -28,10 +28,10 @@ defmodule Ryker.ReleaseTest do
     end
 
     for {module, operation, arity} <- [
-          {Ryker.State.MemoryEntryChangeset, :cutover, 1},
-          {Ryker.State.BehaviorChangeset, :cutover, 1},
-          {Ryker.State.ScheduleChangeset, :cutover, 1},
-          {Ryker.State.RecordChangeset, :cutover, 1},
+          {Ryker.Memories.MemoryEntryChangeset, :cutover, 1},
+          {Ryker.Behaviors.BehaviorChangeset, :cutover, 1},
+          {Ryker.Schedules.ScheduleChangeset, :cutover, 1},
+          {Ryker.Records.RecordChangeset, :cutover, 1},
           {Ryker.Episodes.EpisodeChangeset, :bind_cutover, 2}
         ] do
       assert Code.ensure_loaded?(module)
@@ -39,10 +39,10 @@ defmodule Ryker.ReleaseTest do
     end
 
     for {module, field} <- [
-          {Ryker.State.MemoryEntry, :cutover_item_id},
-          {Ryker.State.Behavior, :cutover_item_id},
-          {Ryker.State.Schedule, :cutover_item_id},
-          {Ryker.State.Record, :cutover_item_id},
+          {Ryker.Memories.MemoryEntry, :cutover_item_id},
+          {Ryker.Behaviors.Behavior, :cutover_item_id},
+          {Ryker.Schedules.Schedule, :cutover_item_id},
+          {Ryker.Records.Record, :cutover_item_id},
           {Ryker.Episodes.Episode, :cutover_item_id}
         ] do
       refute field in module.__schema__(:fields)

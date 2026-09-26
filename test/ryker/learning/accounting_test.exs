@@ -6,7 +6,7 @@ defmodule Ryker.Learning.AccountingTest do
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, Dispatcher}
-  alias Ryker.State.LearningRun
+  alias Ryker.Learning.LearningRun
   alias Ryker.TestSupport.FakeCoopAPI
   alias Ryker.Work.Session
 

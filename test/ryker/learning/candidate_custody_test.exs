@@ -1,9 +1,12 @@
 defmodule Ryker.Learning.CandidateCustodyTest do
   use Ryker.DataCase, async: false
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Learning
   alias Ryker.Learning.FleetSession
+  alias Ryker.Learning.LearningRun
+  alias Ryker.Learning.Observations
   alias Ryker.Repo
-  alias Ryker.State.{KnowledgeRevision, Learning, LearningRun, Observations}
 
   test "recording and checking a candidate do not apply it before the exact remote receipt" do
     %{run: run, candidate: candidate, completed: completed} = prepared!()

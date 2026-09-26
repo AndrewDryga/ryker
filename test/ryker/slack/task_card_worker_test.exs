@@ -7,8 +7,8 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
   alias Ryker.{Episodes, Repo}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Operator.Failures
+  alias Ryker.Records
   alias Ryker.Slack.{TaskCard, TaskCards, TaskCardWorker}
-  alias Ryker.State.Records
   alias Ryker.Work.Custody
 
   @conversation "slack:T123:C456"

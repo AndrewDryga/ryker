@@ -6,7 +6,7 @@ defmodule Ryker.StateTools.SchemaCheck do
   # null). The catalog is the one the caller advertised, so a tool it withheld
   # is not configured here either.
 
-  alias Ryker.State.ScheduleRecurrence
+  alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.StateTools.Catalog
 
   @spec exact_schema(String.t(), map(), [map()]) :: :ok | {:error, atom()}

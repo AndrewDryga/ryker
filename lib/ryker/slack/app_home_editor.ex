@@ -6,7 +6,7 @@ defmodule Ryker.Slack.AppHomeEditor do
   same review and applies the edit through memory's transactional review fence.
   """
 
-  alias Ryker.State.Memories
+  alias Ryker.Memories
 
   @callback_id "ryker_home_edit_memory_review"
 

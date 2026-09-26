@@ -2,7 +2,7 @@ defmodule Ryker.StateTools.FixedTools do
   @moduledoc false
 
   alias Ryker.Episodes.Origins
-  alias Ryker.State.Records
+  alias Ryker.Records
   alias Ryker.Work.{Contract, Final}
 
   alias Ryker.StateTools.{

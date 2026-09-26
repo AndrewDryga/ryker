@@ -16,8 +16,9 @@ defmodule Ryker.ControlPlane.Activity do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
+  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Slack.Names
-  alias Ryker.State.{Schedule, ScheduleOccurrence}
   alias Ryker.Work.{Session, Turn}
 
   @page_size 30

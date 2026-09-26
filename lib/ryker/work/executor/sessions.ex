@@ -9,7 +9,7 @@ defmodule Ryker.Work.Executor.Sessions do
   through the operation so a lost response never creates a second session.
   """
 
-  alias Ryker.State.KnowledgeSnapshot
+  alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Work.{Custody, Session}
   alias Ryker.Work.Executor.Remote
 

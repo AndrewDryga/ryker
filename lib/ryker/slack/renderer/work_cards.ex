@@ -7,9 +7,9 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
 
+  alias Ryker.Records.InvestigationPayload
   alias Ryker.Slack.Renderer.TaskPublication
   alias Ryker.Slack.TaskCardDetails
-  alias Ryker.State.InvestigationPayload
 
   @goal_states InvestigationPayload.goal_states()
   # A room that set more goals than this is not asking a responder to read them

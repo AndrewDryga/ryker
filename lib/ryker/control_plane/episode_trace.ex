@@ -30,8 +30,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Operator.EpisodeReview
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.Record
   alias Ryker.StateTools.CallLog
   alias Ryker.Work.{Activity, Recovery, Session, Turn}
 

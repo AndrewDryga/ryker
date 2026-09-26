@@ -7,13 +7,11 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Slack.{InteractionAudit, InteractionRepaint, Renderer}
 
-  alias Ryker.State.{
-    Behavior,
-    ConversationObservation,
-    KnowledgeSnapshot,
-    Observations,
-    Records
-  }
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.Observations
+  alias Ryker.Records
 
   alias Ryker.StateTools.FixedTools
   alias Ryker.Work.{Custody, Session, Turn}

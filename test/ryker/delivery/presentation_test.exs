@@ -7,8 +7,9 @@ defmodule Ryker.Delivery.PresentationTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.{Record, Records}
   alias Ryker.Work.Custody
   alias Ryker.Work.Final
 

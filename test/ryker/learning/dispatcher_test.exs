@@ -3,8 +3,11 @@ defmodule Ryker.Learning.DispatcherTest do
   import Ecto.Query
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Learning
   alias Ryker.Learning.{Batch, Batches, Dispatcher, InputMembership}
-  alias Ryker.State.{KnowledgeRevision, Learning, LearningRun, Observations}
+  alias Ryker.Learning.LearningRun
+  alias Ryker.Learning.Observations
   alias Ryker.TestSupport.FakeCoopAPI
   alias Ryker.Work.Session
 

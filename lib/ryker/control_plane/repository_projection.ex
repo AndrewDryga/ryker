@@ -16,8 +16,8 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   alias Ryker.GitHub.Events
   alias Ryker.Publication.Publication
   alias Ryker.Repo
+  alias Ryker.Schedules.Schedule
   alias Ryker.Settings
-  alias Ryker.State.Schedule
   alias Ryker.Work.{Session, Turn}
 
   @list_limit 100

@@ -12,9 +12,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   alias Ryker.CoopFleet.Event, as: CoopEvent
   alias Ryker.Delivery.ChatCard
   alias Ryker.InspectionRedactor
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.ThreadStatusReceipts
-  alias Ryker.State.Record
   alias Ryker.Work.Turn
 
   @doc "Each Work turn from queueing through its result and delivery."

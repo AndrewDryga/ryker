@@ -9,8 +9,8 @@ defmodule Ryker.Slack.WorkControlsTest do
   alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Repo
 
+  alias Ryker.Records
   alias Ryker.Slack.{TaskCardChangeset, WorkControls, WorkRecord, WorkTarget}
-  alias Ryker.State.Records
   alias Ryker.TestSupport.FakeSlackAPI
   alias Ryker.Work.{Cancellation, Custody, Submission}
 

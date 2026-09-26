@@ -21,8 +21,9 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
   alias Ryker.ControlPlane.{Components, IncidentRoomsPage, Projection}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.{ChannelEnvironments, SavedEntities}
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Slack.{IncidentRoom, IncidentRoomChangeset, IncidentRoomLifecycleEventChangeset}
-  alias Ryker.State.{Record, Records}
 
   # The page is read the morning after the room opened.
   @now ~U[2026-09-25 10:00:00Z]

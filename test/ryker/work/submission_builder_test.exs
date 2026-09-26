@@ -9,15 +9,16 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
   alias Ryker.Slack.SourceRef
 
-  alias Ryker.State.{
-    BehaviorChangeset,
-    Cases,
-    Memories,
-    MemoryEntryChangeset,
-    RecordChangeset
-  }
+  alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Memories
+  alias Ryker.Memories.Cases
+  alias Ryker.Memories.MemoryEntryChangeset
+  alias Ryker.Records.RecordChangeset
 
-  alias Ryker.State.{Continuity, ConversationObservation, KnowledgeSnapshot, Records}
+  alias Ryker.Continuity
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Records
   alias Ryker.StateTools.FixedTools
 
   alias Ryker.Work.{

@@ -17,7 +17,8 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.FailureDetail
   alias Ryker.Repo
-  alias Ryker.State.{Schedule, ScheduleOccurrence}
+  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Work.{FailureCause, Turn}
 
   @list_limit 100

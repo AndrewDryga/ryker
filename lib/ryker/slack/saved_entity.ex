@@ -10,7 +10,10 @@ defmodule Ryker.Slack.SavedEntity do
   that the entity does not retain is invented.
   """
 
-  alias Ryker.State.{Behavior, MemoryEntry, Schedule, ScheduleCadence}
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules.ScheduleCadence
 
   @type event :: :saved | :updated | nil
 

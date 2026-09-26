@@ -15,14 +15,12 @@ defmodule Ryker.Evals.LearningRunner do
   alias Ryker.Learning.{Batch, Batches, Dispatcher, InputMembership, Runtime}
   alias Ryker.Repo
 
-  alias Ryker.State.{
-    ConversationKnowledge,
-    Knowledge,
-    KnowledgeRevision,
-    LearningRun,
-    LearningSources,
-    Observations
-  }
+  alias Ryker.Knowledge
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Learning.LearningRun
+  alias Ryker.Learning.LearningSources
+  alias Ryker.Learning.Observations
 
   alias Ryker.Work.Session
 

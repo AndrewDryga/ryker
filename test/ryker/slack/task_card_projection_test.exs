@@ -8,8 +8,9 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{FollowupChangeset, Followups}
+  alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Slack.{Renderer, TaskCardProjection}
-  alias Ryker.State.{Record, Records}
   alias Ryker.Work.{Custody, Turn}
 
   @records Jason.decode!(File.read!("testdata/slack/legacy_task_records.json"))
@@ -495,7 +496,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     # Force this episode's own turn into the harvested hosted-runner shape: a
     # completed worker whose working copy the host could not snapshot. The
     # projection still reads it from the database, and the closed-session variant
-    # is covered end to end in Ryker.State.TaskOffersTest.
+    # is covered end to end in Ryker.Records.TaskOffersTest.
     {1, _rows} =
       Repo.update_all(
         from(turn in Turn, where: turn.episode_id == ^episode.id),

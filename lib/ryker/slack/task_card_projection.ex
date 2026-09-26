@@ -11,10 +11,12 @@ defmodule Ryker.Slack.TaskCardProjection do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.{Followup, Publication, Review}
+  alias Ryker.Records
+  alias Ryker.Records.DerivedContext
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.{Permalink, TaskCard}
-  alias Ryker.State.{DerivedContext, Record, Records}
   alias Ryker.Work.{Custody, FailureCause, Recovery, Session, TaskStages, Turn}
 
   @ui_revision 6
@@ -640,7 +642,7 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp latest_publication_offer(episode_id) do
     Repo.all(
-      from(record in Ryker.State.Record,
+      from(record in Ryker.Records.Record,
         join: turn in Turn,
         on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
         where:

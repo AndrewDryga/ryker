@@ -21,8 +21,8 @@ defmodule Ryker.Episodes.RoutingDigests do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event, Origins, RoutingDigest}
   alias Ryker.Ingress.RecallText
+  alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Repo
-  alias Ryker.State.KnowledgeAnchors
   alias Ryker.Work.{CandidateResponse, Final, Turn}
 
   @objective_bytes 1_024

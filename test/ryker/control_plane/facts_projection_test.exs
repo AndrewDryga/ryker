@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.FactsProjectionTest do
 
   alias Ryker.ControlPlane.{FactsPage, Projection}
   alias Ryker.Fixtures.SavedEntities
-  alias Ryker.State.MemoryEntry
+  alias Ryker.Memories.MemoryEntry
 
   test "fact search matches what a fact is about or what it says, and still counts every fact" do
     source = SavedEntities.source!("slack:T123:C456")

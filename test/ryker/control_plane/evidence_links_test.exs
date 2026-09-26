@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.EvidenceLinksTest do
   use ExUnit.Case, async: true
 
   alias Ryker.ControlPlane.EvidenceLinks
-  alias Ryker.State.Record
+  alias Ryker.Records.Record
   alias Ryker.Work.{ActivityEvent, Turn}
 
   setup do

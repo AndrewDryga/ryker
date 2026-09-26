@@ -16,15 +16,13 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.Settings
   alias Ryker.Slack.ChannelMembership
 
-  alias Ryker.State.{
-    Behavior,
-    BehaviorChangeset,
-    KnowledgeSnapshot,
-    Record,
-    Records,
-    Schedule,
-    ScheduleChangeset
-  }
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Records
+  alias Ryker.Records.Record
+  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules.ScheduleChangeset
 
   alias Ryker.StateTools.{FixedTools, Router, Tools, ToolVisibility}
   alias Ryker.Work.{Custody, Final, FinalPreflight, Prompt, SubmissionBuilder}

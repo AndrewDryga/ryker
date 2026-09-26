@@ -17,8 +17,8 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   alias Ryker.Episodes.{Episode, Event, Reactions}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Publication.Publication
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.State.Record
   alias Ryker.Work.Turn
 
   @page_maximum 200

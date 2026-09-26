@@ -7,15 +7,16 @@ defmodule Ryker.Fixtures.Learning do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
+  alias Ryker.Learning
   alias Ryker.Learning.FleetSession
+  alias Ryker.Learning.Observations
   alias Ryker.Repo
-  alias Ryker.State.{Learning, Observations}
 
   @doc "Host-contract adapter only: simulate the exact transport acknowledgment without calling a model."
   def accept(id, body, producer) do
     run =
       case Ecto.UUID.cast(id) do
-        {:ok, id} -> Repo.get(Ryker.State.LearningRun, id)
+        {:ok, id} -> Repo.get(Ryker.Learning.LearningRun, id)
         _ -> nil
       end
 

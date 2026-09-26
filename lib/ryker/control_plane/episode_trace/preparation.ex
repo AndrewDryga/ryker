@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
+  alias Ryker.Behaviors
   alias Ryker.ControlPlane.{Activity, Environments}
   alias Ryker.CoopFleet.Placement
   alias Ryker.Episodes.Episode
@@ -17,7 +18,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Slack.IncidentRoom
-  alias Ryker.State.Behaviors
   alias Ryker.Work.{FailureCause, Session, Turn}
 
   @doc """

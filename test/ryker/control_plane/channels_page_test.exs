@@ -8,10 +8,10 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
 
   alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, Pages}
   alias Ryker.Fixtures.SavedEntities
+  alias Ryker.Records
   alias Ryker.Settings
   alias Ryker.Slack.{ChannelConfigurationChangeset, IncidentRoomChangeset}
   alias Ryker.Slack.Names
-  alias Ryker.State.Records
 
   @now ~U[2026-09-24 12:00:00Z]
 
