@@ -114,6 +114,11 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     assert has_element?(view, ".case-entry .input-queue")
     refute has_element?(view, "#standalone-getting-ready")
     refute has_element?(view, ".standalone-preparation")
+
+    # The routing briefing named its parts "Ryker admission instructions" and
+    # "Frozen admission context", Ryker's internal words (seen by Andrew on
+    # this page, 2026-09-26).
+    refute String.downcase(text(page, "main")) =~ "admission"
   end
 
   # Andrew, 2026-09-26, of a second greeting routing answered in the same

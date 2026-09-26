@@ -1213,8 +1213,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp admission_recovery(%{status: :blocked} = entry) do
     %{
-      summary:
-        Redactor.artifact(entry.last_error_code || "Admission blocked", max_bytes: 200).text,
+      summary: Redactor.artifact(entry.last_error_code || "Routing stopped", max_bytes: 200).text,
       href: "/actions/admission/#{URI.encode_www_form(Inbox.ref(entry))}/rearm"
     }
   end
@@ -1228,13 +1227,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
       section("input", "Source input", unless(expired, do: entry.content), options),
       section(
         "instructions",
-        "Ryker admission instructions",
+        "Ryker's routing instructions",
         prompt["instructions"],
         options
       ),
       section(
         "context",
-        "Frozen admission context",
+        "What routing was given",
         unless(expired, do: prompt["context"]),
         options
       ),
