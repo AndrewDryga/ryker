@@ -947,6 +947,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <.card_heading title={@step.title}>
         <:meta :if={@step.search.summary}>{@step.search.summary}</:meta>
       </.card_heading>
+      <p :if={@step.search[:text]} class="case-event-summary">{@step.search.text}</p>
       <dl
         :if={
           @step.search.facts != [] || @step.search[:where] || @step.search[:methods] not in [nil, []]

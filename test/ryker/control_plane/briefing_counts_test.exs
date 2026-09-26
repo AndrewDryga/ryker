@@ -51,18 +51,37 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
              Enum.find_index(ids, &(&1 == briefing.id))
 
     card = selection.step.search
-    assert card.summary == "3 of 48 messages sent"
 
-    assert {"Messages",
-            "2 current · 1 earlier sent · 8 outside the history window · 8 cut to fit"} in card.facts
+    # Andrew, 2026-09-26: "1 of 1 message sent" said nothing. The card says in
+    # a sentence which messages the model was given and why, then the limits,
+    # because here they cut something.
+    assert card.summary == nil
+
+    assert card.text ==
+             "The model was given the 2 new messages and the 1 most recent earlier message " <>
+               "of this request, because this run started a new session, which had not seen " <>
+               "them. 16 earlier messages were left out: 8 beyond the 40 most recent and 8 " <>
+               "to fit the size limit."
 
     assert {"Limits", "Up to 40 messages · 160 KiB of context"} in card.facts
+    refute Enum.any?(card.facts, fn {label, _value} -> label == "Messages" end)
 
     # Sent is counted from the frozen request, the exact set that reached the
     # model; this ledger claims thirty earlier messages and the request has one.
-    refute Enum.any?(card.facts, fn {_label, value} -> value =~ "30" end)
+    refute card.text =~ "30"
 
     html = rendered(work.episode)
+
+    selection_card =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("##{selection.id}")
+
+    assert selection_card |> LazyHTML.query(".case-event-summary") |> LazyHTML.text() =~
+             "The model was given the 2 new messages"
+
+    assert Enum.empty?(LazyHTML.query(selection_card, ".case-card-heading-meta"))
+    assert LazyHTML.text(selection_card) =~ "Selection record"
 
     # Match the count, not the digits: the card shows its time, and any run at
     # a minute or second of 48 failed here.
@@ -100,9 +119,57 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
 
     {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
     card = Enum.find(timeline.items, &String.starts_with?(&1.id, "event-selection-")).step.search
-    assert card.summary == "Continues the session · 1 new message"
-    assert {"Messages", "1 new · 4 earlier already in the session"} in card.facts
-    refute Enum.any?(card.facts, fn {_label, value} -> value =~ "omitted" end)
+    assert card.summary == nil
+
+    assert card.text ==
+             "The model was given only this message. This run continues the session, which " <>
+               "already has the 4 earlier messages of this request."
+
+    # Nothing was cut, so no limits are named.
+    assert card.facts == []
+    refute card.text =~ "left out"
+  end
+
+  test "a request's first message says it was sent alone, with no counter and no limits" do
+    # Andrew, 2026-09-26: the card's header said "1 of 1 message sent" and
+    # listed limits that cut nothing.
+    work =
+      frozen!(
+        "first",
+        %{
+          "version" => 1,
+          "mode" => "full",
+          "inputs" => %{
+            "eligible" => 1,
+            "current" => 1,
+            "earlier_included" => 0,
+            "omitted_window" => 0,
+            "omitted_fit" => 0
+          },
+          "limits" => %{"max_inputs" => 40, "context_bytes" => 163_840}
+        },
+        items: [%{"current" => true}]
+      )
+
+    {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
+    selection = Enum.find(timeline.items, &String.starts_with?(&1.id, "event-selection-"))
+    card = selection.step.search
+
+    assert card.text ==
+             "The model was given this message only. It is the first message of this request."
+
+    assert card.facts == []
+
+    text =
+      work.episode
+      |> rendered()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("##{selection.id}")
+      |> LazyHTML.text()
+
+    refute text =~ "1 of 1"
+    refute text =~ "Limits"
+    assert text =~ "Selection record"
   end
 
   test "the search for earlier work is its own card, before the briefing it fed" do
@@ -322,16 +389,16 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
           "current_inputs" => %{"items" => [%{"current" => true}], "omitted_count" => 0}
         }
       else
+        items =
+          Keyword.get(options, :items, [
+            %{"current" => true},
+            %{"current" => true},
+            %{"current" => false}
+          ])
+
         %{
           "mode" => "full",
-          "inputs" => %{
-            "items" => [
-              %{"current" => true},
-              %{"current" => true},
-              %{"current" => false}
-            ],
-            "omitted_count" => 16
-          },
+          "inputs" => %{"items" => items, "omitted_count" => 16},
           "records" => []
         }
       end

@@ -94,15 +94,21 @@ facts and say a newer revision won. No source acknowledgement log exists, so
 that row is always "Not recorded". The standalone input view at
 `/timeline/ingress-input:<id>` carries the same four Getting ready cards.
 
-Each briefing card's counted rows say what they counted over. Included comes
-from the frozen context, which is the exact set that reached the model, so a
-stale or wrong ledger can never inflate it. Eligible and the two kinds of
-omission come from `episode_work_turns.selection_ledger`, written beside the
-frozen submission while the selection was being made: how many inputs were
-eligible, how many fell outside the bounded history window, and how many were
-cut to fit. A turn frozen before that column renders "selection not recorded"
-rather than a zero, and a same-session update counts earlier messages as "not
-resent", never as omitted. Routing rows read the frozen admission snapshot:
+Each Work run's **Context selection** card, before its briefing, says in a
+sentence which of the request's messages the model was given and why: a new
+session starts with nothing, so the request's earlier messages go with the new
+ones; a run that continues the same session sends only what is new, because
+the session already has the rest. Only when something was left out does the
+card say how many and which limit cut them (beyond the most recent messages the
+history window keeps, or to fit the size limit), list the other kinds it cut
+("Source notes: 2 of 5 sent") and name the limits; it carries no counter. Sent
+is counted from the frozen context, which is the exact set that reached the
+model, so a stale or wrong ledger can never inflate it. Eligible and the two
+kinds of omission come from `episode_work_turns.selection_ledger`, written
+beside the frozen submission while the selection was being made, and kept
+under the card's Selection record. A run frozen before that column has no
+Context selection card, and a same-session update never counts earlier
+messages as omitted. Routing rows read the frozen admission snapshot:
 "N checked · M offered" from its conversation episode count and candidate list,
 with recorded knowledge omissions; without a retained snapshot the row says the
 search scope was not recorded. Offered is not chosen — the model's choice is a

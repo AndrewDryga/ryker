@@ -4,8 +4,10 @@ defmodule Ryker.ControlPlane.ContextSelection do
 
   The selection ledger is Ryker's own record of preparing the turn, not part
   of the prompt, so it is a card of its own before the Work briefing. The
-  briefing shows exactly what was sent; this card says what else existed and
-  why it was not sent.
+  briefing shows exactly what was sent; this card says in a sentence which of
+  the request's messages the model was given and why, then names the limits
+  only when they cut something. A count with nothing left out ("1 of 1
+  message sent") said nothing, so the card carries no counter.
   """
 
   @listed [
@@ -21,12 +23,15 @@ defmodule Ryker.ControlPlane.ContextSelection do
   @doc "The card's content for a turn's selection ledger, or nil when none was recorded."
   @spec present(map() | nil, map() | nil) :: map() | nil
   def present(%{"inputs" => %{} = inputs} = ledger, context) do
+    listed = listed(ledger)
+    cut? = left_out(ledger["mode"], inputs) > 0 or listed != []
+
     %{
-      summary: summary(ledger["mode"], inputs, context),
+      summary: nil,
+      text: sentence(ledger["mode"], inputs, context, ledger["limits"]),
       facts:
         Enum.reject(
-          [{"Messages", messages(ledger["mode"], inputs, context)}] ++
-            listed(ledger) ++ [{"Limits", limits(ledger["limits"])}],
+          listed ++ [{"Limits", if(cut?, do: limits(ledger["limits"]))}],
           &is_nil(elem(&1, 1))
         ),
       record: Jason.encode!(ledger, pretty: true),
@@ -36,33 +41,81 @@ defmodule Ryker.ControlPlane.ContextSelection do
 
   def present(_ledger, _context), do: nil
 
-  defp summary("continuation", inputs, _context),
-    do: "Continues the session · #{plural(integer(inputs["current"]), "new message")}"
+  # A continuation sends only what is new: the session already holds the rest.
+  defp sentence("continuation", inputs, _context, _limits) do
+    new = integer(inputs["current"])
 
-  defp summary(_mode, %{"eligible" => eligible} = inputs, context) when is_integer(eligible) do
-    sent = integer(inputs["current"]) + earlier_sent(inputs, context)
-    "#{sent} of #{plural(eligible, "message")} sent"
+    case integer(inputs["earlier_not_resent"]) do
+      0 ->
+        "The model was given only #{new_messages(new)}. This run continues the same session."
+
+      earlier ->
+        "The model was given only #{new_messages(new)}. This run continues the session, " <>
+          "which already has the #{plural(earlier, "earlier message")} of this request."
+    end
   end
 
-  defp summary(_mode, _inputs, _context), do: nil
+  # A new session starts with nothing, so the request's earlier messages go
+  # with the new ones, the most recent first to stay when something must go.
+  defp sentence(_full, inputs, context, limits) do
+    new = integer(inputs["current"])
+    earlier = earlier_sent(inputs, context)
+    left_out = left_out("full", inputs)
 
-  defp messages("continuation", inputs, _context) do
-    [
-      count(inputs["current"], "new"),
-      positive(inputs["earlier_not_resent"], &"#{&1} earlier already in the session")
-    ]
-    |> join()
+    given =
+      cond do
+        earlier > 0 and left_out > 0 ->
+          "The model was given #{new_messages(new)} and the " <>
+            most_recent(earlier) <> " of this request, " <> new_session()
+
+        earlier > 0 ->
+          "The model was given #{new_messages(new)} and the " <>
+            "#{plural(earlier, "earlier message")} of this request, " <> new_session()
+
+        left_out > 0 ->
+          "The model was given #{new_messages(new)} only."
+
+        true ->
+          "The model was given #{new_messages(new)} only. " <> first(new)
+      end
+
+    [given, left_out_sentence(inputs, left_out, limits)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
   end
 
-  defp messages(_mode, inputs, context) do
-    [
-      count(inputs["current"], "current"),
-      positive(earlier_sent(inputs, context), &"#{&1} earlier sent"),
-      positive(inputs["omitted_window"], &"#{&1} outside the history window"),
-      positive(inputs["omitted_fit"], &"#{&1} cut to fit")
-    ]
-    |> join()
+  defp new_session, do: "because this run started a new session, which had not seen them."
+
+  defp first(1), do: "It is the first message of this request."
+  defp first(_new), do: "They are the first messages of this request."
+
+  defp new_messages(1), do: "this message"
+  defp new_messages(count), do: "the #{count} new messages"
+
+  defp most_recent(1), do: "1 most recent earlier message"
+  defp most_recent(count), do: "#{count} most recent earlier messages"
+
+  defp left_out_sentence(_inputs, 0, _limits), do: nil
+
+  defp left_out_sentence(inputs, left_out, limits) do
+    reasons =
+      [
+        positive(inputs["omitted_window"], &"#{&1} #{window(limits)}"),
+        positive(inputs["omitted_fit"], &"#{&1} to fit the size limit")
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    "#{plural(left_out, "earlier message")} #{were(left_out)} left out: " <>
+      Enum.join(reasons, " and ") <> "."
   end
+
+  defp window(%{"max_inputs" => max}) when is_integer(max), do: "beyond the #{max} most recent"
+  defp window(_limits), do: "outside the history window"
+
+  defp left_out("full", inputs),
+    do: integer(inputs["omitted_window"]) + integer(inputs["omitted_fit"])
+
+  defp left_out(_mode, _inputs), do: 0
 
   # What was sent is counted from the frozen request, which is the exact set
   # that reached the model; the ledger's own figure is only a fallback.
@@ -89,19 +142,12 @@ defmodule Ryker.ControlPlane.ContextSelection do
   defp plural(1, noun), do: "1 #{noun}"
   defp plural(value, noun), do: "#{value} #{noun}s"
 
-  defp count(value, noun) when is_integer(value), do: "#{value} #{noun}"
-  defp count(_value, _noun), do: nil
+  defp were(1), do: "was"
+  defp were(_count), do: "were"
 
   defp positive(value, format) when is_integer(value) and value > 0, do: format.(value)
   defp positive(_value, _format), do: nil
 
   defp integer(value) when is_integer(value), do: value
   defp integer(_value), do: 0
-
-  defp join(parts) do
-    case Enum.reject(parts, &is_nil/1) do
-      [] -> nil
-      parts -> Enum.join(parts, " · ")
-    end
-  end
 end
