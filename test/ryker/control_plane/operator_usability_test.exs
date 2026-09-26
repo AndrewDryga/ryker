@@ -12,6 +12,8 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     SubscriptionsPage
   }
 
+  alias Ryker.Work.FailureCause
+
   @now ~U[2026-09-24 12:00:00Z]
 
   test "a timer follow-up says when work continues without pretending to watch any source" do
@@ -344,6 +346,41 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert html =~ "href=\"/integrations/github\""
     refute html =~ "/actions/publication/"
     refute html =~ "No recognized error explanation"
+  end
+
+  # 2026-09-26: the model account behind routing ran out of usage for three
+  # days, and every message stopped with "The saved error does not name a
+  # cause Ryker recognises" while the saved error held the provider's own
+  # sentence saying so and when it would run again.
+  test "a model account out of usage says so, when it comes back, and what to do" do
+    detail =
+      ~s({:coop_turn_failed, "failed", "rate_limited", "provider rate limited the turn: You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 29th, 2026 8:59 PM."})
+
+    assert %{cause: cause, next_step: next_step} = FailureCause.explain(detail)
+    assert cause =~ "usage limit"
+    assert cause =~ "Sep 29th, 2026 8:59 PM"
+    assert next_step =~ "credits"
+
+    row = %{
+      kind: "admission",
+      ref: "ingress-input:one",
+      action: :rearm,
+      attempt_count: 1,
+      cause: cause,
+      destination: "control_plane:local / conversation",
+      status: :blocked,
+      summary: "rate_limited",
+      updated_at: @now
+    }
+
+    explained = FailureExplanation.explain(row, @now)
+    assert explained.summary =~ "usage limit"
+    assert explained.outlook == :fix_first
+    assert %{href: "/settings/models", recommended: true} = hd(explained.options)
+
+    assert %{note: note} = Enum.find(explained.options, &(&1.label == "Read the message again"))
+    assert note =~ "can run again"
+    refute inspect(explained) =~ "does not name a cause"
   end
 
   # A message whose reading run stopped is read again by a fresh run on its
