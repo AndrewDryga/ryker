@@ -101,8 +101,32 @@ defmodule Ryker.Settings.Environment do
       :unknown_connection
     )
     |> validate_inclusion(:parallel_goal_limit, 1..3)
+    |> validate_unique_name(snapshot)
     |> put_repositories(repositories, current, snapshot)
   end
+
+  # Chat's picker, channel settings and every list name an environment by its
+  # name alone, so two with one name could not be told apart (manual testing,
+  # 2026-09-26, found a second "Production" saved beside the first).
+  defp validate_unique_name(changeset, snapshot) do
+    ref = get_field(changeset, :ref)
+    name = comparable_name(get_field(changeset, :display_name))
+
+    taken? =
+      name != nil and
+        Enum.any?(
+          snapshot.environments,
+          &(&1.ref != ref and comparable_name(&1.display_name) == name)
+        )
+
+    if taken?,
+      do:
+        add_error(changeset, :display_name, "is used by another environment", validation: :taken),
+      else: changeset
+  end
+
+  defp comparable_name(name) when is_binary(name), do: name |> String.trim() |> String.downcase()
+  defp comparable_name(_name), do: nil
 
   defp put_repositories(changeset, nil, _current, _snapshot), do: changeset
 

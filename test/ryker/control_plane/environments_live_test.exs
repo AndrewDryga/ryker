@@ -393,6 +393,21 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
              production = Settings.Environment.default(Settings.fetch!())
 
     assert Settings.Environment.repository_refs(production) == ["api"]
+
+    # Manual testing, 2026-09-26: a second "Production" was saved beside the first.
+    {:ok, view, _html} = open("/environments?edit=new")
+
+    view
+    |> form("#environment-editor-new form",
+      environment: %{display_name: "production", repositories: ["", "api"]}
+    )
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "#environment-editor-new .form-feedback-error",
+             "Another environment already has this name. Choose a different one."
+           )
   end
 
   test "a repository work cannot open beside the others is refused in words, the default too" do
