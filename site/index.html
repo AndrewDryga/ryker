@@ -21,18 +21,17 @@
 
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="assets/brand/avatar.svg" type="image/svg+xml">
-<link rel="preload" href="assets/fonts/SpaceGroteskVariable.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/site.css">
-<link rel="stylesheet" href="assets/report.css">
 </head>
-<body class="report">
+<body>
 
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="nav">
   <div class="wrap nav-in">
-    <a class="wordmark" href="index.html"><img src="assets/brand/lockup-color.svg" alt="Ryker" width="160" height="56"></a>
+    <a class="wordmark" href="index.html"><img src="assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61"></a>
 
     <nav class="nav-links" aria-label="Main">
       <a href="#how">How it works</a>
@@ -130,7 +129,7 @@
             <figcaption id="s-triage-cap" class="vh">Ryker&rsquo;s triage. At 12:16 PM: production pyke-server applied, but VA1 pyke did not deploy &mdash; its rollout missed the progress deadline and automatically rolled back to job version 5. Keep that rollback in place and avoid retrying until the failed allocation or health check is identified. Customer impact is unverified. Later, on the logs question: image tag 5a56520 does not exist in the registry; all three replacement allocations failed with manifest unknown and never started, so there are no app logs &mdash; the Nomad driver events are the failure record.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
-                <span class="slack-av av-app">R</span>
+                <img class="slack-av" src="assets/brand/avatar.svg" alt="" width="36" height="36">
                 <div class="slack-said">
                   <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">12:16 PM</span></p>
                   <p class="slack-text">Production pyke-server applied, but <strong>VA1 pyke did not deploy</strong>: its rollout missed the progress deadline and automatically rolled back to job version 5. Keep that rollback in place and avoid retrying until the failed allocation or health check is identified.</p>
@@ -138,7 +137,7 @@
                 </div>
               </div>
               <div class="slack-msg">
-                <span class="slack-av av-app">R</span>
+                <img class="slack-av" src="assets/brand/avatar.svg" alt="" width="36" height="36">
                 <div class="slack-said">
                   <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:02 PM</span></p>
                   <p class="slack-text">It happened because image tag <strong>5a56520&hellip; doesn&rsquo;t exist in the registry.</strong> All three replacement allocations failed with &ldquo;manifest unknown&rdquo;, exhausted their retries, and never started &mdash; so there are no app logs; the Nomad driver events are the failure record.</p>
@@ -168,7 +167,7 @@
                 </div>
               </div>
               <div class="slack-msg">
-                <span class="slack-av av-app">R</span>
+                <img class="slack-av" src="assets/brand/avatar.svg" alt="" width="36" height="36">
                 <div class="slack-said">
                   <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:39 PM</span></p>
                   <p class="slack-text">The build/push job really did succeed; the static-analysis failure isn&rsquo;t what caused the rollback. But the exact full-SHA image Nomad requested <strong>still returns 404 from registry mirrors on two nodes</strong> &mdash; CI success and runtime availability don&rsquo;t match.</p>
@@ -199,7 +198,7 @@
             <figcaption id="s-root-cap" class="vh">The root-cause verdict. Ryker, 1:44 PM: root cause &mdash; broken Zot authentication to Artifact Registry, not the CI build, not static analysis. Zot failed upstream with unauthorized access, check credentials, and returned the misleading manifest-unknown 404. Older cached tags explain why another deployment could still succeed. The evidence cannot distinguish a deleted service-account key from a removed IAM grant &mdash; rotate va1-zot-ar-reader either way.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
-                <span class="slack-av av-app">R</span>
+                <img class="slack-av" src="assets/brand/avatar.svg" alt="" width="36" height="36">
                 <div class="slack-said">
                   <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:44 PM</span></p>
                   <p class="slack-text"><strong>Root cause: broken Zot authentication to Artifact Registry</strong> &mdash; not the CI build, not static analysis. Zot failed upstream with &ldquo;unauthorized access. check credentials&rdquo; and returned the misleading &ldquo;manifest unknown&rdquo; 404. Older cached tags explain why another deployment could still succeed.</p>
@@ -223,7 +222,7 @@
             <figcaption id="mock-pr-cap" class="vh">The pull-request card Ryker posted. At 1:50 PM: completed and committed &mdash; Zot: roll credentials and alert on auth failures. Then: draft PR ready, with a button to open draft PR 526. The branch contains the exact tree approved by the latest readiness review; publication used lease protection. Draft only &mdash; Ryker did not merge, deploy, sign, or change infrastructure.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
-                <span class="slack-av av-app">R</span>
+                <img class="slack-av" src="assets/brand/avatar.svg" alt="" width="36" height="36">
                 <div class="slack-said">
                   <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:50 PM</span></p>
                   <p class="slack-text">Completed and committed &mdash; <strong>Zot: roll credentials and alert on auth failures.</strong> Credential rotations now roll every Zot allocation, and Grafana alerts on the exact auth error even while <span class="slack-code">/v2/</span> stays ready.</p>
@@ -252,14 +251,14 @@
             <figcaption id="s-watch-cap" class="vh">The follow-through. Ryker, 1:53 PM: checks passed &mdash; GitHub checks passed for PR 526, five of five; it is ready for review or merge. At 1:59 PM: PR 526 was merged; I&rsquo;ll keep this thread linked to matching deployment and Terraform updates for 14 days. Then a delivery update: the va1-observability workspace applied the merge revision from PR 526.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
-                <span class="slack-av av-app">R</span>
+                <img class="slack-av" src="assets/brand/avatar.svg" alt="" width="36" height="36">
                 <div class="slack-said">
                   <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:53 PM</span></p>
                   <p class="slack-text"><strong>Checks passed.</strong> GitHub checks passed for PR #526 (5 of 5). It is ready for review or merge.</p>
                 </div>
               </div>
               <div class="slack-msg">
-                <span class="slack-av av-app">R</span>
+                <img class="slack-av" src="assets/brand/avatar.svg" alt="" width="36" height="36">
                 <div class="slack-said">
                   <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:59 PM</span></p>
                   <p class="slack-text"><strong>PR merged.</strong> I&rsquo;ll keep this thread linked to matching deployment and Terraform updates for 14 days.</p>
@@ -284,7 +283,7 @@
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-day"><span>Aug 15</span></div>
               <div class="slack-msg">
-                <span class="slack-av av-app">R</span>
+                <img class="slack-av" src="assets/brand/avatar.svg" alt="" width="36" height="36">
                 <div class="slack-said">
                   <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:55 PM</span></p>
                   <p class="slack-text"><strong>Not recurring.</strong> The last 24 hours contain no matching auth or upstream-sync failures. All five node-local Zot instances synced the exact pinned manifest on demand and returned the same OCI manifest. Nomad shows five healthy allocations, one per VA1 node.</p>
@@ -308,7 +307,7 @@
         <h2 id="mech-h">How does it do that?</h2>
         <p>Four habits, enforced by Ryker, not left to the model.</p>
       </div>
-      <div class="pillars mech">
+      <div class="pillars">
         <article class="pillar">
           <h3>It uses your tools</h3>
           <p>Repositories, metrics, logs, registries &mdash; whatever your team connects through Emisar&rsquo;s governed, typed actions. There is no production shell: Emisar&rsquo;s policy decides what runs and what waits for a person, and everything is audited.</p>
@@ -552,7 +551,7 @@
 
 <footer class="foot">
   <div class="wrap colophon">
-    <p><span class="dot-ok" aria-hidden="true"></span>Ryker</p>
+    <p><img class="foot-lockup" src="assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61"></p>
     <p>
       <a href="docs/index.html">Docs</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/ryker">GitHub</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/ryker/blob/main/SECURITY.md">Security</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/ryker/blob/main/LICENSE">Business Source License 1.1</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/ryker/releases">Releases</a>
     </p>

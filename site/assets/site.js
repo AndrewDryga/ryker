@@ -139,7 +139,7 @@
   var observer = new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) { seen[entry.target.id] = entry.isIntersecting; });
     mark();
-  }, { rootMargin: "-72px 0px -60% 0px", threshold: 0 });
+  }, { rootMargin: "-88px 0px -60% 0px", threshold: 0 });
 
   targets.forEach(function (heading) { observer.observe(heading); });
   mark();
