@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, Batches, InputMembership, Runtime}
   alias Ryker.Repo
+  alias Ryker.Settings.Installation
   alias Ryker.Settings.Learning, as: LearningSetting
   alias Ryker.State.{ConversationKnowledge, LearningRun}
   alias Ryker.Work.Turn
@@ -59,7 +60,14 @@ defmodule Ryker.ControlPlane.LearningActivity do
       end
 
     %{
-      state: state(enabled, worker_running, setting_enabled(), enabled and policy_refused?()),
+      state:
+        state(
+          setting_enabled(),
+          enabled,
+          worker_running,
+          enabled and policy_refused?(),
+          applying?()
+        ),
       enabled: enabled,
       worker_running: worker_running,
       counts: batch_counts(),
@@ -73,13 +81,28 @@ defmodule Ryker.ControlPlane.LearningActivity do
     }
   end
 
-  # What a person should read first: the runtime decides whether learning
-  # runs, and the saved choice explains a runtime that does not.
-  defp state(true, true, _setting, true), do: :paused
-  defp state(true, true, _setting, _refused), do: :on
-  defp state(true, false, _setting, _refused), do: :not_running
-  defp state(false, _worker, true, _refused), do: :cannot_start
-  defp state(false, _worker, _setting, _refused), do: :off
+  # What a person should read first. The saved choice leads, so the line
+  # agrees with the switch the moment it is pressed: turned off is off while
+  # the runtime lets running passes finish, and turned on is starting until
+  # the runtime has applied it. The runtime then says whether learning runs.
+  defp state(false, _enabled, _worker, _refused, _applying), do: :off
+  defp state(_setting, true, true, true, _applying), do: :paused
+  defp state(_setting, true, true, _refused, _applying), do: :on
+  defp state(_setting, true, false, _refused, _applying), do: :not_running
+  defp state(true, false, _worker, _refused, true), do: :starting
+  defp state(true, false, _worker, _refused, false), do: :cannot_start
+  defp state(nil, false, _worker, _refused, _applying), do: :off
+
+  # Whether the newest saved settings are still being applied to the runtime.
+  defp applying? do
+    Repo.exists?(
+      from(installation in Installation,
+        where:
+          installation.applied_revision < installation.revision and
+            is_nil(installation.failure_code)
+      )
+    )
+  end
 
   # The worker gave a session of the configured policy more than an isolated
   # scratch, so learning holds every new attempt until the policy changes.

@@ -1890,6 +1890,9 @@
 .learning-switch { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
 .ryker-app .learning-switch .ui-button { min-height:36px; padding:6px 14px; font-size:13px; line-height:18px; }
 .ryker-app .learning-switch-error { margin:0; max-width:32ch; font-size:13px; line-height:18px; color:var(--ryker-error); text-align:right; }
+/* Turning learning off asks in place of the switch, as wide as the
+   header's action column allows. */
+.learning-switch .settings-confirm { max-width:360px; margin:0; }
 .memory-retry { margin:8px 0 0; }
 .ryker-app .memory-retry .ui-button { min-height:36px; padding:6px 14px; font-size:13px; line-height:18px; }
 .memory-details { max-width:720px; margin:6px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
