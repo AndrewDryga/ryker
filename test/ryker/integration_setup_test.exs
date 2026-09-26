@@ -24,8 +24,19 @@ defmodule Ryker.IntegrationSetupTest do
   defmodule Requester do
     def request(client, method, path, body, headers) do
       send(self(), {:provider_request, client.base_url, method, path, body, headers})
-      response_for(path)
+      {:ok, token} = client.token_provider.()
+      response_for(path, token)
     end
+
+    # Like GitHub: the App's own token answers only /app endpoints, and
+    # /users needs an installation's token. The live GitHub repair failed on
+    # 2026-09-26 with "did not return the App's bot account" for a valid key,
+    # because the bot account was read with the App's token, which this
+    # double used to accept.
+    defp response_for("/users/" <> _login, token) when token != "installation-token",
+      do: {:ok, %{body: %{"message" => "Bad credentials"}, headers: [], status: 401}}
+
+    defp response_for(path, _token), do: response_for(path)
 
     defp response_for("/apps.connections.open"),
       do: response(%{"ok" => true, "url" => "wss://wss-primary.slack.com/link"})

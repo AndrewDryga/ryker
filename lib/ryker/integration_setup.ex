@@ -91,7 +91,7 @@ defmodule Ryker.IntegrationSetup do
          {:ok, app_http} <- github_app_http(signer, api_url, options),
          {:ok, %{body: app, status: 200}} <- request(app_http, :get, "/app", nil, [], options),
          :ok <- exact_app(app, app_id),
-         {:ok, actor} <- github_actor(app_http, app["slug"], options),
+         {:ok, actor} <- github_actor(app_http, api_url, app["slug"], options),
          {:ok, _key} <-
            Credentials.put(:github_private_key, "primary", private_key, @actor),
          {:ok, _secret} <-
@@ -636,7 +636,8 @@ defmodule Ryker.IntegrationSetup do
              {:ok, pem} <- Credentials.fetch(:github_private_key, "primary"),
              {:ok, signer} <- AppJWT.new(app_id, pem),
              {:ok, app_http} <- github_app_http(signer, snapshot.github.api_url, options),
-             {:ok, actor} <- github_actor(app_http, snapshot.github.app_slug, options) do
+             {:ok, actor} <-
+               github_actor(app_http, snapshot.github.api_url, snapshot.github.app_slug, options) do
           {:ok, actor["id"]}
         else
           nil -> {:error, {:github_verification_failed, :app_not_connected}}
@@ -830,11 +831,49 @@ defmodule Ryker.IntegrationSetup do
   defp maybe_grant(grants, true, grant), do: grants ++ [grant]
   defp maybe_grant(grants, false, _grant), do: grants
 
-  defp github_actor(http, slug, options) when is_binary(slug),
-    do: github_user(http, slug <> "[bot]", options)
+  # GitHub answers the App's own token only on /app endpoints: a /users
+  # lookup with it is 401 Bad credentials, which failed every GitHub setup and
+  # repair from 2026-09-20 as "did not return the App's bot account" (found
+  # repairing the live install on 2026-09-26). The bot account is read with
+  # one installation's token instead.
+  defp github_actor(app_http, api_url, slug, options) when is_binary(slug) do
+    with {:ok, installation_http} <- any_installation_http(app_http, api_url, options),
+         do: github_user(installation_http, slug <> "[bot]", options)
+  end
 
-  defp github_actor(_http, _slug, _options),
+  defp github_actor(_app_http, _api_url, _slug, _options),
     do: {:error, {:github_verification_failed, :actor}}
+
+  defp any_installation_http(app_http, api_url, options) do
+    case request(app_http, :get, "/app/installations?per_page=100", nil, [], options) do
+      {:ok, %{body: [%{"id" => id} | _installations], status: 200}} when is_integer(id) ->
+        installation_token_http(app_http, api_url, id, options)
+
+      {:ok, %{body: [], status: 200}} ->
+        {:error, {:github_verification_failed, :app_not_installed}}
+
+      {:error, _reason} = error ->
+        error
+
+      _invalid ->
+        {:error, {:github_verification_failed, :installations}}
+    end
+  end
+
+  defp installation_token_http(app_http, api_url, id, options) do
+    path = "/app/installations/#{id}/access_tokens"
+
+    case request(app_http, :post, path, %{}, [], options) do
+      {:ok, %{body: %{"token" => token}, status: 201}} when is_binary(token) ->
+        json_http(api_url, token, options)
+
+      {:error, _reason} = error ->
+        error
+
+      _invalid ->
+        {:error, {:github_verification_failed, :actor}}
+    end
+  end
 
   defp github_user(http, login, options) do
     path = "/users/" <> URI.encode(login, &URI.char_unreserved?/1)
