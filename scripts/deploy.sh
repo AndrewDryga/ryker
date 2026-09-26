@@ -12,6 +12,7 @@
 #      fails on real rows is undone from that archive, not by hand;
 #   3. build the image from a clean git worktree of HEAD, so nothing in the
 #      working directory that git does not know about can reach the image;
+#      a build that fails stops here, before the backup, with nothing changed;
 #   4. replace only the ryker container (`up --detach --build --wait
 #      --no-deps ryker`); PostgreSQL, the bundled worker and its Docker
 #      daemon keep running and are never rebuilt here;
@@ -119,6 +120,15 @@ compose=(docker compose --env-file "$env_file" --file "$worktree/compose.yml")
 say "deploying ryker $version (commit ${head:0:12}) from a clean worktree at $worktree"
 say "currently pinned: ${previous_version:-nothing} (${previous_image:-no image})"
 
+# --- the image is built before anything changes -----------------------------
+# A build that fails leaves the running release, the database and compose.env
+# exactly as they were, and takes no backup.
+say "building $image"
+if ! env RYKER_VERSION="$version" RYKER_IMAGE="$image" "${compose[@]}" build ryker; then
+  echo "deploy: FAILED — $image did not build; nothing was replaced and ${previous_version:-nothing} is still running" >&2
+  exit 1
+fi
+
 # --- the database is backed up before anything changes ---------------------
 "${compose[@]}" exec -T database pg_isready -U ryker -d ryker >/dev/null 2>&1 ||
   fail "the database container is not running; start the project first (scripts/compose.sh start)"
@@ -149,9 +159,9 @@ report_failure() {
   exit 1
 }
 
-say "building $image and replacing the ryker container (migrations run when it boots)"
+say "replacing the ryker container with $image (migrations run when it boots)"
 if ! env RYKER_VERSION="$version" RYKER_IMAGE="$image" \
-  "${compose[@]}" up --detach --build --wait --wait-timeout "$ready_timeout" --no-deps ryker; then
+  "${compose[@]}" up --detach --no-build --wait --wait-timeout "$ready_timeout" --no-deps ryker; then
   report_failure "the ryker container did not become healthy as $version"
 fi
 
