@@ -31,8 +31,8 @@ defmodule Ryker.ControlPlane.RelearnPanel do
         The learning model receives those current originals, not the unavailable topic or its old summaries. This never sends a reply.
       </p>
       <p>
-        New requests and explicit retries use the current learning policy.
-        Earlier attempts keep their original policy, results, and spent starts.
+        New requests and retries you grant use the learning settings in place now.
+        Earlier attempts keep the settings they ran with, their results and the starts they used.
       </p>
       <p :if={@preview.existing_batch} class="relearn-existing">
         A relearning request already exists ·

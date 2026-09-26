@@ -106,7 +106,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   end
 
   @tag :policy_recovery_ui
-  test "retry explains its current policy and is unavailable when learning has no valid configuration" do
+  test "retry says it uses the settings in place now and is unavailable when learning has none" do
     inputs!()
     assert {:ok, claim} = Batches.claim("inspection-test", @settings)
     assert {:ok, _} = Batches.finish(claim, :deferred, "learning_retry_exhausted")
@@ -116,8 +116,11 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
 
     html = render(params)
 
-    assert html =~ "current learning policy"
-    assert html =~ "available-account"
+    # It uses the learning settings in place now, said in those words; the
+    # worker's name for its policy stays off the page (QA re-test,
+    # 2026-09-26: "the current learning policy, ryker-learning").
+    assert html =~ "using the learning settings in place now"
+    refute html =~ "available-account"
 
     Application.delete_env(:ryker, :learning)
     selected = LearningActivity.project(params).selected

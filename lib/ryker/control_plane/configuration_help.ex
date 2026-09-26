@@ -4,181 +4,183 @@ defmodule Ryker.ControlPlane.ConfigurationHelp do
   config parser.
 
   Each setting has a title and a line under it in plain words, which is all a
-  reader sees until they open its Details; the behaviour and the default
-  there keep the precise terms support needs. A retention limit carries the
-  name the Data retention page gives it.
+  reader sees until they open its Details. The behaviour and the default
+  there are plain words too (QA re-test, 2026-09-26, found "v1 loader" and
+  "admission.policy.digest" in them); the setting's name in the file and its
+  loaded value are the precise terms support needs. A retention limit
+  carries the name the Data retention page gives it.
   """
 
   # Defaults describe the shipped operational defaults, not a configuration file.
   # Retention horizons are required inputs and deliberately have no default.
-  @required_retention "Required when retention is configured; there is no implicit default."
+  @required_retention "Required when cleanup is set up; there is no default."
   @settings %{
     "admission" => {
       "Routing",
       "Decides whether an incoming message needs a reply, a reaction, more work or nothing.",
-      "Runs before Work. It uses a pinned classifier policy and durable queue; enabling it does not mean a classifier worker is currently available.",
-      "Required by the v1 configuration."
+      "Runs before any work starts, under a reviewed worker policy it keeps to. Turning it on does not mean a worker is ready to route right now.",
+      "Always on."
     },
     "work" => {
       "Running work",
       "Runs the conversations and tasks routing accepted, with their models, repositories and tools.",
-      "Product mode assigns work to enrolled Coop workers. Each request keeps its host-selected policy and authority; an input cannot choose broader access.",
-      "Required by the v1 configuration; product mode uses fleet execution."
+      "A full installation runs work on the workers connected to it. Each request keeps the access Ryker chose for it; a message cannot ask for more.",
+      "Always on. A full installation runs work on connected workers."
     },
     "control_plane" => {
       "This console and Chat",
       "Serves this console, Chat and the actions you take here.",
-      "The listener accepts loopback connections only. Conversation messages use the configured Work profile; repository and Emisar tools retain their real authority.",
-      "Not configured unless the control_plane section is present."
+      "It answers only on this computer. Chat messages run like any other request, and repository and Emisar tools keep their own limits.",
+      "Off unless the settings file has a control_plane section."
     },
     "coop_worker_gateway" => {
       "Worker connections",
       "Lets workers connect to Ryker to receive work and report progress.",
-      "Workers authenticate with mutual TLS to receive work and report progress. A configured gateway is not proof that any worker is connected or eligible for a policy.",
-      "Required in product mode; not configured when omitted in component mode."
+      "Workers prove who they are with certificates before they receive work. Being set up does not mean a worker is connected now, or that one can run a given kind of work.",
+      "Required in a full installation; off in a partial one unless set."
     },
     "delivery" => {
       "Replies and actions",
       "Delivers accepted replies, reactions and actions to where they belong.",
-      "Separate queues retry delivery and reconcile uncertain outcomes. This is distinct from generating a model answer; a finished model run may still be waiting for delivery.",
-      "Required whenever a local, Slack or GitHub delivery adapter is enabled."
+      "Replies wait in their own queue, are retried, and are checked when it is unclear whether one arrived. An answer the model has finished may still be waiting here to be sent.",
+      "On whenever Chat, Slack or GitHub is set up."
     },
     "publication" => {
       "Pull requests",
       "Checks code changes, opens pull requests for approved ones and follows them on GitHub.",
-      "Uses configured repository bindings and the recorded candidate. Enabling the worker does not authorize arbitrary pushes or merges; the publication checks and operator action boundaries still apply.",
-      "Readiness reviews run whenever a delivery adapter is configured. Publishing requires GitHub and an explicitly configured repository binding."
+      "It works only with repositories you set up and the exact change a task recorded. Turning it on never allows other pushes or merges; each pull request still needs its checks and your approval.",
+      "Code reviews run whenever replies can be delivered. Opening pull requests needs GitHub and the repository set up in Ryker."
     },
     "retention" => {
       "Cleanup and retention",
       "Cleans up finished work and deletes old data once it is past its limit.",
-      "Dirty or unpublished work and unresolved custody can prevent cleanup. Data is pruned in ordered stages, not just because it is old. Shorter horizons reduce the evidence available for later inspection.",
-      "Required in product mode; all retention durations must be specified."
+      "Work with unsaved or unpublished changes, or still in use, is never cleaned up. Data is removed in stages, not only by age. Shorter limits leave less history to look back at.",
+      "Required in a full installation, with every limit set."
     },
     "state_tools" => {
       "Ryker's tools",
       "Gives the model Ryker's own tools, such as waiting for an event or offering a task.",
-      "Tools can record progress, request input and use enabled workflow capabilities. Calls still require the session's authority; this is not unrestricted access to the database or every external MCP tool.",
-      "Required in product mode and for the Emisar approval handoff."
+      "The tools record progress, ask people questions and use the features you turned on. Each call is still limited to what its request may do; they give no general access to Ryker's data or to other tools.",
+      "Required in a full installation and for Emisar approvals."
     },
     "event_waits" => {
       "Waiting for events",
       "Resumes work that is waiting for an outside event or a deadline.",
-      "Processes durable subscriptions instead of keeping a model turn running while it waits. Only matching events or the wait's own timeout may resolve that wait.",
-      "Not configured unless the event_waits section is present."
+      "Ryker writes down what the work is waiting for instead of keeping a model running. Only the matching event, or the wait's own time limit, ends the wait.",
+      "Off unless the settings file has an event_waits section."
     },
     "schedules" => {
       "Scheduled work",
       "Starts the work for reminders and schedules when they are due.",
-      "Each occurrence uses its configured destination and policy. Read-only, governed-operation and repository-write policies remain separate; enabling schedules does not widen their authority.",
-      "Not configured unless schedules and its required policy bindings are present."
+      "Each run posts where its schedule says and keeps its schedule's access: reading only, running approved operations and changing code stay separate. Turning schedules on gives none of them more.",
+      "Off unless the settings file sets up schedules and the policies they run under."
     },
     "emisar" => {
       "Emisar approvals",
       "Watches Emisar for approval decisions and resumes the work waiting on them.",
-      "Ryker monitors the exact recorded action; it does not approve or repeat it. This setting is not the catalog of Emisar tools available to a Work policy.",
-      "Not configured unless the emisar section is present; requires state_tools."
+      "Ryker watches the exact action it recorded; it never approves or repeats it. This is not the list of Emisar tools work may use.",
+      "Off unless the settings file has an emisar section; needs Ryker's tools."
     },
     "slack" => {
       "Slack",
       "Receives Slack messages and clicks, and keeps Ryker's replies and cards up to date.",
-      "Workspace identity, channel participation, repository bindings and operator rules restrict what it processes.",
-      "Not configured unless the slack section is present."
+      "It handles only your workspace, the channels Ryker takes part in, and what your rules allow.",
+      "Off unless Slack is set up."
     },
     "github" => {
       "GitHub",
       "Handles GitHub comments, reviews and repository events.",
-      "Signed webhook events are matched to configured app-installation and repository bindings. App permissions and those bindings continue to limit reads, replies and publication.",
-      "Not configured unless the github section is present."
+      "Ryker takes only signed events for the app installation and repositories you set up. The app's permissions and those repositories still limit what it reads, replies to and publishes.",
+      "Off unless GitHub is set up."
     },
     "webhooks" => {
       "Webhooks",
       "Accepts events from the senders you set up, such as alerting and deployment tools.",
-      "Each source has its own verification, mapping and destination scope. This is separate from GitHub's native webhook listener; it is not an unauthenticated generic command endpoint.",
-      "Not configured unless the webhooks section is present."
+      "Each sender has its own signature check, its own way of reading events and its own place to post. This is separate from GitHub's events, and it never runs anything for an unsigned request.",
+      "Off unless a webhook source is set up."
     },
     "runtime.mode" => {
       "Installation mode",
       "Whether this is a full installation or a partial one for development and tests.",
-      "Product mode requires fleet execution, the worker gateway, state tools and retention. Component mode relaxes those assembly requirements for development; it is not the production topology.",
-      "Required YAML field mode: product or component."
+      "A full installation needs workers, their connections, Ryker's tools and cleanup. A partial one leaves some of them out for development; it is not how Ryker runs for a team.",
+      "Required: product (a full installation) or component (a partial one)."
     },
     "admission.policy" => {
       "Routing policy",
       "The worker policy routing runs under. It is a policy name, not a model name.",
-      "The policy selects execution settings and permitted capabilities. Its policy digest pins the exact reviewed content. Configure admission.policy.name and admission.policy.digest together; changing a name alone does not safely change the model.",
-      "Required; choose an existing reviewed Coop policy and its exact digest."
+      "The policy decides the model and what routing may use; its fingerprint pins the exact version that was reviewed. Change the policy's name and fingerprint together: a new name alone does not safely change the model.",
+      "Required: an existing reviewed worker policy and its exact fingerprint."
     },
     "admission.decision_timeout_ms" => {
       "Routing time limit",
       "How long routing waits for one decision.",
-      "A longer timeout can avoid premature admission failures, but does not make the model think faster. This is not the Work execution timeout or the end-to-end reply deadline.",
-      "30 seconds (30000 ms). The v1 loader accepts 1000–300000 ms."
+      "A longer limit avoids giving up on routing too early, but does not make the model think faster. It is not the limit for the work itself or for the whole reply.",
+      "30 seconds. Allowed: 1 second to 5 minutes."
     },
     "work.concurrency" => {
       "Work at the same time",
       "How many pieces of work Ryker moves forward at the same time.",
-      "More slots can reduce queueing when independent work and eligible workers are available. They do not create worker capacity or speed up a single model call, and may increase simultaneous provider usage.",
-      "4 slots. The v1 loader accepts 1–32."
+      "More at once shortens queues when there is separate work and free workers. It adds no workers, does not speed up one model call, and may use more of your model provider at once.",
+      "4 at a time. Allowed: 1 to 32."
     },
     "work.poll_interval_ms" => {
       "Work check interval",
       "How often Ryker looks for work that is ready and for progress on running work.",
-      "A shorter interval reduces polling delay but increases database and worker traffic. It does not make the model think faster and is not the browser's live-update interval.",
-      "250 milliseconds. The v1 loader accepts 1–60000 ms."
+      "A shorter interval notices ready work sooner but adds database and worker traffic. It does not make the model think faster, and it is not how often this console refreshes.",
+      "250 milliseconds. Allowed: 1 millisecond to 1 minute."
     },
     "retention.operational_data_seconds" => {
       "Prompts, replies and tool activity",
       "How long the full text of messages, model calls and tool calls is kept.",
-      "Episode payload cleanup waits for terminal work and proof that its owned sessions are discarded. It may remove model-request evidence before compact history expires. Must not exceed closed-work or conversation-memory retention.",
+      "The text is removed only after its request has finished and its worker sessions are gone, and it can go before the shorter history does. Must not be longer than Finished work or conversation memory.",
       @required_retention
     },
     "retention.closed_work_seconds" => {
       "Finished work",
       "How long closed incident rooms, task cards and their history are kept.",
-      "This is not the grace period for closing a Coop session. Cleanup still checks ownership and terminal state. Must be at least operational retention and no longer than episode-history retention.",
+      "This is not how long a worker session stays open after its work ends. Cleanup still checks that the work is finished and whose it is. Must be at least Prompts, replies and tool activity, and no longer than Request history.",
       @required_retention
     },
     "retention.episode_history_seconds" => {
       "Request history",
       "How long the step-by-step record of each finished request is kept.",
-      "History is removed as a coherent unit, not as isolated events. Compact custody receipts survive until the audit horizon. Must be at least closed-work retention and no longer than audit retention.",
+      "A request's history is removed whole, never step by step. Short receipts stay until the Audit trail limit. Must be at least Finished work and no longer than Audit trail.",
       @required_retention
     },
     "retention.audit_data_seconds" => {
       "Audit trail",
       "How long the short records of what happened are kept, after the rest of a request's history is gone.",
-      "This is the final history horizon and must be at least episode-history retention. Increasing it retains more evidence; it cannot recover records already pruned. Backups have a separate lifecycle.",
+      "The last of a request's history to go; it must be at least Request history. A longer limit keeps more from now on; it cannot bring back what is already gone. Backups are kept separately.",
       @required_retention
     },
     "retention.disposable_bytes_limit" => {
       "Space for unused working copies",
       "How much space one worker may keep for working copies no task is using any more.",
-      "Workers measure their own filesystem and report it; Ryker never estimates bytes it did not receive, and a missing report is unknown rather than zero. Age or pressure never authorises discarding protected work. This bounds workspace allocation, not writes a running task makes inside its own fork.",
+      "Workers measure their own disk and report it; Ryker never guesses, and a missing report counts as unknown, not zero. Neither age nor a full disk lets Ryker delete work that must be kept. This limits copies kept for later, not what a running task writes in its own copy.",
       @required_retention
     },
     "retention.reclaim_target_seconds" => {
       "Cleanup target",
       "How soon a working copy no task needs any more should be deleted from a worker.",
-      "Cleanup ages work from eligibility, not from session creation, and drains it in bounded fair passes. A worker that is offline retries with bounded backoff and is not counted against this target.",
+      "The time counts from when a copy could first be deleted, not from when it was made, and cleanup takes turns fairly across workers. An offline worker is tried again later and does not count against this target.",
       @required_retention
     },
     "retention.storage_high_watermark_bytes" => {
       "Storage limit for new work",
       "Above this much used space, a worker starts no new work that needs a working copy.",
-      "The worker enforces refusal and reports it; Ryker then stops placing new fork-requiring sessions there and names the worker's own reason, while cleanup, control and recovery of existing work continue. Must be above the low watermark and the reserve.",
+      "The worker refuses the work and says so; Ryker then sends it no new work that needs a copy and shows the worker's reason, while cleanup and existing work carry on. Must be above Storage level to start again and Space kept for cleanup.",
       @required_retention
     },
     "retention.storage_low_watermark_bytes" => {
       "Storage level to start again",
       "Below this much used space, a worker takes that kind of work again.",
-      "Recovery follows the worker's own report, so there is no second threshold in Ryker to oscillate against. Must be below the high watermark.",
+      "Ryker follows the worker's own report, so there is no second limit to flip back and forth against. Must be below Storage limit for new work.",
       @required_retention
     },
     "retention.storage_reserve_bytes" => {
       "Space kept for cleanup",
       "The free space a worker keeps so that cleanup can always finish.",
-      "Allocation that would spend the reserve is refused before any fork is created. Must be below the high watermark.",
+      "A copy that would use this space is refused before it is made. Must be below Storage limit for new work.",
       @required_retention
     }
   }
@@ -205,7 +207,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelp do
           title: key,
           purpose: "Explanation unavailable for this setting in this release.",
           behavior:
-            "Inspect the owning configuration loader before changing it; its behavior is not inferred from its name.",
+            "Check what reads this setting before changing it; its name alone does not say what it does.",
           default: "Not documented; do not assume the current value is a default.",
           documented: false
         }

@@ -110,7 +110,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
 
     assert ConfigurationHelp.value("retention.reclaim_target_seconds", "3600") == "1 hour"
     assert page =~ "does not make the model think faster"
-    assert page =~ "Required when retention is configured; there is no implicit default"
+    assert page =~ "Required when cleanup is set up; there is no default"
     # The evidence section must not send an operator back to a file or a
     # restart: these values are assembled from settings that apply live.
     values =
@@ -127,18 +127,61 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
 
   test "readiness availability is not described as GitHub publication authority" do
     page = html([row("publication", "enabled")])
-    assert page =~ "Readiness reviews run whenever a delivery adapter is configured"
-    assert page =~ "Publishing requires GitHub and an explicitly configured repository binding"
+    assert page =~ "Code reviews run whenever replies can be delivered"
+    assert page =~ "Opening pull requests needs GitHub and the repository set up in Ryker"
     refute page =~ "Not configured unless publication is present"
   end
 
   test "policy help explains immutable pins instead of treating policy names as model names" do
     page = html([row("admission.policy", "ryker-admission-v1")])
     assert page =~ "The worker policy routing runs under"
-    assert page =~ "policy digest"
+    assert page =~ "fingerprint pins the exact version that was reviewed"
     assert page =~ "not a model name"
-    assert page =~ "admission.policy.name"
+    assert page =~ "Change the policy&#39;s name and fingerprint together"
     assert page =~ "ryker-admission-v1"
+  end
+
+  test "the details of a loaded setting say what it does in plain words" do
+    # QA re-test, 2026-09-26: "Show what is loaded" said "Configure
+    # admission.policy.name and admission.policy.digest together", "v1
+    # loader", "model turn" and "host-selected policy". The setting's name in
+    # the file and its loaded value stay; the sentences are plain.
+    internal = [
+      "v1 loader",
+      "v1 configuration",
+      "model turn",
+      "host-selected",
+      "admission.policy.name",
+      "digest",
+      "custody",
+      "adapter",
+      "binding",
+      "product mode",
+      "component mode",
+      "fleet",
+      "fork",
+      "horizon",
+      "watermark",
+      "episode",
+      "Episode",
+      "Coop",
+      "mutual TLS",
+      "YAML"
+    ]
+
+    for key <- @settings do
+      %{behavior: behavior, default: default} = ConfigurationHelp.setting(key)
+
+      for term <- internal do
+        refute behavior =~ term, "#{key} behaviour says #{term}: #{behavior}"
+        refute default =~ term, "#{key} default says #{term}: #{default}"
+      end
+    end
+
+    document = html([row("work.concurrency", "4")]) |> LazyHTML.from_document()
+    labels = document |> LazyHTML.query(".settings-row-details dt") |> Enum.map(&text/1)
+    assert "Name in the settings file" in labels
+    refute "Key" in labels
   end
 
   test "policy names are never mistaken for component presence flags" do

@@ -750,7 +750,6 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
           attempts: [attempt],
           attempt_page: 1,
           attempt_pages: 1,
-          retry_policy: "available-account",
           retry_available: true,
           retry_blocked: nil
         })
@@ -764,7 +763,13 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert Enum.empty?(LazyHTML.query(document, "p.kit-status-line, section#recent"))
 
       retry = LazyHTML.query(document, "section#retry")
-      assert LazyHTML.text(retry) =~ "current learning policy, available-account"
+
+      # QA re-test, 2026-09-26: this said "using the current learning policy,
+      # ryker-learning", a worker's name for its rulebook.
+      assert LazyHTML.text(retry) =~
+               "Ryker reads these same messages again with one more start, using the learning settings in place now."
+
+      refute LazyHTML.text(retry) =~ "policy"
 
       form =
         LazyHTML.query(retry, "form[method=post][action='/actions/learning/#{@batch_id}/retry']")

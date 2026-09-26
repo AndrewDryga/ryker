@@ -258,7 +258,7 @@ defmodule Ryker.ControlPlane.LearningPage do
     <section :if={@batch.retry_available && @csrf_secret} id="retry" class="memory-section">
       <Kit.section_head
         title="Try once more"
-        lede={"Ryker reads these same messages again with one more model start, using the current learning policy, #{@batch.retry_policy}. The source messages are checked again first. Earlier attempts and the starts they used stay recorded."}
+        lede="Ryker reads these same messages again with one more start, using the learning settings in place now. The messages are checked again first. Earlier attempts and the starts they used stay recorded."
       />
       <form class="memory-retry" method="post" action={"/actions/learning/" <> @batch.id <> "/retry"}>
         <input type="hidden" name="budget_version" value={@batch.budget_version} />

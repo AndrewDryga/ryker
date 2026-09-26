@@ -60,9 +60,19 @@ defmodule Ryker.ControlPlane.SettingsPoliciesLiveTest do
     assert has_element?(view, "#settings-policies .entity-row .state-word[data-tone=on]", "Ready")
     assert has_element?(view, "#settings-policies .entity-meta", "Offered by 1 worker")
 
-    # The pinned version is support evidence: folded under Details, not in the row.
+    # The reviewed version is support evidence: folded under Details, not in
+    # the row, as a short fingerprint with the whole one a copy away. QA
+    # re-test, 2026-09-26: "Pinned version 68a18a…" and "Authority 947a15…"
+    # read as raw digests under names that said nothing.
+    details = "#settings-policies details.settings-row-details"
     refute has_element?(view, "#settings-policies .entity-meta", @standard)
-    assert has_element?(view, "#settings-policies details.settings-row-details dd", @standard)
+    assert has_element?(view, "#{details} dt", "Reviewed version")
+    assert has_element?(view, "#{details} dt", "Allowed access")
+    assert has_element?(view, "#{details} dd button[data-copy-value='#{@standard}']")
+    assert has_element?(view, "#{details} dd button[data-copy-value='#{@authority}']")
+    refute has_element?(view, "#{details} dd", @standard)
+    refute has_element?(view, "#{details} dt", "Pinned version")
+    refute has_element?(view, "#{details} dt", "Authority")
   end
 
   test "a policy row says where it applies and what it may do, with the worker's names folded away" do
