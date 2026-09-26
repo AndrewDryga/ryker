@@ -10,6 +10,7 @@ defmodule Ryker.Admission.Runtime do
 
   alias Ryker.Admission.{FleetSession, Worker}
   alias Ryker.Coop.Client
+  alias Ryker.Options
 
   @fields [
     :api,
@@ -107,30 +108,22 @@ defmodule Ryker.Admission.Runtime do
     })
   end
 
-  defp normalize_configuration!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration) do
-      configuration |> Map.new() |> normalize_configuration!()
-    else
-      raise ArgumentError, "admission configuration must use unique known fields"
-    end
-  end
+  defp normalize_configuration!(configuration) do
+    missing_or_unknown = "admission configuration has missing or unknown fields"
 
-  defp normalize_configuration!(%{} = configuration) do
+    configuration =
+      Options.normalize!(configuration, @fields, [:policy, :policy_digest, :worker_ref],
+        list: "admission configuration must use unique known fields",
+        map: missing_or_unknown,
+        other: "admission configuration must be a map or keyword list"
+      )
+
     keys = Map.keys(configuration)
-    required = [:policy, :policy_digest, :worker_ref]
 
-    adapter =
-      (:socket in keys and :api not in keys and :client not in keys) or
-        (:socket not in keys and :api in keys and :client in keys)
-
-    if keys -- @fields == [] and Enum.all?(required, &(&1 in keys)) and adapter,
-      do: configuration,
-      else: raise(ArgumentError, "admission configuration has missing or unknown fields")
-  end
-
-  defp normalize_configuration!(_configuration) do
-    raise ArgumentError, "admission configuration must be a map or keyword list"
+    if (:socket in keys and :api not in keys and :client not in keys) or
+         (:socket not in keys and :api in keys and :client in keys),
+       do: configuration,
+       else: raise(ArgumentError, missing_or_unknown)
   end
 
   defp validate_positive!(value, _field) when is_integer(value) and value > 0, do: :ok

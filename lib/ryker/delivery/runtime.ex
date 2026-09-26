@@ -9,6 +9,7 @@ defmodule Ryker.Delivery.Runtime do
   use Supervisor
 
   alias Ryker.Delivery.{Adapters, Worker}
+  alias Ryker.Options
 
   @fields [
     :action_concurrency,
@@ -115,26 +116,12 @@ defmodule Ryker.Delivery.Runtime do
     end
   end
 
-  defp normalize_configuration!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration) do
-      configuration |> Map.new() |> normalize_configuration!()
-    else
-      raise ArgumentError, "delivery configuration must use unique known fields"
-    end
-  end
-
-  defp normalize_configuration!(%{} = configuration) do
-    keys = Map.keys(configuration)
-    required = [:adapters, :worker_ref]
-
-    if keys -- @fields == [] and Enum.all?(required, &(&1 in keys)),
-      do: configuration,
-      else: raise(ArgumentError, "delivery configuration has missing or unknown fields")
-  end
-
-  defp normalize_configuration!(_configuration) do
-    raise ArgumentError, "delivery configuration must be a map or keyword list"
+  defp normalize_configuration!(configuration) do
+    Options.normalize!(configuration, @fields, [:adapters, :worker_ref],
+      list: "delivery configuration must use unique known fields",
+      map: "delivery configuration has missing or unknown fields",
+      other: "delivery configuration must be a map or keyword list"
+    )
   end
 
   defp validate_concurrency!(messages, reactions, actions)

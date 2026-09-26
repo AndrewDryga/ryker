@@ -6,7 +6,10 @@ defmodule Ryker.State.EventWaitWorker do
   require Logger
 
   alias Ryker.Observability.Progress
+  alias Ryker.Options
   alias Ryker.State.EventWaits
+
+  @invalid_interval "event wait poll_interval_ms must be positive"
 
   @spec start_link(keyword() | map()) :: GenServer.on_start()
   def start_link(options) do
@@ -27,25 +30,14 @@ defmodule Ryker.State.EventWaitWorker do
     state.interval_ms
   end
 
-  defp interval!(options) when is_list(options) do
-    if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),
-      do: options |> Map.new() |> interval!(),
-      else: invalid!()
+  defp interval!(options) do
+    value =
+      options
+      |> Options.normalize!([:poll_interval_ms], [], @invalid_interval)
+      |> Map.get(:poll_interval_ms, 1_000)
+
+    if is_integer(value) and value > 0 and value <= 300_000,
+      do: value,
+      else: raise(ArgumentError, @invalid_interval)
   end
-
-  defp interval!(%{} = options) do
-    if Map.keys(options) -- [:poll_interval_ms] == [] do
-      value = Map.get(options, :poll_interval_ms, 1_000)
-
-      if is_integer(value) and value > 0 and value <= 300_000,
-        do: value,
-        else: invalid!()
-    else
-      invalid!()
-    end
-  end
-
-  defp interval!(_options), do: invalid!()
-
-  defp invalid!, do: raise(ArgumentError, "event wait poll_interval_ms must be positive")
 end

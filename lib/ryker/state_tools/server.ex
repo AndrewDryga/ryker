@@ -3,6 +3,7 @@ defmodule Ryker.StateTools.Server do
   Optional loopback MCP listener for Ryker-owned episode state tools.
   """
 
+  alias Ryker.Options
   alias Ryker.StateTools.Router
 
   @default_ip {127, 0, 0, 1}
@@ -63,23 +64,13 @@ defmodule Ryker.StateTools.Server do
     |> maybe_put(:answer_authorizer, Map.get(configuration, :answer_authorizer))
   end
 
-  defp normalize!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration),
-       do: configuration |> Map.new() |> normalize!(),
-       else: raise(ArgumentError, "state-tools configuration must use unique known fields")
+  defp normalize!(configuration) do
+    Options.normalize!(configuration, @fields, [:port, :token],
+      list: "state-tools configuration must use unique known fields",
+      map: "state-tools configuration must include port and token",
+      other: "state-tools configuration must be a map or keyword list"
+    )
   end
-
-  defp normalize!(%{} = configuration) do
-    keys = Map.keys(configuration)
-
-    if Enum.sort(keys -- @fields) == [] and :port in keys and :token in keys,
-      do: configuration,
-      else: raise(ArgumentError, "state-tools configuration must include port and token")
-  end
-
-  defp normalize!(_configuration),
-    do: raise(ArgumentError, "state-tools configuration must be a map or keyword list")
 
   defp loopback_ip?({127, 0, 0, 1}), do: true
   defp loopback_ip?({0, 0, 0, 0, 0, 0, 0, 1}), do: true

@@ -8,6 +8,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   require Logger
 
   alias Ryker.Observability.Progress
+  alias Ryker.Options
 
   alias Ryker.Slack.{TaskCardProjection, TaskCards}
 
@@ -135,15 +136,16 @@ defmodule Ryker.Slack.TaskCardWorker do
   end
 
   @doc false
-  def options!(options) when is_list(options) do
-    if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),
-      do: options |> Map.new() |> options!(),
-      else: raise(ArgumentError, "task-card worker requires unique options")
-  end
-
-  def options!(%{} = options) do
+  def options!(options) do
     required = [:api, :client, :lease_seconds, :retry_base_seconds, :worker_ref]
     optional = [:check_interval_seconds, :interval_ms, :max_attempts, :name]
+
+    options =
+      Options.normalize!(options, required ++ optional, required,
+        list: "task-card worker requires unique options",
+        map: "invalid task-card worker options",
+        other: "invalid task-card worker options"
+      )
 
     prepared =
       options
@@ -152,21 +154,15 @@ defmodule Ryker.Slack.TaskCardWorker do
       |> Map.put_new(:max_attempts, @default_max_attempts)
       |> Map.put_new(:name, nil)
 
-    if valid_options?(prepared, required, optional) do
+    if valid_options?(prepared) do
       prepared
     else
       raise ArgumentError, "invalid task-card worker options"
     end
   end
 
-  def options!(_options), do: raise(ArgumentError, "invalid task-card worker options")
-
-  defp valid_options?(options, required, optional) do
-    keys = Map.keys(options)
-
+  defp valid_options?(options) do
     Enum.all?([
-      keys -- (required ++ optional) == [],
-      Enum.all?(required, &(&1 in keys)),
       Map.get(options, :lease_seconds) in 5..3_600,
       Map.get(options, :retry_base_seconds) in 1..3_600,
       Map.get(options, :check_interval_seconds) in 1..86_400,

@@ -9,6 +9,8 @@ defmodule Ryker.Slack.ActionTokens do
 
   use GenServer
 
+  alias Ryker.Options
+
   @default_ttl_ms 15 * 60 * 1_000
   @maximum_calls 3
 
@@ -43,17 +45,14 @@ defmodule Ryker.Slack.ActionTokens do
 
   @doc false
   @spec options!(keyword() | map()) :: map()
-  def options!(options) when is_list(options) do
-    if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),
-      do: options |> Map.new() |> options!(),
-      else: raise(ArgumentError, "Slack action-token options are invalid")
-  end
-
-  def options!(%{} = options) do
-    allowed = [:clock, :name, :ttl_ms]
-
-    unless Map.keys(options) -- allowed == [],
-      do: raise(ArgumentError, "Slack action-token options are invalid")
+  def options!(options) do
+    options =
+      Options.normalize!(
+        options,
+        [:clock, :name, :ttl_ms],
+        [],
+        "Slack action-token options are invalid"
+      )
 
     clock = Map.get(options, :clock, fn -> System.monotonic_time(:millisecond) end)
     name = Map.get(options, :name, __MODULE__)
@@ -70,8 +69,6 @@ defmodule Ryker.Slack.ActionTokens do
 
     %{clock: clock, name: name, ttl_ms: ttl_ms}
   end
-
-  def options!(_options), do: raise(ArgumentError, "Slack action-token options are invalid")
 
   @impl GenServer
   def init(options), do: {:ok, Map.put(options, :entries, %{})}

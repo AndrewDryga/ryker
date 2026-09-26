@@ -3,7 +3,7 @@ defmodule Ryker.Learning.Runtime do
   use Supervisor
   alias Ryker.Coop.Client
   alias Ryker.Learning.Worker
-  alias Ryker.Reference
+  alias Ryker.{Options, Reference}
 
   @fields ~w(api client socket policy policy_digest worker_ref concurrency batch_size quiet_seconds
     maximum_delay_seconds poll_interval_ms receive_timeout_ms execution_timeout_seconds)a
@@ -41,15 +41,14 @@ defmodule Ryker.Learning.Runtime do
     Supervisor.init(children, strategy: :one_for_one)
   end
 
-  def options!(configuration) when is_list(configuration) do
-    unless Keyword.keyword?(configuration) and
-             Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration),
-           do: raise(ArgumentError, "learning configuration must have unique known fields")
+  def options!(configuration) do
+    config =
+      Options.normalize!(configuration, @fields, ~w(policy policy_digest worker_ref)a,
+        list: "learning configuration must have unique known fields",
+        map: "learning configuration has missing or unknown fields",
+        other: "learning configuration must be a map or keyword list"
+      )
 
-    options!(Map.new(configuration))
-  end
-
-  def options!(%{} = config) do
     validate_identity!(config)
 
     timeout = integer!(config, :receive_timeout_ms, 30_000, 1..30_000)
@@ -77,14 +76,7 @@ defmodule Ryker.Learning.Runtime do
     }
   end
 
-  def options!(_),
-    do: raise(ArgumentError, "learning configuration must be a map or keyword list")
-
   defp validate_identity!(config) do
-    unless Map.keys(config) -- @fields == [] and
-             Enum.all?(~w(policy policy_digest worker_ref)a, &Map.has_key?(config, &1)),
-           do: raise(ArgumentError, "learning configuration has missing or unknown fields")
-
     for key <- [:policy, :worker_ref], do: validate_reference!(config[key], key)
 
     unless is_binary(config.policy_digest) and

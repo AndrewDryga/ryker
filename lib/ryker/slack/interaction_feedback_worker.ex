@@ -8,6 +8,7 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
   require Logger
 
   alias Ryker.Observability.Progress
+  alias Ryker.Options
 
   alias Ryker.Slack.{InteractionAudits, InteractionRepaint}
 
@@ -121,15 +122,16 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
   end
 
   @doc false
-  def options!(options) when is_list(options) do
-    if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),
-      do: options |> Map.new() |> options!(),
-      else: raise(ArgumentError, "Slack interaction feedback worker requires unique options")
-  end
-
-  def options!(%{} = options) do
+  def options!(options) do
     required = [:api, :client, :lease_seconds, :max_attempts, :retry_base_seconds, :worker_ref]
     optional = [:interval_ms, :name, :repaint]
+
+    options =
+      Options.normalize!(options, required ++ optional, required,
+        list: "Slack interaction feedback worker requires unique options",
+        map: "invalid Slack interaction feedback worker options",
+        other: "invalid Slack interaction feedback worker options"
+      )
 
     prepared =
       options
@@ -137,20 +139,13 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
       |> Map.put_new(:name, nil)
       |> Map.put_new(:repaint, &InteractionRepaint.repaint/2)
 
-    if valid_options?(prepared, required, optional),
+    if valid_options?(prepared),
       do: prepared,
       else: raise(ArgumentError, "invalid Slack interaction feedback worker options")
   end
 
-  def options!(_options),
-    do: raise(ArgumentError, "invalid Slack interaction feedback worker options")
-
-  defp valid_options?(options, required, optional) do
-    keys = Map.keys(options)
-
+  defp valid_options?(options) do
     Enum.all?([
-      keys -- (required ++ optional) == [],
-      Enum.all?(required, &(&1 in keys)),
       is_atom(options.api),
       is_function(options.repaint, 2),
       is_integer(options.interval_ms) and options.interval_ms in 1..300_000,

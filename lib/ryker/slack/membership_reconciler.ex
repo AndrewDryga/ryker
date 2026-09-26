@@ -11,6 +11,8 @@ defmodule Ryker.Slack.MembershipReconciler do
 
   require Logger
 
+  alias Ryker.Options
+
   @default_interval_ms 5 * 60 * 1_000
 
   @spec start_link(map()) :: GenServer.on_start()
@@ -68,21 +70,21 @@ defmodule Ryker.Slack.MembershipReconciler do
 
   @doc false
   @spec options!(map() | keyword()) :: map()
-  def options!(options) when is_list(options) do
-    if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),
-      do: options |> Map.new() |> options!(),
-      else: raise(ArgumentError, "Slack membership reconciler requires unique options")
-  end
-
-  def options!(%{} = options) do
+  def options!(options) do
     required = [:api, :client, :configurations, :setup_handler, :setup_options, :workspace_ref]
     optional = [:interval_ms, :managed_channel?, :name]
-    keys = Map.keys(options)
+
+    options =
+      Options.normalize!(options, required ++ optional, required,
+        list: "Slack membership reconciler requires unique options",
+        map: "invalid Slack membership reconciler options",
+        other: "invalid Slack membership reconciler options"
+      )
+
     interval_ms = Map.get(options, :interval_ms, @default_interval_ms)
     managed_channel? = Map.get(options, :managed_channel?)
 
-    if keys -- (required ++ optional) == [] and Enum.all?(required, &(&1 in keys)) and
-         is_integer(interval_ms) and interval_ms in 30_000..3_600_000 and
+    if is_integer(interval_ms) and interval_ms in 30_000..3_600_000 and
          (is_nil(managed_channel?) or is_function(managed_channel?, 2)) do
       options
       |> Map.put_new(:interval_ms, @default_interval_ms)
@@ -91,8 +93,6 @@ defmodule Ryker.Slack.MembershipReconciler do
       raise ArgumentError, "invalid Slack membership reconciler options"
     end
   end
-
-  def options!(_options), do: raise(ArgumentError, "invalid Slack membership reconciler options")
 
   defp managed_channel_refs(channel_refs, %{
          managed_channel?: callback,

@@ -6,6 +6,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
   use Supervisor
 
   alias Ryker.Emisar.ApprovalWorker
+  alias Ryker.Options
 
   @fields [
     :api,
@@ -117,14 +118,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
     }
   end
 
-  defp normalize!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration),
-       do: configuration |> Map.new() |> normalize!(),
-       else: raise(ArgumentError, "Emisar approval configuration must use unique known fields")
-  end
-
-  defp normalize!(%{} = configuration) do
+  defp normalize!(configuration) do
     required = [
       :api,
       :client,
@@ -134,14 +128,12 @@ defmodule Ryker.Emisar.ApprovalRuntime do
       :worker_ref
     ]
 
-    if Map.keys(configuration) -- @fields == [] and
-         Enum.all?(required, &Map.has_key?(configuration, &1)),
-       do: configuration,
-       else: raise(ArgumentError, "Emisar approval configuration has missing or unknown fields")
+    Options.normalize!(configuration, @fields, required,
+      list: "Emisar approval configuration must use unique known fields",
+      map: "Emisar approval configuration has missing or unknown fields",
+      other: "Emisar approval configuration must be a map or keyword list"
+    )
   end
-
-  defp normalize!(_configuration),
-    do: raise(ArgumentError, "Emisar approval configuration must be a map or keyword list")
 
   defp validate_api!(api) do
     unless is_atom(api) and Code.ensure_loaded?(api) and

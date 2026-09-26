@@ -9,6 +9,7 @@ defmodule Ryker.GitHub.Runtime do
   use Supervisor
 
   alias Ryker.GitHub.{InstallationTokens, OnboardingWorker, Server}
+  alias Ryker.Options
 
   @spec start_link(map() | keyword()) :: Supervisor.on_start()
   def start_link(configuration) do
@@ -37,19 +38,12 @@ defmodule Ryker.GitHub.Runtime do
     )
   end
 
-  defp normalize_configuration!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration),
-       do: configuration |> Map.new() |> normalize_configuration!(),
-       else: raise(ArgumentError, "GitHub runtime configuration is invalid")
+  defp normalize_configuration!(configuration) do
+    Options.normalize!(
+      configuration,
+      [:onboarding, :server, :tokens],
+      [:server, :tokens],
+      "GitHub runtime configuration is invalid"
+    )
   end
-
-  defp normalize_configuration!(%{} = configuration) do
-    if Enum.sort(Map.keys(configuration)) in [[:server, :tokens], [:onboarding, :server, :tokens]],
-      do: configuration,
-      else: raise(ArgumentError, "GitHub runtime configuration is invalid")
-  end
-
-  defp normalize_configuration!(_configuration),
-    do: raise(ArgumentError, "GitHub runtime configuration is invalid")
 end

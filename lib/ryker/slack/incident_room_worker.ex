@@ -12,6 +12,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   require Logger
 
   alias Ryker.Observability.Progress
+  alias Ryker.Options
 
   alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
   alias Ryker.Delivery.HostNote
@@ -107,13 +108,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
   @doc false
   @spec options!(map() | keyword()) :: map()
-  def options!(options) when is_list(options) do
-    if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),
-      do: options |> Map.new() |> options!(),
-      else: raise(ArgumentError, "incident-room worker requires unique options")
-  end
-
-  def options!(%{} = options) do
+  def options!(options) do
     required = [
       :api,
       :bot_user_ref,
@@ -134,6 +129,13 @@ defmodule Ryker.Slack.IncidentRoomWorker do
       :reserve_channel
     ]
 
+    options =
+      Options.normalize!(options, required ++ optional, required,
+        list: "incident-room worker requires unique options",
+        map: "invalid incident-room worker options",
+        other: "invalid incident-room worker options"
+      )
+
     prepared =
       options
       |> Map.put_new(:health_check_seconds, 300)
@@ -141,23 +143,18 @@ defmodule Ryker.Slack.IncidentRoomWorker do
       |> Map.put_new(:name, nil)
       |> Map.put_new(:root_card_check_seconds, 2)
 
-    if valid_options?(prepared, required, optional) do
+    if valid_options?(prepared) do
       prepared
     else
       raise ArgumentError, "invalid incident-room worker options"
     end
   end
 
-  def options!(_options), do: raise(ArgumentError, "invalid incident-room worker options")
-
-  defp valid_options?(options, required, optional) do
-    keys = Map.keys(options)
+  defp valid_options?(options) do
     automatic_request = Map.get(options, :automatic_request)
     reserve_channel = Map.get(options, :reserve_channel)
 
     Enum.all?([
-      keys -- (required ++ optional) == [],
-      Enum.all?(required, &(&1 in keys)),
       Map.get(options, :lease_seconds) in 5..3_600,
       Map.get(options, :max_attempts) in 1..100,
       Map.get(options, :retry_base_seconds) in 1..3_600,

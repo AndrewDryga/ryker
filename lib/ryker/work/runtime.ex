@@ -11,6 +11,7 @@ defmodule Ryker.Work.Runtime do
   use Supervisor
 
   alias Ryker.Coop.Client
+  alias Ryker.Options
   alias Ryker.Work.{ActivitySyncWorker, Session, StateBinding, Turn, Worker}
 
   @fields [
@@ -136,28 +137,22 @@ defmodule Ryker.Work.Runtime do
     }
   end
 
-  defp normalize_configuration!(configuration) when is_list(configuration) do
-    if Keyword.keyword?(configuration) and
-         Enum.uniq(Keyword.keys(configuration)) == Keyword.keys(configuration) do
-      configuration |> Map.new() |> normalize_configuration!()
-    else
-      raise ArgumentError, "work configuration must use unique known fields"
-    end
-  end
+  defp normalize_configuration!(configuration) do
+    missing_or_unknown = "work configuration has missing or unknown fields"
 
-  defp normalize_configuration!(%{} = configuration) do
+    configuration =
+      Options.normalize!(configuration, @fields, [:worker_ref],
+        list: "work configuration must use unique known fields",
+        map: missing_or_unknown,
+        other: "work configuration must be a map or keyword list"
+      )
+
     keys = Map.keys(configuration)
-    required = [:worker_ref]
 
-    if keys -- @fields == [] and Enum.all?(required, &(&1 in keys)) and
-         ((:socket in keys and :api not in keys and :client not in keys) or
-            (:socket not in keys and :api in keys and :client in keys)),
+    if (:socket in keys and :api not in keys and :client not in keys) or
+         (:socket not in keys and :api in keys and :client in keys),
        do: configuration,
-       else: raise(ArgumentError, "work configuration has missing or unknown fields")
-  end
-
-  defp normalize_configuration!(_configuration) do
-    raise ArgumentError, "work configuration must be a map or keyword list"
+       else: raise(ArgumentError, missing_or_unknown)
   end
 
   defp validate_positive!(value, _field) when is_integer(value) and value > 0, do: :ok

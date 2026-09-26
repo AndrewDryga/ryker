@@ -15,6 +15,7 @@ defmodule Ryker.GitHub.Confirmations do
 
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Input
+  alias Ryker.Options
   alias Ryker.Repo
   alias Ryker.State.{Automations, Behaviors, Memories, Record, Schedules, TaskOffers}
   alias Ryker.Work.Turn
@@ -240,20 +241,13 @@ defmodule Ryker.GitHub.Confirmations do
 
   defp resource(_confirmation), do: {:error, :invalid_confirmation_result}
 
-  defp exact_options!(options) when is_list(options) do
-    if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),
-      do: options |> Map.new() |> exact_options!(),
-      else: raise(ArgumentError, "GitHub confirmation options must use unique known fields")
+  defp exact_options!(options) do
+    Options.normalize!(options, [:repositories], [:repositories],
+      list: "GitHub confirmation options must use unique known fields",
+      map: "GitHub confirmation options must contain repositories",
+      other: "GitHub confirmation options must be a map or keyword list"
+    )
   end
-
-  defp exact_options!(%{} = options) do
-    if Map.keys(options) == [:repositories],
-      do: options,
-      else: raise(ArgumentError, "GitHub confirmation options must contain repositories")
-  end
-
-  defp exact_options!(_options),
-    do: raise(ArgumentError, "GitHub confirmation options must be a map or keyword list")
 
   defp repository!({repository, %{contributor_policy: policy}}) when is_binary(repository) do
     unless Regex.match?(@reference, repository),
