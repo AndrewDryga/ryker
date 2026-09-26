@@ -4,6 +4,8 @@ defmodule Ryker.Runtime.AssemblyTest do
   # turn on, what they may never turn on, and what a refusal has to name.
   use Ryker.DataCase, async: false
 
+  import Ecto.Query
+
   alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.Ingress.WorkProfile
@@ -216,7 +218,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     # rest of the configuration still applies; refusing all of it kept every
     # newer setting from applying (QA P1 #4, 2026-09-25).
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
-    assert configuration.webhook_sources_left_out == %{"alerts" => :slack_not_running}
+    assert configuration.integrations_left_out == %{webhooks: %{"alerts" => :slack_not_running}}
     refute Map.has_key?(configuration.webhooks.routes, "alerts")
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), disconnect_webhooks(settings))
@@ -593,7 +595,7 @@ defmodule Ryker.Runtime.AssemblyTest do
       # The source that would act under an unreviewed repository is left out
       # and named with why; nothing else is refused because of it.
       assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
-      assert configuration.webhook_sources_left_out[name] == reason
+      assert configuration.integrations_left_out.webhooks[name] == reason
       refute Map.has_key?(configuration.webhooks.routes, name)
 
       # The setting stays exactly as the operator wrote it; only the runtime refuses.
@@ -697,7 +699,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
       assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
 
-      assert configuration.webhook_sources_left_out == %{"alerts" => reason},
+      assert configuration.integrations_left_out == %{webhooks: %{"alerts" => reason}},
              "#{transport} destination was accepted"
 
       refute Map.has_key?(configuration.webhooks.routes, "alerts")
@@ -718,7 +720,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), restored)
     assert Map.has_key?(configuration.webhooks.routes, "alerts")
-    refute Map.has_key?(configuration, :webhook_sources_left_out)
+    refute Map.has_key?(configuration, :integrations_left_out)
   end
 
   test "a webhook source Ryker cannot serve is left out, and every other setting still applies" do
@@ -744,7 +746,7 @@ defmodule Ryker.Runtime.AssemblyTest do
       assert {:ok, configuration} = Assembly.build(bootstrap(), changed),
              "#{name} (#{reason}) refused the whole configuration"
 
-      assert configuration.webhook_sources_left_out == %{name => reason}
+      assert configuration.integrations_left_out == %{webhooks: %{name => reason}}
       refute Map.has_key?(configuration.webhooks.routes, name)
 
       assert Enum.sort(Map.keys(configuration.webhooks.routes)) ==
@@ -768,17 +770,19 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
     assert configuration[:webhooks] == nil
 
-    assert configuration.webhook_sources_left_out == %{
-             "alerts" => :slack_not_running,
-             "custom" => :environment_cannot_run_work,
-             "deploys" => :credential_missing
+    assert configuration.integrations_left_out == %{
+             webhooks: %{
+               "alerts" => :slack_not_running,
+               "custom" => :environment_cannot_run_work,
+               "deploys" => :credential_missing
+             }
            }
 
     # A clean installation publishes no such list, and publishing removes an old one.
     restore!(settings)
     assert {:ok, clean} = Assembly.build(bootstrap(), Settings.fetch!())
-    refute Map.has_key?(clean, :webhook_sources_left_out)
-    assert :webhook_sources_left_out in Assembly.managed_keys()
+    refute Map.has_key?(clean, :integrations_left_out)
+    assert :integrations_left_out in Assembly.managed_keys()
   end
 
   defp unreviewed_environment! do
@@ -823,6 +827,154 @@ defmodule Ryker.Runtime.AssemblyTest do
     end
   end
 
+  test "an enabled GitHub App whose key or secret is missing or broken is left out and named" do
+    # A broken private key refused the whole configuration ("The saved GitHub
+    # App private key is not usable"), so one bad credential kept every newer
+    # setting of every kind from applying. GitHub is left out of the running
+    # system, named with why for the Integrations state, and the rest runs.
+    settings = connected!()
+    key = Process.get(:github_private_key_fixture)
+
+    for {break, reason} <- [
+          {&Credentials.put(:github_private_key, "primary", "not-an-app-key-but-long-enough", &1),
+           :private_key_unusable},
+          {&Credentials.delete(:github_private_key, "primary", &1), :private_key_missing},
+          {&Credentials.delete(:github_webhook, "primary", &1), :webhook_secret_missing}
+        ] do
+      {:ok, _} = break.(@actor)
+
+      assert {:ok, configuration} = Assembly.build(bootstrap(), settings),
+             "#{reason} refused the whole configuration"
+
+      assert configuration.integrations_left_out == %{github: reason}
+      assert configuration[:github] == nil
+      refute Map.has_key?(configuration.delivery.adapters, "github")
+      assert configuration.publication.publisher_binding.repositories == %{}
+      assert configuration.slack
+      assert configuration.emisar
+
+      {:ok, _} = Credentials.put(:github_private_key, "primary", key, @actor)
+
+      {:ok, _} =
+        Credentials.put(:github_webhook, "primary", "github-webhook-secret-long-enough", @actor)
+    end
+  end
+
+  test "Slack switched on that cannot start is left out and named, never silently" do
+    settings = connected!()
+
+    # Without a worker policy for incident rooms Slack quietly did not start,
+    # and nothing anywhere said so.
+    incident = Enum.find(settings.policy_bindings, &(&1.purpose == :incident))
+
+    {:ok, changed} =
+      Settings.delete_policy_binding(incident.id, settings.installation.revision, @actor)
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
+    assert configuration[:slack] == nil
+
+    assert configuration.integrations_left_out == %{
+             slack: :incident_policy_missing,
+             webhooks: %{"alerts" => :slack_not_running}
+           }
+
+    {:ok, _} =
+      policy(:incident, :installation, "", "ryker-incident-v1", changed.installation.revision)
+
+    # A saved value Slack's runtime refuses, such as an operator saved before
+    # today's checks, refused every setting of every kind.
+    Repo.update_all(from(slack in Settings.Slack), set: [operators: ["not-a-slack-id"]])
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), Settings.fetch!()),
+           "one refused Slack value refused the whole configuration"
+
+    assert configuration[:slack] == nil
+    assert configuration.integrations_left_out.slack == :settings_unusable
+    assert configuration.github
+    assert configuration.emisar
+  end
+
+  test "an Emisar account with an address Ryker cannot use is left out, and the others run" do
+    # An address saved before today's checks, such as an origin without the
+    # RPC path, refused the whole configuration ("The saved Emisar RPC
+    # endpoint must be an exact HTTPS URL").
+    connected!()
+    {:ok, _} = Credentials.put(:emisar, "staging", "emisar-staging-token-long-enough", @actor)
+
+    {:ok, _} =
+      Settings.put_emisar_connection(
+        %{
+          ref: "staging",
+          display_name: "Staging approvals",
+          rpc_url: "https://staging.emisar.dev/api/mcp/rpc",
+          account_ref: "account-staging",
+          account_label: "Staging",
+          verified_at: ~U[2026-09-19 12:00:00.000000Z]
+        },
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    Repo.update_all(
+      from(connection in Settings.EmisarConnection, where: connection.ref == "production"),
+      set: [rpc_url: "https://emisar.dev"]
+    )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), Settings.fetch!()),
+           "one Emisar account refused the whole configuration"
+
+    assert [staging] = configuration.emisar.connections
+    assert staging.connection_ref == "staging"
+    assert configuration.integrations_left_out == %{emisar: %{"production" => :address_invalid}}
+    assert configuration.github
+    assert configuration.slack
+  end
+
+  test "integrations that cannot start leave every other lane running" do
+    # No single broken integration, or all of them at once, may take the
+    # rest of Ryker's running system down with it.
+    connected!()
+
+    {:ok, _} =
+      Credentials.put(:github_private_key, "primary", "not-an-app-key-but-long-enough", @actor)
+
+    Repo.update_all(from(slack in Settings.Slack), set: [operators: ["not-a-slack-id"]])
+
+    Repo.update_all(from(connection in Settings.EmisarConnection),
+      set: [rpc_url: "https://emisar.dev"]
+    )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), Settings.fetch!())
+
+    for lane <- [
+          :admission,
+          :control_plane,
+          :coop_worker_gateway,
+          :delivery,
+          :event_waits,
+          :learning,
+          :publication,
+          :retention,
+          :schedules,
+          :state_tools,
+          :webhooks,
+          :work
+        ] do
+      assert configuration[lane], "#{lane} stopped because an integration could not start"
+    end
+
+    for broken <- [:github, :slack, :emisar], do: assert(configuration[broken] == nil)
+
+    assert configuration.integrations_left_out == %{
+             emisar: %{"production" => :address_invalid},
+             github: :private_key_unusable,
+             slack: :settings_unusable,
+             webhooks: %{"alerts" => :slack_not_running}
+           }
+
+    assert configuration.work.connected == %{github: false, slack: false}
+  end
+
   test "a GitHub App key is accepted as PEM or base64 and a broken one is named" do
     settings = connected!()
     assert {:ok, _pem_configuration} = Assembly.build(bootstrap(), settings)
@@ -839,9 +991,10 @@ defmodule Ryker.Runtime.AssemblyTest do
         @actor
       )
 
-    assert {:error, {:settings_not_applicable, reason}} = Assembly.build(bootstrap(), settings)
-    assert reason == "The saved GitHub App private key is not usable"
-    refute reason =~ "not-an-app-key"
+    # A broken one leaves GitHub out and names it, never quoting the key.
+    assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
+    assert configuration.integrations_left_out == %{github: :private_key_unusable}
+    refute inspect(configuration.integrations_left_out) =~ "not-an-app-key"
   end
 
   test "Emisar needs the exact HTTPS RPC endpoint, not an origin to guess from" do

@@ -292,6 +292,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         ] do
       view = %{
         github_connection: github_connection,
+        readiness: %{left_out: %{}},
         snapshot: %{github: %{app_slug: "ryker-acme", enabled: enabled}, repositories: [%{}]}
       }
 

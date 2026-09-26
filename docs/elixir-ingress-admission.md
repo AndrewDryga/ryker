@@ -206,8 +206,10 @@ These are durable settings, edited in the control plane rather than a configurat
   conversational webhook, Ryker asks GitHub for the sender's effective repository permission;
   `write` and `admin` may request work, while `read`, `none` and failed checks do not.
 - GitHub's private key and webhook secret are entered once through guided setup and kept in encrypted
-  credential custody. The verified App identity is saved with the connection; runtime assembly refuses
-  a missing, invalid or mismatched credential instead of consulting environment fallbacks.
+  credential custody. The verified App identity is saved with the connection; runtime assembly never
+  consults environment fallbacks. With a missing, unreadable or unusable credential it leaves GitHub
+  out of the running system and every other setting still applies, and each page that shows GitHub's
+  state says it is not running and why.
 
 The GitHub App must subscribe to issue comments, pull-request reviews, pull-request review comments,
 issues, and pull requests for the corresponding adapter and lifecycle paths to receive those events.

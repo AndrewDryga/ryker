@@ -140,19 +140,19 @@ defmodule Ryker.Runtime.OwnerTest do
     {:ok, saved} = initialize()
     assert applied(owner, saved)
 
-    # An enabled GitHub App whose private key the deployment never received
-    # cannot be assembled; the saved revision must stay visibly unapplied. (A
-    # webhook source Ryker cannot serve no longer refuses a revision: it is
-    # left out and named, see AssemblyTest.)
-    {:ok, _} =
-      Settings.save_github(%{enabled: true, app_id: 12_345}, saved.installation.revision, @actor)
+    # Without the deployment's own state-tools token nothing that runs work
+    # can be assembled; the saved revision must stay visibly unapplied. (An
+    # integration, Emisar account or webhook source Ryker cannot start no
+    # longer refuses a revision: it is left out and named, see AssemblyTest.)
+    {:ok, _} = Settings.save_learning(%{enabled: false}, saved.installation.revision, @actor)
+    System.delete_env("RYKER_STATE_TOOLS_TOKEN")
 
     assert {:error, _reason} = Owner.reconcile(owner)
     assert {:ok, failed} = Settings.fetch()
     assert Settings.application_status(failed) == {:failed, :assembly_failed}
     assert failed.installation.applied_revision == saved.installation.revision
     assert Owner.applied_revision(owner) == saved.installation.revision
-    assert Application.get_env(:ryker, :github) == nil
+    assert Application.get_env(:ryker, :state_tools)
   end
 
   # Production ran for weeks with every Slack user, channel and workspace in the

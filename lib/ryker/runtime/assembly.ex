@@ -11,12 +11,15 @@ defmodule Ryker.Runtime.Assembly do
   credential in the environment.
   """
 
+  require Logger
+
   alias Ryker.Bootstrap
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.ControlPlane.ConversationLab
   alias Ryker.Credentials
   alias Ryker.Defaults
   alias Ryker.Delivery.{JSONClient, Request}
+  alias Ryker.Emisar.ApprovalRuntime
 
   alias Ryker.GitHub.{
     AppJWT,
@@ -61,9 +64,10 @@ defmodule Ryker.Runtime.Assembly do
     {:control_plane, Ryker.ControlPlane.Server}
   ]
   # Published beside the runtimes: read by whoever asks, started by nobody.
-  # `webhook_sources_left_out` names each enabled webhook source this
-  # configuration could not serve, with why, for the Integrations state.
-  @published_facts [:execution_mode, :fleet_profiles, :webhook_sources_left_out]
+  # `integrations_left_out` names each enabled integration, Emisar account and
+  # webhook source this configuration could not start, with why, for the
+  # Integrations state.
+  @published_facts [:execution_mode, :fleet_profiles, :integrations_left_out]
   @managed_keys Enum.sort(Keyword.keys(@runtimes) ++ @published_facts)
 
   @spec runtimes() :: [{atom(), module()}]
@@ -111,14 +115,20 @@ defmodule Ryker.Runtime.Assembly do
     learning = learning(settings, policies, work)
     schedules = schedules(settings, repositories, policies)
     gateway = worker_gateway(bootstrap)
-    github = github(bootstrap, settings, repositories, environments)
-    slack = slack(bootstrap, settings, environments, schedules, policies, outside)
+    {github, github_left_out} = github(bootstrap, settings, repositories, environments)
+
+    {slack, slack_left_out} =
+      slack(bootstrap, settings, environments, schedules, policies, outside)
+
     control_plane = control_plane(bootstrap, settings, environments, work, schedules, outside)
     adapters = adapters(slack, github, control_plane)
     delivery = delivery(settings, adapters)
     publication = publication(bootstrap, settings, work, repositories, github, adapters)
-    emisar = emisar(bootstrap, settings, adapters, slack, github)
-    {webhooks, left_out} = webhooks(bootstrap, settings, adapters, repositories, environments)
+    {emisar, emisar_left_out} = emisar(bootstrap, settings, adapters, slack, github)
+
+    {webhooks, webhooks_left_out} =
+      webhooks(bootstrap, settings, adapters, repositories, environments)
+
     retention = retention(settings, work, learning)
 
     state_tools =
@@ -153,7 +163,15 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:slack, slack && slack.runtime)
     |> put_optional(:state_tools, state_tools)
     |> put_optional(:webhooks, webhooks)
-    |> put_optional(:webhook_sources_left_out, if(left_out != %{}, do: left_out))
+    |> put_optional(
+      :integrations_left_out,
+      left_out(
+        github: github_left_out,
+        slack: slack_left_out,
+        emisar: emisar_left_out,
+        webhooks: webhooks_left_out
+      )
+    )
     |> validate_runtimes!()
   end
 
@@ -620,21 +638,84 @@ defmodule Ryker.Runtime.Assembly do
     |> Map.put(:checkpoint_secrets, credential_redaction_values())
   end
 
-  defp github(_bootstrap, %{github: %{enabled: false}}, _repositories, _environments), do: nil
+  # Integrations ----------------------------------------------------------------
+
+  # An enabled integration, Emisar account or webhook source this
+  # configuration cannot start (its credential missing or unusable, a saved
+  # value its runtime refuses, a policy it needs missing) is left out of the
+  # running system and named with why, and every other lane and setting still
+  # applies. Refusing the whole configuration for one of them (QA P1 #4,
+  # 2026-09-25) kept every newer setting of every kind from applying, and a
+  # Slack without its incident policy vanished with no word at all.
+  # `Integrations` reads the reasons, so nothing disappears silently.
+  defp isolated(integration, build) do
+    {:ok, build.()}
+  rescue
+    # A refusal names the setting it refused, as a revision that cannot apply
+    # does in the owner's log; a failed match could quote a credential, so
+    # only its kind is logged.
+    error in [ArgumentError, MatchError] ->
+      detail = if is_struct(error, ArgumentError), do: error.message, else: "MatchError"
+      Logger.warning("#{integration} left out of the running configuration: #{detail}")
+      {:error, :settings_unusable}
+  end
+
+  defp left_out(integrations) do
+    case Enum.reject(integrations, fn {_integration, reason} -> reason in [nil, %{}] end) do
+      [] -> nil
+      left_out -> Map.new(left_out)
+    end
+  end
+
+  defp github(_bootstrap, %{github: %{enabled: false}}, _repositories, _environments),
+    do: {nil, nil}
 
   # Credentials do not enable an integration and must not silently rebind one.
   # A connection saved for one app with the deployment holding another's key is
   # a mismatch an operator has to resolve, not a component that quietly does
-  # not start.
-  defp github(bootstrap, settings, repositories, environments),
-    do: github_runtime(bootstrap, settings, repositories, environments)
+  # not start: GitHub is left out, and says which credential.
+  defp github(bootstrap, settings, repositories, environments) do
+    with {:ok, private_key} <- github_credential(:github_private_key),
+         {:ok, signer} <- app_signer(settings.github.app_id, private_key),
+         {:ok, webhook_secret} <- github_credential(:github_webhook),
+         {:ok, github} <-
+           isolated(:github, fn ->
+             github =
+               github_runtime(bootstrap, settings, repositories, environments, %{
+                 signer: signer,
+                 webhook_secret: webhook_secret
+               })
 
-  defp github_runtime(bootstrap, settings, repositories, environments) do
-    app_id = settings.github.app_id
+             validate_runtime!(Ryker.GitHub.Runtime, github.runtime)
+             github
+           end) do
+      {github, nil}
+    else
+      {:error, reason} -> {nil, reason}
+    end
+  end
 
+  defp github_credential(kind) do
+    case {Credentials.fetch(kind, "primary"), kind} do
+      {{:ok, value}, _kind} -> {:ok, value}
+      {{:error, :credential_missing}, :github_private_key} -> {:error, :private_key_missing}
+      {{:error, _unreadable}, :github_private_key} -> {:error, :private_key_unreadable}
+      {{:error, :credential_missing}, :github_webhook} -> {:error, :webhook_secret_missing}
+      {{:error, _unreadable}, :github_webhook} -> {:error, :webhook_secret_unreadable}
+    end
+  end
+
+  defp app_signer(app_id, private_key) do
+    case AppJWT.new(app_id, decode_private_key(private_key)) do
+      {:ok, signer} -> {:ok, signer}
+      {:error, _reason} -> {:error, :private_key_unusable}
+    end
+  end
+
+  defp github_runtime(bootstrap, settings, repositories, environments, credentials) do
+    %{signer: signer, webhook_secret: webhook_secret} = credentials
     defaults = Defaults.fetch!(:github)
     api_url = settings.github.api_url
-    signer = app_signer!(app_id)
 
     app_http =
       json_client!(api_url, defaults.receive_timeout_ms, fn -> AppJWT.token(signer) end)
@@ -643,7 +724,8 @@ defmodule Ryker.Runtime.Assembly do
       Map.new(settings.github_bindings, fn binding ->
         entry = github_entry(binding.repository_ref, settings, repositories, environments)
 
-        {binding.name, github_binding(binding, api_url, defaults, settings.repositories, entry)}
+        {binding.name,
+         github_binding(binding, api_url, defaults, settings.repositories, entry, webhook_secret)}
       end)
 
     confirmations =
@@ -707,7 +789,7 @@ defmodule Ryker.Runtime.Assembly do
             item = Map.fetch!(prepared, binding.name)
             RepositoryAccess.authorize(binding, payload, item.access_http)
           end,
-          secret: credential!(:github_webhook, "primary")
+          secret: webhook_secret
         },
         tokens: %{
           app_http: app_http,
@@ -725,15 +807,6 @@ defmodule Ryker.Runtime.Assembly do
     }
   end
 
-  defp app_signer!(app_id) do
-    private_key = :github_private_key |> credential!("primary") |> decode_private_key()
-
-    case AppJWT.new(app_id, private_key) do
-      {:ok, signer} -> signer
-      {:error, _reason} -> raise ArgumentError, "The saved GitHub App private key is not usable"
-    end
-  end
-
   defp decode_private_key("-----BEGIN " <> _rest = key), do: key
 
   defp decode_private_key(encoded) do
@@ -743,7 +816,7 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp github_binding(binding, api_url, defaults, repositories, entry) do
+  defp github_binding(binding, api_url, defaults, repositories, entry, webhook_secret) do
     repository =
       Enum.find(repositories, &(&1.ref == binding.repository_ref)) ||
         raise ArgumentError, "github binding names an unknown repository"
@@ -792,7 +865,7 @@ defmodule Ryker.Runtime.Assembly do
         repository_full_name: repository.github_repository,
         repository_id: binding.repository_id,
         ryker_actor_id: binding.ryker_actor_id,
-        secret: credential!(:github_webhook, "primary"),
+        secret: webhook_secret,
         work_profile: entry && entry.work_profile
       })
 
@@ -814,65 +887,87 @@ defmodule Ryker.Runtime.Assembly do
     }
   end
 
+  defp slack(
+         _bootstrap,
+         %{slack: %{enabled: false}},
+         _environments,
+         _schedules,
+         _policies,
+         _outside
+       ),
+       do: {nil, nil}
+
+  # Slack runs incident rooms under the installation's incident policy, so it
+  # cannot start without one; until 2026-09-26 it then quietly did not start.
   defp slack(_bootstrap, settings, environments, schedules, policies, outside) do
-    with true <- settings.slack.enabled,
-         %{} = incident_policy <- installation_policy(policies, :incident) do
-      defaults = Defaults.fetch!(:slack)
-
-      app_http =
-        json_client!(
-          defaults.api_url,
-          defaults.receive_timeout_ms,
-          Credentials.provider(:slack_app, "primary")
-        )
-
-      bot_http =
-        json_client!(
-          defaults.api_url,
-          defaults.receive_timeout_ms,
-          Credentials.provider(:slack_bot, "primary")
-        )
-
-      {:ok, bot_client} = SlackClient.new(http: bot_http, requester: JSONClient)
-
-      runtime =
-        defaults
-        |> Map.drop([:api_url])
-        |> Map.merge(%{
-          app_http: app_http,
-          bot_client: bot_client,
-          channel_prefix: settings.slack.channel_prefix,
-          # The saved default, even while it cannot run work yet: a channel
-          # joined then is still set to it, and works in it once it can.
-          default_environment: saved_default_environment(settings),
-          default_participation: settings.slack.default_participation,
-          environments: environments,
-          fallback_work_profile: outside,
-          identity: %{
-            bot_ref: settings.slack.bot_ref,
-            bot_user_ref: settings.slack.bot_user_ref,
-            workspace_ref: settings.slack.workspace_ref
-          },
-          incident_policy: incident_policy,
-          incident_private: settings.slack.incident_private,
-          operators: settings.slack.operators,
-          schedule_policies: schedules
-        })
-
-      %{
-        capability_tools:
-          SlackCapabilityTools.options!(%{
-            action_tokens: {ActionTokens, ActionTokens},
-            api: SlackClient,
-            client: bot_client,
-            workspace_ref: settings.slack.workspace_ref
-          }),
-        delivery_adapter: Ryker.Slack.Runtime.delivery_adapter!(runtime),
-        runtime: runtime
-      }
+    with %{} = incident_policy <-
+           installation_policy(policies, :incident) || {:error, :incident_policy_missing},
+         {:ok, slack} <-
+           isolated(:slack, fn ->
+             slack_runtime(settings, environments, schedules, outside, incident_policy)
+           end) do
+      {slack, nil}
     else
-      _disconnected -> nil
+      {:error, reason} -> {nil, reason}
     end
+  end
+
+  # The delivery adapter builds the runtime's own options, so a value the
+  # runtime would refuse is refused here, inside `isolated/2`.
+  defp slack_runtime(settings, environments, schedules, outside, incident_policy) do
+    defaults = Defaults.fetch!(:slack)
+
+    app_http =
+      json_client!(
+        defaults.api_url,
+        defaults.receive_timeout_ms,
+        Credentials.provider(:slack_app, "primary")
+      )
+
+    bot_http =
+      json_client!(
+        defaults.api_url,
+        defaults.receive_timeout_ms,
+        Credentials.provider(:slack_bot, "primary")
+      )
+
+    {:ok, bot_client} = SlackClient.new(http: bot_http, requester: JSONClient)
+
+    runtime =
+      defaults
+      |> Map.drop([:api_url])
+      |> Map.merge(%{
+        app_http: app_http,
+        bot_client: bot_client,
+        channel_prefix: settings.slack.channel_prefix,
+        # The saved default, even while it cannot run work yet: a channel
+        # joined then is still set to it, and works in it once it can.
+        default_environment: saved_default_environment(settings),
+        default_participation: settings.slack.default_participation,
+        environments: environments,
+        fallback_work_profile: outside,
+        identity: %{
+          bot_ref: settings.slack.bot_ref,
+          bot_user_ref: settings.slack.bot_user_ref,
+          workspace_ref: settings.slack.workspace_ref
+        },
+        incident_policy: incident_policy,
+        incident_private: settings.slack.incident_private,
+        operators: settings.slack.operators,
+        schedule_policies: schedules
+      })
+
+    %{
+      capability_tools:
+        SlackCapabilityTools.options!(%{
+          action_tokens: {ActionTokens, ActionTokens},
+          api: SlackClient,
+          client: bot_client,
+          workspace_ref: settings.slack.workspace_ref
+        }),
+      delivery_adapter: Ryker.Slack.Runtime.delivery_adapter!(runtime),
+      runtime: runtime
+    }
   end
 
   # Each Chat conversation picks its environment, so the console receives
@@ -1002,13 +1097,27 @@ defmodule Ryker.Runtime.Assembly do
     |> Map.new()
   end
 
+  # Each account Ryker watches for approval decisions is its own watcher: one
+  # it cannot watch (an address saved before today's checks, a value its
+  # runtime refuses) is left out and named, and the other accounts still run.
   defp emisar(_bootstrap, settings, adapters, slack, github) do
-    connections =
+    {connections, left_out} =
       settings.emisar_connections
       |> Enum.filter(& &1.monitoring_enabled)
-      |> Enum.map(fn connection ->
+      |> Enum.reduce({[], %{}}, fn connection, {connections, left_out} ->
+        case emisar_connection(connection, settings, adapters, slack, github) do
+          {:ok, watcher} -> {[watcher | connections], left_out}
+          {:error, reason} -> {connections, Map.put(left_out, connection.ref, reason)}
+        end
+      end)
+
+    {if(connections != [], do: %{connections: Enum.reverse(connections)}), left_out}
+  end
+
+  defp emisar_connection(connection, settings, adapters, slack, github) do
+    with {:ok, endpoint} <- rpc_endpoint(connection.rpc_url) do
+      isolated(:emisar, fn ->
         defaults = Defaults.fetch!(:emisar)
-        endpoint = rpc_endpoint!(connection.rpc_url)
 
         http =
           json_client!(
@@ -1025,20 +1134,24 @@ defmodule Ryker.Runtime.Assembly do
             rpc_path: endpoint.path
           })
 
-        defaults
-        |> Map.delete(:receive_timeout_ms)
-        |> Map.merge(%{
-          api: Ryker.Emisar.Client,
-          client: client,
-          connection_ref: connection.ref,
-          presentation: adapters,
-          presentation_timeout_ms: presentation_timeout(slack, github),
-          presenter: Ryker.Emisar.ApprovalPresenter,
-          worker_ref: "#{settings.installation.host_ref}:emisar:#{connection.ref}"
-        })
-      end)
+        watcher =
+          defaults
+          |> Map.delete(:receive_timeout_ms)
+          |> Map.merge(%{
+            api: Ryker.Emisar.Client,
+            client: client,
+            connection_ref: connection.ref,
+            presentation: adapters,
+            presentation_timeout_ms: presentation_timeout(slack, github),
+            presenter: Ryker.Emisar.ApprovalPresenter,
+            worker_ref: "#{settings.installation.host_ref}:emisar:#{connection.ref}"
+          })
 
-    if connections == [], do: nil, else: %{connections: connections}
+        # What the runtime checks of every watcher before it starts any.
+        ApprovalRuntime.options!(watcher)
+        watcher
+      end)
+    end
   end
 
   defp presentation_timeout(slack, github) do
@@ -1434,30 +1547,18 @@ defmodule Ryker.Runtime.Assembly do
     {Ryker.CoopFleet.Client, client}
   end
 
-  defp rpc_endpoint!(url) do
+  # The exact HTTPS RPC endpoint, never an origin to guess a path from.
+  defp rpc_endpoint(url) do
     case URI.parse(url) do
       %URI{scheme: "https", host: host, path: path} = uri
       when is_binary(host) and host != "" and is_binary(path) and path != "" ->
         origin =
           uri |> Map.merge(%{path: nil, query: nil, fragment: nil}) |> URI.to_string()
 
-        %{origin: String.trim_trailing(origin, "/"), path: path, url: URI.to_string(uri)}
+        {:ok, %{origin: String.trim_trailing(origin, "/"), path: path, url: URI.to_string(uri)}}
 
       _invalid ->
-        raise ArgumentError, "The saved Emisar RPC endpoint must be an exact HTTPS URL"
-    end
-  end
-
-  defp credential!(kind, name) do
-    case Credentials.fetch(kind, name) do
-      {:ok, value} ->
-        value
-
-      {:error, :credential_missing} ->
-        raise ArgumentError, "#{kind} credential #{name} is not configured"
-
-      {:error, _reason} ->
-        raise ArgumentError, "#{kind} credential #{name} cannot be decrypted"
+        {:error, :address_invalid}
     end
   end
 

@@ -26,7 +26,7 @@ defmodule Ryker.ControlPlane.SettingsView do
           revision: pos_integer(),
           applied_revision: non_neg_integer(),
           application: :applied | :pending | {:failed, atom()},
-          readiness: %{chat: map(), slack: map()},
+          readiness: ProductReadiness.t(),
           saved_by: String.t(),
           saved_at: DateTime.t(),
           credentials: [map()],

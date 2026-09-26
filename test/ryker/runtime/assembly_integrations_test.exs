@@ -60,11 +60,13 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
     assert {:ok, :ok} = Credentials.delete(:webhook, "alerts", @actor)
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
-    assert configuration.webhook_sources_left_out == %{"alerts" => :credential_missing}
+    assert configuration.integrations_left_out == %{webhooks: %{"alerts" => :credential_missing}}
     assert Map.keys(configuration[:webhooks].routes) == ["deploys"]
   end
 
-  test "an enabled GitHub connection without encrypted credentials is a visible refusal" do
+  test "an enabled GitHub connection without encrypted credentials is left out and named" do
+    # It refused every setting until 2026-09-26. It stays visible: GitHub is
+    # named with the missing credential, and the rest of the settings apply.
     settings = installation!()
 
     {:ok, saved} =
@@ -74,8 +76,10 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
         @actor
       )
 
-    assert {:error, {:settings_not_applicable, missing}} = Assembly.build(bootstrap(), saved)
-    assert missing == "github_private_key credential primary is not configured"
+    assert {:ok, configuration} = Assembly.build(bootstrap(), saved)
+    assert configuration[:github] == nil
+    assert configuration.integrations_left_out == %{github: :private_key_missing}
+    assert configuration[:webhooks]
     assert Settings.fetch!().github.app_id == 12_345
   end
 

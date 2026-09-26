@@ -87,18 +87,25 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
 
     {:ok, view} = SettingsView.fetch()
 
-    for {running, application, word, reason} <- [
-          {:ready, :applied, "Connected", "Acme · @ryker · 1 person can manage Ryker"},
-          {:connecting, :applied, "Connecting", "Ryker is opening its connection to Slack."},
-          {:runtime_unavailable, :pending, "Starting", "Ryker is applying the saved settings."},
-          {:runtime_unavailable, {:failed, :settings_not_applicable}, "Not running",
+    # Why the running system left Slack out is what it published when it
+    # applied the settings (AssemblyTest), never a guess from what is missing.
+    for {running, application, left_out, word, reason} <- [
+          {:ready, :applied, %{}, "Connected", "Acme · @ryker · 1 person can manage Ryker"},
+          {:connecting, :applied, %{}, "Connecting", "Ryker is opening its connection to Slack."},
+          {:runtime_unavailable, :pending, %{}, "Starting",
+           "Ryker is applying the saved settings."},
+          {:runtime_unavailable, {:failed, :settings_not_applicable}, %{}, "Not running",
            "The newest settings could not be applied, so Slack is not running."},
-          {:runtime_unavailable, :applied, "Not running",
+          {:runtime_unavailable, :applied, %{slack: :incident_policy_missing}, "Not running",
            "because no worker policy for incident rooms is ready"},
-          {:worker_unavailable, :applied, "Waiting for the worker",
+          {:runtime_unavailable, :pending, %{slack: :incident_policy_missing}, "Starting",
+           "Ryker is applying the saved settings."},
+          {:runtime_unavailable, :applied, %{}, "Not running",
+           "Slack is on but did not start. Advanced shows what the running Ryker loaded."},
+          {:worker_unavailable, :applied, %{}, "Waiting for the worker",
            "the worker that runs Ryker's work is not ready"}
         ] do
-      view = %{view | readiness: %{view.readiness | slack: %{state: running}}}
+      view = %{view | readiness: %{view.readiness | slack: %{state: running}, left_out: left_out}}
       view = %{view | application: application}
 
       for {surface, shown} <- slack_surfaces(view) do
@@ -187,17 +194,7 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
         @actor
       )
 
-    # What the runtime published when it applied these settings.
-    previous = Application.fetch_env(:ryker, :webhook_sources_left_out)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:ryker, :webhook_sources_left_out, value)
-        :error -> Application.delete_env(:ryker, :webhook_sources_left_out)
-      end
-    end)
-
-    Application.put_env(:ryker, :webhook_sources_left_out, %{"grafana" => :slack_not_running})
+    published_left_out!(%{webhooks: %{"grafana" => :slack_not_running}})
 
     assert_same(
       :webhooks,
@@ -221,6 +218,128 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
            )
   end
 
+  # Until 2026-09-26 an enabled integration Ryker could not start refused the
+  # whole configuration, or, for Slack without its incident policy, quietly
+  # did not start. Now it is left out and named with why (AssemblyTest); each
+  # page must say so, or it would vanish from the running system unseen.
+  test "a GitHub App the running system left out reads as not running, with why, everywhere" do
+    connected_github!()
+    published_left_out!(%{github: :webhook_secret_unreadable})
+
+    assert_same(
+      :github,
+      "Not running",
+      "GitHub is on, but its saved webhook secret cannot be read. Connect the App again, " <>
+        "and Ryker creates a new one."
+    )
+  end
+
+  test "Slack the running system left out reads as not running, with why, everywhere" do
+    verified_slack!()
+
+    {:ok, _} =
+      Settings.save_slack(
+        %{enabled: true, operators: ["U0123456789"]},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    published_left_out!(%{slack: :settings_unusable})
+
+    assert_same(
+      :slack,
+      "Not running",
+      "Slack is on but did not start, because Ryker could not use its saved Slack settings. " <>
+        "Replace the tokens, or save the Slack settings again."
+    )
+  end
+
+  test "an Emisar account the running system left out reads as not running, with why, everywhere" do
+    {:ok, _} = Credentials.put(:emisar, "production", "emisar-api-token-long-enough", @actor)
+
+    {:ok, _} =
+      Settings.put_emisar_connection(
+        %{
+          ref: "production",
+          display_name: "Production approvals",
+          rpc_url: "https://emisar.dev/api/mcp/rpc",
+          account_ref: "account-production",
+          account_label: "Production",
+          verified_at: ~U[2026-09-19 12:00:00.000000Z]
+        },
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    {:ok, _} =
+      Settings.put_environment(
+        %{ref: "production", display_name: "Production", emisar_connection_ref: "production"},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    published_left_out!(%{emisar: %{"production" => :address_invalid}})
+
+    reason =
+      "Production approvals is not watched for approval decisions: its saved address is not " <>
+        "the exact https address of its Emisar endpoint. Connect the account again with the " <>
+        "right address."
+
+    assert_same(:emisar, "Not running", reason)
+
+    # The account's own row says it too.
+    {:ok, view, _html} = open("/integrations/emisar")
+
+    assert has_element?(
+             view,
+             "[aria-label='Emisar accounts'] .entity-row .state-word[data-tone=bad]",
+             "Not running"
+           )
+  end
+
+  # What the runtime published when it applied the saved settings, put back
+  # the way it was after the test.
+  defp published_left_out!(left_out) do
+    previous = Application.fetch_env(:ryker, :integrations_left_out)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:ryker, :integrations_left_out, value)
+        :error -> Application.delete_env(:ryker, :integrations_left_out)
+      end
+    end)
+
+    :ok = Settings.record_application(Settings.fetch!().installation.revision, :ok)
+    Application.put_env(:ryker, :integrations_left_out, left_out)
+  end
+
+  # A verified GitHub App, switched on, as adding its first repository leaves it.
+  defp connected_github! do
+    key = :public_key.generate_key({:rsa, 2_048, 65_537})
+    pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
+
+    {:ok, _snapshot} =
+      Settings.save_github(
+        %{
+          enabled: true,
+          app_id: 1_234,
+          app_slug: "ryker-acme",
+          bot_actor_id: 99,
+          bot_login: "ryker-acme[bot]"
+        },
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    for {kind, value} <- [
+          github_private_key: pem,
+          github_webhook: "test-webhook-secret-long-enough"
+        ] do
+      {:ok, _} = Credentials.put(kind, "primary", value, @actor)
+      {:ok, _} = Credentials.verify(kind, "primary", :verified, @actor)
+    end
+  end
+
   # Every page that names this integration's state, each read where that page
   # shows it: the word, and the reason beside it.
   defp assert_same(key, word, reason, options \\ []) do
@@ -234,10 +353,13 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
       assert shown =~ reason, "#{path} says #{inspect(shown)}, without #{inspect(reason)}"
     end
 
-    # The page's help explains the same word.
+    # The page's help explains the same word, alone or with the words that
+    # share its meaning ("Starting, Not running or Unknown: ...").
     {:ok, _view, html} = open(page(key))
     help = html |> LazyHTML.from_document() |> LazyHTML.query("aside.page-help") |> text()
-    assert help =~ word <> ":", "The help for #{page(key)} does not explain #{inspect(word)}"
+
+    assert help =~ ~r/#{Regex.escape(word)}[^.:]*:/,
+           "The help for #{page(key)} does not explain #{inspect(word)}"
   end
 
   defp surfaces(:slack),

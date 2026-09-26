@@ -564,6 +564,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
     assigns =
       assign(assigns,
         accounts: snapshot.emisar_connections,
+        account_states:
+          Map.new(
+            snapshot.emisar_connections,
+            &{&1.ref, Integrations.emisar_account(assigns.view, &1)}
+          ),
         line: Integrations.emisar(assigns.view),
         snapshot: snapshot
       )
@@ -609,14 +614,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <Kit.entity_row
           :for={account <- @accounts}
           name={account.display_name}
-          state={if account.enabled_for_new_work, do: {:on, "Active"}, else: {:off, "Paused"}}
+          state={@account_states[account.ref].state}
+          text={@account_states[account.ref].reason}
           meta={[
             account.account_label,
             used_by(@snapshot, account),
-            if(account.monitoring_enabled,
-              do: "Watching for approval decisions",
-              else: "Not watching for approval decisions"
-            )
+            watching(account, @account_states[account.ref])
           ]}
         >
           <:actions :if={@edit_ref != account.ref}>
@@ -998,6 +1001,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
         "Used by " <> Environments.sentence(Enum.map(environments, & &1.display_name))
     end
   end
+
+  # Whether Ryker watches an account for approval decisions. One the running
+  # system left out is not watched, and its row says why instead.
+  defp watching(%{monitoring_enabled: false}, _state), do: "Not watching for approval decisions"
+  defp watching(_account, %{reason: nil}), do: "Watching for approval decisions"
+  defp watching(_account, _left_out), do: nil
 
   # "Verify GitHub App" -> "verify-github-app": element ids never carry spaces.
   defp key(label), do: label |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "-")
