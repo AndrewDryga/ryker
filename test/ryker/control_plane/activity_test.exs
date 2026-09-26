@@ -312,10 +312,12 @@ defmodule Ryker.ControlPlane.ActivityTest do
            )
   end
 
-  test "chats with the same title can be told apart in the conversation filter, newest first" do
+  test "chats with the same title are told apart by a time that names its zone, newest first" do
     # QA re-test, 2026-09-26: Activity › Filter › Conversation listed four
     # "Checkout readiness alert and 08:00 deploy" chats with nothing to tell
-    # them apart.
+    # them apart. The time added to tell them apart then read "26 Sep, 11:33"
+    # beside rows that say "11:33 UTC" (QA P3, the same day): a clock time on
+    # Activity says which zone it is in.
     for {chat, at} <- [
           {"chat-a", ~U[2026-09-24 09:15:00.000000Z]},
           {"chat-b", ~U[2026-09-25 14:02:00.000000Z]}
@@ -341,8 +343,10 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert Activity.conversation_filter_options()
            |> Enum.filter(&(&1.source == "control_plane"))
            |> Enum.map(&{&1.conversation_ref, &1.conversation_label}) == [
-             {"chat-b", "Direct conversation · Message text no longer available · 25 Sep, 14:02"},
-             {"chat-a", "Direct conversation · Message text no longer available · 24 Sep, 09:15"}
+             {"chat-b",
+              "Direct conversation · Message text no longer available · 25 Sep, 14:02 UTC"},
+             {"chat-a",
+              "Direct conversation · Message text no longer available · 24 Sep, 09:15 UTC"}
            ]
   end
 

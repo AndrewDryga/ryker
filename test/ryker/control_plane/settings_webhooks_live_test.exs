@@ -115,18 +115,29 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     assert Settings.fetch!().webhook_sources == []
   end
 
-  test "a source form with no environment to choose says how to make one" do
+  test "a source form with no environment points straight at adding one" do
+    # QA P3, 2026-09-26: Environments promised "Adding a repository creates the
+    # Default environment" while a repository first needed GitHub repaired.
+    # This notice made the same promise with GitHub not even connected, to a
+    # sender that needs no repository: the one step that always works is
+    # adding an environment.
     {:ok, _snapshot} = Settings.initialize(@actor)
     {:ok, view, _html} = open()
     open_source_editor(view)
 
+    notice =
+      view
+      |> element("#settings-webhooks .settings-notice", "there is none yet")
+      |> render()
+
+    assert notice =~ "Work from a webhook runs in an environment, and there is none yet."
+    refute notice =~ "repository"
+
     assert has_element?(
              view,
-             "#settings-webhooks .settings-notice",
-             "Work from a webhook runs in an environment, and there is none yet."
+             "#settings-webhooks .settings-notice a[href='/environments?edit=new']",
+             "Add an environment"
            )
-
-    assert has_element?(view, "#settings-webhooks .settings-notice a[href='/environments']")
 
     # Before Slack runs, a source that posts there waits, and the page says so
     # with the reason every page gives for Slack's state.
