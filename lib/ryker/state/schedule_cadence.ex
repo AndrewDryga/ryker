@@ -26,7 +26,7 @@ defmodule Ryker.State.ScheduleCadence do
   def describe(%{"kind" => "once", "at" => at}, timezone, options) do
     {local, zone} =
       case Keyword.get(options, :once_local) do
-        %NaiveDateTime{} = local -> {local, zone(timezone)}
+        %NaiveDateTime{} = local -> {local, zone_name(timezone)}
         nil -> {utc_naive(at), "UTC"}
       end
 
@@ -40,18 +40,18 @@ defmodule Ryker.State.ScheduleCadence do
       do: "Every " <> period(seconds)
 
   def describe(%{"kind" => "daily", "time" => time}, timezone, _options),
-    do: "Every day at #{clock_time(time)} #{zone(timezone)}"
+    do: "Every day at #{clock_time(time)} #{zone_name(timezone)}"
 
   def describe(%{"kind" => "weekdays", "time" => time}, timezone, _options),
-    do: "Every weekday at #{clock_time(time)} #{zone(timezone)}"
+    do: "Every weekday at #{clock_time(time)} #{zone_name(timezone)}"
 
   def describe(%{"kind" => "weekly", "weekday" => day, "time" => time}, timezone, _options)
       when day in @weekdays,
-      do: "Every #{String.capitalize(day)} at #{clock_time(time)} #{zone(timezone)}"
+      do: "Every #{String.capitalize(day)} at #{clock_time(time)} #{zone_name(timezone)}"
 
   def describe(%{"kind" => "monthly", "day" => day, "time" => time}, timezone, _options)
       when is_integer(day),
-      do: "Every month on the #{ordinal(day)} at #{clock_time(time)} #{zone(timezone)}"
+      do: "Every month on the #{ordinal(day)} at #{clock_time(time)} #{zone_name(timezone)}"
 
   def describe(_recurrence, _timezone, _options), do: "On a custom timing"
 
@@ -111,13 +111,16 @@ defmodule Ryker.State.ScheduleCadence do
 
   defp clock_time(value), do: to_string(value)
 
-  # The zone the way people say it: "Berlin time", "New York time", "UTC".
-  defp zone(name) when name in ~w(UTC Etc/UTC Etc/UCT UCT Universal Etc/Universal Zulu Etc/Zulu),
+  @doc ~s(A time zone the way people say it: "Berlin time", "New York time", "UTC".)
+  @spec zone_name(String.t() | nil) :: String.t()
+  def zone_name(name)
+      when name in ~w(UTC Etc/UTC Etc/UCT UCT Universal Etc/Universal Zulu Etc/Zulu),
+      do: "UTC"
+
+  def zone_name(name) when name in ~w(GMT GMT0 Etc/GMT Etc/GMT0 Greenwich Etc/Greenwich),
     do: "UTC"
 
-  defp zone(name) when name in ~w(GMT GMT0 Etc/GMT Etc/GMT0 Greenwich Etc/Greenwich), do: "UTC"
-
-  defp zone(name) when is_binary(name) do
+  def zone_name(name) when is_binary(name) do
     place = name |> String.split("/") |> List.last()
 
     if Regex.match?(~r/\A(GMT|UTC)[+-]\d{1,2}\z|\A[A-Z0-9+-]{2,8}\z/, place),
@@ -125,7 +128,7 @@ defmodule Ryker.State.ScheduleCadence do
       else: String.replace(place, "_", " ") <> " time"
   end
 
-  defp zone(_name), do: "UTC"
+  def zone_name(_name), do: "UTC"
 
   defp day(%NaiveDateTime{year: year} = local, %NaiveDateTime{year: year}),
     do: Calendar.strftime(local, "%-d %b")

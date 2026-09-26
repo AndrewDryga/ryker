@@ -135,10 +135,13 @@ defmodule Ryker.ControlPlane.SchedulesPage do
       how_often(item),
       place(item),
       if(item.status == :active and item.next_local,
-        do: moment("next run ", item.next_local, item.now_local, item.next_occurrence_at)
+        do:
+          moment("next run ", item.next_local, item.now_local, item.next_occurrence_at, :time,
+            zone: item.timezone
+          )
       ),
       if(changeable? and item.expires_local,
-        do: moment("stops ", item.expires_local, item.now_local, item.expires_at, :date)
+        do: moment("stops ", item.expires_local, item.now_local, item.expires_at, :date, [])
       ),
       if(item.repository, do: labelled("repository ", item.repository)),
       if(changeable? and item.failures > 0, do: warning(failed_starts(item.failures)))
@@ -217,12 +220,12 @@ defmodule Ryker.ControlPlane.SchedulesPage do
       <Kit.facts facts={@facts} />
       <Kit.section_head title="What it asks for" />
       <p class="schedule-task">{@schedule.task}</p>
-      <Kit.section_head title="Runs" lede="Each run starts its own request. Newest first." />
+      <Kit.section_head title="Runs" lede={runs_lede(@schedule)} />
       <div class="schedule-runs">
         <Kit.entity_list :if={@runs != []} label="Runs">
           <Kit.entity_row
             :for={run <- @runs}
-            name={due(run, @schedule.now_local)}
+            name={due(run, @schedule)}
             href={run.episode_ref && timeline_path(run.episode_ref)}
             state={run_state(run)}
             meta={run_facts(run, @now)}
@@ -237,6 +240,13 @@ defmodule Ryker.ControlPlane.SchedulesPage do
     </div>
     """
   end
+
+  # Run times are the schedule's own clock; the list names the zone once
+  # rather than on every row.
+  defp runs_lede(schedule),
+    do:
+      "Each run starts its own request. Newest first. Times are " <>
+        ScheduleCadence.zone_name(schedule.timezone) <> "."
 
   defp detail_facts(schedule) do
     changeable? = schedule.status in @changeable
@@ -256,12 +266,16 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   defp next_run(%{status: :paused}), do: "None while it is paused"
 
   defp next_run(%{next_local: %NaiveDateTime{} = local} = schedule),
-    do: moment(nil, local, schedule.now_local, schedule.next_occurrence_at)
+    do:
+      moment(nil, local, schedule.now_local, schedule.next_occurrence_at, :time,
+        zone: schedule.timezone
+      )
 
   defp next_run(_schedule), do: nil
 
   defp stops(%{expires_local: %NaiveDateTime{} = local} = schedule),
-    do: moment(nil, local, schedule.now_local, schedule.expires_at)
+    do:
+      moment(nil, local, schedule.now_local, schedule.expires_at, :time, zone: schedule.timezone)
 
   defp stops(_schedule), do: "Never"
 
@@ -436,17 +450,27 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   defp first_line(_task), do: nil
 
-  defp due(run, now_local) do
+  defp due(run, schedule) do
     local = Map.get(run, :due_local) || DateTime.to_naive(run.scheduled_for)
-    moment(nil, local, now_local, run.scheduled_for)
+    moment(nil, local, schedule.now_local, run.scheduled_for, :time, [])
   end
 
   # A time in the schedule's own zone, short in the text and exact in UTC on
   # hover: "today 09:00", "tomorrow 09:00", "25 Sep, 09:00", or just "31 Oct".
-  defp moment(lead, local, now_local, utc, style \\ :time) do
-    text = if style == :date, do: day(local, now_local), else: short(local, now_local)
+  # A clock time names its zone ("tomorrow 09:00 Berlin time"); a bare date
+  # needs none.
+  defp moment(lead, local, now_local, utc, style, options) do
+    text =
+      case style do
+        :date -> day(local, now_local)
+        :time -> short(local, now_local) <> zone_suffix(Keyword.get(options, :zone))
+      end
+
     at_time(%{lead: lead, text: text, utc: utc})
   end
+
+  defp zone_suffix(nil), do: ""
+  defp zone_suffix(timezone), do: " " <> ScheduleCadence.zone_name(timezone)
 
   defp short(%NaiveDateTime{} = local, %NaiveDateTime{} = now) do
     case Date.diff(NaiveDateTime.to_date(local), NaiveDateTime.to_date(now)) do
