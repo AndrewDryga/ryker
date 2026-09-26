@@ -16,7 +16,7 @@ defmodule Ryker.ControlPlane.UsagePage do
       filters(snapshot),
       "<section class=\"usage-summary\" aria-label=\"Usage summary\"><div class=\"usage-headlines\">",
       stat("Cost", money(totals), "usage-cost"),
-      stat("Episodes", number(value(totals, :episodes))),
+      stat("Requests", number(value(totals, :requests))),
       stat("Executions", number(totals.attempts)),
       stat("Total tokens", compact(value(totals, :tokens))),
       "</div><div class=\"usage-token-groups\"><div class=\"usage-token-group\"><span class=\"usage-group-label\">Input</span>",
@@ -89,7 +89,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   end
 
   defp filters(snapshot) do
-    mode = Map.get(snapshot, :mode, "all")
+    mode = Map.get(snapshot, :mode, "live")
 
     [
       "<div class=\"usage-filters\"><nav class=\"windows\" aria-label=\"Usage window\">",
@@ -148,17 +148,17 @@ defmodule Ryker.ControlPlane.UsagePage do
     ]
   end
 
-  defp breakdown([], _, _), do: "<p class=\"empty\">No activity in this period.</p>"
+  defp breakdown([], _, kind), do: ["<p class=\"empty\">", empty(kind), "</p>"]
 
   defp breakdown(rows, snapshot, :user) do
     [
-      "<div class=\"table-wrap\"><table class=\"usage-breakdown-table usage-users-table\"><thead><tr><th>User</th><th>Episodes</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>",
+      "<div class=\"table-wrap\"><table class=\"usage-breakdown-table usage-users-table\"><thead><tr><th>User</th><th>Requests</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>",
       Enum.map(Enum.take(rows, 500), fn row ->
         [
           "<tr><td class=\"usage-identity\">",
           identity(row, snapshot, :user),
           "</td><td>",
-          primary(number(value(row, :episodes)), ""),
+          primary(number(value(row, :requests)), ""),
           "</td><td>",
           primary(tokens(row, :tokens), ""),
           "</td><td class=\"usage-money\">",
@@ -191,8 +191,7 @@ defmodule Ryker.ControlPlane.UsagePage do
       "<tr><td class=\"usage-identity\">",
       identity(row, snapshot, kind),
       "</td><td>",
-      primary(number(value(row, :episodes)), " episodes"),
-      secondary(number(row.attempts) <> " executions · " <> tokens(row, :tokens) <> " tokens"),
+      usage(row),
       secondary(percent(share(row, snapshot.totals)) <> " of tokens"),
       "</td>",
       Enum.map([:input_tokens, :cached_input_tokens, :output_tokens, :reasoning_tokens], fn key ->
@@ -212,6 +211,40 @@ defmodule Ryker.ControlPlane.UsagePage do
       "</td></tr>"
     ]
   end
+
+  # A group leads with the requests its link lists on Activity. Work that
+  # belongs to no request, such as learning, leads with how many times it ran.
+  defp usage(%{requests: requests} = row) when requests > 0 do
+    [
+      primary(number(requests), plural(requests, " request", " requests")),
+      secondary(executions(row) <> " · " <> tokens(row, :tokens) <> " tokens")
+    ]
+  end
+
+  defp usage(row) do
+    [
+      primary(number(row.attempts), plural(row.attempts, " execution", " executions")),
+      secondary(tokens(row, :tokens) <> " tokens")
+    ]
+  end
+
+  defp executions(row),
+    do: number(row.attempts) <> plural(row.attempts, " execution", " executions")
+
+  defp plural(1, one, _many), do: one
+  defp plural(_count, _one, many), do: many
+
+  # What an empty breakdown means. Channels are Slack channels and users are
+  # people in Slack or GitHub, so either is empty while Chat work ran; "No
+  # activity in this period" there contradicted the totals above it.
+  defp empty(:channel),
+    do: "No work from a Slack channel in this period. Chat is not a channel."
+
+  defp empty(:user),
+    do:
+      "No work for a person in Slack or GitHub in this period. Chat messages are not counted by user."
+
+  defp empty(_kind), do: "No activity in this period."
 
   defp truncation(rows),
     do:
@@ -255,12 +288,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   end
 
   defp identity(row, snapshot, :channel),
-    do:
-      entity_link(
-        channel(row),
-        %{channel: row.conversation_ref, transport: row.transport},
-        snapshot
-      )
+    do: entity_link(channel(row), %{channel: row.conversation_ref}, snapshot)
 
   defp identity(row, snapshot, :repository),
     do:
@@ -296,7 +324,7 @@ defmodule Ryker.ControlPlane.UsagePage do
     params =
       Map.new(params, fn {k, v} -> {"usage_#{k}", v || ""} end)
       |> Map.merge(%{
-        "mode" => Map.get(snapshot, :mode, "all"),
+        "mode" => Map.get(snapshot, :mode, "live"),
         "usage_window" => snapshot.window
       })
 
@@ -334,12 +362,10 @@ defmodule Ryker.ControlPlane.UsagePage do
   def kind_name("approval"), do: "Approval"
   def kind_name(value), do: Components.label(value || "unclassified")
 
-  defp channel(%{transport: "slack", conversation_ref: ref}) do
+  # By channel lists Slack channels only.
+  defp channel(%{conversation_ref: ref}) do
     SlackNames.destination(if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref)
   end
-
-  defp channel(%{transport: "control_plane"}), do: "Direct conversation"
-  defp channel(row), do: "#{row.transport}:#{row.conversation_ref}"
 
   defp user(%{source: "slack", workspace: workspace, actor: actor}),
     do: SlackNames.name(workspace, actor)

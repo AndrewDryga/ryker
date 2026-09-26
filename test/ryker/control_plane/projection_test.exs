@@ -828,7 +828,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     snapshot = Projection.usage(%{"window" => "24h"})
     assert snapshot.totals.tokens == 6_900
-    assert snapshot.totals.episodes == 4
+    assert snapshot.totals.requests == 4
     assert snapshot.totals.reasoning_tokens == 75
     assert Enum.sum(Enum.map(snapshot.days, & &1.tokens)) == 6_900
     assert Enum.sum(Enum.map(snapshot.channels, & &1.tokens)) == 6_900
@@ -839,7 +839,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     emisar = Enum.find(snapshot.profiles, &(&1.profile == "emisar"))
     assert emisar.provider == "codex"
     assert emisar.attempts == 2
-    assert emisar.episodes == 2
+    assert emisar.requests == 2
     assert emisar.input_tokens == 2_400
     assert emisar.cached_input_tokens == 1_600
     assert emisar.output_tokens == 600
@@ -954,15 +954,16 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert snapshot.totals.attempts == 3
   end
 
-  test "usage includes live and evaluation work unless the operator narrows the scope" do
+  test "usage opens on live work, like Activity, and includes evaluations when asked" do
     turn = measured_turn!("all-mode", "codex:gpt-5.6-sol/medium@emisar", DateTime.utc_now())
 
     Repo.update_all(from(e in Ryker.Accounting.Execution, where: e.source_id == ^turn.id),
       set: [execution_mode: "shadow"]
     )
 
-    assert Projection.usage(%{}).totals.attempts == 1
-    assert Projection.usage(%{}).mode == "all"
+    assert Projection.usage(%{}).totals.attempts == 0
+    assert Projection.usage(%{}).mode == "live"
+    assert Projection.usage(%{"mode" => "all"}).totals.attempts == 1
     assert Projection.usage(%{"mode" => "live"}).totals.attempts == 0
     assert Projection.usage(%{"mode" => "shadow"}).totals.attempts == 1
     refute Map.has_key?(Projection.usage(%{}), :executions)

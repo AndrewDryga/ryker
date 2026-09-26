@@ -31,11 +31,14 @@ defmodule Ryker.ControlPlane.UsageProjection do
   def window(value) when value in ~w(24h 7d 30d all), do: value
   def window(_), do: "7d"
 
-  @doc "The Usage page: every breakdown for the requested window and execution mode."
+  @doc """
+  The Usage page: every breakdown for the requested window and execution mode.
+  Like Activity, it opens on live work.
+  """
   @spec page(term()) :: map()
   def page(params) when is_map(params) do
     window = window(params["window"])
-    mode = if params["mode"] in ~w(live shadow), do: params["mode"], else: "all"
+    mode = if params["mode"] in ~w(all shadow), do: params["mode"], else: "live"
 
     window
     |> since()
@@ -267,7 +270,16 @@ defmodule Ryker.ControlPlane.UsageProjection do
     from(e in query,
       select: %{
         attempts: count(e.id),
-        episodes: count(e.episode_id, :distinct),
+        # The requests Activity lists for these executions: each episode, and
+        # each message routing read that never became one. Learning belongs
+        # to no request.
+        requests:
+          fragment(
+            "COUNT(DISTINCT COALESCE(?, CASE WHEN ? = 'admission' THEN ? END))",
+            e.episode_id,
+            e.kind,
+            e.source_id
+          ),
         admission: fragment("COUNT(*) FILTER (WHERE ? = 'admission')", e.kind),
         work: fragment("COUNT(*) FILTER (WHERE ? = 'work')", e.kind),
         unsuccessful:

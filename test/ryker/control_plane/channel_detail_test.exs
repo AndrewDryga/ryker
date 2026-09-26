@@ -1140,7 +1140,11 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
         tokens: {1, 1, 1, 1}
       )
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      # A channel's usage opens on the same work as Usage and Activity.
+      assert {:ok, opened} = Projection.channel("T123", "C456", %{})
+      assert %{window: "7d", mode: "live", executions: 2} = opened.usage
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{"mode" => "all"})
 
       assert %{
                window: "7d",
@@ -1172,7 +1176,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert {:ok, shadow} = Projection.channel("T123", "C456", %{"mode" => "shadow"})
       assert %{executions: 1, measured: 1, costed: 0, mode: "shadow"} = shadow.usage
 
-      html = page("/channels/T123/C456")
+      html = page("/channels/T123/C456?mode=all")
       section = html |> LazyHTML.from_document() |> LazyHTML.query("#usage")
       text = section |> LazyHTML.text() |> String.replace(~r/\s+/, " ")
       assert text =~ "Last 7 days"
@@ -1249,13 +1253,13 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
       # The pager links keep the chosen window, and the window keeps the pages.
       for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
-      html = page("/channels/T123/C456?usage_window=24h&summary_page=2&mode=live")
+      html = page("/channels/T123/C456?usage_window=24h&summary_page=2&mode=all")
       document = LazyHTML.from_document(html)
 
       [previous] =
         document |> LazyHTML.query("#summaries .pagination a") |> LazyHTML.attribute("href")
 
-      assert previous == "/channels/T123/C456?mode=live&usage_window=24h#summaries"
+      assert previous == "/channels/T123/C456?mode=all&usage_window=24h#summaries"
 
       assert document |> LazyHTML.query("#summaries .pagination span") |> LazyHTML.text() =~
                "Page 2 of 2"
