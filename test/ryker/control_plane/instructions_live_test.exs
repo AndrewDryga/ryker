@@ -217,7 +217,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     refute has_element?(view, preference_row)
     assert has_element?(view, guidance_row)
 
-    {:ok, view, _html} = open("/instructions?status=past")
+    {:ok, view, _html} = open("/instructions?view=past")
     refute has_element?(view, "section.instructions-saved article")
 
     assert has_element?(

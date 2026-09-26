@@ -148,8 +148,8 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   test "rules and saved entries are live navigable and keep their filters after reconciliation" do
     for {path, selected} <- [
-          {"/rules?q=emisar&status=past", ["Past"]},
-          {"/instructions?show=guidance&status=past", ["Guidance", "Past"]}
+          {"/rules?q=emisar&view=past", ["Past"]},
+          {"/instructions?show=guidance&view=past", ["Guidance", "Past"]}
         ] do
       {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), path)
       assert current_segments(html) == selected, path
@@ -253,14 +253,14 @@ defmodule Ryker.ControlPlane.LiveTest do
     rows = "main .behavior-page > .entity-list article.entity-row"
 
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/rules?status=past")
+    {:ok, view, _} = live(conn, "/rules?view=past")
     assert has_element?(view, "nav.segmented a[aria-current=page]", "Past")
     assert has_element?(view, rows, "Retired: page the old rota.")
     refute has_element?(view, rows, "Watch Terraform applies")
 
     assert has_element?(
              view,
-             ".kit-toolbar form.filter-toolbar input[type=hidden][name=status][value=past]"
+             ".kit-toolbar form.filter-toolbar input[type=hidden][name=view][value=past]"
            )
 
     # Back: the previous address, nothing else, brings the previous list back.
@@ -269,7 +269,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, rows, "Watch Terraform applies")
     refute has_element?(view, rows, "Retired: page the old rota.")
     refute has_element?(view, ".kit-toolbar a.filter-clear")
-    refute has_element?(view, ".kit-toolbar form.filter-toolbar input[name=status]")
+    refute has_element?(view, ".kit-toolbar form.filter-toolbar input[name=view]")
 
     render_patch(view, "/rules?q=Terraform&page=7")
     assert has_element?(view, "input[name=q][value=Terraform]")
@@ -301,9 +301,9 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     for {query, states} <- [
           {"", ["On", "On", "Paused"]},
-          {"?status=current", ["On", "On", "Paused"]},
-          {"?status=past", ["Deleted", "Expired", "Replaced"]},
-          {"?status=all", ["On", "On", "Paused"]}
+          {"?view=current", ["On", "On", "Paused"]},
+          {"?view=past", ["Deleted", "Expired", "Replaced"]},
+          {"?view=all", ["On", "On", "Paused"]}
         ] do
       {:ok, _view, html} = live(conn, "/rules" <> query)
 
@@ -317,7 +317,7 @@ defmodule Ryker.ControlPlane.LiveTest do
              query
     end
 
-    {:ok, _view, html} = live(conn, "/rules?status=past&q=Deleted")
+    {:ok, _view, html} = live(conn, "/rules?view=past&q=Deleted")
     document = LazyHTML.from_document(html)
 
     assert LazyHTML.query(document, "main .behavior-page > .entity-list article")

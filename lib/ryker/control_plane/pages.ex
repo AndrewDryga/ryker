@@ -213,7 +213,7 @@ defmodule Ryker.ControlPlane.Pages do
     snapshot =
       options.projection.behaviors.(
         :standing_assignment,
-        Map.take(params, ["q", "status", "page"])
+        Map.take(params, ["q", "view", "page"])
       )
 
     ok(

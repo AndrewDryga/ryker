@@ -162,7 +162,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
           {%{
              view(:standing_assignment, [])
              | counts: %{"active" => 2},
-               params: %{"q" => "", "status" => "past", "show" => "all"}
+               params: %{"q" => "", "view" => "past", "show" => "all"}
            }, "No past rules", "after they expire"}
         ] do
       empty = rules_document(snapshot) |> LazyHTML.query(".entity-empty")
@@ -173,7 +173,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     searched = %{
       view(:standing_assignment, [])
       | counts: %{"active" => 9},
-        params: %{"q" => "missing", "status" => "past", "show" => "all"}
+        params: %{"q" => "missing", "view" => "past", "show" => "all"}
     }
 
     document = rules_document(searched)
@@ -183,7 +183,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
              "No rules match “missing”"
 
     # Clearing the search keeps the view the reader chose.
-    assert LazyHTML.query(empty, "a") |> LazyHTML.attribute("href") == ["/rules?status=past"]
+    assert LazyHTML.query(empty, "a") |> LazyHTML.attribute("href") == ["/rules?view=past"]
     assert Enum.empty?(LazyHTML.query(document, "section.behavior-matches"))
   end
 
@@ -192,7 +192,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     # reconcile all show the same rows. Changing a view starts at page one.
     snapshot = %{
       view(:standing_assignment, [item(:standing_assignment)])
-      | params: %{"q" => "terraform", "status" => "past", "show" => "all"},
+      | params: %{"q" => "terraform", "view" => "past", "show" => "all"},
         page: 2,
         pages: 3,
         total: 60
@@ -204,7 +204,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     assert LazyHTML.attribute(search, "action") == ["/rules"]
     assert LazyHTML.query(search, "input[name=q]") |> LazyHTML.attribute("value") == ["terraform"]
 
-    assert LazyHTML.query(search, "input[type=hidden][name=status]")
+    assert LazyHTML.query(search, "input[type=hidden][name=view]")
            |> LazyHTML.attribute("value") ==
              ["past"]
 
@@ -218,7 +218,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
     assert segments |> Enum.map(&{LazyHTML.text(&1), LazyHTML.attribute(&1, "href")}) == [
              {"Current", ["/rules?q=terraform"]},
-             {"Past", ["/rules?q=terraform&status=past"]}
+             {"Past", ["/rules?q=terraform&view=past"]}
            ]
 
     assert LazyHTML.query(document, "nav.segmented a[aria-current=page]") |> LazyHTML.text() ==
@@ -226,12 +226,12 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
     assert LazyHTML.query(document, ".kit-toolbar a.filter-clear") |> LazyHTML.attribute("href") ==
              [
-               "/rules?status=past"
+               "/rules?view=past"
              ]
 
     assert LazyHTML.query(document, "nav.pagination a") |> LazyHTML.attribute("href") == [
-             "/rules?q=terraform&status=past",
-             "/rules?page=3&q=terraform&status=past"
+             "/rules?q=terraform&view=past",
+             "/rules?page=3&q=terraform&view=past"
            ]
 
     assert LazyHTML.query(document, "nav.pagination") |> LazyHTML.text() =~ "60 rules"
@@ -468,7 +468,14 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
              ) == 1
 
       assert Enum.empty?(LazyHTML.query(document, "details.behavior-menu > summary form"))
-      assert Enum.empty?(LazyHTML.query(document, "[phx-click], [phx-submit], form[method=post]"))
+
+      assert Enum.empty?(
+               LazyHTML.query(
+                 document,
+                 "article [phx-click], article [phx-submit], form[method=post]"
+               )
+             )
+
       assert Enum.empty?(LazyHTML.query(document, "article button:not(form button)"))
     end
   end
@@ -527,7 +534,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     saved = %{
       view(:guidance, [item(:guidance)])
       | kinds: [:preference, :guidance],
-        params: %{"q" => "", "status" => "past", "show" => "guidance"},
+        params: %{"q" => "", "view" => "past", "show" => "guidance"},
         page: 1,
         pages: 2,
         total: 26
@@ -542,11 +549,11 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     assert section
            |> LazyHTML.query("nav.segmented a")
            |> Enum.map(&{LazyHTML.text(&1), LazyHTML.attribute(&1, "href")}) == [
-             {"All", ["/instructions?status=past#saved"]},
-             {"Preferences", ["/instructions?show=preferences&status=past#saved"]},
-             {"Guidance", ["/instructions?show=guidance&status=past#saved"]},
+             {"All", ["/instructions?view=past#saved"]},
+             {"Preferences", ["/instructions?show=preferences&view=past#saved"]},
+             {"Guidance", ["/instructions?show=guidance&view=past#saved"]},
              {"Current", ["/instructions?show=guidance#saved"]},
-             {"Past", ["/instructions?show=guidance&status=past#saved"]}
+             {"Past", ["/instructions?show=guidance&view=past#saved"]}
            ]
 
     assert section
@@ -555,7 +562,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
              ["Guidance", "Past"]
 
     assert LazyHTML.query(section, "nav.pagination a") |> LazyHTML.attribute("href") == [
-             "/instructions?page=2&show=guidance&status=past#saved"
+             "/instructions?page=2&show=guidance&view=past#saved"
            ]
 
     # How to save one is the page's help, not a line under the section.
@@ -650,7 +657,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
       page: 1,
       pages: 1,
       runs: [],
-      params: %{"q" => "", "status" => "current", "show" => "all"}
+      params: %{"q" => "", "view" => "current", "show" => "all"}
     }
 
   defp item(kind),

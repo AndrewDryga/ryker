@@ -93,7 +93,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
           page: 1,
           pages: 1,
           runs: [],
-          params: %{"q" => "", "status" => "current", "show" => "all"}
+          params: %{"q" => "", "view" => "current", "show" => "all"}
         }
       )
       |> LazyHTML.from_fragment()
@@ -535,6 +535,29 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     lede = document |> LazyHTML.query(".section-head p") |> LazyHTML.text()
     refute lede =~ "Nobody is waiting"
     assert lede =~ "No one is missing a reply"
+  end
+
+  test "a reply moved out of a deleted incident room says where it went, in one line" do
+    # The line said the reply went to "the alert thread the room was opened
+    # from", which names no place a person can open.
+    row = %{
+      kind: "delivery",
+      ref: "delivery:moved",
+      action: :retry,
+      delivery_kind: :message,
+      destination: "slack:T123:C0ALERTS / 1787832000.000100",
+      incident_room: %{channel_name: "inc-checkout", channel_state: :deleted, reply: :moved},
+      status: :blocked,
+      summary: "slack_transport_error",
+      updated_at: ~U[2026-09-24 11:00:00Z]
+    }
+
+    place = FailureExplanation.place(row)
+    explained = FailureExplanation.explain(row, @now)
+
+    assert Enum.filter(explained.happened, &(&1 =~ "inc-checkout")) == [
+             "Moved from the incident room #inc-checkout, which was deleted in Slack, to the alert thread in #{place}."
+           ]
   end
 
   test "an empty Failures page says nothing needs you and what would put something here" do
