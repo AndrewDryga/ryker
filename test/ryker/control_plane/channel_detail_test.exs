@@ -222,7 +222,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
            ]
 
     assert html |> LazyHTML.from_document() |> LazyHTML.query(".channel-state") |> LazyHTML.text() =~
-             "Ryker is in"
+             "Connected"
   end
 
   # Choosing a channel's environment on its page saves the channel as the
@@ -268,7 +268,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     refute "Incident room" in fact_labels(html)
 
     assert html |> LazyHTML.from_document() |> LazyHTML.query(".channel-state") |> LazyHTML.text() =~
-             "Ryker left"
+             "Disconnected"
   end
 
   test "an incident room channel shows its room and owning incident only when it is one" do

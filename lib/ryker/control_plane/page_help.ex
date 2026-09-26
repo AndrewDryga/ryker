@@ -360,7 +360,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"How Ryker takes part",
        [
          "Replies when mentioned: Ryker answers when someone writes @Ryker. Joins relevant conversations: it also replies when it can clearly help. Watches quietly: it reads and learns, but never replies.",
-         "New channels start with the choice under Defaults."
+         "New channels, under Slack at the top of this page, says how a channel Ryker joins takes part until it makes its own choice. Change opens it on the Slack page."
        ]},
       {"Change a channel",
        [
@@ -369,6 +369,10 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Find a channel",
        [
          "In use lists the channels Ryker is in; All adds the ones it left or never joined. Search matches a channel's name, workspace or environment."
+       ]},
+      {"What the states mean",
+       [
+         "Connected: Ryker is in the channel. Disconnected: it left or was removed. Not connected: it was never invited. Deleted: the channel is gone from Slack. Incident open: the channel holds an incident that is still open."
        ]}
     ])
   end

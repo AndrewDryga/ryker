@@ -44,13 +44,8 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert has_element?(view, "#slack-status strong", "Slack")
     assert has_element?(view, "#slack-status .state-word[data-tone=off]", "Not connected")
     assert has_element?(view, "#slack-status a[href='/integrations/slack']", "Connect Slack")
-
-    assert has_element?(
-             view,
-             ".page-action a[href='/integrations/slack#new-channels']",
-             "Defaults"
-           )
-
+    refute has_element?(view, "#new-channels-default")
+    refute has_element?(view, ".page-action")
     refute has_element?(view, "details.area-settings")
   end
 

@@ -6,7 +6,10 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
   """
   use Ryker.DataCase, async: false
 
-  alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, Pages}
+  import Phoenix.LiveViewTest, only: [render_component: 2]
+
+  alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, Pages, SettingsView}
+  alias Ryker.Credentials
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Records
   alias Ryker.Settings
@@ -14,6 +17,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
   alias Ryker.Slack.Names
 
   @now ~U[2026-09-24 12:00:00Z]
+  @actor "control-plane:local"
 
   @channel %{
     channel_ref: "C456",
@@ -61,7 +65,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       assert LazyHTML.text(name) =~ "C456"
 
       state = LazyHTML.query(row, ".entity-side .state-word")
-      assert LazyHTML.text(state) == "Ryker is in"
+      assert LazyHTML.text(state) == "Connected"
       assert LazyHTML.attribute(state, "data-tone") == ["on"]
 
       meta = row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze()
@@ -115,11 +119,13 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
           {LazyHTML.text(state), LazyHTML.attribute(state, "data-tone")}
         end)
 
+      # Andrew, 2026-09-26: "Ryker is in" read as a sentence cut short, not a
+      # state. A channel is connected or it is not, as a service is.
       assert states == [
                {"Incident open", ["warn"]},
-               {"Ryker left", ["off"]},
+               {"Disconnected", ["off"]},
                {"Deleted", ["off"]},
-               {"Not joined", ["off"]},
+               {"Not connected", ["off"]},
                {"", []}
              ]
 
@@ -185,7 +191,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
              ]
     end
 
-    test "the route asks the directory for the chosen view and offers the channel defaults" do
+    test "the route asks the directory for the chosen view" do
       parent = self()
 
       options = %{
@@ -203,14 +209,48 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       assert page.title == "Channels"
       assert page.description == "Slack channels Ryker is in, and how it takes part in each one."
 
-      action = LazyHTML.from_fragment(page.action)
-
-      assert LazyHTML.query(action, "a[href='/integrations/slack#new-channels']")
-             |> LazyHTML.text() ==
-               "Defaults"
-
       Pages.page(["channels"], %{"show" => "all"}, options)
       assert_received {:channels, %{"q" => "", "show" => "all"}}
+    end
+  end
+
+  describe "the Slack card" do
+    # Andrew, 2026-09-26: a "Defaults" button sat in the Channels header, and
+    # it was not clear why it was on this page or what it did. What a new
+    # channel does is said beside Slack now, and Change opens that setting.
+    test "the page says what new channels do, not behind a Defaults button" do
+      verified_slack!(:proactive)
+      {:ok, view} = SettingsView.fetch()
+
+      card =
+        render_component(&ChannelsPage.slack_status/1, settings: {:ok, view})
+        |> LazyHTML.from_fragment()
+
+      row = LazyHTML.query(card, ".connection-card > #new-channels-default")
+
+      assert row |> LazyHTML.text() |> squeeze() ==
+               "New channels Joins relevant conversations Change what new channels do"
+
+      assert Enum.count(LazyHTML.query(row, "a[href='/integrations/slack#new-channels']")) == 1
+
+      page =
+        Pages.page(["channels"], %{}, %{projection: %{channels: fn _params -> [@channel] end}})
+
+      refute Map.has_key?(page, :action)
+    end
+
+    test "before Slack is set up there is no setting to change, so no row for it" do
+      {:ok, _snapshot} = Settings.initialize(@actor)
+      {:ok, view} = SettingsView.fetch()
+
+      card =
+        render_component(&ChannelsPage.slack_status/1, settings: {:ok, view})
+        |> LazyHTML.from_fragment()
+
+      assert card |> LazyHTML.query("#slack-status .state-word") |> LazyHTML.text() ==
+               "Not connected"
+
+      assert Enum.empty?(LazyHTML.query(card, "#new-channels-default"))
     end
   end
 
@@ -360,6 +400,31 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
 
   defp name("C456"), do: {:ok, "infra"}
   defp name(_channel), do: {:ok, "payments"}
+
+  # Verified Slack tokens and identity, as Connect leaves them.
+  defp verified_slack!(participation) do
+    {:ok, snapshot} = Settings.initialize(@actor)
+
+    {:ok, _snapshot} =
+      Settings.save_slack(
+        %{
+          enabled: false,
+          workspace_ref: "T0123456789",
+          workspace_name: "Acme",
+          bot_ref: "A0123456789",
+          bot_user_ref: "U0123456789",
+          bot_name: "ryker",
+          default_participation: participation
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    for kind <- [:slack_app, :slack_bot] do
+      {:ok, _} = Credentials.put(kind, "primary", "xoxb-test-token-long-enough", @actor)
+      {:ok, _} = Credentials.verify(kind, "primary", :verified, @actor)
+    end
+  end
 
   defp render(items, params \\ %{}) do
     %{items: items, view: ChannelsPage.view(params), now: @now}
