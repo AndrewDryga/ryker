@@ -1619,7 +1619,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              pages: 1
            }
 
-    assert map_size(Projection.callbacks()) == 35
+    assert map_size(Projection.callbacks()) == 36
+    # What forgetting a topic or a fact takes with it, for both confirmations.
+    assert is_function(Projection.callbacks().forgetting, 1)
     # One failure callback serves every kind's page and confirmation.
     assert is_function(Projection.callbacks().failure, 2)
     refute Map.has_key?(Projection.callbacks(), :delivery)

@@ -4,10 +4,9 @@ defmodule Ryker.State.Forgetting do
 
   A person forgets a learned topic on Learned, or a fact on Facts. Either
   way the messages the knowledge came from are forgotten: their observations
-  are quarantined the way a conflicting source is (no note, no sources, a
-  fingerprint no receipt matches), so every topic and summary that cites
-  them stops being used, and learning never takes them again, even after an
-  edit. A topic left with no message it may still use is forgotten with
+  lose their note and are marked forgotten, so every topic and summary that
+  cites them stops being used, and learning never takes them again, even
+  after an edit. The messages themselves stay valid inputs. A topic left with no message it may still use is forgotten with
   them: its text and history are erased and it stays listed as forgotten. A
   topic that also rests on other messages stops being used until it is
   relearned from those.
@@ -20,8 +19,8 @@ defmodule Ryker.State.Forgetting do
 
   import Ecto.Query
 
-  alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Repo
   alias Ryker.Work.Turn
 
   alias Ryker.State.{
@@ -115,18 +114,14 @@ defmodule Ryker.State.Forgetting do
     outcome
   end
 
-  # The message is kept in the inbox under its own retention; only what
-  # learning may take from it is gone.
+  # Only what learning may take from the message is gone: its note is erased
+  # and it is marked forgotten, which every learning path and the eligibility
+  # of derived knowledge check. Its identity and fingerprint stay, so the
+  # message itself remains a valid input: Ryker still answers a person who
+  # sent it, it just never learns from it again.
   defp quarantine!(observation, now) do
     Repo.update_all(from(o in ConversationObservation, where: o.id == ^observation.id),
-      set: [
-        forgotten_at: now,
-        note: nil,
-        source_dependencies: nil,
-        source_result_ref: "source-forgotten:" <> observation.identity_key,
-        source_fingerprint:
-          CanonicalJSON.digest(%{"source" => observation.identity_key, "state" => "forgotten"})
-      ]
+      set: [forgotten_at: now, note: nil]
     )
   end
 
