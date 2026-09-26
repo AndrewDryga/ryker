@@ -236,7 +236,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     html =
       render_component(&ActivityPage.render/1,
         activity: activity,
-        overview: %{counts: %{}},
+        overview: %{},
         params: %{},
         path: "/activity",
         now: DateTime.utc_now(),
@@ -429,5 +429,98 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert length(detail.trace.case_file.messages) == 20
     assert List.first(detail.trace.case_file.messages).text == "Request message 186"
     assert List.last(detail.trace.case_file.messages).text == "Request message 205"
+  end
+
+  test "every workload count opens a view that lists exactly that many requests" do
+    # QA, 2026-09-25: Activity led with "3 active · 2 waiting · 1 blocked" while
+    # In progress listed nothing, and "waiting" and "blocked" both opened the
+    # same Needs you view. "Active" counted waiting work, blocked work and
+    # evaluations, none of which In progress lists, so every number on the row
+    # disagreed with the list it opened.
+    blocked = counted_episode!("blocked")
+
+    {:ok, _session} =
+      Custody.pin_episode(blocked.id, "counts-test", String.duplicate("a", 64))
+
+    {:ok, _claim} = Custody.claim_next("counts-test", 60, :work)
+
+    {1, _} =
+      Repo.update_all(from(t in Turn, where: t.episode_id == ^blocked.id),
+        set: [
+          status: :blocked,
+          lease_ref: nil,
+          lease_owner: nil,
+          lease_expires_at: nil,
+          next_attempt_at: nil
+        ]
+      )
+
+    for {name, kind} <- [{"question", :input}, {"watch", :event}] do
+      episode = counted_episode!(name)
+
+      {:ok, _} =
+        Episodes.apply(
+          Fixtures.start_wait(%{
+            episode_key: episode.key,
+            expected_turn_ref: episode.owner_ref,
+            kind: kind,
+            wait_ref: "#{name}:#{episode.id}"
+          })
+        )
+    end
+
+    _working = counted_episode!("working")
+    evaluation = counted_episode!("evaluation")
+
+    Repo.update_all(from(e in Ryker.Episodes.Episode, where: e.id == ^evaluation.id),
+      set: [execution_mode: :shadow]
+    )
+
+    counts =
+      render_component(&ActivityPage.render/1,
+        activity: Activity.list(%{}),
+        overview: Projection.overview(),
+        params: %{},
+        path: "/activity",
+        now: DateTime.utc_now(),
+        stream: [],
+        new_items: 0,
+        schedules: []
+      )
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".kit-counts a.kit-count")
+      |> Enum.map(fn count ->
+        {count |> LazyHTML.query("b") |> LazyHTML.text() |> String.to_integer(),
+         count |> LazyHTML.text() |> String.split() |> tl() |> Enum.join(" "),
+         count |> LazyHTML.attribute("href") |> hd()}
+      end)
+
+    for {value, label, href} <- counts do
+      listed = href |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+      assert Activity.list(listed).total == value,
+             "\"#{value} #{label}\" opens #{href}, which lists #{Activity.list(listed).total}"
+    end
+
+    assert counts |> Enum.map(&elem(&1, 2)) |> Enum.uniq() |> length() == length(counts),
+           "two counts open the same view: #{inspect(counts)}"
+
+    assert Enum.map(counts, &{elem(&1, 0), elem(&1, 1)}) == [{2, "in progress"}, {2, "need you"}]
+  end
+
+  defp counted_episode!(name) do
+    id = Ecto.UUID.generate()
+
+    {:ok, %{episode: episode}} =
+      Episodes.apply(
+        Fixtures.admit_input(%{
+          episode_id: id,
+          episode_key: "counts:#{name}:#{id}",
+          native_input_id: "counts:#{name}:#{id}",
+          turn_ref: "counts-turn:#{name}:#{id}"
+        })
+      )
+
+    episode
   end
 end

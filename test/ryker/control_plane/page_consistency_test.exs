@@ -103,7 +103,7 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
     end
 
     for {name, document, leading} <- [
-          {"Activity", activity(), ["1 request", "1 active", "0 waiting", "0 blocked"]},
+          {"Activity", activity(), ["1 request", "1 in progress", "0 need you"]},
           {"Incident rooms", page("/incident-rooms"), ["1 room", "1 open"]},
           {"Environments", environments(), ["1 environment", "1 channel without an environment"]}
         ] do
@@ -209,8 +209,14 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
 
   defp activity do
     render_component(&ActivityPage.render/1,
-      overview: %{counts: %{active: 1, waiting: 0, blocked: 0}, fleet: %{required: false}},
-      activity: %{total: 1, page: 1, pages: 1, mode: "live"},
+      overview: %{fleet: %{required: false}},
+      activity: %{
+        total: 1,
+        page: 1,
+        pages: 1,
+        mode: "live",
+        views: %{"attention" => 0, "running" => 1, "done" => 0}
+      },
       params: %{},
       path: "/",
       now: ~U[2026-09-24 12:00:00Z],

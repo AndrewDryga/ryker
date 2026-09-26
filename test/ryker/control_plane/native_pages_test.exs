@@ -28,7 +28,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
     html =
       render_component(&ActivityPage.render/1,
-        overview: %{counts: %{active: 2}, fleet: %{eligible_workers: 1, unavailable: true}},
+        overview: %{fleet: %{eligible_workers: 1, unavailable: true}},
         activity: %{total: 90, page: 2, pages: 3, mode: "all"},
         params: %{"q" => "trace", "repository" => "ryker", "mode" => "all"},
         path: "/activity",
@@ -109,7 +109,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   test "a filtered empty activity page does not imply the workspace has no conversations" do
     html =
       render_component(&ActivityPage.render/1,
-        overview: %{counts: %{}, fleet: %{required: false}},
+        overview: %{fleet: %{required: false}},
         activity: %{total: 0, page: 1, pages: 1, mode: "shadow", searchable: true},
         params: %{"q" => "absent"},
         path: "/",
@@ -135,8 +135,15 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   test "activity leads with the counts and toolbar row every list page shares" do
     html =
       render_component(&ActivityPage.render/1,
-        overview: %{counts: %{active: 3, waiting: 2, blocked: 1}, fleet: %{required: false}},
-        activity: %{total: 0, page: 1, pages: 1, mode: "live", searchable: false},
+        overview: %{fleet: %{required: false}},
+        activity: %{
+          total: 0,
+          page: 1,
+          pages: 1,
+          mode: "live",
+          searchable: false,
+          views: %{"attention" => 2, "running" => 3, "done" => 0}
+        },
         params: %{},
         path: "/",
         now: @now,
@@ -150,17 +157,16 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
     assert Enum.map(counts, fn count ->
              {count |> LazyHTML.query("b") |> LazyHTML.text(),
-              count |> LazyHTML.text() |> String.split() |> List.last(),
+              count |> LazyHTML.text() |> String.split() |> tl() |> Enum.join(" "),
               count |> LazyHTML.attribute("href") |> List.first()}
            end) == [
              {"0", "requests", nil},
-             {"3", "active", "/?filter=running"},
-             {"2", "waiting", "/?filter=attention"},
-             {"1", "blocked", "/?filter=attention"}
+             {"3", "in progress", "/?filter=running"},
+             {"2", "need you", "/?filter=attention"}
            ]
 
-    assert LazyHTML.query(html, ".kit-count[data-tone=warn]") |> LazyHTML.text() =~ "blocked"
-    assert LazyHTML.query(html, ".kit-count[data-phx-link=patch]") |> Enum.count() == 3
+    assert LazyHTML.query(html, ".kit-count[data-tone=warn]") |> LazyHTML.text() =~ "need you"
+    assert LazyHTML.query(html, ".kit-count[data-phx-link=patch]") |> Enum.count() == 2
 
     refute LazyHTML.query(html, ".activity-pulse, .collection-shell, .page-summary")
            |> Enum.any?()
@@ -196,7 +202,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     for fleet <- [%{required: true, eligible_workers: 0}, %{unavailable: true}] do
       html =
         render_component(&ActivityPage.render/1,
-          overview: %{counts: %{}, fleet: fleet},
+          overview: %{fleet: fleet},
           activity: %{total: 0, page: 1, pages: 1, mode: "live", searchable: false},
           params: %{},
           path: "/",
@@ -242,7 +248,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
         ] do
       document = activity_document(params, total)
       assert first_count(document) == first, inspect(params)
-      assert LazyHTML.query(document, ".kit-counts > .kit-count") |> Enum.count() == 4
+      assert LazyHTML.query(document, ".kit-counts > .kit-count") |> Enum.count() == 3
       refute LazyHTML.query(document, ".kit-toolbar") |> LazyHTML.text() =~ ~r/\d+ (items?|req)/
     end
   end
@@ -302,8 +308,14 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
   defp activity_document(params, total, menu \\ nil) do
     render_component(&ActivityPage.render/1,
-      overview: %{counts: %{active: 1, waiting: 0, blocked: 0}, fleet: %{required: false}},
-      activity: %{total: total, page: 1, pages: 1, mode: params["mode"] || "live"},
+      overview: %{fleet: %{required: false}},
+      activity: %{
+        total: total,
+        page: 1,
+        pages: 1,
+        mode: params["mode"] || "live",
+        views: %{"attention" => 0, "running" => 1, "done" => 0}
+      },
       params: params,
       path: "/activity",
       now: @now,
