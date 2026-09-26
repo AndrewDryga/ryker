@@ -77,6 +77,10 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @search_stems_version 20_260_925_000_800
   @environments_version 20_260_925_001_000
   @environment_setup_step_version 20_260_925_001_100
+  @environment_repositories_version 20_260_925_001_200
+  @slack_retry_caps_version 20_260_926_000_100
+  @unwritten_tables_version 20_260_926_000_200
+  @unwritten_tables ~w(card_lab_feedback card_lab_posts episode_case_lessons slack_channel_setting_overrides)
   @integration_versions [
     20_260_919_000_100,
     20_260_919_000_200,
@@ -104,7 +108,10 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @emisar_closure_version,
     @search_stems_version,
     @environments_version,
-    @environment_setup_step_version
+    @environment_setup_step_version,
+    @environment_repositories_version,
+    @slack_retry_caps_version,
+    @unwritten_tables_version
   ]
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
@@ -243,6 +250,68 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  "SELECT cleanup_status, cleanup_receipt IS NOT NULL FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
                  [settled_id]
                )
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  # A blocked card or status is the only record that Slack refused it and of
+  # the attempts spent. A rollback that dropped the column would turn it back
+  # into a live row retried forever, which is the defect the column fixes.
+  test "a blocked Slack card or thread status survives a refused rollback" do
+    repo = start_migration_repo!()
+    prefix = "slack_retry_caps_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @slack_retry_caps_version,
+        prefix: prefix,
+        log: false
+      )
+
+      assert column_exists?(repo, prefix, "slack_task_cards", "status")
+      status_id = Ecto.UUID.generate()
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.slack_thread_statuses
+          (id, workspace_ref, channel_ref, thread_ref, phase, desired_text, generation,
+           delivered_generation, status, attempt_count, last_error_code, last_error_detail,
+           inserted_at, updated_at)
+        VALUES ($1::text::uuid, 'T123', 'C456', '1787832000.000100', 'working', 'is working...',
+                1, 0, 'blocked', 8, 'slack_api_error', '{:slack_api_error, "channel_not_found"}',
+                now(), now())
+        """,
+        [status_id]
+      )
+
+      assert_raise Postgrex.Error,
+                   ~r/blocked Slack task cards or thread statuses have data/,
+                   fn ->
+                     Ecto.Migrator.run(repo, @migrations_path, :down,
+                       step: 1,
+                       prefix: prefix,
+                       log: false
+                     )
+                   end
+
+      assert column_exists?(repo, prefix, "slack_task_cards", "status")
+
+      SQL.query!(
+        repo,
+        "UPDATE #{prefix}.slack_thread_statuses SET status = 'pending' WHERE id = $1::text::uuid",
+        [status_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@slack_retry_caps_version]
+
+      refute column_exists?(repo, prefix, "slack_task_cards", "status")
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -419,8 +488,15 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       assert column_exists?(repo, prefix, "webhook_source_settings", "context_ref")
       refute column_exists?(repo, prefix, "episode_work_sessions", "environment_ref")
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
-               [@environments_version, @environment_setup_step_version]
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @environment_repositories_version,
+               prefix: prefix,
+               log: false
+             ) == [
+               @environments_version,
+               @environment_setup_step_version,
+               @environment_repositories_version
+             ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -471,11 +547,264 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       assert setup_session(repo, prefix, reopened) == ["repository", "expired"]
       assert setup_session(repo, prefix, finished) == ["repository", "cancelled"]
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
-               [@environment_setup_step_version]
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @environment_repositories_version,
+               prefix: prefix,
+               log: false
+             ) == [@environment_setup_step_version, @environment_repositories_version]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
+  end
+
+  # Work in an environment now chooses which of its repositories it changes, so
+  # an environment's policy bindings are per repository and the frozen Work
+  # profile names the whole set. A binding saved before declared the first
+  # repository as the working copy, so it becomes that repository's. An inbox
+  # entry frozen with the first pass's writable-first profile names no choice;
+  # rewriting it would rewrite history, so the upgrade refuses one (none
+  # existed live). A Chat conversation keeps the environment chosen for it, and
+  # rolling back would forget that choice, so the step refuses while one is
+  # stored or an environment has bindings for several repositories.
+  test "environment bindings are per repository and a chat conversation keeps its environment" do
+    repo = start_migration_repo!()
+    prefix = "environment_repositories_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @environment_setup_step_version,
+        prefix: prefix,
+        log: false
+      )
+
+      for ref <- ~w(api web) do
+        SQL.query!(
+          repo,
+          """
+          INSERT INTO #{prefix}.repository_settings (ref, base_branch, inserted_at, updated_at)
+          VALUES ($1, 'main', clock_timestamp(), clock_timestamp())
+          """,
+          [ref]
+        )
+      end
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.environment_settings (ref, display_name, inserted_at, updated_at)
+        VALUES ('platform', 'Platform', clock_timestamp(), clock_timestamp())
+        """,
+        []
+      )
+
+      for {ref, position} <- [{"api", 0}, {"web", 1}] do
+        SQL.query!(
+          repo,
+          """
+          INSERT INTO #{prefix}.environment_repository_settings (environment_ref, repository_ref, position)
+          VALUES ('platform', $1, $2)
+          """,
+          [ref, position]
+        )
+      end
+
+      binding_id = insert_environment_binding!(repo, prefix, nil)
+
+      first_pass = %{
+        "class_policies" => nil,
+        "environment_ref" => "platform",
+        "parallel_goal_limit" => 3,
+        "policy" => "platform-conversation",
+        "policy_digest" => String.duplicate("b", 64),
+        "read_only_repository_refs" => ["web"],
+        "repository_ref" => "api"
+      }
+
+      stale_entry = insert_profiled_entry!(repo, prefix, first_pass, "api")
+
+      assert_raise Postgrex.Error, ~r/first-pass environment profile/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :up,
+          to: @environment_repositories_version,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.ingress_inbox_entries WHERE id = $1::text::uuid",
+        [stale_entry]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @environment_repositories_version,
+               prefix: prefix,
+               log: false
+             ) == [@environment_repositories_version]
+
+      assert %{rows: [["api"]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT repository_ref FROM #{prefix}.policy_bindings WHERE id = $1::text::uuid",
+                 [binding_id]
+               )
+
+      # One binding per repository of the environment, none without one.
+      insert_environment_binding!(repo, prefix, "web")
+
+      assert_raise Postgrex.Error, ~r/policy_binding_repository_valid/, fn ->
+        insert_environment_binding!(repo, prefix, "")
+      end
+
+      chosen = %{
+        "environment_ref" => "platform",
+        "parallel_goal_limit" => 3,
+        "policies" => %{"api" => classes("api"), "web" => classes("web")},
+        "repositories" => ["api", "web"]
+      }
+
+      chosen_entry = insert_profiled_entry!(repo, prefix, chosen, "api")
+
+      for malformed <- [
+            Map.put(chosen, "repositories", ["api"]),
+            Map.put(chosen, "repositories", ["web", "api"]),
+            put_in(chosen, ["policies", "web"], Map.delete(classes("web"), "deep")),
+            Map.put(chosen, "read_only_repository_refs", ["web"])
+          ] do
+        assert_raise Postgrex.Error, ~r/ingress_inbox_work_class_profile_valid/, fn ->
+          insert_profiled_entry!(repo, prefix, malformed, "api")
+        end
+      end
+
+      conversation = Ecto.UUID.generate()
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.control_plane_conversations (id, environment_ref, inserted_at, updated_at)
+        VALUES ($1::text::uuid, 'platform', clock_timestamp(), clock_timestamp())
+        """,
+        [conversation]
+      )
+
+      assert "control_plane_conversations" in triggers(
+               repo,
+               prefix,
+               "ryker_control_plane_changed"
+             )
+
+      assert_raise Postgrex.Error, ~r/environment repository choices have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.environment_repository_settings WHERE repository_ref = 'web'",
+        []
+      )
+
+      SQL.query!(repo, "DELETE FROM #{prefix}.policy_bindings WHERE repository_ref = 'web'", [])
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.ingress_inbox_entries WHERE id = $1::text::uuid",
+        [chosen_entry]
+      )
+
+      # A removed environment leaves its conversations outside any.
+      SQL.query!(repo, "DELETE FROM #{prefix}.policy_bindings", [])
+      SQL.query!(repo, "DELETE FROM #{prefix}.environment_settings", [])
+
+      assert %{rows: [[nil]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT environment_ref FROM #{prefix}.control_plane_conversations WHERE id = $1::text::uuid",
+                 [conversation]
+               )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@environment_repositories_version]
+
+      refute table_exists?(repo, prefix, "control_plane_conversations")
+      refute column_exists?(repo, prefix, "policy_bindings", "repository_ref")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @environment_repositories_version,
+               prefix: prefix,
+               log: false
+             ) == [@environment_repositories_version]
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  defp insert_environment_binding!(repo, prefix, repository_ref) do
+    id = Ecto.UUID.generate()
+    {columns, values} = if repository_ref, do: {", repository_ref", ", $2"}, else: {"", ""}
+    parameters = if repository_ref, do: [id, repository_ref], else: [id]
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.policy_bindings (
+        id, purpose, scope_kind, scope_ref, policy_name, policy_digest, verified_by,
+        inserted_at, updated_at#{columns}
+      ) VALUES (
+        $1::text::uuid, 'conversational', 'environment', 'platform', 'platform-conversation',
+        repeat('a', 64), 'import', clock_timestamp(), clock_timestamp()#{values}
+      )
+      """,
+      parameters
+    )
+
+    id
+  end
+
+  defp insert_profiled_entry!(repo, prefix, profile, repository_ref) do
+    id = Ecto.UUID.generate()
+
+    {policy, digest} =
+      case profile do
+        %{"policies" => policies, "repositories" => [default | _rest]} ->
+          conversational = policies |> Map.fetch!(default) |> Map.fetch!("conversational")
+          {conversational["policy"], conversational["policy_digest"]}
+
+        %{"policy" => policy, "policy_digest" => digest} ->
+          {policy, digest}
+      end
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.ingress_inbox_entries (
+        id, dedupe_key, event_fingerprint, source_kind, source_ref, event_ref,
+        event_kind, native_input_id, actor_kind, actor_ref, destination_transport,
+        destination_conversation_ref, revision, occurred_at, content, status,
+        source_capabilities, work_profile, work_policy, work_policy_digest, repository_ref,
+        inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, 'dedupe:' || $1, repeat('a', 64), 'local', 'control-plane',
+        'event:' || $1, 'message', 'input:' || $1, 'user', 'control-plane:operator',
+        'control-plane', 'conversation:environment-repositories', 1, clock_timestamp(),
+        '{"text":"which repository"}', 'pending', '{}', $2, $3, $4, $5,
+        clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [id, Jason.encode!(profile), policy, digest, repository_ref]
+    )
+
+    id
+  end
+
+  defp classes(repository) do
+    Map.new(~w(conversational standard deep), fn work_class ->
+      {work_class,
+       %{"policy" => "#{repository}-#{work_class}", "policy_digest" => String.duplicate("c", 64)}}
+    end)
   end
 
   test "token-rate seed and rollback stay inside the requested migration prefix" do
@@ -604,7 +933,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "operator_behaviors")
       assert table_exists?(repo, prefix, "standing_assignment_runs")
       assert table_exists?(repo, prefix, "operational_memory_entries")
-      assert table_exists?(repo, prefix, "slack_channel_setting_overrides")
+      refute table_exists?(repo, prefix, "slack_channel_setting_overrides")
       assert table_exists?(repo, prefix, "slack_channel_setting_audit")
       assert table_exists?(repo, prefix, "slack_channel_memberships")
       assert table_exists?(repo, prefix, "slack_channel_membership_events")
@@ -647,7 +976,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "conversation_rollups")
       assert table_exists?(repo, prefix, "memory_review_items")
       assert table_exists?(repo, prefix, "episode_work_activity")
-      assert table_exists?(repo, prefix, "card_lab_feedback")
+      refute table_exists?(repo, prefix, "card_lab_feedback")
+      refute table_exists?(repo, prefix, "card_lab_posts")
       assert table_exists?(repo, prefix, "work_candidate_responses")
       assert table_exists?(repo, prefix, "conversation_learning_batches")
       assert table_exists?(repo, prefix, "conversation_learning_inputs")
@@ -2457,7 +2787,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "episode_routing_digests")
       assert table_exists?(repo, prefix, "episode_association_corrections")
       assert table_exists?(repo, prefix, "episode_case_records")
-      assert table_exists?(repo, prefix, "episode_case_lessons")
+      refute table_exists?(repo, prefix, "episode_case_lessons")
       assert column_exists?(repo, prefix, "episode_work_turns", "delivery_target")
 
       case_id = insert_case_record!(repo, prefix, ids.episode_id)
@@ -3583,6 +3913,102 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
+  end
+
+  # Four tables outlived their writers: the retired Card Lab's feedback and post
+  # receipts, the participation overrides an importer folded into channel
+  # configurations, and case lessons no product path ever drafted. Dropping a
+  # table is the one step a rollback cannot undo, so the migration must refuse
+  # a populated table outright, and its rollback must bring every table back
+  # exactly as it stood so the older migrations' own rollbacks still find the
+  # objects they drop.
+  test "dropping the tables nothing writes refuses rows and recreates them empty on rollback" do
+    repo = start_migration_repo!()
+    prefix = "unwritten_tables_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+    patterns = ~w(%card_lab% %case_lesson% %setting_override% %setting_identity%)
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @environment_repositories_version,
+        prefix: prefix,
+        log: false
+      )
+
+      before = Enum.map(patterns, &named_objects(repo, prefix, &1))
+      shapes = Enum.map(@unwritten_tables, &table_shape(repo, prefix, &1))
+      feedback_id = Ecto.UUID.generate()
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.card_lab_feedback (
+          id, actor_ref, card_id, state_id, verdict, note, inserted_at
+        ) VALUES (
+          $1::text::uuid, 'control-plane:operator', 'task-card', 'working',
+          'needs_work', 'The hierarchy needs another pass.', clock_timestamp()
+        )
+        """,
+        [feedback_id]
+      )
+
+      assert_raise Postgrex.Error, ~r/card_lab_feedback has data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :up,
+          to: @unwritten_tables_version,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      for table <- @unwritten_tables, do: assert(table_exists?(repo, prefix, table))
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.card_lab_feedback WHERE id = $1::text::uuid",
+        [feedback_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @unwritten_tables_version,
+               prefix: prefix,
+               log: false
+             ) == [@unwritten_tables_version]
+
+      for table <- @unwritten_tables, do: refute(table_exists?(repo, prefix, table))
+      assert Enum.flat_map(patterns, &named_objects(repo, prefix, &1)) == []
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@unwritten_tables_version]
+
+      assert Enum.map(patterns, &named_objects(repo, prefix, &1)) == before
+      assert Enum.map(@unwritten_tables, &table_shape(repo, prefix, &1)) == shapes
+
+      for table <- @unwritten_tables do
+        assert %{rows: [[0]]} = SQL.query!(repo, "SELECT count(*) FROM #{prefix}.#{table}", [])
+        assert table in triggers(repo, prefix, "ryker_control_plane_changed")
+      end
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+               [@unwritten_tables_version]
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  defp table_shape(repo, prefix, table) do
+    %{rows: rows} =
+      SQL.query!(
+        repo,
+        """
+        SELECT column_name, data_type, is_nullable, column_default
+        FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = $2
+        ORDER BY ordinal_position
+        """,
+        [prefix, table]
+      )
+
+    rows
   end
 
   defp start_migration_repo! do

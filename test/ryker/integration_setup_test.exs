@@ -201,6 +201,39 @@ defmodule Ryker.IntegrationSetupTest do
     assert Credentials.status(:github_webhook, "primary").verification_status == :verified
   end
 
+  # A five-character webhook signing secret was accepted and stored on
+  # 2026-09-25, and from then on no settings change reached the running
+  # system: a signed route needs thirty-two bytes, and the worker server
+  # refuses a secret too short to redact from its output, so every assembly
+  # failed until the credential was deleted. A secret nothing can use is
+  # refused where it is typed; an empty field still makes a strong one.
+  test "a signing secret too short for a signed route is refused before it is stored" do
+    assert {:error, :webhook_secret_too_short} =
+             IntegrationSetup.create_webhook_credential("grafana", "short")
+
+    assert {:error, :webhook_secret_too_short} =
+             IntegrationSetup.create_webhook_credential("grafana", String.duplicate("s", 31))
+
+    assert Credentials.status(:webhook, "grafana").status == :missing
+
+    key = :public_key.generate_key({:rsa, 2_048, 65_537})
+    pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
+
+    assert {:error, :webhook_secret_too_short} =
+             IntegrationSetup.connect_github(
+               %{"app_id" => "1234", "private_key" => pem, "webhook_secret" => "short"},
+               requester: Requester
+             )
+
+    assert Credentials.status(:github_webhook, "primary").status == :missing
+    assert Credentials.status(:github_private_key, "primary").status == :missing
+
+    long_enough = String.duplicate("s", 32)
+
+    assert {:ok, %{secret: ^long_enough}} =
+             IntegrationSetup.create_webhook_credential("grafana", long_enough)
+  end
+
   test "repository import records only actions granted to the GitHub App" do
     key = :public_key.generate_key({:rsa, 2_048, 65_537})
     pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])

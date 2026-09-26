@@ -108,6 +108,8 @@ defmodule Ryker.Defaults do
     work: @work
   }
 
+  # Tests walk every owner to check what its defaults must not contain.
+  @doc false
   @spec owners() :: [atom()]
   def owners, do: @owners |> Map.keys() |> Enum.sort()
 

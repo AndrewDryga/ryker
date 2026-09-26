@@ -43,7 +43,8 @@ defmodule Ryker.Slack.TaskCards do
     query =
       from(card in TaskCard,
         where:
-          (is_nil(card.card_checked_at) or card.card_checked_at <= ^due_at) and
+          card.status == :active and
+            (is_nil(card.card_checked_at) or card.card_checked_at <= ^due_at) and
             (is_nil(card.next_attempt_at) or card.next_attempt_at <= ^now) and
             (is_nil(card.lease_expires_at) or card.lease_expires_at <= ^now),
         order_by: [asc_nulls_first: card.card_checked_at, asc: card.updated_at, asc: card.id],
@@ -79,9 +80,12 @@ defmodule Ryker.Slack.TaskCards do
          :ok <- sha256(fingerprint, :card_fingerprint),
          :ok <- bounded_integer(ui_revision, 1..1_000_000, :card_ui_revision) do
       mutate_claim(card_id, lease_ref, fn card, now ->
+        # The attempts count consecutive failures: a card refreshed a hundred
+        # times must not wait an hour after its first transient one.
         update!(
           card,
           %{
+            attempt_count: 0,
             card_checked_at: now,
             card_fingerprint: fingerprint,
             card_ui_revision: ui_revision,
@@ -95,6 +99,75 @@ defmodule Ryker.Slack.TaskCards do
           now
         )
       end)
+    end
+  end
+
+  @doc """
+  Stops refreshing one card until a person rearms it: Slack said the message
+  or its channel is gone, or the card spent every attempt it had.
+  """
+  @spec block(Ecto.UUID.t(), Ecto.UUID.t(), term()) :: {:ok, TaskCard.t()} | {:error, term()}
+  def block(card_id, lease_ref, reason) do
+    with {:ok, card_id} <- uuid(card_id, :card_id),
+         {:ok, lease_ref} <- uuid(lease_ref, :lease_ref) do
+      mutate_claim(card_id, lease_ref, fn card, now ->
+        {code, detail} = describe_error(reason)
+
+        update!(
+          card,
+          %{
+            last_error_code: code,
+            last_error_detail: detail,
+            lease_expires_at: nil,
+            lease_owner: nil,
+            lease_ref: nil,
+            next_attempt_at: nil,
+            status: :blocked
+          },
+          now
+        )
+      end)
+    end
+  end
+
+  @doc """
+  Rearms one exact blocked card after operator inspection: it is due at once
+  with a fresh attempt budget. The card's message and task are unchanged.
+  """
+  @spec rearm(String.t()) :: {:ok, TaskCard.t()} | {:error, term()}
+  def rearm(ref) do
+    with :ok <- reference(ref, :ref) do
+      Repo.transaction(fn -> rearm_locked(ref) end)
+      |> transaction_result()
+    end
+  end
+
+  defp rearm_locked(ref) do
+    now = database_now!()
+
+    case Repo.one(from(card in TaskCard, where: card.ref == ^ref, lock: "FOR UPDATE")) do
+      nil ->
+        Repo.rollback(:task_card_not_found)
+
+      %TaskCard{status: :blocked} = card ->
+        update!(
+          card,
+          %{
+            attempt_count: 0,
+            card_checked_at: nil,
+            last_error_code: nil,
+            last_error_detail: nil,
+            lease_expires_at: nil,
+            lease_owner: nil,
+            lease_ref: nil,
+            next_attempt_at: nil,
+            status: :active
+          },
+          now
+        )
+
+      %TaskCard{} ->
+        Repo.rollback(:task_card_not_blocked)
     end
   end
 

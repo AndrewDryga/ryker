@@ -31,7 +31,7 @@ it calls a model. It is the gate for every commit and every deploy.
 `make coverage` runs the suite with coverage instrumentation and writes the report under `cover/`.
 It is not part of any gate.
 
-`make eval-host-replay` runs the deterministic side of the checked-in scenario bundles with fake
+`make eval-replay` runs the deterministic side of the checked-in scenario bundles with fake
 Coop and inert delivery. It does not call a model or an external platform. The same files run
 inside `make dev-check`; the standalone target isolates them in their own database.
 
@@ -50,8 +50,8 @@ The full deterministic gate is:
 make check
 ```
 
-It adds the isolated host replay, the watchdog and live-acceptance wrapper tests, the accelerated
-thirty-day retention simulation, and the evaluation-trend script's self-test. CI runs it on every
+It adds the isolated host replay, the watchdog, deploy and live-acceptance script self-tests, the
+accelerated thirty-day retention simulation, and the evaluation-trend script's self-test. CI runs it on every
 push. Run it locally before a tagged release or when a change touches retention custody or the
 release scripts, not before every deploy.
 
@@ -132,27 +132,30 @@ Passing deterministic and model gates does not deploy the runtime.
 make release-check
 ```
 
-This runs the deterministic gate, builds and inspects the immutable Elixir release, and exercises
-the candidate against disposable PostgreSQL. Signing remains CI-only because keyless Sigstore uses
-GitHub's OIDC identity.
+This runs the deterministic gate, then builds the immutable Elixir release archive and checks it
+structurally: the bytes match their trusted digest before anything is listed or extracted, every
+path is safe, the executable, every migration in the tree and every operator asset in
+`release-assets.txt` are present, no development dependency ships, and the migration entry point
+boots. Signing remains CI-only because keyless Sigstore uses GitHub's OIDC identity. Neither
+qualifies nor deploys the running installation; `scripts/deploy.sh` does that (see the project
+instructions, "Finish by deploying").
 
 ## Live acceptance
 
 Offline checks cannot prove that the current Slack workspace, Coop worker, provider account,
-policies, and installed release agree. The opt-in acceptance lane runs from the immutable installed
-Elixir release and posts only to an existing joined, non-Connect channel named `#test` or ending in
-`-test`:
+policies, and deployed release agree. The opt-in acceptance lane runs inside the deployed `ryker`
+container, against the installation's own durable settings and database, and posts only to an
+existing joined, non-Connect channel named `#test` or ending in `-test`:
 
 ```bash
-set -a
-source ~/.local/state/ryker/emisar/runtime.env
-set +a
 make live-acceptance LIVE_CHANNEL=C0123TEST
 ```
 
-`runtime.env` is the deployment's runtime environment file (see
-[`operations.md`](operations.md#normal-deployment)); the installed release reads its platform
-credentials and `DATABASE_URL` from it, exactly as the service does.
+`scripts/elixir-live-acceptance.sh` runs
+`docker compose exec ryker /opt/ryker/bin/ryker eval 'Ryker.Acceptance.Live.run_from_env!()'`
+with the channel and `RYKER_LIVE_TIMEOUT_SECONDS` (default 600) as the container's environment.
+Nothing is copied out of `.ryker/compose.env`, no second Ryker runs, and the lane requires the
+running release to report the version it was built as.
 
 The lane injects uniquely identified synthetic configured-operator inputs because a bot token
 cannot impersonate a human. It does not start a second Slack socket or product runtime. The proof

@@ -24,10 +24,7 @@ defmodule Ryker.Slack.HomeInteraction do
   }
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
   @action_instance ~r/\A(.+)__i([0-9]+)\z/
-  # Work sessions created before the 2026-09-13 rename keep their retained
-  # external_ref prefix; an Open control rendered from one must still resolve.
-  @resource_prefixes ~w(behavior: episode: incident-room: memory: memory-review: publication: ryker-work: schedule: task-card:) ++
-                       [Ryker.Retained.work_session_prefix()]
+  @resource_prefixes ~w(behavior: episode: incident-room: memory: memory-review: publication: ryker-work: schedule: task-card:)
 
   @enforce_keys [
     :action,

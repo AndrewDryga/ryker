@@ -292,23 +292,6 @@ defmodule Ryker.Slack.AppHomeControlsTest do
 
     assert_received {:refreshed_home, "U123", "T123"}
 
-    # A session created before the 2026-09-13 rename keeps its retained
-    # external_ref and is still held by a worker; its discard control resolves
-    # by the explicit retained-prefix rule, not by a fallback.
-    assert {:ok, %{outcome: :discard_requested}} =
-             AppHomeControls.handle(
-               interaction(
-                 :discard_workspace,
-                 "ryker-work-control:responder-work:episode:session:1:#{@plan_fingerprint}"
-               ),
-               base
-             )
-
-    assert_received {:discarded_workspace, "responder-work:episode:session:1", @plan_fingerprint,
-                     "U123", "T123", "interaction:home:1"}
-
-    assert_received {:refreshed_home, "U123", "T123"}
-
     assert AppHomeControls.handle(
              interaction(
                :discard_workspace,

@@ -11,6 +11,8 @@ defmodule Ryker.GitHub.Confirmations do
 
   import Ecto.Query
 
+  require Logger
+
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Input
   alias Ryker.Repo
@@ -51,7 +53,15 @@ defmodule Ryker.GitHub.Confirmations do
         apply_record(input, record_ref, repositories)
     end
   rescue
-    _error -> {:error, :github_confirmation_unavailable}
+    # Every raise used to answer "temporarily unavailable" and leave no trace,
+    # host bugs included. Only a database the host cannot reach is that, and
+    # the log names it; any other raise is a bug and crashes loudly.
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning(
+        "GitHub confirmation unavailable: #{inspect(error.__struct__)}#{code(error)}"
+      )
+
+      {:error, :github_confirmation_unavailable}
   end
 
   def apply(%Input{} = input, nil) do
@@ -62,6 +72,11 @@ defmodule Ryker.GitHub.Confirmations do
   end
 
   def apply(_input, _options), do: {:error, :invalid_github_confirmation_options}
+
+  defp code(%Postgrex.Error{postgres: %{code: code}}) when is_atom(code) and not is_nil(code),
+    do: " (#{code})"
+
+  defp code(_error), do: ""
 
   defp command(%Input{
          content: %{

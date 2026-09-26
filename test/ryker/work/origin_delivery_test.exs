@@ -26,14 +26,14 @@ defmodule Ryker.Work.OriginDeliveryTest do
     turn = turn!(episode, [question])
 
     assert Custody.reply_target(episode, turn) == %{
-             "conversation_ref" => "slack:TROUTE:CENGINEERING",
+             "conversation_ref" => "slack:TDELIVERY:CENGINEERING",
              "thread_ref" => "1789004000.000100",
              "transport" => "slack"
            }
 
     # Until an accepted result freezes that target, delivery still reads home.
     assert Custody.delivery_target(episode, turn)["conversation_ref"] ==
-             "slack:TROUTE:CDEVOPS"
+             "slack:TDELIVERY:CDEVOPS"
   end
 
   test "progress with no answering input keeps the episode's one home" do
@@ -57,7 +57,7 @@ defmodule Ryker.Work.OriginDeliveryTest do
     assert is_nil(Custody.reply_target(episode, turn))
 
     assert Custody.delivery_target(episode, turn) == %{
-             "conversation_ref" => "slack:TROUTE:CDEVOPS",
+             "conversation_ref" => "slack:TDELIVERY:CDEVOPS",
              "thread_ref" => episode.destination_thread_ref,
              "transport" => "slack"
            }
@@ -78,7 +78,7 @@ defmodule Ryker.Work.OriginDeliveryTest do
       |> turn!([question])
       |> Ecto.Changeset.change(
         delivery_target: %{
-          "conversation_ref" => "slack:TROUTE:CALERTS",
+          "conversation_ref" => "slack:TDELIVERY:CALERTS",
           "thread_ref" => "1789005000.000100",
           "transport" => "slack"
         }
@@ -89,7 +89,7 @@ defmodule Ryker.Work.OriginDeliveryTest do
     _later = join!(episode, channel_ref: "CENGINEERING", text: "Unrelated later note")
 
     assert Custody.delivery_target(episode, Repo.get!(Turn, turn.id)) == %{
-             "conversation_ref" => "slack:TROUTE:CALERTS",
+             "conversation_ref" => "slack:TDELIVERY:CALERTS",
              "thread_ref" => "1789005000.000100",
              "transport" => "slack"
            }
@@ -195,7 +195,7 @@ defmodule Ryker.Work.OriginDeliveryTest do
         occurred_at: @now,
         revision: 1,
         thread_ref: Keyword.get(options, :thread_ref),
-        workspace_ref: "TROUTE"
+        workspace_ref: "TDELIVERY"
       })
 
     input

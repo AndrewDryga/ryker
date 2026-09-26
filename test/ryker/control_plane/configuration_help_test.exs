@@ -8,16 +8,20 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
 
   @settings ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks runtime.mode admission.policy admission.decision_timeout_ms work.concurrency work.poll_interval_ms retention.operational_data_seconds retention.closed_work_seconds retention.episode_history_seconds retention.audit_data_seconds retention.disposable_bytes_limit retention.reclaim_target_seconds retention.storage_high_watermark_bytes retention.storage_low_watermark_bytes retention.storage_reserve_bytes)
 
-  test "work execution help keeps compose recovery concise and custom fleet setup advanced" do
+  test "code-change help keeps compose recovery concise and own-worker setup folded" do
+    # Andrew, 2026-09-25: "Work execution" and "Custom worker fleet" named
+    # nothing he recognised. The section says what it is for in plain words.
     page = html([])
     document = LazyHTML.from_document(page)
-    section = LazyHTML.query(document, "#code-editing") |> LazyHTML.text()
-    assert section =~ "Work execution"
-    assert section =~ "Docker Compose installations should provide work execution automatically"
+    section = LazyHTML.query(document, "#code-editing") |> text()
+    assert section =~ "Tasks that change code"
+    assert section =~ "Docker Compose installations set this up on their own"
+    refute section =~ "Work execution"
     refute section =~ "Prepare a coding worker"
     refute section =~ "Settings → Work placement"
-    commands = LazyHTML.query(document, "#code-editing details") |> LazyHTML.text()
-    assert commands =~ "Custom worker fleet"
+    commands = LazyHTML.query(document, "#code-editing details") |> text()
+    assert commands =~ "If you run your own workers"
+    assert commands =~ "What each kind of work may do"
     assert commands =~ "coop sessions doctor"
     assert commands =~ "coop sessions connect"
     assert commands =~ "MIX_ENV=prod mix ryker.doctor"
@@ -39,13 +43,13 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
     for config <- [nil, %{}, %{api: Ryker.Coop.Client}] do
       Application.put_env(:ryker, :work, config)
       refute CodeEditingSetup.checkpoint_supported?()
-      assert html([]) =~ "Code-changing work is unavailable"
+      assert html([]) =~ "Tasks that change code cannot run"
     end
 
     Application.put_env(:ryker, :work, api: Ryker.CoopFleet.Client)
     assert CodeEditingSetup.checkpoint_supported?()
-    assert html([]) =~ "Workspace recovery is configured"
-    refute html([]) =~ "Custom worker fleet"
+    assert html([]) =~ "Workers can save and restore the copy of the code a task works in"
+    refute html([]) =~ "If you run your own workers"
   end
 
   test "each effective setting explains its purpose, behavior and default beside its value" do
@@ -60,6 +64,31 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
       assert LazyHTML.text(LazyHTML.query(setting, ".configuration-default")) != "", key
       refute LazyHTML.text(setting) =~ "Explanation unavailable"
     end
+  end
+
+  test "each loaded setting is named and explained in plain words, its precise terms under Details" do
+    # Andrew, 2026-09-25, of the Advanced page: names like "Admission",
+    # "Coop worker gateway" and "Disposable workspace budget" explain nothing
+    # to the person reading them. The title and the line under it use plain
+    # words; the key, the value and the exact behaviour stay under Details.
+    internal =
+      ~w(Admission admission Coop coop co:op episode Episode payload fork workspace Workspace execution Execution horizon custody Documents)
+
+    for key <- @settings do
+      %{title: title, purpose: purpose} = ConfigurationHelp.setting(key)
+
+      for term <- internal do
+        refute title =~ term, "#{key} is titled #{title}"
+        refute purpose =~ term, "#{key} is explained as #{purpose}"
+      end
+    end
+
+    assert ConfigurationHelp.setting("admission").title == "Routing"
+    assert ConfigurationHelp.setting("coop_worker_gateway").title == "Worker connections"
+
+    # The Data retention page's names, so a limit reads the same in both places.
+    assert ConfigurationHelp.setting("retention.operational_data_seconds").title ==
+             "Prompts, replies and tool activity"
   end
 
   test "timing help distinguishes faster polling from faster inference and retention from defaults" do
@@ -86,9 +115,9 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
       page
       |> LazyHTML.from_document()
       |> LazyHTML.query(".configuration-values")
-      |> LazyHTML.text()
+      |> text()
 
-    assert values =~ "read-only evidence"
+    assert values =~ "Nothing here can be changed"
     assert values =~ "without a deployment"
     refute values =~ "restart"
     refute page =~ "<form"
@@ -103,7 +132,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
 
   test "policy help explains immutable pins instead of treating policy names as model names" do
     page = html([row("admission.policy", "ryker-admission-v1")])
-    assert page =~ "Coop execution policy"
+    assert page =~ "The worker policy routing runs under"
     assert page =~ "policy digest"
     assert page =~ "not a model name"
     assert page =~ "admission.policy.name"
@@ -174,6 +203,9 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
   end
 
   defp row(key, value), do: %{key: key, value: value, source: "/etc/ryker.yaml"}
+
+  # Text as a reader sees it: HTML collapses the line breaks of the template.
+  defp text(nodes), do: nodes |> LazyHTML.text() |> String.split() |> Enum.join(" ")
 
   defp html(rows),
     do: RunningSystem.html(%{rows: rows, grants: [], source: "/etc/ryker.yaml"})

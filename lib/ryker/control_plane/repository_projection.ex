@@ -128,9 +128,9 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     Map.new(snapshot.repositories, &{&1.ref, Environments.containing(snapshot, &1.ref)})
   end
 
-  # Task policies are the running configuration's, one per environment, each
-  # naming the repository its tasks change. A repository several environments
-  # change shows the first environment's policy.
+  # Task policies are the running configuration's, keyed by environment and
+  # then by the repository each places its task in. A repository several
+  # environments hold shows the first environment's policy.
   defp runtime_repositories(snapshot) do
     control_plane = Application.get_env(:ryker, :control_plane, %{})
     schedules = Application.get_env(:ryker, :schedules, %{})
@@ -138,12 +138,13 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     task_policies =
       control_plane
       |> safe_map(:task_policies)
-      |> Enum.sort_by(fn {environment_ref, _policy} -> to_string(environment_ref) end)
-      |> Enum.flat_map(fn {_environment_ref, policy} ->
-        case changed_repository(policy) do
-          nil -> []
-          ref -> [{ref, %{contributor_policy: safe_policy_name(policy)}}]
-        end
+      |> Enum.sort_by(fn {environment_ref, _policies} -> to_string(environment_ref) end)
+      |> Enum.flat_map(fn {_environment_ref, policies} ->
+        policies
+        |> safe_policies()
+        |> Enum.map(fn {ref, policy} ->
+          {to_string(ref), %{contributor_policy: safe_policy_name(policy)}}
+        end)
       end)
       |> Enum.uniq_by(&elem(&1, 0))
 
@@ -193,9 +194,8 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     Map.merge(saved, configured, fn _ref, durable, runtime -> Map.merge(durable, runtime) end)
   end
 
-  defp changed_repository(%{repository_ref: ref}) when is_binary(ref), do: ref
-  defp changed_repository(%{"repository_ref" => ref}) when is_binary(ref), do: ref
-  defp changed_repository(_policy), do: nil
+  defp safe_policies(policies) when is_map(policies), do: policies
+  defp safe_policies(_policies), do: %{}
 
   defp repository_workers do
     Repo.all(

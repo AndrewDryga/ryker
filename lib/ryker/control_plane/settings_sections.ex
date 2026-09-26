@@ -255,21 +255,26 @@ defmodule Ryker.ControlPlane.SettingsSections do
         %{name: :ryker_actor_id, kind: :integer, label: "Ryker actor ID"}
       ]
     },
+    # A policy is what a worker's session may do: the Coop policy the bundled
+    # worker writes names the model (its target), whether the repository is
+    # read-only, the repositories mounted beside it and what else the session
+    # may reach. The page says that in those words.
     %{
       key: :policies,
       domain: :policies,
       kind: :collection,
       schema: PolicyBinding,
       item_key: :id,
-      item_label: "execution policy",
+      item_label: "policy",
       row_status: {Ryker.Settings.WorkerPolicies, :binding_status},
-      title: "Execution policies",
+      title: "What each kind of work may do",
       description:
-        "Which reviewed worker policy runs each kind of work. " <>
-          "The bundled worker supplies these for you.",
+        "A policy is a worker's rulebook for one kind of work: which model runs it, whether " <>
+          "it may change files, which repositories it sees and what it may run. " <>
+          "The bundled worker writes these for you.",
       empty: {
-        "No execution policies",
-        "The bundled worker supplies these automatically. Add one only for a separately managed worker fleet."
+        "No policies yet",
+        "The bundled worker writes these for you. Add one only for a worker you run yourself."
       },
       fields: [
         %{
@@ -279,7 +284,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
           options: @purposes,
           help:
             "Routing, learning, incident rooms and scheduled read-only or approved work apply " <>
-              "everywhere; the others apply to one repository or environment."
+              "everywhere, and conversation may too; the others apply to one repository or " <>
+              "environment."
         },
         %{name: :scope_kind, kind: :select, label: "Applies to", options: @scope_kinds},
         %{
@@ -289,6 +295,16 @@ defmodule Ryker.ControlPlane.SettingsSections do
           options: :scopes,
           blank: "",
           help: "Leave empty when the policy applies everywhere."
+        },
+        # Work in an environment may change any of its repositories, so an
+        # environment binds each kind of work once per repository.
+        %{
+          name: :repository_ref,
+          kind: :select,
+          label: "Repository in that environment",
+          options: :repositories,
+          blank: "",
+          help: "Only for one environment: the repository its work is in. Leave empty otherwise."
         },
         %{
           name: :policy_name,
@@ -402,6 +418,15 @@ defmodule Ryker.ControlPlane.SettingsSections do
         }
       ]
     },
+    # Each `used` sentence says where the bundled worker runs that model, as
+    # the code decides it: routing (`Ryker.Admission.Decision`) answers a
+    # reply on the conversational class and new or continued work on the
+    # standard or deep one; `Ryker.BundledCoop` writes each policy with the
+    # model saved for its purpose; `Ryker.Runtime.Assembly` runs work with no
+    # repository (an environment without any, or no environment) on the
+    # installation's conversation policy for every class, a confirmed task on
+    # the contributor, schedules on theirs, and a whole incident room on the
+    # incident policy. Change a sentence only with the code it describes.
     %{
       key: :model,
       domain: :work,
@@ -417,7 +442,11 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :select,
           label: "Routing",
           group: "Routing and replies",
-          help: "Decides how Ryker handles each incoming message.",
+          used:
+            "Runs first on every message and event Ryker picks up, from Slack, Chat, GitHub " <>
+              "and webhooks. It decides whether to answer, start work, add it to earlier work " <>
+              "or stay quiet, and picks Conversation, Standard or Deep work for it. It runs " <>
+              "more often than anything else, so speed and price matter most here.",
           options: :bundled_models,
           required: true
         },
@@ -426,7 +455,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :select,
           label: "Conversation",
           group: "Routing and replies",
-          help: "Replies to questions and chat.",
+          used:
+            "Writes the replies Ryker can give straight away, without a longer investigation: " <>
+              "answers from what it already knows, quick questions and small lookups. Where " <>
+              "there is no repository to work in, it does the standard and deep work too.",
           options: :bundled_models,
           required: true
         },
@@ -435,7 +467,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :select,
           label: "Standard work",
           group: "Work",
-          help: "Investigations and tool-backed work.",
+          used:
+            "Investigations that use tools: reading code, checking logs, running read-only " <>
+              "commands and asking Emisar to run something. Routing picks it for most work " <>
+              "that needs more than a quick answer.",
           options: :bundled_models,
           required: true
         },
@@ -444,7 +479,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :select,
           label: "Deep work",
           group: "Work",
-          help: "Harder, ambiguous or high-stakes work.",
+          used:
+            "The same kind of work, when routing judges the request hard, ambiguous or risky.",
           options: :bundled_models,
           required: true
         },
@@ -453,7 +489,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :select,
           label: "Contributor work",
           group: "Work",
-          help: "Work that writes to a repository.",
+          used:
+            "Tasks that change code, once a person confirms them. When pull requests are on, " <>
+              "Ryker opens one for the change.",
           options: :bundled_models,
           required: true
         },
@@ -462,7 +500,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :select,
           label: "Scheduled work",
           group: "Other work",
-          help: "Runs started by a schedule.",
+          used:
+            "Work that starts on its own when a schedule is due: the reminders and recurring " <>
+              "checks people set up by asking Ryker.",
           options: :bundled_models,
           required: true
         },
@@ -471,7 +511,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :select,
           label: "Incident rooms",
           group: "Other work",
-          help: "Work in incident rooms.",
+          used:
+            "Everything Ryker does in an incident room, the Slack channel it opens for an " <>
+              "incident: the investigation and every reply there. It also runs an incident " <>
+              "investigated in its own thread instead of a room.",
           options: :bundled_models,
           required: true
         },
@@ -480,27 +523,33 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :select,
           label: "Learning",
           group: "Other work",
-          help: "Background learning from conversations.",
+          used:
+            "Reads the messages Ryker picks up in the background, including ones it did not " <>
+              "answer, and notes what is worth remembering about each conversation. It never " <>
+              "replies, and runs only while learning is on.",
           options: :bundled_models,
           required: true
         }
       ]
     },
+    # A worker enrols under a workspace name and reports it on every sync;
+    # people know it as the install the worker belongs to.
     %{
       key: :work,
       domain: :work,
       kind: :singleton,
       schema: Work,
-      title: "Work placement",
-      description:
-        "Only for a separately managed worker fleet. The bundled worker needs no changes here.",
+      title: "Where work runs",
+      description: "Only for workers you run yourself. The bundled worker needs no change here.",
       fields: [
         %{
           name: :workspace_ref,
           kind: :select,
-          label: "Worker workspace",
+          label: "Worker install",
           options: :workspaces,
-          help: "The workspace whose workers run Ryker's work."
+          help:
+            "Which worker install runs Ryker's work. " <>
+              "A worker reports its install name when it connects."
         }
       ]
     },

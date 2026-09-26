@@ -6,6 +6,14 @@ defmodule Ryker.ControlPlane.ConversationLab do
   inbox, admission, episode, Work, state-tool, and delivery path as Slack,
   GitHub, or a signed webhook. The stable conversation destination lets later
   messages continue the same episode without adding a second chat store.
+
+  Each conversation has an environment, stored with it: the one chosen for
+  it, nil for "No environment", or, until it starts, the default environment.
+  Its first message records the environment it started in, so a later change
+  of the default does not move it; `select_environment/2` changes it for the
+  messages that follow. `work_profile/2` resolves a message's Work profile
+  from the console's placements: the environment's while it can run work,
+  otherwise the profile of work outside any environment.
   """
 
   import Ecto.Query
@@ -28,15 +36,70 @@ defmodule Ryker.ControlPlane.ConversationLab do
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
+  alias Ryker.Settings.Environment
 
   @maximum_message_bytes 20_000
   @maximum_attachments 2
   @option_keys [:attachments, :id_generator, :now]
   @operator_actor_ref "control-plane:user:local-operator"
 
+  @typedoc """
+  What the running console holds for Chat: the Work profile of each
+  environment that can run work, keyed by ref, and the profile of work outside
+  any environment (nil before one is reviewed).
+  """
+  @type placements :: %{
+          environments: %{String.t() => WorkProfile.t()},
+          fallback_work_profile: WorkProfile.t() | nil
+        }
+
   @doc "The actor every local-operator reaction is recorded under; the page uses it to mark the operator's own."
   @spec operator_actor_ref() :: String.t()
   def operator_actor_ref, do: @operator_actor_ref
+
+  @doc """
+  Chooses the environment a conversation's new messages run in; nil is "No
+  environment". Work the conversation already started keeps its placement.
+  """
+  @spec select_environment(String.t(), String.t() | nil) ::
+          {:ok, String.t() | nil} | {:error, term()}
+  def select_environment(conversation_id, environment_ref) do
+    with {:ok, conversation_id} <- conversation_id(conversation_id),
+         :ok <- selectable_environment(environment_ref) do
+      Repo.transaction(fn -> store_environment(conversation_id, environment_ref) end)
+    end
+  end
+
+  @doc """
+  The conversation's environment: the one chosen for it or recorded when it
+  started, nil for "No environment", or the default environment (nil when
+  none is the default) for a conversation that has not started yet.
+  """
+  @spec environment(String.t()) :: {:ok, String.t() | nil} | {:error, term()}
+  def environment(conversation_id) do
+    with {:ok, conversation_id} <- conversation_id(conversation_id) do
+      case Repo.one(stored_environment_query(conversation_id)) do
+        %{environment_ref: environment_ref} -> {:ok, environment_ref}
+        nil -> {:ok, Repo.one(default_environment_query())}
+      end
+    end
+  end
+
+  @doc """
+  The Work profile a new message in the conversation runs on: its
+  environment's while that environment can run work, otherwise the profile of
+  work outside any environment.
+  """
+  @spec work_profile(String.t(), placements()) :: {:ok, WorkProfile.t()} | {:error, term()}
+  def work_profile(conversation_id, %{environments: environments} = placements) do
+    with {:ok, environment_ref} <- environment(conversation_id) do
+      case (environment_ref && Map.get(environments, environment_ref)) ||
+             Map.get(placements, :fallback_work_profile) do
+        %WorkProfile{} = profile -> {:ok, profile}
+        nil -> {:error, :conversation_lab_not_configured}
+      end
+    end
+  end
 
   @spec send_message(String.t(), String.t(), WorkProfile.t(), keyword()) ::
           {:ok, Inbox.receipt()} | {:error, term()}
@@ -142,7 +205,8 @@ defmodule Ryker.ControlPlane.ConversationLab do
   end
 
   defp record_message(conversation_id, event_id, occurred_at, message, work_profile, settings) do
-    with {:ok, files} <- store_attachments(conversation_id, event_id, settings.attachments),
+    with :ok <- start_conversation(conversation_id),
+         {:ok, files} <- store_attachments(conversation_id, event_id, settings.attachments),
          {:ok, input} <- lab_input(conversation_id, event_id, occurred_at, message, files),
          {:ok, receipt} <-
            Inbox.record(input, work_profile: work_profile, engagement_receipt: @engagement) do
@@ -186,7 +250,8 @@ defmodule Ryker.ControlPlane.ConversationLab do
        ) do
     source_item_ref = "control-plane-item:#{item_id}"
 
-    with :ok <- lock_source_item(source_item_ref),
+    with :ok <- start_conversation(conversation_id),
+         :ok <- lock_source_item(source_item_ref),
          {:ok, current} <- current_message(conversation_id, source_item_ref),
          :ok <- editable_message(current),
          {:ok, input} <- lifecycle_input(current, event_id, occurred_at, kind, message),
@@ -302,6 +367,69 @@ defmodule Ryker.ControlPlane.ConversationLab do
       "post_slack_message" => %{"destination_refs" => [conversation_ref]},
       "react" => %{"emoji_names" => nil}
     }
+  end
+
+  # A conversation starts in the default environment unless one was chosen for
+  # it first, and keeps it: the row written here is never replaced but by a
+  # choice.
+  defp start_conversation(conversation_id) do
+    case Repo.query(
+           """
+           INSERT INTO control_plane_conversations (id, environment_ref, inserted_at, updated_at)
+           SELECT $1::text::uuid, (SELECT ref FROM environment_settings WHERE is_default LIMIT 1),
+                  clock_timestamp(), clock_timestamp()
+           ON CONFLICT (id) DO NOTHING
+           """,
+           [conversation_id]
+         ) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, {:conversation_lab_persistence_failed, :conversation, reason}}
+    end
+  end
+
+  defp selectable_environment(nil), do: :ok
+
+  defp selectable_environment(environment_ref) do
+    if is_binary(environment_ref) and Regex.match?(Environment.ref_pattern(), environment_ref) and
+         Repo.exists?(
+           from(environment in Environment, where: environment.ref == ^environment_ref)
+         ),
+       do: :ok,
+       else: {:error, {:invalid_conversation_lab, :environment_ref}}
+  end
+
+  # The environment's row may go between the check and the write; its foreign
+  # key refuses the choice then, the same as an unknown environment.
+  defp store_environment(conversation_id, environment_ref) do
+    case Repo.query(
+           """
+           INSERT INTO control_plane_conversations (id, environment_ref, inserted_at, updated_at)
+           VALUES ($1::text::uuid, $2, clock_timestamp(), clock_timestamp())
+           ON CONFLICT (id) DO UPDATE
+             SET environment_ref = EXCLUDED.environment_ref, updated_at = EXCLUDED.updated_at
+           """,
+           [conversation_id, environment_ref]
+         ) do
+      {:ok, _result} ->
+        environment_ref
+
+      {:error, %Postgrex.Error{postgres: %{code: :foreign_key_violation}}} ->
+        Repo.rollback({:invalid_conversation_lab, :environment_ref})
+
+      {:error, reason} ->
+        Repo.rollback({:conversation_lab_persistence_failed, :environment, reason})
+    end
+  end
+
+  defp stored_environment_query(conversation_id) do
+    from(conversation in "control_plane_conversations",
+      where: conversation.id == type(^conversation_id, Ecto.UUID),
+      select: %{environment_ref: conversation.environment_ref}
+    )
+  end
+
+  defp default_environment_query do
+    from(environment in Environment, where: environment.is_default, select: environment.ref)
   end
 
   @doc "The durable conversation reference for a validated conversation id."

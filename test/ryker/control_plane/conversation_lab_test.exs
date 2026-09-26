@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.ControlPlane.{Actions, ConversationLab, Projection}
   alias Ryker.ControlPlane.WorkChanges
   alias Ryker.Episodes
+  alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
@@ -270,7 +271,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert offer_card.label == "Local incident"
     assert offer_card.action == :open_incident
 
-    actions = Actions.callbacks(profile(), %{})
+    actions = Actions.callbacks(outside(), %{})
 
     assert {:ok, confirmation} =
              actions.act_on_lab_record.(
@@ -730,6 +731,9 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   end
 
   test "the lab projects only its durable operator inputs and accepted visible replies" do
+    # Chat's default environment, which this conversation starts in.
+    environment!("production", true)
+
     assert {:ok, %{status: :recorded}} =
              ConversationLab.send_message(
                @conversation_id,
@@ -844,7 +848,9 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     early_actions =
-      Actions.callbacks(profile(), %{"production" => task_policy("production")})
+      Actions.callbacks(in_environment("production"), %{
+        "production" => %{"ryker" => task_policy("production")}
+      })
 
     assert early_actions.act_on_lab_record.(
              @conversation_id,
@@ -1029,15 +1035,15 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              "eyes"
            ) == {:error, :conversation_reaction_target_not_found}
 
-    # Chat works in the default environment, so a task that changes that
-    # environment's repository runs there, even when another environment
-    # that changes the same repository sorts first. Task policies are keyed
-    # by environment since 2026-09-25; before, a Chat task had no
-    # environment at all and ran on the repository alone.
+    # The conversation works in its environment, so a task that changes one
+    # of that environment's repositories runs there, even when another
+    # environment holding the same repository sorts first. Task policies are
+    # keyed by environment and then by repository since 2026-09-25; before, a
+    # Chat task had no environment at all and ran on the repository alone.
     actions =
-      Actions.callbacks(chat_profile("production"), %{
-        "a-staging" => task_policy("a-staging"),
-        "production" => task_policy("production")
+      Actions.callbacks(in_environment("production"), %{
+        "a-staging" => %{"ryker" => task_policy("a-staging")},
+        "production" => %{"ryker" => task_policy("production")}
       })
 
     assert actions.act_on_lab_record.(
@@ -1054,7 +1060,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              1
            ) == {:error, :conversation_lab_record_action_invalid}
 
-    assert Actions.callbacks(profile(), %{}).act_on_lab_record.(
+    assert Actions.callbacks(in_environment("production"), %{}).act_on_lab_record.(
              @conversation_id,
              task_offer.ref,
              :confirm_task,
@@ -1209,7 +1215,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     unbound_view =
       Actions.callbacks(
-        profile(),
+        in_environment("production"),
         %{},
         %{coop_api: FakeWorkCoopAPI, coop_client: coop}
       ).view_lab_task_record
@@ -1233,8 +1239,8 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     view_actions =
       Actions.callbacks(
-        profile(),
-        %{"production" => task_policy("production")},
+        in_environment("production"),
+        %{"production" => %{"ryker" => task_policy("production")}},
         %{coop_api: FakeWorkCoopAPI, coop_client: coop}
       )
 
@@ -1309,7 +1315,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              %{offset: -1, snapshot_digest: nil}
            ) == {:error, :conversation_lab_task_view_invalid}
 
-    unconfigured_views = Actions.callbacks(profile()).view_lab_task_record
+    unconfigured_views = Actions.callbacks(in_environment("production")).view_lab_task_record
 
     assert unconfigured_views.(
              @conversation_id,
@@ -1533,6 +1539,153 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert oldest.before == nil
   end
 
+  # Chat lets each conversation pick its environment. Every conversation used
+  # to run in the default environment, so a question about staging answered
+  # from production's repositories and Emisar account with nothing on the page
+  # saying so.
+  test "a conversation keeps the environment chosen for it and its new messages run there" do
+    environment!("platform", true)
+    environment!("staging", false)
+    actions = Actions.callbacks(placements(["platform", "staging"]), %{})
+
+    # A conversation that never chose starts in the default environment.
+    assert ConversationLab.environment(@conversation_id) == {:ok, "platform"}
+
+    assert ConversationLab.select_environment(@conversation_id, "staging") == {:ok, "staging"}
+    assert ConversationLab.environment(@conversation_id) == {:ok, "staging"}
+
+    assert {:ok, %{entry: staging}} =
+             actions.send_lab_message.(@conversation_id, "Is staging healthy?", [])
+
+    assert staging.work_profile["environment_ref"] == "staging"
+    assert staging.work_policy == "staging-conversation"
+
+    # No environment is a choice too: the next message runs outside any.
+    assert ConversationLab.select_environment(@conversation_id, nil) == {:ok, nil}
+    assert ConversationLab.environment(@conversation_id) == {:ok, nil}
+
+    assert {:ok, %{entry: outside}} =
+             actions.send_lab_message.(@conversation_id, "And in general?", [])
+
+    refute Map.has_key?(outside.work_profile, "environment_ref")
+    assert outside.work_policy == "conversation-read"
+
+    # A choice names an environment that exists, for a real conversation.
+    assert ConversationLab.select_environment(@conversation_id, "missing") ==
+             {:error, {:invalid_conversation_lab, :environment_ref}}
+
+    assert ConversationLab.select_environment(@conversation_id, "Not A Ref") ==
+             {:error, {:invalid_conversation_lab, :environment_ref}}
+
+    assert ConversationLab.select_environment("not-a-conversation", "staging") ==
+             {:error, {:invalid_conversation_lab, :conversation_id}}
+
+    assert ConversationLab.environment("not-a-conversation") ==
+             {:error, {:invalid_conversation_lab, :conversation_id}}
+
+    assert ConversationLab.environment(@conversation_id) == {:ok, nil}
+  end
+
+  # A conversation's environment is chosen when it starts. One that followed
+  # the current default instead would move every open conversation into
+  # another environment's repositories and Emisar account the moment an
+  # operator changed the default.
+  test "a conversation starts in the default environment and keeps it when the default moves" do
+    environment!("platform", true)
+    staging = environment!("staging", false)
+    actions = Actions.callbacks(placements(["platform", "staging"]), %{})
+
+    assert {:ok, %{entry: first}} =
+             actions.send_lab_message.(@conversation_id, "What runs in platform?", [])
+
+    assert first.work_profile["environment_ref"] == "platform"
+
+    {:ok, _saved} =
+      Ryker.Settings.put_environment(
+        %{ref: staging.ref, display_name: staging.display_name, is_default: true},
+        Ryker.Settings.fetch!().installation.revision,
+        "control-plane:local"
+      )
+
+    assert ConversationLab.environment(@conversation_id) == {:ok, "platform"}
+
+    assert {:ok, %{entry: later}} =
+             actions.send_lab_message.(@conversation_id, "And now?", [])
+
+    assert later.work_profile["environment_ref"] == "platform"
+
+    # A conversation that has not started yet takes the new default.
+    assert ConversationLab.environment(Ecto.UUID.generate()) == {:ok, "staging"}
+
+    # A removed environment leaves its conversations outside any.
+    {:ok, _saved} =
+      Ryker.Settings.delete_environment(
+        "platform",
+        Ryker.Settings.fetch!().installation.revision,
+        "control-plane:local"
+      )
+
+    assert ConversationLab.environment(@conversation_id) == {:ok, nil}
+  end
+
+  # An environment that cannot run work right now, its policies unverified
+  # say, leaves the conversation's messages outside any environment until it
+  # can; the conversation keeps its choice.
+  test "a conversation whose environment cannot run work runs outside any environment" do
+    environment!("platform", true)
+    environment!("staging", false)
+    assert {:ok, "staging"} = ConversationLab.select_environment(@conversation_id, "staging")
+
+    runnable = placements(["platform"])
+    assert {:ok, outside} = ConversationLab.work_profile(@conversation_id, runnable)
+    assert outside.environment_ref == nil
+    assert outside == runnable.fallback_work_profile
+    assert ConversationLab.environment(@conversation_id) == {:ok, "staging"}
+
+    assert {:ok, %{entry: entry}} =
+             Actions.callbacks(runnable, %{}).send_lab_message.(
+               @conversation_id,
+               "Is staging healthy?",
+               []
+             )
+
+    refute Map.has_key?(entry.work_profile, "environment_ref")
+
+    # With nothing to run outside an environment on, there is nothing to send.
+    nothing = %{runnable | fallback_work_profile: nil}
+
+    assert ConversationLab.work_profile(@conversation_id, nothing) ==
+             {:error, :conversation_lab_not_configured}
+
+    assert Actions.callbacks(nothing, %{}).send_lab_message.(@conversation_id, "Hello?", []) ==
+             {:error, :conversation_lab_not_configured}
+  end
+
+  defp environment!(ref, default?) do
+    ChannelEnvironments.environment!(ref, %{is_default: default?})
+  end
+
+  # What the running console holds for Chat: the Work profile of each
+  # environment that can run work, and the one outside any.
+  defp placements(runnable) do
+    %{
+      environments:
+        Map.new(runnable, fn ref ->
+          {:ok, profile} =
+            WorkProfile.new(%{
+              environment_ref: ref,
+              parallel_goal_limit: 3,
+              policy: "#{ref}-conversation",
+              policy_digest: String.duplicate("c", 64),
+              repository_ref: nil
+            })
+
+          {ref, profile}
+        end),
+      fallback_work_profile: profile()
+    }
+  end
+
   defp profile do
     {:ok, profile} =
       WorkProfile.new(%{
@@ -1544,16 +1697,30 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     profile
   end
 
-  # Chat's profile is its default environment's: work there changes the
-  # environment's first repository.
+  # Chat placed outside any environment: nothing runnable, only the profile
+  # of work outside any.
+  defp outside, do: %{environments: %{}, fallback_work_profile: profile()}
+
+  # Chat with one runnable environment holding the ryker repository, and the
+  # profile outside any for conversations that chose none.
+  defp in_environment(environment_ref) do
+    %{
+      environments: %{environment_ref => chat_profile(environment_ref)},
+      fallback_work_profile: profile()
+    }
+  end
+
+  # An environment's profile: its one repository, ryker, on one policy for
+  # every class.
   defp chat_profile(environment_ref) do
+    policy = %{policy: "conversation-read", policy_digest: String.duplicate("a", 64)}
+
     {:ok, profile} =
       WorkProfile.new(%{
-        policy: "conversation-read",
-        policy_digest: String.duplicate("a", 64),
-        repository_ref: "ryker",
         environment_ref: environment_ref,
-        parallel_goal_limit: 3
+        parallel_goal_limit: 3,
+        policies: %{"ryker" => %{conversational: policy, deep: policy, standard: policy}},
+        repositories: ["ryker"]
       })
 
     profile

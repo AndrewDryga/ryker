@@ -189,15 +189,14 @@ defmodule Ryker.Runtime.Owner do
   defp child_configuration(_state, key, configuration), do: configuration[key]
 
   # The console is always configured: without settings it has bootstrap's
-  # listener and no Work profile at all.
+  # listener, no environment Chat could run in and no Work profile at all.
   defp console(state, nil, configuration) do
     %{
       access: Map.get(state.bootstrap.control_plane, :access, :loopback),
       csrf_secret: state.csrf_secret,
       ip: state.bootstrap.control_plane.ip,
       port: state.bootstrap.control_plane.port,
-      slack: configuration[:slack],
-      work_profile: nil
+      slack: configuration[:slack]
     }
   end
 

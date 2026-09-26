@@ -19,6 +19,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   @default_refresh_interval_ms 90_000
   @default_retry_base_ms 1_000
   @default_lease_seconds 30
+  @default_max_attempts 8
   @maximum_backoff_ms 60_000
 
   def start_link(options) do
@@ -124,16 +125,9 @@ defmodule Ryker.Slack.ThreadStatusWorker do
 
       {:error, reason} ->
         _ = ThreadStatusReceipts.record(status, {:error, reason})
-        retry_ms = retry_delay(status.attempt_count, options.retry_base_ms)
 
-        case ThreadStatuses.defer(
-               status.id,
-               status.lease_ref,
-               status.generation,
-               retry_ms,
-               reason
-             ) do
-          {:ok, _deferred} ->
+        case settle(status, reason, options) do
+          {:ok, _settled} ->
             {{:error, reason}, Map.update!(outcome, :failed, &(&1 + 1))}
 
           {:error, _reason} = error ->
@@ -141,6 +135,30 @@ defmodule Ryker.Slack.ThreadStatusWorker do
         end
     end
   end
+
+  # A write Slack refused is retried with growing waits until the status has
+  # spent its attempts, then blocked for a person or for the next desired
+  # status: one was written again every minute for as long as its thread
+  # existed after Slack had said the channel was gone. Slack saying the
+  # thread or its channel is gone blocks at once.
+  defp settle(status, reason, options) do
+    if permanent?(reason) or status.attempt_count >= options.max_attempts do
+      ThreadStatuses.block(status.id, status.lease_ref, status.generation, reason)
+    else
+      ThreadStatuses.defer(
+        status.id,
+        status.lease_ref,
+        status.generation,
+        retry_delay(status.attempt_count, options.retry_base_ms),
+        reason
+      )
+    end
+  end
+
+  @permanent_refusals ~w(channel_not_found thread_not_found is_archived)
+
+  defp permanent?({:slack_api_error, code}), do: code in @permanent_refusals
+  defp permanent?(_reason), do: false
 
   defp retry_delay(attempt_count, base) do
     exponent = max(attempt_count - 1, 0) |> min(8)
@@ -160,6 +178,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
     optional = [
       :interval_ms,
       :lease_seconds,
+      :max_attempts,
       :maximum_writes,
       :minimum_interval_ms,
       :name,
@@ -171,6 +190,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
       options
       |> Map.put_new(:interval_ms, @default_interval_ms)
       |> Map.put_new(:lease_seconds, @default_lease_seconds)
+      |> Map.put_new(:max_attempts, @default_max_attempts)
       |> Map.put_new(:maximum_writes, @default_maximum_writes)
       |> Map.put_new(:minimum_interval_ms, @default_minimum_interval_ms)
       |> Map.put_new(:name, nil)
@@ -199,6 +219,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
       valid_ref?(Map.get(options, :workspace_ref)),
       Map.get(options, :interval_ms) in 50..3_600_000,
       Map.get(options, :lease_seconds) in 5..3_600,
+      Map.get(options, :max_attempts) in 1..100,
       Map.get(options, :maximum_writes) in 1..100,
       Map.get(options, :minimum_interval_ms) in 100..60_000,
       Map.get(options, :refresh_interval_ms) in 60_000..110_000,

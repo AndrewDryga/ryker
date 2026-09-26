@@ -1,14 +1,16 @@
 defmodule Ryker.ControlPlane.RunningSystem do
   @moduledoc """
   What the running process assembled, for the bottom of the Advanced settings
-  page: whether code-changing work can run, then the loaded settings grouped
-  by the part of Ryker they belong to and the tool grants by name.
+  page: whether tasks that change code can run, then the loaded settings
+  grouped by the part of Ryker they belong to and the tools it names.
 
   It is evidence, never a control. Product settings are changed on the
   settings pages above it and the deployment environment where Ryker is
   installed. The loaded values sit in one closed disclosure, because they
   matter for support rather than for everyday use; a problem that needs a
-  person (code changes unavailable) stays outside it.
+  person (code changes unavailable) stays outside it. Everything a reader
+  sees before opening a Details says it in plain words; keys, raw values and
+  the precise behaviour of each setting stay under that setting's Details.
   """
 
   use Phoenix.Component
@@ -33,8 +35,11 @@ defmodule Ryker.ControlPlane.RunningSystem do
 
   defp render(assigns) do
     ~H"""
-    <section id="code-editing" class="code-editing-setup" aria-label="Work execution">
-      <Kit.section_head title="Work execution" lede="Whether Ryker can run work that changes code." />
+    <section id="code-editing" class="code-editing-setup" aria-label="Tasks that change code">
+      <Kit.section_head
+        title="Tasks that change code"
+        lede="Whether Ryker can run tasks that change code."
+      />
       <p class="settings-state-line">
         <Kit.state
           tone={if @supported, do: :on, else: :bad}
@@ -42,23 +47,23 @@ defmodule Ryker.ControlPlane.RunningSystem do
         />
       </p>
       <p :if={@supported} class="settings-lede">
-        Workspace recovery is configured. Worker health is shown on <a href="/working-copies">Working copies</a>.
+        Workers can save and restore the copy of the code a task works in. Each worker's health is on <a href="/working-copies">Working copies</a>.
       </p>
       <div :if={!@supported} class="settings-problem">
         <p>
-          Code-changing work is unavailable because no workspace recovery service is configured.
-          Docker Compose installations should provide work execution automatically. Check
-          <code>scripts/compose.sh status</code>
+          Tasks that change code cannot run, because this installation cannot save and restore
+          the copy of the code they work in. Docker Compose installations set this up on their
+          own: check <code>scripts/compose.sh status</code>
           and <code>scripts/compose.sh logs</code>, then restart the installation.
         </p>
         <details class="settings-disclosure">
-          <summary>Custom worker fleet</summary>
+          <summary>If you run your own workers</summary>
           <p>
-            Only custom deployments need this. Enrol a persistent co:op workspace, connect it to
-            Ryker's authenticated worker gateway, and choose its policies under Execution policies
-            above.
+            Only installations with their own workers need this. Enrol a co:op worker install,
+            connect it to Ryker's worker gateway, and choose its policies under What each kind of
+            work may do above.
           </p>
-          <p>Inspect the existing co:op session service and policies:</p>
+          <p>Check the co:op session service and its policies:</p>
           <pre><code>coop sessions doctor --socket /var/lib/coop-sessions/control.sock
     coop sessions policies --policies /etc/coop/session-policies.yaml --json</code></pre>
           <p>
@@ -67,24 +72,24 @@ defmodule Ryker.ControlPlane.RunningSystem do
           <p>Confirm the saved settings were applied:</p>
           <pre><code>MIX_ENV=prod mix ryker.doctor</code></pre>
           <p>
-            Then check that workspaces can be saved and restored, and that the repository's build
-            tools are installed, before trying the work again.
+            Then check that working copies can be saved and restored, and that the repository's
+            build tools are installed, before trying the task again.
           </p>
         </details>
       </div>
     </section>
 
-    <section class="configuration-evidence" aria-label="Running system">
+    <section class="configuration-evidence" aria-label="What is running">
       <Kit.section_head
-        title="Running system"
-        lede="What the running process loaded. Read-only, for support and troubleshooting."
+        title="What is running"
+        lede="What the running Ryker loaded, for support and troubleshooting."
       />
       <details class="system-evidence">
         <summary>Show what is loaded</summary>
         <div class="configuration-values">
           <p class="settings-lede">
-            This is read-only evidence. Product settings are changed on these pages and take effect
-            without a deployment; the database, listeners and credentials are set where Ryker is
+            Nothing here can be changed. Settings saved on these pages take effect without a
+            deployment; the database, network addresses and secrets are set where Ryker is
             installed. Configured means a setting was saved, not that its connection or workers are
             healthy, and a value can lag a save that has not been applied yet.
           </p>
@@ -92,7 +97,7 @@ defmodule Ryker.ControlPlane.RunningSystem do
           <Kit.empty
             :if={@groups == []}
             title="Nothing loaded"
-            text="No effective settings were published by the running process."
+            text="The running Ryker published no settings."
           />
           <div :for={group <- @groups} class="configuration-group" data-group={group.key}>
             <h3>{group.title}</h3>
@@ -102,17 +107,17 @@ defmodule Ryker.ControlPlane.RunningSystem do
           </div>
         </div>
         <div class="configuration-grants">
-          <h3>Tool grants</h3>
+          <h3>Tools</h3>
           <p class="settings-lede">
-            An inventory of configured names, not a live tool-health check. Listing a tool does not
-            grant permission to use it.
+            The tools this installation names. This is not a health check, and listing a tool does
+            not give permission to use it.
           </p>
           <Kit.empty
             :if={@grants == []}
-            title="No tool grants"
-            text="No MCP or tool grants are configured."
+            title="No tools"
+            text="This installation names no tools."
           />
-          <Kit.entity_list :if={@grants != []} label="Tool grants">
+          <Kit.entity_list :if={@grants != []} label="Tools">
             <Kit.entity_row
               :for={grant <- @grants}
               name={grant.name}
@@ -180,10 +185,10 @@ defmodule Ryker.ControlPlane.RunningSystem do
 
   defp group(%{key: key}) do
     case String.split(key, ".", parts: 2) do
-      [_flag] -> {0, "subsystems", "Subsystems"}
-      ["runtime", _] -> {1, "runtime", "Runtime"}
-      ["admission", _] -> {2, "admission", "Admission"}
-      ["work", _] -> {3, "work", "Work execution"}
+      [_flag] -> {0, "subsystems", "Parts of Ryker"}
+      ["runtime", _] -> {1, "runtime", "Installation"}
+      ["admission", _] -> {2, "admission", "Routing"}
+      ["work", _] -> {3, "work", "Running work"}
       ["retention", _] -> {4, "retention", "Cleanup and retention"}
       _ -> {5, "other", "Other settings"}
     end

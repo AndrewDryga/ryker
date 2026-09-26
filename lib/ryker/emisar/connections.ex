@@ -8,7 +8,7 @@ defmodule Ryker.Emisar.Connections do
   one whose account is closed to new work has no Emisar authority.
   """
 
-  alias Ryker.{Credentials, Settings}
+  alias Ryker.Settings
   alias Ryker.Settings.Environment
 
   @type pin :: %{connection_ref: String.t(), account_ref: String.t(), rpc_url: String.t()}
@@ -34,7 +34,4 @@ defmodule Ryker.Emisar.Connections do
       _unconfigured -> {:error, :not_configured}
     end
   end
-
-  @spec credential_provider(String.t()) :: (-> {:ok, String.t()} | {:error, term()})
-  def credential_provider(connection_ref), do: Credentials.provider(:emisar, connection_ref)
 end

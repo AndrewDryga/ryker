@@ -8,63 +8,41 @@ defmodule Ryker.State.CasesTest do
   alias Ryker.Ingress.Input
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.State.{CaseLesson, CaseRecord, Cases}
+  alias Ryker.State.{CaseRecord, Cases}
 
   @now ~U[2026-09-11 12:00:00.000000Z]
   @outage "Postgres primary pgsql-prod-01 is unreachable and replication is stalled"
 
-  test "a matching outage a year later recalls the old case and its reviewed fix" do
+  test "a matching outage a year later recalls the old case" do
     # Everything learned from an incident used to expire with the transcript
     # that produced it, so the same outage twelve months later started from
     # nothing and rediscovered the same fix from scratch.
     old = finished!("case:last-year", @outage)
     assert {:ok, record} = Cases.capture(old.id)
-    approve!(record, "The primary is unreachable and the replica is healthy")
     age!(record, 365)
 
     current = finished!("case:this-year", "The #{@outage} again on pgsql-prod-01")
 
     assert [recalled] = Cases.recall(current)
     assert recalled["case_ref"] == record.case_ref
-    assert [lesson] = recalled["lessons"]
-    assert lesson["steps"] =~ "Promote the healthy replica"
+    assert recalled["problem"] =~ "pgsql-prod-01"
 
     # Recall is history, not a reopening: the year-old work stays finished.
     assert Repo.get!(Episode, old.id).state == :complete
   end
 
-  test "an unreviewed lesson is never presented as a reusable procedure" do
-    # A draft is an extraction, not guidance. Presenting it as approved would
-    # make an unreviewed command list look like a proven fix.
-    case_record = finished!("case:draft", @outage) |> capture!()
-
-    assert {:ok, _draft} =
-             Cases.draft_lesson(%{
-               case_ref: case_record.case_ref,
-               conditions: "Primary unreachable",
-               revision: 1,
-               steps: "Promote the healthy replica after confirming its lag"
-             })
-
-    assert Cases.approved_lessons(case_record.id) == []
-  end
-
-  test "explicit deletion erases the case and its lessons beyond recall" do
-    # A governed deletion must reach every derived record. Leaving the text in
-    # a lesson or a search row would resurrect exactly what was deleted.
+  test "explicit deletion erases the case beyond recall" do
+    # A governed deletion must reach the search row too. Leaving the text there
+    # would resurrect exactly what was deleted.
     record = finished!("case:deleted", @outage) |> capture!()
-    approve!(record, "Promote the healthy replica")
 
-    assert {:ok, 2} = Cases.delete(record.case_ref)
+    assert {:ok, %CaseRecord{status: :deleted}} = Cases.delete(record.case_ref)
 
     current = finished!("case:after-deletion", "The #{@outage} again")
     assert Cases.recall(current) == []
 
     assert %CaseRecord{status: :deleted, problem: "(deleted)", search_text: ""} =
              Repo.get_by!(CaseRecord, case_ref: record.case_ref)
-
-    assert [%CaseLesson{status: :removed, steps: "(removed)"}] =
-             Repo.all(CaseLesson) |> Enum.filter(&(&1.case_id == record.id))
   end
 
   test "deleting the original message redacts the case built from it" do
@@ -73,7 +51,6 @@ defmodule Ryker.State.CasesTest do
     # quoting text that was explicitly withdrawn.
     episode = finished!("case:withdrawn", @outage)
     record = capture!(episode)
-    approve!(record, "Primary unreachable")
 
     withdraw!(episode)
 
@@ -100,7 +77,7 @@ defmodule Ryker.State.CasesTest do
     # Otherwise ordinary retention would resurrect a governed deletion the very
     # next time it ran over the same finished episode.
     record = finished!("case:deleted-then-captured", @outage) |> capture!()
-    assert {:ok, _count} = Cases.delete(record.case_ref)
+    assert {:ok, %CaseRecord{status: :deleted}} = Cases.delete(record.case_ref)
 
     assert {:ok, %CaseRecord{status: :deleted}} = Cases.capture(record.episode_id)
   end
@@ -125,7 +102,7 @@ defmodule Ryker.State.CasesTest do
         occurred_at: DateTime.add(@now, 120, :second),
         revision: 2,
         thread_ref: episode.destination_thread_ref,
-        workspace_ref: "TROUTE"
+        workspace_ref: "TCASES"
       })
 
     {:ok, _transition} =
@@ -146,22 +123,6 @@ defmodule Ryker.State.CasesTest do
   defp capture!(%Episode{} = episode) do
     {:ok, record} = Cases.capture(episode.id)
     record
-  end
-
-  defp approve!(%CaseRecord{} = record, conditions) do
-    {:ok, draft} =
-      Cases.draft_lesson(%{
-        case_ref: record.case_ref,
-        conditions: conditions,
-        revision: 1,
-        steps: "Promote the healthy replica after confirming its replication lag",
-        verification: "Read traffic recovers and the new primary accepts writes"
-      })
-
-    {:ok, approved} =
-      Cases.approve_lesson(draft.lesson_ref, "slack:user:UOPERATOR", "review:#{record.case_ref}")
-
-    approved
   end
 
   defp age!(%CaseRecord{} = record, days) do
@@ -218,7 +179,7 @@ defmodule Ryker.State.CasesTest do
         occurred_at: @now,
         revision: 1,
         thread_ref: nil,
-        workspace_ref: "TROUTE"
+        workspace_ref: "TCASES"
       })
 
     input

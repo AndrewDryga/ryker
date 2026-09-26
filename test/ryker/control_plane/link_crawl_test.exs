@@ -14,7 +14,15 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Actions, Endpoint, InstructionSettings, ModelRequests, Projection}
+  alias Ryker.ControlPlane.{
+    Actions,
+    Endpoint,
+    InstructionSettings,
+    ModelRequests,
+    PageHelp,
+    Projection
+  }
+
   alias Ryker.Episodes
   alias Ryker.Fixtures.ControlPlaneOptions
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -120,6 +128,34 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
       assert Enum.any?(visited, &String.starts_with?(&1, prefix)),
              "nothing crawled under #{prefix}"
     end
+
+    # Andrew, 2026-09-25: every page explains itself in "How this page works"
+    # instead of a line of small print under a few lists. The crawl opens
+    # every kind of page, lists and records alike, so each one it opened must
+    # carry the shell's one help panel, headed by that page's own help and
+    # closed until the reader opens it: open help once filled a phone's first
+    # screen.
+    panels = help_panels_seen(%{})
+    assert map_size(panels) >= length(@seeds)
+
+    for {href, {labels, open, beside}} <- panels do
+      path = href |> String.split(["?", "#"], parts: 2) |> hd()
+      assert labels == [PageHelp.for_path(path).title], "#{href} renders #{inspect(labels)}"
+      refute open, "#{href} renders its help open"
+
+      # From 1600px the help is a sticky column in the first grid row beside
+      # the page. A page drawn as two siblings of it would start its second
+      # part under the column and pin the column to the first part only.
+      assert beside == 1, "#{href} lays out #{beside} elements beside its help"
+    end
+  end
+
+  defp help_panels_seen(seen) do
+    receive do
+      {:help_panel, href, panel} -> help_panels_seen(Map.put(seen, href, panel))
+    after
+      0 -> seen
+    end
   end
 
   defp crawl([], visited, dead), do: {visited, Enum.reverse(dead)}
@@ -155,6 +191,15 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
     case live(build_conn() |> Map.put(:host, "localhost"), href) do
       {:ok, _view, html} ->
         document = LazyHTML.from_document(html)
+        panels = LazyHTML.query(document, "main > aside.page-help")
+
+        send(
+          self(),
+          {:help_panel, href,
+           {LazyHTML.attribute(panels, "aria-label"),
+            not Enum.empty?(LazyHTML.query(panels, "details[open]")),
+            document |> LazyHTML.query("main > :not(aside.page-help)") |> Enum.count()}}
+        )
 
         title = LazyHTML.query(document, "title") |> LazyHTML.text()
 

@@ -81,6 +81,7 @@ defmodule Ryker.Slack.ChannelSettingsTest do
 
   test "a workspace-scoped command edits the installation default through the settings store" do
     configuration!(nil)
+    :ok = Settings.subscribe()
 
     assert {:ok, workspace} =
              ChannelSettings.change(change(:workspace, :shadow, :on, "event:workspace-shadow"))
@@ -88,6 +89,10 @@ defmodule Ryker.Slack.ChannelSettingsTest do
     assert workspace.effective.shadow == %{source: :installation, value: true}
     assert {:ok, current} = Settings.fetch()
     assert current.slack.default_participation == :shadow
+
+    # The runtime applies the new default when it hears the saved revision.
+    revision = current.installation.revision
+    assert_received {:settings_saved, ^revision}
 
     # A Slack actor who is not a saved operator cannot move the installation default.
     intruder = %{change(:workspace, :shadow, :off, "event:intruder") | actor_ref: "U999"}

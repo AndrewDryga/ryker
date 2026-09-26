@@ -9,7 +9,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Repo
 
   alias Ryker.Slack.{
@@ -363,12 +363,6 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert {:ok, %{kind: :incident, work_ref: ^room_ref}} =
              WorkTarget.resolve(room_ref, room_target)
 
-    assert {:ok, %{kind: :incident, work_ref: ^room_ref}} =
-             WorkTarget.resolve_thread(
-               room_ref,
-               %{room_target | message_ref: "1787832001.000201"}
-             )
-
     assert %Record{
              status: :confirmed,
              confirmed_episode_id: confirmed_episode_id,
@@ -534,14 +528,19 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              repository_ref: "ryker"
            } = Repo.get_by!(Session, episode_id: room.episode_id)
 
-    # A conversation started in the room works there too.
+    # A conversation started in the room works there too: in the same
+    # environment, with the repositories the room froze, its own repository
+    # the default working copy and the others mounted read-only.
     work_profile = Runtime.options!(runtime_configuration!()).handler_settings.work_profile
 
-    assert {:ok, profile} = work_profile.("T123", "slack:T123:#{room.channel_ref}")
+    assert {:ok, attributes} = work_profile.("T123", "slack:T123:#{room.channel_ref}")
+    assert {:ok, profile} = WorkProfile.new(attributes)
     assert profile.environment_ref == "production"
-    assert profile.repository_ref == "ryker"
-    assert profile.read_only_repository_refs == ["docs"]
+    assert profile.repositories == ["ryker", "docs"]
     assert profile.parallel_goal_limit == 2
+
+    assert {:ok, %{name: "incident-investigate", repository_context: @source_context}} =
+             WorkProfile.policy_for(profile, :standard)
   end
 
   test "an invalid configured audience blocks before creating a Slack room" do
@@ -1339,14 +1338,19 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              shadow: %{source: :incident_room, value: false}
            }
 
+    # Every repository the room froze runs under the room's own policy.
+    incident = %{policy: "incident-investigate", policy_digest: @policy_digest}
+    classes = %{conversational: incident, deep: incident, standard: incident}
+
     assert settings.work_profile.("T123", conversation_ref) ==
              {:ok,
               %{
                 environment_ref: "production",
                 parallel_goal_limit: 2,
+                policies: %{"docs" => classes, "ryker" => classes},
                 policy: "incident-investigate",
                 policy_digest: @policy_digest,
-                read_only_repository_refs: ["docs"],
+                repositories: ["ryker", "docs"],
                 repository_ref: "ryker"
               }}
 

@@ -152,6 +152,12 @@ defmodule Ryker.Retention.Policy do
         "Learning.Batches retains content-free start budgets, retry decisions and scope fences so pruning or restart cannot buy new model execution"
     },
     %{
+      table: "control_plane_conversations",
+      class: :kept,
+      why:
+        "each Chat conversation's chosen environment: a current setting without message content, read for every new message in that conversation"
+    },
+    %{
       table: "conversation_learning_inputs",
       class: :cascade,
       why:
@@ -195,18 +201,6 @@ defmodule Ryker.Retention.Policy do
       class: :operational,
       why:
         "classifier artifacts expire with source custody; compact attempts cascade with ingress"
-    },
-    %{
-      table: "card_lab_feedback",
-      class: :audit,
-      why:
-        "append-only operator review notes from the Card Lab retired on 2026-09-13; history with no surviving writer"
-    },
-    %{
-      table: "card_lab_posts",
-      class: :kept,
-      why:
-        "Slack receipts of specimens the retired Card Lab posted; kept so those messages stay attributable and nothing is resent or relabelled"
     },
     %{
       table: "conversation_rollups",
@@ -301,12 +295,6 @@ defmodule Ryker.Retention.Policy do
       class: :kept,
       why:
         "the compact record of finished work: problem, evidence-backed cause, attempted actions, outcome and links, captured before the raw episode is reclaimed and expiring only by explicit deletion"
-    },
-    %{
-      table: "episode_case_lessons",
-      class: :kept,
-      why:
-        "reviewed reusable procedures drawn from a retained case; they expire by supersession or explicit removal, never by the age of the transcript that produced them"
     },
     %{
       table: "episode_association_corrections",
@@ -487,12 +475,6 @@ defmodule Ryker.Retention.Policy do
       table: "slack_channel_setting_audit",
       class: :audit,
       why: "operator-facing configuration decision ledger"
-    },
-    %{
-      table: "slack_channel_setting_overrides",
-      class: :kept,
-      why:
-        "retired participation overrides retained as operator history after the importer folded them into channel configurations; nothing writes here"
     },
     %{
       table: "slack_configuration_actions",

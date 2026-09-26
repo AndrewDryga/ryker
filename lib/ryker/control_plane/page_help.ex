@@ -1,0 +1,858 @@
+defmodule Ryker.ControlPlane.PageHelp do
+  @moduledoc """
+  "How this page works": the help every control-plane page carries, keyed by
+  the route that serves it, and the one panel the shell renders it in.
+
+  Andrew, 2026-09-25: how to use a page had been one line of small print
+  under a few lists ("To open one, ask Ryker in the alert's Slack thread…")
+  and nothing on the rest. He asked for help on every page that teaches
+  without getting in the way, and longer than a hint. Each page's help says
+  what the page shows, what can be done there, how Ryker uses it, what to do
+  when something looks wrong and how to ask Ryker for it in chat or Slack,
+  in plain words for someone who has never seen Ryker. `PageHelpTest` holds
+  every routed page to having help and keeps Ryker's internal words out.
+
+  The panel is rendered closed. From 1600px wide the stylesheet sets it
+  beside the page as a column and `page-help.mjs` opens it; below that it is
+  a quiet disclosure above the page that opens only when the reader asks.
+  """
+  use Phoenix.Component
+
+  alias Ryker.ControlPlane.Components
+
+  @type section :: %{heading: String.t(), paragraphs: [String.t()]}
+  @type t :: %{title: String.t(), sections: [section()]}
+
+  # Every live route in `WebRouter`, as it writes them, with the help its
+  # page shows. Two routes that render one page share its help.
+  @routes [
+    {"/", :activity},
+    {"/activity", :activity},
+    {"/timeline/:ref", :timeline},
+    {"/conversations", :chat},
+    {"/conversations/:id", :chat},
+    {"/incident-rooms", :incident_rooms},
+    {"/incident-rooms/:ref", :incident_room},
+    {"/failures", :failures},
+    {"/failures/:kind/:ref", :failure},
+    {"/usage", :usage},
+    {"/environments", :environments},
+    {"/channels", :channels},
+    {"/channels/:workspace/:channel", :channel},
+    {"/repositories", :repositories},
+    {"/working-copies", :working_copies},
+    {"/rules", :rules},
+    {"/schedules", :schedules},
+    {"/schedules/:ref", :schedule},
+    {"/follow-ups", :follow_ups},
+    {"/instructions", :instructions},
+    {"/memory", :facts},
+    {"/memory/learned", :learned},
+    {"/memory/findings", :findings},
+    {"/memory/learning", :learning},
+    {"/integrations", :integrations},
+    {"/integrations/slack", :slack},
+    {"/integrations/github", :github},
+    {"/integrations/emisar", :emisar},
+    {"/integrations/webhooks", :webhooks},
+    {"/settings/models", :models},
+    {"/settings/retention", :retention},
+    {"/settings/prices", :prices},
+    {"/settings/advanced", :advanced},
+    {"/setup", :setup}
+  ]
+
+  @patterns Enum.map(@routes, fn {route, page} -> {String.split(route, "/", trim: true), page} end)
+
+  @doc "The routes that have help, written the way the route map writes them."
+  @spec routes() :: [String.t()]
+  def routes, do: Enum.map(@routes, &elem(&1, 0))
+
+  @doc """
+  The help for the page at `path`, a request path as the browser sent it;
+  nil for a path no page is routed to.
+  """
+  @spec for_path(String.t()) :: t() | nil
+  def for_path(path) when is_binary(path) do
+    segments = path |> String.split("?", parts: 2) |> hd() |> String.split("/", trim: true)
+
+    Enum.find_value(@patterns, fn {pattern, page} ->
+      if matches?(pattern, segments), do: help(page)
+    end)
+  end
+
+  defp matches?([], []), do: true
+  defp matches?([":" <> _param | pattern], [_value | rest]), do: matches?(pattern, rest)
+  defp matches?([segment | pattern], [segment | rest]), do: matches?(pattern, rest)
+  defp matches?(_pattern, _segments), do: false
+
+  attr(:path, :string, required: true, doc: "The page's path, without its query")
+
+  @doc """
+  The page's help as one disclosure, closed as rendered, headed "How this
+  page works". Renders nothing for a path without help.
+  """
+  def panel(assigns) do
+    assigns = assign(assigns, :help, for_path(assigns.path))
+
+    ~H"""
+    <aside :if={@help} class="page-help" aria-label={@help.title}>
+      <details id="page-help" phx-hook="PageHelp">
+        <summary><Components.icon name={:chevron} /><span>How this page works</span></summary>
+        <div class="page-help-body">
+          <h2 class="page-help-title">{@help.title}</h2>
+          <section :for={section <- @help.sections} class="page-help-section">
+            <h3>{section.heading}</h3>
+            <p :for={paragraph <- section.paragraphs}>{paragraph}</p>
+          </section>
+        </div>
+      </details>
+    </aside>
+    """
+  end
+
+  defp help(:activity) do
+    page("How Activity works", [
+      {"What this page shows",
+       [
+         "Every request people made of Ryker, and what Ryker did about it. A request is a Slack message, a chat message, a GitHub event or an alert from another tool.",
+         "Rows are grouped by day, newest first. Each row says where the request came from and where it stands."
+       ]},
+      {"Find a request",
+       [
+         "The counts at the top say how much is active, waiting or blocked, and each one opens that view. Search matches message text and repositories.",
+         "All, Needs you, In progress and Finished narrow the list. + Filter adds a filter, such as a repository or a model."
+       ]},
+      {"Open a request",
+       [
+         "Click a row to open its timeline: every step Ryker took, from reading the message to sending the answer, and what it cost."
+       ]},
+      {"When something looks wrong",
+       [
+         "Needs you lists work that is blocked or waiting for a person. Open it to see why. Work Ryker could not finish on its own is also on Failures, with what you can do.",
+         "If no worker can take work, the Workers section under the list says so. Requests wait until a worker is back."
+       ]},
+      {"Ask Ryker",
+       [
+         "Mention @Ryker in a Slack channel it is in, or write to it in Chat. The request shows up here within seconds."
+       ]}
+    ])
+  end
+
+  defp help(:timeline) do
+    page("How a timeline works", [
+      {"What this page shows",
+       [
+         "One request from start to finish: the message that started it, how Ryker decided what to do, the work it did and the answer it sent. Steps are in the order they happened."
+       ]},
+      {"Read the steps",
+       [
+         "Each message goes through four stages: Intake, Routing, Work and Answer. Open a card to see its details, such as the exact request Ryker sent to the model and the answer it got back.",
+         "Every card has a # link to itself, so you can share the exact step."
+       ]},
+      {"The summary at the top",
+       [
+         "The top says where the request stands, how long it took and what it cost. A cost marked ≈ includes an estimate. Next action says what the request is waiting for, if anything."
+       ]},
+      {"When something looks wrong",
+       [
+         "If the work is blocked, Next action links to its recovery page, which says what stopped and whether a retry should work.",
+         "Retry work and Close as no longer needed ask you to confirm first. Nothing runs until you do."
+       ]}
+    ])
+  end
+
+  defp help(:chat) do
+    page("How Chat works", [
+      {"What Chat is",
+       [
+         "Chat is a direct conversation with Ryker, without Slack. Ryker can do the same things here as in a Slack channel: answer questions, investigate, change code, remember things and set up schedules.",
+         "Each conversation works in one environment, which sets the repositories and Emisar account its work may use. A new conversation starts in the default environment; you can choose another one for it, and work already started keeps the one it began in."
+       ]},
+      {"Start a conversation",
+       [
+         "Type a message and press Send, or ⌘ / Ctrl + Enter. Choosing an example fills the box without sending it. Nothing is saved until you send the first message.",
+         "You can attach up to two files, 8 MiB in total: images, text, CSV, JSON, YAML or PDF."
+       ]},
+      {"Follow the work",
+       [
+         "While Ryker works, its progress shows under your message. The Timeline link on each message opens everything Ryker did for it, in a new tab.",
+         "You can edit or delete your own messages, and react to Ryker's replies with emoji, as in Slack."
+       ]},
+      {"When something looks wrong",
+       [
+         "If the work behind a message stops, the message offers Retry and Inspect cause. If Chat is still getting ready, a notice takes the place of the message box and says what it is waiting for."
+       ]}
+    ])
+  end
+
+  defp help(:incident_rooms) do
+    page("How incident rooms work", [
+      {"What an incident room is",
+       [
+         "A Slack channel Ryker creates to work on one incident with your team. Ryker invites the responders, investigates in the room and posts what it finds there."
+       ]},
+      {"Open a room",
+       [
+         "Ask Ryker in the alert's Slack thread: “Open an incident room for this.” Ryker offers the room and creates it once you confirm. When Ryker investigates an alert, it may offer one itself: choose Create incident room.",
+         "A channel can also open a room for every alert. Type /ryker status in the channel and choose Configure channel to set that."
+       ]},
+      {"What the states mean",
+       [
+         "Setting up: Ryker is creating the channel and inviting people. Open: the room is in use. Needs attention: setup stopped before it finished. Closed: the room's channel was deleted, and its history stays here."
+       ]},
+      {"Find a room",
+       [
+         "Search by title, repository or channel ID, and filter by state. Open a room to see Ryker's latest update, its investigation and any code change it proposed."
+       ]},
+      {"When something looks wrong",
+       [
+         "A room that needs attention links to what stopped, on Failures. Continuing its setup picks up at the step that stopped and never creates a second channel."
+       ]}
+    ])
+  end
+
+  defp help(:incident_room) do
+    page("How an incident room works", [
+      {"What this page shows",
+       [
+         "One incident room: Ryker's latest update, the Slack channel, what the investigation recorded and what happened to the channel. The page updates on its own as the room changes."
+       ]},
+      {"The investigation",
+       [
+         "People and Ryker work on the incident in the room's Slack channel, and Ryker posts its progress there. Investigation lists the evidence and findings it recorded; Open the timeline shows every step.",
+         "If Ryker proposed a fix, Code change shows its pull request and where it stands."
+       ]},
+      {"When the channel changes",
+       [
+         "If the channel is archived, the investigation pauses until someone unarchives it. If the channel is deleted, the room closes and Ryker says so in the alert's thread.",
+         "A reply Ryker still owed the room goes to that thread instead."
+       ]},
+      {"When something looks wrong",
+       [
+         "If setting up the room stopped, See what stopped opens it on Failures with what you can do. Continuing picks up at the step that stopped and never posts twice."
+       ]}
+    ])
+  end
+
+  defp help(:failures) do
+    page("How failures work", [
+      {"What this page shows",
+       [
+         "Work Ryker could not finish on its own, newest first. Affects people lists what someone is still waiting for, such as a reply or a Slack update. Housekeeping lists cleanup nobody is waiting on."
+       ]},
+      {"Read a row",
+       [
+         "Each row says what stopped, who it affects and why Ryker stopped trying. Its state says whether a retry should work: Retry should work, Needs you, Fix needed first, Retry won't help or Retrying on its own."
+       ]},
+      {"Fix it",
+       [
+         "A row has a button only when pressing it can help, and the button asks you to confirm before anything runs. When something else has to change first, the row links to where to change it.",
+         "Open a row for the whole story: what happened, what it affects, what Ryker tried and each thing you can do."
+       ]},
+      {"How items leave the list",
+       [
+         "A failure leaves the list once the work finishes, whether after your retry or on its own. Ryker retries most things several times before it lists them here."
+       ]}
+    ])
+  end
+
+  defp help(:failure) do
+    page("How a failure page works", [
+      {"What this page shows",
+       [
+         "One thing Ryker could not finish on its own. What happened says what stopped and why. What it affects says who is waiting on it. What Ryker tried lists what it already did."
+       ]},
+      {"What you can do",
+       [
+         "Each option says what it does and whether it should work, with the recommended one first. Leave it says what happens if nobody acts.",
+         "A retry asks you to confirm before it runs. Nothing happens until you do."
+       ]},
+      {"When a retry won't help",
+       [
+         "If something has to change first, such as a token or Ryker's place in a Slack channel, the page links to where to change it. Fix that, then come back and retry.",
+         "Technical details hold the error codes, for support."
+       ]},
+      {"After it is fixed",
+       [
+         "Once the work finishes, it leaves Failures. The request's timeline shows what happened next."
+       ]}
+    ])
+  end
+
+  defp help(:usage) do
+    page("How usage and cost work", [
+      {"What this page shows",
+       [
+         "How much work Ryker ran and what it cost, over the last 24 hours, 7 days, 30 days or all time. It covers every model call: routing messages, replies, investigations, tasks and background learning."
+       ]},
+      {"Read the tables",
+       [
+         "The top figures show cost, runs and tokens. The tables break the same numbers down by model, channel, repository, kind of work and person.",
+         "Click a row to see the requests behind it on Activity."
+       ]},
+      {"How cost is counted",
+       [
+         "Cost is what the model provider reported. When a provider reports tokens but no cost, Ryker estimates it from the rates listed under Rates used for estimates. Not measured means nothing was reported."
+       ]},
+      {"When something looks wrong",
+       [
+         "A high cost usually comes from one model or one kind of work, and the tables show which. To use a different model for a kind of work, change it in Settings, Models."
+       ]}
+    ])
+  end
+
+  defp help(:environments) do
+    page("How environments work", [
+      {"What an environment is",
+       [
+         "Where Ryker works: the repositories work there may use and, if you have one, an Emisar account. Slack channels, webhook sources and Chat conversations each work in one environment."
+       ]},
+      {"Repositories",
+       [
+         "Work can read every repository in its environment. A task that changes code picks the one repository it changes from that list.",
+         "Adding a repository puts it in the default environment, and creates Default when there is none."
+       ]},
+      {"Emisar",
+       [
+         "With an Emisar account, work here can send the actions it wants to run, such as a restart, to Emisar, where a person approves each one. Without one, Ryker can only tell you what to run."
+       ]},
+      {"The default environment",
+       [
+         "A new Chat conversation starts in the default environment, and every channel without its own choice works there. Use as default makes another environment the default."
+       ]},
+      {"Add, change or remove",
+       [
+         "Add an environment and Edit open an editor for its name, description, repositories and Emisar account. Remove asks first, and is refused while channels or webhook sources still use the environment."
+       ]}
+    ])
+  end
+
+  defp help(:channels) do
+    page("How channels work", [
+      {"What this page shows",
+       [
+         "The Slack channels Ryker is in, and how it takes part in each: when it replies, which environment its work uses and when it was last active."
+       ]},
+      {"Add a channel",
+       [
+         "Invite Ryker to a Slack channel with /invite @Ryker. The channel shows up here, and Ryker posts a welcome message there with a Customize button for its setup."
+       ]},
+      {"How Ryker takes part",
+       [
+         "Replies when mentioned: Ryker answers when someone writes @Ryker. Joins relevant conversations: it also replies when it can clearly help. Watches quietly: it reads and learns, but never replies.",
+         "New channels start with the choice under Defaults."
+       ]},
+      {"Change a channel",
+       [
+         "Open a channel to choose its environment. To change the rest, type /ryker status in the channel and choose Configure channel."
+       ]},
+      {"Find a channel",
+       [
+         "In use lists the channels Ryker is in; All adds the ones it left or never joined. Search matches a channel's name, workspace or environment."
+       ]}
+    ])
+  end
+
+  defp help(:channel) do
+    page("How this channel works", [
+      {"What this page shows",
+       [
+         "Everything about one Slack channel: how Ryker takes part, the environment its work uses, the channel's own instructions and what applies here. Recent work, schedules and usage follow."
+       ]},
+      {"Choose the environment",
+       [
+         "The environment decides which repositories and Emisar account work in this channel may use. Choose it here and press Save.",
+         "No environment means Ryker works here without code and cannot act on running systems."
+       ]},
+      {"Instructions and what applies",
+       [
+         "This channel's instructions add to the global ones, here only. What applies here lists the rules, saved instructions and facts Ryker uses in this channel, and where each comes from."
+       ]},
+      {"Ask Ryker in the channel",
+       [
+         "To add a rule, tell Ryker in the channel: “When someone posts a Terraform plan here, review it for risky changes.” To add a schedule: “Every Monday at 09:00 Berlin time, summarize open incidents here.”",
+         "Ryker shows what it will save and saves it only after you confirm."
+       ]},
+      {"Change the rest",
+       [
+         "To change when Ryker replies or what it does with alerts, type /ryker status in the channel and choose Configure channel. Ryker answers only you."
+       ]}
+    ])
+  end
+
+  defp help(:repositories) do
+    page("How repositories work", [
+      {"What this page shows",
+       [
+         "The code Ryker can read and change. Each repository is Ready, Setting up or Needs attention, with the environments it is in and where it was used."
+       ]},
+      {"Add repositories",
+       [
+         "Connect GitHub first. Then Add repositories lists what the Ryker GitHub App can reach. Each one you add joins the default environment, so work there can use it at once.",
+         "You can also add new repositories automatically when the App gets access to them."
+       ]},
+      {"Setting up",
+       [
+         "Ryker copies the code and reads it. It then proposes a RYKER.md file, with what it learned about the repository, in a pull request you can review."
+       ]},
+      {"Who can ask for work",
+       [
+         "Anyone with write access to an added repository can ask Ryker to work there. GitHub checks that access on every request."
+       ]},
+      {"When something looks wrong",
+       [
+         "Needs attention says what stopped, such as GitHub access that was removed. Fix the cause, then press Retry setup."
+       ]}
+    ])
+  end
+
+  defp help(:working_copies) do
+    page("How working copies work", [
+      {"What this page shows",
+       [
+         "A working copy is a checkout of a repository that Ryker makes while a task works on code. This page lists them, the space they take on each worker and what cleanup does next."
+       ]},
+      {"Cleanup",
+       [
+         "Ryker removes a copy on its own once that is safe. It keeps a copy with uncommitted changes, or with commits that were never merged, so no work is lost.",
+         "Ready for cleanup lists what goes next, oldest first."
+       ]},
+      {"When cleanup needs you",
+       [
+         "Cleanup needs attention means Ryker stopped for the reason shown. Resume cleanup tries the same step again. Discard unmerged throws away commits that were never merged, and keeps uncommitted changes.",
+         "Both ask you to confirm first."
+       ]},
+      {"Storage",
+       [
+         "Each worker reports its space: what is kept, what can be removed and the limit. A worker that is full stops taking new copies until space frees up."
+       ]}
+    ])
+  end
+
+  defp help(:rules) do
+    page("How rules work", [
+      {"What a rule is",
+       [
+         "A rule tells Ryker to act when something happens in a channel, such as a new Terraform plan, a deployment, an alert, or a GitHub, Slack or webhook event.",
+         "When a message sets off a rule, Ryker decides whether to reply, react or start work."
+       ]},
+      {"Add a rule",
+       [
+         "Tell Ryker in the channel: “When someone posts a Terraform plan here, review it for risky changes.” Ryker shows the rule and saves it only after you confirm."
+       ]},
+      {"Current and past",
+       [
+         "Current lists the rules that are on or paused. Past lists the ones that expired, were deleted or were replaced by a newer rule. A rule's row says when it stops."
+       ]},
+      {"Pause, resume or delete",
+       [
+         "Pause stops a rule without losing it, and Resume turns it back on. Delete ends it for good, but its history stays. Each asks you to confirm first."
+       ]},
+      {"See what a rule did",
+       [
+         "Recent matches lists the latest messages that set off a rule and what Ryker did, with a link to each request."
+       ]}
+    ])
+  end
+
+  defp help(:schedules) do
+    page("How schedules work", [
+      {"What a schedule is",
+       [
+         "A task Ryker runs at a set time, once or on repeat, such as a Monday summary of open incidents. Results go to the conversation or thread where it was set up."
+       ]},
+      {"Add a schedule",
+       [
+         "Tell Ryker, in the place where the results should go: “Every Monday at 09:00 Berlin time, summarize unresolved incidents in this channel.” Ryker shows the schedule and saves it after you confirm."
+       ]},
+      {"Change a schedule",
+       [
+         "Run now starts one extra run and leaves the schedule as it is. Pause stops new runs until you resume it. Delete ends it for good and keeps its past runs. Each asks you to confirm.",
+         "To change what it does or when, ask Ryker in the conversation where it was set up."
+       ]},
+      {"Current and past",
+       [
+         "Current lists schedules that are on or paused. Past lists the ones that are done, expired or deleted. A one-time schedule is done after it runs."
+       ]},
+      {"When something looks wrong",
+       [
+         "A row that says failed to start means Ryker could not begin a run; it tries again on its own. Open the schedule to see each run and the request behind it."
+       ]}
+    ])
+  end
+
+  defp help(:schedule) do
+    page("How this schedule works", [
+      {"What this page shows",
+       [
+         "One schedule: how often it runs, where the results go, which repository it uses and what it may do, then every run, newest first."
+       ]},
+      {"What it may do",
+       [
+         "Read only: the runs only look. Can change the repository: a run may change code. Can run approved operations: a run may carry out actions a person approves in Emisar."
+       ]},
+      {"Controls",
+       [
+         "Run now starts one extra run. Pause and Resume stop and restart new runs. Delete ends the schedule for good, and its runs stay listed. Each asks you to confirm first."
+       ]},
+      {"Runs",
+       [
+         "Each run starts its own request; open it to see what Ryker did. Missed means a run could not start within 15 minutes of its time. The next run still starts on time."
+       ]},
+      {"Change it",
+       [
+         "To change what the schedule asks for or when it runs, ask Ryker in the conversation where it was set up. Ryker shows the new schedule for you to confirm."
+       ]}
+    ])
+  end
+
+  defp help(:follow_ups) do
+    page("How follow-ups work", [
+      {"What a follow-up is",
+       [
+         "Work Ryker paused on purpose. It waits for a set time or for something to happen, such as a pull request being merged, then picks the same request back up."
+       ]},
+      {"Where they come from",
+       [
+         "Ryker adds follow-ups on its own when work has to wait. You can also ask it, in the conversation: “Check again tomorrow morning.”"
+       ]},
+      {"Read a row",
+       [
+         "Each row says what it waits for, the request it continues and when Ryker checks again or gives up. Current lists what is waiting. Past lists what resumed, passed its deadline or was cancelled."
+       ]},
+      {"Stop one",
+       [
+         "This page only shows follow-ups. To stop one, open the request it continues and choose Close as no longer needed."
+       ]}
+    ])
+  end
+
+  defp help(:instructions) do
+    page("How instructions work", [
+      {"What instructions are",
+       [
+         "Instructions tell Ryker how to work, in your own words. Ryker follows them in every reply, investigation and task. They never give it permission to do more."
+       ]},
+      {"For every conversation",
+       [
+         "Write what should apply everywhere, up to 2,000 characters, and press Save. Ryker uses the change from its next step; work already running keeps what it started with."
+       ]},
+      {"For one channel",
+       [
+         "A channel's own instructions add to these, in that channel only. Where the two disagree, the channel's win. Add them on the channel's page."
+       ]},
+      {"Saved from conversations",
+       [
+         "Preferences and guidance are what people asked Ryker to keep in mind, such as “Remember to keep incident updates short.” Ryker shows what it will save and keeps it only after you confirm.",
+         "Each one stops after the time chosen when it was saved. Pause, Resume and Delete ask you to confirm first."
+       ]}
+    ])
+  end
+
+  defp help(:facts) do
+    page("How facts work", [
+      {"What a fact is",
+       [
+         "Something a person asked Ryker to remember, such as what a service is called or which repository holds it. Ryker uses facts as context in later work, never as permission to act."
+       ]},
+      {"Add a fact",
+       [
+         "Tell Ryker in chat or Slack: “Remember that pay-gw is the payments gateway.” Ryker shows what it will save and saves it after you confirm.",
+         "A fact applies everywhere, to one repository or in one channel. The row says which."
+       ]},
+      {"Review and forget",
+       [
+         "Needs review lists facts Ryker has not used in a while and facts saved more than once. Keep, edit, merge or forget each one.",
+         "Forget stops Ryker using a fact and erases it. Every change asks you to confirm first."
+       ]},
+      {"Ask Ryker",
+       [
+         "In a Slack channel, ask Ryker “What do you remember here?” to see the facts it would use there."
+       ]}
+    ])
+  end
+
+  defp help(:learned) do
+    page("How learned topics work", [
+      {"What this page shows",
+       [
+         "What Ryker learned by reading conversations. Topics hold what it knows about a subject, with the messages it learned from. Conversation summaries hold where each conversation stands."
+       ]},
+      {"Where it comes from",
+       [
+         "Ryker reads the conversations it can see in the background, even when it does not reply. It updates a topic when it learns something new, and keeps every earlier version in the topic's history."
+       ]},
+      {"How Ryker uses it",
+       [
+         "Ryker recalls topics and summaries as context for later requests, so it can pick up where a conversation stopped. Nothing here gives it permission to act."
+       ]},
+      {"When something looks wrong",
+       [
+         "A topic marked Not used lost a message it learned from, so Ryker stopped using it. Relearn it rebuilds the topic from messages you choose.",
+         "How this was learned shows the exact request and answer behind each update."
+       ]}
+    ])
+  end
+
+  defp help(:findings) do
+    page("How findings work", [
+      {"What a finding is",
+       [
+         "A conclusion Ryker reached while investigating a problem, saved with the evidence behind it. Ryker writes findings itself; this page only shows them."
+       ]},
+      {"What the states mean",
+       [
+         "Explained: the evidence shows why it happened. Expected and Out of scope come with Ryker's reason. Not explained yet: the question is still open."
+       ]},
+      {"Check the evidence",
+       [
+         "Open a finding's evidence to see what supports it, and Open investigation for the work behind it. Evidence that has expired says so."
+       ]}
+    ])
+  end
+
+  defp help(:learning) do
+    page("How background learning works", [
+      {"What learning is",
+       [
+         "Ryker reads conversations in the background and keeps what it learned up to date on the Learned page. Learning never sends a reply."
+       ]},
+      {"Turn it on or off",
+       [
+         "The switch at the top turns learning on or off at once. While it is off, new messages wait and nothing Ryker already learned is lost."
+       ]},
+      {"Recent passes",
+       [
+         "Each pass reads new messages from one conversation. Finding nothing to change is a normal outcome. Filter by outcome to see what changed."
+       ]},
+      {"When learning needs you",
+       [
+         "Needs attention lists conversations where learning stopped, such as after it used all its tries. Review one to see what happened; Grant one more start tries the same messages once more.",
+         "If learning can't start, the page links to the settings it is missing."
+       ]}
+    ])
+  end
+
+  defp help(:integrations) do
+    page("How integrations work", [
+      {"What this page shows",
+       [
+         "The services Ryker works through, each with where it stands and one next step."
+       ]},
+      {"What each one gives Ryker",
+       [
+         "Slack is where Ryker reads and replies. GitHub lets it read code and open pull requests. Emisar lets it carry out fixes after a person approves them. Webhooks let tools such as Grafana send it alerts."
+       ]},
+      {"Connect or change one",
+       [
+         "Connect, Set up and Manage open the service's own page. Each page checks what you paste before saving it.",
+         "Disconnecting asks first, and keeps channels, repositories and history."
+       ]},
+      {"When something looks wrong",
+       [
+         "A service that needs repair says so here. Open its page to see what failed and fix it there."
+       ]}
+    ])
+  end
+
+  defp help(:slack) do
+    page("How the Slack connection works", [
+      {"Connect Slack",
+       [
+         "Paste the app token (xapp-…) and bot token (xoxb-…) from your Slack app and press Verify Slack. Ryker checks them and finds the workspace and its bot.",
+         "Then choose who can manage Ryker to finish connecting."
+       ]},
+      {"Who can manage Ryker",
+       [
+         "These people can change Ryker's settings from Slack, such as a channel's setup or a new rule."
+       ]},
+      {"New channels and incident rooms",
+       [
+         "New channels sets when Ryker replies in a channel that has not chosen for itself: only when mentioned, also when it can clearly help, or never. Incident rooms sets how room channels are named and whether they are private."
+       ]},
+      {"When something looks wrong",
+       [
+         "If Slack is missing permissions, the error lists them. Add them to your Slack app, reinstall it in the workspace, then verify again.",
+         "Replace the tokens only when they changed in your Slack app. Disconnect asks first, and keeps channels, instructions and history."
+       ]}
+    ])
+  end
+
+  defp help(:github) do
+    page("How the GitHub connection works", [
+      {"What GitHub gives Ryker",
+       [
+         "Ryker reads your code and opens pull requests through a GitHub App, so GitHub decides what it can reach. GitHub also checks each person's access on every request."
+       ]},
+      {"Connect the App",
+       [
+         "Enter the App ID and the private key (.pem) from the App's settings in GitHub, then press Verify GitHub App. Leave the webhook secret empty and Ryker creates one.",
+         "Paste the callback URL shown here into the App's webhook settings, so GitHub can tell Ryker what changes."
+       ]},
+      {"Pull requests",
+       [
+         "Let Ryker open pull requests decides whether Ryker pushes a branch and opens a pull request when its work changes code. You can set how branches are named and who commits."
+       ]},
+      {"When something looks wrong",
+       [
+         "Needs repair means the saved App ID or private key stopped working. Repair it with the current key; repositories stay as they are. Add repositories on the Repositories page."
+       ]}
+    ])
+  end
+
+  defp help(:emisar) do
+    page("How the Emisar connection works", [
+      {"What Emisar does",
+       [
+         "Emisar lets Ryker act on your running systems, such as restarting a service or rolling back a deploy. A person approves each risky action in Emisar before it runs; Ryker never approves for anyone."
+       ]},
+      {"Connect an account",
+       [
+         "Create an API token in your Emisar account and paste it here. Ryker checks the account and starts watching it for approval decisions. The first account serves every environment that has none."
+       ]},
+      {"Accounts and environments",
+       [
+         "Each environment uses at most one account; choose it on the Environments page. Pause an account to stop sending it new work. Its history stays."
+       ]},
+      {"When something looks wrong",
+       [
+         "If approval monitoring is off, tasks waiting on an approval stop and show on Failures. Turn it back on under Manage, where you can also replace a token that changed.",
+         "An account that tasks still use cannot be removed; pause it instead."
+       ]}
+    ])
+  end
+
+  defp help(:webhooks) do
+    page("How webhooks work", [
+      {"What webhooks do",
+       [
+         "Webhooks let other systems, such as Grafana, send alerts and events to Ryker. Each sender is a source with its own address. Its work goes to the conversation and environment you choose."
+       ]},
+      {"Set up a sender",
+       [
+         "First create a signing credential: senders sign each request with its secret, so Ryker knows it is theirs. Then add a webhook source, choose its credential and where its work goes.",
+         "Give the sender the source's address."
+       ]},
+      {"Check a payload",
+       [
+         "Paste one delivery under Check a payload to see the events Ryker would record. Nothing is saved or sent.",
+         "Group by labels treats events with the same values for those labels as one ongoing situation."
+       ]},
+      {"When something looks wrong",
+       [
+         "A credential that a source still uses cannot be deleted. Change or remove that source first."
+       ]}
+    ])
+  end
+
+  defp help(:models) do
+    page("How model settings work", [
+      {"What this page sets",
+       [
+         "The model and reasoning effort for each kind of work: routing each message, conversation, standard and deep work, code changes, scheduled runs, incident rooms and learning.",
+         "A change reaches new work within seconds."
+       ]},
+      {"Choosing",
+       [
+         "Usage & cost shows what each kind of work costs, so you can see where a different model would matter. A model that no price covers shows its cost as not priced; Add a price opens Model prices."
+       ]},
+      {"Saving",
+       [
+         "Each section saves on its own with Save changes, and a draft survives a refresh. If someone else saved in the meantime, the page shows what is saved now before you save over it."
+       ]}
+    ])
+  end
+
+  defp help(:retention) do
+    page("How data retention works", [
+      {"What this page sets",
+       [
+         "How long Ryker keeps each kind of data: prompts, replies and tool activity; finished work; request history; the audit trail; and conversation memory. Older data is deleted on its own."
+       ]},
+      {"Shortening a limit",
+       [
+         "A shorter limit deletes older data, so Ryker asks you to confirm first. Deleted data cannot be brought back.",
+         "Shorter limits also leave less to inspect later: an old request may no longer show its full prompt."
+       ]},
+      {"Keep the order",
+       [
+         "Prompts, replies and tool activity may not be kept longer than finished work, finished work not longer than request history, and that not longer than the audit trail. The page says when limits are out of order."
+       ]}
+    ])
+  end
+
+  defp help(:prices) do
+    page("How model prices work", [
+      {"What this page holds",
+       [
+         "What each model costs per million tokens, for input, cached input, output and reasoning, with the day a price starts and where it came from."
+       ]},
+      {"Where prices show up",
+       [
+         "The Models page warns about a model that no price covers. When a provider reports tokens but no cost, Usage & cost shows an estimate and lists the rates it used."
+       ]},
+      {"Add or remove a price",
+       [
+         "Add a row for a model, or change its rates, and save. Removing a price asks first: that model's cost then shows as not priced."
+       ]}
+    ])
+  end
+
+  defp help(:advanced) do
+    page("How advanced settings work", [
+      {"What this page shows",
+       [
+         "Where Ryker's work runs and what each kind of work may do. Ryker runs its work on a worker: a machine with your code checked out that runs the model and its tools.",
+         "The bundled worker is set up for you, so most installations never change anything here."
+       ]},
+      {"Policies for each kind of work",
+       [
+         "A policy is a worker's rulebook for one kind of work: which model runs it, whether it may change files, which repositories it sees and what it may run. The bundled worker writes these for you; add one only for a worker you run yourself."
+       ]},
+      {"Tasks that change code",
+       [
+         "Tasks that change code says whether Ryker can change code right now. When it cannot, it says what is missing and how to check the installation."
+       ]},
+      {"What is running",
+       [
+         "Show what is loaded lists what the running Ryker actually uses, for support and troubleshooting. Nothing there can be changed; a saved setting shows there once it is applied."
+       ]},
+      {"When something looks wrong",
+       [
+         "When requests wait because no worker can take them, start here. Then check Working copies, where a full worker stops taking new work."
+       ]}
+    ])
+  end
+
+  defp help(:setup) do
+    page("How setup works", [
+      {"What setup does",
+       [
+         "Setup walks you through what Ryker needs, one step at a time: connect Slack and GitHub, add repositories, invite Ryker to a channel, choose that channel's environment and send a real request."
+       ]},
+      {"Steps check themselves off",
+       [
+         "Only the current step is open, with what it needs and one button. Ryker notices the Slack steps on its own, such as being invited or replying, and checks them off."
+       ]},
+      {"Emisar is recommended",
+       [
+         "Emisar is optional but recommended. With it, Ryker can carry out fixes on running systems after a person approves them. Without it, Ryker can only tell you what to run."
+       ]},
+      {"After setup",
+       [
+         "Once every step is done, mention @Ryker in the channel or open Chat. You can change each step later on its own page."
+       ]}
+    ])
+  end
+
+  defp page(title, sections) do
+    %{
+      title: title,
+      sections:
+        Enum.map(sections, fn {heading, paragraphs} ->
+          %{heading: heading, paragraphs: paragraphs}
+        end)
+    }
+  end
+end

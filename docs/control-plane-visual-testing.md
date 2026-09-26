@@ -12,11 +12,15 @@ If Playwright is installed outside Node's normal module search path, set
 `RYKER_PLAYWRIGHT_MODULE` to that installation's `playwright` directory.
 Pass `--filters` for the smaller activity/filters pass during iteration.
 
-The harness captures viewport and full-page PNGs at 1440px and 390px, checks
-HTTP responses, LiveView connection, browser/CSP errors, horizontal overflow,
-whether the mobile composer covers the transcript, and that the retired pages
-(`/card-lab`, `/manual-tests`, `/decisions`, `/calibration`) answer a real 404
-without a redirect and never return to navigation.
+The harness visits every live route `lib/ryker/control_plane/web_router.ex`
+declares (`scripts/visual-routes.cjs` reads them from the router, so the list
+cannot drift from the product), captures viewport and full-page PNGs at 1440px,
+720px, 390px and 320px, checks HTTP responses, LiveView connection, browser/CSP
+errors, horizontal overflow, whether the mobile composer covers the transcript,
+and that the pages removed as clean cuts (the `removedRoutes` list at the top of
+the script: `/card-lab`, `/manual-tests`, `/decisions`, `/calibration`,
+`/workspaces`, `/subscriptions` and the rest) answer a real 404 without a
+redirect and never return to navigation.
 
 Detail routes are discovered from real rows. Missing incident/schedule/etc.
 records are reported in `manifest.json`; they are not counted as tested populated
@@ -39,3 +43,10 @@ This captures 1440px, 900px and 390px layouts, asserts that message/event/reques
 rows share the same rail, checks prompt source labels, and expands retained
 instructions through a server-acknowledged live refresh. It uses the same private
 artifact-directory protections and never submits a message or runs a model.
+
+For the Usage page with real execution data (populated profile, model and people
+tables, the token chart, the rates disclosure and a profile drill-down):
+
+```sh
+node scripts/usage-visual.cjs http://127.0.0.1:4321 /tmp/ryker-usage-review
+```

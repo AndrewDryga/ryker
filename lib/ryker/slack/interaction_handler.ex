@@ -646,9 +646,11 @@ defmodule Ryker.Slack.InteractionHandler do
   defp policy(%{payload: %{"kind" => "incident"}}, _interaction, options),
     do: {:ok, options.incident_policy}
 
-  # A task runs in the environment of the conversation it is confirmed in,
-  # under that environment's own policy, and only for one of its repositories.
-  # A conversation outside any environment has no repository to change.
+  # A task runs in the environment of the conversation it is confirmed in and
+  # changes the repository it names, which must be one of that environment's,
+  # under the environment's policy for that repository: its working copy, with
+  # every other repository of the environment mounted read-only. A conversation
+  # outside any environment has no repository to change.
   defp policy(
          %{payload: %{"kind" => "engineering", "repository" => repository}},
          interaction,
@@ -658,14 +660,17 @@ defmodule Ryker.Slack.InteractionHandler do
       options.conversation_environment.(interaction.workspace_ref, interaction.channel_ref)
 
     case environment_ref && Map.get(options.environments, environment_ref) do
-      %{contributor_policy: %{digest: digest, name: name} = policy, work_profile: profile} ->
-        if repository in environment_repositories(profile),
-          do:
+      %{contributor_policies: policies} when map_size(policies) > 0 ->
+        case Map.get(policies, repository) do
+          %{digest: digest, name: name} = policy ->
             {:ok,
              %{digest: digest, environment_ref: environment_ref, name: name}
              |> maybe_put(:repository_ref, Map.get(policy, :repository_ref))
-             |> maybe_put(:repository_context, Map.get(policy, :repository_context))},
-          else: {:error, {:slack_task_outside_environment, repository}}
+             |> maybe_put(:repository_context, Map.get(policy, :repository_context))}
+
+          nil ->
+            {:error, {:slack_task_outside_environment, repository}}
+        end
 
       _none ->
         {:error, {:slack_task_policy_not_configured, repository}}
@@ -673,14 +678,6 @@ defmodule Ryker.Slack.InteractionHandler do
   end
 
   defp policy(_record, _interaction, _options), do: {:error, :task_offer_action_mismatch}
-
-  defp environment_repositories(%{repository_ref: nil}), do: []
-
-  defp environment_repositories(%{
-         repository_ref: writable,
-         read_only_repository_refs: read_only
-       }),
-       do: [writable | read_only]
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

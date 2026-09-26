@@ -122,7 +122,7 @@ defmodule Ryker.Work.AdmissionBackdropTest do
         occurred_at: slack_time(ts),
         revision: 1,
         thread_ref: Keyword.get(options, :thread_ref),
-        workspace_ref: "TROUTE"
+        workspace_ref: "TBACKDROP"
       })
 
     {:ok, %{entry: entry}} = Inbox.record(input)

@@ -125,30 +125,20 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   end
 
   defp environment_access(%{
-         "environment" => %{
-           "emisar" => emisar,
-           "name" => name,
-           "repositories" => [writable | read_only]
-         }
+         "environment" => %{"emisar" => emisar, "name" => name, "repositories" => repositories}
        }) do
-    reads =
-      if read_only == [],
-        do: [],
-        else: ["read #{read_only |> Enum.map(&repository_link/1) |> join_names()}"]
-
-    emisar = if emisar, do: ["use Emisar"], else: []
-    uses = join_clauses(["make changes in #{repository_link(writable)}"] ++ reads ++ emisar)
-
-    "I work in the *#{escape(name)}* environment here: I can #{uses}."
+    "I work in the *#{escape(name)}* environment here: I can #{uses(repositories, emisar)}."
   end
 
-  defp join_clauses([clause]), do: clause
-  defp join_clauses([first, second]), do: "#{first} and #{second}"
+  # Work can use every repository of its environment; a task changes the one
+  # it needs.
+  defp uses([repository], emisar),
+    do: "work on #{repository_link(repository)}" <> if(emisar, do: " and use Emisar", else: "")
 
-  defp join_clauses(clauses) do
-    {others, [last]} = Enum.split(clauses, -1)
-    Enum.join(others, ", ") <> ", and " <> last
-  end
+  defp uses(repositories, emisar),
+    do:
+      "work on #{repositories |> Enum.map(&repository_link/1) |> join_names()}, " <>
+        "changing whichever one a task needs" <> if(emisar, do: ", and use Emisar", else: "")
 
   # The control that opens the setup Q&A, named as the welcome shows it.
   defp configure_label(%{"participation" => %{"source" => "incident_room"}}),
@@ -272,12 +262,10 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
 
   defp environment_fact(%{"environment" => %{"name" => name}}), do: name
 
-  # The repo work changes comes first; the rest are only read.
-  defp repositories_fact(%{"environment" => %{"repositories" => [writable | read_only]}}),
-    do: [
-      {:repository, writable, "changes"}
-      | Enum.map(read_only, &{:repository, &1, "read only"})
-    ]
+  # Every repository is open to work here; the first is the default a task
+  # changes when it names none.
+  defp repositories_fact(%{"environment" => %{"repositories" => [default | others]}}),
+    do: [{:repository, default, "default"} | Enum.map(others, &{:repository, &1, "available"})]
 
   defp repositories_fact(_settings), do: "None"
 

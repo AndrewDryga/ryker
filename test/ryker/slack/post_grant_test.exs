@@ -16,13 +16,18 @@ defmodule Ryker.Slack.PostGrantTest do
     for text <- [
           "post to <https://attacker.example/archives/G789/p1787832000000100>: publish it",
           "post to <https://example.slack.com/not-a-permalink>: publish it",
-          "post to <https://example.slack.com/archives/G789/p1787832000000100?thread_ts=invalid>: publish it"
+          "post to <https://example.slack.com/archives/G789/p1787832000000100?thread_ts=invalid>: publish it",
+          "post to <https://example.slack.com/archives/G789/p1787832000000100?thread_ts=1787831000x000099>: publish it"
         ] do
       assert PostGrant.destination_refs(text, "T123", "U-BOT") == []
     end
 
     assert PostGrant.destination_refs(nil, "T123", "U-BOT") == []
     assert PostGrant.destination_refs("post to <#G789>: publish it", nil, "U-BOT") == []
+
+    assert PostGrant.destination_refs("post to <#G789>: publish it", "not a workspace", "U-BOT") ==
+             []
+
     assert PostGrant.destination_refs(<<255>>, "T123", "U-BOT") == []
   end
 end

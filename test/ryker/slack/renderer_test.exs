@@ -238,7 +238,7 @@ defmodule Ryker.Slack.RendererTest do
     text = Jason.encode!(rendered)
 
     assert text =~
-             "I work in the *Production* environment here: I can make changes in <https://github.com/acme/backend|backend> and read `infrastructure`."
+             "I work in the *Production* environment here: I can work on <https://github.com/acme/backend|backend> and `infrastructure`, changing whichever one a task needs."
 
     assert text =~ "I'll reply when you mention <@UBOT>"
     assert text =~ "When an alert is posted here, I'll investigate proactively in its thread"
@@ -319,12 +319,12 @@ defmodule Ryker.Slack.RendererTest do
     production = settings_document()["environment"]
 
     assert welcome.(%{production | "emisar" => true}, 2) =~
-             "I can make changes in <https://github.com/acme/backend|backend>, read `infrastructure`, and use Emisar."
+             "I can work on <https://github.com/acme/backend|backend> and `infrastructure`, changing whichever one a task needs, and use Emisar."
 
     single = %{production | "repositories" => [hd(production["repositories"])]}
 
     assert welcome.(single, 2) =~
-             "I work in the *Production* environment here: I can make changes in <https://github.com/acme/backend|backend>."
+             "I work in the *Production* environment here: I can work on <https://github.com/acme/backend|backend>."
 
     ops = %{production | "emisar" => true, "name" => "Ops", "repositories" => []}
 
@@ -373,7 +373,7 @@ defmodule Ryker.Slack.RendererTest do
                "*Conversations*\nReply when mentioned",
                "*Alerts*\nInvestigate in the existing thread",
                "*Environment*\nProduction",
-               "*Repositories*\n<https://github.com/acme/backend|backend> — changes\n`infrastructure` — read only",
+               "*Repositories*\n<https://github.com/acme/backend|backend> — default\n`infrastructure` — available",
                "*Incident invitations*\nNo one automatically — you can add people yourself",
                "*Observation mode*\nOff"
              ]
@@ -512,7 +512,7 @@ defmodule Ryker.Slack.RendererTest do
     [explanation, actions] = rendered["blocks"]
 
     assert explanation["text"]["text"] =~
-             "*Production* — I'll make changes in `ryker`, read `docs`, and use Emisar."
+             "*Production* — I'll work on `ryker` and `docs`, changing whichever one a task needs, and use Emisar."
 
     assert explanation["text"]["text"] =~
              "*No environment* — I'll still answer here, but without any repos or Emisar."

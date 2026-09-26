@@ -456,6 +456,119 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
     refute_received {:enqueue_action, _attributes}
   end
 
+  # Every session in an environment may read any of the environment's
+  # repositories, not only the one it changes: the GitHub tools take the
+  # repository to read and pick that repository's binding when the session's
+  # environment holds it. Before, a Slack or Chat session could only reach the
+  # repository it was pinned to, so a question about a companion repository's
+  # pull requests or CI went unanswered.
+  test "a session reads any repository of its environment through the GitHub tools" do
+    client = fn repository, id, grants ->
+      %{
+        api: ContextAPI,
+        client: self(),
+        grants: grants,
+        repository_ref: "repo-#{repository}",
+        repository_full_name: "octo/#{repository}",
+        repository_id: id
+      }
+    end
+
+    options =
+      CapabilityTools.options!(%{
+        bindings: %{
+          "github-main" => client.("example", 2_001, ~w(read review rerun_ci)),
+          "github-docs" => client.("docs", 2_002, ~w(read)),
+          "github-other" => client.("other", 2_003, ~w(read))
+        }
+      })
+
+    binding = environment_work_binding("repo-example", ["repo-docs"])
+
+    search = %{
+      "cursor" => nil,
+      "kind" => "all",
+      "limit" => 5,
+      "query" => "export",
+      "state" => "open"
+    }
+
+    assert {:ok, _result} =
+             CapabilityTools.call(
+               "search_github",
+               Map.put(search, "repository", "repo-docs"),
+               binding,
+               options
+             )
+
+    assert_received {:search_github, %{repository: "octo/docs"}}
+
+    # Without a repository, or naming its own, the session reads the
+    # repository it changes.
+    assert {:ok, _result} = CapabilityTools.call("search_github", search, binding, options)
+    assert_received {:search_github, %{repository: "octo/example"}}
+
+    assert {:ok, _result} =
+             CapabilityTools.call(
+               "search_github",
+               Map.put(search, "repository", "repo-example"),
+               binding,
+               options
+             )
+
+    assert_received {:search_github, %{repository: "octo/example"}}
+
+    # A repository outside the session's environment, even one Ryker knows,
+    # is not readable from it.
+    assert CapabilityTools.call(
+             "search_github",
+             Map.put(search, "repository", "repo-other"),
+             binding,
+             options
+           ) == {:error, "unauthorized"}
+
+    refute_received {:search_github, %{repository: "octo/other"}}
+
+    # Pull requests and CI of a companion repository read the same way.
+    assert {:ok, _result} =
+             CapabilityTools.call(
+               "read_github_pull_request",
+               %{
+                 "cursor" => nil,
+                 "limit" => 5,
+                 "number" => 7,
+                 "repository" => "repo-docs",
+                 "review_root_id" => nil,
+                 "section" => "subject"
+               },
+               binding,
+               options
+             )
+
+    assert_received {:read_github_context, %{number: 7, repository: "octo/docs"}}
+
+    assert {:ok, _result} =
+             CapabilityTools.call(
+               "read_github_ci",
+               %{"attempt" => 1, "repository" => "repo-docs", "run_id" => 99},
+               binding,
+               options
+             )
+
+    assert_received {:read_ci, "octo/docs", 99, 1}
+
+    # The tool contracts offer the choice without requiring it.
+    for name <- ~w(search_github read_github_pull_request read_github_ci rerun_github_ci
+                   cancel_github_ci submit_github_review) do
+      tool = Enum.find(CapabilityTools.list(options), &(&1["name"] == name))
+
+      assert get_in(tool, ["inputSchema", "properties", "repository", "description"]) =~
+               "environment"
+
+      refute "repository" in tool["inputSchema"]["required"]
+    end
+  end
+
   test "malformed reactions and capability authority fail closed" do
     options = options()
 
@@ -615,6 +728,30 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
       },
       session: %Session{id: "session-slack", repository_ref: "repo-main"},
       turn: %Turn{id: "turn-slack", lease_ref: Ecto.UUID.generate()}
+    }
+  end
+
+  # A Slack session pinned in an environment: it changes one repository and
+  # mounts the environment's other repositories read-only beside it.
+  defp environment_work_binding(repository_ref, read_only) do
+    %{
+      episode: %Episode{
+        id: "episode-environment",
+        destination_conversation_ref: "slack:T1:C1",
+        destination_thread_ref: "slack:T1:C1:100.1",
+        destination_transport: "slack"
+      },
+      session: %Session{
+        id: "session-environment",
+        repository_ref: repository_ref,
+        repository_context: %{
+          "context_ref" => "platform",
+          "parallel_goal_limit" => 3,
+          "primary_repository" => repository_ref,
+          "read_only_repositories" => read_only
+        }
+      },
+      turn: %Turn{id: "turn-environment", lease_ref: Ecto.UUID.generate()}
     }
   end
 end

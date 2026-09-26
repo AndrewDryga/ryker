@@ -1,27 +1,13 @@
 defmodule Ryker.MixProject do
   use Mix.Project
 
-  @release_assets ~w(
-    README.md
-    CHANGELOG.md
-    LICENSE
-    SECURITY.md
-    compose.yml
-    install.sh
-    Dockerfile
-    deploy/compose/entrypoint.sh
-    deploy/compose/coop/Box.Dockerfile
-    deploy/compose/coop/Dockerfile
-    deploy/compose/coop/entrypoint.sh
-    deploy/nginx/ryker.conf
-    docs/elixir-ingress-admission.md
-    docs/elixir-platform-adapters.md
-    docs/operations.md
-    docs/releasing.md
-    docs/slack-app.md
-    docs/testing.md
-    scripts/compose.sh
-  )
+  # The operator assets copied into the release under share/ryker, listed once
+  # in release-assets.txt for this build step, the archive check and the image
+  # build alike.
+  @release_assets Path.expand("release-assets.txt", __DIR__)
+                  |> File.read!()
+                  |> String.split("\n", trim: true)
+                  |> Enum.reject(&String.starts_with?(&1, "#"))
 
   def project do
     [

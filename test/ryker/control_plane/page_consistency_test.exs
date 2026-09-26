@@ -23,7 +23,17 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
   import Phoenix.LiveViewTest
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{ActivityPage, BehaviorPage, EnvironmentsPage, Pages}
+
+  alias Ryker.ControlPlane.{
+    ActivityPage,
+    Assets,
+    BehaviorPage,
+    EnvironmentsPage,
+    Kit,
+    PageHelp,
+    Pages
+  }
+
   alias Ryker.Fixtures.ControlPlaneOptions
 
   @retired ~w(.collection-shell .manage-filters .memory-tools .memory-filter .schedule-toolbar
@@ -49,16 +59,79 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
     end
   end
 
-  test "a list page that leads with numbers says them as Kit counts" do
-    document = activity()
-    counts = LazyHTML.query(document, ".kit-counts > .kit-count")
-    assert Enum.count(counts) >= 3, "Activity does not lead with Kit counts"
+  # Andrew, 2026-09-25: "'To open one, ask Ryker in the alert's Slack
+  # thread: …' — this should be replaced with a collapsible on top of the
+  # page or a help column on the right … On all pages." Seven lists ended in
+  # a line of small print on how to ask for one; the rest said nothing. How
+  # to use a page is now the shell's one "How this page works" panel
+  # (PageHelp), which LinkCrawlTest finds on every page, so no list explains
+  # itself in its body again.
+  test "no list page explains itself under its list; every one has the shell's help" do
+    for {name, document} <- list_pages() do
+      assert Enum.empty?(LazyHTML.query(document, ".ask-hint, .page-help")),
+             "#{name} explains itself in its body"
+    end
 
-    assert Enum.all?(counts, &(LazyHTML.query(&1, "b") |> Enum.count() == 1)),
-           "Activity has a count without its number"
+    for path <-
+          ~w(/ /incident-rooms /environments /channels /repositories /schedules /follow-ups /rules /memory /memory/learned),
+        do: assert(PageHelp.for_path(path), "#{path} has no help")
+  end
 
-    for retired <- @retired,
-        do: assert(Enum.empty?(LazyHTML.query(document, retired)), "Activity uses #{retired}")
+  # The hint component went with the hints. Left in the Kit, `ask_hint` is
+  # the easiest way for the next list to explain itself in small print again,
+  # and a stylesheet rule for a class no page renders is the same invitation.
+  test "the Kit no longer offers a one-line hint, and nothing styles one" do
+    Code.ensure_loaded!(Kit)
+    refute function_exported?(Kit, :ask_hint, 1), "Kit.ask_hint/1 still exists"
+
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    refute css =~ ".ask-hint", "workspace.css still styles .ask-hint"
+  end
+
+  # Andrew, 2026-09-25: the toolbar's quiet "18 items" said again what the
+  # counts row above it already said, in a second place and a second type
+  # size. A page's numbers now live in one place, its Kit counts, and the
+  # first of them is how many things the list holds, with their noun.
+  test "every list page that leads with numbers says them as Kit counts and no toolbar has a count" do
+    for {name, document} <- list_pages() do
+      assert Enum.empty?(LazyHTML.query(document, ".kit-toolbar-count")),
+             "#{name}'s toolbar repeats a count"
+
+      refute LazyHTML.query(document, ".kit-toolbar") |> LazyHTML.text() =~
+               ~r/\b\d+\s+(items?|requests?|matching|rooms?|incident rooms?|environments?)\b/,
+             "#{name}'s toolbar says a count"
+    end
+
+    for {name, document, leading} <- [
+          {"Activity", activity(), ["1 request", "1 active", "0 waiting", "0 blocked"]},
+          {"Incident rooms", page("/incident-rooms"), ["1 room", "1 open"]},
+          {"Environments", environments(), ["1 environment", "1 channel without an environment"]}
+        ] do
+      counts = LazyHTML.query(document, ".kit-counts > .kit-count")
+
+      assert Enum.all?(counts, &(LazyHTML.query(&1, "b") |> Enum.count() == 1)),
+             "#{name} has a count without its number"
+
+      assert Enum.map(counts, &words/1) == leading, "#{name} leads with other numbers"
+
+      html = LazyHTML.to_html(document)
+
+      assert position(html, "kit-counts") < position(html, "kit-toolbar"),
+             "#{name}'s counts do not lead the page"
+
+      for retired <- @retired,
+          do: assert(Enum.empty?(LazyHTML.query(document, retired)), "#{name} uses #{retired}")
+    end
+  end
+
+  defp words(node), do: node |> LazyHTML.text() |> String.split() |> Enum.join(" ")
+
+  # Where the first element carrying `class` opens in the page.
+  defp position(html, class) do
+    case Regex.run(~r/class="#{class}[" ]/, html, return: :index) do
+      [{position, _length}] -> position
+      nil -> flunk(".#{class} is not on the page")
+    end
   end
 
   defp list_pages do
@@ -118,7 +191,8 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
     }
 
     view = %{
-      environment_channels: %{"production" => 2},
+      # Two channels chose Production and one chose no environment.
+      environment_channels: %{"production" => 2, nil => 1},
       snapshot: %{
         emisar_connections: [],
         environments: [environment],

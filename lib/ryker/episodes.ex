@@ -29,30 +29,22 @@ defmodule Ryker.Episodes do
 
   @spec apply(Command.t()) :: {:ok, Transition.t()} | {:error, term()}
   def apply(command) do
-    case apply_batch([command]) do
-      {:ok, [transition]} -> {:ok, transition}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc """
-  Applies related commands under one episode lock and one database transaction.
-
-  This is used when one trusted input both enters an episode and resolves its
-  current wait. Either every transition is durable or none is.
-  """
-  @spec apply_batch([Command.t()]) :: {:ok, [Transition.t()]} | {:error, term()}
-  def apply_batch(commands) do
     Repo.transaction(fn ->
-      case apply_batch_in_transaction(commands) do
-        {:ok, transitions} -> transitions
+      case apply_batch_in_transaction([command]) do
+        {:ok, [transition]} -> transition
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
     |> transaction_result()
   end
 
-  @doc false
+  @doc """
+  Applies related commands under the caller's transaction and one episode lock.
+
+  This is used when one trusted input both enters an episode and resolves its
+  current wait. The caller rolls back on an error, so either every transition
+  is durable or none is.
+  """
   @spec apply_batch_in_transaction([Command.t()], keyword()) ::
           {:ok, [Transition.t()]} | {:error, term()}
   def apply_batch_in_transaction(commands, options \\ []) do
@@ -65,6 +57,9 @@ defmodule Ryker.Episodes do
     end
   end
 
+  # Tests read an episode back by its key; production reads go through the
+  # kernel's own loads.
+  @doc false
   @spec fetch_by_key(String.t()) :: {:ok, Episode.t()} | :error
   def fetch_by_key(key) do
     case Repo.one(from(episode in Episode, where: episode.key == ^key)) do

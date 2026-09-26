@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
       })
 
     options = %{
-      actions: Actions.callbacks(profile),
+      actions: Actions.callbacks(%{environments: %{}, fallback_work_profile: profile}),
       csrf_secret: String.duplicate("s", 32),
       observability: %{},
       projection:

@@ -23,8 +23,6 @@ defmodule Ryker.RenameAuditTest do
     {~r{^priv/repo/migrations/},
      "historical migrations create the objects under their old names; the 2026-09-13 migration renames them and earlier files stay exactly as they ran"},
     {~r{^CHANGELOG\.md$}, "append-only release history"},
-    {~r{^lib/ryker/retained\.ex$},
-     "the one module that names retained stored values (Work session external_ref prefix, system source ref, Slack action prefix); each constant carries its own reason"},
     {~r{^test/ryker/rename_audit_test\.exs$}, "this allowlist"}
   ]
 
@@ -33,7 +31,7 @@ defmodule Ryker.RenameAuditTest do
   # nothing outside it in that file is exempt.
   @immutable_sections [
     {"docs/operations.md", "## Names that still say responder",
-     "the operator's list of pre-rename names another party owns (co:op and webhook senders) and the stored values the code still recognises"}
+     "the operator's list of pre-rename names another party owns (co:op and webhook senders)"}
   ]
 
   # Tokens allowed everywhere else. `path` narrows an entry to the files where
@@ -66,14 +64,6 @@ defmodule Ryker.RenameAuditTest do
      "harvest provenance: the live database's name on the day the rows were taken"},
     {~r{^test/ryker/coop_fleet/protocol_test\.exs$}, ~r/responder-read-only-v1/,
      "policy name recorded in the frozen co:op worker protocol golden (testdata/protocol)"},
-    # --- retained stored values exercised in tests of Ryker.Retained
-    {~r{^test/ryker/slack/(app_home_controls|home_interaction)_test\.exs$}, ~r/responder-work:/,
-     "external_ref prefix of Work sessions created before the rename (Ryker.Retained.work_session_prefix/0)"},
-    {~r{^test/ryker/state/continuity_test\.exs$}, ~r/"responder"/,
-     "source ref of system inputs recorded before the rename (Ryker.Retained.system_source_ref/0)"},
-    {~r{^test/ryker/slack/(gateway|interaction|interaction_feedback)_test\.exs$},
-     ~r{responder_(confirm_memory|home_open|investigate_message)|"/responder"},
-     "action, callback and command ids registered before the rename, answered by the explicit retired paths"},
     # --- the one manifest assertion about the rename
     {~r{^docs/slack-app\.md$}, ~r{`/responder`},
      "the manifest update step names the command it replaces"},

@@ -437,11 +437,10 @@ Run `make dev-check` before commit, `make check` once before shipping these shar
 and the appropriate credentialed schema/prompt evaluation. Review the completed diff through
 staff/security/rules/UX lenses and fix blockers. Commit only this task's changes.
 
-Deploy the exact committed release, verify running version, `/healthz` and `/readyz`, and inspect
-learning activation/receipts. `scripts/deploy.sh` requires Linux/systemd; this workstation is macOS.
-Resolve the existing installed local release/launcher if that is the target, use the same immutable
-archive qualification/install/version proof, and report that boundary honestly. Do not restart
-or install independently managed Coop workers. No claim that a green test equals deployed behavior.
+Deploy the exact committed release with `scripts/deploy.sh` (the Docker Compose deploy of HEAD;
+see the project instructions, "Finish by deploying"), verify the running version, `/healthz` and
+`/readyz`, and inspect learning activation/receipts. Do not restart or install independently
+managed Coop workers. No claim that a green test equals deployed behavior.
 
 ## Review record
 

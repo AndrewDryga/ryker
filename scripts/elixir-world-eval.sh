@@ -16,6 +16,11 @@
 # so it runs one shard, never an empty VM.
 set -euo pipefail
 
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# Every mix call runs on the pinned toolchain. The wrapper's own tests put a
+# recording stand-in here.
+mix_command=${RYKER_WORLD_EVAL_MIX:-$root/scripts/elixir-mix.sh}
+
 if [[ $# -lt 1 || -z "$1" ]]; then
   echo "usage: scripts/elixir-world-eval.sh /absolute/results.json [world options]" >&2
   echo "the dedicated evaluation policies come from RYKER_EVAL_* in the environment" >&2
@@ -136,7 +141,7 @@ cleanup() {
   done
 
   for database in ${databases[@]+"${databases[@]}"}; do
-    PGDATABASE="$database" MIX_ENV=test mix ecto.drop >/dev/null 2>&1 || true
+    PGDATABASE="$database" MIX_ENV=test "$mix_command" ecto.drop >/dev/null 2>&1 || true
   done
 
   exit "$status"
@@ -148,7 +153,7 @@ export RYKER_WORLD_EVAL=1
 
 # One line per shard the plan fills, so a plan smaller than the shard count
 # starts only as many VMs as have something to observe.
-preview=$(env MIX_ENV=test mix ryker.eval world-shards --shards "$shards" \
+preview=$(env MIX_ENV=test "$mix_command" ryker.eval world-shards --shards "$shards" \
   ${plan_args[@]+"${plan_args[@]}"})
 launched=$(printf '%s\n' "$preview" | grep -c '"shard"') || true
 if ((launched < 1)); then
@@ -162,9 +167,9 @@ mkdir -p "$shards_dir"
 
 for ((index = 1; index <= launched; index++)); do
   database="${campaign}_s${index}"
-  PGDATABASE="$database" MIX_ENV=test mix ecto.create
+  PGDATABASE="$database" MIX_ENV=test "$mix_command" ecto.create
   databases+=("$database")
-  PGDATABASE="$database" MIX_ENV=test mix ecto.migrate
+  PGDATABASE="$database" MIX_ENV=test "$mix_command" ecto.migrate
 done
 
 partials=()
@@ -184,7 +189,7 @@ for ((index = 1; index <= launched; index++)); do
     RYKER_WORKER_PORT="$worker_port" \
     RYKER_STATE_TOOLS_PORT="$state_port" \
     RYKER_WORKER_PUBLIC_URL="$public_origin:$worker_port" \
-    mix ryker.eval world --results "$partial" --shard "$index/$launched" \
+    "$mix_command" ryker.eval world --results "$partial" --shard "$index/$launched" \
     ${world_args[@]+"${world_args[@]}"} >"$log" 2>&1 &
   pids+=("$!")
 done
@@ -209,5 +214,5 @@ if ((failed)); then
   exit 1
 fi
 
-env MIX_ENV=test mix ryker.eval world-merge --results "$eval_results" \
+env MIX_ENV=test "$mix_command" ryker.eval world-merge --results "$eval_results" \
   ${merge_args[@]+"${merge_args[@]}"} "${partials[@]}"

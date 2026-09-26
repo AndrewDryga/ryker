@@ -2,6 +2,7 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
   use Ryker.DataCase, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
 
   alias Ryker.ControlPlane.Projection
   alias Ryker.Repo
@@ -61,23 +62,6 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
              Repo.get!(InteractionAudit, denied_audit.id)
 
     assert action_id == denied.action_id
-  end
-
-  # A click on a card posted before the 2026-09-13 rename is unavailable, not
-  # stale: there is no current control to repaint the message from, so the row
-  # records the exact retired id and asks for no repaint.
-  test "a retired-card click is recorded under its exact retired id without a repaint" do
-    retired = %{interaction("interaction:retired") | action_id: "responder_confirm_memory"}
-
-    assert {:ok, %{audit: audit, status: :recorded}} = InteractionAudits.record(retired, :retired)
-
-    assert %{outcome: :invalid, repaint_status: :none, action_id: "responder_confirm_memory"} =
-             audit
-
-    assert {:ok, %{audit: ^audit, status: :duplicate}} =
-             InteractionAudits.record(retired, :retired)
-
-    assert {:ok, nil} = InteractionAudits.claim_next("worker", 60)
   end
 
   test "the repaint worker leases and settles one stale interaction" do
@@ -261,6 +245,44 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
     assert thread_ref == audit.thread_ref
     assert text =~ "recorded"
     refute text =~ "slack_unavailable"
+  end
+
+  defmodule RefusingAPI do
+    def update_message(_observer, _channel_ref, _message_ref, _document, _delivery_ref), do: :ok
+
+    def post_ephemeral(_observer, _channel_ref, _actor_ref, _thread_ref, _text),
+      do: {:error, {:slack_api_error, "channel_not_found"}}
+  end
+
+  defmodule CrashingAPI do
+    def update_message(_observer, _channel_ref, _message_ref, _document, _delivery_ref), do: :ok
+
+    def post_ephemeral(_observer, _channel_ref, _actor_ref, _thread_ref, _text),
+      do: raise("socket closed while posting")
+  end
+
+  # The note is best effort, and it failed in silence: a refused or crashed
+  # post left no trace, so nobody could tell that the person was never told.
+  test "a courtesy note Slack refuses or that crashes is logged, never hidden" do
+    for {api, named} <- [{RefusingAPI, "channel_not_found"}, {CrashingAPI, "RuntimeError"}] do
+      ref = "interaction:note-#{named}"
+      assert {:ok, %{audit: _audit}} = interaction(ref) |> InteractionAudits.record(:invalid)
+
+      options =
+        worker_options(
+          api: api,
+          max_attempts: 1,
+          repaint: fn _audit, _options -> {:error, :slack_unavailable} end
+        )
+
+      log =
+        capture_log(fn ->
+          assert {:ok, {:blocked, ^ref}} = InteractionFeedbackWorker.run_once(options)
+        end)
+
+      assert log =~ "could not tell the person who pressed"
+      assert log =~ named
+    end
   end
 
   test "a repaint that succeeds says nothing extra" do

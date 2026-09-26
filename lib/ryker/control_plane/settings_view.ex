@@ -35,7 +35,7 @@ defmodule Ryker.ControlPlane.SettingsView do
           webhook_secret_names: [String.t()] | :invalid,
           workers: WorkerPolicies.catalog(),
           github_connection: :ready | :missing | :invalid,
-          environment_channels: %{String.t() => non_neg_integer()}
+          environment_channels: %{(String.t() | nil) => non_neg_integer()}
         }
 
   @typedoc """

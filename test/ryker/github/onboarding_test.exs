@@ -1,8 +1,10 @@
 defmodule Ryker.GitHub.OnboardingTest do
   use Ryker.DataCase, async: false
 
-  alias Ryker.GitHub.Onboarding
-  alias Ryker.Settings
+  import ExUnit.CaptureLog
+
+  alias Ryker.GitHub.{Onboarding, OnboardingWorker}
+  alias Ryker.{Repo, Settings}
 
   @actor "control-plane:local"
   @commit String.duplicate("a", 40)
@@ -22,6 +24,21 @@ defmodule Ryker.GitHub.OnboardingTest do
       send(self(), {:publish, binding.name, repository.github_repository, commit, content})
       {:ok, %{url: "https://github.com/acme/repo/pull/7"}}
     end
+  end
+
+  # Breaks the settings read after the "cloning" transition was saved, so the
+  # block that follows the failure cannot be saved.
+  defmodule PoisoningAPI do
+    def pin(_binding, _repository) do
+      Ryker.Repo.query!(
+        "ALTER TABLE installation_settings RENAME TO installation_settings_broken"
+      )
+
+      {:error, :remote_failed}
+    end
+
+    def scan(_binding, _repository, _commit), do: flunk("must not scan")
+    def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
   end
 
   defmodule ExistingAPI do
@@ -62,6 +79,36 @@ defmodule Ryker.GitHub.OnboardingTest do
       )
 
     :ok
+  end
+
+  # A block that could not be saved was swallowed whole: the repository read
+  # "cloning" forever, and nothing in the log said why.
+  test "a repository whose setup cannot be marked blocked says so in the log" do
+    log =
+      capture_log(fn ->
+        assert {:error, :remote_failed} = Onboarding.run("repo", api: PoisoningAPI)
+      end)
+
+    Repo.query!("ALTER TABLE installation_settings_broken RENAME TO installation_settings")
+    assert log =~ "could not be marked blocked"
+    assert log =~ "Postgrex.Error"
+  end
+
+  # The worker's choice of the next repository swallowed every error into
+  # "nothing to do", so a database outage looked like an idle queue.
+  test "the onboarding worker backs off a database error instead of hiding it" do
+    Repo.query!("ALTER TABLE installation_settings RENAME TO installation_settings_broken")
+    state = OnboardingWorker.options!(%{api: API, interval_ms: 100})
+
+    log =
+      capture_log(fn ->
+        assert {:noreply, ^state} = OnboardingWorker.handle_info(:drain, state)
+        assert_receive :drain, 1_500
+      end)
+
+    Repo.query!("ALTER TABLE installation_settings_broken RENAME TO installation_settings")
+    assert log =~ "database polling unavailable"
+    assert log =~ "github_onboarding"
   end
 
   test "pins, scans and publishes one resumable repository knowledge proposal" do

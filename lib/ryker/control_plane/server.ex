@@ -22,11 +22,12 @@ defmodule Ryker.ControlPlane.Server do
     :coop_api,
     :coop_client,
     :csrf_secret,
+    :environments,
+    :fallback_work_profile,
     :ip,
     :port,
     :schedule_policies,
-    :task_policies,
-    :work_profile
+    :task_policies
   ]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
@@ -47,7 +48,7 @@ defmodule Ryker.ControlPlane.Server do
         access: options.access,
         actions:
           Actions.callbacks(
-            options.work_profile,
+            options.chat,
             options.task_policies,
             %{
               coop_api: options.coop_api,
@@ -74,7 +75,6 @@ defmodule Ryker.ControlPlane.Server do
     csrf_secret =
       Map.get_lazy(configuration, :csrf_secret, fn -> :crypto.strong_rand_bytes(32) end)
 
-    work_profile = Map.get(configuration, :work_profile)
     task_policies = Map.get(configuration, :task_policies, %{})
 
     schedule_policy_resolver =
@@ -88,27 +88,51 @@ defmodule Ryker.ControlPlane.Server do
 
     # A fresh installation has no reviewed policy yet. The console still starts
     # so setup is reachable; it simply cannot submit Work until one exists.
-    work_profile =
-      case WorkProfile.prepare(work_profile) do
-        {:ok, %WorkProfile{} = profile} -> profile
-        {:ok, nil} -> nil
-        _invalid -> raise ArgumentError, "control-plane work profile is invalid"
-      end
+    chat = %{
+      environments: chat_environments!(Map.get(configuration, :environments, %{})),
+      fallback_work_profile: work_profile!(Map.get(configuration, :fallback_work_profile))
+    }
 
     task_policies = task_policies!(task_policies)
     validate_coop!(coop_api, coop_client)
 
     %{
       access: access,
+      chat: chat,
       coop_api: coop_api,
       coop_client: coop_client,
       csrf_secret: csrf_secret,
       ip: ip,
       port: port,
       schedule_policy_resolver: schedule_policy_resolver,
-      task_policies: task_policies,
-      work_profile: work_profile
+      task_policies: task_policies
     }
+  end
+
+  # Each Chat conversation runs in the environment it chose, when that
+  # environment can run work, so the console keeps every such environment's
+  # Work profile by ref, each placed in its own environment.
+  defp chat_environments!(environments) when is_map(environments) do
+    Map.new(environments, fn
+      {ref, %{work_profile: attributes}} when is_binary(ref) ->
+        case work_profile!(attributes) do
+          %WorkProfile{environment_ref: ^ref} = profile -> {ref, profile}
+          _elsewhere -> raise ArgumentError, "control-plane environments are invalid"
+        end
+
+      _invalid ->
+        raise ArgumentError, "control-plane environments are invalid"
+    end)
+  end
+
+  defp chat_environments!(_environments),
+    do: raise(ArgumentError, "control-plane environments are invalid")
+
+  defp work_profile!(attributes) do
+    case WorkProfile.prepare(attributes) do
+      {:ok, profile} -> profile
+      {:error, _reason} -> raise ArgumentError, "control-plane work profile is invalid"
+    end
   end
 
   defp validate_listener!(access, ip, port) do
@@ -144,47 +168,23 @@ defmodule Ryker.ControlPlane.Server do
       else:
         raise(
           ArgumentError,
-          "control-plane configuration must contain a port plus optional work profile, IP and CSRF secret"
+          "control-plane configuration must contain a port plus optional work profiles, IP and CSRF secret"
         )
   end
 
   defp normalize!(_configuration),
     do: raise(ArgumentError, "control-plane configuration must be a map or keyword list")
 
-  # One contributor policy per environment, keyed by the environment and
-  # naming the repository its tasks change and the context mounted for them.
+  # Contributor policies keyed by environment, then by the repository each
+  # places its task in: a task changes the repository it names, as that
+  # repository's working copy, with the context mounted for it.
   defp task_policies!(policies) when is_map(policies) do
     Map.new(policies, fn
-      {environment_ref,
-       %{
-         name: name,
-         digest: digest,
-         environment_ref: environment_ref,
-         repository_ref: repository_ref
-       } = policy} ->
-        repository_context = Map.get(policy, :repository_context)
-
-        with {:ok, _profile} <-
-               WorkProfile.new(%{
-                 policy: name,
-                 policy_digest: digest,
-                 repository_ref: repository_ref
-               }),
-             true <- is_binary(repository_ref),
-             {:ok, _context} <- RepositoryContext.restore(repository_context, repository_ref) do
-          prepared =
-            %{
-              name: name,
-              digest: digest,
-              environment_ref: environment_ref,
-              repository_ref: repository_ref
-            }
-            |> maybe_put(:repository_context, repository_context)
-
-          {environment_ref, prepared}
-        else
-          _invalid -> raise ArgumentError, "control-plane task policies are invalid"
-        end
+      {environment_ref, repositories} when is_binary(environment_ref) and is_map(repositories) ->
+        {environment_ref,
+         Map.new(repositories, fn {repository_ref, policy} ->
+           {repository_ref, task_policy!(policy, environment_ref, repository_ref)}
+         end)}
 
       _invalid ->
         raise ArgumentError, "control-plane task policies are invalid"
@@ -192,6 +192,37 @@ defmodule Ryker.ControlPlane.Server do
   end
 
   defp task_policies!(_policies),
+    do: raise(ArgumentError, "control-plane task policies are invalid")
+
+  defp task_policy!(
+         %{
+           name: name,
+           digest: digest,
+           environment_ref: environment_ref,
+           repository_ref: repository_ref
+         } = policy,
+         environment_ref,
+         repository_ref
+       )
+       when is_binary(repository_ref) do
+    repository_context = Map.get(policy, :repository_context)
+
+    with {:ok, _profile} <-
+           WorkProfile.new(%{policy: name, policy_digest: digest, repository_ref: repository_ref}),
+         {:ok, _context} <- RepositoryContext.restore(repository_context, repository_ref) do
+      %{
+        name: name,
+        digest: digest,
+        environment_ref: environment_ref,
+        repository_ref: repository_ref
+      }
+      |> maybe_put(:repository_context, repository_context)
+    else
+      _invalid -> raise ArgumentError, "control-plane task policies are invalid"
+    end
+  end
+
+  defp task_policy!(_policy, _environment_ref, _repository_ref),
     do: raise(ArgumentError, "control-plane task policies are invalid")
 
   defp schedule_policy_resolver(nil), do: nil

@@ -223,7 +223,9 @@ defmodule Ryker.Slack.CapabilityTools.Search do
       _ -> {:error, :slack_protocol_error}
     end
   rescue
-    _error -> {:error, :slack_protocol_error}
+    # SourceRef refuses an identity Slack malformed with ArgumentError; anything
+    # else raised here is a host bug and surfaces.
+    ArgumentError -> {:error, :slack_protocol_error}
   end
 
   defp search_message_context(message, workspace_ref) do
@@ -332,7 +334,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
        })}
     end
   rescue
-    _error -> {:error, :slack_protocol_error}
+    ArgumentError -> {:error, :slack_protocol_error}
   end
 
   defp authorize_search_channel(result, options) do

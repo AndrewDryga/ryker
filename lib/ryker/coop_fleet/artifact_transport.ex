@@ -150,6 +150,8 @@ defmodule Ryker.CoopFleet.ArtifactTransport do
   def put_checkpoint(_certificate, _command_id, _checkpoint_ref, _attributes, _key, _secrets),
     do: {:error, {:invalid_coop_worker_workspace_checkpoint, :fields}}
 
+  # Tests read a stored checkpoint back to verify what the worker uploaded.
+  @doc false
   @spec fetch_checkpoint(Ecto.UUID.t(), binary()) :: {:ok, map()} | {:error, term()}
   def fetch_checkpoint(transfer_id, key) do
     with {:ok, transfer_id} <- Ecto.UUID.cast(transfer_id),

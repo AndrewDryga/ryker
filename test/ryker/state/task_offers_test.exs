@@ -210,11 +210,14 @@ defmodule Ryker.State.TaskOffersTest do
     assert Repo.get!(Record, frontend_offer.id).confirmed_episode_id == frontend.episode.id
   end
 
-  # A confirmed task runs in the environment it was offered from: it changes
-  # that environment's first repository, reads the others and pins the
-  # environment's Emisar account. The environment's own name, or a repository
-  # it only reads, is not something its policy may change.
-  test "a task in an environment changes its first repository and reads the others" do
+  # A confirmed task changes exactly the repository its confirmed policy places
+  # it in, as that repository's working copy with the environment's other
+  # repositories read-only beside it, and pins the environment's Emisar
+  # account. Any repository of the environment may be that one; a policy that
+  # places the task elsewhere, or the environment's own name, is a mismatch.
+  # Before, only the environment's first repository could be changed, so a
+  # confirmed task on any other one was refused.
+  test "a task changes exactly the repository its confirmed policy places it in" do
     fixture =
       delivered_offers!("environment", [
         %{
@@ -237,22 +240,27 @@ defmodule Ryker.State.TaskOffersTest do
         }
       ])
 
-    [service_offer, environment_offer, read_only_offer] = fixture.records
+    [service_offer, environment_offer, infrastructure_offer] = fixture.records
+    repositories = ["service", "infrastructure", "runbooks"]
 
-    repository_context = %{
-      "context_ref" => "platform",
-      "parallel_goal_limit" => 2,
-      "primary_repository" => "service",
-      "read_only_repositories" => ["infrastructure", "runbooks"]
-    }
+    context = fn primary ->
+      %{
+        "context_ref" => "platform",
+        "parallel_goal_limit" => 2,
+        "primary_repository" => primary,
+        "read_only_repositories" => List.delete(repositories, primary)
+      }
+    end
 
-    policy = %{
-      digest: @policy_digest,
-      environment_ref: "platform",
-      name: "platform-contributor",
-      repository_context: repository_context,
-      repository_ref: "service"
-    }
+    policy = fn primary ->
+      %{
+        digest: @policy_digest,
+        environment_ref: "platform",
+        name: "platform-#{primary}-contributor",
+        repository_context: context.(primary),
+        repository_ref: primary
+      }
+    end
 
     confirm = fn record, confirmation_ref, policy ->
       fixture
@@ -264,24 +272,41 @@ defmodule Ryker.State.TaskOffersTest do
     end
 
     assert confirm.(service_offer, "interaction:confirm:service", %{
-             policy
+             policy.("service")
              | environment_ref: "Platform"
            }) == {:error, {:invalid_task_offer_confirmation, :environment_ref}}
 
-    assert {:ok, confirmed} = confirm.(service_offer, "interaction:confirm:service", policy)
+    assert {:ok, confirmed} =
+             confirm.(service_offer, "interaction:confirm:service", policy.("service"))
+
     assert confirmed.session.environment_ref == "platform"
     assert confirmed.session.repository_ref == "service"
-    assert confirmed.session.repository_context == repository_context
+    assert confirmed.session.repository_context == context.("service")
     assert confirmed.episode.linked_episode_id == fixture.episode.id
 
-    for record <- [environment_offer, read_only_offer] do
-      assert confirm.(record, "interaction:confirm:#{record.ref}", policy) ==
-               {:error, :task_offer_repository_mismatch}
+    # The infrastructure task runs in the same environment with infrastructure
+    # as its working copy and the service read-only beside it.
+    assert {:ok, infrastructure} =
+             confirm.(
+               infrastructure_offer,
+               "interaction:confirm:infrastructure",
+               policy.("infrastructure")
+             )
 
-      assert Repo.get!(Record, record.id).status == :open
-    end
+    assert infrastructure.session.repository_ref == "infrastructure"
+    assert infrastructure.session.policy == "platform-infrastructure-contributor"
 
-    malformed = put_in(policy, [:repository_context, "primary_repository"], "other")
+    assert infrastructure.session.repository_context["read_only_repositories"] ==
+             ["service", "runbooks"]
+
+    # A policy placing the task in another repository is not this task's, and
+    # the environment's own name is no repository at all.
+    assert confirm.(environment_offer, "interaction:confirm:platform", policy.("service")) ==
+             {:error, :task_offer_repository_mismatch}
+
+    assert Repo.get!(Record, environment_offer.id).status == :open
+
+    malformed = put_in(policy.("service"), [:repository_context, "primary_repository"], "other")
 
     assert confirm.(environment_offer, "interaction:confirm:malformed", malformed) ==
              {:error, {:invalid_task_offer_confirmation, :repository_context}}

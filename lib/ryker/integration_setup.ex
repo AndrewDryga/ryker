@@ -14,6 +14,7 @@ defmodule Ryker.IntegrationSetup do
   alias Ryker.Settings.{EmisarConnection, Environment}
 
   @actor "control-plane:local"
+  @minimum_signing_secret_bytes 32
   @slack_scopes ~w(
     app_mentions:read assistant:write bookmarks:read canvases:write channels:history
     channels:join channels:manage channels:read chat:write commands files:read files:write
@@ -78,9 +79,9 @@ defmodule Ryker.IntegrationSetup do
     app_id = integer(params, "app_id")
     private_key = text(params, "private_key")
     api_url = text(params, "api_url", "https://api.github.com")
-    webhook_secret = optional_text(params, "webhook_secret", generate_secret())
 
-    with {:ok, signer} <- AppJWT.new(app_id, private_key),
+    with {:ok, webhook_secret} <- signing_secret(params["webhook_secret"]),
+         {:ok, signer} <- AppJWT.new(app_id, private_key),
          {:ok, app_http} <- github_app_http(signer, api_url, options),
          {:ok, %{body: app, status: 200}} <- request(app_http, :get, "/app", nil, [], options),
          :ok <- exact_app(app, app_id),
@@ -308,7 +309,7 @@ defmodule Ryker.IntegrationSetup do
   end
 
   # An imported repository joins the default environment after the ones
-  # already there, so the repository its work changes stays the first.
+  # already there, so the environment's default repository stays the first.
   defp join_default_environment(repository_ref) do
     with {:ok, snapshot, environment} <- ensure_default_environment(Settings.fetch!()) do
       refs = Environment.repository_refs(environment)
@@ -346,16 +347,25 @@ defmodule Ryker.IntegrationSetup do
   @spec create_webhook_credential(String.t(), String.t() | nil) ::
           {:ok, %{name: String.t(), secret: String.t()}} | {:error, term()}
   def create_webhook_credential(name, supplied \\ nil) do
-    secret =
-      if is_binary(supplied) and String.trim(supplied) != "",
-        do: supplied,
-        else: generate_secret()
-
-    with {:ok, _metadata} <- Credentials.put(:webhook, name, secret, @actor),
+    with {:ok, secret} <- signing_secret(supplied),
+         {:ok, _metadata} <- Credentials.put(:webhook, name, secret, @actor),
          {:ok, _metadata} <- Credentials.verify(:webhook, name, :verified, @actor) do
       {:ok, %{name: name, secret: secret}}
     end
   end
+
+  # A signed route needs at least this much secret, so a shorter one could
+  # never verify a delivery; storing one stopped every later settings apply.
+  # An empty field makes a strong one.
+  defp signing_secret(supplied) when is_binary(supplied) do
+    case String.trim(supplied) do
+      "" -> {:ok, generate_secret()}
+      secret when byte_size(secret) >= @minimum_signing_secret_bytes -> {:ok, secret}
+      _short -> {:error, :webhook_secret_too_short}
+    end
+  end
+
+  defp signing_secret(_absent), do: {:ok, generate_secret()}
 
   @spec disconnect(:slack | :github) :: {:ok, map()} | {:error, term()}
   def disconnect(kind) when kind in [:slack, :github] do

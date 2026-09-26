@@ -13,6 +13,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   alias Ryker.Slack.{TaskCardProjection, TaskCards}
 
   @default_interval_ms 1_000
+  @default_max_attempts 8
 
   def start_link(options) do
     options = options!(options)
@@ -55,7 +56,8 @@ defmodule Ryker.Slack.TaskCardWorker do
   end
 
   @spec run_once(map() | keyword()) ::
-          {:ok, :idle | {:created | :deferred | :updated, String.t()}} | {:error, term()}
+          {:ok, :idle | {:blocked | :created | :deferred | :updated, String.t()}}
+          | {:error, term()}
   def run_once(options) do
     options = options!(options)
 
@@ -92,9 +94,31 @@ defmodule Ryker.Slack.TaskCardWorker do
            ) do
       {:ok, {:updated, marked.ref}}
     else
-      {:error, reason} -> defer(card, reason, options)
+      {:error, reason} -> settle(card, reason, options)
     end
   end
+
+  # A refresh Slack refused is retried with growing waits until the card has
+  # spent its attempts, then blocked for a person: a card once retried hourly
+  # for as long as its task existed, editing a message Slack had already said
+  # was gone. Slack saying the message or its channel is gone, or the task's
+  # own record being gone, blocks at once.
+  defp settle(card, reason, options) do
+    if permanent?(reason) or card.attempt_count >= options.max_attempts do
+      case TaskCards.block(card.id, card.lease_ref, reason) do
+        {:ok, blocked} -> {:ok, {:blocked, blocked.ref}}
+        {:error, _reason} = error -> error
+      end
+    else
+      defer(card, reason, options)
+    end
+  end
+
+  @permanent_refusals ~w(message_not_found cant_update_message edit_window_closed channel_not_found is_archived)
+
+  defp permanent?(:task_card_source_not_found), do: true
+  defp permanent?({:slack_api_error, code}), do: code in @permanent_refusals
+  defp permanent?(_reason), do: false
 
   defp maybe_update(
          %{card_fingerprint: fingerprint, card_ui_revision: revision},
@@ -136,12 +160,13 @@ defmodule Ryker.Slack.TaskCardWorker do
 
   def options!(%{} = options) do
     required = [:api, :client, :lease_seconds, :retry_base_seconds, :worker_ref]
-    optional = [:check_interval_seconds, :interval_ms, :name]
+    optional = [:check_interval_seconds, :interval_ms, :max_attempts, :name]
 
     prepared =
       options
       |> Map.put_new(:check_interval_seconds, 2)
       |> Map.put_new(:interval_ms, @default_interval_ms)
+      |> Map.put_new(:max_attempts, @default_max_attempts)
       |> Map.put_new(:name, nil)
 
     if valid_options?(prepared, required, optional) do
@@ -163,6 +188,7 @@ defmodule Ryker.Slack.TaskCardWorker do
       Map.get(options, :retry_base_seconds) in 1..3_600,
       Map.get(options, :check_interval_seconds) in 1..86_400,
       Map.get(options, :interval_ms) in 50..3_600_000,
+      Map.get(options, :max_attempts) in 1..100,
       is_binary(Map.get(options, :worker_ref)),
       Map.get(options, :worker_ref) != ""
     ])

@@ -23,7 +23,7 @@ defmodule Ryker.StateTools.ErrorCode do
 
   def code(:task_repository_required),
     do:
-      "repository_required: engineering tasks require a non-null configured target. Use work.repository_ref or the relevant supplied work.workspace.companions[].name. This is an inert proposal, not execution. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
+      "repository_required: engineering tasks require a non-null configured target, any repository of this environment: work.repository_ref or the relevant supplied work.workspace.companions[].name, whichever the task changes. This is an inert proposal, not execution. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
 
   def code(:task_repository_source_unscoped),
     do:

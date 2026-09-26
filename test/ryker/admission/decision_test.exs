@@ -99,6 +99,7 @@ defmodule Ryker.Admission.DecisionTest do
                "reaction",
                "relation",
                "reason",
+               "repository",
                "repository_source",
                "work_class"
              ]
@@ -394,6 +395,85 @@ defmodule Ryker.Admission.DecisionTest do
              )
   end
 
+  # A route in an environment with several repositories offers them, and a new
+  # episode names the one its work changes. Before, every episode in such an
+  # environment changed the environment's first repository whatever the event
+  # was about, so a task on any other repository ran against the wrong working
+  # copy; the choice is the model's because only the event says which
+  # repository it concerns.
+  test "a new episode names which offered repository it changes, and nothing else may" do
+    chosen =
+      decision_document(
+        action: "start_episode",
+        relation: "unrelated",
+        repository: "billing",
+        work_class: "standard"
+      )
+
+    assert {:ok, decision} = Decision.parse(chosen)
+    assert decision.repository == "billing"
+    assert Decision.document(decision)["repository"] == "billing"
+
+    assert Decision.fingerprint(decision) !=
+             Decision.fingerprint(%{decision | repository: "ledger"})
+
+    # Every other action keeps the repository its work already pinned.
+    for document <- [
+          decision_document(repository: "billing"),
+          decision_document(
+            action: "continue_episode",
+            episode_ref: "candidate-1",
+            relation: "same_work",
+            repository: "billing",
+            work_class: "standard"
+          ),
+          decision_document(action: "ignore", repository: "billing", work_class: nil)
+        ] do
+      assert Decision.parse(document) == {:error, {:invalid_decision, :repository}}
+    end
+
+    for invalid <- ["", " ", 7, %{"ref" => "billing"}] do
+      assert Decision.parse(Map.put(chosen, "repository", invalid)) ==
+               {:error, {:invalid_decision, :repository}}
+    end
+
+    # A decision recorded before the field existed carries no key: it chose
+    # nothing, the same as null. Recorded answers are history, not rewritten.
+    assert {:ok, %Decision{repository: nil}} = Decision.parse(Map.delete(chosen, "repository"))
+
+    # The published contract offers exactly the route's repositories, on a new
+    # episode only, and requires the choice there.
+    schema =
+      Decision.json_schema([:start_episode, :reply, :ignore], :any, true, ["billing", "ledger"])
+
+    assert "repository" in schema["required"]
+
+    assert schema["properties"]["repository"] == %{
+             "anyOf" => [
+               %{"enum" => ["billing", "ledger"], "type" => "string"},
+               %{"type" => "null"}
+             ]
+           }
+
+    built = JSV.build!(schema)
+    assert {:ok, _valid} = JSV.validate(chosen, built, cast: false)
+
+    for refused <- [
+          Map.put(chosen, "repository", nil),
+          Map.put(chosen, "repository", "elsewhere"),
+          decision_document(repository: "billing")
+        ] do
+      assert {:error, _invalid} = JSV.validate(refused, built, cast: false)
+    end
+
+    assert {:ok, _valid} = JSV.validate(decision_document([]), built, cast: false)
+
+    # With one repository or none there is nothing to choose.
+    schema = Decision.json_schema([:start_episode, :reply, :ignore], :any, true)
+    assert schema["properties"]["repository"] == %{"type" => "null"}
+    assert {:error, _invalid} = JSV.validate(chosen, JSV.build!(schema), cast: false)
+  end
+
   defp decision_document(overrides) do
     defaults = %{
       "action" => "reply",
@@ -401,6 +481,7 @@ defmodule Ryker.Admission.DecisionTest do
       "reaction" => nil,
       "relation" => "unrelated",
       "reason" => "Answer directly.",
+      "repository" => nil,
       "repository_source" => nil,
       "work_class" => "conversational"
     }

@@ -226,14 +226,15 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   defp environment_sentence(%{"repositories" => []}),
     do: "It has no repos or Emisar, so I'll answer without them."
 
-  defp environment_sentence(%{"repositories" => [writable | read_only], "emisar" => emisar}) do
-    reads =
-      if read_only == [], do: [], else: ["read #{read_only |> Enum.map(&code/1) |> names()}"]
+  defp environment_sentence(%{"repositories" => [repository], "emisar" => emisar}),
+    do: "I'll work on #{code(repository)}#{if emisar, do: " and use Emisar"}."
 
-    emisar = if emisar, do: ["use Emisar"], else: []
-
-    "I'll #{clauses(["make changes in #{code(writable)}"] ++ reads ++ emisar)}."
-  end
+  # Work can use every repository of the environment; a task changes the one
+  # it needs.
+  defp environment_sentence(%{"repositories" => repositories, "emisar" => emisar}),
+    do:
+      "I'll work on #{repositories |> Enum.map(&code/1) |> names()}, " <>
+        "changing whichever one a task needs#{if emisar, do: ", and use Emisar"}."
 
   defp code(ref), do: "`#{escape(ref)}`"
 
@@ -242,14 +243,6 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   defp names(names) do
     {others, [last]} = Enum.split(names, -1)
     Enum.join(others, ", ") <> " and " <> last
-  end
-
-  defp clauses([clause]), do: clause
-  defp clauses([first, second]), do: "#{first} and #{second}"
-
-  defp clauses(clauses) do
-    {others, [last]} = Enum.split(clauses, -1)
-    Enum.join(others, ", ") <> ", and " <> last
   end
 
   defp setup_confirmation(draft, session_ref, presentation) do

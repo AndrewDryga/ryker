@@ -219,7 +219,7 @@
 .filter-add-menu .filter-popover { display:grid; gap:6px; padding:10px; }
 .filter-add-menu .filter-popover label { padding:0 2px; font-size:12px; font-weight:600; color:var(--secondary); }
 .filter-add-menu .filter-popover select { width:100%; }
-.filter-toolbar .filter-clear { font-size:14px; padding:8px 0; }
+:is(.filter-toolbar, .filter-toolbar-controls) .filter-clear { font-size:14px; padding:8px 0; }
 .filter-toolbar noscript button { height:var(--ryker-control-height); }
 /* The one pager: 13px metadata under its list, each link a 44px target. */
 .ryker-app .pagination { display:flex; flex-wrap:wrap; align-items:center; gap:0 16px; margin:8px 0 0; padding:0; font-size:13px; line-height:18px; color:var(--secondary); font-variant-numeric:tabular-nums; }
@@ -341,15 +341,8 @@
 .ryker-app .lab-new { min-height:var(--ryker-control-height); padding:8px 12px; font-size:14px; line-height:20px; font-weight:600; gap:6px; }
 .ryker-app .lab-new[aria-current=page] { background:var(--ryker-surface-raised); border-color:var(--ryker-text-secondary); }
 .lab-directory-close { display:none; }
-.lab-directory-list { margin-top:16px; }
 .lab-directory-empty { font-size:14px; line-height:20px; color:var(--secondary); margin:8px 8px 0; }
-.lab-directory-group + .lab-directory-group { margin-top:16px; }
-.lab-directory-group h2 { font-size:13px; line-height:18px; font-weight:600; color:var(--secondary); margin:0 8px 4px; }
-.lab-directory-item { display:block; padding:8px; border-radius:6px; }
-.lab-directory-item:hover, .ryker-app .lab-new:hover { background:var(--ryker-surface-raised); text-decoration:none; }
-.lab-directory-item[aria-current=page] { background:var(--ryker-surface-raised); }
-.lab-directory-title { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; color:var(--ink); font-size:15px; line-height:21px; font-weight:500; overflow-wrap:anywhere; }
-.lab-directory-item time { display:block; margin-top:4px; font-size:13px; line-height:18px; color:var(--secondary); font-variant-numeric:tabular-nums; }
+.ryker-app .lab-new:hover { background:var(--ryker-surface-raised); text-decoration:none; }
 .lab-chat { display:flex; flex-direction:column; min-width:0; background:var(--ryker-surface-raised); }
 /* The bar above the conversation exists only on phones, where it opens the directory drawer. */
 .lab-chat-toolbar { display:none; }
@@ -1094,7 +1087,7 @@
    including native LiveViews, gets the same controls, spacing and form states. */
 
 
-.ryker-app .filter-toolbar .filter-control {
+.ryker-app :is(.filter-toolbar, .filter-toolbar-controls) .filter-control {
   box-sizing:border-box;
   min-height:var(--ryker-control-height);
   height:var(--ryker-control-height);
@@ -1111,17 +1104,17 @@
 .ryker-app .filter-toolbar input[type=search]:focus-visible { outline:0; }
 .ryker-app .filter-toolbar .search-field:focus-within,
 .ryker-app .filter-toolbar select:focus-visible { outline:2px solid var(--ryker-mint); outline-offset:2px; }
-.ryker-app .filter-toolbar .filter-control:is(:disabled, .is-disabled, :has(:disabled)) {
+.ryker-app :is(.filter-toolbar, .filter-toolbar-controls) .filter-control:is(:disabled, .is-disabled, :has(:disabled)) {
   opacity:1;
   border-color:var(--ryker-disabled-border);
   background-color:var(--ryker-disabled-bg);
   color:var(--ryker-disabled-text);
   -webkit-text-fill-color:var(--ryker-disabled-text);
 }
-.ryker-app .filter-toolbar .filter-control:is(:disabled, .is-disabled, :has(:disabled)),
-.ryker-app .filter-toolbar .filter-control:has(input:disabled) input { cursor:not-allowed; }
-.ryker-app .filter-toolbar .filter-control:has(input:disabled) input,
-.ryker-app .filter-toolbar .filter-control:has(input:disabled) input::placeholder {
+.ryker-app :is(.filter-toolbar, .filter-toolbar-controls) .filter-control:is(:disabled, .is-disabled, :has(:disabled)),
+.ryker-app :is(.filter-toolbar, .filter-toolbar-controls) .filter-control:has(input:disabled) input { cursor:not-allowed; }
+.ryker-app :is(.filter-toolbar, .filter-toolbar-controls) .filter-control:has(input:disabled) input,
+.ryker-app :is(.filter-toolbar, .filter-toolbar-controls) .filter-control:has(input:disabled) input::placeholder {
   color:var(--ryker-disabled-text);
   -webkit-text-fill-color:var(--ryker-disabled-text);
   opacity:1;
@@ -1546,21 +1539,37 @@
 .lab-directory-search input:focus { outline:2px solid var(--ryker-focus-ring); outline-offset:1px; border-color:transparent; }
 .lab-directory-list { margin-top:8px; }
 .lab-directory-empty { margin:12px 16px 0; }
-.lab-directory-group + .lab-directory-group { margin-top:8px; }
-.lab-directory-group h2 { margin:12px 16px 4px; font-size:11px; line-height:16px; letter-spacing:.08em; text-transform:uppercase; color:var(--ryker-text-secondary); }
-.lab-directory-item { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 10px; padding:10px 16px 10px 14px; border-radius:0; border-left:2px solid transparent; }
-.lab-directory-item:hover { background:color-mix(in srgb, var(--ryker-text) 4%, transparent); }
-.lab-directory-item[aria-current=page] { background:color-mix(in srgb, var(--ryker-text) 5%, transparent); border-left-color:var(--ryker-accent); }
-.lab-directory-title { display:block; -webkit-line-clamp:unset; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:14px; line-height:20px; font-weight:600; }
-.lab-directory-item time { margin:0; font-size:12px; line-height:20px; }
-.lab-directory-status { grid-column:1 / -1; display:flex; align-items:center; gap:7px; font-size:12.5px; line-height:18px; color:var(--ryker-text-secondary); }
-.lab-directory-status i { width:7px; height:7px; border-radius:50%; flex:none; background:var(--ryker-stroke-strong); }
-.lab-directory-status[data-status=working] i { background:var(--ryker-accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--ryker-accent) 18%, transparent); }
-.lab-directory-status[data-status=attention] i, .lab-directory-status[data-status=waiting_for_you] i { background:var(--ryker-warning); }
-.lab-directory-status[data-status=attention] { color:var(--ryker-text); }
+/* Conversations under their day (2026-09-25, "no vertical rhythm"): each day
+   opens with the Kit's day heading, then rows of one steady height: the
+   title on one line with its clock time at the edge, the state under it as
+   the Kit's dot and word, hairlines between rows, a ground on hover, and the
+   open conversation marked the way the sidebar marks the open page. */
+.lab-directory-day > h2 { display:flex; align-items:center; gap:12px; margin:0; padding:20px 16px 8px; font-size:12px; line-height:16px; font-weight:600; letter-spacing:.02em; color:var(--ryker-text-secondary); }
+.lab-directory-day > h2::after { content:""; flex:1; height:1px; background:color-mix(in srgb, var(--ryker-text) 6%, transparent); }
+.lab-directory-list > .lab-directory-day:first-child > h2 { padding-top:12px; }
+.lab-directory-item { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:4px 12px; padding:12px 16px; }
+.lab-directory-item + .lab-directory-item { border-top:1px solid color-mix(in srgb, var(--ryker-text) 6%, transparent); }
+.ryker-app .lab-directory-item:hover { background:var(--ryker-hover-bg); text-decoration:none; }
+.ryker-app .lab-directory-item[aria-current=page] { background:var(--ryker-selected-bg); box-shadow:inset 2px 0 0 var(--ryker-selected-accent); }
+.lab-directory-title { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ryker-text); font-size:14px; line-height:20px; font-weight:600; }
+.lab-directory-time { font-size:12px; line-height:20px; color:var(--ryker-text-secondary); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.lab-directory-meta { grid-column:1 / -1; display:flex; min-width:0; }
+.lab-directory-meta .state-word { font-size:12px; line-height:16px; }
 
 .lab-chat { background:var(--ryker-surface-sunken); }
 .lab-column { max-width:860px; padding:20px 32px 0; }
+/* The head of the conversation (2026-09-25, "Chat picks its environment"):
+   its title on one line, under it where its messages work, and at the right
+   the environment they run in as one compact select in the app's control
+   finish; a hairline closes the head above the transcript. */
+.lab-chat-head { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:8px 24px; margin:0 0 4px; padding:0 0 14px; border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 6%, transparent); }
+.lab-chat-head-main { flex:1 1 240px; min-width:0; }
+.ryker-app .lab-chat-title { margin:0; font-size:16px; line-height:24px; font-weight:600; letter-spacing:-.005em; color:var(--ryker-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lab-chat-place { margin:2px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
+.lab-environment { display:flex; flex:none; align-items:center; gap:8px; margin:0; }
+.lab-environment label { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); white-space:nowrap; }
+.ryker-app .lab-environment select { box-sizing:border-box; min-height:32px; max-width:240px; padding:5px 32px 5px 10px; border:1px solid var(--ryker-control-border); border-radius:8px; background-color:var(--ryker-control-bg); background-position:right 15px center,right 10px center; color:var(--ryker-control-text); font:inherit; font-size:13px; line-height:20px; }
+.ryker-app .lab-environment select:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:1px; }
 .lab-chat-message { position:relative; padding:14px 0 14px 44px; }
 .lab-avatar { position:absolute; left:0; top:14px; width:32px; height:32px; border-radius:9px; display:grid; place-items:center; font-size:13px; font-weight:600; color:var(--ryker-text); background:color-mix(in srgb, var(--ryker-text) 10%, transparent); }
 .lab-chat-message.actor-ryker .lab-avatar { background:color-mix(in srgb, var(--ryker-accent) 12%, transparent); }
@@ -1683,8 +1692,6 @@
 .segmented a + a { border-left:1px solid var(--ryker-stroke); }
 .segmented a[aria-current] { background:var(--ryker-surface-emphasis); color:var(--ryker-text); font-weight:600; }
 .ryker-app .segmented a:hover { color:var(--ryker-text); text-decoration:none; }
-.ask-hint { max-width:720px; margin:16px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.ask-hint q { color:var(--ryker-text); }
 .entity-empty { max-width:720px; padding:8px 0 16px; }
 .entity-empty p { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
 .ryker-app .entity-empty .entity-empty-title { color:var(--ryker-text); font-weight:600; margin-bottom:4px; }
@@ -2054,9 +2061,9 @@
   .settings-page .section-actions { margin-left:0; }
 }
 
-/* Environments (2026-09-25): an environment's repositories in the order work
-   uses them, as rows with faint separators. The first takes the changes and
-   the rest are read only; the arrows move one place up or down. */
+/* Environments (2026-09-25): an environment's repositories in order, as rows
+   with faint separators. Every one is available to its work and the first is
+   the default; the arrows move one place up or down. */
 .environment-repositories { display:grid; max-width:560px; margin:4px 0 0; padding:0; list-style:none; }
 .environment-repository { display:grid; grid-template-columns:18px minmax(0,1fr) auto; align-items:center; gap:10px; min-height:44px; border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 7%, transparent); }
 .environment-repository > input { width:18px; height:18px; margin:0; accent-color:var(--ryker-accent); }
@@ -2155,7 +2162,9 @@
 .kit-toolbar > .filter-toolbar { flex:0 1 auto; margin:0; }
 .kit-toolbar > .filter-toolbar .search-field { flex:0 1 340px; width:340px; max-width:100%; }
 .kit-toolbar .segmented { flex:none; max-width:100%; overflow-x:auto; }
-.kit-toolbar-count { margin:0 0 0 auto; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); font-variant-numeric:tabular-nums; }
+/* Custom filters come last in the row, after the view switch (Activity's
+   chips and "+ Filter", finished like the search form's controls). The row
+   holds no count: the page's counts say how many it lists. */
 .kit-table-wrap { max-width:1040px; overflow-x:auto; }
 .kit-table { width:100%; border-collapse:collapse; background:none; font-size:13px; line-height:20px; }
 .kit-table th { padding:0 16px 8px 0; border-bottom:1px solid var(--ryker-stroke); background:none; font-size:12px; line-height:16px; font-weight:500; letter-spacing:0; text-transform:none; color:var(--ryker-text-secondary); text-align:left; white-space:nowrap; }
@@ -2340,7 +2349,6 @@
 .activity-page .new-activity:hover { background:var(--ryker-hover-bg); }
 .activity-page .new-activity .ui-icon { width:13px; height:13px; }
 .activity-section, .incident-rooms-view, .incident-room-view, .usage-page { max-width:1040px; min-width:0; }
-.ryker-app .incident-room-text { max-width:720px; margin:0 0 4px; font-size:15px; line-height:22px; color:var(--ryker-text); white-space:pre-line; overflow-wrap:anywhere; }
 .incident-room-details { max-width:720px; margin:32px 0 0; }
 /* The window and the work included scope every figure, so they come first. */
 .usage-page > .kit-toolbar + .kit-counts { margin-top:16px; }
@@ -2417,6 +2425,11 @@
 .usage-page .measurement-notes p { font-size:14px; max-width:90ch; }
 .ryker-app .usage-page .usage-pricing-table { min-width:0; width:100%; max-width:720px; table-layout:fixed; background:var(--ryker-surface-raised); font-size:13px; }
 .usage-page #cost-method .table-wrap { max-width:720px; }
+/* The rates open 12px under their summary; the note sits 8px under them,
+   quiet, and ends with the way to change them in Settings. */
+.usage-page #cost-method > .table-wrap { margin-top:12px; }
+.ryker-app .usage-page #cost-method > .usage-rates-note { margin-top:8px; color:var(--ryker-text-secondary); }
+.ryker-app .usage-page .usage-rates-note a { color:var(--ryker-text); text-decoration:underline; text-decoration-color:color-mix(in srgb, var(--ryker-text) 30%, transparent); text-underline-offset:3px; }
 .ryker-app .usage-pricing-table th, .ryker-app .usage-pricing-table td { padding:12px 8px; overflow-wrap:anywhere; }
 .ryker-app .usage-pricing-table th:first-child { width:37%; }
 .ryker-app .usage-pricing-table th:not(:first-child), .ryker-app .usage-pricing-table td:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
@@ -2438,3 +2451,92 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .usage-performance-table th:not(:first-child), .usage-performance-table td:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
 .usage-performance-table td { vertical-align:middle; }
 @media (max-width:580px) { .page-surface .table-wrap table { min-width:680px; } }
+/* How this page works (PageHelp): below 1600px a quiet disclosure above the
+   page, closed until the reader opens it; from 1600px a sticky column beside
+   the page, which page-help.mjs opens. A page-surface page sits in main's
+   padding. A native page pads itself, so there the disclosure takes the
+   page's own padding at each width and the page starts 16px under it: the
+   summary sits where the title would, and the title 48px lower on both. */
+.ryker-app .page-help { box-sizing:border-box; min-width:0; color:var(--ryker-text-secondary); font-size:13px; line-height:18px; }
+.ryker-app .page-surface > .page-help { margin:0 0 16px; }
+.ryker-app .native-page > .page-help { padding:32px 32px 0; margin-bottom:-16px; }
+.ryker-app .native-page > .page-help:has(+ .episode-workbench) { padding:24px 24px 0; margin-bottom:-8px; }
+.ryker-app .native-page > .page-help:has(+ .conversation-lab) { padding:12px 32px; margin-bottom:0; }
+.ryker-app .page-help > details > summary { display:flex; width:fit-content; max-width:100%; align-items:center; gap:6px; min-height:32px; padding:0; cursor:pointer; list-style:none; color:var(--ryker-text-secondary); font-size:13px; line-height:18px; font-weight:400; }
+.ryker-app .page-help > details > summary::-webkit-details-marker { display:none; }
+.ryker-app .page-help > details > summary::marker { content:""; }
+.ryker-app .page-help > details > summary:hover { color:var(--ryker-text); }
+.ryker-app .page-help > details > summary:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; border-radius:3px; }
+.ryker-app .page-help > details > summary .ui-icon { flex:none; width:12px; height:12px; }
+.ryker-app .page-help > details[open] > summary .ui-icon { transform:rotate(90deg); }
+.ryker-app .page-help-body { max-width:720px; padding:4px 0 8px 18px; }
+.ryker-app .page-help-title { margin:4px 0 12px; font-size:15px; line-height:22px; font-weight:600; letter-spacing:0; color:var(--ryker-text); }
+.ryker-app .page-help-section + .page-help-section { margin-top:16px; }
+.ryker-app .page-help-section h3 { margin:0 0 4px; font-size:13px; line-height:18px; font-weight:600; color:var(--ryker-text); }
+.ryker-app .page-help-section p { margin:0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.ryker-app .page-help-section p + p { margin-top:6px; }
+@media (prefers-reduced-motion:no-preference) { .ryker-app .page-help > details > summary .ui-icon { transition:transform .12s ease; } }
+/* Chat fills the window under the closed disclosure, so its composer stays on the first screen. */
+@media (min-width:801px) and (max-width:1599px) { .ryker-app .native-page > .page-help + .conversation-lab { min-height:calc(100vh - 56px); } }
+@media (max-width:900px) { .ryker-app .native-page > .page-help:has(+ .episode-workbench) { padding:20px 20px 0; margin-bottom:-4px; } }
+@media (max-width:800px) {
+  .ryker-app .native-page > .page-help { padding:24px 20px 0; margin-bottom:-8px; }
+  .ryker-app .native-page > .page-help:has(+ .conversation-lab) { padding:8px 16px; margin-bottom:0; }
+}
+@media (max-width:600px) { .ryker-app .native-page > .page-help { padding:20px 16px 0; margin-bottom:-4px; } }
+@media (max-width:580px) { .ryker-app .native-page > .page-help:has(+ .episode-workbench) { padding:16px 12px 0; margin-bottom:0; } }
+/* The column: the page fills the first track from its own left edge, as it
+   does without help, and the help keeps its place at the right on every
+   page, whatever the page's width. */
+@media (min-width:1600px) {
+  .ryker-app main:has(> .page-help) { display:grid; grid-template-columns:minmax(0, 1fr) 272px; column-gap:32px; align-items:start; }
+  .ryker-app main.native-page:has(> .page-help) { padding-right:32px; }
+  .ryker-app main:has(> .page-help) > :not(.page-help) { grid-column:1; min-width:0; margin:0; }
+  .ryker-app .page-surface > .page-help, .ryker-app .native-page > .page-help, .ryker-app .native-page > .page-help:is(:has(+ .episode-workbench), :has(+ .conversation-lab)) { grid-column:2; grid-row:1; position:sticky; top:32px; max-height:calc(100vh - 64px); overflow-y:auto; margin:0; padding:0; }
+  .ryker-app .native-page > .page-help, .ryker-app .native-page > .page-help:is(:has(+ .episode-workbench), :has(+ .conversation-lab)) { top:0; max-height:100vh; padding:32px 0; }
+  .ryker-app .native-page > .page-help:has(+ .episode-workbench) { padding-top:24px; }
+  .ryker-app .page-help-body { padding:4px 0 0; }
+}
+
+/* Incident room (2026-09-25, Andrew: "this page is not very helpful and not
+   designed well, just a bunch of text that is hard to read all in one go"):
+   the room's facts two to a line under its status, one raised card for what
+   Ryker says now, then what it recorded and what happened to the room as Kit
+   rows, and the references last. Tone stays in the dots and state words. */
+.ryker-app .kit-facts.incident-room-facts { grid-template-columns:minmax(96px, max-content) minmax(0, 1fr) minmax(96px, max-content) minmax(0, 1fr); gap:10px 24px; max-width:1040px; }
+.ryker-app .incident-room-facts > div:nth-child(even) > dt { padding-left:24px; }
+.incident-room-now { box-sizing:border-box; max-width:1040px; margin:28px 0 0; padding:18px 24px 20px; border:1px solid var(--ryker-stroke); border-radius:12px; background:var(--ryker-surface-raised); }
+.ryker-app .incident-room-now-title { margin:0; font-size:12px; line-height:16px; font-weight:600; letter-spacing:.02em; color:var(--ryker-text-secondary); }
+.ryker-app .incident-room-now-state { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; margin:12px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.incident-room-now-state .state-word { padding:3px 10px 3px 9px; border-radius:999px; background:var(--ryker-surface-emphasis); font-weight:600; color:var(--ryker-text); }
+.incident-room-now-state .state-word[data-tone=busy] { background:var(--ryker-accent-soft); color:var(--ryker-accent); }
+.incident-room-now-state .state-word[data-tone=busy]::before { box-shadow:none; }
+.incident-room-now-state .state-word[data-tone=warn] { background:var(--ryker-warning-soft); color:var(--ryker-warning); }
+.ryker-app .incident-room-now-text { max-width:760px; margin:12px 0 0; font-size:17px; line-height:26px; color:var(--ryker-text); white-space:pre-line; overflow-wrap:anywhere; }
+.ryker-app .incident-room-now-note { max-width:720px; margin:10px 0 0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
+.incident-room-now > .entity-empty { padding:8px 0 0; }
+/* "Open the timeline" stays one phrase beside a lede that wraps. */
+.incident-room-view .section-actions > a { white-space:nowrap; }
+/* A record's words keep their line breaks; a long one shows three lines until opened. */
+.incident-room-records .entity-row { align-items:start; }
+.incident-room-records .entity-text { white-space:pre-line; }
+.incident-room-long .entity-text { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.incident-room-long:has(.incident-room-more[open]) .entity-text { display:block; -webkit-line-clamp:unset; overflow:visible; }
+.incident-room-more { margin:4px 0 0; }
+.incident-room-more > summary { display:inline-flex; align-items:center; min-height:24px; padding:0; list-style:none; font-size:13px; line-height:18px; font-weight:500; color:var(--ryker-accent); cursor:pointer; }
+.incident-room-more > summary::-webkit-details-marker { display:none; }
+.incident-room-more > summary::marker { content:""; }
+.incident-room-more > summary:hover { text-decoration:underline; text-underline-offset:3px; }
+.incident-room-more > summary:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; border-radius:4px; }
+.incident-room-more[open] .incident-room-show, .incident-room-more:not([open]) .incident-room-less { display:none; }
+.ryker-app .incident-room-details .kit-facts { margin:4px 0 8px; }
+.ryker-app .incident-room-details .kit-facts code { font:13px/20px var(--ryker-font-mono); color:var(--ryker-text); overflow-wrap:anywhere; }
+@media (max-width:1000px) {
+  .ryker-app .kit-facts.incident-room-facts { grid-template-columns:minmax(120px, max-content) minmax(0, 1fr); max-width:720px; }
+  .ryker-app .incident-room-facts > div:nth-child(even) > dt { padding-left:0; }
+}
+@media (max-width:800px) {
+  .ryker-app .kit-facts.incident-room-facts { grid-template-columns:minmax(0, 1fr); gap:2px; }
+  .incident-room-now { padding:16px; }
+  .ryker-app .incident-room-now-text { font-size:16px; line-height:24px; }
+}

@@ -25,29 +25,6 @@ defmodule Ryker.Emisar.Operator do
   # The Failures page reads as deep as the page it shows (a hundred a page).
   @maximum_list 10_001
 
-  @spec list_blocked(pos_integer()) :: {:ok, [map()]} | {:error, term()}
-  def list_blocked(limit \\ 100) do
-    if is_integer(limit) and limit in 1..@maximum_list do
-      items =
-        Repo.all(
-          from(approval in Approval,
-            join: record in Record,
-            on: record.id == approval.record_id,
-            join: episode in Episode,
-            on: episode.id == approval.episode_id,
-            where: approval.status == :blocked,
-            order_by: [desc: approval.updated_at, desc: approval.id],
-            limit: ^limit,
-            select: {approval, record, episode}
-          )
-        )
-
-      {:ok, Enum.map(items, &item/1)}
-    else
-      {:error, {:invalid_emisar_approval_operator, :limit}}
-    end
-  end
-
   @doc """
   Every approval watch a person has to act on, newest first: blocked watches
   a task still waits for, and watches a task waits for whose account is not
@@ -227,7 +204,7 @@ defmodule Ryker.Emisar.Operator do
     end)
   end
 
-  defp item({approval, record, episode}, unwatched \\ %{}) do
+  defp item({approval, record, episode}, unwatched) do
     wait = wait(record, episode)
 
     %{

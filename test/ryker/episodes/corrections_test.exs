@@ -44,7 +44,7 @@ defmodule Ryker.Episodes.CorrectionsTest do
 
     # The moved message is now the target's evidence and answers there.
     assert [moved] = Origins.for_episode(devops.id) |> Enum.filter(& &1.correction_ref)
-    assert moved.conversation_ref == "slack:TROUTE:CALERTS"
+    assert moved.conversation_ref == "slack:TCORRECTIONS:CALERTS"
     assert Origins.for_episode(alerts.id) == []
 
     {:ok, source} = Episodes.fetch_by_key(alerts.key)
@@ -310,7 +310,7 @@ defmodule Ryker.Episodes.CorrectionsTest do
         occurred_at: @now,
         revision: 1,
         thread_ref: nil,
-        workspace_ref: "TROUTE"
+        workspace_ref: "TCORRECTIONS"
       })
 
     input

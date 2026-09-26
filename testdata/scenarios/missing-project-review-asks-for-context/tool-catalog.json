@@ -976,7 +976,7 @@
           "name": "update_goal"
         },
         {
-          "description": "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. A supplied read-only repository permits an inert proposal, not execution. Engineering requires a configured target from work.repository_ref or the relevant work.workspace.companions[].name; incident tasks may use null. Kind defaults to engineering.",
+          "description": "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. A supplied read-only repository permits an inert proposal, not execution. Engineering requires a configured target, any repository of this environment: work.repository_ref or the relevant work.workspace.companions[].name; incident tasks may use null. Kind defaults to engineering.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
@@ -1022,7 +1022,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Configured target: required (non-null) for engineering; null is allowed for incident. Use work.repository_ref or the relevant supplied work.workspace.companions[].name. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
+                "description": "Configured target: required (non-null) for engineering; null is allowed for incident. It may be any repository of this environment: work.repository_ref or the relevant supplied work.workspace.companions[].name, whichever the task changes. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
               },
               "repository_source": {
                 "anyOf": [

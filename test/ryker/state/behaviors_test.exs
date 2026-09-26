@@ -262,7 +262,7 @@ defmodule Ryker.State.BehaviorsTest do
       workspace_ref: "slack:T123"
     }
 
-    assert Behaviors.effective_preferences(context) == %{
+    assert Behaviors.model_context(fixture.episode, "slack:user:U123", nil)["preferences"] == %{
              "response_detail" => %{
                "behavior_ref" => operator.behavior.ref,
                "scope" => "operator",
@@ -961,8 +961,6 @@ defmodule Ryker.State.BehaviorsTest do
              Behaviors.manage_assignment("ref", :unknown, "workspace", "channel")
 
     assert Behaviors.assignments_for_channel("", "") == []
-    assert Behaviors.effective_preferences(:invalid) == %{}
-    assert Behaviors.effective_preferences(%{}) == %{}
     assert Behaviors.guidance(:invalid, 20) == []
     assert Behaviors.guidance(%{}, 0) == []
     refute Behaviors.standing_match?(%{})
@@ -1029,14 +1027,9 @@ defmodule Ryker.State.BehaviorsTest do
 
     assert DateTime.diff(guidance.behavior.expires_at, @now, :day) == 7
 
-    context = %{
-      conversation_ref: "slack:T123:C456",
-      operator_ref: "slack:user:other",
-      repository: "ryker",
-      workspace_ref: "slack:T123"
-    }
-
-    assert Behaviors.effective_preferences(context)["response_detail"]["scope"] == "repository"
+    assert Behaviors.model_context(fixture.episode, "slack:user:other", "ryker")["preferences"][
+             "response_detail"
+           ]["scope"] == "repository"
 
     assert {:ok, assignment} =
              Behaviors.confirm(confirmation(fixture, fixture.assignment, "trigger-assignment"))
@@ -1120,9 +1113,6 @@ defmodule Ryker.State.BehaviorsTest do
              "slack:T123",
              "slack:T123:C456"
            ) == {:error, :behavior_not_found}
-
-    assert Behaviors.effective_preferences(%{}) == %{}
-    assert Behaviors.effective_preferences(:invalid) == %{}
 
     assert Behaviors.model_context(%{}, "operator", nil) == %{
              "guidance" => [],

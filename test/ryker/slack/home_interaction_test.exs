@@ -52,12 +52,6 @@ defmodule Ryker.Slack.HomeInteractionTest do
            "ryker-work-control:ryker-work:abc:session:1:#{String.duplicate("a", 64)}",
            :discard_workspace},
           {"ryker_home_open", "task-card:abc-123", :open_resource},
-          # Work sessions created before the 2026-09-13 rename keep their
-          # retained external_ref; an Open control rendered from one resolves.
-          {"ryker_home_open", "responder-work:abc:session:1", :open_resource},
-          {"ryker_home_discard_workspace",
-           "ryker-work-control:responder-work:abc:session:1:#{String.duplicate("a", 64)}",
-           :discard_workspace},
           {"ryker_home_show_collection", "home-collection:schedules:0", :show_collection},
           {"ryker_home_show_collection", "home-collection:knowledge:20", :show_collection},
           {"ryker_home_show_dashboard", "home-collection:dashboard", :show_dashboard}

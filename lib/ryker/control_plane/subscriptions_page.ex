@@ -91,10 +91,6 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
       </Kit.entity_list>
       <p :if={@full} class="follow-up-note">Showing the first 100 follow-ups.</p>
       <.list_empty :if={@items == []} query={@query} view={@view} />
-      <Kit.ask_hint
-        lead="Ryker adds follow-ups on its own when work has to wait. You can also ask:"
-        example="Check again tomorrow morning."
-      />
     </div>
     """
   end

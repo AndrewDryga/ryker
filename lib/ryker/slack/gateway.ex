@@ -13,7 +13,6 @@ defmodule Ryker.Slack.Gateway do
   require Logger
 
   alias Ryker.Ingress.Inbox
-  alias Ryker.Retained
 
   alias Ryker.Slack.{
     Command,
@@ -286,80 +285,22 @@ defmodule Ryker.Slack.Gateway do
     end
   end
 
-  # Until the shipped manifest is applied, Slack still delivers the command the
-  # app registered before the 2026-09-13 rename. It is answered by name, never
-  # decoded as the current command.
-  defp handle_unsupported_command(%{"payload" => %{"command" => command}}) do
-    if command == Retained.slack_command() do
-      {:ack, {:command, :retired},
-       %{
-         "response_type" => "ephemeral",
-         "text" => "This app is now Ryker and its command is /ryker; use that instead."
-       }}
-    else
-      {:ack, {:ignored, :unsupported_command}}
-    end
-  end
-
   defp handle_unsupported_command(_envelope), do: {:ack, {:ignored, :unsupported_command}}
 
   defp handle_message_interaction(envelope, now, settings) do
     case Interaction.from_socket(envelope, settings.identity.workspace_ref, now) do
       {:ok, interaction} -> handle_interaction(interaction, settings)
-      :ignore -> handle_retired_control(envelope, now, settings)
-    end
-  end
-
-  # A card posted before the 2026-09-13 rename carries action ids the host no
-  # longer issues. The click is answered explicitly and audited under its exact
-  # retired id; it is neither decoded as a current control nor dropped as
-  # unsupported. A retired App Home control needs no reply: the view is
-  # republished from current state the next time it opens.
-  defp handle_retired_control(envelope, now, settings) do
-    case Interaction.retired_control(envelope, settings.identity.workspace_ref, now) do
-      {:ok, interaction} ->
-        case audit_interaction(interaction, :retired, settings) do
-          {:ok, _audit} -> {:ack, {:interaction, :retired}, interaction_feedback(:retired)}
-          {:error, reason} -> {:retry, reason}
-        end
-
-      :app_home ->
-        {:ack, {:app_home_control, :retired}}
-
-      :ignore ->
-        handle_shortcut_envelope(envelope, now, settings)
+      :ignore -> handle_shortcut_envelope(envelope, now, settings)
     end
   end
 
   defp handle_shortcut_envelope(envelope, now, settings) do
     case Shortcut.from_socket(envelope, settings.identity.workspace_ref, now) do
-      {:ok, normalized} ->
-        handle_shortcut(normalized, settings)
-
-      :ignore ->
-        if retired_shortcut?(envelope) do
-          # The Slack app still registers the pre-rename shortcut callback; the
-          # shipped manifest carries the current one for the operator to apply.
-          Logger.warning(
-            "Slack shortcut arrived with a pre-rename callback id; apply deploy/slack-app-manifest.yaml"
-          )
-
-          {:ack, {:ignored, :retired_shortcut}}
-        else
-          {:ack, {:ignored, :unsupported_interaction}}
-        end
-
-      {:error, _reason} ->
-        {:ack, {:ignored, :invalid_shortcut}}
+      {:ok, normalized} -> handle_shortcut(normalized, settings)
+      :ignore -> {:ack, {:ignored, :unsupported_interaction}}
+      {:error, _reason} -> {:ack, {:ignored, :invalid_shortcut}}
     end
   end
-
-  defp retired_shortcut?(%{
-         "payload" => %{"type" => "message_action", "callback_id" => callback}
-       }),
-       do: Retained.retired_slack_action?(callback)
-
-  defp retired_shortcut?(_envelope), do: false
 
   defp handle_shortcut(normalized, settings) do
     with {:ok, true} <- actor_allowed(normalized.input.actor, settings),
@@ -570,14 +511,6 @@ defmodule Ryker.Slack.Gateway do
     %{
       "response_type" => "ephemeral",
       "text" => "That control is no longer current. Use the refreshed message instead."
-    }
-  end
-
-  defp interaction_feedback(:retired) do
-    %{
-      "response_type" => "ephemeral",
-      "text" =>
-        "This card predates the rename to Ryker and can no longer be acted on; ask again in the thread."
     }
   end
 

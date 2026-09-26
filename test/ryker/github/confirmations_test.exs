@@ -1,5 +1,8 @@
 defmodule Ryker.GitHub.ConfirmationsTest do
-  use Ryker.DataCase, async: true
+  # Sync: one test breaks a table for the length of its own transaction.
+  use Ryker.DataCase, async: false
+
+  import ExUnit.CaptureLog
 
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -142,6 +145,23 @@ defmodule Ryker.GitHub.ConfirmationsTest do
 
     assert Repo.get!(Record, fixture.task.id).status == :open
     assert Repo.aggregate(Session, :count, :id) == 1
+  end
+
+  # Every raise inside a confirmation, host bugs included, answered "temporarily
+  # unavailable" and left no trace. Only a database the host cannot reach is
+  # that, and it is named in the log with its class and message.
+  test "a database error during a confirmation is unavailable and named in the log" do
+    input = input!("/ryker confirm record:one", 9_301, 42)
+    Repo.query!("ALTER TABLE episode_state_records RENAME TO episode_state_records_broken")
+
+    log =
+      capture_log(fn ->
+        assert {:error, :github_confirmation_unavailable} = Confirmations.apply(input, options())
+      end)
+
+    Repo.query!("ALTER TABLE episode_state_records_broken RENAME TO episode_state_records")
+    assert log =~ "GitHub confirmation unavailable"
+    assert log =~ "Postgrex.Error"
   end
 
   test "confirmation configuration accepts only exact repository policies" do

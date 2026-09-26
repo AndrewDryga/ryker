@@ -2,9 +2,10 @@ defmodule Ryker.ControlPlane.ActivityPage do
   @moduledoc """
   Activity (`/` and `/activity`): every message Ryker received and the work
   it started, newest first, in the page language every list shares — the
-  counts it leads with, one toolbar row (search, the work included, filters,
-  the four views and the total), then one row per request that opens its
-  timeline from anywhere on the row.
+  counts it leads with (how many requests it lists, then the workload), one
+  toolbar row (search, the work included, the four views, then the custom
+  filters), then one row per request that opens its timeline from anywhere
+  on the row.
 
   The rows are a LiveView stream: a refresh never moves a row under the
   reader; newer rows wait behind one button. A worker problem and the
@@ -40,11 +41,16 @@ defmodule Ryker.ControlPlane.ActivityPage do
       |> assign_new(:filter_menu, fn -> nil end)
       |> assign_new(:filter_values, fn -> [] end)
 
+    filtered = filtered?(assigns.params)
+
     assigns =
       assign(assigns,
         workers: workers(assigns.overview),
-        counts: counts(assigns.overview, assigns.path),
-        filtered: filtered?(assigns.params)
+        counts: [
+          Kit.list_total(assigns.activity.total, {"request", "requests"}, filtered)
+          | counts(assigns.overview, assigns.path)
+        ],
+        filtered: filtered
       )
 
     ~H"""
@@ -58,7 +64,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
         </:action>
       </.page_header>
       <Kit.counts label="Current workload" items={@counts} patch />
-      <Kit.toolbar id="activity-toolbar" count={total(@activity.total)}>
+      <Kit.toolbar id="activity-toolbar">
         <.live_filter_toolbar
           id="activity-filters"
           label="Filter activity"
@@ -75,16 +81,15 @@ defmodule Ryker.ControlPlane.ActivityPage do
               options: [{"live", "Live work"}, {"shadow", "Evaluations"}, {"all", "All work"}]
             }
           }
-        >
-          <RequestFilters.render
-            values={@filter_values}
-            params={@params}
-            path={@path}
-            menu={@filter_menu}
-            disabled={!@activity.searchable}
-          />
-        </.live_filter_toolbar>
+        />
         <Kit.segmented label="Which requests" options={views(@path, @params)} patch />
+        <RequestFilters.render
+          values={@filter_values}
+          params={@params}
+          path={@path}
+          menu={@filter_menu}
+          disabled={!@activity.searchable}
+        />
       </Kit.toolbar>
       <button :if={@new_items > 0} class="new-activity" phx-click="show-new">
         {@new_items} new or reordered items · Show latest <.icon name={:arrow} />
@@ -263,9 +268,6 @@ defmodule Ryker.ControlPlane.ActivityPage do
 
     for {key, name} <- @views, do: {name, filter_path(path, params, key), current == key}
   end
-
-  defp total(1), do: "1 item"
-  defp total(count), do: "#{count} items"
 
   # Where the request came from and its repository; when is the row's edge.
   defp meta(item), do: [{:strong, where(item)}, item.repository]

@@ -351,10 +351,9 @@ defmodule Ryker.Acceptance.Live do
     end
   end
 
-  @doc false
   @spec deployment_ready(map()) :: :ok | {:error, term()}
-  def deployment_ready(%{control_plane: %{ip: ip, port: port}})
-      when is_tuple(ip) and is_integer(port) do
+  defp deployment_ready(%{control_plane: %{ip: ip, port: port}})
+       when is_tuple(ip) and is_integer(port) do
     host = ip |> :inet.ntoa() |> to_string()
     authority = if String.contains?(host, ":"), do: "[#{host}]", else: host
     request = Finch.build(:get, "http://#{authority}:#{port}/readyz")
@@ -375,7 +374,7 @@ defmodule Ryker.Acceptance.Live do
     end
   end
 
-  def deployment_ready(_configuration),
+  defp deployment_ready(_configuration),
     do: {:error, :live_acceptance_control_plane_not_configured}
 
   defp wait_for_result(settings, event_ref, previous_turn_ids) do

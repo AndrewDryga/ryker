@@ -10,7 +10,6 @@ defmodule Ryker.Slack.Mentions do
   import Ecto.Query
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
 
-  alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Repo
   alias Ryker.Work.Turn
@@ -83,10 +82,9 @@ defmodule Ryker.Slack.Mentions do
   def authority_for_delivery(_delivery_ref),
     do: {:error, {:slack_mention_authority_unavailable, :delivery}}
 
-  @doc false
   @spec authority_from_events(String.t(), String.t(), [Event.t() | map()]) :: map()
-  def authority_from_events(workspace_ref, conversation_ref, events)
-      when is_binary(workspace_ref) and is_binary(conversation_ref) and is_list(events) do
+  defp authority_from_events(workspace_ref, conversation_ref, events)
+       when is_binary(workspace_ref) and is_binary(conversation_ref) and is_list(events) do
     evidence = Enum.map_join(events, "\n", &event_evidence/1)
 
     users =
@@ -342,15 +340,14 @@ defmodule Ryker.Slack.Mentions do
     )
   end
 
-  defp event_evidence(%Event{payload: payload}), do: event_evidence(payload)
-
-  defp event_evidence(%{} = payload) do
-    payload
-    |> Map.get("payload", %{})
-    |> Map.get("content", %{})
-    |> CanonicalJSON.encode!()
-  rescue
-    _error -> ""
+  # Evidence is scanned for mention tokens, so key order is irrelevant. An
+  # event without admitted content, or content JSON cannot carry, is no
+  # evidence; a host error here is not swallowed into "no evidence".
+  defp event_evidence(%Event{payload: %{"payload" => %{"content" => content}}}) do
+    case Jason.encode(content) do
+      {:ok, encoded} -> encoded
+      {:error, _reason} -> ""
+    end
   end
 
   defp event_evidence(_event), do: ""

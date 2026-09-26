@@ -5,12 +5,7 @@ defmodule Ryker.ProductContractsTest do
   alias Ryker.Ingress.{Projections, WorkProfile}
   alias Ryker.Publication.{LifecycleStatus, Receipt}
 
-  alias Ryker.Slack.{
-    ChannelSettingChangeset,
-    ChannelSettingOverride,
-    IncidentRoomChangeset,
-    Supervisor
-  }
+  alias Ryker.Slack.{ChannelSettingChangeset, IncidentRoomChangeset, Supervisor}
 
   alias Ryker.Work.{RepositoryContext, SessionChangeset}
 
@@ -132,100 +127,139 @@ defmodule Ryker.ProductContractsTest do
              WorkProfile.policy_for(profile, :provider_named_by_model)
   end
 
-  # Work in an environment changes its first repository and only reads the
-  # others. The frozen profile carries exactly that split, and the session
-  # pinned from it derives the workspace Coop must mount from these fields, so
-  # a profile that lost the order or smuggled the writable repository in among
-  # the read-only ones would widen what the work can change.
-  test "work in an environment changes its first repository and reads the others" do
+  # An environment's repositories are a set. Every session in it mounts all of
+  # them: the repository its work changes as the working copy and every other
+  # one read-only. Which one a piece of work changes is chosen per task, so the
+  # frozen profile keeps each repository's own policies and the first one only
+  # as the default. The first pass made the first repository the only one work
+  # could change, so a task about any other repository in the environment was
+  # confirmed against the wrong working copy.
+  test "a session mounts every repository of its environment, its own writable" do
     attributes = %{
-      authority_digest: nil,
-      class_policies: nil,
       emisar_connection_ref: "production",
       environment_ref: "platform",
       parallel_goal_limit: 2,
-      policy: "platform-read",
-      policy_digest: @digest,
-      read_only_repository_refs: ["application", "runbooks"],
-      repository_ref: "infrastructure"
+      policies: %{
+        "application" => class_policies("application"),
+        "infrastructure" => class_policies("infrastructure"),
+        "runbooks" => class_policies("runbooks")
+      },
+      repositories: ["infrastructure", "application", "runbooks"]
     }
 
     assert {:ok, profile} = WorkProfile.new(attributes)
+    assert profile.repositories == ["infrastructure", "application", "runbooks"]
+    assert WorkProfile.repository_choices(profile) == profile.repositories
+
+    # The default placement is the first repository's, and it is what the
+    # inbox records as the input's policy and repository.
     assert profile.repository_ref == "infrastructure"
-    assert profile.read_only_repository_refs == ["application", "runbooks"]
+    assert profile.policy == "infrastructure-conversational"
+    assert profile.authority_digest == authority("infrastructure")
 
-    assert {:ok, policy} = WorkProfile.policy_for(profile, :conversational)
-    assert policy.environment_ref == "platform"
-    assert policy.repository_ref == "infrastructure"
+    assert {:ok, default} = WorkProfile.policy_for(profile, :conversational)
+    assert default.name == "infrastructure-conversational"
+    assert default.repository_ref == "infrastructure"
 
-    assert policy.repository_context == %{
+    assert default.repository_context == %{
              "context_ref" => "platform",
              "parallel_goal_limit" => 2,
              "primary_repository" => "infrastructure",
              "read_only_repositories" => ["application", "runbooks"]
            }
 
-    assert {:ok, ^profile} = profile |> WorkProfile.document() |> WorkProfile.restore()
+    assert {:ok, chosen} = WorkProfile.policy_for(profile, :standard, "application")
+    assert chosen.name == "application-standard"
+    assert chosen.authority_digest == authority("application")
+    assert chosen.environment_ref == "platform"
+    assert chosen.repository_ref == "application"
+
+    assert chosen.repository_context == %{
+             "context_ref" => "platform",
+             "parallel_goal_limit" => 2,
+             "primary_repository" => "application",
+             "read_only_repositories" => ["infrastructure", "runbooks"]
+           }
+
+    # A repository outside the environment is no choice at all.
+    assert WorkProfile.policy_for(profile, :deep, "elsewhere") ==
+             {:error, {:invalid_work_profile, :repository_ref}}
+
+    document = WorkProfile.document(profile)
+    refute Map.has_key?(document, "class_policies")
+    assert {:ok, ^profile} = WorkProfile.restore(document)
+
+    # One repository is still an environment: its session mounts it alone.
+    assert {:ok, single} =
+             WorkProfile.new(%{
+               attributes
+               | policies: Map.take(attributes.policies, ["runbooks"]),
+                 repositories: ["runbooks"]
+             })
+
+    assert WorkProfile.repository_choices(single) == []
+    assert {:ok, %{repository_context: single_context}} = WorkProfile.policy_for(single, :deep)
+    assert single_context["read_only_repositories"] == []
 
     # An environment without repositories still names itself and its Emisar
     # account, and mounts nothing.
     assert {:ok, ops} =
-             WorkProfile.new(%{attributes | read_only_repository_refs: [], repository_ref: nil})
+             WorkProfile.new(%{
+               emisar_connection_ref: "production",
+               environment_ref: "platform",
+               parallel_goal_limit: 2,
+               policy: "platform-chat",
+               policy_digest: @digest,
+               repository_ref: nil
+             })
 
+    assert ops.repositories == []
     assert {:ok, ops_policy} = WorkProfile.policy_for(ops, :conversational)
     assert %{environment_ref: "platform", repository_ref: nil} = ops_policy
     refute Map.has_key?(ops_policy, :repository_context)
     assert {:ok, ^ops} = ops |> WorkProfile.document() |> WorkProfile.restore()
 
-    # Work outside any environment carries no placement at all.
+    # Work outside any environment keeps its single-repository shape.
     assert {:ok, outside} =
-             WorkProfile.new(%{
-               policy: "chat",
-               policy_digest: @digest,
-               repository_ref: nil
-             })
+             WorkProfile.new(%{policy: "ryker", policy_digest: @digest, repository_ref: "ryker"})
 
     assert outside.environment_ref == nil
-    assert outside.read_only_repository_refs == []
+    assert WorkProfile.repository_choices(outside) == []
+    assert {:ok, %{repository_ref: "ryker"}} = WorkProfile.policy_for(outside, :deep, "ryker")
+
+    assert WorkProfile.policy_for(outside, :deep, "infrastructure") ==
+             {:error, {:invalid_work_profile, :repository_ref}}
 
     refute Enum.any?(
-             ~w(environment_ref parallel_goal_limit read_only_repository_refs emisar_connection_ref),
+             ~w(environment_ref parallel_goal_limit repositories policies emisar_connection_ref),
              &Map.has_key?(WorkProfile.document(outside), &1)
            )
 
     for {invalid, field} <- [
-          {%{attributes | read_only_repository_refs: ["infrastructure"]},
-           :read_only_repository_refs},
-          {%{attributes | read_only_repository_refs: ["application", "application"]},
-           :read_only_repository_refs},
-          {%{attributes | repository_ref: nil}, :read_only_repository_refs},
-          {%{attributes | parallel_goal_limit: 4}, :parallel_goal_limit},
-          {%{attributes | parallel_goal_limit: nil}, :parallel_goal_limit},
+          {%{attributes | repositories: ["infrastructure", "application"]}, :policies},
+          {%{attributes | repositories: ["infrastructure", "infrastructure", "runbooks"]},
+           :repositories},
+          {%{attributes | repositories: []}, :repositories},
+          {%{attributes | environment_ref: nil}, :repositories},
           {%{attributes | environment_ref: "Platform"}, :environment_ref},
-          {%{attributes | environment_ref: nil}, :read_only_repository_refs},
-          {%{attributes | environment_ref: nil, read_only_repository_refs: []},
-           :parallel_goal_limit},
-          {%{
-             attributes
-             | environment_ref: nil,
-               read_only_repository_refs: [],
-               parallel_goal_limit: nil
-           }, :emisar_connection_ref}
+          {%{attributes | parallel_goal_limit: 4}, :parallel_goal_limit},
+          {put_in(attributes, [:policies, "runbooks", :deep, :authority_digest], @digest),
+           :authority_equivalence},
+          {Map.put(attributes, :repository_ref, "application"), :repository_ref},
+          {Map.put(attributes, :class_policies, class_policies("infrastructure")),
+           :class_policies}
         ] do
       assert WorkProfile.new(invalid) == {:error, {:invalid_work_profile, field}},
              inspect(invalid)
     end
 
-    tampered =
-      profile
-      |> WorkProfile.document()
-      |> Map.put("read_only_repository_refs", ["infrastructure"])
-
-    assert WorkProfile.restore(tampered) ==
-             {:error, {:invalid_work_profile, :read_only_repository_refs}}
-
-    assert WorkProfile.restore(Map.put(WorkProfile.document(profile), "repository_context", %{})) ==
+    # The first pass froze the writable repository and the ones it only read;
+    # that shape names no choice and is refused rather than read as one.
+    assert WorkProfile.restore(Map.put(document, "read_only_repository_refs", ["runbooks"])) ==
              {:error, {:invalid_work_profile, :fields}}
+
+    assert WorkProfile.restore(Map.put(document, "repositories", ["infrastructure"])) ==
+             {:error, {:invalid_work_profile, :policies}}
 
     assert WorkProfile.restore(:invalid) == {:error, {:invalid_work_profile, :fields}}
   end
@@ -334,30 +368,7 @@ defmodule Ryker.ProductContractsTest do
              {:error, {:invalid_publication_receipt, :document}}
   end
 
-  test "channel setting audit and override changesets expose all durable forms" do
-    override = %{
-      actor_ref: "slack:user:U123",
-      event_ref: "event:1",
-      id: Ecto.UUID.generate(),
-      revision: 1,
-      scope_kind: :channel,
-      scope_ref: "slack:T123:C456",
-      setting: :proactive,
-      value: true,
-      workspace_ref: "slack:T123"
-    }
-
-    assert ChannelSettingChangeset.insert_override(override).valid?
-
-    assert %ChannelSettingOverride{}
-           |> ChannelSettingChangeset.update_override(%{
-             actor_ref: "slack:user:U456",
-             event_ref: "event:2",
-             revision: 2,
-             value: false
-           })
-           |> Map.fetch!(:valid?)
-
+  test "the channel setting audit changeset accepts the durable form" do
     assert ChannelSettingChangeset.insert_audit(%{
              actor_ref: "slack:user:U123",
              conversation_ref: "slack:T123:C456",
@@ -431,4 +442,18 @@ defmodule Ryker.ProductContractsTest do
     assert LifecycleStatus.prepare(%{status | "checks_url" => 91}) ==
              {:error, {:invalid_publication_lifecycle_status, :document}}
   end
+
+  defp class_policies(repository) do
+    Map.new([:conversational, :standard, :deep], fn work_class ->
+      {work_class,
+       %{
+         authority_digest: authority(repository),
+         policy: "#{repository}-#{work_class}",
+         policy_digest: sha256("#{repository}-#{work_class}")
+       }}
+    end)
+  end
+
+  defp authority(repository), do: sha256("authority:#{repository}")
+  defp sha256(seed), do: :sha256 |> :crypto.hash(seed) |> Base.encode16(case: :lower)
 end

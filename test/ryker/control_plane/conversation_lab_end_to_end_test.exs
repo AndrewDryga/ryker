@@ -557,7 +557,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert [%{action: :confirm_post, kind: "slack_post_offer", ref: ^post_ref}] =
              ryker.cards
 
-    actions = Actions.callbacks(profile(), %{})
+    actions = Actions.callbacks(%{environments: %{}, fallback_work_profile: profile()}, %{})
 
     assert {:ok, %{action: %PlatformAction{action_ref: post_action_ref}, status: :confirmed}} =
              actions.act_on_lab_record.(@conversation_id, post_ref, :confirm_post, nil)

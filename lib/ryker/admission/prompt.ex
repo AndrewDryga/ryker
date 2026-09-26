@@ -126,6 +126,15 @@ defmodule Ryker.Admission.Prompt do
   already pinned.
   """
 
+  @repository_choices """
+  repository_choices lists the repositories of the environment this event runs in, each by its ref
+  and, when the operator wrote one, a description of what it holds. On start_episode, repository is
+  the ref of the one the new work is about and may change; every other listed repository stays
+  mounted read-only beside it. Choose from the evidence in the event: the service, component, path
+  or repository it names. repository is required on start_episode and null on every other action;
+  continuing, replying, reacting and ignoring keep the repository their work already pinned.
+  """
+
   @reaction """
   When react is offered, reaction is one emoji name. If the response format lists names, choose one
   of them; otherwise use any standard emoji short name, such as eyes or white_check_mark.
@@ -193,6 +202,7 @@ defmodule Ryker.Admission.Prompt do
         Map.has_key?(document, "slack_addressing") && @addressing,
         (Map.has_key?(document, "conversation_observations") or
            Map.has_key?(document, "conversation_knowledge")) && @memory,
+        Map.has_key?(document, "repository_choices") && @repository_choices,
         Map.has_key?(document, "repository_source_kinds") && @repository_source,
         "react" in document["allowed_actions"] && @reaction
       ]
@@ -208,7 +218,7 @@ defmodule Ryker.Admission.Prompt do
   # itself, the conversation around it, what Ryker remembers, the time, and the
   # earlier work it may belong to. Canonical key order put the instructions
   # last, where they could never be a cached prefix.
-  @context_order ~w(custom_instructions input slack_addressing conversation_context context_manifest conversation_observations conversation_knowledge candidates allowed_actions repository_source_kinds)
+  @context_order ~w(custom_instructions input slack_addressing conversation_context context_manifest conversation_observations conversation_knowledge candidates allowed_actions repository_choices repository_source_kinds)
 
   @doc "The prompt text: instructions first, then the context in reading order."
   @spec render(map()) :: String.t()

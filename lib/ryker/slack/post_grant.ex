@@ -5,8 +5,11 @@ defmodule Ryker.Slack.PostGrant do
 
   @channel_target ~r/\A<#([A-Z0-9]+)(?:\|[^>\r\n]*)?>\z/u
   @permalink_path ~r/\A\/archives\/([A-Z0-9]+)\/p([0-9]{16,22})\z/u
-  @timestamp ~r/\A[0-9]{10,}.[0-9]{1,6}\z/u
+  # The same shape SourceRef accepts, so an accepted timestamp always encodes.
+  @timestamp ~r/\A[0-9]{10,}\.[0-9]{1,6}\z/u
 
+  # A Unicode regex raises on invalid UTF-8 and SourceRef on an identity it
+  # refuses; both are decided before encoding, so nothing here needs a rescue.
   @spec destination_refs(String.t(), String.t(), String.t()) :: [String.t()]
   def destination_refs(text, workspace_ref, bot_user_ref)
       when is_binary(text) and is_binary(workspace_ref) and is_binary(bot_user_ref) do
@@ -15,18 +18,13 @@ defmodule Ryker.Slack.PostGrant do
     pattern =
       ~r/\A[ \t]*(?:<@#{bot}>[ \t]+)?[Pp][Oo][Ss][Tt][ \t]+[Tt][Oo][ \t]+(?<target><#[A-Z0-9]+(?:\|[^>\r\n]*)?>|<https:\/\/[^>\r\n]+>)[ \t]*:[ \t]*\S/u
 
-    case Regex.named_captures(pattern, text) do
-      %{"target" => target} ->
-        case destination_ref(target, workspace_ref) do
-          {:ok, ref} -> [ref]
-          :error -> []
-        end
-
-      nil ->
-        []
+    with true <- String.valid?(text) and SourceRef.slack_id?(workspace_ref),
+         %{"target" => target} <- Regex.named_captures(pattern, text),
+         {:ok, ref} <- destination_ref(target, workspace_ref) do
+      [ref]
+    else
+      _no_grant -> []
     end
-  rescue
-    _error -> []
   end
 
   def destination_refs(_text, _workspace_ref, _bot_user_ref), do: []

@@ -179,13 +179,10 @@ defmodule Ryker.Emisar.ApprovalsTest do
                {:emisar_http_error, 403, "forbidden"}
              )
 
-    assert {:ok, [blocked]} = Operator.list_blocked()
+    assert {:ok, blocked} = Operator.fetch("production/apr-operator")
     assert blocked.request_id == "apr-operator"
     assert blocked.run_id == "run-operator"
     assert blocked.last_error =~ "forbidden"
-
-    assert {:ok, fetched} = Operator.fetch("production/apr-operator")
-    assert fetched == blocked
 
     assert {:ok, %{action: :rearm, ref: "production/apr-operator", status: :blocked}} =
              Projection.emisar("production/apr-operator")
@@ -209,7 +206,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
     assert Operator.rearm("production/apr-operator") == {:error, :emisar_approval_not_blocked}
     assert Operator.fetch("production/missing") == {:error, :emisar_approval_not_found}
-    assert Operator.list_blocked(0) == {:error, {:invalid_emisar_approval_operator, :limit}}
+    assert Operator.failures(0) == {:error, {:invalid_emisar_approval_operator, :limit}}
   end
 
   # A stopped watch whose task was then closed could only stay blocked: "Watch

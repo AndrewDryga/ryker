@@ -5,7 +5,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   existing confirmed Pause, Resume and Delete actions.
 
   Every entry here is created only by asking Ryker and confirming what it
-  proposes, so the pages say how to ask instead of offering a create button.
+  proposes, so the pages offer no create button; how to ask is each page's
+  "How this page works" help (`PageHelp`).
   A row names the entry, says what it does, then one line of facts; nothing
   in a list is a raw enum, reference or JSON.
   """
@@ -15,7 +16,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   attr(:view, :map, required: true, doc: "BehaviorLibrary.list(:standing_assignment, params)")
   attr(:now, :any, default: nil)
 
-  @doc "The /rules body: search and Current/Past, the rules, how to add one, then recent matches."
+  @doc "The /rules body: search and Current/Past, the rules, then recent matches."
   def rules(assigns) do
     assigns =
       assign(assigns,
@@ -57,11 +58,6 @@ defmodule Ryker.ControlPlane.BehaviorPage do
         path={&rules_url(@view, page: &1)}
         label="Rule pages"
         summary={count(@view.total, "rule", "rules")}
-      />
-      <Kit.ask_hint
-        lead="To add a rule, tell Ryker in the channel:"
-        example="When someone posts a Terraform plan here, review it for risky changes."
-        rest="Ryker shows the rule and saves it only after you confirm."
       />
       <section :if={@view.items != []} class="behavior-matches" aria-labelledby="rule-matches">
         <Kit.section_head
@@ -181,11 +177,6 @@ defmodule Ryker.ControlPlane.BehaviorPage do
           path={&saved_url(@saved, page: &1)}
           label="Saved entry pages"
           summary={count(@saved.total, "entry", "entries")}
-        />
-        <Kit.ask_hint
-          lead="To add one, tell Ryker:"
-          example="Remember to keep incident updates short."
-          rest="Ryker shows what it will save and keeps it only after you confirm."
         />
       </section>
     </div>

@@ -119,6 +119,38 @@ defmodule Ryker.AccountingTest do
     assert Repo.aggregate(Accounting.Query.executions(nil, "all"), :count) == 2
   end
 
+  # Every lease custody writes comes from the database's clock, and every other
+  # fence compares against it. This one read the host's, so a host running
+  # ahead of its database refused usage for leases the database still held,
+  # and one running behind accounted for leases custody had already given
+  # away. The two clocks agree on one machine, which is why nothing caught it.
+  test "the accounting fence reads the database clock, not the host's" do
+    claim = claim!()
+    shadow_database_clock!(3_600)
+
+    assert {:error, :accounting_lease_lost} =
+             Accounting.observe_work(claim, %{"state" => "completed"})
+
+    assert Repo.aggregate(Execution, :count) == 0
+  end
+
+  # `pg_catalog` is searched after the shadow schema, so every unqualified
+  # `clock_timestamp()` this connection issues answers `offset_seconds` ahead
+  # of the real clock. SET and DDL are transactional: the sandbox rollback
+  # removes both without touching any other test.
+  defp shadow_database_clock!(offset_seconds) do
+    schema = "accounting_clock_#{System.unique_integer([:positive])}"
+    Repo.query!("CREATE SCHEMA #{schema}")
+
+    Repo.query!("""
+    CREATE FUNCTION #{schema}.clock_timestamp() RETURNS timestamptz LANGUAGE sql STABLE AS $$
+      SELECT pg_catalog.clock_timestamp() + #{offset_seconds} * interval '1 second'
+    $$
+    """)
+
+    Repo.query!("SET search_path TO #{schema}, pg_catalog, public")
+  end
+
   defp claim! do
     id = Ecto.UUID.generate()
 

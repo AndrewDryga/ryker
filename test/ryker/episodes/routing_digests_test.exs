@@ -74,13 +74,13 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
   test "coverage advances with each admitted input and records every contributing conversation" do
     episode = admit!("digest:coverage", "Database is unavailable", channel_ref: "CDEVOPS")
     first = RoutingDigests.fetch(episode.id)
-    assert first.conversation_refs == ["slack:TROUTE:CDEVOPS"]
+    assert first.conversation_refs == ["slack:TDIGESTS:CDEVOPS"]
     assert first.covered_through_sequence == 1
 
     admit_more!(episode, "Replica recovered", channel_ref: "CALERTS")
     second = RoutingDigests.fetch(episode.id)
 
-    assert second.conversation_refs == ["slack:TROUTE:CALERTS", "slack:TROUTE:CDEVOPS"]
+    assert second.conversation_refs == ["slack:TDIGESTS:CALERTS", "slack:TDIGESTS:CDEVOPS"]
     assert second.covered_through_sequence > first.covered_through_sequence
     assert DateTime.compare(second.covered_through_at, first.covered_through_at) == :gt
   end
@@ -180,7 +180,7 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
         occurred_at: occurred_at,
         revision: 1,
         thread_ref: Keyword.get(options, :thread_ref),
-        workspace_ref: "TROUTE"
+        workspace_ref: "TDIGESTS"
       })
 
     input

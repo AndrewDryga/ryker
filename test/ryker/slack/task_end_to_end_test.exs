@@ -732,17 +732,19 @@ defmodule Ryker.Slack.TaskEndToEndTest do
         conversation_environment: fn "T123", "C456" -> "production" end,
         environments: %{
           "production" => %{
-            contributor_policy: %{
-              digest: @write_policy_digest,
-              environment_ref: "production",
-              name: "ryker-contributor",
-              repository_context: %{
-                "context_ref" => "production",
-                "parallel_goal_limit" => 3,
-                "primary_repository" => "ryker",
-                "read_only_repositories" => []
-              },
-              repository_ref: "ryker"
+            contributor_policies: %{
+              "ryker" => %{
+                digest: @write_policy_digest,
+                environment_ref: "production",
+                name: "ryker-contributor",
+                repository_context: %{
+                  "context_ref" => "production",
+                  "parallel_goal_limit" => 3,
+                  "primary_repository" => "ryker",
+                  "read_only_repositories" => []
+                },
+                repository_ref: "ryker"
+              }
             },
             work_profile: %WorkProfile{
               environment_ref: "production",

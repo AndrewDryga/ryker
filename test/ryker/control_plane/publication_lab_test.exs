@@ -20,7 +20,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
 
   test "a Lab publication offer reaches review and explicit publish approval in the same conversation" do
     fixture = delivered_publication_offer!()
-    actions = Actions.callbacks(profile(), %{})
+    actions = Actions.callbacks(%{environments: %{}, fallback_work_profile: profile()}, %{})
 
     assert {:ok, requested} =
              actions.act_on_lab_record.(
@@ -106,12 +106,14 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     task_offer = delivered_task_offer!()
 
     actions =
-      Actions.callbacks(profile(), %{
+      Actions.callbacks(%{environments: %{}, fallback_work_profile: profile()}, %{
         "production" => %{
-          name: "ryker-contributor",
-          digest: @digest,
-          environment_ref: "production",
-          repository_ref: "ryker"
+          "ryker" => %{
+            name: "ryker-contributor",
+            digest: @digest,
+            environment_ref: "production",
+            repository_ref: "ryker"
+          }
         }
       })
 
@@ -137,12 +139,14 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     task_offer = delivered_task_offer!()
 
     actions =
-      Actions.callbacks(profile(), %{
+      Actions.callbacks(%{environments: %{}, fallback_work_profile: profile()}, %{
         "production" => %{
-          name: "ryker-contributor",
-          digest: @digest,
-          environment_ref: "production",
-          repository_ref: "ryker"
+          "ryker" => %{
+            name: "ryker-contributor",
+            digest: @digest,
+            environment_ref: "production",
+            repository_ref: "ryker"
+          }
         }
       })
 

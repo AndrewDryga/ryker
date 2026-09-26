@@ -75,6 +75,44 @@ defmodule Ryker.SettingsTest do
     assert Repo.aggregate(Edit, :count) == 1
   end
 
+  # A write inside another transaction announced its revision before that
+  # transaction committed. The runtime owner reads the saved settings when it
+  # hears a revision, so it read the previous one, found nothing to apply, and
+  # the change waited for the next save or restart. A workspace-wide
+  # participation change from Slack took exactly that path.
+  test "a settings change is announced after it commits, not before" do
+    assert {:ok, _} = Settings.initialize(@actor)
+    :ok = Settings.subscribe()
+
+    assert {:ok, revision} =
+             Settings.atomically(fn ->
+               assert {:ok, saved} =
+                        Settings.save_retention(%{audit_data_seconds: 60 * @day}, 1, @actor)
+
+               refute_received {:settings_saved, _revision}
+               {:ok, saved.installation.revision}
+             end)
+
+    assert_received {:settings_saved, ^revision}
+  end
+
+  test "a failed change rolls every write in it back and announces nothing" do
+    assert {:ok, _} = Settings.initialize(@actor)
+    :ok = Settings.subscribe()
+
+    assert {:error, :second_write_failed} =
+             Settings.atomically(fn ->
+               {:ok, _saved} =
+                 Settings.save_retention(%{audit_data_seconds: 60 * @day}, 1, @actor)
+
+               {:error, :second_write_failed}
+             end)
+
+    assert Settings.fetch!().installation.revision == 1
+    assert Settings.fetch!().retention.audit_data_seconds == 30 * @day
+    refute_received {:settings_saved, _revision}
+  end
+
   test "a successful edit records provenance and survives a fresh database read" do
     assert {:ok, initial} = Settings.initialize(@actor)
     assert :ok = Settings.record_application(1, :ok)

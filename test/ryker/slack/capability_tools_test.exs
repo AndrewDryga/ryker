@@ -4,6 +4,7 @@ defmodule Ryker.Slack.CapabilityToolsTest do
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.Episode
   alias Ryker.Slack.{CapabilityTools, ChannelConfiguration, SourceRef}
+  alias Ryker.Slack.CapabilityTools.{Resources, SourceReader}
   alias Ryker.Work.Turn
 
   defmodule FakeActionTokens do
@@ -1897,6 +1898,33 @@ defmodule Ryker.Slack.CapabilityToolsTest do
 
     def read_messages(_observer, _channel_ref, _thread_ref, _document),
       do: {:ok, %{"cursor" => "", "messages" => :invalid}}
+  end
+
+  # The encoders wrapped every raise as a Slack protocol error, so a host bug
+  # in the decoration read as Slack misbehaving. Only an identity SourceRef
+  # refuses is Slack's; that answer is kept exactly.
+  test "an identity Slack malformed is a protocol error, read from the encoder alone" do
+    assert SourceReader.decorate_source_messages(
+             [%{"ts" => "1787832000.000100"}, %{"ts" => "not a timestamp"}],
+             "T123",
+             "C456"
+           ) == {:error, :slack_protocol_error}
+
+    assert Resources.normalize_bookmark(
+             %{"channel_id" => "C456", "id" => "bad id", "title" => "Runbook", "type" => "link"},
+             "T123",
+             "C456"
+           ) == {:error, :slack_protocol_error}
+
+    assert Resources.file_document(
+             %{"id" => "F123", "title" => "notes"},
+             %{
+               workspace_ref: "T123",
+               channel_ref: "not a channel",
+               kind: :file,
+               resource_ref: "F123"
+             }
+           ) == {:error, :slack_protocol_error}
   end
 
   test "malformed Slack resource envelopes cannot become model-visible source evidence" do

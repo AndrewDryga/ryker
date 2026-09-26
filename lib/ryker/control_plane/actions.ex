@@ -35,18 +35,30 @@ defmodule Ryker.ControlPlane.Actions do
   @actor_ref "control-plane:local"
   @lab_actor_ref "local-operator"
 
-  @spec callbacks(WorkProfile.t() | nil, map(), map(), (Schedule.t() -> term()) | nil) :: map()
+  # Chat's placements: the Work profile of every environment that can run
+  # work, by ref, and the profile of work outside any environment. Each
+  # conversation's messages run on the profile its own environment resolves
+  # to (`ConversationLab.work_profile/2`).
+  @spec callbacks(
+          ConversationLab.placements() | nil,
+          map(),
+          map(),
+          (Schedule.t() -> term()) | nil
+        ) ::
+          map()
   def callbacks(
-        work_profile \\ nil,
+        placements \\ nil,
         task_policies \\ %{},
         work_view_options \\ %{},
         schedule_policy_resolver \\ nil
       ) do
+    placements = placements || %{environments: %{}, fallback_work_profile: nil}
+
     %{
-      act_on_lab_record: lab_record_action(work_profile, task_policies),
-      delete_lab_message: lab_message_deleter(work_profile),
+      act_on_lab_record: lab_record_action(placements, task_policies),
+      delete_lab_message: lab_message_deleter(placements),
       discard_retention: &discard_retention/1,
-      edit_lab_message: lab_message_editor(work_profile),
+      edit_lab_message: lab_message_editor(placements),
       forget_memory: &Memories.forget/1,
       resolve_episode: &resolve_episode/1,
       resolve_memory_review: &resolve_memory_review/3,
@@ -56,11 +68,13 @@ defmodule Ryker.ControlPlane.Actions do
       rearm_retention: &retry_failure("retention", &1),
       rearm_slack_incident: &retry_failure("slack_incident", &1),
       rearm_slack_interaction: &retry_failure("slack_interaction", &1),
+      rearm_slack_task_card: &retry_failure("slack_task_card", &1),
+      rearm_slack_thread_status: &retry_failure("slack_thread_status", &1),
       react_to_lab_message: &ConversationLab.react_to_message/4,
       retry_work: &retry_work/2,
       review_episode: &EpisodeReviews.review(&1, @actor_ref),
       run_schedule: run_schedule(schedule_policy_resolver),
-      send_lab_message: lab_sender(work_profile),
+      send_lab_message: lab_sender(placements),
       set_behavior_status: &Behaviors.set_status/2,
       save_instructions: &InstructionSettings.save/3,
       initialize_settings: &SettingsCommands.initialize/0,
@@ -269,7 +283,7 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp maybe_diff_page(pages, false, _label, _offset, _digest), do: pages
 
-  defp lab_record_action(work_profile, task_policies) when is_map(task_policies) do
+  defp lab_record_action(placements, task_policies) when is_map(task_policies) do
     fn conversation_id, record_ref, action, choice_index ->
       with {:ok, conversation_ref} <- ConversationLab.conversation_ref(conversation_id),
            {:ok, record, target} <- lab_record_context(conversation_ref, record_ref),
@@ -279,7 +293,7 @@ defmodule Ryker.ControlPlane.Actions do
           target,
           action,
           choice_index,
-          work_profile,
+          conversation_work_profile(conversation_id, placements),
           task_policies,
           lab_action_ref(conversation_id, record_ref, action, choice_index)
         )
@@ -287,30 +301,45 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
-  # Task policies are keyed by environment. A task changes the repository it
-  # names, so it runs where that repository takes changes: in Chat's own
-  # environment, the default, when that is its repository, else in the first
-  # environment (by ref) whose work changes it.
+  # The profile the conversation's environment resolves to, or nil when Chat
+  # has nothing to run on; the actions that need one say so themselves.
+  defp conversation_work_profile(conversation_id, placements) do
+    case ConversationLab.work_profile(conversation_id, placements) do
+      {:ok, %WorkProfile{} = work_profile} -> work_profile
+      {:error, _reason} -> nil
+    end
+  end
+
+  # Task policies are keyed by environment, then by the repository each
+  # places its task in. A task changes the repository it names, so it runs in
+  # the conversation's own environment when that holds it, else in the first
+  # environment (by ref) that does.
   defp task_policy(task_policies, work_profile, repository) do
-    case own_task_policy(task_policies, work_profile) do
-      %{repository_ref: ^repository} = own ->
+    case own_task_policy(task_policies, work_profile, repository) do
+      %{} = own ->
         {:ok, own}
 
-      _elsewhere ->
+      nil ->
         task_policies
-        |> Enum.sort_by(fn {environment_ref, _policy} -> environment_ref end)
-        |> Enum.find_value(:error, fn {_environment_ref, policy} ->
-          changes?(policy, repository) && {:ok, policy}
+        |> Enum.sort_by(fn {environment_ref, _policies} -> environment_ref end)
+        |> Enum.find_value(:error, fn {_environment_ref, policies} ->
+          environment_task_policy(policies, repository)
         end)
     end
   end
 
-  defp own_task_policy(task_policies, %WorkProfile{environment_ref: ref}) when is_binary(ref),
-    do: Map.get(task_policies, ref)
+  defp environment_task_policy(policies, repository) do
+    case Map.get(policies, repository) do
+      %{} = policy -> {:ok, policy}
+      nil -> nil
+    end
+  end
 
-  defp own_task_policy(_task_policies, _outside), do: nil
+  defp own_task_policy(task_policies, %WorkProfile{environment_ref: ref}, repository)
+       when is_binary(ref) and is_binary(repository),
+       do: get_in(task_policies, [ref, repository])
 
-  defp changes?(policy, repository), do: Map.get(policy, :repository_ref) == repository
+  defp own_task_policy(_task_policies, _outside, _repository), do: nil
 
   defp lab_record_context(conversation_ref, record_ref) do
     case fetch_lab_record(record_ref) do
@@ -443,27 +472,25 @@ defmodule Ryker.ControlPlane.Actions do
          _task_policies,
          action_ref
        ) do
-    if is_nil(payload["repository"]) or payload["repository"] == work_profile.repository_ref do
-      TaskOffers.confirm(%{
-        actor_ref: @actor_ref,
-        confirmation_ref: action_ref,
-        occurred_at: now(),
-        policy:
-          %{
-            name: work_profile.policy,
-            digest: work_profile.policy_digest,
-            repository_ref: work_profile.repository_ref
-          }
-          |> maybe_put(:environment_ref, work_profile.environment_ref)
-          |> maybe_put(
-            :repository_context,
-            WorkProfile.repository_context_document(WorkProfile.repository_context(work_profile))
-          ),
-        record_ref: record.ref,
-        target: target
-      })
-    else
-      {:error, :conversation_lab_incident_repository_mismatch}
+    # An incident names one repository of the conversation's environment, or
+    # none for the default; it runs under that repository's conversation policy.
+    case WorkProfile.policy_for(work_profile, :conversational, payload["repository"]) do
+      {:ok, policy} ->
+        TaskOffers.confirm(%{
+          actor_ref: @actor_ref,
+          confirmation_ref: action_ref,
+          occurred_at: now(),
+          policy:
+            policy
+            |> Map.take([:digest, :name, :repository_ref])
+            |> maybe_put(:environment_ref, policy.environment_ref)
+            |> maybe_put(:repository_context, Map.get(policy, :repository_context)),
+          record_ref: record.ref,
+          target: target
+        })
+
+      {:error, _reason} ->
+        {:error, :conversation_lab_incident_repository_mismatch}
     end
   end
 
@@ -925,41 +952,32 @@ defmodule Ryker.ControlPlane.Actions do
     |> DateTime.truncate(:microsecond)
   end
 
-  defp lab_sender(%WorkProfile{} = work_profile) do
+  # Each message runs on the profile the conversation's environment resolves
+  # to at that moment: the environment's while it can run work, else the one
+  # outside any environment, else nothing can be sent.
+  defp lab_sender(placements) do
     fn conversation_id, message, attachments ->
-      ConversationLab.send_message(conversation_id, message, work_profile,
-        attachments: attachments
-      )
+      with {:ok, work_profile} <- ConversationLab.work_profile(conversation_id, placements) do
+        ConversationLab.send_message(conversation_id, message, work_profile,
+          attachments: attachments
+        )
+      end
     end
   end
 
-  defp lab_sender(_work_profile) do
-    fn _conversation_id, _message, _attachments ->
-      {:error, :conversation_lab_not_configured}
-    end
-  end
-
-  defp lab_message_editor(%WorkProfile{} = work_profile) do
+  defp lab_message_editor(placements) do
     fn conversation_id, item_id, message ->
-      ConversationLab.edit_message(conversation_id, item_id, message, work_profile)
+      with {:ok, work_profile} <- ConversationLab.work_profile(conversation_id, placements) do
+        ConversationLab.edit_message(conversation_id, item_id, message, work_profile)
+      end
     end
   end
 
-  defp lab_message_editor(_work_profile) do
-    fn _conversation_id, _item_id, _message ->
-      {:error, :conversation_lab_not_configured}
-    end
-  end
-
-  defp lab_message_deleter(%WorkProfile{} = work_profile) do
+  defp lab_message_deleter(placements) do
     fn conversation_id, item_id ->
-      ConversationLab.delete_message(conversation_id, item_id, work_profile)
-    end
-  end
-
-  defp lab_message_deleter(_work_profile) do
-    fn _conversation_id, _item_id ->
-      {:error, :conversation_lab_not_configured}
+      with {:ok, work_profile} <- ConversationLab.work_profile(conversation_id, placements) do
+        ConversationLab.delete_message(conversation_id, item_id, work_profile)
+      end
     end
   end
 

@@ -287,12 +287,6 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     Enum.find_value(timeline.items, %{}, &(&1[:source_kind] == :work && &1[:counts]))
   end
 
-  defp admission_counts(episode, entry) do
-    {:ok, view} = ModelRequests.project_input(entry.id, %{})
-    _ = episode
-    view.selected.counts
-  end
-
   defp rendered(episode) do
     {:ok, detail} = Projection.episode(episode.key)
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})

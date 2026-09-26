@@ -19,7 +19,9 @@ defmodule Ryker.Accounting do
   def observe_work(claim, remote_turn, remote_session \\ %{}) do
     Repo.transaction(fn ->
       current = Repo.one(from(t in Turn, where: t.id == ^claim.turn.id, lock: "FOR UPDATE"))
-      now = DateTime.utc_now()
+      # The lease was written with the database's clock; only that clock can
+      # say whether it still holds.
+      now = Repo.now!()
 
       session_generation =
         Repo.one(
@@ -175,7 +177,7 @@ defmodule Ryker.Accounting do
   # Coop reports cumulative turn counters, including its repair turns. Replays
   # and stale/partial observations never add that same cumulative amount again.
   # A missing observation cannot erase measurements already obtained.
-  def merge_measurement(current, measurement) do
+  defp merge_measurement(current, measurement) do
     target = measurement[:execution_target] || current.execution_target
 
     errors =

@@ -101,7 +101,9 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
 
     listed_conversation_result(allowed, attributes)
   rescue
-    _error -> {:error, :slack_protocol_error}
+    # SourceRef refuses an identity Slack malformed with ArgumentError; anything
+    # else raised here is a host bug and surfaces.
+    ArgumentError -> {:error, :slack_protocol_error}
   end
 
   defp listed_conversation(
@@ -168,7 +170,8 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
               }
             ]
           rescue
-            _error -> []
+            # A canvas id Slack malformed is no resource, not a protocol error.
+            ArgumentError -> []
           end
 
         _value ->

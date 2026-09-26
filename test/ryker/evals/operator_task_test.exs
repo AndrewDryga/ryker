@@ -102,13 +102,12 @@ defmodule Ryker.Evals.OperatorTaskTest do
     end
   end
 
-  test "the model release gate includes the fabricated product world" do
+  test "the model release gate is the fabricated product world itself" do
     makefile = File.read!(Path.expand("../../../Makefile", __DIR__))
 
-    assert makefile =~
-             ~r/^model-release-check:.*\beval-world\b/m,
-           "model-release-check must execute the interactive fabricated-world product lane"
-
+    # eval-world is the gate; the model-release-check alias that once pointed
+    # at it was a second name that could drift, and was cut on 2026-09-25.
+    refute makefile =~ ~r/^model-release-check:/m
     assert makefile =~ ~r/^eval-world-smoke:.*\n(?:\t.*\n)*?\t.*--tag smoke --repeat 1/m
     assert makefile =~ ~r/^eval-world:.*\n(?:\t.*\n)*?\t.*--repeat 3 --paired-baseline/m
   end
@@ -117,9 +116,10 @@ defmodule Ryker.Evals.OperatorTaskTest do
     makefile = File.read!(Path.expand("../../../Makefile", __DIR__))
 
     assert makefile =~
-             ~r/^eval-host-replay:\n(?:\t.*\n)*?\t.*world_runner_test\.exs/m,
-           "eval-host-replay must execute the scenario-owned host replay driver"
+             ~r/^eval-replay:\n(?:\t.*\n)*?\t.*world_runner_test\.exs/m,
+           "eval-replay must execute the scenario-owned host replay driver"
 
+    refute makefile =~ ~r/^eval-host-replay:/m
     assert makefile =~ "world_concurrency_test.exs"
     assert makefile =~ "world_coverage_test.exs"
   end
@@ -131,8 +131,8 @@ defmodule Ryker.Evals.OperatorTaskTest do
     makefile = File.read!(Path.expand("../../../Makefile", __DIR__))
 
     assert makefile =~
-             ~r/^eval-host-replay:\n\tRYKER_TEST_ISOLATED=1 scripts\/elixir-test\.sh/m,
-           "eval-host-replay must not share the full Elixir suite's database"
+             ~r/^eval-replay:\n\tRYKER_TEST_ISOLATED=1 scripts\/elixir-test\.sh/m,
+           "eval-replay must not share the full Elixir suite's database"
   end
 
   test "the full gate creates its shared database service before parallel Elixir targets" do

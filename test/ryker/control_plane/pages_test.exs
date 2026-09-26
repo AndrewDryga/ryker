@@ -54,8 +54,8 @@ defmodule Ryker.ControlPlane.PagesTest do
           {"/memory/learned", "Deploys happen after 15:00 UTC on weekdays."},
           {"/memory/learning", "2 messages waiting"},
           {"/incident-rooms", "Slack channels Ryker opens to work on an incident"},
-          {"/incident-rooms/incident%3Aone", "Timeline of the room"},
-          {"/schedules", "To add a schedule"},
+          {"/incident-rooms/incident%3Aone", "Room history"},
+          {"/schedules", "Tasks Ryker runs at a set time"},
           {"/schedules/schedule%3Aone", "What it asks for"},
           {"/follow-ups", "Follow-ups"},
           {"/channels", "Slack channels Ryker is in"},
@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.PagesTest do
       options().projection.operator_configuration.()
       |> RunningSystem.html()
 
-    assert evidence =~ "Work execution"
+    assert evidence =~ "Tasks that change code"
     refute evidence =~ "<script"
 
     usage = page("/usage", %{"window" => "24h"})
@@ -141,8 +141,27 @@ defmodule Ryker.ControlPlane.PagesTest do
     assert LazyHTML.query(document, ".kit-toolbar select[name=status] option[value=ready]")
            |> LazyHTML.text() == "Open"
 
-    assert document |> LazyHTML.query(".kit-toolbar-count") |> LazyHTML.text() |> String.trim() ==
-             "1 incident room"
+    # The page leads with its numbers as Kit counts: how many rooms it lists,
+    # and how many of them are open, which opens that view (2026-09-25).
+    assert Enum.map(
+             LazyHTML.query(document, ".incident-rooms-view > .kit-counts > .kit-count"),
+             fn
+               count ->
+                 {count |> LazyHTML.text() |> String.split() |> Enum.join(" "),
+                  count |> LazyHTML.attribute("href") |> List.first()}
+             end
+           ) == [{"1 room", nil}, {"1 open", "/incident-rooms?status=ready"}]
+
+    assert LazyHTML.query(document, ".kit-toolbar-count") |> Enum.empty?()
+
+    # A search narrows the list, so its size is what matches, never all rooms.
+    searched = page("/incident-rooms", %{"q" => "latency"}).body |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(searched, ".kit-counts > .kit-count")
+           |> Enum.at(0)
+           |> LazyHTML.text()
+           |> String.split()
+           |> Enum.join(" ") == "1 matching"
 
     [row] = LazyHTML.query(document, ".entity-list > article.entity-row") |> Enum.to_list()
 
@@ -167,7 +186,7 @@ defmodule Ryker.ControlPlane.PagesTest do
     refute LazyHTML.text(document) =~ "2026-08-28T"
 
     # An empty page first says which it is: nothing matches, or nothing exists,
-    # and how a room gets opened, since only asking Ryker opens one.
+    # and what opens a room. How to ask Ryker for one is the page's help.
     none = put_in(options(), [:projection, :incidents], fn _params -> [] end)
 
     empty = page("/incident-rooms", %{}, none).body |> LazyHTML.from_fragment()
@@ -177,33 +196,67 @@ defmodule Ryker.ControlPlane.PagesTest do
 
     assert LazyHTML.query(empty, ".entity-empty") |> LazyHTML.text() =~ "Create incident room"
 
-    assert LazyHTML.query(empty, ".ask-hint q") |> LazyHTML.text() ==
-             "Open an incident room for this."
+    assert Enum.empty?(LazyHTML.query(empty, ".ask-hint"))
 
     assert page("/incident-rooms", %{"status" => "closed"}, none).body =~
              "No incident rooms match"
   end
 
+  # 2026-09-25: the open count was counted over the rooms on screen, so the
+  # Closed view said "0 open" while rooms were open, and a search's "1 open"
+  # linked to every open room. Narrowed by a status, the page says only how
+  # many match; narrowed by a search, "open" counts the matches and its link
+  # keeps the search.
+  test "an incident room count never claims more than the list it heads" do
+    [open] = options().projection.incidents.(%{})
+    closed = %{open | ref: "incident:two", status: :closed, title: "Old outage"}
+
+    options =
+      put_in(options(), [:projection, :incidents], fn
+        %{"status" => "closed"} -> [closed]
+        _params -> [open, closed]
+      end)
+
+    counts = fn params ->
+      page("/incident-rooms", params, options).body
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".incident-rooms-view > .kit-counts > .kit-count")
+      |> Enum.map(fn count ->
+        {count |> LazyHTML.text() |> String.split() |> Enum.join(" "),
+         count |> LazyHTML.attribute("href") |> List.first()}
+      end)
+    end
+
+    assert counts.(%{}) == [{"2 rooms", nil}, {"1 open", "/incident-rooms?status=ready"}]
+    assert counts.(%{"status" => "closed"}) == [{"1 matching", nil}]
+
+    assert counts.(%{"q" => "outage"}) ==
+             [{"2 matching", nil}, {"1 open", "/incident-rooms?q=outage&status=ready"}]
+  end
+
   test "record views are the Kit's facts, rows and states, never tables" do
     # A room's page: its state a dot and a word under the title, its facts as
-    # label and value, what Ryker recorded and the channel's history as rows,
-    # and every time short with its exact value kept.
+    # label and value, what Ryker recorded, its code change and the room's
+    # history as rows, and every time short with its exact value kept.
     incident = body("/incident-rooms/incident%3Aone")
     assert LazyHTML.query(incident, "table, .table-wrap, .ui-status") |> LazyHTML.to_tree() == []
     assert LazyHTML.query(incident, ".kit-status-line .state-word") |> LazyHTML.text() == "Open"
 
-    assert LazyHTML.query(incident, "#room dl.kit-facts a[href='/channels/T123/CINCIDENT']")
+    assert LazyHTML.query(incident, "#incident-room-facts a[href='/channels/T123/CINCIDENT']")
            |> Enum.count() == 1
 
-    assert LazyHTML.query(incident, "#code-change .state-word[data-tone=warn]")
-           |> LazyHTML.text() == "Code change needs attention"
+    assert LazyHTML.query(incident, "#code-change .entity-row .state-word[data-tone=warn]")
+           |> LazyHTML.text() == "Needs attention"
 
     assert LazyHTML.query(incident, "#investigation .entity-empty-title") |> LazyHTML.text() ==
              "Nothing recorded yet"
 
-    assert LazyHTML.query(incident, "#room-timeline .entity-name")
+    # A channel whose creation time the projection does not name keeps its
+    # place after the request, without a time.
+    assert LazyHTML.query(incident, "#room-history .entity-name")
            |> Enum.map(&String.trim(LazyHTML.text(&1))) == [
              "Room requested",
+             "Channel created",
              "Ryker joined the channel"
            ]
 

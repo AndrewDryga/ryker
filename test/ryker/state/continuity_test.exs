@@ -636,9 +636,6 @@ defmodule Ryker.State.ContinuityTest do
         {"schedule", "schedule:01993d45-d400-7000-8000-000000000001", "schedule",
          "scheduled_task"},
         {"system", "ryker", "event-wait-deadline", "deadline_elapsed"},
-        # Wake-ups recorded before the 2026-09-13 rename carry the retained
-        # source ref and must keep sorting as host-origin work, by explicit rule.
-        {"system", "responder", "event-wait-deadline", "deadline_elapsed"},
         {"system", "emisar", "emisar-approval-monitor", "emisar_approval_terminal"},
         {"system", "publication-lifecycle", "publication-lifecycle", "publication_lifecycle"}
       ] do

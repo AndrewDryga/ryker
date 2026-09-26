@@ -238,7 +238,9 @@ defmodule Ryker.Slack.CapabilityTools.SourceReader do
           ref = SourceRef.message(workspace_ref, channel_ref, message_ref)
           {:cont, {:ok, [Map.put(message, "source_ref", ref) | decorated]}}
         rescue
-          _error -> {:halt, {:error, :slack_protocol_error}}
+          # SourceRef refuses an identity Slack malformed with ArgumentError;
+          # anything else raised here is a host bug and surfaces.
+          ArgumentError -> {:halt, {:error, :slack_protocol_error}}
         end
 
       _invalid, _result ->

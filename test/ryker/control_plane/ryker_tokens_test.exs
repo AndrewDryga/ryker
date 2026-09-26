@@ -235,10 +235,17 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     # border, Chrome dimmed the disabled select with its native treatment and
     # Filter retained a third button rule. The three adjacent controls looked
     # unrelated even though they were one filtering system.
+    # 2026-09-25: the custom filters moved after the view switch, out of the
+    # search form's `.filter-toolbar`, so the one shell now reaches them
+    # through `.filter-toolbar-controls` too (NativePagesTest holds every
+    # finishing rule to that).
     workspace = workspace_css()
 
     [_, shell] =
-      Regex.run(~r/\.ryker-app \.filter-toolbar \.filter-control \{([^}]+)\}/, workspace)
+      Regex.run(
+        ~r/\.ryker-app :is\(\.filter-toolbar, \.filter-toolbar-controls\) \.filter-control \{([^}]+)\}/,
+        workspace
+      )
 
     assert shell =~ "border:1px solid var(--ryker-control-border)"
     assert shell =~ "border-radius:8px"
@@ -246,7 +253,7 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
 
     [_, disabled] =
       Regex.run(
-        ~r/\.ryker-app \.filter-toolbar \.filter-control:is\(:disabled, \.is-disabled, :has\(:disabled\)\) \{([^}]+)\}/,
+        ~r/\.ryker-app :is\(\.filter-toolbar, \.filter-toolbar-controls\) \.filter-control:is\(:disabled, \.is-disabled, :has\(:disabled\)\) \{([^}]+)\}/,
         workspace
       )
 
@@ -268,18 +275,24 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
 
   test "the selected conversation is a quiet row rather than a bordered control" do
     # Andrew, 2026-09-20: a full outline made the selected conversation look
-    # like an input nested in the directory. Selection already has background,
-    # weight and aria-current, so the directory row must stay borderless.
+    # like an input nested in the directory, so the directory row stays
+    # borderless. 2026-09-25: "a clear selected state". The open conversation
+    # takes the selection ground and the mint mark the sidebar gives the open
+    # page, never an outline. (Until then this read a superseded rule that a
+    # later block overrode with a left border.)
     workspace = workspace_css()
 
-    [_, row] = Regex.run(~r/\.lab-directory-item \{([^}]+)\}/, workspace)
-    refute row =~ "border:"
+    [row] = Regex.scan(~r/\n\.lab-directory-item \{([^}]+)\}/, workspace, capture: :all_but_first)
+    refute hd(row) =~ "border"
 
-    [_, selected] =
-      Regex.run(~r/\.lab-directory-item\[aria-current=page\] \{([^}]+)\}/, workspace)
+    [selected] =
+      Regex.scan(~r/\.lab-directory-item\[aria-current=page\] \{([^}]+)\}/, workspace,
+        capture: :all_but_first
+      )
 
-    assert selected =~ "background:var(--ryker-surface-raised)"
-    refute selected =~ "border"
+    assert hd(selected) =~ "background:var(--ryker-selected-bg)"
+    assert hd(selected) =~ "box-shadow:inset 2px 0 0 var(--ryker-selected-accent)"
+    refute hd(selected) =~ "border"
   end
 
   test "the brand link is a 44px target showing the artwork at or above its minimum" do

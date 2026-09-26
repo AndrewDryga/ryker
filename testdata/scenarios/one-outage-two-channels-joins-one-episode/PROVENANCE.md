@@ -1,7 +1,7 @@
 # Authored cross-conversation routing scenario
 
 `scenario.json` is authored, not harvested, and its provenance says so. The harvested admission
-corpus contains no cross-channel case: `docs/elixir-slack-admission-corpus.md` and the routing
+corpus contains no cross-channel case: the corpus review (folded into `docs/history.md`) and the routing
 baseline both record that the only multi-thread joins on disk are root-to-root inside one channel.
 Capturing a real one would require posting a synthetic incident into a production channel, which
 the task explicitly forbids.

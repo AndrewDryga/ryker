@@ -10,6 +10,8 @@ defmodule Ryker.GitHub.InstallationTokens do
 
   use GenServer
 
+  require Logger
+
   @headers [
     {"accept", "application/vnd.github+json"},
     {"x-github-api-version", "2022-11-28"}
@@ -166,7 +168,7 @@ defmodule Ryker.GitHub.InstallationTokens do
       _invalid -> unavailable(:response)
     end
   rescue
-    error -> unavailable(error)
+    error -> raised(error)
   end
 
   defp parse_token(%{"expires_at" => expires_at, "token" => token}, now)
@@ -194,10 +196,21 @@ defmodule Ryker.GitHub.InstallationTokens do
       _invalid -> unavailable(:clock)
     end
   rescue
-    error -> unavailable(error)
+    error -> raised(error)
   end
 
   defp unavailable(reason), do: {:error, {:github_installation_token_unavailable, reason}}
+
+  # A raise's message can carry the request that failed, and this reason is
+  # stored with whatever the token was for, so the reason names the class and
+  # only the log keeps the message.
+  defp raised(error) do
+    Logger.warning(
+      "GitHub installation token unavailable: " <> Exception.format_banner(:error, error)
+    )
+
+    unavailable({:raised, error.__struct__})
+  end
 
   defp purpose_permissions(purpose) do
     case Map.fetch(@purpose_permissions, purpose) do

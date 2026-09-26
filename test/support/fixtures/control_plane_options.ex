@@ -68,6 +68,14 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {:rearmed_slack_incident, ref})
           {:ok, %{ref: ref}}
         end,
+        rearm_slack_task_card: fn ref ->
+          send(parent, {:rearmed_slack_task_card, ref})
+          {:ok, %{ref: ref}}
+        end,
+        rearm_slack_thread_status: fn ref ->
+          send(parent, {:rearmed_slack_thread_status, ref})
+          {:ok, %{ref: ref}}
+        end,
         retry_work: fn ref, _fingerprint ->
           send(parent, {:retried_work, ref})
           {:ok, %{key: ref}}
@@ -1337,6 +1345,27 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
       },
       %{
         action: :rearm,
+        attempt_count: 8,
+        destination: "slack:T123:C456 / 1787832000.000100",
+        kind: "slack_task_card",
+        ref: "task-card:one",
+        status: :blocked,
+        summary: "slack_api_error",
+        updated_at: ~U[2026-08-28 11:54:00Z]
+      },
+      %{
+        action: :rearm,
+        attempt_count: 8,
+        desired_text: "is working...",
+        destination: "slack:T123:C456 / 1787832000.000100",
+        kind: "slack_thread_status",
+        ref: "0d0c5c7e-1c3d-4a4a-9a8f-2d0d0a1b2c3d",
+        status: :blocked,
+        summary: "slack_api_error",
+        updated_at: ~U[2026-08-28 11:53:00Z]
+      },
+      %{
+        action: :rearm,
         attempt_count: 1,
         cleanup_phase: :plan_pending,
         closed_at: ~U[2026-08-28 11:40:00Z],
@@ -1350,6 +1379,25 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         status: :blocked,
         summary: "coop_protocol_error",
         updated_at: ~U[2026-08-28 11:54:00Z]
+      },
+      # A learning pass that used every start it had, as the Failures page
+      # lists it. Its name linked to "This failure does not exist" for a day:
+      # the detail route kept its own list of kinds and learning was not on it.
+      %{
+        action: nil,
+        attempt_count: 3,
+        destination: "control-plane:lab:one",
+        execution_kind: :learning,
+        input_count: 4,
+        kind: "learning",
+        learning_path: "/memory/learning?batch=5b0c6f1e-6a55-4f47-9c7e-7b1d2c3a4e5f",
+        policy: "ryker-learning",
+        ref: "5b0c6f1e-6a55-4f47-9c7e-7b1d2c3a4e5f",
+        source: "ryker",
+        start_limit: 3,
+        status: :deferred,
+        summary: "learning_retry_exhausted",
+        updated_at: ~U[2026-08-28 11:55:00Z]
       }
     ]
   end

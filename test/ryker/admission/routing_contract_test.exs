@@ -15,6 +15,10 @@ defmodule Ryker.Admission.RoutingContractTest do
 
   @moduletag isolation: "REPEATABLE READ"
 
+  # Every async module that joins Slack channels names its own workspace. Two
+  # modules sharing TROUTE:CDEVOPS took its configuration and admission locks
+  # in opposite orders inside test transactions that never commit, and the
+  # database killed one of them as a deadlock mid-gate (2026-09-26).
   @workspace "TROUTE"
   @now ~U[2026-09-11 12:00:00.000000Z]
 
@@ -58,10 +62,11 @@ defmodule Ryker.Admission.RoutingContractTest do
     assert result.episode.id == incident.id
     assert result.episode.destination_conversation_ref == "slack:#{@workspace}:CDEVOPS"
 
-    assert Origins.participating_conversations(incident.id) == [
-             "slack:#{@workspace}:CDEVOPS",
-             "slack:#{@workspace}:CENGINEERING"
-           ]
+    assert incident.id
+           |> Origins.for_episode()
+           |> Enum.map(& &1.conversation_ref)
+           |> Enum.uniq()
+           |> Enum.sort() == ["slack:#{@workspace}:CDEVOPS", "slack:#{@workspace}:CENGINEERING"]
   end
 
   test "one thread holds several episodes and each message joins the right one" do

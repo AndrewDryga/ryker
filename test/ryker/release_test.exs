@@ -3,6 +3,8 @@ defmodule Ryker.ReleaseTest do
 
   alias Ryker.Release
 
+  @root Path.expand("../..", __DIR__)
+
   test "the Elixir release ships no trace of the retired SQLite import" do
     # Removing the Go gates left their importer and rollback command in every
     # release; the ledger schemas and the changeset write paths that only the
@@ -62,8 +64,21 @@ defmodule Ryker.ReleaseTest do
     assert List.last(release[:steps]) == :tar
     assert Enum.any?(release[:steps], &is_function(&1, 1))
 
-    mixfile = File.read!(Path.expand("../../mix.exs", __DIR__))
-    checker = File.read!(Path.expand("../../scripts/check-elixir-release.sh", __DIR__))
+    # One manifest names the operator assets: the build step copies it, the
+    # archive check reads it, and the image build has to carry it. Three
+    # hand-kept copies of that list once drifted apart silently.
+    assets =
+      "release-assets.txt"
+      |> read!()
+      |> String.split("\n", trim: true)
+      |> Enum.reject(&String.starts_with?(&1, "#"))
+
+    assert assets != []
+
+    for path <- assets do
+      assert File.exists?(Path.join(@root, path)),
+             "#{path} is listed in release-assets.txt but does not exist"
+    end
 
     for path <- ~w(
       README.md
@@ -77,26 +92,25 @@ defmodule Ryker.ReleaseTest do
       docs/releasing.md
       scripts/compose.sh
     ) do
-      assert mixfile =~ path
-      assert checker =~ path
+      assert path in assets
     end
 
+    assert read!("mix.exs") =~ "release-assets.txt"
+    assert read!("Dockerfile") =~ "release-assets.txt"
+
+    checker = read!("scripts/check-elixir-release.sh")
+    assert checker =~ "release-assets.txt"
     assert checker =~ ~s($scratch/share/ryker/$asset)
     assert checker =~ "RYKER_CREDENTIAL_KEY="
   end
 
   test "the release gate builds and inspects the Elixir archive" do
-    makefile = File.read!(Path.expand("../../Makefile", __DIR__))
+    makefile = read!("Makefile")
 
     assert makefile =~ ~r/^elixir-release:/m
     assert makefile =~ ~r/^elixir-release-check: elixir-release$/m
     assert makefile =~ "scripts/check-elixir-release.sh"
-    assert makefile =~ ~r/^elixir-install: elixir-release-check$/m
-    assert makefile =~ "scripts/install-elixir-release.sh"
-    assert makefile =~ ~r/^elixir-activate:$/m
-    assert makefile =~ "scripts/activate-elixir-release.sh"
-    assert makefile =~ ~r/^elixir-candidate-check: elixir-release-check$/m
-    assert makefile =~ "scripts/check-elixir-candidate.sh"
+    assert makefile =~ ~r/^release-dist: elixir-release-check$/m
     assert makefile =~ "scripts/elixir-release-version.sh"
     assert makefile =~ "RYKER_ELIXIR_VERSION="
 
@@ -113,125 +127,90 @@ defmodule Ryker.ReleaseTest do
     assert release_recipe =~ "scripts/elixir-mix.sh compile.app --force"
     assert release_recipe =~ "scripts/elixir-mix.sh release ryker --overwrite"
 
-    version_script = File.read!(Path.expand("../../scripts/elixir-release-version.sh", __DIR__))
+    version_script = read!("scripts/elixir-release-version.sh")
     assert version_script =~ "describe --exact-match --tags"
     assert version_script =~ ~s(cat-file -t "$tag")
 
-    release_workflow = File.read!(Path.expand("../../.github/workflows/release.yml", __DIR__))
-    assert release_workflow =~ "erlef/setup-beam@"
-    assert release_workflow =~ "make elixir-release-check"
-    assert release_workflow =~ "_elixir_linux_amd64.tar.gz"
-    assert release_workflow =~ "sha256sum"
-    assert release_workflow =~ "cosign sign-blob"
-    assert release_workflow =~ "install-elixir-release.sh"
+    # CI and the release workflow package the archive through the one
+    # release-dist target instead of two hand-copied install lists.
+    for workflow <- [".github/workflows/ci.yml", ".github/workflows/release.yml"] do
+      content = read!(workflow)
+      assert content =~ "erlef/setup-beam@"
+      assert content =~ "make release-dist"
+      assert content =~ "scripts/check-release.sh dist"
+      refute content =~ "install-elixir-release.sh"
+    end
 
-    mixfile = File.read!(Path.expand("../../mix.exs", __DIR__))
+    release_workflow = read!(".github/workflows/release.yml")
+    assert release_workflow =~ "_elixir_linux_amd64.tar.gz"
+    assert release_workflow =~ "cosign sign-blob"
+
+    mixfile = read!("mix.exs")
     assert mixfile =~ "System.get_env(\"RYKER_ELIXIR_VERSION\")"
     assert mixfile =~ "RYKER_ELIXIR_VERSION is required for production builds"
   end
 
   test "the documented production install has one Compose path" do
-    readme = File.read!(Path.expand("../../README.md", __DIR__))
-    operations = File.read!(Path.expand("../../docs/operations.md", __DIR__))
+    readme = read!("README.md")
+    operations = read!("docs/operations.md")
 
     for document <- [readme, operations] do
       assert document =~ "./install.sh"
       assert document =~ "scripts/compose.sh"
       refute document =~ "install-elixir-release.sh"
       refute document =~ "activate-elixir-release.sh"
+      refute document =~ "elixir-install"
       refute document =~ "systemctl"
       refute document =~ "launchctl"
     end
+
+    # The bare-host path was retired on 2026-09-25; a file from it reappearing
+    # would be a second deployment path with nothing running it.
+    for retired <- ~w(
+      scripts/install-elixir-release.sh
+      scripts/activate-elixir-release.sh
+      scripts/check-running-elixir-release.sh
+      scripts/check-elixir-candidate.sh
+      deploy/launchd
+      deploy/systemd
+      config/ryker-elixir.example.yaml
+      testdata/release/ryker-component.yaml
+    ) do
+      refute File.exists?(Path.join(@root, retired)),
+             "#{retired} belongs to the retired bare-host path"
+    end
   end
 
-  test "the internal host deploy remains separate from the public Compose path" do
-    deploy = File.read!(Path.expand("../../scripts/deploy.sh", __DIR__))
-    operations = File.read!(Path.expand("../../docs/operations.md", __DIR__))
+  test "scripts/deploy.sh is the Compose deploy of HEAD and touches nothing else" do
+    deploy = read!("scripts/deploy.sh")
+    operations = read!("docs/operations.md")
 
-    assert deploy =~ "make elixir-candidate-check"
-    assert deploy =~ "scripts/install-elixir-release.sh"
-    assert deploy =~ "/readyz"
-    assert deploy =~ ~S|candidate_credential_key=$(env_value "$runtime_env" RYKER_CREDENTIAL_KEY)|
-    assert deploy =~ ~S|RYKER_CREDENTIAL_KEY="$candidate_credential_key"|
-    assert deploy =~ ~S|installed_version=$("$prefix/current/bin/ryker" version)|
-    assert deploy =~ ~S|scripts/check-running-elixir-release.sh "$health_url" "$version"|
-    refute deploy =~ ~S|installed_version=$($prefix/current/bin/ryker version)|
-    refute deploy =~ "ryker-$sha"
+    # scripts/deploy_test.sh proves the behaviour against a fake Docker and a
+    # fake control plane; this holds the shape the documentation promises.
+    assert deploy =~ "git worktree add --detach"
+    assert deploy =~ "pg_dump -U ryker -d ryker --format=custom"
+    assert deploy =~ "up --detach --build --wait"
+    assert deploy =~ "--no-deps ryker"
+    assert deploy =~ "x-ryker-version"
+    assert deploy =~ "--allow-not-main"
+    assert deploy =~ ~s(--env-file "$env_file")
+    assert read!("Makefile") =~ ~r/^deploy-check:\n\tscripts\/deploy_test\.sh$/m
 
-    # One script owns deployment on both hosts. Every macOS deploy used to be a
-    # hand-written throwaway activation helper because this script required
-    # systemd, and a helper reused or mistyped once left production down. The
-    # host branch selects a service manager; it never selects a second path.
-    assert deploy =~ "systemctl restart"
-    assert deploy =~ "launchctl bootstrap"
-    assert deploy =~ "deploy/launchd/ryker.plist.template"
+    # A Ryker deploy never installs, upgrades or restarts a Coop worker:
+    # production workers are enrolled through the outbound fleet protocol, and
+    # the bundled one is the Compose project's own service, untouched here.
+    refute deploy =~ "ryker-coop"
+    refute deploy =~ "coop build"
+    refute deploy =~ "launchctl"
+    refute deploy =~ "systemctl"
 
-    launchd = File.read!(Path.expand("../../deploy/launchd/ryker.plist.template", __DIR__))
-    unit = File.read!(Path.expand("../../deploy/systemd/ryker.service", __DIR__))
-
-    for definition <- [launchd, unit] do
-      assert definition =~ "Ryker.Release.migrate()"
-      assert definition =~ "bin/ryker"
-    end
-
-    # A Ryker deploy never installs, upgrades or restarts a Coop worker;
-    # production workers are enrolled through the outbound fleet protocol.
-    refute deploy =~ "coop"
-    refute launchd =~ "coop"
-
+    # The operator documentation is shipped; the developer deploy is not.
     assert operations =~ "Docker Compose"
     assert operations =~ "scripts/compose.sh"
     refute operations =~ "scripts/deploy.sh"
     refute operations =~ "ryker bootstrap-coop"
     refute operations =~ "ryker serve"
     refute operations =~ "State is one owner-private SQLite database"
-  end
-
-  test "the running release proof reads identity from the serving process" do
-    checker = Path.expand("../../scripts/check-running-elixir-release.sh", __DIR__)
-    version = "0.1.0-g" <> String.duplicate("c", 40)
-
-    assert {output, 0} = run_running_release_check(checker, version, version)
-    assert output == "running ryker release: #{version}\n"
-
-    assert {output, status} = run_running_release_check(checker, version, "0.1.0-stale")
-    assert status != 0
-    assert output =~ "running release reports '0.1.0-stale'"
-
-    assert {output, status} = run_running_release_check(checker, version, nil)
-    assert status != 0
-    assert output =~ "did not report exactly one release identity"
-  end
-
-  test "the installer rejects different archive bytes under one release identity" do
-    root =
-      Path.join(
-        System.tmp_dir!(),
-        "ryker-release-collision-#{System.unique_integer([:positive])}"
-      )
-
-    File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
-
-    version = "0.1.0-g" <> String.duplicate("a", 40)
-    first = fake_release_archive!(root, "first", version)
-    second = fake_release_archive!(root, "second", version)
-    prefix = Path.join(root, "install")
-    installer = Path.expand("../../scripts/install-elixir-release.sh", __DIR__)
-    first_sha256 = file_sha256(first)
-    second_sha256 = file_sha256(second)
-
-    assert {_output, 0} =
-             System.cmd(installer, [first, version, first_sha256, prefix, "--local-build"])
-
-    assert {output, status} =
-             System.cmd(installer, [second, version, second_sha256, prefix, "--local-build"],
-               stderr_to_stdout: true
-             )
-
-    assert status != 0
-    assert output =~ "release identity collision"
-    assert File.read!(Path.join([prefix, "releases", version, "payload.txt"])) == "first"
   end
 
   test "the archive checker authenticates bytes before extracting or executing them" do
@@ -251,7 +230,7 @@ defmodule Ryker.ReleaseTest do
     assert {output, status} =
              System.cmd(
                checker,
-               [archive, version, String.duplicate("0", 64), "--archive-only"],
+               [archive, version, String.duplicate("0", 64)],
                stderr_to_stdout: true
              )
 
@@ -259,69 +238,23 @@ defmodule Ryker.ReleaseTest do
     assert output =~ "archive SHA-256 does not match trusted digest"
   end
 
-  test "the service migrates before starting the assembled release" do
-    service = File.read!(Path.expand("../../deploy/systemd/ryker.service", __DIR__))
-    environment = File.read!(Path.expand("../../deploy/systemd/ryker.env.example", __DIR__))
-    nginx = File.read!(Path.expand("../../deploy/nginx/ryker.conf", __DIR__))
+  test "the container migrates before it starts the release" do
+    entrypoint = read!("deploy/compose/entrypoint.sh")
+    nginx = read!("deploy/nginx/ryker.conf")
 
-    # There is no application configuration file to point the unit at: product
-    # settings live in PostgreSQL and the environment carries only deployment
-    # connections and credentials.
-    refute service =~ "RYKER_ELIXIR_CONFIG"
-    assert service =~ "ExecStartPre=/usr/local/lib/ryker/current/bin/ryker eval"
-    assert service =~ "Ryker.Release.migrate()"
-    assert service =~ "ExecStart=/usr/local/lib/ryker/current/bin/ryker start"
-    # RELEASE_DISTRIBUTION=none makes `bin/ryker stop` fail before it can
-    # reach the live node. systemd already owns the foreground BEAM PID and must
-    # deliver SIGTERM directly so ordinary replacement does not wait for its
-    # stop timeout on every release.
-    refute service =~ "ExecStop="
-    assert service =~ "KillSignal=SIGTERM"
-    refute service =~ "Requires=coop-ryker.service"
-    refute service =~ "After=coop-ryker.service"
-    refute service =~ "/usr/local/bin/ryker serve"
-
-    for name <- ~w(
-      DATABASE_URL
-      RYKER_CHECKPOINT_KEY
-      RYKER_CREDENTIAL_KEY
-      RYKER_STATE_TOOLS_TOKEN
-    ) do
-      assert environment =~ "#{name}="
-    end
-
-    for retired <- ~w(
-      SLACK_BOT_TOKEN SLACK_APP_TOKEN EMISAR_API_TOKEN GITHUB_APP_ID
-      GITHUB_APP_PRIVATE_KEY GITHUB_WEBHOOK_SECRET RYKER_WEBHOOK_SECRET_NAMES
-    ) do
-      refute environment =~ "#{retired}="
-    end
+    # There is no application configuration file to point the container at:
+    # product settings live in PostgreSQL and the environment carries only
+    # deployment connections and credentials.
+    refute entrypoint =~ "RYKER_ELIXIR_CONFIG"
+    {migrate, _} = :binary.match(entrypoint, "Ryker.Release.migrate()")
+    {start, _} = :binary.match(entrypoint, "exec /opt/ryker/bin/ryker start")
+    assert migrate < start
 
     assert nginx =~ "location = /v1/github"
     assert nginx =~ "proxy_pass http://127.0.0.1:4319"
     assert nginx =~ "location /v1/hooks/"
     assert nginx =~ "proxy_pass http://127.0.0.1:4320"
     refute nginx =~ "127.0.0.1:8080"
-  end
-
-  test "the candidate boots the packaged release with no configuration file at all" do
-    candidate = File.read!(Path.expand("../../scripts/check-elixir-candidate.sh", __DIR__))
-
-    assert candidate =~ "pg_dump --format=custom"
-    assert candidate =~ "pg_restore --list"
-    assert candidate =~ "pg_restore --exit-on-error"
-    assert candidate =~ "run_candidate restored"
-
-    # A clean install must start its local setup from the database and the
-    # bootstrap environment alone.
-    refute candidate =~ "RYKER_ELIXIR_CONFIG"
-    refute candidate =~ "configuration_template"
-    assert candidate =~ "DATABASE_URL=$candidate_database_url"
-    assert candidate =~ "RYKER_CONTROL_PORT=$candidate_port"
-    assert candidate =~ "RYKER_CREDENTIAL_KEY="
-
-    refute File.exists?(Path.expand("../../config/ryker-elixir.example.yaml", __DIR__))
-    refute File.exists?(Path.expand("../../testdata/release/ryker-component.yaml", __DIR__))
   end
 
   test "release migration entrypoints are idempotent and rollback is exact" do
@@ -370,6 +303,8 @@ defmodule Ryker.ReleaseTest do
     end
   end
 
+  # A release-shaped archive with nothing trustworthy in it: the checker must
+  # refuse it on the digest alone, before it reads a single entry.
   defp fake_release_archive!(root, name, version) do
     source = Path.join(root, name)
     File.mkdir_p!(Path.join(source, "bin"))
@@ -377,41 +312,6 @@ defmodule Ryker.ReleaseTest do
     executable = Path.join(source, "bin/ryker")
     File.write!(executable, "#!/bin/sh\nprintf 'ryker #{version}\\n'\n")
     File.chmod!(executable, 0o755)
-
-    migration =
-      Path.join([
-        source,
-        "lib",
-        "ryker-#{version}",
-        "priv",
-        "repo",
-        "migrations",
-        "20260830000100_finalize_elixir_product_schema.exs"
-      ])
-
-    File.mkdir_p!(Path.dirname(migration))
-    File.write!(migration, "# fixture migration\n")
-    runtime = Path.join([source, "releases", version, "runtime.exs"])
-    File.mkdir_p!(Path.dirname(runtime))
-    File.write!(runtime, "# fixture runtime\n")
-
-    for asset <- ~w(
-          README.md
-          compose.yml
-          install.sh
-          Dockerfile
-          deploy/compose/entrypoint.sh
-          deploy/nginx/ryker.conf
-          docs/elixir-ingress-admission.md
-          docs/operations.md
-          docs/releasing.md
-          scripts/compose.sh
-        ) do
-      path = Path.join([source, "share", "ryker", asset])
-      File.mkdir_p!(Path.dirname(path))
-      File.write!(path, "fixture #{asset}\n")
-    end
-
     File.write!(Path.join(source, "payload.txt"), name)
 
     archive = Path.join(root, "#{name}.tar.gz")
@@ -428,53 +328,5 @@ defmodule Ryker.ReleaseTest do
     recipe
   end
 
-  defp run_running_release_check(checker, expected_version, served_version) do
-    {:ok, listener} =
-      :gen_tcp.listen(0, [
-        :binary,
-        active: false,
-        ip: {127, 0, 0, 1},
-        packet: :raw,
-        reuseaddr: true
-      ])
-
-    {:ok, {_address, port}} = :inet.sockname(listener)
-
-    server =
-      Task.async(fn ->
-        {:ok, socket} = :gen_tcp.accept(listener)
-        {:ok, _request} = :gen_tcp.recv(socket, 0, 5_000)
-
-        version_header =
-          if served_version,
-            do: "x-ryker-version: #{served_version}\r\n",
-            else: ""
-
-        response =
-          "HTTP/1.1 200 OK\r\n" <>
-            version_header <>
-            "content-length: 6\r\nconnection: close\r\n\r\nready\n"
-
-        :ok = :gen_tcp.send(socket, response)
-        :gen_tcp.close(socket)
-      end)
-
-    result =
-      System.cmd(
-        checker,
-        ["http://127.0.0.1:#{port}", expected_version],
-        stderr_to_stdout: true
-      )
-
-    Task.await(server, 5_000)
-    :gen_tcp.close(listener)
-    result
-  end
-
-  defp file_sha256(path) do
-    path
-    |> File.read!()
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
-  end
+  defp read!(relative), do: File.read!(Path.join(@root, relative))
 end

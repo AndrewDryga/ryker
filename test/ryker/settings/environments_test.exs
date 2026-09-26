@@ -20,10 +20,10 @@ defmodule Ryker.Settings.EnvironmentsTest do
     %{snapshot: snapshot}
   end
 
-  # Work in an environment changes its first repository and only reads the
-  # rest, so the order an operator gives is the authority: a list that came
-  # back sorted by name would silently hand write access to another repository.
-  test "an environment keeps its repositories in the order given, first one writable",
+  # The first repository of an environment is the one work changes when
+  # nothing chose another, so the order an operator gives is the authority: a
+  # list that came back sorted by name would silently change that default.
+  test "an environment keeps its repositories in the order given, the first as the default",
        %{snapshot: snapshot} do
     assert {:ok, saved} =
              Settings.put_environment(
@@ -197,9 +197,16 @@ defmodule Ryker.Settings.EnvironmentsTest do
 
       assert error in errors, "#{inspect(change)} gave #{inspect(errors)}"
     end
+  end
 
-    # Coop mounts every repository after the first under its own name, and the
-    # name "primary" and names over 48 characters are the ones it cannot mount.
+  # Any repository of an environment may be the one a task changes, and then
+  # every other one is mounted read-only beside it under its own name. Coop
+  # cannot mount a repository named "primary" or one over 48 characters that
+  # way, so an environment with several repositories refuses such a name in
+  # any position. The first pass exempted the first repository, which
+  # environments with a choice would then have been unable to mount.
+  test "every repository of a shared environment can be mounted beside the one a task changes",
+       %{snapshot: snapshot} do
     long = String.duplicate("r", 49)
 
     for companion <- ["primary", long] do
@@ -210,18 +217,17 @@ defmodule Ryker.Settings.EnvironmentsTest do
           @actor
         )
 
-      assert {:error, {:invalid_settings, [{:repositories, :companion_name}]}} =
-               Settings.put_environment(
-                 %{
-                   ref: "production",
-                   display_name: "Production",
-                   repositories: ["payments", companion]
-                 },
-                 current.installation.revision,
-                 @actor
-               )
+      for repositories <- [["payments", companion], [companion, "payments"]] do
+        assert {:error, {:invalid_settings, [{:repositories, :companion_name}]}} =
+                 Settings.put_environment(
+                   %{ref: "production", display_name: "Production", repositories: repositories},
+                   current.installation.revision,
+                   @actor
+                 ),
+               inspect(repositories)
+      end
 
-      # As the writable repository it needs no companion name.
+      # Alone, it is always the working copy and needs no such name.
       assert {:ok, _saved} =
                Settings.put_environment(
                  %{ref: "solo", display_name: "Solo", repositories: [companion]},
@@ -232,6 +238,8 @@ defmodule Ryker.Settings.EnvironmentsTest do
       {:ok, _deleted} =
         Settings.delete_environment("solo", Settings.fetch!().installation.revision, @actor)
     end
+
+    assert Settings.fetch!().installation.revision > snapshot.installation.revision
   end
 
   # An environment points at its Emisar account; removing the account under

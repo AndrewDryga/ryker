@@ -11,6 +11,8 @@ defmodule Ryker.Delivery.HTTP do
   exhaust the node while its response is being read.
   """
 
+  require Logger
+
   @maximum_token_bytes 4_096
 
   @type response :: %{
@@ -28,7 +30,15 @@ defmodule Ryker.Delivery.HTTP do
       _invalid -> {:error, {:delivery_credentials_unavailable, :invalid_token}}
     end
   rescue
-    error -> {:error, {:delivery_credentials_unavailable, error}}
+    # The message can carry the vault the provider failed against, and this
+    # reason is stored with the delivery, so it names the class and only the
+    # log keeps the message.
+    error ->
+      Logger.warning(
+        "delivery credentials unavailable: " <> Exception.format_banner(:error, error)
+      )
+
+      {:error, {:delivery_credentials_unavailable, {:raised, error.__struct__}}}
   end
 
   @spec stream(Finch.Request.t(), atom(), pos_integer(), pos_integer()) ::

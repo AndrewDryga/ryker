@@ -1,5 +1,5 @@
 defmodule Ryker.Retention.Worker do
-  @moduledoc "A small polling process for ownership cleanup."
+  @moduledoc "A small polling process for ownership cleanup and data pruning."
 
   use GenServer
 
@@ -8,7 +8,7 @@ defmodule Ryker.Retention.Worker do
   alias Ryker.Observability.Progress
   alias Ryker.Polling
 
-  alias Ryker.Retention.{Custody, Dispatcher}
+  alias Ryker.Retention.{Custody, Data, Dispatcher}
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
@@ -23,13 +23,13 @@ defmodule Ryker.Retention.Worker do
   def init(options) do
     dispatcher = Keyword.get(options, :dispatcher, Dispatcher)
     dispatcher_options = Keyword.get(options, :dispatcher_options)
-    maintenance = Keyword.get(options, :maintenance)
+    maintenance = Keyword.get(options, :maintenance, Data)
     maintenance_options = Keyword.get(options, :maintenance_options)
     poll_interval_ms = Keyword.get(options, :poll_interval_ms, 60_000)
 
     if is_atom(dispatcher) and is_list(dispatcher_options) and
          Keyword.keyword?(dispatcher_options) and is_integer(poll_interval_ms) and
-         poll_interval_ms > 0 and maintenance?(maintenance, maintenance_options) do
+         poll_interval_ms > 0 and is_atom(maintenance) and is_map(maintenance_options) do
       reconcile_restart(dispatcher_options)
       send(self(), :poll)
 
@@ -78,8 +78,6 @@ defmodule Ryker.Retention.Worker do
     error -> Logger.error("retention lease release crashed: #{Exception.message(error)}")
   end
 
-  defp maintain_once(nil, nil), do: :ok
-
   defp maintain_once(maintenance, options) do
     case maintenance.prune(options) do
       {:ok, _result} -> :ok
@@ -90,14 +88,6 @@ defmodule Ryker.Retention.Worker do
   catch
     kind, reason -> Logger.error("retention data pruning caught #{kind}: #{inspect(reason)}")
   end
-
-  defp maintenance?(nil, nil), do: true
-
-  defp maintenance?(maintenance, options) when is_atom(maintenance) and is_map(options) do
-    Code.ensure_loaded?(maintenance) and function_exported?(maintenance, :prune, 1)
-  end
-
-  defp maintenance?(_maintenance, _options), do: false
 
   defp process_once(dispatcher, options) do
     case dispatcher.run_pass(options) do

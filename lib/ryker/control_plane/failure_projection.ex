@@ -21,7 +21,16 @@ defmodule Ryker.ControlPlane.FailureProjection do
   alias Ryker.Operator.FailureDetail
   alias Ryker.Publication.Publication
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRooms, InteractionAudit}
+
+  alias Ryker.Slack.{
+    ChannelConfigurations,
+    IncidentRoom,
+    IncidentRooms,
+    InteractionAudit,
+    TaskCard,
+    ThreadStatus
+  }
+
   alias Ryker.State.LearningRun
   alias Ryker.Work.{Cancellation, FailureCause, Session, Turn}
 
@@ -38,6 +47,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   @page_size 100
   @maximum_page 100
+  @kinds ~w(admission delivery emisar learning publication retention slack_incident
+            slack_interaction slack_task_card slack_thread_status stopping work)
 
   @doc """
   One page of every blocked item, newest first, a hundred to a page (`"page"`
@@ -123,6 +134,29 @@ defmodule Ryker.ControlPlane.FailureProjection do
       )
       |> Enum.map(&incident_item/1)
 
+    # A task's card and a thread's status are edited in place as work moves;
+    # one Slack kept refusing was retried for as long as its task existed and
+    # listed nowhere, so nobody learned the message or channel was gone.
+    task_cards =
+      Repo.all(
+        from(card in TaskCard,
+          where: card.status == :blocked,
+          order_by: [desc: card.updated_at, desc: card.id],
+          limit: ^fetch
+        )
+      )
+      |> Enum.map(&task_card_item/1)
+
+    thread_statuses =
+      Repo.all(
+        from(status in ThreadStatus,
+          where: status.status == :blocked,
+          order_by: [desc: status.updated_at, desc: status.id],
+          limit: ^fetch
+        )
+      )
+      |> Enum.map(&thread_status_item/1)
+
     publications =
       Repo.all(
         from(publication in Publication,
@@ -154,6 +188,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
           stopping ++
           interaction_feedback ++
           incident_rooms ++
+          task_cards ++
+          thread_statuses ++
           publications ++
           learning ++
           Enum.map(emisar_items, &emisar_item/1)
@@ -189,6 +225,15 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def page_number(_params), do: 1
 
   @doc """
+  Every kind of failure the list shows, each with its own page.
+
+  The detail route used to keep its own copy of this list, and a new kind
+  listed on Failures opened "This failure does not exist" until someone
+  remembered the copy. It happened to publications and then to learning.
+  """
+  def kinds, do: @kinds
+
+  @doc """
   One blocked item by kind and reference, decorated exactly as the list
   decorates it, or `:not_found` once it is no longer blocked.
 
@@ -210,6 +255,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
   defp failure_exact("emisar", ref), do: emisar(ref)
   defp failure_exact("slack_incident", ref), do: slack_incident(ref)
   defp failure_exact("slack_interaction", ref), do: slack_interaction(ref)
+  defp failure_exact("slack_task_card", ref), do: slack_task_card(ref)
+  defp failure_exact("slack_thread_status", ref), do: slack_thread_status(ref)
   defp failure_exact("work", ref), do: work(ref)
 
   defp failure_exact("publication", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
@@ -361,6 +408,27 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   def slack_incident(_ref), do: :not_found
 
+  def slack_task_card(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
+    case Repo.get_by(TaskCard, ref: ref) do
+      %TaskCard{status: :blocked} = card -> {:ok, task_card_item(card)}
+      _unavailable -> :not_found
+    end
+  end
+
+  def slack_task_card(_ref), do: :not_found
+
+  # A thread status has no reference of its own beyond its row id.
+  def slack_thread_status(ref) when is_binary(ref) do
+    with {:ok, id} <- Ecto.UUID.cast(ref),
+         %ThreadStatus{status: :blocked} = status <- Repo.get(ThreadStatus, id) do
+      {:ok, thread_status_item(status)}
+    else
+      _unavailable -> :not_found
+    end
+  end
+
+  def slack_thread_status(_ref), do: :not_found
+
   # A reaction delivery belongs to an input rather than an episode; its input
   # id is what finds the conversation and source it was reacting in.
   defp delivery_item(item) do
@@ -500,6 +568,48 @@ defmodule Ryker.ControlPlane.FailureProjection do
       status: room.status,
       summary: room.last_error_code || "Slack incident-room reconciliation blocked",
       updated_at: room.updated_at
+    }
+  end
+
+  defp task_card_item(%TaskCard{} = card) do
+    %{
+      action: :rearm,
+      attempt_count: card.attempt_count,
+      detail: FailureDetail.project(card.last_error_detail),
+      diagnosis: FailureDetail.facts(card.last_error_detail),
+      destination:
+        join_target("slack:#{card.workspace_ref}:#{card.channel_ref}", card.thread_ref),
+      episode_id: card.episode_id,
+      kind: "slack_task_card",
+      provider_error: provider_error(card.last_error_detail),
+      ref: card.ref,
+      source: card.message_ref,
+      status: card.status,
+      summary: card.last_error_code || "Slack task card update blocked",
+      updated_at: card.updated_at
+    }
+  end
+
+  # The status belongs to the request that wanted it shown, when one did; a
+  # status a message wanted before any request existed names no request.
+  defp thread_status_item(%ThreadStatus{} = status) do
+    %{
+      action: :rearm,
+      attempt_count: status.attempt_count,
+      desired_text: status.desired_text,
+      detail: FailureDetail.project(status.last_error_detail),
+      diagnosis: FailureDetail.facts(status.last_error_detail),
+      destination:
+        join_target("slack:#{status.workspace_ref}:#{status.channel_ref}", status.thread_ref),
+      episode_id: if(status.origin_kind == "episode", do: status.origin_id),
+      kind: "slack_thread_status",
+      phase: status.phase,
+      provider_error: provider_error(status.last_error_detail),
+      ref: status.id,
+      source: nil,
+      status: status.status,
+      summary: status.last_error_code || "Slack thread status blocked",
+      updated_at: status.updated_at
     }
   end
 
@@ -993,7 +1103,13 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   defp slack_row?(item),
     do:
-      item.kind in ["delivery", "slack_interaction", "slack_incident"] and
+      item.kind in [
+        "delivery",
+        "slack_interaction",
+        "slack_incident",
+        "slack_task_card",
+        "slack_thread_status"
+      ] and
         slack_channel(item) != nil
 
   defp slack_channel(%{destination: "slack:" <> rest}) do

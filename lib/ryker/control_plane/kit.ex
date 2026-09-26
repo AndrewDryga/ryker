@@ -275,20 +275,6 @@ defmodule Ryker.ControlPlane.Kit do
     """
   end
 
-  attr(:example, :string, required: true)
-  attr(:lead, :string, default: "To add one, tell Ryker in chat or Slack:")
-  attr(:rest, :string, default: nil)
-
-  @doc """
-  How to create something that is only created by asking Ryker: one sentence
-  and one example in the person's own words.
-  """
-  def ask_hint(assigns) do
-    ~H"""
-    <p class="ask-hint">{@lead} <q>{@example}</q>{if @rest, do: [" ", @rest]}</p>
-    """
-  end
-
   attr(:title, :string, required: true)
   attr(:text, :string, default: nil)
   slot(:inner_block)
@@ -324,7 +310,8 @@ defmodule Ryker.ControlPlane.Kit do
   @doc """
   The few numbers a page leads with, each a count and what it counts: "2
   failures · 2 affected requests". A count that needs a person takes the warn
-  tone; a count can link to the list it summarises.
+  tone; a count can link to the list it summarises. A list page says how many
+  things it lists here and nowhere else, first, as `list_total/3` words it.
   """
   def counts(assigns) do
     ~H"""
@@ -358,19 +345,29 @@ defmodule Ryker.ControlPlane.Kit do
   defp patch?("/" <> _path), do: true
   defp patch?(_href), do: false
 
-  attr(:count, :string, default: nil, doc: "A quiet total, such as \"18 items\"")
+  @doc """
+  A list page's first count: how many things the list holds, with their noun
+  ("18 requests"), or how many match once a search or a filter narrows it ("5
+  matching"), so a narrowed list never reads as everything there is.
+  """
+  @spec list_total(non_neg_integer(), {String.t(), String.t()}, boolean()) :: map()
+  def list_total(count, _nouns, true = _narrowed), do: %{value: count, label: "matching"}
+  def list_total(1, {one, _many}, false), do: %{value: 1, label: one}
+  def list_total(count, {_one, many}, false), do: %{value: count, label: many}
+
   attr(:id, :string, default: nil)
   slot(:inner_block, required: true, doc: "The page's filter_toolbar and segmented controls")
 
   @doc """
-  One row above a list: its search, its view switch and filters, and the
-  total on the far side. Every list page uses this row, so they line up.
+  One row above a list: its search, its view switch, then any custom
+  filters. Every list page uses this row, so they line up. It holds no
+  numbers: how many things the list holds is the first of the page's
+  `counts/1`, said once.
   """
   def toolbar(assigns) do
     ~H"""
     <div id={@id} class="kit-toolbar">
       {render_slot(@inner_block)}
-      <p :if={@count} class="kit-toolbar-count">{@count}</p>
     </div>
     """
   end

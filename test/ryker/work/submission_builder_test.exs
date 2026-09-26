@@ -63,24 +63,12 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
     assert {:ok, record} = Cases.capture(old.episode.id)
 
-    assert {:ok, draft} =
-             Cases.draft_lesson(%{
-               case_ref: record.case_ref,
-               conditions: "The primary is unreachable and the replica is healthy",
-               revision: 1,
-               steps: "Promote the healthy replica after confirming its replication lag"
-             })
-
-    assert {:ok, _approved} =
-             Cases.approve_lesson(draft.lesson_ref, "slack:user:UOPERATOR", "review:1")
-
     current = claim_episode!("retained-case-current", "#{outage} again this morning")
 
     assert {:ok, submission} = SubmissionBuilder.build(current)
     assert [recalled] = submission["context"]["retained_cases"]
     assert recalled["case_ref"] == record.case_ref
-    assert [lesson] = recalled["lessons"]
-    assert lesson["steps"] =~ "Promote the healthy replica"
+    assert recalled["problem"] =~ "pgsql-prod-01"
   end
 
   test "Work sees the episode's current name so it revises it only when the work changes" do

@@ -16,6 +16,7 @@ defmodule Ryker.Credentials do
   @topic "credentials"
   @nonce_bytes 12
   @tag_bytes 16
+  @minimum_bytes 8
   @maximum_bytes 1_048_576
   @kinds [:slack_app, :slack_bot, :github_private_key, :github_webhook, :emisar, :webhook]
   @name ~r/\A[a-z0-9][a-z0-9_.:-]{0,127}\z/
@@ -266,9 +267,17 @@ defmodule Ryker.Credentials do
 
   defp validate_identity(_kind, _name), do: {:error, :credential_identity_invalid}
 
+  # Every stored secret is also redaction material for worker output, and a
+  # value under eight bytes cannot be told apart from ordinary text: the
+  # worker server refuses one, and a single short secret failed every later
+  # settings apply.
   defp validate_plaintext(plaintext)
-       when is_binary(plaintext) and byte_size(plaintext) in 1..@maximum_bytes,
+       when is_binary(plaintext) and byte_size(plaintext) in @minimum_bytes..@maximum_bytes,
        do: :ok
+
+  defp validate_plaintext(plaintext)
+       when is_binary(plaintext) and plaintext != "" and byte_size(plaintext) < @minimum_bytes,
+       do: {:error, :credential_value_too_short}
 
   defp validate_plaintext(_plaintext), do: {:error, :credential_value_invalid}
 

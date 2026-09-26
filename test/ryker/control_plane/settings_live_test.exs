@@ -359,7 +359,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     # environments that send none are counted with the way to fix them.
     snapshot = initialize!()
 
-    {:ok, snapshot} =
+    {:ok, _snapshot} =
       Settings.put_emisar_connection(
         %{
           ref: "production",
@@ -421,6 +421,48 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "button[phx-click=disable-emisar-monitoring]",
              "Turn off"
            )
+  end
+
+  test "Add account opens its form above the accounts, and pressed again closes it" do
+    # Andrew, 2026-09-25, of Model prices, and every list with an Add button
+    # like it: a button at the top that opens its form under the whole list
+    # reads as a button that does nothing.
+    snapshot = initialize!()
+
+    {:ok, _snapshot} =
+      Settings.put_emisar_connection(
+        %{
+          ref: "production",
+          display_name: "Production approvals",
+          rpc_url: "https://emisar.example/api/mcp/rpc",
+          account_ref: "account-production",
+          enabled_for_new_work: true,
+          monitoring_enabled: true,
+          verified_at: ~U[2026-09-19 12:00:00.000000Z]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, view, _html} = open("/integrations/emisar")
+
+    section = "section[aria-label=Accounts]"
+    add = "#{section} .section-head button"
+    assert has_element?(view, "#{add}[aria-expanded=false]", "Add account")
+
+    view |> element(add, "Add account") |> render_click()
+
+    assert has_element?(view, "#{section} > .settings-editor ~ .entity-list")
+    assert has_element?(view, "#{section} > .settings-editor form[phx-submit=connect-emisar]")
+    refute has_element?(view, "#{section} > .entity-list ~ .settings-editor")
+
+    assert has_element?(view, "#{add}[aria-expanded=true]")
+    view |> element(add, "Add account") |> render_click()
+    refute has_element?(view, "form[phx-submit=connect-emisar]")
+
+    view |> element(add, "Add account") |> render_click()
+    view |> element("#{section} > .settings-editor button", "Cancel") |> render_click()
+    refute has_element?(view, "form[phx-submit=connect-emisar]")
   end
 
   test "an Emisar account is removed only after the question is answered, and its environments lose it" do
@@ -506,6 +548,37 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert {:error, :credential_missing} = Credentials.fetch(:slack_bot, "primary")
     refute Settings.fetch!().slack.enabled
     assert has_element?(view, ".form-feedback-success", "Slack is disconnected.")
+  end
+
+  test "the Slack tokens section shows its fields under its heading, not behind a fold" do
+    # Andrew, 2026-09-25: the one section whose job is replacing the tokens
+    # showed nothing to fill in. Both fields sat inside a closed "Replace the
+    # tokens" disclosure that nobody thought to open.
+    initialize!()
+    connect_slack!()
+    {:ok, view, _html} = open("/integrations/slack")
+
+    section = "section[aria-label='Slack tokens']"
+    refute has_element?(view, "#{section} details")
+    assert has_element?(view, "#{section} > .section-head + form[phx-submit=connect-slack]")
+    assert has_element?(view, "#{section} input[type=password][name='connection[app_token]']")
+    assert has_element?(view, "#{section} input[type=password][name='connection[bot_token]']")
+    assert has_element?(view, "#{section} form button[type=submit]", "Replace tokens")
+  end
+
+  test "the GitHub App credentials section shows its fields under its heading, not behind a fold" do
+    # The same fold as the Slack tokens (Andrew, 2026-09-25: "remove
+    # collapsible, just show inputs"): replacing the App's credentials is the
+    # section's only job, and its fields sat in a closed disclosure.
+    initialize!()
+    connect_github!()
+    {:ok, view, _html} = open("/integrations/github")
+
+    section = "section[aria-label='App credentials']"
+    refute has_element?(view, "#{section} > details")
+    assert has_element?(view, "#{section} > .section-head + form[phx-submit=connect-github]")
+    assert has_element?(view, "#{section} input[name='connection[app_id]']")
+    assert has_element?(view, "#{section} form button[type=submit]", "Replace credentials")
   end
 
   test "a connected GitHub App shows where its webhook points and disconnects only when asked" do
@@ -669,6 +742,68 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
            )
   end
 
+  test "each model says under its choice where Ryker uses it" do
+    # Andrew, 2026-09-25: eight choices with a few words each ("Investigations
+    # and tool-backed work.") left nobody able to tell which one moves which
+    # cost. Each sentence was checked against the code that picks the model:
+    # routing and the work class it chooses (a reply is Conversation, new or
+    # continued work Standard or Deep), the confirmed task, the schedule,
+    # incident-room and learning lanes, and the policies the bundled worker
+    # writes (work with no repository runs every class on the installation's
+    # conversation policy).
+    initialize!()
+    {:ok, view, _html} = open("/settings/models")
+
+    for {name, used} <- [
+          {"routing_model",
+           "Runs first on every message and event Ryker picks up, from Slack, Chat, GitHub and " <>
+             "webhooks. It decides whether to answer, start work, add it to earlier work or " <>
+             "stay quiet, and picks Conversation, Standard or Deep work for it. It runs more " <>
+             "often than anything else, so speed and price matter most here."},
+          {"conversation_model",
+           "Writes the replies Ryker can give straight away, without a longer investigation: " <>
+             "answers from what it already knows, quick questions and small lookups. Where " <>
+             "there is no repository to work in, it does the standard and deep work too."},
+          {"standard_model",
+           "Investigations that use tools: reading code, checking logs, running read-only " <>
+             "commands and asking Emisar to run something. Routing picks it for most work " <>
+             "that needs more than a quick answer."},
+          {"deep_model",
+           "The same kind of work, when routing judges the request hard, ambiguous or risky."},
+          {"contributor_model",
+           "Tasks that change code, once a person confirms them. When pull requests are on, " <>
+             "Ryker opens one for the change."},
+          {"schedule_model",
+           "Work that starts on its own when a schedule is due: the reminders and recurring " <>
+             "checks people set up by asking Ryker."},
+          {"incident_model",
+           "Everything Ryker does in an incident room, the Slack channel it opens for an " <>
+             "incident: the investigation and every reply there. It also runs an incident " <>
+             "investigated in its own thread instead of a room."},
+          {"learning_model",
+           "Reads the messages Ryker picks up in the background, including ones it did not " <>
+             "answer, and notes what is worth remembering about each conversation. It never " <>
+             "replies, and runs only while learning is on."}
+        ] do
+      id = "settings-model-#{name}-used"
+
+      # Under the choice it explains, and read out with it.
+      assert has_element?(
+               view,
+               "#settings-model-form select[name=#{name}][aria-describedby~='#{id}'] + p##{id}.settings-help"
+             ),
+             name
+
+      assert view
+             |> element("##{id}")
+             |> render()
+             |> LazyHTML.from_fragment()
+             |> LazyHTML.text()
+             |> String.split()
+             |> Enum.join(" ") == used
+    end
+  end
+
   test "shortening a retention limit names what it would expose before it is applied" do
     initialize!()
     {:ok, view, _html} = open("/settings/retention")
@@ -806,6 +941,105 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert Enum.any?(Settings.fetch!().pricing_rates, &(&1.id == rate.id))
   end
 
+  test "Add price opens its form above the prices, and a row's Edit opens under that row" do
+    # Andrew, 2026-09-25: "Add price" sat at the top of the page and opened
+    # its form under the whole list, so clicking it seemed to do nothing.
+    initialize!()
+    [rate | _rates] = Settings.fetch!().pricing_rates
+    {:ok, view, _html} = open("/settings/prices")
+
+    add = "#settings-pricing button.settings-editor-add"
+    assert has_element?(view, "#{add}[aria-expanded=false]", "Add price")
+
+    view |> element(add) |> render_click()
+
+    assert has_element?(view, "#settings-pricing .settings-editor-heading", "Add price")
+    assert has_element?(view, "#settings-pricing > .settings-editor ~ .entity-list")
+    refute has_element?(view, "#settings-pricing > .entity-list ~ .settings-editor")
+
+    # The same button closes it again, and so does the form's own Cancel.
+    assert has_element?(view, "#{add}[aria-expanded=true]")
+    view |> element(add) |> render_click()
+    refute has_element?(view, "#settings-pricing-form")
+
+    view |> element(add) |> render_click()
+    view |> element("#settings-pricing-form button", "Cancel") |> render_click()
+    refute has_element?(view, "#settings-pricing-form")
+
+    view
+    |> element(~s{button[phx-click=select-item][phx-value-item="#{rate.id}"]})
+    |> render_click()
+
+    assert has_element?(
+             view,
+             "#settings-pricing .entity-row.is-editing .entity-meta ~ .settings-editor #settings-pricing-form"
+           )
+
+    refute has_element?(view, "#settings-pricing > .settings-editor")
+  end
+
+  test "the Advanced page explains a worker and a policy in plain words" do
+    # Andrew, 2026-09-25: "even I don't know what a workspace or an execution
+    # policy is; the page doesn't explain that in simple language, so users
+    # will never understand any of it." The words changed, not the data: the
+    # same install choice and policy rows, named for what they do.
+    initialize!()
+
+    worker =
+      "Ryker runs its work on a worker: a machine with your code checked out that runs the " <>
+        "model and its tools."
+
+    {:ok, _view, html} = open("/settings/advanced")
+
+    # Without the bundled worker, the page never claims one is set up.
+    assert page_description(html) ==
+             worker <>
+               " This installation uses workers you run yourself; choose their install and " <>
+               "what each kind of work may do below."
+
+    bundled_worker!()
+    {:ok, view, html} = open("/settings/advanced")
+
+    assert page_description(html) ==
+             worker <>
+               " The bundled worker on this host is set up for you; change these only if you " <>
+               "run your own workers."
+
+    assert html |> LazyHTML.from_document() |> LazyHTML.query("main .section-head h2") |> texts() ==
+             [
+               "Where work runs",
+               "What each kind of work may do",
+               "Tasks that change code",
+               "What is running"
+             ]
+
+    assert has_element?(view, "label[for=settings-work-workspace_ref]", "Worker install")
+
+    assert has_element?(
+             view,
+             "#settings-work-workspace_ref-help",
+             "Which worker install runs Ryker's work. A worker reports its install name when it connects."
+           )
+
+    assert has_element?(
+             view,
+             "#settings-policies .section-head p",
+             "A policy is a worker's rulebook for one kind of work: which model runs it, " <>
+               "whether it may change files, which repositories it sees and what it may run. " <>
+               "The bundled worker writes these for you."
+           )
+
+    assert has_element?(view, "#settings-policies button.settings-editor-add", "Add policy")
+
+    # Where the page speaks, it uses none of the worker's own terms.
+    for selector <- ["header.page-header", "#settings-work", "#settings-policies"],
+        term <- ["workspace", "Workspace", "execution polic", "Execution polic"] do
+      refute view |> element(selector) |> render() |> LazyHTML.from_fragment() |> LazyHTML.text() =~
+               term,
+             "#{selector} says #{term}"
+    end
+  end
+
   test "an unreadable settings database is not an installation without settings", context do
     initialize!()
     Agent.update(context.unavailable, fn _ -> true end)
@@ -847,6 +1081,28 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   defp open(path \\ "/setup"),
     do: live(build_conn() |> Map.put(:host, "localhost"), path)
+
+  defp page_description(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("main .page-description")
+    |> LazyHTML.text()
+  end
+
+  defp texts(nodes), do: Enum.map(nodes, &(&1 |> LazyHTML.text() |> String.trim()))
+
+  # The Compose distribution names its bundled worker's root; the rest of the
+  # test runs as that installation.
+  defp bundled_worker! do
+    previous = System.get_env("RYKER_BUNDLED_COOP_ROOT")
+    System.put_env("RYKER_BUNDLED_COOP_ROOT", System.tmp_dir!())
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("RYKER_BUNDLED_COOP_ROOT", previous),
+        else: System.delete_env("RYKER_BUNDLED_COOP_ROOT")
+    end)
+  end
 
   defp initialize! do
     {:ok, snapshot} = Settings.initialize(@actor)

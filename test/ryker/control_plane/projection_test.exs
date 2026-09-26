@@ -1673,14 +1673,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     previous_configuration =
       Map.new(configuration_keys, &{&1, Application.get_env(:ryker, &1, :missing)})
 
-    # The running configuration keys task policies by environment; each names
-    # the repository its tasks change.
+    # The running configuration keys task policies by environment and then by
+    # the repository a task changes.
     Application.put_env(:ryker, :control_plane, %{
       task_policies: %{
         "production" => %{
-          name: "ryker-contributor",
-          environment_ref: "production",
-          repository_ref: "ryker"
+          "ryker" => %{name: "ryker-contributor", digest: String.duplicate("c", 64)}
         }
       }
     })

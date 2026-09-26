@@ -29,7 +29,9 @@ defmodule Ryker.Slack.ThreadStatus do
     field(:desired_text, :string)
     field(:generation, :integer, default: 1)
     field(:delivered_generation, :integer, default: 0)
-    field(:status, Ecto.Enum, values: [:pending, :delivered], default: :pending)
+    # A blocked status is never claimed again until a person rearms it or a
+    # newer desired status replaces it.
+    field(:status, Ecto.Enum, values: [:pending, :delivered, :blocked], default: :pending)
     field(:attempt_count, :integer, default: 0)
     field(:next_attempt_at, :utc_datetime_usec)
     field(:lease_owner, :string)

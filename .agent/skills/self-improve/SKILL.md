@@ -13,10 +13,9 @@ commits, finish by deploying, say plainly what is running).
 
 Ground rules for the whole pass:
 
-- The live PostgreSQL database is read-only from the shell. Its `DATABASE_URL`
-  is in the deployment's runtime environment file
-  (`~/.local/state/ryker/emisar/runtime.env` on this host); open it as
-  `PGOPTIONS='-c default_transaction_read_only=on' psql "postgresql://${DATABASE_URL#ecto://}"`
+- The live PostgreSQL database is read-only from the shell. It runs in the Docker
+  Compose project's `database` container and is not published on the host; open it as
+  `docker compose --env-file .ryker/compose.env exec -T -e PGOPTIONS='-c default_transaction_read_only=on' database psql -U ryker -d ryker`
   so a stray write fails instead of landing. Timestamps are UTC.
 - Every WRITE goes through a sanctioned path: the control plane's POST actions on
   loopback (they call the same service handlers as the Slack buttons and write their
@@ -120,7 +119,7 @@ digest. An episode left unmarked is an episode the next pass pays to read again.
 
 - Land every fix through the gate (dev-check; the full `make check` and
   `eval-world` tiers per AGENTS.md's rules for what changed).
-- Deploy with `scripts/deploy.sh` and say what is running.
+- Deploy with `scripts/deploy.sh` (the Compose deploy of HEAD) and say what is running.
 - Update the weekly picture: what was decided, what was fixed, what was deferred
   and why — a short digest in the session, and durable notes only where the repo's
   own records (task states, decision cards, audit rows) don't already carry it.

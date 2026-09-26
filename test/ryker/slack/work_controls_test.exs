@@ -404,22 +404,11 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert WorkControls.recover_publication(%{}, :retry) == {:error, :invalid_work_control}
   end
 
-  test "work target resolution fences card and thread controls independently" do
+  test "work target resolution fences card controls" do
     fixture = task_fixture!("target-resolution")
     exact = attributes(fixture.card.ref).target
 
-    assert {:ok, resolved} = WorkTarget.resolve_thread(fixture.card.ref, exact)
-    assert resolved.work_ref == fixture.card.ref
-    assert resolved.kind == :task
-
-    root_target = %{exact | message_ref: fixture.card.thread_ref, thread_ref: nil}
-    assert {:ok, root} = WorkTarget.resolve_thread(fixture.card.ref, root_target)
-    assert root.output_thread_ref == fixture.card.thread_ref
-
     assert WorkTarget.resolve(fixture.card.ref, :invalid) ==
-             {:error, :work_control_target_mismatch}
-
-    assert WorkTarget.resolve_thread(fixture.card.ref, :invalid) ==
              {:error, :work_control_target_mismatch}
 
     assert WorkTarget.resolve("task-card:missing", exact) ==
@@ -428,10 +417,7 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert WorkTarget.resolve("incident-room:missing", exact) ==
              {:error, :work_control_not_found}
 
-    assert WorkTarget.resolve_thread("incident-room:missing", exact) ==
-             {:error, :work_control_not_found}
-
-    assert WorkTarget.resolve_thread("unknown", exact) == {:error, :work_control_not_found}
+    assert WorkTarget.resolve("unknown", exact) == {:error, :work_control_not_found}
   end
 
   defp bind_remote!(fixture) do

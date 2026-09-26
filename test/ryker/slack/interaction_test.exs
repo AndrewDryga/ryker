@@ -37,30 +37,6 @@ defmodule Ryker.Slack.InteractionTest do
     assert Interaction.from_socket(malformed, "T123", @now) == :ignore
   end
 
-  # The decoder itself never learns the retired ids: a pre-rename card is not a
-  # control, and the only thing recognised about it is the exact id to audit.
-  test "a pre-rename action id is refused as a control and named as retired instead" do
-    retired =
-      envelope()
-      |> put_in(["payload", "actions", Access.at(0), "action_id"], "responder_confirm_memory")
-      |> put_in(["payload", "actions", Access.at(0), "value"], "memory:abc")
-
-    assert Interaction.from_socket(retired, "T123", @now) == :ignore
-
-    assert {:ok, interaction} = Interaction.retired_control(retired, "T123", @now)
-    assert interaction.action_id == "responder_confirm_memory"
-    assert interaction.action_value == "memory:abc"
-    assert interaction.event_ref == "interaction:env-1"
-    assert interaction.message_ref == "1787832001.000200"
-
-    # Only the retained prefix qualifies; a foreign workspace or a current id does not.
-    assert Interaction.retired_control(retired, "T999", @now) == :ignore
-    assert Interaction.retired_control(envelope(), "T123", @now) == :ignore
-
-    home = put_in(retired, ["payload", "container"], %{"type" => "view", "view_id" => "V1"})
-    assert Interaction.retired_control(home, "T123", @now) == :app_home
-  end
-
   test "normalizes only a host-encoded durable question choice" do
     envelope =
       envelope()

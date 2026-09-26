@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.UsagePageTest do
   use Ryker.DataCase, async: false
-  alias Ryker.ControlPlane.{Projection, UsagePage}
+  alias Ryker.ControlPlane.{Assets, Projection, UsagePage}
 
   test "usage shows all work by default without an execution ledger or generic methodology" do
     html = Projection.usage(%{}) |> UsagePage.render() |> IO.iodata_to_binary()
@@ -133,6 +133,49 @@ defmodule Ryker.ControlPlane.UsagePageTest do
            ]
 
     assert LazyHTML.query(document, ".usage-summary .usage-cost") |> LazyHTML.text() =~ "$1.75"
+  end
+
+  # Andrew, 2026-09-25: the rates table sat flush under "Rates used for
+  # estimates" with its note glued under it in body text, and nothing said
+  # where the rates are set. The table now opens 12px under the summary, the
+  # note sits 8px under it in the secondary colour, and it ends with the way
+  # to change them.
+  test "the estimate rates end with the way to change them in Settings" do
+    snapshot = Projection.usage(%{})
+
+    totals =
+      Map.merge(snapshot.totals, %{
+        attempts: 1,
+        usage_measured: 1,
+        estimated: 1,
+        estimated_cost_usd: Decimal.new("0.25")
+      })
+
+    models = [Map.merge(totals, %{provider: "codex", model: "gpt-5.6-sol", effort: "medium"})]
+
+    document =
+      %{snapshot | totals: totals, models: models}
+      |> UsagePage.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_document()
+
+    [note] =
+      LazyHTML.query(document, "#cost-method > .table-wrap + p.usage-rates-note")
+      |> Enum.to_list()
+
+    assert note |> LazyHTML.text() |> String.split() |> Enum.join(" ") ==
+             "USD per million tokens. API-equivalent rates, not subscription charges. " <>
+               "Change these in Settings › Model prices"
+
+    assert LazyHTML.query(note, "a[href='/settings/prices']") |> LazyHTML.text() ==
+             "Change these in Settings › Model prices"
+
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    [_, table] = Regex.run(~r/\.usage-page #cost-method > \.table-wrap \{([^}]+)\}/, css)
+    assert table =~ "margin-top:12px"
+    [_, rates] = Regex.run(~r/#cost-method > \.usage-rates-note \{([^}]+)\}/, css)
+    assert rates =~ "margin-top:8px"
+    assert rates =~ "color:var(--ryker-text-secondary)"
   end
 
   test "an execution without a saved model is not presented as an unknown model" do

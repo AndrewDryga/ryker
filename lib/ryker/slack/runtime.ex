@@ -572,26 +572,37 @@ defmodule Ryker.Slack.Runtime do
 
   # A room works in the environment of the conversation it was opened from and
   # mounts what that conversation mounted, as frozen when the room was
-  # requested. A room of an environment without repositories has nothing
-  # frozen to mount, so its goal limit is the environment's while it can run
-  # work; otherwise the room's new conversations run outside any environment.
+  # requested: the room's repository first, the default, then the others.
+  # Every one of them runs under the room's own policy. A room of an
+  # environment without repositories has nothing frozen to mount, so its goal
+  # limit is the environment's while it can run work; otherwise the room's new
+  # conversations run outside any environment.
   defp room_placement(%{environment_ref: nil}, _environments), do: %{}
 
   defp room_placement(
          %{
            environment_ref: environment_ref,
+           policy: policy,
+           policy_digest: policy_digest,
            repository_context: %{
              "parallel_goal_limit" => parallel_goal_limit,
+             "primary_repository" => primary,
              "read_only_repositories" => read_only
            }
          },
          _environments
-       ),
-       do: %{
-         environment_ref: environment_ref,
-         parallel_goal_limit: parallel_goal_limit,
-         read_only_repository_refs: read_only
-       }
+       ) do
+    room_policy = %{policy: policy, policy_digest: policy_digest}
+    classes = %{conversational: room_policy, deep: room_policy, standard: room_policy}
+    repositories = [primary | read_only]
+
+    %{
+      environment_ref: environment_ref,
+      parallel_goal_limit: parallel_goal_limit,
+      policies: Map.new(repositories, &{&1, classes}),
+      repositories: repositories
+    }
+  end
 
   defp room_placement(%{environment_ref: environment_ref}, environments) do
     case Map.get(environments, environment_ref) do
@@ -750,28 +761,33 @@ defmodule Ryker.Slack.Runtime do
     do: raise(ArgumentError, "Slack #{field} is out of range")
 
   # Every environment that can run work, keyed by ref, exactly as the host
-  # assembled it: its display name, the policy a confirmed task runs under (nil
-  # when it has no repository to change), its writable repository's GitHub
-  # name, and the Work profile its conversations run on.
+  # assembled it: its display name, the policy a confirmed task runs under for
+  # each repository it holds (none when it has no repository to change), the
+  # GitHub names of those repositories the host knows, and the Work profile
+  # its conversations run on.
   defp environments!(environments) when is_map(environments) do
     Map.new(environments, fn
       {ref,
        %{
-         contributor_policy: policy,
+         contributor_policies: policies,
          display_name: display_name,
-         github_repository: github_repository,
+         github_repositories: github_repositories,
          work_profile: work_profile
        } = environment}
-      when map_size(environment) == 4 and is_binary(ref) ->
+      when map_size(environment) == 4 and is_binary(ref) and is_map(policies) and
+             is_map(github_repositories) ->
         unless Regex.match?(Environment.ref_pattern(), ref) and display_name?(display_name),
           do: raise(ArgumentError, "Slack environments must name each environment")
 
+        profile = environment_profile!(work_profile, ref)
+        held = WorkProfile.repository_refs(profile)
+
         {ref,
          %{
-           contributor_policy: policy && policy!(policy, :contributor_policy),
+           contributor_policies: contributor_policies!(policies, held),
            display_name: display_name,
-           github_repository: github_repository!(github_repository),
-           work_profile: environment_profile!(work_profile, ref)
+           github_repositories: github_repositories!(github_repositories, held),
+           work_profile: profile
          }}
 
       _invalid ->
@@ -798,36 +814,46 @@ defmodule Ryker.Slack.Runtime do
     end
   end
 
-  defp github_repository!(nil), do: nil
+  # A task changes exactly the repository its policy places it in, and only a
+  # repository the environment holds.
+  defp contributor_policies!(policies, held) do
+    Map.new(policies, fn
+      {repository, %{repository_ref: repository} = policy} when is_binary(repository) ->
+        if repository in held,
+          do: {repository, policy!(policy, :contributor_policies)},
+          else: raise(ArgumentError, "Slack environments must hold each task repository")
 
-  defp github_repository!(value) do
-    if is_binary(value) and Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, value),
-      do: value,
-      else: raise(ArgumentError, "Slack environments must name GitHub repositories as owner/name")
+      _invalid ->
+        raise ArgumentError, "Slack environments must place each task in its own repository"
+    end)
   end
 
-  # What a channel may select, and what work there may use: the repository
-  # it changes first, the ones it reads, and whether it has Emisar. Only the
-  # changed repository's GitHub page is known here, so only it is linked.
+  defp github_repositories!(names, held) do
+    Map.new(names, fn {repository, name} ->
+      unless repository in held and is_binary(name) and
+               Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, name),
+             do:
+               raise(
+                 ArgumentError,
+                 "Slack environments must name their own GitHub repositories as owner/name"
+               )
+
+      {repository, name}
+    end)
+  end
+
+  # What a channel may select, and what work there may use: its repositories,
+  # the default first, each linked to its GitHub page when the host knows it,
+  # and whether it has Emisar.
   defp environment_choices(environments) do
     Enum.map(environments, fn {ref, environment} ->
       profile = environment.work_profile
 
-      url =
-        environment.github_repository &&
-          "https://github.com/#{environment.github_repository}"
-
       repositories =
-        case profile.repository_ref do
-          nil ->
-            []
-
-          writable ->
-            [
-              %{ref: writable, url: url}
-              | Enum.map(profile.read_only_repository_refs, &%{ref: &1, url: nil})
-            ]
-        end
+        Enum.map(profile.repositories, fn repository ->
+          name = Map.get(environment.github_repositories, repository)
+          %{ref: repository, url: name && "https://github.com/#{name}"}
+        end)
 
       %{
         emisar: not is_nil(profile.emisar_connection_ref),

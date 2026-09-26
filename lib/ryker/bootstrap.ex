@@ -55,18 +55,13 @@ defmodule Ryker.Bootstrap do
   def secret!(kind, env \\ &System.fetch_env/1),
     do: required_secret!(env, Keyword.fetch!(@machine_secrets, kind))
 
-  def checkpoint_key!(env \\ &System.fetch_env/1) do
-    name = "RYKER_CHECKPOINT_KEY"
-    encoded = required_secret!(env, name)
+  def checkpoint_key!(env \\ &System.fetch_env/1), do: key!(env, "RYKER_CHECKPOINT_KEY")
 
-    case Base.decode64(encoded) do
-      {:ok, key} when byte_size(key) == 32 -> key
-      _ -> invalid!(name, "must be base64 for exactly 32 bytes")
-    end
-  end
+  def credential_key!(env \\ &System.fetch_env/1), do: key!(env, "RYKER_CREDENTIAL_KEY")
 
-  def credential_key!(env \\ &System.fetch_env/1) do
-    name = "RYKER_CREDENTIAL_KEY"
+  # Both keys are exactly 32 bytes, base64-encoded; the failure names the
+  # variable and never quotes the value.
+  defp key!(env, name) do
     encoded = required_secret!(env, name)
 
     case Base.decode64(encoded) do

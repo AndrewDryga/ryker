@@ -4,10 +4,20 @@ defmodule Ryker.ControlPlane.LiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Ryker.Admission.Attempts
-  alias Ryker.ControlPlane.{Actions, BehaviorLibrary, ConversationLab, LiveSocket, Projection}
-  alias Ryker.ControlPlane.LabPage
-  alias Ryker.ControlPlane.PubSub
-  alias Ryker.ControlPlane.WorkbenchLive
+
+  alias Ryker.ControlPlane.{
+    Actions,
+    BehaviorLibrary,
+    ConversationLab,
+    Environments,
+    Kit,
+    LabPage,
+    LiveSocket,
+    Projection,
+    PubSub,
+    WorkbenchLive
+  }
+
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.EntryChangeset
@@ -33,7 +43,7 @@ defmodule Ryker.ControlPlane.LiveTest do
       })
 
     options = %{
-      actions: Actions.callbacks(lab_profile),
+      actions: Actions.callbacks(%{environments: %{}, fallback_work_profile: lab_profile}),
       csrf_secret: String.duplicate("s", 32),
       observability: %{},
       projection:
@@ -159,8 +169,10 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   test "the live shell shows Rules once with its sentence beneath, then one column" do
     # The approved page (2026-09-24): the title, one plain sentence, one row of
-    # search and Current/Past, the rules, how to add one, then recent
-    # matches, down one left edge. A routine reconcile must not disturb it.
+    # search and Current/Past, the rules, then recent matches, down one left
+    # edge. How to add a rule moved from a line under the list into the
+    # shell's closed "How this page works" panel on 2026-09-25. A routine
+    # reconcile must not disturb any of it.
     source = SavedEntities.source!("slack:T123:C456")
 
     SavedEntities.behavior!(
@@ -198,17 +210,17 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert outline(document, "main .behavior-page > *") == [
              "div.kit-toolbar",
              "div.entity-list",
-             "p.ask-hint",
              "section.behavior-matches"
            ]
 
     assert has_element?(view, "main .behavior-page > .entity-list h3", "Triage alerts")
     assert has_element?(view, "main .behavior-page > .entity-list", "Watch Terraform applies")
-    refute has_element?(view, "details.page-help, p.result-count, .behavior-counts")
+    refute has_element?(view, ".ask-hint, p.result-count, .behavior-counts")
+    assert has_element?(view, "main > aside.page-help details#page-help:not([open])")
 
     send(view.pid, :reconcile)
     assert has_element?(view, "main header.page-header h1", "Rules")
-    assert has_element?(view, "main p.ask-hint", "To add a rule, tell Ryker in the channel:")
+    assert has_element?(view, "main > aside.page-help h2", "How rules work")
   end
 
   test "filters live in the URL, so a shared or back-navigated address reproduces the list and changes nothing" do
@@ -903,7 +915,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(empty, ".lab-directory-empty", "Send a message and it will appear here.")
     refute has_element?(empty, ".lab-directory-empty .ui-icon")
     refute has_element?(empty, ".lab-directory-empty a, .lab-directory-empty button")
-    refute has_element?(empty, ".lab-directory-group")
+    refute has_element?(empty, ".lab-directory-day")
 
     {:ok, profile} =
       WorkProfile.new(%{
@@ -933,8 +945,12 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     {:ok, view, html} = live(conn, "/conversations/#{today}")
     document = LazyHTML.from_document(html)
-    assert LazyHTML.query(document, ".lab-directory-group h2") |> LazyHTML.text() =~ "Today"
-    assert LazyHTML.query(document, ".lab-directory-group h2") |> LazyHTML.text() =~ "Earlier"
+    # Each day opens with the heading every Kit list uses; a week back is its date.
+    utc_today = Date.utc_today()
+
+    assert Enum.map(LazyHTML.query(document, ".lab-directory-day > h2"), &LazyHTML.text/1) ==
+             ["Today", Kit.day_label(Date.add(utc_today, -8), utc_today)]
+
     refute has_element?(view, ".lab-directory-empty")
 
     # Two conversations opened with the same first message are two rows with
@@ -957,9 +973,11 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert title == long
     assert has_element?(view, ".lab-directory-list a[href='/conversations/#{earlier}']", long)
 
-    # The list is scanned: a short time on the row, the full UTC time on hover.
+    # The list is scanned: under its day's heading a row says only the clock
+    # time, and the full UTC time is a hover away.
     times = LazyHTML.query(document, ".lab-directory-list time")
-    assert LazyHTML.text(times) =~ ~r/\d\d:\d\d|\d\d [A-Z][a-z]{2}/
+    assert Enum.count(times) == 3
+    assert Enum.all?(times, &(LazyHTML.text(&1) =~ ~r/\A\d\d:\d\d\z/))
     assert Enum.all?(LazyHTML.attribute(times, "title"), &(&1 =~ "UTC"))
     refute html =~ "inputs ·"
     refute html =~ "RECENT CONVERSATIONS"
@@ -1014,13 +1032,94 @@ defmodule Ryker.ControlPlane.LiveTest do
     {:ok, view, _} = live(conn, "/conversations")
     row = fn id -> ".lab-directory-list a[href='/conversations/#{id}']" end
 
-    assert has_element?(view, row.(routing) <> " [data-status=working]", "Working")
-    assert has_element?(view, row.(stopped) <> " [data-status=attention]", "Needs attention")
-    assert has_element?(view, row.(answered) <> " [data-status=replied]", "Replied")
+    # Its state is the Kit's dot and word: busy, needing a person, or quiet.
+    state = fn id, tone -> row.(id) <> " .lab-directory-meta .state-word[data-tone=#{tone}]" end
+    assert has_element?(view, state.(routing, :busy), "Working")
+    assert has_element?(view, state.(stopped, :warn), "Needs attention")
+    assert has_element?(view, state.(answered, :off), "Replied")
 
     assert has_element?(view, row.(answered) <> " .lab-directory-title", "Greeting")
     refute has_element?(view, row.(answered), "hey there")
     assert has_element?(view, row.(routing) <> " .lab-directory-title", "Still routing")
+  end
+
+  # Andrew, 2026-09-25: "Chat picks its environment." Every conversation ran
+  # in the default environment and nothing on the page said so, so a question
+  # about staging was answered from production's repositories and Emisar
+  # account. The conversation's head now offers the environments in one
+  # select: a new conversation starts in the default, a choice is saved for
+  # the conversation and survives a reload and a routine refresh, and "No
+  # environment" is a choice too. (The head is this control beside the title,
+  # not the "Ready for your message" hero the draft test still refuses.)
+  test "a conversation picks its environment in its head and keeps the choice" do
+    alias Ryker.Fixtures.ChannelEnvironments
+
+    ChannelEnvironments.environment!("production", %{
+      is_default: true,
+      repositories: ["acme-api", "acme-web"]
+    })
+
+    ChannelEnvironments.environment!("staging", %{repositories: ["acme-api"]})
+    snapshot = Ryker.Settings.fetch!()
+    name = &Environments.repository_name(snapshot, &1)
+    conn = build_conn() |> Map.put(:host, "localhost")
+
+    # A new conversation starts in the default environment.
+    {:ok, draft, _} = live(conn, "/conversations")
+    assert has_element?(draft, "header.lab-chat-head h2.lab-chat-title", "New conversation")
+
+    assert has_element?(
+             draft,
+             "form.lab-environment option[selected][value=production]",
+             "Production"
+           )
+
+    assert has_element?(
+             draft,
+             "header.lab-chat-head .lab-chat-place",
+             "Works in Production: #{name.("acme-api")}, #{name.("acme-web")}"
+           )
+
+    id = Ecto.UUID.generate()
+    {:ok, view, html} = live(conn, "/conversations/#{id}")
+    assert has_element?(view, "form.lab-environment option[selected][value=production]")
+
+    assert html
+           |> LazyHTML.from_document()
+           |> LazyHTML.query("form.lab-environment select#lab-environment > option")
+           |> Enum.map(&String.trim(LazyHTML.text(&1))) ==
+             ["Production", "Staging", "No environment"]
+
+    # A choice is saved for the conversation and the head shows it at once.
+    view |> element("form.lab-environment") |> render_change(%{"environment" => "staging"})
+    assert ConversationLab.environment(id) == {:ok, "staging"}
+    assert has_element?(view, "form.lab-environment option[selected][value=staging]", "Staging")
+    assert has_element?(view, ".lab-chat-place", "Works in Staging: #{name.("acme-api")}")
+    refute has_element?(view, "form.lab-environment option[selected][value=production]")
+
+    # It survives a reload and the routine refresh.
+    {:ok, again, _} = live(conn, "/conversations/#{id}")
+    assert has_element?(again, "form.lab-environment option[selected][value=staging]")
+    send(again.pid, :reconcile)
+    assert has_element?(again, "form.lab-environment option[selected][value=staging]")
+
+    # No environment is a choice: the next messages run without code.
+    again |> element("form.lab-environment") |> render_change(%{"environment" => ""})
+    assert ConversationLab.environment(id) == {:ok, nil}
+
+    assert has_element?(
+             again,
+             "form.lab-environment option[selected][value='']",
+             "No environment"
+           )
+
+    assert has_element?(again, ".lab-chat-place", "Works without code")
+
+    # An environment that no longer exists cannot be chosen; the head keeps
+    # saying what is true.
+    again |> element("form.lab-environment") |> render_change(%{"environment" => "gone"})
+    assert ConversationLab.environment(id) == {:ok, nil}
+    assert has_element?(again, "form.lab-environment option[selected][value='']")
   end
 
   test "an inspection link opens beside the conversation instead of replacing it" do

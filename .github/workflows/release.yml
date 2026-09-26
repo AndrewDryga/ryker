@@ -86,20 +86,11 @@ jobs:
       - name: build and verify canonical Elixir release
         run: |
           set -eu
-          make elixir-release-check
-          version=${GITHUB_REF_NAME#v}
-          install -d -m 0755 dist
-          install -m 0644 \
-            "_build/prod/ryker-${version}.tar.gz" \
-            "dist/ryker_${version}_elixir_linux_amd64.tar.gz"
-          install -m 0755 scripts/install-elixir-release.sh dist/install-elixir-release.sh
-          install -m 0755 scripts/check-elixir-release.sh dist/check-elixir-release.sh
-          install -m 0755 scripts/activate-elixir-release.sh dist/activate-elixir-release.sh
-          (cd dist && sha256sum \
-            ryker_*_elixir_linux_amd64.tar.gz \
-            install-elixir-release.sh \
-            check-elixir-release.sh \
-            activate-elixir-release.sh > checksums.txt)
+          make release-dist
+          test -f "dist/ryker_${GITHUB_REF_NAME#v}_elixir_linux_amd64.tar.gz" || {
+            echo "the built release is not the tagged version ${GITHUB_REF_NAME#v}" >&2
+            exit 1
+          }
           cosign sign-blob dist/checksums.txt \
             --bundle=dist/checksums.txt.bundle \
             --yes
@@ -117,9 +108,6 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --notes-file /tmp/release-notes.md \
             dist/ryker_*_elixir_linux_amd64.tar.gz \
-            dist/install-elixir-release.sh \
-            dist/check-elixir-release.sh \
-            dist/activate-elixir-release.sh \
             dist/checksums.txt \
             dist/checksums.txt.bundle
           gh release edit "$GITHUB_REF_NAME" --draft=false
