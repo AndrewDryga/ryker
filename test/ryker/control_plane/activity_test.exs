@@ -340,10 +340,8 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert Activity.conversation_filter_options()
            |> Enum.filter(&(&1.source == "control_plane"))
            |> Enum.map(&{&1.conversation_ref, &1.conversation_label}) == [
-             {"chat-b",
-              "Direct conversation · Message text no longer available · 25 Sep, 14:02"},
-             {"chat-a",
-              "Direct conversation · Message text no longer available · 24 Sep, 09:15"}
+             {"chat-b", "Direct conversation · Message text no longer available · 25 Sep, 14:02"},
+             {"chat-a", "Direct conversation · Message text no longer available · 24 Sep, 09:15"}
            ]
   end
 
