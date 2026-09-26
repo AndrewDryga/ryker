@@ -167,6 +167,21 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ ~s("artifact_refs":)
   end
 
+  test "a conversation summary is written for the person reading it" do
+    # QA re-test, 2026-09-26: Learned › Conversation summaries showed
+    # "Automation offer record:schedule_offer:7ed4…" and "A durable input
+    # request was refused with no_addressee". People read these summaries;
+    # references belong in evidence_refs, not in the words.
+    instructions =
+      Prompt.build(%{})
+      |> Jason.decode!()
+      |> Map.fetch!("instructions")
+      |> String.replace(~r/\s+/, " ")
+
+    assert instructions =~
+             "People read these summaries: write them in plain words, and put record references in evidence_refs rather than in the text, with no error codes or tool names."
+  end
+
   test "restating remembered claims keeps their uncertainty and attribution" do
     # The live draft-keep probe retained a tentative setup attribution in memory,
     # then described the decider as "the person it was set up for" as if verified.
