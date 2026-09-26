@@ -330,7 +330,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
            ]
 
     assert page |> LazyHTML.query("header.page-header h1") |> LazyHTML.text() == "#test"
-    assert page |> LazyHTML.query("p.channel-state") |> LazyHTML.text() =~ "Ryker is in"
+    assert page |> LazyHTML.query("p.channel-state") |> LazyHTML.text() =~ "Connected"
     refute html =~ "How context reaches this channel"
   end
 

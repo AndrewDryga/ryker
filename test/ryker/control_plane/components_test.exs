@@ -551,7 +551,7 @@ defmodule Ryker.ControlPlane.ComponentsTest do
             <Kit.entity_row
               name="#infra"
               href="/channels/T1/C1"
-              state={{:on, "Ryker is in"}}
+              state={{:on, "Connected"}}
               meta={["Replies when mentioned"]}
             />
           </Kit.entity_list>

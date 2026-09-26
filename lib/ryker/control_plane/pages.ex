@@ -111,14 +111,10 @@ defmodule Ryker.ControlPlane.Pages do
     view = ChannelsPage.view(params)
     items = options.projection.channels.(ChannelsPage.query(view))
 
-    "Channels"
-    |> ok(
+    ok(
+      "Channels",
       "Slack channels Ryker is in, and how it takes part in each one.",
       ChannelsPage.html(%{items: items, view: view, now: nil})
-    )
-    |> Map.put(
-      :action,
-      ~s(<a class="ui-button secondary" href="/integrations/slack#new-channels">Defaults</a>)
     )
   end
 

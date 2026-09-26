@@ -102,18 +102,39 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   attr(:settings, :any, required: true, doc: "The settings view the shell already read")
 
   @doc """
-  One line saying where Slack stands, in the words the Slack page uses, with
-  the one step that moves it forward.
+  Where Slack stands, in the words the Slack page uses, with the one step
+  that moves it forward. Once Slack is set up, a second row says how a
+  channel Ryker joins takes part until it makes its own choice, and Change
+  opens that setting on the Slack page.
   """
   def slack_status(assigns) do
+    assigns =
+      assign(assigns,
+        integration: Integrations.read(:slack, assigns.settings),
+        default: new_channels(assigns.settings)
+      )
+
     ~H"""
-    <Integrations.line
-      id="slack-status"
-      key={:slack}
-      integration={Integrations.read(:slack, @settings)}
-    />
+    <div class="connection-card">
+      <Integrations.line id="slack-status" key={:slack} integration={@integration} />
+      <div :if={@default} id="new-channels-default" class="connection-line">
+        <p><strong>New channels</strong> <span>{participation(@default)}</span></p>
+        <.link navigate="/integrations/slack#new-channels" class="ui-button secondary">
+          Change<span class="sr-only"> what new channels do</span>
+        </.link>
+      </div>
+    </div>
     """
   end
+
+  # The setting lives on the Slack page, which shows it once Slack's tokens
+  # are verified; before that there is nothing to change it on.
+  defp new_channels({:ok, view}) do
+    if Integrations.slack(view).status != :not_set_up,
+      do: view.snapshot.slack.default_participation
+  end
+
+  defp new_channels(_unread), do: nil
 
   @doc """
   How Ryker takes part in a channel, in the words people use for it.
@@ -129,11 +150,11 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   """
   @spec state(atom() | nil, boolean(), String.t()) :: {atom(), String.t()} | nil
   def state(_membership, true, _channel_ref), do: {:warn, "Incident open"}
-  def state(:joined, _incident_open, _channel_ref), do: {:on, "Ryker is in"}
-  def state(:left, _incident_open, _channel_ref), do: {:off, "Ryker left"}
+  def state(:joined, _incident_open, _channel_ref), do: {:on, "Connected"}
+  def state(:left, _incident_open, _channel_ref), do: {:off, "Disconnected"}
   def state(:deleted, _incident_open, _channel_ref), do: {:off, "Deleted"}
   def state(nil, _incident_open, "D" <> _direct), do: nil
-  def state(nil, _incident_open, _channel_ref), do: {:off, "Not joined"}
+  def state(nil, _incident_open, _channel_ref), do: {:off, "Not connected"}
 
   @doc "The page of one channel."
   @spec path(String.t(), String.t()) :: String.t()
