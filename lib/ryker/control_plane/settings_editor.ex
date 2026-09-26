@@ -927,6 +927,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp slack_channel(field, view, chosen) do
     channels = SettingsSections.options(%{options: :slack_channels}, view)
+    slack = Integrations.slack(view)
 
     saved =
       if chosen == "" or List.keymember?(channels, chosen, 0),
@@ -940,12 +941,19 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       required: true,
       prompt: "Choose a channel",
       help:
-        if(channels == [],
-          do:
+        cond do
+          channels != [] ->
+            "One of the Slack channels Ryker is in."
+
+          # Slack not on yet is why no channel is listed; the reason is the
+          # one every page gives.
+          slack.status in [:not_set_up, :off] ->
+            "Ryker lists the channels it is in once Slack is on. " <> slack.reason
+
+          true ->
             "Ryker is not in any Slack channel yet. Invite it to one with /invite, then " <>
-              "choose it here.",
-          else: "One of the Slack channels Ryker is in."
-        ),
+              "choose it here."
+        end,
       errors: %{required: "Choose the Slack channel where Ryker posts about these events."}
     })
   end
@@ -986,19 +994,26 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           link: "Open Environments",
           href: "/environments"
         },
-      Integrations.slack(view).status in [:not_set_up, :off] &&
-        %{
-          text:
-            "Slack is not connected, so Ryker cannot post these events yet. A source that " <>
-              "posts to Slack does not take events until Slack runs, and this page says so.",
-          link: "Open Slack",
-          href: "/integrations/slack"
-        }
+      slack_notice(Integrations.slack(view))
     ]
     |> Enum.filter(& &1)
   end
 
   defp notices(section, view), do: List.wrap(notice(section, view))
+
+  # Why Ryker cannot post these events to Slack yet, in the words and with the
+  # next step every page gives for Slack's state.
+  defp slack_notice(%{status: status} = slack) when status in [:not_set_up, :off] do
+    %{
+      text:
+        slack.reason <>
+          " Until then a source that posts to Slack does not take events, and this page says so.",
+      link: slack.action.label,
+      href: slack.action.href
+    }
+  end
+
+  defp slack_notice(_slack), do: nil
 
   defp notice(%{key: :model} = section, view) do
     unpriced =

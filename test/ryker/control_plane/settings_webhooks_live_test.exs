@@ -127,11 +127,19 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
 
     assert has_element?(view, "#settings-webhooks .settings-notice a[href='/environments']")
 
-    # Before Slack runs, a source that posts there waits, and the page says so.
+    # Before Slack runs, a source that posts there waits, and the page says so
+    # with the reason every page gives for Slack's state.
     assert has_element?(
              view,
              "#settings-webhooks .settings-notice",
-             "A source that posts to Slack does not take events until Slack runs"
+             "Ryker cannot read or reply in Slack until you connect it. Until then a source " <>
+               "that posts to Slack does not take events"
+           )
+
+    assert has_element?(
+             view,
+             "#settings-webhooks .settings-notice a[href='/integrations/slack']",
+             "Connect Slack"
            )
   end
 
@@ -501,6 +509,54 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     refute has_element?(view, "#settings-webhooks-secret_name option[value='#{@registered}']")
   end
 
+  test "the page says what Slack is waiting for in the words every other page uses" do
+    # QA re-test, 2026-09-26: with Slack's tokens verified and nobody chosen
+    # to manage Ryker, Webhooks said "Slack is not connected, so Ryker cannot
+    # post these events yet" and its channel list "Ryker is not in any Slack
+    # channel yet", while every other page said "Finish connecting".
+    snapshot = installation_without_channels!()
+
+    {:ok, _snapshot} =
+      Settings.save_slack(
+        %{
+          enabled: false,
+          workspace_ref: "T0123456789",
+          workspace_name: "Acme",
+          bot_ref: "A0123456789",
+          bot_user_ref: "U0123456789",
+          bot_name: "ryker"
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    for kind <- [:slack_app, :slack_bot] do
+      {:ok, _} = Credentials.put(kind, "primary", "xoxb-test-token-long-enough", @actor)
+      {:ok, _} = Credentials.verify(kind, "primary", :verified, @actor)
+    end
+
+    {:ok, view, _html} = open()
+
+    assert has_element?(
+             view,
+             ".settings-notice",
+             "The tokens are verified, but Slack stays off until you choose who can manage Ryker."
+           )
+
+    assert has_element?(view, ".settings-notice a[href='/integrations/slack']", "Choose people")
+    refute render(view) =~ "Slack is not connected"
+
+    open_source_editor(view)
+
+    assert has_element?(
+             view,
+             "#settings-webhooks-form",
+             "Ryker lists the channels it is in once Slack is on."
+           )
+
+    refute render(view) =~ "not in any Slack channel yet"
+  end
+
   defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/integrations/webhooks")
 
   defp open_source_editor(view) do
@@ -552,6 +608,10 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   # sources to post to.
   defp installation! do
     joined_channel!("C0123456789")
+    installation_without_channels!()
+  end
+
+  defp installation_without_channels! do
     {:ok, %{installation: %{revision: revision}}} = Settings.initialize(@actor)
 
     {:ok, snapshot} =
