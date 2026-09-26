@@ -122,8 +122,20 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     text |> String.trim_trailing(">") |> String.split("|", parts: 2) |> List.last() |> escape()
   end
 
-  defp token("```" <> text),
-    do: ["<pre><code>", escape(String.slice(text, 0..-4//1)), "</code></pre>"]
+  # A fence's first word names the block's language ("```sh"); it is not
+  # code. The block scrolls inside itself (.md-code) so a long line never
+  # widens the page it sits on.
+  defp token("```" <> text) do
+    {language, code} = text |> String.slice(0..-4//1) |> fence()
+
+    [
+      "<pre class=\"md-code\"",
+      if(language != "", do: [" data-language=\"", escape(language), "\""], else: []),
+      "><code>",
+      escape(code),
+      "</code></pre>"
+    ]
+  end
 
   defp token("`" <> text), do: ["<code>", escape(String.slice(text, 0..-2//1)), "</code>"]
   defp token("**" <> text), do: ["<strong>", escape(String.slice(text, 0..-3//1)), "</strong>"]
@@ -153,6 +165,13 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   end
 
   defp token(text), do: escape(text)
+
+  defp fence(body) do
+    case Regex.run(~r/\A([A-Za-z0-9_+.#-]*)\n(.*)\z/s, body) do
+      [_line, language, code] -> {language, String.trim_trailing(code, "\n")}
+      nil -> {"", body}
+    end
+  end
 
   defp wrapped(tag, text),
     do: ["<", tag, ">", escape(String.slice(text, 0..-2//1)), "</", tag, ">"]

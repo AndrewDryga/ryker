@@ -110,6 +110,18 @@ defmodule Ryker.ControlPlane.LabPageTest do
     refute heading =~ "uppercase"
   end
 
+  # QA re-test, 2026-09-26: a reply with one shell block made the whole Chat
+  # page 554 px wide on a 390 px phone, sliding the header and the composer
+  # sideways. A code block keeps its lines and scrolls inside itself.
+  test "a code block scrolls inside the message instead of widening the page" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    [_, block] = Regex.run(~r/\n\.md-code \{([^}]+)\}/, css)
+    assert block =~ "max-width:100%"
+    assert block =~ "overflow-x:auto"
+    assert block =~ "box-sizing:border-box"
+  end
+
   test "the browser's own controls never show beside Ryker's, and phone examples look tappable" do
     # QA 2026-09-25: "No file chosen" sat beside Attach files, a phone's More
     # showed the browser's triangle before its own chevron ("▶ More ›"), and
