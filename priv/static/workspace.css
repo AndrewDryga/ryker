@@ -977,11 +977,7 @@
 .input-queue[data-state="needs_attention"] .queue-events li:last-child p { color:var(--ryker-text-secondary); }
 .standalone-preparation { margin:0 0 24px; }
 
-/* A success mark carries the state; nothing visible repeats it. */
-.success-mark { display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; border-radius:50%; background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); font-size:12px; font-weight:700; }
-.success-mark::before { content:"✓"; }
-
-/* Work setup: pinned setup against the actual session, worker and workspace. */
+/* Work setup: how the message joined the request, the environment and the session. */
 .setup-facts { grid-column:1 / -1; margin:8px 0 0; }
 .work-setup[data-state="blocked"] .case-event-summary { color:var(--ryker-text-secondary); }
 
@@ -1080,7 +1076,7 @@
 
 /* Shared dark-state vocabulary. Brand mint is reserved for selection and
    actions; lifecycle meaning keeps independent, labelled colors. */
-.status-active, .status-done, .success-mark { color:var(--ryker-success); background:var(--ryker-success-soft); border-color:var(--ryker-success); }
+.status-active, .status-done { color:var(--ryker-success); background:var(--ryker-success-soft); border-color:var(--ryker-success); }
 .status-attention, .event-state.tone-warn { color:var(--ryker-warning); background:var(--ryker-warning-soft); border-color:var(--ryker-warning); }
 .event-state.tone-bad, .provider-state.tone-failure, .provider-state.tone-firing,
 .lab-notice {
@@ -1362,7 +1358,6 @@
 .episode-request > .response-reference { margin:10px 0 0; font-size:13px; }
 .case-card-heading + .ui-facts { margin-top:12px; }
 .ryker-app .case-entry-body .ui-facts > div:first-child { border-top:0; }
-.success-mark::before { content:""; width:4px; height:8px; margin-top:-2px; border:solid currentColor; border-width:0 2px 2px 0; transform:rotate(45deg); }
 
 /* Plain disclosures ("Details", "Setup details") stay small */
 .case-entry-body .ui-disclosure-details > summary { color:var(--ryker-text-secondary); font-size:12px; font-weight:400; }

@@ -108,21 +108,26 @@ with recorded knowledge omissions; without a retained snapshot the row says the
 search scope was not recorded. Offered is not chosen — the model's choice is a
 later fact on its own card.
 
-The work phase opens with a **Work setup** card per Work turn (and one on the
-pinned session while no turn has claimed it), before the Work briefing. It
-distinguishes the pinned setup from the session, worker and workspace the turn
-actually ran on: Session New / Reused from previous work round / Replaced (the
-rotation reason is not retained, so it says "Reason not recorded"), Worker
-(the fleet placement's worker, or "Local Coop" for a bound local session),
-Profile, and Workspace as "Prepared · N repositories" from the frozen
-submission's workspace snapshot. Ready needs evidence that preparation
-completed, which is a bound remote turn; a live Work lease without a bound
-session is "Preparing" at the one step the rows record; a turn blocked before
-it started says what its recorded error code means; and a session row alone is
-"Setup selected". Individual preparation checks were never recorded and are
-labelled that way. Setup details keep repository access, the bound Ryker
-tools, the bound task and technical identifiers; the repo@sha chips and the
-tool catalog stay on the briefing.
+The work phase opens with a **Work setup** card per Work run (and one on the
+pinned session while no run has claimed it), before the Work briefing. Its rows
+say, in order: **Request**, whether the message that started the run began the
+request or was added to it, from routing's recorded decision for that message
+(naming the earlier request routing linked as background, if any);
+**Environment**, the environment the session recorded and why the work ran
+there, read from where the request came from the way the runtime chose it (a
+Slack channel's own, the default for a direct message, the incident room's, a
+Chat conversation's, the one holding a GitHub event's repository, a webhook
+source's), or "None" for work outside any environment; **Repository** or
+**Repositories**, each with "can change it" or "read only" from the workspace
+Coop reported when the briefing was frozen; **Emisar**, the account the session
+pinned, when there is one; and **Session**, new, continued, or new replacing an
+earlier session (because a message was edited, or with the reason not
+recorded). Display names come from today's settings; everything else is the
+run's own record. A ready setup carries no state mark; a live Work lease
+without a bound session is "Preparing" at the one step the rows record; a run
+blocked before it started says what its recorded error code means, with the
+worker and execution policy in Failure diagnostics; and a session row alone is
+"Setup selected". The repo@sha chips and the tool catalog stay on the briefing.
 
 Recognized notification formats get a provider card in place of the generic
 byline: HCP Terraform run notifications (recognized from the retained Slack

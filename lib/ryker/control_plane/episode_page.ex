@@ -873,16 +873,17 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
-  # The pinned setup against the session, worker and workspace the turn ran on.
-  # Ready carries a success icon and no repeated word; the failure reason and
-  # the current preparation step are the only sentences on the face.
+  # How the run's message joined the request, the environment the work ran in
+  # and what it gave the work, and the session it used. Ready is the ordinary
+  # case and carries no state at all (Andrew, 2026-09-26: the green check said
+  # nothing); a setup that is not ready names its state, and the failure reason
+  # and the current preparation step are the only sentences on the face.
   defp work_setup(assigns) do
     ~H"""
     <div class="case-event-content work-setup" data-state={@step.setup.kind}>
       <.card_heading title="Work setup">
-        <:meta>
-          <.success_mark :if={@step.setup.kind == :ready} label="Ready" />
-          <span :if={@step.setup.kind != :ready} class={"event-state tone-#{@step.tone}"}>
+        <:meta :if={@step.setup.kind != :ready}>
+          <span class={"event-state tone-#{@step.tone}"}>
             {@step.setup.label}<small :if={@step.setup.current}> · current</small>
           </span>
         </:meta>
