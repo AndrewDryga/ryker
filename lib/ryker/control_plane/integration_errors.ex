@@ -18,6 +18,11 @@ defmodule Ryker.ControlPlane.IntegrationErrors do
       "That app token does not look right: it starts with xapp- and is under Basic " <>
         "Information › App-Level Tokens in your Slack app."
 
+  def message({:invalid_credential, :swapped_tokens}),
+    do:
+      "The two tokens are swapped: the app token starts with xapp- and the bot token " <>
+        "with xoxb-. Paste each in its own box, then verify again."
+
   def message({:invalid_credential, :bot_token}),
     do:
       "That bot token does not look right: it starts with xoxb- and is under OAuth & " <>

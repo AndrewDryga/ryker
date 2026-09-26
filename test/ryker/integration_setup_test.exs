@@ -3,7 +3,7 @@ defmodule Ryker.IntegrationSetupTest do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.Integrations
+  alias Ryker.ControlPlane.{IntegrationErrors, Integrations}
   alias Ryker.{Credentials, Episodes, IntegrationSetup, Settings}
   alias Ryker.Emisar.Connections
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -202,6 +202,25 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert {:ok, [%{id: "U1", name: "Ada"}, %{id: "U2", name: "Zoe"}]} =
              IntegrationSetup.slack_members(requester: Requester)
+  end
+
+  # Manual testing, 2026-09-26: tokens pasted into each other's boxes were
+  # told only that the app token "does not look right", and nothing said the
+  # bot token was the right one in the wrong place.
+  test "Slack tokens pasted into each other's boxes are named as swapped, before any request" do
+    swapped = %{
+      "app_token" => "xoxb-this-is-a-long-bot-token",
+      "bot_token" => "xapp-this-is-a-long-app-token"
+    }
+
+    assert IntegrationSetup.connect_slack(swapped, requester: Requester) ==
+             {:error, {:invalid_credential, :swapped_tokens}}
+
+    refute_received {:provider_request, _url, _method, _path, _body, _headers}
+
+    assert IntegrationErrors.message({:invalid_credential, :swapped_tokens}) ==
+             "The two tokens are swapped: the app token starts with xapp- and the bot token " <>
+               "with xoxb-. Paste each in its own box, then verify again."
   end
 
   test "new tokens for the workspace Slack works in keep it on; another workspace's switch it off" do
