@@ -278,6 +278,16 @@ defmodule Ryker.ObservabilityTest do
       [~s(ryker_retention_retained{reason="dirty"} 1)]
   end
 
+  defp assert_probes_unavailable do
+    assert {probe("/healthz").status, probe("/healthz").resp_body} == {200, "ok\n"}
+
+    assert {probe("/readyz").status, probe("/readyz").resp_body} ==
+             {503, "not ready: readiness check failed\n"}
+
+    assert {probe("/metrics").status, probe("/metrics").resp_body} ==
+             {503, "metrics unavailable\n"}
+  end
+
   defp in_map_order(lines_by_key), do: Enum.flat_map(lines_by_key, &elem(&1, 1))
 
   # Aged exactly as the scrape ages them: a naive timestamp by the whole
@@ -286,6 +296,40 @@ defmodule Ryker.ObservabilityTest do
     do: max(NaiveDateTime.diff(DateTime.to_naive(now), at, :second), 0)
 
   defp age(now, at), do: max(DateTime.diff(now, at, :second), 0)
+
+  # The split replaced one rescue around the whole snapshot with an answer from
+  # each read. A read the database refuses after the clock was read must leave
+  # the probes saying so: a crashed request answers a bare 500 that tells the
+  # watchdog nothing. A heartbeat from a lane this release does not know fails
+  # the read the same way instead of being skipped.
+  test "a read refused mid-snapshot leaves the probes answering unavailable" do
+    for table <- ~w(ryker_runtime_progress coop_workers episode_work_sessions) do
+      # Only this table is broken; the sandbox rollback restores it either way.
+      Repo.query!("ALTER TABLE #{table} RENAME TO #{table}_broken")
+
+      assert {:error, {:observability_query_failed, detail}} = Observability.snapshot(900)
+      assert detail =~ table
+      assert_probes_unavailable()
+
+      Repo.query!("ALTER TABLE #{table}_broken RENAME TO #{table}")
+    end
+
+    Repo.query!("ALTER TABLE coop_workers RENAME TO coop_workers_broken")
+    assert {:error, {:observability_query_failed, _detail}} = Observability.fleet()
+    Repo.query!("ALTER TABLE coop_workers_broken RENAME TO coop_workers")
+
+    Repo.query!("""
+    INSERT INTO ryker_runtime_progress
+      (lane, outcome, cycle_count, observed_at, inserted_at, updated_at)
+    VALUES ('retired_lane', 'cycle', 1, clock_timestamp(), clock_timestamp(), clock_timestamp())
+    """)
+
+    assert Observability.snapshot(900) ==
+             {:error,
+              {:observability_query_failed, ~s(unknown runtime progress lane: "retired_lane")}}
+
+    assert_probes_unavailable()
+  end
 
   test "health readiness and metrics expose queue facts without payloads or destinations" do
     secret = "private-payload-never-a-metric"
