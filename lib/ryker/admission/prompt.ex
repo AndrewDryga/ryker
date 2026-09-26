@@ -143,7 +143,8 @@ defmodule Ryker.Admission.Prompt do
   """
 
   @quick_reply """
-  When quick_reply is offered, message is the whole answer, written to the person in plain words and
+  When quick_reply is offered, use it only when the person is talking to Ryker, never to answer
+  people talking to each other. message is the whole answer, written to the person in plain words and
   in the conversation's language. Keep it short. It is sent exactly as written: never say you checked
   or will do something, and never state a fact about systems, incidents or deployments that the
   conversation does not show. If you are unsure whether a quick answer is enough, it is not; choose
