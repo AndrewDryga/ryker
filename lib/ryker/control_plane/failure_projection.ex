@@ -659,6 +659,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       execution_kind: session.execution_kind,
       kind: "retention",
       policy: session.policy,
+      ready_state: session.ready_state,
       ref: session.external_ref,
       session_id: session.id,
       source: session.repository_ref || "no repository",

@@ -3,9 +3,11 @@ defmodule Ryker.Retention.Custody do
   PostgreSQL custody for exact Coop session cleanup.
 
   Cleanup is eligible only after the owning episode and every local Work turn
-  are terminal, the owning learning run has exact remote stop proof, or an
-  admission input has finished or advanced past that session generation; no
-  unpublished publication may still depend on the session.
+  are terminal, the owning learning run has exact remote stop proof, an
+  admission input has finished or advanced past that session generation, or a
+  routing session started ahead of time was retired before any message
+  claimed it (`Ryker.Admission.ReadySessions`); no unpublished publication may
+  still depend on the session.
   Durable state records and episode history may outlive the remote workspace;
   their independent retention rules preserve them. PostgreSQL time and opaque
   leases provide the fleet fence; remote calls never run in these transactions.
@@ -77,7 +79,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @type claim :: %{
-          owner: Episode.t() | LearningRun.t() | Entry.t(),
+          owner: Episode.t() | LearningRun.t() | Entry.t() | :ready_pool,
           lease_ref: String.t(),
           session: Session.t(),
           worker_id: String.t() | nil
@@ -115,12 +117,7 @@ defmodule Ryker.Retention.Custody do
       left_join: admission in Entry,
       as: :admission,
       on: admission.id == session.admission_input_id,
-      where:
-        (session.execution_kind == :work and episode.state in ^@terminal_episode_states) or
-          (session.execution_kind == :learning and not is_nil(learning.remote_stopped_at)) or
-          (session.execution_kind == :admission and
-             (admission.status in [:decided, :superseded] or
-                admission.execution_generation > session.generation)),
+      where: ^owner_finished_filter(),
       where: session.id not in subquery(unfinished_session_ids),
       where: session.id not in subquery(unpublished_session_ids),
       where: ^cleanup_status_filter(now)
@@ -587,6 +584,45 @@ defmodule Ryker.Retention.Custody do
     )
   end
 
+  defp owner_finished_filter,
+    do:
+      dynamic(
+        ^work_finished() or ^learning_finished() or ^admission_finished() or ^ready_retired()
+      )
+
+  defp work_finished do
+    dynamic(
+      [session: session, episode: episode],
+      session.execution_kind == :work and episode.state in ^@terminal_episode_states
+    )
+  end
+
+  defp learning_finished do
+    dynamic(
+      [session: session, learning: learning],
+      session.execution_kind == :learning and not is_nil(learning.remote_stopped_at)
+    )
+  end
+
+  defp admission_finished do
+    dynamic(
+      [session: session, admission: admission],
+      session.execution_kind == :admission and
+        (admission.status in [:decided, :superseded] or
+           admission.execution_generation > session.generation)
+    )
+  end
+
+  # A routing session started ahead of time that no message claimed is
+  # finished once the pool retires it (`Ryker.Admission.ReadySessions`).
+  defp ready_retired do
+    dynamic(
+      [session: session],
+      session.execution_kind == :admission and is_nil(session.admission_input_id) and
+        session.ready_state == :retired
+    )
+  end
+
   defp cleanup_status_filter(now) do
     pending = pending_status_filter(now)
     retained = retained_status_filter(now)
@@ -633,10 +669,19 @@ defmodule Ryker.Retention.Custody do
   defp lock_owner(:learning, run_id, lock),
     do: lock_owner_query(from(run in LearningRun, where: run.id == ^run_id), lock)
 
+  # A routing session started ahead of time has no message until one claims
+  # it. Until then the pool owns it, and the session's own state says whether
+  # the pool gave it up; the session row is locked right after.
+  defp lock_owner(:admission, nil, _lock), do: :ready_pool
+
   defp lock_owner(:admission, input_id, lock),
     do: lock_owner_query(from(entry in Entry, where: entry.id == ^input_id), lock)
 
   defp lock_owner(_, _, _), do: nil
+
+  defp lock_identity_owner({kind, id}) when not is_nil(id), do: lock_owner(kind, id, :wait)
+  defp lock_identity_owner({:admission, nil}), do: lock_owner(:admission, nil, :wait)
+  defp lock_identity_owner(_identity), do: nil
 
   defp lock_owner_query(query, :skip_locked),
     do: Repo.one(from(q in query, lock: "FOR UPDATE SKIP LOCKED"))
@@ -664,6 +709,9 @@ defmodule Ryker.Retention.Custody do
 
   defp owner_finished?(%Entry{execution_generation: current}, %Session{generation: generation}),
     do: current > generation
+
+  defp owner_finished?(:ready_pool, %Session{ready_state: :retired, admission_input_id: nil}),
+    do: true
 
   defp owner_finished?(_owner, _session), do: false
 
@@ -988,12 +1036,7 @@ defmodule Ryker.Retention.Custody do
         )
       )
 
-    owner =
-      case identity do
-        {kind, id} when not is_nil(id) -> lock_owner(kind, id, :wait)
-        _ -> nil
-      end
-
+    owner = lock_identity_owner(identity)
     if is_nil(owner), do: Repo.rollback(:retention_session_not_found)
 
     session =

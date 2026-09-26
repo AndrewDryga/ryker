@@ -607,14 +607,16 @@ defmodule Ryker.ControlPlane.SettingsSections do
       ]
     },
     # A worker enrols under a workspace name and reports it on every sync;
-    # people know it as the install the worker belongs to.
+    # people know it as the install the worker belongs to. Sessions kept ready
+    # are started by `Ryker.Admission.ReadyPool` on that install.
     %{
       key: :work,
       domain: :work,
       kind: :singleton,
       schema: Work,
       title: "Where work runs",
-      description: "Only for workers you run yourself. The bundled worker needs no change here.",
+      description:
+        "The worker install that runs Ryker's work, and how many routing sessions it keeps ready.",
       fields: [
         %{
           name: :workspace_ref,
@@ -623,7 +625,22 @@ defmodule Ryker.ControlPlane.SettingsSections do
           options: :workspaces,
           help:
             "Which worker install runs Ryker's work. " <>
-              "A worker reports its install name when it connects."
+              "A worker reports its install name when it connects. " <>
+              "Only for workers you run yourself: the bundled worker needs no change here."
+        },
+        %{
+          name: :ready_routing_sessions,
+          kind: :integer,
+          label: "Routing sessions kept ready",
+          min: 0,
+          max: Work.maximum_ready_routing_sessions(),
+          help:
+            "Ryker starts this many routing sessions ahead of time so a new message is " <>
+              "answered sooner. Each is used for one message only. 0 turns this off.",
+          errors: %{
+            number: "Choose a whole number from 0 to #{Work.maximum_ready_routing_sessions()}.",
+            required: "Choose a whole number from 0 to #{Work.maximum_ready_routing_sessions()}."
+          }
         }
       ]
     },

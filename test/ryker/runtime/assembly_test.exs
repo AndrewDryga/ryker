@@ -128,6 +128,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert Enum.sort(Map.keys(configuration)) ==
              Enum.sort([
                :admission,
+               :admission_ready,
                :control_plane,
                :coop_worker_gateway,
                :delivery,
@@ -163,6 +164,13 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     # The reviewed bindings decide the policies; a form never names one.
     assert configuration[:admission].policy == "ryker-admission-v1"
+
+    # Sessions kept ready are started with exactly the policy routing uses,
+    # as many as the saved setting asks (one on a new installation).
+    assert Map.take(configuration[:admission_ready], [:api, :client, :policy, :policy_digest]) ==
+             Map.take(configuration[:admission], [:api, :client, :policy, :policy_digest])
+
+    assert configuration[:admission_ready].target == 1
     assert configuration[:learning].policy == "ryker-learning-v1"
     assert configuration[:schedules].read_only_policy.name == "ryker-schedule-read-v1"
     assert configuration[:schedules].governed_operation_policy.name == "ryker-schedule-gov-v1"
@@ -183,6 +191,29 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert emisar.presentation_timeout_ms > 0
     assert configuration[:github].server.bindings["ryker-app"].installation_id == 1001
     assert configuration[:publication].publisher_binding.repositories["ryker"].path == "/srv"
+  end
+
+  test "changing how many routing sessions are kept ready leaves routing's lane as it was" do
+    # The owner restarts every runtime whose configuration changed, and a
+    # routing slot stopped mid-message leaves that message waiting out its
+    # five-minute lease. The count of sessions kept ready therefore lives in a
+    # lane of its own: changing it restarts the pool and nothing that routes.
+    settings = connected!()
+    assert {:ok, before} = Assembly.build(bootstrap(), settings)
+
+    {:ok, settings} =
+      Settings.save_work(%{ready_routing_sessions: 3}, settings.installation.revision, @actor)
+
+    assert {:ok, changed} = Assembly.build(bootstrap(), settings)
+    assert changed.admission == before.admission
+    assert {before.admission_ready.target, changed.admission_ready.target} == {1, 3}
+
+    {:ok, settings} =
+      Settings.save_work(%{ready_routing_sessions: 0}, settings.installation.revision, @actor)
+
+    # At 0 the pool still runs, to close what an earlier setting kept ready.
+    assert {:ok, off} = Assembly.build(bootstrap(), settings)
+    assert off.admission_ready.target == 0
   end
 
   test "an integration is enabled by its saved connection, never by a credential present" do
@@ -948,6 +979,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     for lane <- [
           :admission,
+          :admission_ready,
           :control_plane,
           :coop_worker_gateway,
           :delivery,
@@ -1026,7 +1058,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), unplaced)
 
-    for absent <- [:work, :admission, :learning, :retention, :publication] do
+    for absent <- [:work, :admission, :admission_ready, :learning, :retention, :publication] do
       assert configuration[absent] == nil, "#{absent} assembled without a Work placement"
     end
 

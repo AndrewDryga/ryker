@@ -43,8 +43,7 @@ defmodule Ryker.Admission.Executor do
          settings <-
            Map.merge(settings, %{policy: attempt.policy, policy_digest: attempt.policy_digest}),
          :ok <- Attempts.observe(entry, "execution_requested", %{}, settings),
-         :ok <- prepare_execution_session(entry, settings),
-         {:ok, session} <- ensure_session(entry, settings),
+         {:ok, session, settings} <- acquire_session(entry, settings),
          :ok <- bind_execution_session(entry, session, settings),
          settings <- Map.put(settings, :execution_target, session["target"]),
          :ok <-
@@ -89,6 +88,68 @@ defmodule Ryker.Admission.Executor do
   end
 
   defp deletion_decision(_context), do: nil
+
+  # Creating the routing session was the longest wait before the model
+  # started: 5.6 s of the 28.6 s a plain "hi" took on the live install on
+  # 2026-09-26. A session started ahead of time skips it; with none ready,
+  # routing creates its own exactly as before.
+  defp acquire_session(entry, settings) do
+    case claim_ready_session(entry, settings) do
+      {:ok, ready, origin} ->
+        settings =
+          Map.merge(settings, %{session_external_ref: ready.external_ref, session_origin: origin})
+
+        with {:ok, session} <- ready_session(ready, settings),
+             do: {:ok, session, settings}
+
+      :none ->
+        settings =
+          Map.merge(settings, %{
+            session_external_ref: session_external_ref(entry),
+            session_origin: :created
+          })
+
+        with :ok <- prepare_execution_session(entry, settings),
+             {:ok, session} <- ensure_session(entry, settings),
+             do: {:ok, session, settings}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # A claimed session is this generation's for good. One Coop no longer holds
+  # open, or whose worker can no longer run it, spends the generation, so the
+  # next run takes another or creates one instead of waiting on this one. A
+  # later run of the same generation may find it closed: its turn finished
+  # before that run stopped, and is read back like a created session's.
+  defp ready_session(%{coop_session_id: coop_session_id}, settings) do
+    allowed =
+      if settings.session_origin == :resumed, do: ~w(open closed discarded), else: ["open"]
+
+    with :ok <- renew_lease(settings) do
+      settings.api.get_session(settings.client, coop_session_id)
+    end
+    |> case do
+      {:ok, session} ->
+        case validate_session_state(session, settings, coop_session_id, allowed) do
+          {:ok, session} -> {:ok, session}
+          {:error, reason} -> generation_spent({:ready_session_unavailable, reason})
+        end
+
+      {:error, {:coop_session_replacement_required, _session_id, _generation} = reason} ->
+        generation_spent({:ready_session_unavailable, reason})
+
+      {:error, {:coop_session_replacement_pending, _session_id, _generation, _until} = reason} ->
+        generation_spent({:ready_session_unavailable, reason})
+
+      {:error, {:coop_error, 404, _code, _detail} = reason} ->
+        generation_spent({:ready_session_unavailable, reason})
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
 
   defp deletion(action, episode_ref, relation, work_class, reason) do
     %Decision{
@@ -221,7 +282,7 @@ defmodule Ryker.Admission.Executor do
         create_session(entry, key, settings)
 
       {:ok, operation} ->
-        session_from_operation(entry, operation, key, settings, settings.max_polls)
+        session_from_operation(operation, key, settings, settings.max_polls)
 
       {:error, _reason} = error ->
         error
@@ -248,10 +309,10 @@ defmodule Ryker.Admission.Executor do
     end
     |> case do
       {:ok, %{"session" => session}} when is_map(session) ->
-        validate_session(entry, session, settings)
+        validate_session(session, settings)
 
       {:ok, %{"operation" => operation}} when is_map(operation) ->
-        session_from_operation(entry, operation, key, settings, settings.max_polls)
+        session_from_operation(operation, key, settings, settings.max_polls)
 
       {:ok, _response} ->
         {:error, {:coop_protocol_error, :create_session_response}}
@@ -261,7 +322,7 @@ defmodule Ryker.Admission.Executor do
     end
   end
 
-  defp session_from_operation(entry, operation, key, settings, polls_left) do
+  defp session_from_operation(operation, key, settings, polls_left) do
     with {:ok, resource_id} <-
            operation_resource(
              operation,
@@ -273,7 +334,6 @@ defmodule Ryker.Admission.Executor do
            ) do
       with {:ok, session} <- settings.api.get_session(settings.client, resource_id) do
         validate_session_state(
-          entry,
           session,
           settings,
           resource_id,
@@ -290,9 +350,20 @@ defmodule Ryker.Admission.Executor do
       settings.api.operation_by_key(settings.client, key)
     end
     |> case do
-      :not_found -> submit_turn(entry, session, context, key, settings)
-      {:ok, operation} -> turn_from_operation(operation, session["id"], key, settings)
-      {:error, _reason} = error -> error
+      # The run that claimed this session stopped before its turn ran there.
+      # A claimed session carries the turn of that run or none, so it is
+      # closed on the way out and the message runs on another session.
+      :not_found when settings.session_origin == :resumed ->
+        generation_spent({:ready_session_abandoned, session["id"]})
+
+      :not_found ->
+        submit_turn(entry, session, context, key, settings)
+
+      {:ok, operation} ->
+        turn_from_operation(operation, session["id"], key, settings)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -312,7 +383,7 @@ defmodule Ryker.Admission.Executor do
            Attempts.freeze(entry, %{"prompt" => prompt, "output_schema" => schema}, settings),
          {:ok, current_session} <- settings.api.get_session(settings.client, session["id"]),
          {:ok, current_session} <-
-           validate_session(entry, current_session, settings, session["id"]),
+           validate_session(current_session, settings, session["id"]),
          {:ok, revision} <- session_revision(current_session),
          :ok <- reauthorize_context(entry, context),
          {:ok, response} <-
@@ -751,7 +822,6 @@ defmodule Ryker.Admission.Executor do
          {:ok, current} <- settings.api.get_session(settings.client, session["id"]),
          {:ok, current} <-
            validate_session_state(
-             entry,
              current,
              settings,
              session["id"],
@@ -777,7 +847,6 @@ defmodule Ryker.Admission.Executor do
          ) do
       {:ok, %{"session" => closed}} when is_map(closed) ->
         case validate_session_state(
-               entry,
                closed,
                settings,
                session_id,
@@ -803,6 +872,7 @@ defmodule Ryker.Admission.Executor do
       :api,
       :bind_execution_session,
       :candidate_limit,
+      :claim_ready_session,
       :client,
       :continuation_window,
       :history_window,
@@ -826,6 +896,8 @@ defmodule Ryker.Admission.Executor do
         bind_execution_session:
           Keyword.get(options, :bind_execution_session, fn _entry, _session_id -> :ok end),
         candidate_limit: Keyword.get(options, :candidate_limit, 20),
+        claim_ready_session:
+          Keyword.get(options, :claim_ready_session, fn _entry, _policy -> :none end),
         client: Keyword.fetch!(options, :client),
         continuation_window: Keyword.get(options, :continuation_window, 30 * 60),
         history_window: Keyword.get(options, :history_window, 30 * 24 * 60 * 60),
@@ -861,6 +933,8 @@ defmodule Ryker.Admission.Executor do
              is_function(settings.bind_execution_session, 2),
              :bind_execution_session
            ),
+         :ok <-
+           executor_value(is_function(settings.claim_ready_session, 2), :claim_ready_session),
          :ok <- executor_value(is_function(settings.now, 0), :now),
          :ok <- executor_value(is_function(settings.renew_lease, 0), :renew_lease),
          :ok <- executor_value(is_function(settings.sleep, 1), :sleep),
@@ -937,13 +1011,12 @@ defmodule Ryker.Admission.Executor do
   defp session_external_ref(entry),
     do: "ryker-admission:#{entry.id}:g#{entry.execution_generation}"
 
-  defp validate_session(entry, session, settings, expected_id \\ nil)
+  defp validate_session(session, settings, expected_id \\ nil)
 
-  defp validate_session(entry, session, settings, expected_id),
-    do: validate_session_state(entry, session, settings, expected_id, ["open"])
+  defp validate_session(session, settings, expected_id),
+    do: validate_session_state(session, settings, expected_id, ["open"])
 
   defp validate_session_state(
-         entry,
          %{
            "external_ref" => external_ref,
            "id" => id,
@@ -963,7 +1036,7 @@ defmodule Ryker.Admission.Executor do
         {:error, {:coop_protocol_error, :session_state}}
 
       policy != settings.policy or policy_digest != settings.policy_digest or
-          external_ref != session_external_ref(entry) ->
+          external_ref != settings.session_external_ref ->
         {:error, {:coop_protocol_error, :session_authority}}
 
       true ->
@@ -971,7 +1044,7 @@ defmodule Ryker.Admission.Executor do
     end
   end
 
-  defp validate_session_state(_entry, _session, _settings, _expected_id, _allowed_states),
+  defp validate_session_state(_session, _settings, _expected_id, _allowed_states),
     do: {:error, {:coop_protocol_error, :session_resource}}
 
   defp session_revision(%{"revision" => revision})
@@ -1080,6 +1153,26 @@ defmodule Ryker.Admission.Executor do
 
   defp positive?(value), do: is_integer(value) and value > 0
   defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+
+  defp claim_ready_session(entry, settings) do
+    case settings.claim_ready_session.(entry, %{
+           digest: settings.policy_digest,
+           name: settings.policy
+         }) do
+      {:ok, %{coop_session_id: id, external_ref: ref} = ready, origin}
+      when is_binary(id) and is_binary(ref) and origin in [:claimed, :resumed] ->
+        {:ok, ready, origin}
+
+      :none ->
+        :none
+
+      {:error, _reason} = error ->
+        error
+
+      _other ->
+        {:error, {:admission_execution_failed, :claim_ready_session}}
+    end
+  end
 
   defp prepare_execution_session(entry, settings) do
     settings.prepare_execution_session.(entry, %{

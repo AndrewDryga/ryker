@@ -142,6 +142,7 @@ defmodule Ryker.Observability.Readiness do
     # runtime started outside the owner (the isolated test topology) registers.
     [
       admission: {:named, Ryker.Admission.Runtime},
+      admission_ready: {:named, Ryker.Admission.ReadyPool},
       learning: {:named, Ryker.Learning.Runtime},
       coop_worker_gateway: {:supervised, Ryker.CoopFleet.Server},
       control_plane: {:supervised, Ryker.ControlPlane.Server},

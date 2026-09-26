@@ -377,6 +377,22 @@ configured read-only policy. One input gets one isolated admission session. Sess
 keys, so a lost HTTP response reconciles the existing operation instead of starting another model
 turn.
 
+Creating that session was the longest wait before the model started: 5.6 s of the 28.6 s a plain
+"hi" took on the live install on 2026-09-26. So Ryker keeps a few routing sessions started ahead of
+time (Settings › Advanced, "Routing sessions kept ready": 0 to 5, one by default, 0 turns it off).
+They are opened with the same installation-wide routing policy and digest, shared by every channel
+and conversation, and never prompted until a message claims one, so they spend no model tokens while
+they wait. An input generation claims one exactly once, under a row lock, before it would create its
+own; with none ready it creates one exactly as before. A claimed session belongs to that generation
+for good and carries at most one turn: routing closes it after the turn, a later run of the same
+generation that finds it unused closes it and routes on another session, and cleanup closes it if the
+generation ends any other way. It never becomes ready again. `Ryker.Admission.ReadyPool` keeps the
+count: it starts replacements and retires sessions started under an older routing policy, older than
+half an hour, or beyond the setting, and retention cleanup closes and removes what it retires. Nothing
+in Coop or the fleet expires an open session that was never prompted (its placement lease is renewed
+on every worker poll), so the half hour is a choice that stays well inside Coop's one-hour
+warm-runtime idle limit and the worker's 24-hour certificate.
+
 Coop validates the JSON Schema. It then holds the exact bytes unpublished for host semantic review.
 Ryker checks the action against the frozen candidate set and source capabilities. If that check
 fails, the complete useful error goes back to the same Coop turn and the model repairs its answer.
@@ -433,6 +449,9 @@ Fast deterministic tests cover:
 - distinct webhook occurrences updating one stable source item by revision;
 - an unknown webhook through HTTP, durable queue, one Coop turn, and one episode;
 - one fleet admission session per input generation, converging under simultaneous preparation;
+- routing sessions kept ready: taken without creating one, never shared by two messages (also when
+  claimed at the same moment), refilled to the setting, closed at 0, past their age or under an older
+  routing policy, and never reused when a run stops between its claim and its turn;
 - lost asynchronous operation responses;
 - schema-valid but semantically invalid output repaired in the same turn;
 - missing semantic-validation receipts being refused;
