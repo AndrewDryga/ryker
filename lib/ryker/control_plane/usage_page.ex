@@ -1,9 +1,9 @@
 defmodule Ryker.ControlPlane.UsagePage do
   @moduledoc "Usage as an operator's ledger: totals, subscriptions, and the work behind them."
-  alias Ryker.Accounting.Pricing
-  alias Ryker.ControlPlane.UsageChart
+  alias Ryker.ControlPlane.{SettingsRows, UsageChart}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
+  alias Ryker.Work.ExecutionTarget
 
   # Every work type the projection can name; anything else is a missing identity.
   @work_kinds ~w(admission learning conversational standard deep continuation resumed task event_wait schedule publication approval)
@@ -435,43 +435,66 @@ defmodule Ryker.ControlPlane.UsagePage do
     end
   end
 
+  # The saved prices that made this period's estimates, read the way Settings
+  # › Model prices reads them. A model priced at two rates in the period says
+  # the day each began; reasoning gets a column only when a price charges it.
   defp methodology(snapshot) do
-    rates = Pricing.rates()
-
-    models =
-      Map.get(snapshot, :models, snapshot.targets)
-      |> Enum.filter(
-        &(value(&1, :estimated) > 0 and Map.has_key?(rates, "#{&1.provider}:#{&1.model}"))
-      )
-      |> Enum.uniq_by(&{&1.provider, &1.model})
-
-    if models == [] do
-      []
-    else
-      [
-        "<details class=\"measurement-notes\" id=\"cost-method\"><summary>Rates used for estimates</summary>",
-        "<div class=\"table-wrap\"><table class=\"usage-pricing-table\"><thead><tr><th>Model</th><th>Fresh input</th><th>Cache reads</th><th>Output</th></tr></thead><tbody>",
-        Enum.map(models, fn row ->
-          {input, cached, output} = Map.fetch!(rates, "#{row.provider}:#{row.model}")
-
-          [
-            "<tr><td>",
-            e(row.model),
-            "</td><td>$",
-            e(input),
-            "</td><td>$",
-            e(cached),
-            "</td><td>$",
-            e(output),
-            "</td></tr>"
-          ]
-        end),
-        "</tbody></table></div><p class=\"usage-rates-note\">USD per million tokens. API-equivalent rates, not subscription charges. ",
-        "<a href=\"/settings/prices\">Change these in Settings › Model prices</a></p>",
-        "</details>"
-      ]
+    case Map.get(snapshot, :prices, []) do
+      [] -> []
+      prices -> rates_used(prices)
     end
   end
+
+  defp rates_used(prices) do
+    repeated =
+      prices
+      |> Enum.frequencies_by(& &1.execution_target)
+      |> Enum.flat_map(fn {target, count} -> if count > 1, do: [target], else: [] end)
+
+    reasoning? = Enum.any?(prices, &(&1.reasoning_usd_per_million != nil))
+
+    [
+      "<details class=\"measurement-notes\" id=\"cost-method\"><summary>Rates used for estimates</summary>",
+      "<div class=\"table-wrap\"><table class=\"usage-pricing-table\"><thead><tr><th>Model</th><th>Fresh input</th><th>Cache reads</th><th>Output</th>",
+      if(reasoning?, do: "<th>Reasoning</th>", else: ""),
+      "</tr></thead><tbody>",
+      Enum.map(prices, fn price ->
+        [
+          "<tr><td>",
+          e(price_model(price.execution_target)),
+          if(price.execution_target in repeated,
+            do: secondary("from " <> SettingsRows.short_date(price.effective_from)),
+            else: ""
+          ),
+          "</td><td>",
+          e(rate(price.input_usd_per_million)),
+          "</td><td>",
+          e(rate(price.cached_input_usd_per_million)),
+          "</td><td>",
+          e(rate(price.output_usd_per_million)),
+          "</td>",
+          if(reasoning?,
+            do: ["<td>", e(rate(price.reasoning_usd_per_million)), "</td>"],
+            else: ""
+          ),
+          "</tr>"
+        ]
+      end),
+      "</tbody></table></div><p class=\"usage-rates-note\">USD per million tokens. API-equivalent rates, not subscription charges. ",
+      "<a href=\"/settings/prices\">Change these in Settings › Model prices</a></p>",
+      "</details>"
+    ]
+  end
+
+  defp price_model(target) do
+    case ExecutionTarget.parts(target) do
+      %{model: model} -> model
+      nil -> target
+    end
+  end
+
+  defp rate(nil), do: "—"
+  defp rate(price), do: SettingsRows.usd(price)
 
   defp elapsed(nil), do: "—"
   defp elapsed(ms) when ms < 60_000, do: decimal(ms / 1000) <> "s"

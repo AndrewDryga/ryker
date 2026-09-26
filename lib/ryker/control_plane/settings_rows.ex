@@ -126,6 +126,19 @@ defmodule Ryker.ControlPlane.SettingsRows do
       else: Calendar.strftime(date, "%-d %b %Y")
   end
 
+  @doc """
+  A saved price per million tokens in dollars, as Settings and Usage print
+  it: cents always, and more places only when the price has them ($0.125).
+  """
+  @spec usd(Decimal.t()) :: String.t()
+  def usd(%Decimal{} = value) do
+    rounded = Decimal.round(value, 2)
+
+    if Decimal.equal?(rounded, value),
+      do: "$" <> Decimal.to_string(rounded, :normal),
+      else: "$" <> (value |> Decimal.normalize() |> Decimal.to_string(:normal))
+  end
+
   defp row(fields) do
     Map.merge(%{state: nil, text: nil, meta: [], details: [], address: nil}, fields)
   end
@@ -162,14 +175,6 @@ defmodule Ryker.ControlPlane.SettingsRows do
     |> Enum.reject(fn {value, _word} -> is_nil(value) end)
     |> Enum.map(fn {value, word} -> "#{usd(value)} #{word}" end)
     |> List.update_at(-1, &(&1 <> " per million tokens"))
-  end
-
-  defp usd(%Decimal{} = value) do
-    rounded = Decimal.round(value, 2)
-
-    if Decimal.equal?(rounded, value),
-      do: "$" <> Decimal.to_string(rounded, :normal),
-      else: "$" <> (value |> Decimal.normalize() |> Decimal.to_string(:normal))
   end
 
   defp effective(nil), do: nil

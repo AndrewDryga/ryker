@@ -1,11 +1,14 @@
 defmodule Ryker.ControlPlane.UsagePageTest do
   use Ryker.DataCase, async: false
   alias Ryker.Accounting.Execution
-  alias Ryker.ControlPlane.{Activity, Assets, Projection, UsagePage}
+  alias Ryker.ControlPlane.{Activity, Assets, Projection, SettingsRows, UsagePage}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
+  alias Ryker.Settings
   alias Ryker.Slack.Input
+
+  @actor "control-plane:local"
 
   test "usage shows live work by default without an execution ledger or generic methodology" do
     html = Projection.usage(%{}) |> UsagePage.render() |> IO.iodata_to_binary()
@@ -98,46 +101,41 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   end
 
   test "estimate rates do not repeat spend totals already shown in the usage breakdowns" do
-    snapshot = Projection.usage(%{})
+    for effort <- ~w(medium high) do
+      execution!("work",
+        execution_target: "codex:gpt-5.6-sol/#{effort}@default",
+        usage_input_tokens: 1_000,
+        usage_cached_input_tokens: 9_000,
+        usage_output_tokens: 500
+      )
+    end
 
-    totals =
-      Map.merge(snapshot.totals, %{
-        attempts: 3,
-        usage_measured: 3,
-        estimated: 2,
-        estimated_cost_usd: Decimal.new("1.25"),
-        costed: 1,
-        cost_usd: Decimal.new("0.50")
-      })
-
-    models =
-      Enum.map(~w(medium high), fn effort ->
-        Map.merge(totals, %{provider: "codex", model: "gpt-5.6-sol", effort: effort})
-      end)
+    execution!("work",
+      execution_target: "codex:gpt-5.6-terra/medium@default",
+      usage_cached_input_tokens: 0,
+      usage_output_tokens: 0,
+      usage_cost_recorded: true,
+      usage_cost_usd: Decimal.new("0.50")
+    )
 
     document =
-      %{snapshot | totals: totals, models: models}
+      Projection.usage(%{})
       |> UsagePage.render()
       |> IO.iodata_to_binary()
       |> LazyHTML.from_document()
 
     pricing = LazyHTML.query(document, "#cost-method")
     assert LazyHTML.text(pricing) =~ "Rates used for estimates"
-    refute LazyHTML.text(pricing) =~ "$1.25"
+    refute LazyHTML.text(pricing) =~ "$0.54"
     refute LazyHTML.text(pricing) =~ "$0.50"
     refute LazyHTML.text(pricing) =~ "executions"
-    assert length(LazyHTML.query(pricing, "tbody tr") |> LazyHTML.to_tree()) == 1
 
-    assert LazyHTML.query(pricing, "tbody td")
-           |> LazyHTML.to_tree()
-           |> Enum.map(fn node -> LazyHTML.from_tree([node]) |> LazyHTML.text() end) == [
-             "gpt-5.6-sol",
-             "$4",
-             "$0.40",
-             "$20"
-           ]
+    # Both efforts were priced by the one price saved for the model, and the
+    # model that reported its own cost used none.
+    assert rows(pricing, "tbody tr") == [["gpt-5.6-sol", "$4.00", "$0.40", "$20.00"]]
 
-    assert LazyHTML.query(document, ".usage-summary .usage-cost") |> LazyHTML.text() =~ "$1.75"
+    # 2 × $0.0176 estimated + $0.50 reported.
+    assert LazyHTML.query(document, ".usage-summary .usage-cost") |> LazyHTML.text() =~ "$0.54"
   end
 
   # Andrew, 2026-09-25: the rates table sat flush under "Rates used for
@@ -146,20 +144,10 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   # note sits 8px under it in the secondary colour, and it ends with the way
   # to change them.
   test "the estimate rates end with the way to change them in Settings" do
-    snapshot = Projection.usage(%{})
-
-    totals =
-      Map.merge(snapshot.totals, %{
-        attempts: 1,
-        usage_measured: 1,
-        estimated: 1,
-        estimated_cost_usd: Decimal.new("0.25")
-      })
-
-    models = [Map.merge(totals, %{provider: "codex", model: "gpt-5.6-sol", effort: "medium"})]
+    execution!("work", usage_cached_input_tokens: 0, usage_output_tokens: 0)
 
     document =
-      %{snapshot | totals: totals, models: models}
+      Projection.usage(%{})
       |> UsagePage.render()
       |> IO.iodata_to_binary()
       |> LazyHTML.from_document()
@@ -181,6 +169,90 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     [_, rates] = Regex.run(~r/#cost-method > \.usage-rates-note \{([^}]+)\}/, css)
     assert rates =~ "margin-top:8px"
     assert rates =~ "color:var(--ryker-text-secondary)"
+  end
+
+  # Found in manual testing on 2026-09-26: edits to Model prices never changed
+  # any estimate. "Rates used for estimates" listed rates compiled into Ryker,
+  # so it showed prices nobody had saved and never one they had.
+  test "the rates used for estimates are the saved prices that made them" do
+    {:ok, _snapshot} = Settings.initialize(@actor)
+    now = DateTime.utc_now()
+    yesterday = Date.add(DateTime.to_date(now), -1)
+
+    # The price saved from 5 Sep priced three days ago; a new one from
+    # yesterday priced today.
+    save_price!(%{
+      execution_target: "codex:gpt-5.6-sol",
+      input_usd_per_million: "5",
+      cached_input_usd_per_million: "0.50",
+      output_usd_per_million: "25",
+      effective_from: yesterday,
+      provenance: "https://developers.openai.com/api/docs/pricing"
+    })
+
+    # A newly signed-in provider whose price bills reasoning on its own.
+    save_price!(%{
+      execution_target: "claude:claude-sonnet-5",
+      input_usd_per_million: "3",
+      cached_input_usd_per_million: "0.30",
+      output_usd_per_million: "15",
+      reasoning_usd_per_million: "15",
+      effective_from: "2026-09-01",
+      provenance: "https://www.anthropic.com/pricing"
+    })
+
+    tokens = [usage_cached_input_tokens: 0, usage_output_tokens: 0, usage_reasoning_tokens: 0]
+
+    execution!(
+      "work",
+      [
+        execution_target: "codex:gpt-5.6-sol/medium@default",
+        recorded_at: DateTime.add(now, -3, :day)
+      ] ++ tokens
+    )
+
+    execution!("work", [execution_target: "codex:gpt-5.6-sol/high@default"] ++ tokens)
+    execution!("work", [execution_target: "claude:claude-sonnet-5/high@default"] ++ tokens)
+
+    # Luna reported its own cost, so no price of its made an estimate.
+    execution!(
+      "work",
+      [
+        execution_target: "codex:gpt-5.6-luna/low@default",
+        usage_cost_recorded: true,
+        usage_cost_usd: Decimal.new("0.01")
+      ] ++ tokens
+    )
+
+    pricing =
+      Projection.usage(%{})
+      |> UsagePage.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#cost-method")
+
+    assert rows(pricing, "thead tr") == [
+             ["Model", "Fresh input", "Cache reads", "Output", "Reasoning"]
+           ]
+
+    # A model priced at two rates in the period says the day each began.
+    assert rows(pricing, "tbody tr") == [
+             ["claude-sonnet-5", "$3.00", "$0.30", "$15.00", "$15.00"],
+             [
+               "gpt-5.6-sol" <> "from " <> SettingsRows.short_date(~D[2026-09-05]),
+               "$4.00",
+               "$0.40",
+               "$20.00",
+               "—"
+             ],
+             [
+               "gpt-5.6-sol" <> "from " <> SettingsRows.short_date(yesterday),
+               "$5.00",
+               "$0.50",
+               "$25.00",
+               "—"
+             ]
+           ]
   end
 
   test "an execution without a saved model is not presented as an unknown model" do
@@ -625,6 +697,21 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     assert document |> LazyHTML.query(".usage-scope [aria-current=page]") |> LazyHTML.text() ==
              "Live work"
+  end
+
+  defp save_price!(attributes) do
+    {:ok, snapshot} =
+      Settings.put_pricing_rate(attributes, Settings.fetch!().installation.revision, @actor)
+
+    snapshot
+  end
+
+  defp rows(node, selector) do
+    node
+    |> LazyHTML.query(selector)
+    |> Enum.map(fn row ->
+      row |> LazyHTML.query("th, td") |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
+    end)
   end
 
   defp execution!(kind, attributes) do

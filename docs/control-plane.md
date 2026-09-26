@@ -696,8 +696,9 @@ of it.
 
 Cost prefers what the provider reported through Coop. For rows that reported
 tokens but no money, the rates under **Settings › Model prices** supply an
-estimate; the cost figure adds the two, the page lists the rates it used under
-"Rates used for estimates", and a row with neither says "Not measured". Wall clock reads the migration-49 columns and
+estimate; the cost figure adds the two, the page lists the saved prices it used
+under "Rates used for estimates" (with the day each began when a model had two
+in the period), and a row with neither says "Not measured". Wall clock reads the migration-49 columns and
 averages only over timed turns; a window with none says "nothing timed" rather
 than inventing an instant.
 
@@ -771,11 +772,19 @@ authoritative money figure when the adapter supplies one.
 For adapters that report tokens but not money, the versioned rates under
 **Settings › Model prices** supply an estimate: USD per million input, cached
 input, output and reasoning tokens, each with the day it starts and where it
-came from. An unpriced model reports **no estimate, not a zero**, and the
-Models page warns about it.
+came from. A price names its provider and model joined by a colon
+(`codex:gpt-5.6-sol`); an execution uses the price saved for its provider and
+model (its target without the effort and profile) with the latest start day on
+or before the UTC day it was recorded, so a new price never reprices earlier
+work. Reasoning is charged only at a reasoning rate of its own: Codex and
+Claude count it in output, so their prices leave it empty. The usage ledger,
+the request timeline's per-call cost and "Rates used for estimates" all read
+the saved prices through `Ryker.Accounting.Pricing`. An unpriced model reports
+**no estimate, not a zero**, and the Models page warns about it.
 
-Ryker ships default rates for the models it offers. Provider-reported money
-always wins; removing a rate leaves turns that reported no money unpriced.
+A new installation starts with prices for the models Ryker offers; after that
+only the saved prices count. Provider-reported money always wins; removing a
+rate leaves turns that reported no money unpriced.
 
 ### Wall-clock — recorded per attempt, except the split inside the provider
 

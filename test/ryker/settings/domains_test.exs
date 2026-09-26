@@ -301,6 +301,41 @@ defmodule Ryker.Settings.DomainsTest do
     assert Enum.map(custom_rates, & &1.revision) == [2, 3]
   end
 
+  # Found in manual testing on 2026-09-26: a price saved without its provider
+  # was accepted and could never match an execution, whose model is always
+  # named with its provider.
+  test "a price names exactly one provider and one model" do
+    rate = %{
+      input_usd_per_million: "3",
+      cached_input_usd_per_million: "0.30",
+      output_usd_per_million: "15",
+      effective_from: "2026-09-26",
+      provenance: "https://www.anthropic.com/pricing"
+    }
+
+    for target <- [
+          "claude-haiku",
+          "claude:",
+          ":claude-haiku",
+          "claude:claude-haiku:latest",
+          "Claude:claude-haiku",
+          "claude:claude haiku"
+        ] do
+      assert {:error, {:invalid_settings, [{:execution_target, :format}]}} =
+               Settings.put_pricing_rate(Map.put(rate, :execution_target, target), 1, @actor),
+             inspect(target)
+    end
+
+    assert {:ok, saved} =
+             Settings.put_pricing_rate(
+               Map.put(rate, :execution_target, "claude:claude-haiku-4.5"),
+               1,
+               @actor
+             )
+
+    assert Enum.any?(saved.pricing_rates, &(&1.execution_target == "claude:claude-haiku-4.5"))
+  end
+
   test "every settings save is attributed to a domain the edit log can hold" do
     # A domain the writer names but the edit log's enum does not accept raises
     # on insert, which fails the very save it was recording.

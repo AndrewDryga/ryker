@@ -957,6 +957,41 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
            )
   end
 
+  # Found in manual testing on 2026-09-26: a price saved as "claude-haiku",
+  # without its provider, was accepted. No execution is named that way, so it
+  # could never price anything, although the field asked for the provider and
+  # model joined by a colon.
+  test "a price without its provider is refused with how to write it" do
+    initialize!()
+    {:ok, view, _html} = open("/settings/prices")
+    view |> element("#settings-pricing button.settings-editor-add") |> render_click()
+
+    assert has_element?(
+             view,
+             "#settings-pricing-reasoning_usd_per_million-help",
+             "Leave empty when output already counts reasoning, as Codex and Claude report it."
+           )
+
+    view
+    |> form("#settings-pricing-form", %{
+      "execution_target" => "claude-haiku",
+      "input_usd_per_million" => "1",
+      "cached_input_usd_per_million" => "0.1",
+      "output_usd_per_million" => "5",
+      "effective_from" => "2026-09-26",
+      "provenance" => "https://www.anthropic.com/pricing"
+    })
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "#settings-pricing .settings-field:has(#settings-pricing-execution_target) .settings-error",
+             "Write the provider and model joined by a colon, like codex:gpt-5.6-sol."
+           )
+
+    refute Enum.any?(Settings.fetch!().pricing_rates, &(&1.execution_target == "claude-haiku"))
+  end
+
   test "an incident room prefix that is refused says what a prefix may hold" do
     # QA, 2026-09-25: "Name starts with is not in the expected format."
     initialize!()
