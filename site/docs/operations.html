@@ -125,13 +125,13 @@
 
     <h2 id="upgrade">Upgrade</h2>
 
-    <p>Set <code>RYKER_IMAGE</code> and <code>RYKER_VERSION</code> in <code>.ryker/compose.env</code> to the release you intend to run, then:</p>
+    <p>Upgrades build from your checkout; no Ryker container image is published. Move the checkout to the release you intend to run (for example <code>git checkout vX.Y.Z</code>), set <code>RYKER_VERSION</code> in <code>.ryker/compose.env</code> to that version and <code>RYKER_IMAGE</code> to the local tag to build (for example <code>ryker:X.Y.Z</code>), then:</p>
 
     <p class="code-label">shell</p>
     <pre><code><span class="tok-x">scripts/compose.sh</span> <span class="tok-v">backup</span>
 <span class="tok-x">scripts/compose.sh</span> <span class="tok-v">upgrade</span></code></pre>
 
-    <p>Upgrade pulls the selected image when there is one to pull, rebuilds a local image when there is not, starts the replacement, runs database migrations as the container starts, and checks health, readiness and the exact running version. Workers enrolled on other machines are not restarted or changed.</p>
+    <p>Upgrade pulls the pinned third-party images, rebuilds the Ryker and bundled-worker images from the checkout, starts the replacements, runs database migrations as the container starts, and checks health, readiness and the exact running version. Workers enrolled on other machines are not restarted or changed.</p>
 
     <h2 id="deploy">Deploy a commit</h2>
 
