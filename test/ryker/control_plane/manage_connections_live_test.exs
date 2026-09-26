@@ -41,7 +41,8 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   test "the Channels page says whether Slack is connected, and its defaults live in Integrations" do
     {:ok, view, _html} = open("/channels")
 
-    assert has_element?(view, "#slack-status strong", "Slack is not connected.")
+    assert has_element?(view, "#slack-status strong", "Slack")
+    assert has_element?(view, "#slack-status .state-word[data-tone=off]", "Not connected")
     assert has_element?(view, "#slack-status a[href='/integrations/slack']", "Connect Slack")
 
     assert has_element?(
@@ -56,7 +57,8 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   test "the Repositories page says whether GitHub is connected, and publishing lives in Integrations" do
     {:ok, view, _html} = open("/repositories")
 
-    assert has_element?(view, "#github-status strong", "GitHub is not connected.")
+    assert has_element?(view, "#github-status strong", "GitHub")
+    assert has_element?(view, "#github-status .state-word[data-tone=off]", "Not connected")
     assert has_element?(view, "#github-status a[href='/integrations/github']", "Connect GitHub")
 
     # Adding repositories needs the App: until it works, the status line is

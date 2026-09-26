@@ -162,11 +162,6 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
   defp label(:global), do: "Instructions for every conversation"
   defp label(_channel), do: "Instructions for this channel"
 
-  defp placeholder(:global), do: "Keep replies concise. Separate observed facts from guesses."
-
-  defp placeholder(_channel),
-    do: "Include the affected service and time window when reporting an incident."
-
   defp current_text(%{text: ""}), do: "Nothing. The saved instructions are empty."
   defp current_text(%{text: text}), do: text
 
@@ -216,13 +211,17 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
       >
         <input type="hidden" name="revision" value={@expected_revision} />
         <label class="sr-only" for="instructions-text">{label(@scope)}</label>
+        <%!-- No placeholder: grey example text read as instructions already
+        saved (QA, 2026-09-25). The page's help carries the example. The
+        browser stops at the limit; the counter and the save still check it,
+        since emoji count once here and twice in the browser. --%>
         <textarea
           id="instructions-text"
           name="text"
           rows="4"
+          maxlength="2000"
           aria-describedby="instructions-count"
           aria-invalid={to_string(not is_nil(@error))}
-          placeholder={placeholder(@scope)}
         >{@draft}</textarea>
         <Components.form_feedback :if={@error} message={@error} tone={:error} />
         <div :if={@conflict} class="instructions-conflict">

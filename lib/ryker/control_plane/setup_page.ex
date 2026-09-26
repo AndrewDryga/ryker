@@ -16,15 +16,15 @@ defmodule Ryker.ControlPlane.SetupPage do
   action instead of a footnote.
 
   Whether a step is done comes from `SettingsView` (`setup.steps`), the same
-  facts the sidebar counts; this module only presents them.
+  facts the sidebar counts; this module only presents them. The Slack, GitHub
+  and Emisar parts say their state in the words every page uses
+  (`Integrations`): a step that is half done, such as verified Slack tokens
+  with nobody to manage Ryker, is titled and timed by what is left.
   """
 
   use Phoenix.Component
 
   alias Ryker.ControlPlane.{ChannelsPage, Components, Integrations, Kit, SettingsView}
-
-  # About how long each step takes a person who has what it needs at hand.
-  @minutes %{slack: 5, github: 5, repositories: 2, invited: 1, channel_environment: 1, request: 2}
 
   @type status :: :done | :current | :later
 
@@ -49,7 +49,7 @@ defmodule Ryker.ControlPlane.SetupPage do
 
       key
       |> step(view)
-      |> Map.merge(%{key: key, status: status, minutes: Map.fetch!(@minutes, key)})
+      |> Map.merge(%{key: key, status: status})
     end
   end
 
@@ -87,7 +87,7 @@ defmodule Ryker.ControlPlane.SetupPage do
         # the recommended step is counted apart, because it never blocks ready.
         progress_rest:
           "required steps done" <>
-            if(emisar.status == :ready, do: "", else: " · 1 recommended") <>
+            if(emisar.status == :on, do: "", else: " · 1 recommended") <>
             " · " <> minutes(progress.minutes),
         complete: assigns.view.setup.complete,
         emisar: emisar,
@@ -109,7 +109,7 @@ defmodule Ryker.ControlPlane.SetupPage do
             <div class="setup-ready-actions">
               <.link
                 navigate="/conversations"
-                class={["ui-button", if(@emisar.status == :ready, do: "primary", else: "secondary")]}
+                class={["ui-button", if(@emisar.status == :on, do: "primary", else: "secondary")]}
               >Open Chat</.link>
               <.link navigate="/channels" class="ui-button secondary">See channels</.link>
             </div>
@@ -122,7 +122,7 @@ defmodule Ryker.ControlPlane.SetupPage do
           </p>
           <div class="setup-meter" aria-hidden="true">
             <span :for={step <- @steps} data-done={to_string(step.status == :done)}></span>
-            <span class="setup-meter-extra" data-done={to_string(@emisar.status == :ready)}></span>
+            <span class="setup-meter-extra" data-done={to_string(@emisar.status == :on)}></span>
           </div>
         </div>
 
@@ -170,6 +170,7 @@ defmodule Ryker.ControlPlane.SetupPage do
         <span :if={@step.summary} class="setup-step-summary">· {@step.summary}</span>
         <Kit.state :if={@step[:state]} tone={elem(@step.state, 0)} word={elem(@step.state, 1)} />
       </p>
+      <p :if={@step[:broken]} class="setup-step-note">{@step.note}</p>
       <.link :if={@step[:manage]} navigate={@step.manage.href} class="setup-step-manage">
         {@step.manage.label}<span class="sr-only">{" " <> @step.done_title}</span>
       </.link>
@@ -184,7 +185,11 @@ defmodule Ryker.ControlPlane.SetupPage do
     <div class="setup-step-body">
       <h3 class="setup-step-title">{@step.title}</h3>
       <p class="setup-step-why">{@step.why}</p>
-      <p :if={@step[:note]} class="setup-step-note">{@step.note}</p>
+      <p :if={@step[:state]} class="setup-step-note">
+        <Kit.state tone={elem(@step.state, 0)} word={elem(@step.state, 1)} />
+        <span :if={@step[:note]}>{@step.note}</span>
+      </p>
+      <p :if={@step[:note] && !@step[:state]} class="setup-step-note">{@step.note}</p>
       <p :if={@step[:how]} class="setup-step-how">
         {@step.how}
         <span :if={@step[:command]} class="setup-command">
@@ -235,11 +240,17 @@ defmodule Ryker.ControlPlane.SetupPage do
 
   attr(:step, :map, required: true)
 
+  # A later step is quiet unless what it connects is broken: that is worth
+  # knowing before its turn comes.
   defp later(assigns) do
     ~H"""
     <div class="setup-step-body">
       <h3 class="setup-step-title">{@step.title}</h3>
-      <p class="setup-step-short">{@step.short}</p>
+      <p :if={!@step[:broken]} class="setup-step-short">{@step.short}</p>
+      <p :if={@step[:broken]} class="setup-step-short">
+        <Kit.state tone={elem(@step.state, 0)} word={elem(@step.state, 1)} />
+        <span>{@step.note}</span>
+      </p>
     </div>
     """
   end
@@ -248,13 +259,13 @@ defmodule Ryker.ControlPlane.SetupPage do
 
   # Emisar's own panel: what it lets Ryker do and what Ryker cannot do
   # without it, in words, with the one action that fits where it stands.
-  defp emisar(%{emisar: %{status: :ready}} = assigns) do
+  defp emisar(%{emisar: %{status: :on}} = assigns) do
     ~H"""
     <section class="setup-emisar" data-state="ready" aria-labelledby="setup-emisar-title">
       <div class="setup-emisar-head">
         <span class="setup-emisar-done" aria-hidden="true"><Components.icon name={:check} /></span>
         <h2 id="setup-emisar-title">Emisar</h2>
-        <Kit.state tone={:on} word="Connected" />
+        <Kit.state tone={elem(@emisar.state, 0)} word={elem(@emisar.state, 1)} />
       </div>
       <p class="setup-emisar-lede">
         Ryker can carry out the fixes you ask for once a person approves them in Emisar.
@@ -269,21 +280,19 @@ defmodule Ryker.ControlPlane.SetupPage do
     """
   end
 
+  # Short of connected, the panel is titled by what is missing: nothing
+  # connected, an account no work can use yet (a warning, so a person has
+  # something to finish) or every account paused on purpose.
   defp emisar(assigns) do
     assigns =
       assign(assigns,
         title:
-          case assigns.emisar.status do
-            :not_connected -> "Connect Emisar"
-            :unfinished -> "Finish connecting Emisar"
-            :paused -> "Emisar is paused"
+          case assigns.emisar do
+            %{status: :not_set_up} -> "Connect Emisar"
+            %{state: {:warn, _missing}} -> "Finish connecting Emisar"
+            %{state: {:off, _paused}} -> "Emisar is paused"
           end,
-        action:
-          case assigns.emisar.status do
-            :not_connected -> "Connect Emisar"
-            :unfinished -> "Finish on the Emisar page"
-            :paused -> "Manage Emisar"
-          end
+        paused: match?(%{status: :off, state: {:off, _paused}}, assigns.emisar)
       )
 
     ~H"""
@@ -295,10 +304,14 @@ defmodule Ryker.ControlPlane.SetupPage do
     >
       <div class="setup-emisar-head">
         <h2 id="setup-emisar-title">{@title}</h2>
-        <span :if={@emisar.status != :paused} class="entity-tag">Recommended</span>
+        <span :if={!@paused} class="entity-tag">Recommended</span>
       </div>
-      <p class="setup-emisar-lede">
-        {@emisar.text || "Let Ryker act on your running systems, not only on your code."}
+      <p :if={@emisar.status == :not_set_up} class="setup-emisar-lede">
+        Let Ryker act on your running systems, not only on your code.
+      </p>
+      <p :if={@emisar.status != :not_set_up} class="setup-emisar-lede">
+        <Kit.state tone={elem(@emisar.state, 0)} word={elem(@emisar.state, 1)} />
+        {@emisar.reason}
       </p>
       <h3 class="setup-emisar-subhead">With Emisar</h3>
       <ul class="setup-emisar-gains">
@@ -331,10 +344,10 @@ defmodule Ryker.ControlPlane.SetupPage do
       </p>
       <div class="setup-emisar-actions">
         <.link
-          navigate="/integrations/emisar"
-          class={["ui-button", if(@emisar.status == :paused, do: "secondary", else: "primary")]}
-        >{@action}</.link>
-        <p :if={@emisar.status == :not_connected}>
+          navigate={@emisar.action.href}
+          class={["ui-button", if(@paused, do: "secondary", else: "primary")]}
+        >{@emisar.action.label}</.link>
+        <p :if={@emisar.status == :not_set_up}>
           Optional, but strongly recommended. You need an Emisar account and an API token. About
           3 minutes.
         </p>
@@ -345,47 +358,49 @@ defmodule Ryker.ControlPlane.SetupPage do
 
   # Steps --------------------------------------------------------------------
 
+  # Verified tokens leave one thing to do, choosing who can manage Ryker, so
+  # the step says the state every page says and asks only for that.
   defp step(:slack, view) do
     slack = Integrations.slack(view)
-    settings = view.snapshot.slack
+    finishing = slack.status == :off
 
     %{
-      title: "Connect Slack",
+      title: if(finishing, do: "Finish connecting Slack", else: "Connect Slack"),
       short: "Paste the two tokens from your Slack app.",
       why:
         "Ryker works with your team in Slack: it reads the channels it is invited to and replies there.",
-      needs: "A Slack app for Ryker, with its app token (xapp-…) and bot token (xoxb-…)",
-      note:
-        if(slack.verified and not slack.connected,
-          do: "Slack is verified. Choose who can manage Ryker to finish connecting it."
+      needs:
+        if(finishing,
+          do: "The people in your workspace who should change Ryker's settings from Slack",
+          else: "A Slack app for Ryker, with its app token (xapp-…) and bot token (xoxb-…)"
         ),
-      action: %{
-        label: if(slack.verified, do: "Choose people", else: "Connect Slack"),
-        href: "/integrations/slack"
-      },
+      state: if(slack.status != :on, do: slack.state),
+      note: slack.reason,
+      broken: slack.status == :broken,
+      minutes: if(finishing, do: 1, else: 5),
+      action: slack.action,
       done_title: "Slack",
-      summary: workspace(settings),
-      state: running_state(slack.state),
+      summary: workspace(view.snapshot.slack),
       manage: %{label: "Manage", href: "/integrations/slack"}
     }
   end
 
   defp step(:github, view) do
-    invalid = view.github_connection == :invalid
+    github = Integrations.github(view)
+    broken = github.status == :broken
     app = view.snapshot.github.app_slug
 
     %{
-      title: if(invalid, do: "Repair GitHub", else: "Connect GitHub"),
+      title: if(broken, do: "Repair GitHub", else: "Connect GitHub"),
       short: "Connect the GitHub App Ryker works through.",
       why:
         "Ryker reads your code and opens pull requests through a GitHub App, so GitHub decides what it can reach.",
       needs: "A GitHub App, its App ID and a private key file (.pem)",
-      note: if(invalid, do: "The saved App ID or private key no longer works."),
-      action:
-        if(invalid,
-          do: %{label: "Repair GitHub", href: "/integrations/github#github-app"},
-          else: %{label: "Connect GitHub", href: "/integrations/github"}
-        ),
+      state: if(github.status != :on, do: github.state),
+      note: github.reason,
+      broken: broken,
+      minutes: 5,
+      action: github.action,
       done_title: "GitHub",
       summary: app && "App " <> app,
       manage: %{label: "Manage", href: "/integrations/github"}
@@ -401,6 +416,7 @@ defmodule Ryker.ControlPlane.SetupPage do
       note:
         "Each one joins the Default environment, which Ryker creates for you. Channels choose an environment, so there is nothing else to set up.",
       needs: "The GitHub App installed on the repositories Ryker should work in",
+      minutes: 2,
       action: %{label: "Add repositories", href: "/repositories"},
       done_title: "Repositories",
       summary: repositories(view.snapshot.repositories),
@@ -416,6 +432,7 @@ defmodule Ryker.ControlPlane.SetupPage do
       how: "In a channel where your team works, send",
       command: "/invite @" <> bot(view),
       detected: "Ryker notices on its own and checks this step off.",
+      minutes: 1,
       action: open_slack(view, nil),
       done_title: "Channels",
       summary: invited(view.setup, channel_name(view)),
@@ -434,6 +451,7 @@ defmodule Ryker.ControlPlane.SetupPage do
         "An environment holds the repositories and the Emisar account work may use. Channels Ryker joins start in the default environment; one joined before there was any has none yet.",
       how:
         "Choose it on the channel's page in Ryker, or press Customize on Ryker's welcome message in #{name || "the channel"}.",
+      minutes: 1,
       action: channel_page(channel),
       done_title: "Channel environment",
       summary:
@@ -451,6 +469,7 @@ defmodule Ryker.ControlPlane.SetupPage do
       how: "In #{name || "that channel"}, mention @#{bot(view)} with a real question, such as",
       example: "@#{bot(view)} what does this repository do?",
       detected: "Ryker notices its reply on its own.",
+      minutes: 2,
       action: open_slack(view, Map.get(view.setup, :channel)),
       done_title: "First request",
       summary: "Ryker answered in Slack"
@@ -458,10 +477,6 @@ defmodule Ryker.ControlPlane.SetupPage do
   end
 
   # Helpers ------------------------------------------------------------------
-
-  # A done step shows its state only when it is not simply working.
-  defp running_state({:on, _connected}), do: nil
-  defp running_state(state), do: state
 
   defp workspace(%{workspace_name: name, workspace_ref: ref, bot_name: bot}) do
     case {name || ref, bot} do

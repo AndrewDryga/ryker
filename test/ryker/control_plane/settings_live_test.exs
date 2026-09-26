@@ -279,7 +279,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
         snapshot: %{view.snapshot | slack: slack},
         credentials:
           for(kind <- [:slack_app, :slack_bot], do: %{kind: kind, verification_status: :verified}),
-        readiness: %{view.readiness | slack: %{state: :ready, title: "", detail: ""}}
+        readiness: %{view.readiness | slack: %{state: :ready}}
     }
 
     document =
@@ -339,10 +339,14 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, repositories, _html} = open("/repositories")
     refute has_element?(repositories, "button[phx-click=discover-github-repositories]")
 
+    # The line above the repositories says what the GitHub page says, and its
+    # one button goes straight to the repair form.
+    assert has_element?(repositories, "#github-status .state-word[data-tone=bad]", "Needs repair")
+
     assert has_element?(
              repositories,
-             "a[href='/integrations/github']",
-             "Repair GitHub connection"
+             "#github-status a[href='/integrations/github#github-app']",
+             "Repair GitHub"
            )
 
     {:ok, github, _html} = open("/integrations/github")
@@ -529,6 +533,26 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     # click, with nothing between the button and the loss.
     initialize!()
     connect_slack!()
+
+    # Slack that was never switched on only has tokens to remove, and says so
+    # (QA, 2026-09-25: "Finish connecting" sat beside a Disconnect button).
+    {:ok, view, _html} = open("/integrations/slack")
+
+    view
+    |> element("button[phx-value-action=disconnect-slack]", "Remove the tokens")
+    |> render_click()
+
+    assert has_element?(view, ".settings-confirm", "Remove the Slack tokens?")
+    refute has_element?(view, ".settings-confirm", "stops reading and replying")
+    render_click(view, "cancel-settings-action", %{})
+
+    {:ok, _snapshot} =
+      Settings.save_slack(
+        %{enabled: true, operators: ["U0123456789"]},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
     {:ok, view, _html} = open("/integrations/slack")
 
     view |> element("button[phx-value-action=disconnect-slack]", "Disconnect") |> render_click()
@@ -804,6 +828,112 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     end
   end
 
+  test "every model choice lists the same models in one order and marks the saved one" do
+    # QA, 2026-09-25: each select put its saved model first, so the same list
+    # came in eight different orders and nothing said which one was in use.
+    initialize!()
+    snapshot = Settings.fetch!()
+
+    {:ok, _snapshot} =
+      Settings.save_work(
+        %{deep_model: "codex:gpt-5.6-luna/high@default"},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, _view, html} = open("/settings/models")
+    document = LazyHTML.from_document(html)
+    selects = LazyHTML.query(document, "#settings-model-form select")
+    assert Enum.count(selects) == 8
+
+    orders =
+      for select <- selects,
+          do: select |> LazyHTML.query("option") |> LazyHTML.attribute("value")
+
+    assert orders |> Enum.uniq() |> length() == 1
+
+    assert hd(orders) ==
+             for(
+               model <- ~w(gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra),
+               effort <- ~w(low medium high xhigh),
+               do: "codex:#{model}/#{effort}@default"
+             )
+
+    deep = LazyHTML.query(document, "#settings-model-form select[name=deep_model] option")
+    marked = Enum.filter(deep, &(LazyHTML.text(&1) =~ "(current)"))
+
+    assert Enum.map(marked, &LazyHTML.attribute(&1, "value")) == [
+             ["codex:gpt-5.6-luna/high@default"]
+           ]
+
+    assert Enum.map(marked, &LazyHTML.attribute(&1, "selected")) == [[""]]
+  end
+
+  test "a refused price says what to fill in and which price already has that day" do
+    # QA, 2026-09-25: an empty source read as filled in behind its example,
+    # "Where this price came from is required" did not say what to write, and
+    # a second price for the same day said "Effective from is already taken
+    # by another entry."
+    initialize!()
+    {:ok, view, _html} = open("/settings/prices")
+
+    # A saved source that is a link opens it.
+    assert has_element?(
+             view,
+             "#settings-pricing .entity-meta a[href='https://developers.openai.com/api/docs/pricing']"
+           )
+
+    view |> element("#settings-pricing button.settings-editor-add") |> render_click()
+    refute has_element?(view, "#settings-pricing-provenance[placeholder]")
+
+    view
+    |> form("#settings-pricing-form", %{
+      "execution_target" => "codex:gpt-5.6-sol",
+      "input_usd_per_million" => "1",
+      "cached_input_usd_per_million" => "0.1",
+      "output_usd_per_million" => "2",
+      "effective_from" => "2026-09-05",
+      "provenance" => ""
+    })
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "#settings-pricing .settings-error",
+             "Add where this price came from, such as a link to the provider's price list."
+           )
+
+    assert has_element?(
+             view,
+             "#settings-pricing .settings-error",
+             "gpt-5.6-sol already has a price from 5 Sep 2026. Choose another day, or edit that price."
+           )
+  end
+
+  test "an incident room prefix that is refused says what a prefix may hold" do
+    # QA, 2026-09-25: "Name starts with is not in the expected format."
+    initialize!()
+    connect_slack!()
+    {:ok, view, _html} = open("/integrations/slack")
+
+    view
+    |> form("#settings-slack-form", %{"channel_prefix" => "Inc Rooms"})
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "#settings-slack .settings-error",
+             "Use 1 to 20 lowercase letters, numbers, dashes or underscores, such as inc."
+           )
+  end
+
+  test "new installations name incident rooms inc-, the way the demo room reads" do
+    # QA, 2026-09-25: the default prefix was "ems" while every example room
+    # read "#inc-…".
+    initialize!()
+    assert Settings.fetch!().slack.channel_prefix == "inc"
+  end
+
   test "shortening a retention limit names what it would expose before it is applied" do
     initialize!()
     {:ok, view, _html} = open("/settings/retention")
@@ -1075,7 +1205,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert {:error, {:invalid_settings, [{:section, :unknown}]}} =
              Actions.callbacks().save_settings.(:not_a_section, %{}, 1)
 
-    assert Settings.fetch!().slack.channel_prefix == "ems"
+    assert Settings.fetch!().slack.channel_prefix == "inc"
     assert Settings.fetch!().installation.revision == 1
   end
 

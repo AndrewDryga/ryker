@@ -12,13 +12,17 @@ defmodule Ryker.ControlPlane.PageHelp do
   in plain words for someone who has never seen Ryker. `PageHelpTest` holds
   every routed page to having help and keeps Ryker's internal words out.
 
+  An integration page's help explains each word its state can show, from the
+  same account the pages read (`Integrations.meanings/1`), so the help can
+  never describe a state the page does not show.
+
   The panel is rendered closed. From 1600px wide the stylesheet sets it
   beside the page as a column and `page-help.mjs` opens it; below that it is
   a quiet disclosure above the page that opens only when the reader asks.
   """
   use Phoenix.Component
 
-  alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.{Components, Integrations}
 
   @type section :: %{heading: String.t(), paragraphs: [String.t()]}
   @type t :: %{title: String.t(), sections: [section()]}
@@ -536,7 +540,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"For every conversation",
        [
-         "Write what should apply everywhere, up to 2,000 characters, and press Save. Ryker uses the change from its next step; work already running keeps what it started with."
+         "Write what should apply everywhere, up to 2,000 characters, and press Save. Ryker uses the change from its next step; work already running keeps what it started with.",
+         "For example: “Keep replies concise. Separate observed facts from guesses.”"
        ]},
       {"For one channel",
        [
@@ -671,6 +676,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        [
          "New channels sets when Ryker replies in a channel that has not chosen for itself: only when mentioned, also when it can clearly help, or never. Incident rooms sets how room channels are named and whether they are private."
        ]},
+      {"What the states mean", [Integrations.meanings(:slack)]},
       {"When something looks wrong",
        [
          "If Slack is missing permissions, the error lists them. Add them to your Slack app, reinstall it in the workspace, then verify again.",
@@ -694,9 +700,10 @@ defmodule Ryker.ControlPlane.PageHelp do
        [
          "Let Ryker open pull requests decides whether Ryker pushes a branch and opens a pull request when its work changes code. You can set how branches are named and who commits."
        ]},
+      {"What the states mean", [Integrations.meanings(:github)]},
       {"When something looks wrong",
        [
-         "Needs repair means the saved App ID or private key stopped working. Repair it with the current key; repositories stay as they are. Add repositories on the Repositories page."
+         "Repairing the App keeps the repositories as they are. Add repositories on the Repositories page."
        ]}
     ])
   end
@@ -715,6 +722,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        [
          "Each environment uses at most one account; choose it on the Environments page. Pause an account to stop sending it new work. Its history stays."
        ]},
+      {"What the states mean", [Integrations.meanings(:emisar)]},
       {"When something looks wrong",
        [
          "If approval monitoring is off, tasks waiting on an approval stop and show on Failures. Turn it back on under Manage, where you can also replace a token that changed.",
@@ -739,6 +747,7 @@ defmodule Ryker.ControlPlane.PageHelp do
          "Paste one delivery under Check a payload to see the events Ryker would record. Nothing is saved or sent.",
          "Group by labels treats events with the same values for those labels as one ongoing situation."
        ]},
+      {"What the states mean", [Integrations.meanings(:webhooks)]},
       {"When something looks wrong",
        [
          "A credential that a source still uses cannot be deleted. Change or remove that source first."
@@ -816,7 +825,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"What is running",
        [
-         "Show what is loaded lists what the running Ryker actually uses, for support and troubleshooting. Nothing there can be changed; a saved setting shows there once it is applied."
+         "Show what is loaded lists what the running Ryker actually uses, for support and troubleshooting. Nothing there can be changed; a saved setting shows there once it is applied.",
+         "Its integrations show the same state as their own pages, with whether the running Ryker loaded them under Details."
        ]},
       {"When something looks wrong",
        [

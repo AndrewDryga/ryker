@@ -53,7 +53,13 @@ defmodule Ryker.ControlPlane.Kit do
   )
 
   attr(:text, :string, default: nil, doc: "What the item does or says, in its own words")
-  attr(:meta, :list, default: [], doc: "Facts joined by a middle dot; {:strong, text} emphasises")
+
+  attr(:meta, :list,
+    default: [],
+    doc:
+      "Facts joined by a middle dot; {:strong, text} emphasises, {:link, text, href} opens " <>
+        "an outside page in a new tab"
+  )
 
   attr(:icon, :atom,
     default: nil,
@@ -176,6 +182,11 @@ defmodule Ryker.ControlPlane.Kit do
   defp fact(%{value: {:strong, text}} = assigns) do
     assigns = assign(assigns, :text, text)
     ~H"<strong>{@text}</strong>"
+  end
+
+  defp fact(%{value: {:link, text, href}} = assigns) do
+    assigns = assign(assigns, text: text, href: href)
+    ~H'<a href={@href} target="_blank" rel="noopener noreferrer">{@text}</a>'
   end
 
   defp fact(assigns), do: ~H"{@value}"

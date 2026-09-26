@@ -82,7 +82,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelp do
     "slack" => {
       "Slack",
       "Receives Slack messages and clicks, and keeps Ryker's replies and cards up to date.",
-      "Workspace identity, channel participation, repository bindings and operator rules restrict what it processes. Configured does not prove the Slack connection or token is healthy.",
+      "Workspace identity, channel participation, repository bindings and operator rules restrict what it processes.",
       "Not configured unless the slack section is present."
     },
     "github" => {

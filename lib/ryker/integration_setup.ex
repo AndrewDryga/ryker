@@ -884,6 +884,11 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
+  # Slack lists Slackbot and workflow or app users as members that are not
+  # bots; none of them is a person who could manage Ryker.
+  defp human_slack_member?(%{"id" => "USLACKBOT"}), do: false
+  defp human_slack_member?(%{"is_app_user" => true}), do: false
+
   defp human_slack_member?(%{"deleted" => false, "id" => id, "is_bot" => false})
        when is_binary(id),
        do: true

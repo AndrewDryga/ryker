@@ -57,7 +57,9 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
     rows = Enum.map(@settings, &row(&1, "configured"))
     document = html(rows) |> LazyHTML.from_document()
 
-    for key <- @settings do
+    # Slack, GitHub, Emisar and webhooks are listed in their own pages' words
+    # instead (IntegrationStateLiveTest holds that).
+    for key <- @settings -- ~w(slack github emisar webhooks) do
       setting = LazyHTML.query(document, "[data-setting='#{key}']")
       assert LazyHTML.text(LazyHTML.query(setting, ".configuration-purpose")) != "", key
       assert LazyHTML.text(LazyHTML.query(setting, ".configuration-behavior")) != "", key
@@ -153,6 +155,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
   test "unknown settings and grant names remain escaped without invented explanations" do
     page =
       RunningSystem.html(%{
+        integrations: [],
         source: "<source>",
         rows: [row("future.<option>", "<script>alert(1)</script>")],
         grants: [%{kind: "MCP tool", name: "<tool>", source: "<source>"}]
@@ -208,5 +211,5 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
   defp text(nodes), do: nodes |> LazyHTML.text() |> String.split() |> Enum.join(" ")
 
   defp html(rows),
-    do: RunningSystem.html(%{rows: rows, grants: [], source: "/etc/ryker.yaml"})
+    do: RunningSystem.html(%{rows: rows, grants: [], source: "/etc/ryker.yaml", integrations: []})
 end

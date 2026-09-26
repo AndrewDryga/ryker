@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     Endpoint,
     Environments,
     EpisodePage,
+    IntegrationErrors,
     Integrations,
     LabControls,
     LabPage,
@@ -449,7 +450,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       {:error, reason} ->
         {:noreply,
          assign(socket,
-           github_repository_discovery: {:error, setup_error(reason)},
+           github_repository_discovery: {:error, IntegrationErrors.message(reason)},
            repository_notice: nil
          )}
     end
@@ -490,7 +491,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          |> refresh(true)}
 
       {:error, reason} ->
-        {:noreply, assign(socket, repository_notice: {:import, :error, setup_error(reason)})}
+        {:noreply,
+         assign(socket, repository_notice: {:import, :error, IntegrationErrors.message(reason)})}
     end
   end
 
@@ -655,13 +657,17 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("disconnect-integration", %{"kind" => kind}, socket)
       when kind in ["slack", "github"] do
     confirmed(socket, {"disconnect-#{kind}", kind}, fn socket ->
-      result = IntegrationSetup.disconnect(String.to_existing_atom(kind))
+      key = String.to_existing_atom(kind)
 
-      finish_setup(
-        socket,
-        result,
-        "#{if kind == "github", do: "GitHub", else: "Slack"} is disconnected."
-      )
+      # Slack that was never switched on had only its tokens to remove.
+      done =
+        case {key, Integrations.read(key, socket.assigns.settings)} do
+          {:slack, %{status: :off}} -> "The Slack tokens were removed."
+          {:slack, _connected} -> "Slack is disconnected."
+          {:github, _connected} -> "GitHub is disconnected."
+        end
+
+      finish_setup(socket, IntegrationSetup.disconnect(key), done)
     end)
   end
 
@@ -938,14 +944,15 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # family; the route map only lets through the pages that exist.
   defp load_detail(socket, options, segments) when is_map_key(@settings_pages, segments) do
     section = Map.fetch!(@settings_pages, segments)
+    settings = options.projection.settings.()
 
     assign(socket,
       native: :settings,
       page_title: SettingsPage.title(section),
-      settings: options.projection.settings.(),
+      settings: settings,
       settings_commands: settings_commands(options),
       settings_section: section,
-      body: if(section == :system, do: configuration_evidence(options), else: "")
+      body: if(section == :system, do: configuration_evidence(options, settings), else: "")
     )
   end
 
@@ -1125,7 +1132,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   # A refusal is said in the error tone, never in the tone of a success.
   defp failed(socket, reason),
-    do: assign(socket, setup_notice: nil, setup_failure: setup_error(reason), setup_reveal: nil)
+    do:
+      assign(socket,
+        setup_notice: nil,
+        setup_failure: IntegrationErrors.message(reason),
+        setup_reveal: nil
+      )
 
   defp confirmed(%{assigns: %{settings_confirm: asked}} = socket, asked, run),
     do: {:noreply, socket |> assign(:settings_confirm, nil) |> run.()}
@@ -1206,44 +1218,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp refresh_settings(socket), do: assign(socket, :settings, SettingsView.fetch())
 
-  defp setup_error({:slack_missing_scopes, scopes}),
-    do: "Slack is missing: " <> Enum.join(scopes, ", ")
-
-  defp setup_error({:invalid_github_app_jwt, :private_key}),
-    do: "GitHub could not read the App private key. Replace the connection, then try again."
-
-  defp setup_error(:credential_name_invalid),
-    do: "That name cannot be used. Use lowercase letters, numbers, dots, dashes and colons."
-
-  defp setup_error(:credential_value_invalid), do: "That secret is empty or too long."
-
-  defp setup_error(:credential_value_too_short),
-    do: "That secret is too short. Use at least 8 characters."
-
-  defp setup_error(:webhook_secret_too_short),
-    do: "A signing secret needs at least 32 characters. Leave it empty and Ryker creates one."
-
-  defp setup_error(:connection_not_found), do: "That account no longer exists. Reload the page."
-
-  defp setup_error(:environment_not_found),
-    do: "That environment no longer exists. Reload the page."
-
-  defp setup_error(:emisar_account_mismatch),
-    do: "That token belongs to a different Emisar account."
-
-  defp setup_error({:invalid_settings, _errors}),
-    do: "These values were refused. Check them and try again."
-
-  defp setup_error({:settings_conflict, _current}),
-    do: "The settings changed in the meantime. Reload the page and try again."
-
-  defp setup_error({provider, reason})
-       when is_atom(provider) and (is_atom(reason) or is_binary(reason)),
-       do: "Connection could not be verified (#{reason})."
-
-  defp setup_error(_reason),
-    do: "Connection could not be verified. Check the values and try again."
-
   defp channel_environment_saved(nil),
     do: "Saved. Ryker now works here without code or an Emisar account."
 
@@ -1322,11 +1296,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   # Read-only evidence of what the running process assembled. It is rendered
   # from the application environment the runtime published, not from settings,
-  # so a saved-but-unapplied revision is visibly not in it.
-  defp configuration_evidence(options) do
+  # so a saved-but-unapplied revision is visibly not in it. The integrations in
+  # it read the same state as their own pages; settings that cannot be read
+  # show no page at all, so there is nothing to render them into.
+  defp configuration_evidence(options, {:ok, view}) do
     options.projection.operator_configuration.()
+    |> Map.put(:integrations, Integrations.all(view))
     |> RunningSystem.html()
   end
+
+  defp configuration_evidence(_options, _unavailable), do: ""
 
   # A secondary page is prepared whole by Pages from the path as the browser
   # sent it; a 503 keeps the last observed page on screen rather than

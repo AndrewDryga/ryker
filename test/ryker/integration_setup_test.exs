@@ -65,7 +65,23 @@ defmodule Ryker.IntegrationSetupTest do
             "is_bot" => false,
             "profile" => %{"real_name" => "Ada"}
           },
-          %{"deleted" => false, "id" => "B1", "is_bot" => true}
+          %{"deleted" => false, "id" => "B1", "is_bot" => true},
+          # Slack lists Slackbot as a member that is not a bot, and a workflow
+          # or app user the same way, marked only as an app user.
+          %{
+            "deleted" => false,
+            "id" => "USLACKBOT",
+            "is_bot" => false,
+            "name" => "slackbot",
+            "profile" => %{"real_name" => "Slackbot"}
+          },
+          %{
+            "deleted" => false,
+            "id" => "U9",
+            "is_app_user" => true,
+            "is_bot" => false,
+            "profile" => %{"real_name" => "Deploy workflow"}
+          }
         ],
         "ok" => true
       })
@@ -175,6 +191,22 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert {:ok, [%{id: "U1", name: "Ada"}, %{id: "U2", name: "Zoe"}]} =
              IntegrationSetup.slack_members(requester: Requester)
+  end
+
+  test "Choose people offers the people in the workspace, never Slackbot or an app" do
+    # QA, 2026-09-25: the list of people who could manage Ryker offered
+    # Slackbot, which Slack marks as a member that is not a bot.
+    {:ok, _result} =
+      IntegrationSetup.connect_slack(
+        %{
+          "app_token" => "xapp-this-is-a-long-app-token",
+          "bot_token" => "xoxb-this-is-a-long-bot-token"
+        },
+        requester: Requester
+      )
+
+    {:ok, members} = IntegrationSetup.slack_members(requester: Requester)
+    assert Enum.map(members, & &1.name) == ["Ada", "Zoe"]
   end
 
   test "GitHub setup verifies the App and reveals only the new webhook secret" do
@@ -536,7 +568,7 @@ defmodule Ryker.IntegrationSetupTest do
     assert pin_work!("chat", "default").emisar_connection_ref == ref
 
     # The setup and integrations pages read the same settings.
-    assert %{status: :ready, state: {:on, "Connected"}} =
+    assert %{status: :on, state: {:on, "Connected"}} =
              Integrations.emisar(%{snapshot: snapshot})
   end
 

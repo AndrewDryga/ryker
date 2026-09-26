@@ -15,7 +15,7 @@ defmodule Ryker.Settings.Slack do
     field(:bot_ref, :string)
     field(:bot_user_ref, :string)
     field(:bot_name, :string)
-    field(:channel_prefix, :string, default: "ems")
+    field(:channel_prefix, :string, default: "inc")
     field(:incident_private, :boolean, default: true)
 
     field(:default_participation, Ecto.Enum,

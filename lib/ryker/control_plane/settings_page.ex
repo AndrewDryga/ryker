@@ -8,10 +8,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
   title, one sentence and plain sections. A page's Add opens its form under
   the button, above the list it adds to, and pressed again closes it.
 
-  A connection reads as a dot and a word with the one action that fits it
-  (see `Integrations`). Anything that disconnects or deletes asks first and
-  says, in words, what it will do; the LiveView runs it only after that
-  question was asked.
+  A connection reads as a dot and a word, why when it is not working, and the
+  one action that fits it, in the words every page uses (see
+  `Integrations`). Anything that disconnects or deletes asks first and says,
+  in words, what it will do; the LiveView runs it only after that question
+  was asked.
   """
 
   use Phoenix.Component
@@ -188,7 +189,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:view, :map, required: true)
 
   # Every service Ryker works through, whatever its state: its state, what it
-  # gives Ryker, what is connected and the one action that fits.
+  # gives Ryker, why it is not working or what is connected, and the one
+  # action that fits.
   defp integrations(assigns) do
     assigns = assign(assigns, :rows, Integrations.overview(assigns.view))
 
@@ -209,7 +211,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
           <.link
             navigate={row.action.href}
             class={["ui-button", if(row.action.primary, do: "primary", else: "secondary")]}
-          >{row.action.label}<span class="sr-only">{" " <> row.name}</span></.link>
+          >{row.action.label}<span
+            :if={not String.contains?(row.action.label, row.name)}
+            class="sr-only"
+          >{" " <> row.name}</span></.link>
         </:actions>
       </Kit.entity_row>
     </Kit.entity_list>
@@ -229,14 +234,15 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
     assigns =
       assign(assigns,
-        verified: slack.verified,
-        connected: slack.connected,
+        verified: slack.status != :not_set_up,
+        connected: slack.status in [:on, :broken],
         line: slack,
         operators: operator_names(view.snapshot.slack)
       )
 
     ~H"""
-    <.connection state={@line.state} text={@line.text}>
+    <.connection state={@line.state} text={@line.reason}>
+      <:facts :if={@line.facts != []}>{facts(@line.facts)}</:facts>
       <:action :if={@verified and @confirm != {"disconnect-slack", "slack"}}>
         <button
           type="button"
@@ -244,14 +250,21 @@ defmodule Ryker.ControlPlane.SettingsPage do
           phx-click="confirm-settings-action"
           phx-value-action="disconnect-slack"
           phx-value-ref="slack"
-        >Disconnect</button>
+        >{if @connected, do: "Disconnect", else: "Remove the tokens"}</button>
       </:action>
     </.connection>
+    <%!-- Slack that was never switched on is not running, so removing its
+    tokens stops nothing: the question says only what it deletes. --%>
     <.confirmation
       :if={@confirm == {"disconnect-slack", "slack"}}
-      title="Disconnect Slack?"
-      text="Ryker stops reading and replying in Slack, and the saved tokens are deleted. Channels, instructions and history stay."
-      label="Disconnect Slack"
+      title={if @connected, do: "Disconnect Slack?", else: "Remove the Slack tokens?"}
+      text={
+        if @connected,
+          do:
+            "Ryker stops reading and replying in Slack, and the saved tokens are deleted. Channels, instructions and history stay.",
+          else: "The saved tokens are deleted. Channels, instructions and history stay."
+      }
+      label={if @connected, do: "Disconnect Slack", else: "Remove the tokens"}
       phx-click="disconnect-integration"
       phx-value-kind="slack"
     />
@@ -371,8 +384,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
       )
 
     ~H"""
-    <.connection state={@line.state} text={@line.text}>
-      <:action :if={@view.github_connection == :invalid}>
+    <.connection state={@line.state} text={@line.reason}>
+      <:facts :if={@line.facts != []}>{facts(@line.facts)}</:facts>
+      <:action :if={@line.status == :broken}>
         <a href="#github-app" class="ui-button secondary">Repair</a>
       </:action>
       <:action :if={@ready and @confirm != {"disconnect-github", "github"}}>
@@ -555,7 +569,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       )
 
     ~H"""
-    <.connection state={@line.state} text={@line.text}>
+    <.connection state={@line.state} text={@line.reason}>
       <:facts :if={@line.facts != [] or @line.unassigned > 0}>
         {facts(@line.facts)}{if @line.facts != [] and @line.unassigned > 0, do: " · "}<.link
           :if={@line.unassigned > 0}
@@ -777,10 +791,15 @@ defmodule Ryker.ControlPlane.SettingsPage do
     assigns =
       assign(assigns,
         credentials: credentials,
+        line: Integrations.webhooks(assigns.view),
         users: credential_users(assigns.view.snapshot.webhook_sources)
       )
 
     ~H"""
+    <.connection state={@line.state} text={@line.reason}>
+      <:facts :if={@line.facts != []}>{facts(@line.facts)}</:facts>
+    </.connection>
+
     <section class="settings-section" aria-label="Signing credentials">
       <Kit.section_head
         title="Signing credentials"

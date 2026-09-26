@@ -1,129 +1,297 @@
 defmodule Ryker.ControlPlane.Integrations do
   @moduledoc """
-  What each service Ryker works through is connected to, and whether it works,
-  in words: a dot and a word, a sentence when the word is not enough, and the
-  facts that name what is connected.
+  The one account of each service Ryker works through: whether it is set up,
+  connected but off, on and working, or on and broken, with the reason in
+  words and the one step that moves it forward.
 
-  The Integrations overview, each integration's own page and the setup page
-  read their states from here, so "Connected" means the same thing on all of
-  them. Everything is derived from the settings view; nothing here is stored.
+  QA, 2026-09-25, on one installation with verified Slack tokens and nobody
+  chosen to manage Ryker: Integrations said "Finish connecting", Channels said
+  "Slack is not connected", Setup counted the step as not started while
+  saying "Slack is verified", and Settings › Advanced said "Not configured".
+  Each page had worked the state out on its own. Every page that names an
+  integration's state now reads it here: the Integrations overview and each
+  integration's page, the Channels and Repositories lines, Setup, Settings ›
+  Advanced and the pages' help, which explains the same words.
+
+  Everything is derived from the settings view, and for Slack the running
+  connection it carries; nothing here is stored.
   """
 
-  alias Ryker.ControlPlane.{Environments, SlackNames}
+  use Phoenix.Component
 
-  @type state :: {:on | :busy | :off | :warn | :bad, String.t()}
+  alias Ryker.ControlPlane.{Environments, Kit, SlackNames}
+
+  @type key :: :slack | :github | :emisar | :webhooks
+  @type status :: :not_set_up | :off | :on | :broken
+  @type tone :: :on | :busy | :off | :warn | :bad
+  @type t :: %{
+          required(:key) => key(),
+          required(:name) => String.t(),
+          required(:href) => String.t(),
+          required(:status) => status(),
+          required(:state) => {tone(), String.t()},
+          required(:reason) => String.t() | nil,
+          required(:facts) => [String.t()],
+          required(:action) => %{label: String.t(), href: String.t()},
+          optional(:unassigned) => non_neg_integer()
+        }
+
+  @names %{slack: "Slack", github: "GitHub", emisar: "Emisar", webhooks: "Webhooks"}
+
+  # Every state each integration can be in, in the order a person meets them:
+  # its status, its dot and word, what the word means (the pages' help reads
+  # this), the reason shown beside it, and the one next step. A reason of nil
+  # means the word says enough, or that the reason depends on what is saved
+  # and is written where the state is read. Variants that share a meaning are
+  # explained together in the help.
+  @on_but_not_working "Slack is on but not working yet, and the page says why."
+  @no_sender "No other system can send Ryker events yet."
+  @states %{
+    slack: [
+      not_connected: %{
+        status: :not_set_up,
+        state: {:off, "Not connected"},
+        means: "Ryker has no working Slack tokens yet.",
+        reason: "Ryker cannot read or reply in Slack until you connect it.",
+        action: {"Connect Slack", "/integrations/slack"}
+      },
+      finish: %{
+        status: :off,
+        state: {:warn, "Finish connecting"},
+        means: "the tokens are verified, but Slack stays off until someone can manage Ryker.",
+        reason:
+          "The tokens are verified, but Slack stays off until you choose who can manage Ryker.",
+        action: {"Choose people", "/integrations/slack"}
+      },
+      connected: %{
+        status: :on,
+        state: {:on, "Connected"},
+        means: "Ryker reads and replies in the channels it is invited to.",
+        reason: nil,
+        action: {"Manage", "/integrations/slack"}
+      },
+      connecting: %{
+        status: :broken,
+        state: {:busy, "Connecting"},
+        means: @on_but_not_working,
+        reason:
+          "Ryker is opening its connection to Slack. If this lasts more than a minute, " <>
+            "replace the tokens.",
+        action: {"Manage", "/integrations/slack"}
+      },
+      starting: %{
+        status: :broken,
+        state: {:busy, "Starting"},
+        means: @on_but_not_working,
+        reason: "Ryker is applying the saved settings. Slack starts once they are applied.",
+        action: {"Manage", "/integrations/slack"}
+      },
+      waiting: %{
+        status: :broken,
+        state: {:warn, "Waiting for the worker"},
+        means: @on_but_not_working,
+        reason:
+          "Slack is on, but the worker that runs Ryker's work is not ready, so messages " <>
+            "wait. Working copies shows each worker.",
+        action: {"Open Working copies", "/working-copies"}
+      },
+      not_applied: %{
+        status: :broken,
+        state: {:bad, "Not running"},
+        means: @on_but_not_working,
+        reason: "The newest settings could not be applied, so Slack is not running.",
+        action: {"Open Advanced", "/settings/advanced"}
+      },
+      no_incident_policy: %{
+        status: :broken,
+        state: {:bad, "Not running"},
+        means: @on_but_not_working,
+        reason:
+          "Slack is on but did not start, because no worker policy for incident rooms is " <>
+            "ready. Check what each kind of work may do under Advanced.",
+        action: {"Open Advanced", "/settings/advanced"}
+      },
+      unknown: %{
+        status: :broken,
+        state: {:warn, "Unknown"},
+        means: @on_but_not_working,
+        reason: "Ryker could not read whether Slack is running. Reload the page to check again.",
+        action: {"Manage", "/integrations/slack"}
+      }
+    ],
+    github: [
+      not_connected: %{
+        status: :not_set_up,
+        state: {:off, "Not connected"},
+        means: "no GitHub App is connected yet.",
+        reason: "Ryker cannot read your code or open pull requests until you connect it.",
+        action: {"Connect GitHub", "/integrations/github"}
+      },
+      repair: %{
+        status: :broken,
+        state: {:bad, "Needs repair"},
+        means: "the saved App ID or private key stopped working. Repair it with the current key.",
+        reason: "The saved App ID or private key no longer works.",
+        action: {"Repair GitHub", "/integrations/github#github-app"}
+      },
+      no_repository: %{
+        status: :off,
+        state: {:warn, "Add a repository to start"},
+        means: "the App is verified, and GitHub work starts once a repository is added.",
+        reason: "The App is verified. Ryker starts GitHub work once a repository is added.",
+        action: {"Add repositories", "/repositories"}
+      },
+      connected: %{
+        status: :on,
+        state: {:on, "Connected"},
+        means: "Ryker reads code and opens pull requests in the repositories you added.",
+        reason: nil,
+        action: {"Manage", "/integrations/github"}
+      }
+    ],
+    emisar: [
+      not_connected: %{
+        status: :not_set_up,
+        state: {:off, "Not connected"},
+        means: "no Emisar account is connected, so Ryker can only tell you what to run.",
+        reason: "Without it, Ryker cannot act on anything that is running.",
+        action: {"Connect Emisar", "/integrations/emisar"}
+      },
+      paused: %{
+        status: :off,
+        state: {:off, "Paused"},
+        means: "every account is paused, so new work does not use Emisar.",
+        reason: "Every account is paused, so new work does not use Emisar.",
+        action: {"Manage", "/integrations/emisar"}
+      },
+      not_in_use: %{
+        status: :off,
+        state: {:warn, "Not in use yet"},
+        means:
+          "an account is connected, but no work can use it yet; the page says what is missing.",
+        reason: nil,
+        action: {"Finish connecting", "/integrations/emisar"}
+      },
+      connected: %{
+        status: :on,
+        state: {:on, "Connected"},
+        means:
+          "work in the environments that use an account sends its actions there for approval.",
+        reason: nil,
+        action: {"Manage", "/integrations/emisar"}
+      }
+    ],
+    webhooks: [
+      not_set_up: %{
+        status: :not_set_up,
+        state: {:off, "Not set up"},
+        means: "no webhook source is saved, so no other system can send Ryker events.",
+        reason: nil,
+        action: {"Set up webhooks", "/integrations/webhooks"}
+      },
+      off: %{
+        status: :off,
+        state: {:off, "Off"},
+        means: "sources are saved, but none of them accepts events.",
+        reason: "No source accepts events. Turn on Accept events for one to receive them.",
+        action: {"Manage", "/integrations/webhooks"}
+      },
+      on: %{
+        status: :on,
+        state: {:on, "On"},
+        means: "senders can deliver events to their sources' addresses.",
+        reason: nil,
+        action: {"Manage", "/integrations/webhooks"}
+      }
+    ]
+  }
+
+  @doc "Every integration, in the order the pages list them."
+  @spec all(map()) :: [t()]
+  def all(view), do: [slack(view), github(view), emisar(view), webhooks(view)]
 
   @doc """
-  Slack: verified tokens, then people who can manage Ryker, then the running
-  connection. `connected` is the setup step's own rule.
+  One integration's state from the settings a page read: settings that were
+  never created mean nothing is set up yet, and settings that could not be
+  read give no state at all rather than a guess.
   """
-  @spec slack(map()) :: %{
-          state: state(),
-          text: String.t() | nil,
-          verified: boolean(),
-          connected: boolean(),
-          facts: [String.t()]
-        }
+  @spec read(key(), {:ok, map()} | {:error, atom()}) :: t() | nil
+  def read(:slack, {:ok, view}), do: slack(view)
+  def read(:github, {:ok, view}), do: github(view)
+  def read(:emisar, {:ok, view}), do: emisar(view)
+  def read(:webhooks, {:ok, view}), do: webhooks(view)
+
+  def read(:webhooks, {:error, :settings_not_initialized}),
+    do: :webhooks |> state(:not_set_up, facts: []) |> Map.put(:reason, @no_sender)
+
+  def read(key, {:error, :settings_not_initialized}),
+    do: state(key, :not_connected, facts: [])
+
+  def read(_key, {:error, _unavailable}), do: nil
+
+  @doc """
+  Slack: verified tokens, then someone who can manage Ryker (which switches
+  Slack on), then the running connection. A connection switched on but not
+  running says why: still connecting, the settings not applied yet, the
+  worker not ready or no policy for incident rooms.
+  """
+  @spec slack(map()) :: t()
   def slack(view) do
     slack = view.snapshot.slack
     verified = verified?(view, [:slack_app, :slack_bot])
-    connected = verified and slack.enabled
-
-    {state, text} =
-      cond do
-        not verified ->
-          {{:off, "Not connected"}, nil}
-
-        not slack.enabled ->
-          {{:warn, "Finish connecting"},
-           "Choose who can manage Ryker to finish connecting Slack."}
-
-        true ->
-          running(view.readiness.slack, slack)
-      end
-
-    %{
-      state: state,
-      text: text,
-      verified: verified,
-      connected: connected,
-      facts:
-        if(verified,
-          do:
-            reject_empty([
-              slack.workspace_name || slack.workspace_ref,
-              slack.bot_name && "@" <> slack.bot_name,
-              connected && managers(slack.operators)
-            ]),
-          else: []
-        )
-    }
-  end
-
-  defp running(%{state: :ready}, slack) do
     workspace = slack.workspace_name || slack.workspace_ref
-    bot = if slack.bot_name, do: " as @" <> slack.bot_name, else: ""
-    {{:on, "Connected to #{workspace}#{bot}"}, nil}
+    bot = slack.bot_name && "@" <> slack.bot_name
+
+    cond do
+      not verified ->
+        state(:slack, :not_connected, facts: [])
+
+      not slack.enabled ->
+        state(:slack, :finish, facts: facts([workspace, bot]))
+
+      true ->
+        state(:slack, running(view.readiness.slack, view.application),
+          facts: facts([workspace, bot, managers(slack.operators)])
+        )
+    end
   end
 
-  defp running(%{state: :connecting, detail: detail}, _slack), do: {{:busy, "Connecting"}, detail}
+  defp running(%{state: :ready}, _application), do: :connected
+  defp running(%{state: :connecting}, _application), do: :connecting
+  defp running(%{state: :runtime_unavailable}, :pending), do: :starting
+  defp running(%{state: :runtime_unavailable}, {:failed, _code}), do: :not_applied
+  defp running(%{state: :runtime_unavailable}, :applied), do: :no_incident_policy
+  defp running(%{state: :unknown}, _application), do: :unknown
 
-  defp running(%{state: :runtime_unavailable, detail: detail}, _slack),
-    do: {{:bad, "Not running"}, detail}
-
-  defp running(%{state: :worker_unavailable, detail: detail}, _slack),
-    do: {{:warn, "Waiting for the worker"}, detail}
-
-  defp running(%{detail: detail}, _slack), do: {{:busy, "Setting up"}, detail}
+  defp running(%{state: worker}, _application)
+       when worker in [:setting_up, :worker_unavailable, :policy_unavailable],
+       do: :waiting
 
   defp managers([]), do: nil
   defp managers([_one]), do: "1 person can manage Ryker"
   defp managers(people), do: "#{length(people)} people can manage Ryker"
 
-  @doc "GitHub: the App Ryker works through, and whether it still works."
-  @spec github(map()) :: %{
-          state: state(),
-          text: String.t() | nil,
-          ready: boolean(),
-          facts: [String.t()]
-        }
+  @doc "GitHub: the App Ryker works through, whether it still works and whether work started."
+  @spec github(map()) :: t()
   def github(view) do
     github = view.snapshot.github
-    repositories = length(view.snapshot.repositories)
+    app = github.app_slug && "App " <> github.app_slug
 
-    {state, text} =
-      case view.github_connection do
-        :missing ->
-          {{:off, "Not connected"}, nil}
+    case view.github_connection do
+      :missing ->
+        state(:github, :not_connected, facts: [])
 
-        :invalid ->
-          {{:bad, "Needs repair"}, "The saved App ID or private key no longer works."}
+      :invalid ->
+        state(:github, :repair, facts: [])
 
-        :ready when github.enabled and is_binary(github.app_slug) ->
-          {{:on, "Connected as #{github.app_slug}"}, nil}
-
-        :ready when github.enabled ->
-          {{:on, "Connected"}, nil}
-
-        :ready ->
-          {{:warn, "Add a repository to start"},
-           "The App is verified. Ryker starts GitHub work once a repository is added."}
-      end
-
-    %{
-      state: state,
-      text: text,
-      ready: view.github_connection == :ready,
-      facts:
-        if(view.github_connection == :ready,
-          do:
-            reject_empty([
-              github.app_slug && "App " <> github.app_slug,
-              count(repositories, "repository")
-            ]),
-          else: []
+      :ready when github.enabled ->
+        state(:github, :connected,
+          facts: facts([app, count(length(view.snapshot.repositories), "repository")])
         )
-    }
+
+      :ready ->
+        state(:github, :no_repository, facts: facts([app]))
+    end
   end
 
   @doc """
@@ -133,31 +301,54 @@ defmodule Ryker.ControlPlane.Integrations do
   still missing. Once an account is connected, `unassigned` counts the
   environments whose work has no account, so no approvals at all.
   """
-  @spec emisar(map()) :: %{
-          status: :not_connected | :paused | :unfinished | :ready,
-          state: state(),
-          text: String.t() | nil,
-          facts: [String.t()],
-          unassigned: non_neg_integer()
-        }
+  @spec emisar(map()) :: t()
   def emisar(view) do
     accounts = view.snapshot.emisar_connections
     environments = view.snapshot.environments
-    used = for environment <- environments, do: environment.emisar_connection_ref
-    {status, state, text} = emisar_status(accounts, Enum.reject(used, &is_nil/1))
+    used = environments |> Enum.map(& &1.emisar_connection_ref) |> Enum.reject(&is_nil/1)
+    {variant, missing} = emisar_variant(accounts, used)
 
-    %{
-      status: status,
-      state: state,
-      text: text,
-      facts: if(accounts == [], do: [], else: [account_names(accounts)]),
-      unassigned:
-        if(accounts == [],
-          do: 0,
-          else: Enum.count(environments, &is_nil(&1.emisar_connection_ref))
-        )
-    }
+    :emisar
+    |> state(variant, facts: if(accounts == [], do: [], else: [account_names(accounts)]))
+    |> Map.update!(:reason, &(missing || &1))
+    |> Map.put(
+      :unassigned,
+      if(accounts == [],
+        do: 0,
+        else: Enum.count(environments, &is_nil(&1.emisar_connection_ref))
+      )
+    )
   end
+
+  defp emisar_variant([], _used), do: {:not_connected, nil}
+
+  defp emisar_variant(accounts, used) do
+    active = Enum.filter(accounts, & &1.enabled_for_new_work)
+    watched = for account <- active, account.monitoring_enabled, do: account.ref
+
+    cond do
+      active == [] ->
+        {:paused, nil}
+
+      Enum.any?(used, &(&1 in watched)) ->
+        {:connected, nil}
+
+      used == [] and watched == [] ->
+        {:not_in_use,
+         "Turn on approval monitoring for an account and give an environment that account."}
+
+      used == [] ->
+        {:not_in_use, "Give an environment this account so its work sends approvals there."}
+
+      true ->
+        {:not_in_use,
+         "Turn on approval monitoring for the account your environments use, so Ryker can " <>
+           "pick work back up after a decision."}
+    end
+  end
+
+  defp account_names([account]), do: account.display_name
+  defp account_names(accounts), do: count(length(accounts), "account")
 
   @doc """
   What connecting an account did, by the names of the environments that use
@@ -180,165 +371,140 @@ defmodule Ryker.ControlPlane.Integrations do
   @spec unassigned(pos_integer()) :: String.t()
   def unassigned(count), do: count(count, "environment") <> " without an Emisar account"
 
-  defp emisar_status([], _used), do: {:not_connected, {:off, "Not connected"}, nil}
-
-  defp emisar_status(accounts, used) do
-    active = Enum.filter(accounts, & &1.enabled_for_new_work)
-    watched = for account <- active, account.monitoring_enabled, do: account.ref
-
-    cond do
-      active == [] ->
-        {:paused, {:off, "Paused"}, "Every account is paused, so new work does not use Emisar."}
-
-      Enum.any?(used, &(&1 in watched)) ->
-        {:ready, {:on, "Connected"}, nil}
-
-      used == [] and watched == [] ->
-        {:unfinished, {:warn, "Not in use yet"},
-         "Turn on approval monitoring for an account and give an environment that account."}
-
-      used == [] ->
-        {:unfinished, {:warn, "Not in use yet"},
-         "Give an environment this account so its work sends approvals there."}
-
-      true ->
-        {:unfinished, {:warn, "Not in use yet"},
-         "Turn on approval monitoring for the account your environments use, so Ryker can pick work back up after a decision."}
-    end
-  end
-
-  defp account_names([account]), do: account.display_name
-  defp account_names(accounts), do: count(length(accounts), "account")
-
-  @doc "Webhooks: the senders set up to send Ryker events."
-  @spec webhooks(map()) :: %{state: state(), facts: [String.t()]}
+  @doc """
+  Webhooks: the senders set up to send Ryker events. A signing credential on
+  its own sends nothing, so it is a fact beside "Not set up", never a
+  connection.
+  """
+  @spec webhooks(map()) :: t()
   def webhooks(view) do
     sources = view.snapshot.webhook_sources
     credentials = Enum.count(view.credentials, &(&1.kind == :webhook))
 
-    state =
-      cond do
-        sources == [] -> {:off, "Not set up"}
-        Enum.any?(sources, & &1.enabled) -> {:on, "On"}
-        true -> {:off, "Off"}
-      end
+    facts =
+      facts([
+        sources != [] && count(length(sources), "source"),
+        credentials > 0 && count(credentials, "signing credential")
+      ])
 
-    %{
-      state: state,
-      facts:
-        reject_empty([
-          sources != [] && count(length(sources), "source"),
-          credentials > 0 && count(credentials, "signing credential")
-        ])
-    }
+    cond do
+      sources == [] ->
+        :webhooks
+        |> state(:not_set_up, facts: facts)
+        |> Map.put(
+          :reason,
+          if(credentials > 0,
+            do: "A signing credential is ready. Add a webhook source so a sender can use it.",
+            else: @no_sender
+          )
+        )
+
+      Enum.any?(sources, & &1.enabled) ->
+        state(:webhooks, :on, facts: facts)
+
+      true ->
+        state(:webhooks, :off, facts: facts)
+    end
   end
 
   @doc """
+  What each word an integration can show means, for the page's help: one
+  sentence per word, and one for the words that share a meaning.
+  """
+  @spec meanings(key()) :: String.t()
+  def meanings(key) do
+    @states
+    |> Map.fetch!(key)
+    |> Enum.map(fn {_variant, %{state: {_tone, word}, means: means}} -> {word, means} end)
+    |> Enum.uniq()
+    |> Enum.chunk_by(fn {_word, means} -> means end)
+    |> Enum.map_join(" ", fn group ->
+      words = group |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+      "#{either(words)}: #{elem(hd(group), 1)}"
+    end)
+  end
+
+  defp either([one]), do: one
+  defp either([first, second]), do: "#{first} or #{second}"
+  defp either([first | rest]), do: first <> ", " <> either(rest)
+
+  @doc """
   The Integrations overview: one row per service with its state, what it
-  gives Ryker, what is connected and the one action that fits. Emisar is
-  optional but recommended, so an unconnected Emisar says so and leads with
-  the page's one primary action.
+  gives Ryker, why it is not working when it is not, and the one action that
+  fits. Emisar is optional but recommended, so an unconnected Emisar says so
+  and leads with the page's one primary action.
   """
   @spec overview(map()) :: [map()]
   def overview(view) do
-    slack = slack(view)
-    github = github(view)
-    emisar = emisar(view)
-    webhooks = webhooks(view)
-
-    [
+    for integration <- all(view) do
       %{
-        key: :slack,
-        name: "Slack",
-        href: "/integrations/slack",
-        state: short(slack.state),
-        text: "Ryker reads and replies in the Slack channels it is invited to.",
-        meta: if(slack.text, do: [slack.text], else: slack.facts),
-        tag: nil,
-        action: action(slack.state, "/integrations/slack")
-      },
-      %{
-        key: :github,
-        name: "GitHub",
-        href: "/integrations/github",
-        state: short(github.state),
-        text: "Ryker reads your code and opens pull requests through a GitHub App.",
-        meta: if(github.text, do: [github.text], else: github.facts),
-        tag: nil,
-        action:
-          action(
-            github.state,
-            if(github.state == {:bad, "Needs repair"},
-              do: "/integrations/github#github-app",
-              else: "/integrations/github"
-            )
-          )
-      },
-      emisar_row(emisar),
-      %{
-        key: :webhooks,
-        name: "Webhooks",
-        href: "/integrations/webhooks",
-        state: webhooks.state,
-        text: "Other systems, such as Grafana, send alerts and events to Ryker.",
-        meta: webhooks.facts,
-        tag: nil,
-        action: %{
-          label: if(webhooks.state == {:off, "Not set up"}, do: "Set up", else: "Manage"),
-          href: "/integrations/webhooks",
-          primary: false
-        }
+        key: integration.key,
+        name: integration.name,
+        href: integration.href,
+        state: integration.state,
+        text: gives(integration.key),
+        meta: overview_meta(integration),
+        tag: if(recommended?(integration), do: "Recommended"),
+        action: Map.put(integration.action, :primary, recommended?(integration))
       }
-    ]
+    end
   end
 
-  # Emisar is optional but recommended: an unconnected Emisar says what Ryker
-  # cannot do without it and leads with the page's one primary action.
-  defp emisar_row(emisar) do
-    %{
-      key: :emisar,
-      name: "Emisar",
-      href: "/integrations/emisar",
-      state: emisar.state,
-      text:
-        "Ryker carries out the operational fixes you ask for, after a person approves them in Emisar.",
-      meta: emisar_meta(emisar),
-      tag: if(emisar.status == :not_connected, do: "Recommended"),
-      action: emisar_action(emisar.status)
-    }
+  defp gives(:slack), do: "Ryker reads and replies in the Slack channels it is invited to."
+  defp gives(:github), do: "Ryker reads your code and opens pull requests through a GitHub App."
+
+  defp gives(:emisar),
+    do:
+      "Ryker carries out the operational fixes you ask for, after a person approves them in Emisar."
+
+  defp gives(:webhooks), do: "Other systems, such as Grafana, send alerts and events to Ryker."
+
+  defp recommended?(%{key: :emisar, status: :not_set_up}), do: true
+  defp recommended?(_integration), do: false
+
+  defp overview_meta(%{key: :emisar, status: :on, facts: facts, unassigned: count})
+       when count > 0,
+       do: facts ++ [unassigned(count)]
+
+  defp overview_meta(%{reason: reason, facts: facts}) when is_binary(reason),
+    do: [reason | facts]
+
+  defp overview_meta(%{facts: facts}), do: facts
+
+  attr(:integration, :any, required: true, doc: "One integration's state, or nil when unknown")
+  attr(:key, :atom, required: true)
+  attr(:id, :string, required: true)
+
+  @doc """
+  One integration's state as a line above a list that needs it, such as the
+  Slack channels or the repositories: its name, the dot and word, why, and
+  the one next step. The same words its own page and the overview show.
+  """
+  def line(assigns) do
+    assigns = assign(assigns, :name, Map.fetch!(@names, assigns.key))
+
+    ~H"""
+    <div class="connection-line" id={@id}>
+      <p :if={@integration}>
+        <strong>{@name}</strong>
+        <Kit.state tone={elem(@integration.state, 0)} word={elem(@integration.state, 1)} />
+        <span :if={line_text(@integration)}>{line_text(@integration)}</span>
+      </p>
+      <p :if={!@integration}>
+        <strong>{@name}</strong>
+        <span>Its state is unknown, because settings could not be read.</span>
+      </p>
+      <.link
+        navigate={if @integration, do: @integration.action.href, else: "/integrations"}
+        class="ui-button secondary"
+      >{if @integration, do: @integration.action.label, else: "Open Integrations"}</.link>
+    </div>
+    """
   end
 
-  defp emisar_meta(%{status: :not_connected}),
-    do: ["Without it, Ryker cannot act on anything that is running."]
-
-  defp emisar_meta(%{status: :ready, facts: facts, unassigned: 0}), do: facts
-
-  defp emisar_meta(%{status: :ready, facts: facts, unassigned: count}),
-    do: facts ++ [unassigned(count)]
-
-  defp emisar_meta(%{text: text}), do: [text]
-
-  defp emisar_action(:not_connected),
-    do: %{label: "Connect", href: "/integrations/emisar", primary: true}
-
-  defp emisar_action(:unfinished),
-    do: %{label: "Finish", href: "/integrations/emisar", primary: false}
-
-  defp emisar_action(_ready_or_paused),
-    do: %{label: "Manage", href: "/integrations/emisar", primary: false}
-
-  # In a list the facts already name the workspace or App, so a working
-  # connection is just "Connected".
-  defp short({:on, _connected_to}), do: {:on, "Connected"}
-  defp short(state), do: state
-
-  defp action({:off, "Not connected"}, href), do: %{label: "Connect", href: href, primary: false}
-  defp action({:bad, _problem}, href), do: %{label: "Repair", href: href, primary: false}
-
-  defp action({:warn, "Finish connecting"}, href),
-    do: %{label: "Finish", href: href, primary: false}
-
-  defp action(_state, href), do: %{label: "Manage", href: href, primary: false}
+  defp line_text(%{reason: reason}) when is_binary(reason), do: reason
+  defp line_text(%{facts: []}), do: nil
+  defp line_text(%{facts: facts}), do: Enum.join(facts, " · ")
 
   @doc "A Slack channel as people know it, such as #ops."
   @spec channel_name(map()) :: String.t()
@@ -366,5 +532,21 @@ defmodule Ryker.ControlPlane.Integrations do
     end
   end
 
-  defp reject_empty(facts), do: Enum.reject(facts, &(&1 in [nil, false, ""]))
+  defp state(key, variant, facts: facts) do
+    %{status: status, state: state, reason: reason, action: {label, href}} =
+      @states |> Map.fetch!(key) |> Keyword.fetch!(variant)
+
+    %{
+      key: key,
+      name: Map.fetch!(@names, key),
+      href: "/integrations/#{key}",
+      status: status,
+      state: state,
+      reason: reason,
+      facts: facts,
+      action: %{label: label, href: href}
+    }
+  end
+
+  defp facts(facts), do: Enum.reject(facts, &(&1 in [nil, false, ""]))
 end

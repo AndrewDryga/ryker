@@ -11,19 +11,36 @@ defmodule Ryker.ControlPlane.RunningSystem do
   person (code changes unavailable) stays outside it. Everything a reader
   sees before opening a Details says it in plain words; keys, raw values and
   the precise behaviour of each setting stay under that setting's Details.
+
+  Slack, GitHub, Emisar and webhooks are listed as integrations, in the state
+  and words their own pages show (`Integrations`), with whether the running
+  Ryker loaded them under Details. Until 2026-09-25 they were four bare
+  "Not configured" lines that contradicted those pages: Slack with verified
+  tokens, and webhooks with a signing credential, both read as nothing.
   """
 
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{CodeEditingSetup, ConfigurationHelp, Kit}
+  alias Ryker.ControlPlane.{CodeEditingSetup, ConfigurationHelp, Integrations, Kit}
 
-  @doc "The evidence as HTML, ready for the settings page's body."
-  @spec html(%{rows: [map()], grants: [map()], source: String.t()}) :: String.t()
-  def html(%{rows: rows, grants: grants, source: source}) do
+  @integrations ~w(slack github emisar webhooks)
+
+  @doc """
+  The evidence as HTML, ready for the settings page's body. `integrations`
+  are the states `Integrations.all/1` read from the same settings the page
+  shows.
+  """
+  @spec html(%{
+          rows: [map()],
+          grants: [map()],
+          source: String.t(),
+          integrations: [Integrations.t()]
+        }) :: String.t()
+  def html(%{rows: rows, grants: grants, source: source, integrations: integrations}) do
     %{
       __changed__: nil,
-      groups: groups(rows),
+      groups: groups(rows, integrations),
       grants: grants,
       source: source,
       supported: CodeEditingSetup.checkpoint_supported?()
@@ -101,7 +118,14 @@ defmodule Ryker.ControlPlane.RunningSystem do
           />
           <div :for={group <- @groups} class="configuration-group" data-group={group.key}>
             <h3>{group.title}</h3>
-            <div class="entity-list" role="list" aria-label={group.title}>
+            <Kit.entity_list :if={group[:integrations]} label={group.title}>
+              <.integration
+                :for={integration <- group.integrations}
+                integration={integration}
+                row={Enum.find(group.rows, &(&1.key == Atom.to_string(integration.key)))}
+              />
+            </Kit.entity_list>
+            <div :if={!group[:integrations]} class="entity-list" role="list" aria-label={group.title}>
               <.setting :for={row <- group.rows} row={row} source={@source} />
             </div>
           </div>
@@ -128,6 +152,44 @@ defmodule Ryker.ControlPlane.RunningSystem do
         </div>
       </details>
     </section>
+    """
+  end
+
+  attr(:integration, :map, required: true)
+  attr(:row, :map, default: nil, doc: "Whether the running Ryker loaded it, when it said")
+
+  # One integration in the words of its own page, with what the running
+  # process holds for it under Details.
+  defp integration(assigns) do
+    assigns =
+      assign(assigns, :help, ConfigurationHelp.setting(Atom.to_string(assigns.integration.key)))
+
+    ~H"""
+    <Kit.entity_row
+      id={"running-#{@integration.key}"}
+      name={@integration.name}
+      href={@integration.href}
+      state={@integration.state}
+      text={@integration.reason}
+      meta={@integration.facts}
+    >
+      <:details>
+        <details class="settings-row-details">
+          <summary>Details</summary>
+          <p class="configuration-behavior">{@help.behavior}</p>
+          <dl>
+            <div>
+              <dt>Key</dt>
+              <dd><code>{@integration.key}</code></dd>
+            </div>
+            <div :if={@row}>
+              <dt>Running now</dt>
+              <dd><code>{if @row.value == "enabled", do: "yes", else: "no"}</code></dd>
+            </div>
+          </dl>
+        </details>
+      </:details>
+    </Kit.entity_row>
     """
   end
 
@@ -174,23 +236,33 @@ defmodule Ryker.ControlPlane.RunningSystem do
   end
 
   # Presence flags have bare keys; everything else groups by the prefix of its
-  # dotted key, in the order an operator reads a deployment: what runs, then
-  # how each part behaves.
-  defp groups(rows) do
+  # dotted key, in the order an operator reads a deployment: what runs, the
+  # services it works through, then how each part behaves.
+  defp groups(rows, integrations) do
     rows
     |> Enum.group_by(&group/1)
+    |> Map.put_new({1, "integrations", "Integrations"}, [])
     |> Enum.sort_by(fn {{order, _key, _title}, _rows} -> order end)
-    |> Enum.map(fn {{_order, key, title}, rows} -> %{key: key, title: title, rows: rows} end)
+    |> Enum.map(fn
+      {{_order, "integrations", title}, rows} ->
+        %{key: "integrations", title: title, rows: rows, integrations: integrations}
+
+      {{_order, key, title}, rows} ->
+        %{key: key, title: title, rows: rows}
+    end)
+    |> Enum.reject(&(&1[:integrations] == []))
   end
+
+  defp group(%{key: key}) when key in @integrations, do: {1, "integrations", "Integrations"}
 
   defp group(%{key: key}) do
     case String.split(key, ".", parts: 2) do
       [_flag] -> {0, "subsystems", "Parts of Ryker"}
-      ["runtime", _] -> {1, "runtime", "Installation"}
-      ["admission", _] -> {2, "admission", "Routing"}
-      ["work", _] -> {3, "work", "Running work"}
-      ["retention", _] -> {4, "retention", "Cleanup and retention"}
-      _ -> {5, "other", "Other settings"}
+      ["runtime", _] -> {2, "runtime", "Installation"}
+      ["admission", _] -> {3, "admission", "Routing"}
+      ["work", _] -> {4, "work", "Running work"}
+      ["retention", _] -> {5, "retention", "Cleanup and retention"}
+      _ -> {6, "other", "Other settings"}
     end
   end
 end

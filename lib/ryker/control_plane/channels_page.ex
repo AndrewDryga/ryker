@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, ShortTime, SlackNames}
+  alias Ryker.ControlPlane.{Components, Integrations, Kit, ShortTime, SlackNames}
 
   @doc "The search phrase and which channels to show, from the page's query."
   @spec view(map()) :: %{q: String.t(), show: String.t()}
@@ -87,54 +87,17 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   attr(:settings, :any, required: true, doc: "The settings view the shell already read")
 
   @doc """
-  One line saying whether Slack is connected and to which workspace, with the
-  way to change it.
+  One line saying where Slack stands, in the words the Slack page uses, with
+  the one step that moves it forward.
   """
   def slack_status(assigns) do
-    assigns = assign(assigns, :slack, slack(assigns.settings))
-
     ~H"""
-    <div class="connection-line" id="slack-status">
-      <p>
-        <span class="connection-dot" data-tone={elem(@slack, 0)} aria-hidden="true"></span>
-        <strong>{elem(@slack, 1)}</strong> {elem(@slack, 2)}
-      </p>
-      <.link navigate="/integrations/slack" class="ui-button secondary">{elem(@slack, 3)}</.link>
-    </div>
+    <Integrations.line
+      id="slack-status"
+      key={:slack}
+      integration={Integrations.read(:slack, @settings)}
+    />
     """
-  end
-
-  defp slack({:ok, view}) do
-    slack = view.snapshot.slack
-
-    if slack.enabled and verified?(view.credentials, [:slack_app, :slack_bot]) do
-      workspace =
-        slack.workspace_name || SlackNames.name(slack.workspace_ref, slack.workspace_ref)
-
-      {:on, "Slack is connected",
-       "to the #{workspace} workspace. A channel appears here when someone invites Ryker to it.",
-       "Manage"}
-    else
-      not_connected()
-    end
-  end
-
-  defp slack({:error, :settings_not_initialized}), do: not_connected()
-
-  defp slack(_unavailable),
-    do:
-      {:warn, "Slack status is unknown",
-       "because settings could not be read. Channels below are still current.", "Open settings"}
-
-  defp not_connected,
-    do:
-      {:warn, "Slack is not connected.",
-       "Connect it so Ryker can join channels and answer in them.", "Connect Slack"}
-
-  defp verified?(credentials, kinds) do
-    Enum.all?(kinds, fn kind ->
-      Enum.any?(credentials, &(&1.kind == kind and &1.verification_status == :verified))
-    end)
   end
 
   @doc """

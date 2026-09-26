@@ -1,17 +1,19 @@
 defmodule Ryker.ControlPlane.ProductReadiness do
   @moduledoc """
-  Small, user-facing readiness states for Chat and Slack.
+  Whether Chat and Slack can run right now: Chat's state in words, and
+  Slack's as the running evidence `Integrations.slack/1` reads, which says it
+  in the words every page uses.
 
   These states come from the applied runtime and the live worker fleet, not
-  from the presence of saved credentials. They contain fixed product copy and
-  never expose worker identities, policy names, credentials, or queue data.
+  from the presence of saved credentials. They never expose worker
+  identities, policy names, credentials, or queue data.
   """
 
   alias Ryker.Observability
   alias Ryker.Settings
   alias Ryker.Slack.Gateway
 
-  @spec current() :: %{chat: map(), slack: map()}
+  @spec current() :: %{chat: map(), slack: %{state: atom()}}
   def current do
     case Settings.fetch() do
       {:ok, snapshot} -> current(snapshot)
@@ -21,7 +23,7 @@ defmodule Ryker.ControlPlane.ProductReadiness do
     _error -> unavailable()
   end
 
-  @spec current(Settings.snapshot()) :: %{chat: map(), slack: map()}
+  @spec current(Settings.snapshot()) :: %{chat: map(), slack: %{state: atom()}}
   def current(snapshot) do
     control_plane = Application.get_env(:ryker, :control_plane)
     slack = Application.get_env(:ryker, :slack)
@@ -107,31 +109,17 @@ defmodule Ryker.ControlPlane.ProductReadiness do
     end
   end
 
-  defp slack_state(false, _chat, _configured, _connected),
-    do: state(:not_connected, "Slack is not connected", "Connect Slack to receive messages.")
+  # Slack switched on waits for the same worker Chat does before its own
+  # runtime and connection matter.
+  defp slack_state(false, _chat, _configured, _connected), do: %{state: :not_connected}
 
-  defp slack_state(true, %{state: chat_state} = chat, _configured, _connected)
+  defp slack_state(true, %{state: chat_state}, _configured, _connected)
        when chat_state != :ready,
-       do: %{chat | title: "Slack is waiting for its worker"}
+       do: %{state: chat_state}
 
-  defp slack_state(true, _chat, false, _connected),
-    do:
-      state(
-        :runtime_unavailable,
-        "Slack is not running",
-        "The saved Slack connection could not be applied. Check the connection and try again."
-      )
-
-  defp slack_state(true, _chat, true, false),
-    do:
-      state(
-        :connecting,
-        "Slack is connecting",
-        "The connection is configured and waiting for Slack Socket Mode."
-      )
-
-  defp slack_state(true, _chat, true, true),
-    do: state(:ready, "Slack is ready", "Ryker is connected and can receive messages.")
+  defp slack_state(true, _chat, false, _connected), do: %{state: :runtime_unavailable}
+  defp slack_state(true, _chat, true, false), do: %{state: :connecting}
+  defp slack_state(true, _chat, true, true), do: %{state: :ready}
 
   defp state(name, title, detail), do: %{state: name, title: title, detail: detail}
 
@@ -143,6 +131,6 @@ defmodule Ryker.ControlPlane.ProductReadiness do
         "Ryker could not read the current worker state."
       )
 
-    %{chat: chat, slack: %{chat | title: "Slack readiness is unavailable"}}
+    %{chat: chat, slack: %{state: :unknown}}
   end
 end

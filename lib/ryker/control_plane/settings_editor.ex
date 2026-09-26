@@ -552,7 +552,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
             id={input_id(@id, field)}
             value={Map.get(@draft, SettingsSections.field_name(field), "")}
             options={options(field, @view)}
-            error={field_error(@errors, field)}
+            error={field_error(@errors, field, @draft)}
             locked={field[:identity] && not is_nil(@item_key)}
           />
         </div>
@@ -975,12 +975,19 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp options(field, view),
     do: if(field[:options], do: SettingsSections.options(field, view), else: [])
 
-  defp field_error(errors, field) do
+  # A field that knows what to ask for says it in its own words (the Slack
+  # prefix says what a prefix may hold, a second price for a day names the
+  # price already there); any other refusal names the field and the rule.
+  defp field_error(errors, field, draft) do
     case Enum.find(errors, fn {name, _reason} -> name == field.name end) do
-      {_name, reason} -> "#{field.label} #{phrase(reason)}"
+      {_name, reason} -> sentence(Map.get(field[:errors] || %{}, reason), field, reason, draft)
       nil -> nil
     end
   end
+
+  defp sentence(text, _field, _reason, _draft) when is_binary(text), do: text
+  defp sentence({module, function}, _field, _reason, draft), do: apply(module, function, [draft])
+  defp sentence(nil, field, reason, _draft), do: "#{field.label} #{phrase(reason)}"
 
   defp phrase(:required), do: "is required."
   defp phrase(:required_to_enable), do: "is required before this can be turned on."
