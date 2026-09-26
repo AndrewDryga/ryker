@@ -16,7 +16,9 @@ defmodule Ryker.ControlPlane.RequestFilters do
   import Ryker.ControlPlane.Components
   alias Phoenix.LiveView.JS
 
-  alias Ryker.ControlPlane.{Components, ShortTime, SlackNames, UsagePage, UsageProjection}
+  alias Ryker.ControlPlane.{ShortTime, UsagePage, UsageProjection}
+  alias Ryker.Episodes.Words
+  alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
 
   @efforts ~w(none minimal low medium high xhigh max)
@@ -331,12 +333,12 @@ defmodule Ryker.ControlPlane.RequestFilters do
   defp value_label(:conversation, value, _params, values) do
     case Enum.find(values, &(Map.get(&1, :conversation_ref) == value)) do
       %{conversation_label: label} when is_binary(label) -> label
-      _other -> SlackNames.destination(value)
+      _other -> Names.destination(value)
     end
   end
 
   defp value_label(:thread, value, _params, _values), do: thread_label(value)
-  defp value_label(:channel, value, _params, _values), do: SlackNames.destination(value)
+  defp value_label(:channel, value, _params, _values), do: Names.destination(value)
   defp value_label(:user, value, params, values), do: user_label(value, params, values)
   defp value_label(_choices, value, _params, _values), do: choice_label(value)
 
@@ -352,11 +354,11 @@ defmodule Ryker.ControlPlane.RequestFilters do
   end
 
   defp user_label(value, %{"usage_source" => "slack", "usage_workspace" => workspace}, _values),
-    do: SlackNames.name(workspace, value)
+    do: Names.name(workspace, value)
 
   defp user_label(value, _params, values) do
     case Enum.find(values, &(Map.get(&1, :actor) == value and Map.get(&1, :source) == "slack")) do
-      %{workspace: workspace} -> SlackNames.name(workspace, value)
+      %{workspace: workspace} -> Names.name(workspace, value)
       nil -> value
     end
   end
@@ -375,7 +377,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
           |> Enum.map(fn row ->
             {row.actor,
              if(row.source == "slack",
-               do: SlackNames.name(row.workspace, row.actor),
+               do: Names.name(row.workspace, row.actor),
                else: row.actor
              )}
           end)
@@ -383,7 +385,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
         :channel ->
           rows
           |> Enum.filter(&(&1[:transport] == "slack"))
-          |> Enum.map(&{&1.conversation_ref, SlackNames.destination(&1.conversation_ref)})
+          |> Enum.map(&{&1.conversation_ref, Names.destination(&1.conversation_ref)})
 
         values ->
           Enum.map(values, &{&1, choice_label(&1)})
@@ -416,6 +418,6 @@ defmodule Ryker.ControlPlane.RequestFilters do
   defp choice_label(value) do
     if value in UsagePage.work_kinds(),
       do: UsagePage.kind_name(value),
-      else: Components.label(value)
+      else: Words.label(value)
   end
 end

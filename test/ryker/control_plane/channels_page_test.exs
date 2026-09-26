@@ -6,10 +6,11 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
   """
   use Ryker.DataCase, async: false
 
-  alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, Pages, SlackNames}
+  alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, Pages}
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Settings
   alias Ryker.Slack.{ChannelConfigurationChangeset, IncidentRoomChangeset}
+  alias Ryker.Slack.Names
   alias Ryker.State.Records
 
   @now ~U[2026-09-24 12:00:00Z]
@@ -220,14 +221,14 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       # showed.
       membership!("T123", "C456", :joined)
       membership!("T123", "C789", :joined)
-      start_supervised!({SlackNames, workspace: "T123", fetch: &name/1})
+      start_supervised!({Names, workspace: "T123", fetch: &name/1})
 
       for channel <- ["C456", "C789"] do
-        SlackNames.name("T123", channel)
-        GenServer.call(SlackNames, :refresh)
+        Names.name("T123", channel)
+        GenServer.call(Names, :refresh)
       end
 
-      assert SlackNames.name("T123", "C456") == "#infra"
+      assert Names.name("T123", "C456") == "#infra"
 
       for q <- ["#infra", "INFRA", "C456"] do
         assert [%{channel_ref: "C456"}] = ChannelDirectory.list(%{"q" => q}), q

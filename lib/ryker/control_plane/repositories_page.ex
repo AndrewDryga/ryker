@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Integrations, Kit, ShortTime}
+  alias Ryker.Episodes.Words
 
   # The App permissions work needs; anything missing is named on the row.
   @required_permissions ~w(metadata contents pull_requests checks actions deployments issues)
@@ -286,7 +287,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
       <% end %>
     </.fact>
     <.fact :if={@item.freshness} label="Base">
-      {Components.label(@item.freshness.stale_base_status || "not recorded")}
+      {Words.label(@item.freshness.stale_base_status || "not recorded")}
       <code :if={@item.freshness.workspace_base_revision}>
         {@item.freshness.workspace_base_revision}
       </code>
@@ -381,7 +382,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   defp worker_state(:eligible), do: "ready"
   defp worker_state(:busy), do: "busy"
   defp worker_state(:draining), do: "finishing its work"
-  defp worker_state(state), do: Components.label(state)
+  defp worker_state(state), do: Words.label(state)
 
   defp plural(0, _one, _many), do: nil
   defp plural(1, one, _many), do: "1 #{one}"

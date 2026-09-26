@@ -24,9 +24,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     Kit,
     SettingsRows,
     SettingsSections,
-    SettingsView,
-    SlackNames
+    SettingsView
   }
+
+  alias Ryker.Slack.Names
 
   @impact_words %{
     "ingress inputs" => "received messages",
@@ -935,7 +936,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     saved =
       if chosen == "" or List.keymember?(channels, chosen, 0),
         do: [],
-        else: [{chosen, SlackNames.destination(chosen)}]
+        else: [{chosen, Names.destination(chosen)}]
 
     Map.merge(field, %{
       kind: :select,

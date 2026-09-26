@@ -4,11 +4,12 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SlackNames}
+  alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Credentials
   alias Ryker.Ingress.Inbox
   alias Ryker.Settings
   alias Ryker.Slack.ChannelConfigurationChangeset
+  alias Ryker.Slack.Names
   alias Ryker.Webhooks.Presets
 
   @endpoint Endpoint
@@ -23,7 +24,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
       {Endpoint,
        server: false,
        secret_key_base: String.duplicate("s", 64),
-       pubsub_server: Ryker.ControlPlane.PubSub,
+       pubsub_server: Ryker.PubSub,
        live_view: [signing_salt: "settings-webhooks-test"],
        check_origin: ["//localhost:4321"],
        url: [host: "localhost", port: 4321],
@@ -69,7 +70,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     assert has_element?(
              view,
              "#{form} select[name=destination_conversation_ref] option[value='slack:T0123456789:C0123456789']",
-             SlackNames.name("T0123456789", "C0123456789")
+             Names.name("T0123456789", "C0123456789")
            )
 
     refute has_element?(view, "#{form} [placeholder*='T0123456789']")

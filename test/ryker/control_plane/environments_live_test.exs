@@ -22,7 +22,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
       {Endpoint,
        server: false,
        secret_key_base: String.duplicate("s", 64),
-       pubsub_server: Ryker.ControlPlane.PubSub,
+       pubsub_server: Ryker.PubSub,
        live_view: [signing_salt: "environments-test"],
        check_origin: ["//localhost:4321"],
        url: [host: "localhost", port: 4321],

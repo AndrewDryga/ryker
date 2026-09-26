@@ -11,7 +11,9 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   in a list is a raw enum, reference or JSON.
   """
   use Phoenix.Component
-  alias Ryker.ControlPlane.{Components, Kit, SlackNames}
+  alias Ryker.ControlPlane.{Components, Kit}
+  alias Ryker.Episodes.Words
+  alias Ryker.Slack.Names
 
   attr(:view, :map, required: true, doc: "BehaviorLibrary.list(:standing_assignment, params)")
   attr(:now, :any, default: nil)
@@ -277,19 +279,19 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp rule_name(%{"trigger" => "terraform_plan"}), do: "Terraform plans"
   defp rule_name(%{"trigger" => "deployment"}), do: "Deployments"
   defp rule_name(%{"trigger" => "operational_alert"}), do: "Alerts"
-  defp rule_name(%{"trigger" => trigger}) when is_binary(trigger), do: Components.label(trigger)
+  defp rule_name(%{"trigger" => trigger}) when is_binary(trigger), do: Words.label(trigger)
   defp rule_name(_payload), do: "Rule"
 
   defp preference_key("response_detail"), do: "Reply length"
   defp preference_key("health_check_depth"), do: "Health checks"
   defp preference_key("response_location"), do: "Where to reply"
-  defp preference_key(key) when is_binary(key), do: Components.label(key)
+  defp preference_key(key) when is_binary(key), do: Words.label(key)
   defp preference_key(_key), do: "Preference"
 
   defp preference_value("follow_context"), do: "Where the conversation is"
   defp preference_value("prefer_thread"), do: "In the thread"
   defp preference_value("prefer_channel"), do: "In the channel"
-  defp preference_value(value) when is_binary(value), do: Components.label(value)
+  defp preference_value(value) when is_binary(value), do: Words.label(value)
   defp preference_value(_value), do: "Not recorded"
 
   # What the entry tells Ryker to do, in its own stored words. A preference
@@ -303,7 +305,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp state("expired"), do: {:off, "Expired"}
   defp state("deleted"), do: {:off, "Deleted"}
   defp state("superseded"), do: {:off, "Replaced"}
-  defp state(status), do: {:off, Components.label(status)}
+  defp state(status), do: {:off, Words.label(status)}
 
   # A long entry opens from a preview of its own first lines. Nothing is
   # summarised: the disclosure holds the stored text verbatim, and a short
@@ -344,7 +346,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
 
   defp kind_word(:preference), do: "Preference"
   defp kind_word(:guidance), do: "Guidance"
-  defp kind_word(kind), do: Components.label(kind)
+  defp kind_word(kind), do: Words.label(kind)
 
   defp trigger(%{payload: %{"source_kind" => source} = payload} = item) do
     matching = if payload["filter"] in [nil, %{}], do: "a ", else: "a matching "
@@ -362,10 +364,10 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp source_event("github"), do: "GitHub event"
   defp source_event("slack"), do: "Slack event"
   defp source_event("webhook"), do: "webhook"
-  defp source_event(source) when is_binary(source), do: Components.label(source) <> " event"
+  defp source_event(source) when is_binary(source), do: Words.label(source) <> " event"
 
   defp place(%{scope_kind: :conversation, scope_ref: "slack:" <> _ = scope}),
-    do: [" in ", {:strong, SlackNames.destination(scope)}]
+    do: [" in ", {:strong, Names.destination(scope)}]
 
   defp place(%{scope_kind: :conversation}), do: [" in a direct conversation"]
 
@@ -384,7 +386,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp where(%{scope_kind: :workspace}), do: "everywhere"
 
   defp where(%{scope_kind: :conversation, scope_ref: "slack:" <> _ = scope}),
-    do: rich(["in ", {:strong, SlackNames.destination(scope)}])
+    do: rich(["in ", {:strong, Names.destination(scope)}])
 
   defp where(%{scope_kind: :conversation}), do: "in a direct conversation"
 
@@ -396,8 +398,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
          scope_ref: "slack:user:" <> person,
          workspace_ref: "slack:" <> workspace
        }) do
-    if SlackNames.named?("slack:#{workspace}:#{person}"),
-      do: rich(["for ", {:strong, SlackNames.name(workspace, person)}]),
+    if Names.named?("slack:#{workspace}:#{person}"),
+      do: rich(["for ", {:strong, Names.name(workspace, person)}]),
       else: "for one person"
   end
 
@@ -558,7 +560,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp channel_rows(channels) do
     channels
     |> Enum.map(fn channel ->
-      name = SlackNames.name(channel.workspace_ref, channel.channel_ref)
+      name = Names.name(channel.workspace_ref, channel.channel_ref)
       page = "/channels/#{segment(channel.workspace_ref)}/#{segment(channel.channel_ref)}"
 
       %{

@@ -1,5 +1,5 @@
 defmodule Ryker.ControlPlane.SlackMarkdown do
-  alias Ryker.ControlPlane.SlackNames
+  alias Ryker.Slack.Names
   @moduledoc "Small, HTML-inert renderer for the formatting used in Slack messages."
 
   @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|<!date\^[^>\n]+\|[^>\n]+>|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~[^~\n]+~)/u
@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   "@emisar", "#test", or the descriptive fallback while a name is unresolved.
   For titles and other places that are not HTML.
   """
-  def plain(text, workspace \\ SlackNames.workspace())
+  def plain(text, workspace \\ Names.workspace())
 
   # Without a workspace there is no directory to ask; the token stays as the
   # message wrote it rather than becoming a meaningless "Slack reference".
@@ -32,13 +32,13 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     end)
   end
 
-  defp mention_name(token, workspace), do: SlackNames.name(workspace, mention_ref(token))
+  defp mention_name(token, workspace), do: Names.name(workspace, mention_ref(token))
 
   # The reference inside `<@U…|label>` or `<#C…|name>`, without its label.
   defp mention_ref("<" <> <<_prefix, rest::binary>>),
     do: rest |> String.trim_trailing(">") |> String.split("|", parts: 2) |> hd()
 
-  def render(text, workspace \\ SlackNames.workspace())
+  def render(text, workspace \\ Names.workspace())
       when is_binary(text) do
     @tokens
     |> Regex.split(text, include_captures: true)
@@ -48,7 +48,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   end
 
   @doc "HTML-inert Markdown for human-facing answers and public progress."
-  def preview(text, workspace \\ SlackNames.workspace()) when is_binary(text) do
+  def preview(text, workspace \\ Names.workspace()) when is_binary(text) do
     ~r/(```[\s\S]*?```)/u
     |> Regex.split(text, include_captures: true)
     |> Enum.map(fn
@@ -117,7 +117,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
 
   defp token("<" <> <<prefix, _rest::binary>> = mention, workspace) when prefix in [?@, ?#] do
     ref = mention_ref(mention)
-    name = SlackNames.name(workspace, ref)
+    name = Names.name(workspace, ref)
 
     [
       "<span class=\"slack-mention\" title=\"",

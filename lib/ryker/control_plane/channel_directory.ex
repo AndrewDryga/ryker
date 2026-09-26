@@ -8,11 +8,12 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{ChannelsPage, Search, SlackNames}
+  alias Ryker.ControlPlane.{ChannelsPage, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, IncidentRoom}
+  alias Ryker.Slack.Names
 
   @list_limit 100
 
@@ -220,7 +221,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
       Enum.any?(
         [
           ChannelsPage.channel_name(row.workspace_ref, row.channel_ref, row.incident_room),
-          SlackNames.name(row.workspace_ref, row.workspace_ref),
+          Names.name(row.workspace_ref, row.workspace_ref),
           row.workspace_ref,
           row.channel_ref,
           row.environment_name,

@@ -11,7 +11,9 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, ShortTime, SlackMarkdown, SlackNames}
+  alias Ryker.ControlPlane.{Components, Kit, ShortTime, SlackMarkdown}
+  alias Ryker.Episodes.Words
+  alias Ryker.Slack.Names
 
   @gib 1_073_741_824
 
@@ -127,7 +129,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
             </div>
             <div :if={@row[:state]}>
               <dt>Request</dt>
-              <dd>{Components.label(@row.state)}</dd>
+              <dd>{Words.label(@row.state)}</dd>
             </div>
           </dl>
         </details>
@@ -140,7 +142,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   # its timeline. Two copies of one repository stay distinguishable by it.
   defp request(%{episode_ref: ref} = row) when is_binary(ref) do
     title =
-      case SlackNames.workspace_from_destination(row[:request_conversation]) do
+      case Names.workspace_from_destination(row[:request_conversation]) do
         nil -> row[:request_title] || "Open the request"
         workspace -> SlackMarkdown.plain(row[:request_title] || "Open the request", workspace)
       end

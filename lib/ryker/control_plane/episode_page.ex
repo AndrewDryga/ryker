@@ -6,13 +6,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
   use Phoenix.Component
   import Ryker.ControlPlane.Components
 
-  alias Ryker.ControlPlane.{
-    EpisodeRequest,
-    EpisodeTrace,
-    RequestContextHTML,
-    RequestPage,
-    SlackNames
-  }
+  alias Ryker.ControlPlane.{EpisodeRequest, EpisodeTrace, RequestContextHTML, RequestPage}
+  alias Ryker.Episodes.Words
+  alias Ryker.Slack.Names
 
   @conversation_bands [:ready, :routing, :work, :answer]
 
@@ -268,7 +264,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp episode_identity(snapshot) do
     [
       %{label: "Request ID", value: snapshot.episode.ref, identifier: true},
-      %{label: "Conversation", value: SlackNames.destination(snapshot.episode.destination)},
+      %{label: "Conversation", value: Names.destination(snapshot.episode.destination)},
       %{label: "Destination ID", value: snapshot.episode.destination, identifier: true},
       %{label: "Created", value: timestamp(snapshot.episode.created_at)}
     ]
@@ -870,7 +866,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ~H"""
     <section class="story-stop admission-recovery" aria-labelledby="admission-recovery-heading">
       <h2 id="admission-recovery-heading">Routing needs attention</h2>
-      <p>{label(@recovery.summary)}</p>
+      <p>{Words.label(@recovery.summary)}</p>
       <p>The message is safe. Retry the same routing attempt after the problem is resolved.</p>
       <.action_button path={@recovery.href} label="Review recovery" />
     </section>
@@ -1079,7 +1075,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp verdict_label("not_considered"), do: "Not evaluated"
   defp verdict_label("disabled"), do: "Paused"
   defp verdict_label("expired"), do: "Expired"
-  defp verdict_label(other), do: label(other)
+  defp verdict_label(other), do: Words.label(other)
 
   defp truncated_rule_summary(rules) do
     retained = length(rules.entries)
@@ -1180,7 +1176,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp rule_criteria(%{"source_kind" => source, "filter" => filter}),
     do: "#{source_name(source)} events matching #{Jason.encode!(filter)}"
 
-  defp rule_place("slack:" <> _rest = scope), do: " in " <> SlackNames.destination(scope)
+  defp rule_place("slack:" <> _rest = scope), do: " in " <> Names.destination(scope)
   defp rule_place(_scope), do: ""
 
   defp rule_evidence(_criteria, nil), do: []
@@ -1228,7 +1224,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
        do: "Its source marked it as #{trigger_name(trigger, :one)}"
 
   defp trigger_evidence(%{"event_class" => class}, trigger) when is_binary(class),
-    do: "Its source marked it as #{label(class)}, not #{trigger_name(trigger, :one)}"
+    do: "Its source marked it as #{Words.label(class)}, not #{trigger_name(trigger, :one)}"
 
   defp trigger_evidence(%{"trigger_text" => text}, _trigger) when is_binary(text),
     do: "Contains “#{text}”"
@@ -1242,22 +1238,22 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp trigger_name("deployment", :one), do: "a deployment"
   defp trigger_name("operational_alert", :plural), do: "operational alerts"
   defp trigger_name("operational_alert", :one), do: "an operational alert"
-  defp trigger_name(trigger, _number), do: label(trigger)
+  defp trigger_name(trigger, _number), do: Words.label(trigger)
 
   defp listeners("human"), do: "people"
   defp listeners("app"), do: "apps and bots"
   defp listeners("any"), do: "anyone"
-  defp listeners(filter), do: label(filter)
+  defp listeners(filter), do: Words.label(filter)
 
   defp sender_name("user"), do: "a person"
   defp sender_name("app"), do: "an app"
   defp sender_name("bot"), do: "a bot"
   defp sender_name("system"), do: "a system actor"
-  defp sender_name(kind), do: label(kind)
+  defp sender_name(kind), do: Words.label(kind)
 
   defp source_name("github"), do: "GitHub"
   defp source_name("slack"), do: "Slack"
-  defp source_name(source), do: label(source)
+  defp source_name(source), do: Words.label(source)
 
   # Extracted metadata is visible as soon as the disclosure opens; the raw
   # envelope, the normalized input and the original message are each their own
@@ -1350,7 +1346,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <span
             :if={show_event_state?(@step)}
             class={"event-state tone-#{@step.tone}"}
-          >{label(@step.state)}</span>
+          >{Words.label(@step.state)}</span>
           <span :if={@step.duration_ms}>{duration(@step.duration_ms)}</span>
         </:meta>
       </.card_heading>
@@ -1465,7 +1461,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         step.stage not in ["Preparation", "Execution", "Evidence"] &&
         not String.contains?(
           String.downcase(event_title(step)),
-          String.downcase(label(step.state))
+          String.downcase(Words.label(step.state))
         )
 
   defp event_title(%{stage: "Tool call", title: "Tool call", summary: summary})

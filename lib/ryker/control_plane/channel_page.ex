@@ -13,15 +13,9 @@ defmodule Ryker.ControlPlane.ChannelPage do
   """
   use Phoenix.Component
 
-  alias Ryker.ControlPlane.{
-    Activity,
-    ChannelScope,
-    ChannelsPage,
-    Components,
-    Kit,
-    ShortTime,
-    SlackNames
-  }
+  alias Ryker.ControlPlane.{Activity, ChannelScope, ChannelsPage, Components, Kit, ShortTime}
+  alias Ryker.Episodes.Words
+  alias Ryker.Slack.Names
 
   attr(:view, :map, required: true)
   attr(:now, :any, default: nil)
@@ -118,8 +112,8 @@ defmodule Ryker.ControlPlane.ChannelPage do
   # The workspace by the name Slack gave it, or just "Slack" until it has:
   # the page never shows a workspace's ID outside Details.
   defp workspace_words(workspace) do
-    if SlackNames.named?("slack:#{workspace}:#{workspace}"),
-      do: SlackNames.name(workspace, workspace),
+    if Names.named?("slack:#{workspace}:#{workspace}"),
+      do: Names.name(workspace, workspace),
       else: "Slack"
   end
 
@@ -342,7 +336,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp invited?(_configuration), do: false
 
   defp invited(configuration, %ChannelScope{workspace_ref: workspace}) do
-    people = Enum.map(configuration.invite_user_refs, &SlackNames.name(workspace, &1))
+    people = Enum.map(configuration.invite_user_refs, &Names.name(workspace, &1))
     groups = Enum.map(configuration.invite_user_group_refs, &("user group " <> &1))
     Enum.join(people ++ groups, ", ")
   end
@@ -378,7 +372,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp saved(configuration, scope) do
     by =
       if configuration.actor_ref,
-        do: " by " <> SlackNames.name(scope.workspace_ref, configuration.actor_ref),
+        do: " by " <> Names.name(scope.workspace_ref, configuration.actor_ref),
         else: ""
 
     "Revision #{configuration.revision}, saved #{Components.timestamp(configuration.saved_at)}#{by}"
@@ -438,9 +432,9 @@ defmodule Ryker.ControlPlane.ChannelPage do
         <Kit.entity_row
           :for={item <- @view.preferences.items}
           id={"preference-" <> item.ref}
-          name={Components.label(item.key || "Preference")}
+          name={Words.label(item.key || "Preference")}
           href={item.library_path}
-          text={Components.label(item.value || "Not recorded")}
+          text={Words.label(item.value || "Not recorded")}
           meta={["Preference", from(item), used(item, @now), expiry(item.expires_at, @now)]}
         />
       </.relation>
@@ -813,15 +807,15 @@ defmodule Ryker.ControlPlane.ChannelPage do
 
   defp lifecycle("active"), do: {:on, "On"}
   defp lifecycle("disabled"), do: {:off, "Paused"}
-  defp lifecycle(other), do: {:off, Components.label(other)}
+  defp lifecycle(other), do: {:off, Words.label(other)}
 
   defp schedule_state(:active), do: {:on, "On"}
   defp schedule_state(:paused), do: {:off, "Paused"}
   defp schedule_state(:completed), do: {:off, "Finished"}
-  defp schedule_state(status), do: {:off, Components.label(status)}
+  defp schedule_state(status), do: {:off, Words.label(status)}
 
   defp episode_state(state) do
-    word = Components.label(state)
+    word = Words.label(state)
 
     case to_string(state) do
       value when value in ~w(pending working delivery_pending) -> {:busy, word}
@@ -835,7 +829,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp watches("slack"), do: "watches Slack events"
   defp watches("slack_message"), do: "watches Slack messages"
   defp watches(nil), do: nil
-  defp watches(trigger), do: "watches " <> String.downcase(Components.label(trigger))
+  defp watches(trigger), do: "watches " <> String.downcase(Words.label(trigger))
 
   defp sender("human"), do: "from people only"
   defp sender("app"), do: "from apps only"

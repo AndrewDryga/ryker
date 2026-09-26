@@ -8,7 +8,8 @@ defmodule Ryker.ControlPlane.SettingsRows do
 
   alias Ryker.BundledCoop
 
-  alias Ryker.ControlPlane.{Environments, Integrations, SettingsSections, SlackNames}
+  alias Ryker.ControlPlane.{Environments, Integrations, SettingsSections}
+  alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
 
   @type row :: %{
@@ -192,7 +193,7 @@ defmodule Ryker.ControlPlane.SettingsRows do
   defp events(_universal), do: "Events"
 
   defp destination(%{destination_transport: "slack", destination_conversation_ref: ref}),
-    do: SlackNames.destination(ref)
+    do: Names.destination(ref)
 
   defp destination(%{destination_transport: "control_plane"}), do: "a direct conversation"
 

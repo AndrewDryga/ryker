@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.ContextSearch do
   their counts, so their cards show counts without the words.
   """
 
-  alias Ryker.ControlPlane.SlackNames
+  alias Ryker.Slack.Names
 
   @lanes [
     {"thread", "Same thread"},
@@ -63,7 +63,7 @@ defmodule Ryker.ControlPlane.ContextSearch do
   defp place("conversation", _receipt), do: "This conversation"
 
   defp place("workspace_public", receipt) do
-    names = receipt |> Map.get("conversation_refs", []) |> Enum.map(&SlackNames.destination/1)
+    names = receipt |> Map.get("conversation_refs", []) |> Enum.map(&Names.destination/1)
     count = receipt["eligible_conversations"] || length(names)
 
     listed =

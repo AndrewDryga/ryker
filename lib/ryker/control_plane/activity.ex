@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.Activity do
     PagedRelation,
     Search,
     SlackMarkdown,
-    SlackNames,
     UsageProjection
   }
 
@@ -17,6 +16,7 @@ defmodule Ryker.ControlPlane.Activity do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
+  alias Ryker.Slack.Names
   alias Ryker.State.{Schedule, ScheduleOccurrence}
   alias Ryker.Work.{Session, Turn}
 
@@ -92,7 +92,7 @@ defmodule Ryker.ControlPlane.Activity do
         if row.source == "control_plane",
           do:
             "Direct conversation · " <> (chats[row.conversation] || present(row, secrets).title),
-          else: SlackNames.destination(row.conversation)
+          else: Names.destination(row.conversation)
 
       {row, label}
     end)
@@ -370,7 +370,7 @@ defmodule Ryker.ControlPlane.Activity do
         do: "Message text no longer available",
         else:
           text
-          |> SlackMarkdown.plain(SlackNames.workspace_from_destination(row.conversation))
+          |> SlackMarkdown.plain(Names.workspace_from_destination(row.conversation))
           |> String.slice(0, 200)
 
     row

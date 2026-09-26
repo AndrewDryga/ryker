@@ -7,19 +7,15 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   """
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{
-    Activity,
-    LearningActivity,
-    LearningReceipt,
-    PagedRelation,
-    SlackNames
-  }
+  alias Ryker.ControlPlane.{Activity, LearningActivity, LearningReceipt, PagedRelation}
 
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Learning.Rebuilds
   alias Ryker.Repo
+
+  alias Ryker.Slack.Names
 
   alias Ryker.State.{
     Continuity,
@@ -556,8 +552,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp base(item, episodes) do
     %{
       id: item.id,
-      conversation: SlackNames.destination(item.conversation_ref),
-      workspace: SlackNames.workspace_from_destination(item.conversation_ref),
+      conversation: Names.destination(item.conversation_ref),
+      workspace: Names.workspace_from_destination(item.conversation_ref),
       conversation_path: Activity.conversation_path(item.transport, item.conversation_ref),
       at: item.updated_at,
       changed_at: item.updated_at,

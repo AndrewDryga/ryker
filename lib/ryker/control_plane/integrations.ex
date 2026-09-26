@@ -19,7 +19,8 @@ defmodule Ryker.ControlPlane.Integrations do
 
   use Phoenix.Component
 
-  alias Ryker.ControlPlane.{Environments, Kit, SlackNames}
+  alias Ryker.ControlPlane.{Environments, Kit}
+  alias Ryker.Slack.Names
 
   @type key :: :slack | :github | :emisar | :webhooks
   @type status :: :not_set_up | :off | :on | :broken
@@ -750,7 +751,7 @@ defmodule Ryker.ControlPlane.Integrations do
   @doc "A Slack channel as people know it, such as #ops."
   @spec channel_name(map()) :: String.t()
   def channel_name(%{workspace_ref: workspace, channel_ref: channel}),
-    do: SlackNames.name(workspace, channel)
+    do: Names.name(workspace, channel)
 
   @doc "Whether every credential of these kinds is saved and verified."
   @spec verified?(map(), [atom()]) :: boolean()

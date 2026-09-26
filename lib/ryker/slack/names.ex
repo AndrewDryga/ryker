@@ -1,4 +1,4 @@
-defmodule Ryker.ControlPlane.SlackNames do
+defmodule Ryker.Slack.Names do
   @moduledoc "Workspace-scoped display cache. Never an authorization source or a dependency of rendering."
   use GenServer
   alias Ryker.InspectionRedactor

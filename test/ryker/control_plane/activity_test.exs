@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{Activity, ActivityPage, Projection, SlackNames, UsagePage}
+  alias Ryker.ControlPlane.{Activity, ActivityPage, Projection, UsagePage}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Fixtures.SavedEntities
@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Slack.Input
+  alias Ryker.Slack.Names
   alias Ryker.State.ScheduleOccurrenceChangeset
   alias Ryker.Work.Custody
   alias Ryker.Work.Session
@@ -23,7 +24,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     parent = self()
 
     start_supervised!(
-      {SlackNames,
+      {Names,
        workspace: "T123",
        fetch: fn ref ->
          send(parent, {:lookup, ref})
@@ -31,10 +32,10 @@ defmodule Ryker.ControlPlane.ActivityTest do
        end}
     )
 
-    SlackNames.name("T123", "U1")
-    SlackNames.name("T123", "C456")
-    assert :ok = GenServer.call(SlackNames, :refresh)
-    assert :ok = GenServer.call(SlackNames, :refresh)
+    Names.name("T123", "U1")
+    Names.name("T123", "C456")
+    assert :ok = GenServer.call(Names, :refresh)
+    assert :ok = GenServer.call(Names, :refresh)
 
     {:ok, input} =
       Input.new(%{

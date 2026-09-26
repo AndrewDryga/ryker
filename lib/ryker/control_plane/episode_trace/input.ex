@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   import Ryker.ControlPlane.EpisodeTrace.Step
 
   alias Ryker.Episodes.{Episode, Origins}
+  alias Ryker.Episodes.Words
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
 
@@ -125,29 +126,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   defp kernel_stage(:episode_cancelled), do: "Cancellation"
   defp kernel_stage(_kind), do: "Lifecycle"
 
-  @doc """
-  What one kernel transition means to the person whose request it is, in the
-  words every surface that lists them uses: the timeline and the Slack work
-  record. The kernel's own names ("owner transferred", "wait resumed") stay in
-  the code and the logs.
-  """
-  @spec lifecycle_title(atom()) :: String.t()
-  def lifecycle_title(:input_admitted), do: "Message added"
-  def lifecycle_title(:owner_transferred), do: "Handed to a new run"
-  def lifecycle_title(:input_wait_started), do: "Waiting for an answer"
-  def lifecycle_title(:event_wait_started), do: "Waiting for an event"
-  def lifecycle_title(:wait_resumed), do: "Picked up again after waiting"
-  def lifecycle_title(:result_accepted), do: "Answer accepted"
-  def lifecycle_title(:delivery_confirmed), do: "Delivery confirmed"
-  def lifecycle_title(:episode_cancelled), do: "Request stopped"
-  def lifecycle_title(:reaction_recorded), do: "Reaction recorded"
-  def lifecycle_title(_kind), do: "Request updated"
-
   # A wait an edit ended is not "what Ryker was waiting for arrived": the
   # edit replaced the question and started the work again (QA re-test,
   # 2026-09-26).
   defp title(:wait_resumed, %Entry{event_kind: :edit}), do: "Picked up again after an edit"
-  defp title(kind, _input), do: lifecycle_title(kind)
+  defp title(kind, _input), do: Words.lifecycle_title(kind)
 
   defp summary(:wait_resumed, %{"expected_wait" => %{"kind" => "input"}}, %Entry{
          event_kind: :edit

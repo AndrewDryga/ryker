@@ -20,7 +20,7 @@ end
 config :ryker, Ryker.ControlPlane.Endpoint,
   adapter: Bandit.PhoenixAdapter,
   render_errors: [formats: [html: Ryker.ControlPlane.ErrorHTML], layout: false],
-  pubsub_server: Ryker.ControlPlane.PubSub,
+  pubsub_server: Ryker.PubSub,
   live_view: [signing_salt: "ryker-control-plane"]
 
 config :phoenix, :json_library, Jason

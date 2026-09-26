@@ -1,7 +1,8 @@
 defmodule Ryker.ControlPlane.ConversationLinksTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.{Activity, ConversationMemory, SlackNames}
+  alias Ryker.ControlPlane.{Activity, ConversationMemory}
+  alias Ryker.Slack.Names
 
   # The surface was renamed from /lab to /conversations on 2026-09-13. The
   # stored conversation ref stayed control-plane:lab:<uuid>, so every link the
@@ -26,8 +27,8 @@ defmodule Ryker.ControlPlane.ConversationLinksTest do
   end
 
   test "the direct-conversation transport is named without Lab phrasing" do
-    assert SlackNames.destination("control-plane:lab:uuid") == "Direct conversation"
-    assert SlackNames.destination("control_plane:control-plane:lab:uuid") == "Direct conversation"
-    refute SlackNames.destination("control-plane:lab:uuid") =~ "Lab"
+    assert Names.destination("control-plane:lab:uuid") == "Direct conversation"
+    assert Names.destination("control_plane:control-plane:lab:uuid") == "Direct conversation"
+    refute Names.destination("control-plane:lab:uuid") =~ "Lab"
   end
 end

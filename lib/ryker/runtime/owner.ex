@@ -18,9 +18,9 @@ defmodule Ryker.Runtime.Owner do
   require Logger
 
   alias Ryker.{Bootstrap, Credentials, Settings}
-  alias Ryker.ControlPlane.SlackNames
   alias Ryker.Runtime.Assembly
   alias Ryker.Slack.Client
+  alias Ryker.Slack.Names
 
   @retry_ms 5_000
   # Started and replaced by this owner, in the dependency order assembly keeps.
@@ -290,7 +290,7 @@ defmodule Ryker.Runtime.Owner do
   # for weeks in production, and nothing retries an `:ignore`.
   defp child_specs(:control_plane, module, configuration) do
     {slack, console} = Map.pop(configuration, :slack)
-    [{Ryker.ControlPlane.Updates, []}, {SlackNames, name_cache(slack)}, {module, console}]
+    [{Ryker.ControlPlane.Updates, []}, {Names, name_cache(slack)}, {module, console}]
   end
 
   defp child_specs(_key, module, configuration), do: [{module, configuration}]

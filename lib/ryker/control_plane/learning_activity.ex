@@ -12,8 +12,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
     ConversationMemory,
     ConversationProjection,
     LearningReceipt,
-    PagedRelation,
-    SlackNames
+    PagedRelation
   }
 
   alias Ryker.Episodes.Episode
@@ -23,6 +22,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   alias Ryker.Repo
   alias Ryker.Settings.Installation
   alias Ryker.Settings.Learning, as: LearningSetting
+  alias Ryker.Slack.Names
   alias Ryker.State.{ConversationKnowledge, LearningRun}
   alias Ryker.Work.Turn
 
@@ -237,7 +237,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
       Enum.map(page.items, fn item ->
         %{
           turn_id: item.turn_id,
-          conversation: SlackNames.destination(item.conversation),
+          conversation: Names.destination(item.conversation),
           at: item.accepted_at,
           explanation: handover_error(item.error_code),
           response_status: if(item.delivered_at, do: "Reply sent", else: "Reply not confirmed"),
@@ -498,12 +498,12 @@ defmodule Ryker.ControlPlane.LearningActivity do
   # one of them read "Direct conversation" on its own.
   defp conversation(%{transport: "control_plane", conversation_ref: ref}, titles) do
     case titles[ref] do
-      nil -> SlackNames.destination(ref)
+      nil -> Names.destination(ref)
       title -> "Direct conversation · " <> title
     end
   end
 
-  defp conversation(row, _titles), do: SlackNames.destination(row.conversation_ref)
+  defp conversation(row, _titles), do: Names.destination(row.conversation_ref)
 
   # When Ryker looks at the batch again, only while that is still ahead: a
   # queued batch waiting out its delay, or a stopped one whose model run it

@@ -9,9 +9,8 @@ defmodule Ryker.Slack.WorkRecord do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.EpisodeTrace.Input
   alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.Words
   alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.Slack.WorkTarget
@@ -276,7 +275,7 @@ defmodule Ryker.Slack.WorkRecord do
 
   # The same words the request's timeline uses for each transition.
   defp event_entry(event) do
-    label = Input.lifecycle_title(event.kind)
+    label = Words.lifecycle_title(event.kind)
 
     %{
       sort: {DateTime.to_unix(event.occurred_at, :microsecond), 0, event.sequence},
@@ -422,7 +421,7 @@ defmodule Ryker.Slack.WorkRecord do
 
   # The request's state in the words its timeline header uses; which internal
   # owner holds it is not something a reader can act on.
-  defp state_words(state), do: Components.label(state)
+  defp state_words(state), do: Words.label(state)
 
   defp section(_title, [], nil), do: nil
   defp section(title, [], fallback), do: "#{title}:\n#{fallback}"

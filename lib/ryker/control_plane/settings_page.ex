@@ -29,9 +29,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
     SettingsEditor,
     SettingsSections,
     SetupPage,
-    SlackNames,
     WebhookPreview
   }
+
+  alias Ryker.Slack.Names
 
   @doc "The title of one page: the name it has in the sidebar, or Set up Ryker."
   @spec title(atom()) :: String.t()
@@ -1015,7 +1016,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   defp operator_names(%{operators: operators, workspace_ref: workspace})
        when is_binary(workspace),
-       do: Enum.map(operators, &SlackNames.name(workspace, &1))
+       do: Enum.map(operators, &Names.name(workspace, &1))
 
   defp operator_names(%{operators: operators}), do: operators
 

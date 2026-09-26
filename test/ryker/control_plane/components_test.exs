@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.ComponentsTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.ControlPlane.{Components, Kit, Pages}
+  alias Ryker.Episodes.Words
   alias Ryker.Fixtures.ControlPlaneOptions
 
   test "a status reads the same whether its state arrives as a string or an atom" do
@@ -18,12 +19,12 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     # an atom used to fall through every clause and render the quiet tone
     # under a bare word, so the channel page had to stringify by hand.
     for state <- ["blocked", :blocked] do
-      assert Components.label(state) == "Needs attention"
+      assert Words.label(state) == "Needs attention"
       assert Components.tone(state) == "attention"
     end
 
     assert Components.tone(:working) == "active"
-    assert Components.label(:complete) == "Completed"
+    assert Words.label(:complete) == "Completed"
 
     html = render_component(&Components.status/1, state: :working)
     assert html =~ ~s(class="ui-status status-active")

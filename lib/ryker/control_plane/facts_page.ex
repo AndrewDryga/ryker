@@ -12,8 +12,9 @@ defmodule Ryker.ControlPlane.FactsPage do
   import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1]
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection, SlackNames}
+  alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection}
   alias Ryker.InspectionRedactor
+  alias Ryker.Slack.Names
 
   @doc "The query keys the Facts page reads."
   def query_keys, do: MemoryProjection.query_keys()
@@ -293,7 +294,7 @@ defmodule Ryker.ControlPlane.FactsPage do
     do: MemoryFormat.with_ref("For ", ref)
 
   defp where(scope, ref) when scope in [:conversation, "conversation"] and is_binary(ref),
-    do: MemoryFormat.with_ref("In ", SlackNames.destination(ref))
+    do: MemoryFormat.with_ref("In ", Names.destination(ref))
 
   defp where(_scope, _ref), do: nil
 

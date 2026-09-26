@@ -5,16 +5,10 @@ defmodule Ryker.ControlPlane.RelearnPanel do
 
   alias Ryker.CanonicalJSON
 
-  alias Ryker.ControlPlane.{
-    ConversationMemory,
-    CSRF,
-    LearningActivity,
-    SlackMarkdown,
-    SlackNames,
-    SourceText
-  }
+  alias Ryker.ControlPlane.{ConversationMemory, CSRF, LearningActivity, SlackMarkdown, SourceText}
 
   alias Ryker.InspectionRedactor
+  alias Ryker.Slack.Names
 
   def render(assigns) do
     assigns =
@@ -221,7 +215,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
 
   defp sources(preview) do
     secrets = InspectionRedactor.configured_secrets()
-    workspace = SlackNames.workspace_from_destination(Map.get(preview, :conversation_ref))
+    workspace = Names.workspace_from_destination(Map.get(preview, :conversation_ref))
 
     Enum.map(preview.entries, fn entry ->
       artifact = InspectionRedactor.artifact(entry.content, secrets: secrets, max_bytes: 65_536)
@@ -255,7 +249,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
 
   defp actor(workspace, ref) when is_binary(workspace) and is_binary(ref) do
     ref = ref |> String.replace_prefix("slack:user:", "") |> String.replace_prefix("bot:", "")
-    SlackNames.name(workspace, ref)
+    Names.name(workspace, ref)
   end
 
   defp actor(_workspace, ref), do: ref
