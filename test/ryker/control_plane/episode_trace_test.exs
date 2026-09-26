@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   alias Ryker.ControlPlane.EpisodeTrace
   alias Ryker.ControlPlane.ModelRequests
   alias Ryker.Slack.Names
-  # Starts the globally named `Names` cache, so it cannot share the VM
+  # Starts the globally named Slack names cache, so it cannot share the VM
   # with other running suites the way an async module would.
   use Ryker.DataCase, async: false
 

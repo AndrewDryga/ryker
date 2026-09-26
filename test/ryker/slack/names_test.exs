@@ -29,7 +29,7 @@ defmodule Ryker.Slack.NamesTest do
 
   test "a resolved user mention carries one sigil, from the directory, not two" do
     # The first Slack episode after the rename rendered its opening message as
-    # "@@Emisar": Names already prefixes a resolved user with "@" (and a
+    # "@@Emisar": Slack.Names already prefixes a resolved user with "@" (and a
     # channel with "#"), and the mention renderer added its own "@" on top.
     # The directory owns the sigil; the renderer only wraps the name.
     start_supervised!({Names, workspace: "T123", fetch: fn _ref -> {:ok, "emisar"} end})

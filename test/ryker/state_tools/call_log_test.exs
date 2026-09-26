@@ -1,6 +1,6 @@
 defmodule Ryker.StateTools.CallLogTest do
   # Reads the episode page projection, which starts the globally named
-  # Names cache, so it cannot share the VM with other running suites.
+  # Slack names cache, so it cannot share the VM with other running suites.
   use Ryker.DataCase, async: false
 
   import Ecto.Query
@@ -11,7 +11,6 @@ defmodule Ryker.StateTools.CallLogTest do
   alias Ryker.ControlPlane.{Projection, ToolCard}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Slack.Names
   alias Ryker.State.Records
   alias Ryker.StateTools.{CallLog, ErrorCode, Router}
   alias Ryker.Work.{Activity, Custody, Turn}
