@@ -84,10 +84,19 @@ links are omitted; repeated destinations appear once. The answer and valid inlin
 links remain unchanged, and the full authorized evidence stays in the episode even
 when it cannot supply a Slack link.
 
-When enabled, Slack's native assistant status appears as soon as Ryker has an input to decide on
-and names its phase in one plain string: "is queued...", "is deciding how to respond...", "is
-waiting to retry admission...", "is working..." or "is preparing the response...". Ryker refreshes
-it every 90 seconds, inside Slack's two-minute expiry, and clears it once the work is complete,
+When enabled, Slack's native assistant status appears as soon as Ryker has an input to decide on and
+says in a few plain words what Ryker is doing. While it routes the message the line reads "is
+queued…", "is deciding how to respond…" or "is waiting to try again…". Once work starts it reads "is
+getting started…" until the worker reports something, "is thinking…" before the first tool, and then
+a phrase for the tool the running turn last started, such as "is searching what it knows…", "is
+searching Slack…", "is reading the code…", "is running a command…", "is asking Emisar to run an
+action…" or "is writing the reply…"; "is posting the reply…" covers delivery. Every kind of tool has
+one fixed phrase, and a tool Ryker has no phrase for reads "is working…", so no tool argument,
+command, path, title or model text reaches the channel. A finished tool keeps its phrase until the
+next one starts, and a turn that reports nothing for five minutes goes back to "is working…" rather
+than naming a step it may no longer be doing. A new phrase is written at most once every three
+seconds per thread, and an unchanged one is not written again until the refresh. Ryker refreshes it
+every 90 seconds, inside Slack's two-minute expiry, and clears it once the work is complete,
 cancelled, blocked or waiting. Parked and blocked state remains on the card rather than using a
 misleading persistent typing indicator.
 

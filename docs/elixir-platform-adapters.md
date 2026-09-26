@@ -145,13 +145,20 @@ response is treated as the successful idempotent state.
 
 Native assistant thread status is derived from durable Inbox and episode ownership rather than model
 prose. Queued, admitting, working, delivery, and waiting phases become bounded status text; terminal
-and blocked phases become an empty clear. Blocking a Work turn leaves its episode working, so a
-parked task is read from its owning turn and clears too, ranked below a new input on the same
-thread so the arriving message still reports itself. A PostgreSQL row per workspace/channel/thread owns the
-desired text, retry, lease, delivered generation, and 90-second refresh. Every semantic change or
-refresh advances the generation, so an older in-flight receipt cannot settle a newer update or clear
-after restart. Slack writes are paced at three seconds per thread and call the verified
-`assistant.threads.setStatus` shape with `channel_id`, `thread_ts`, and `status`.
+and blocked phases become an empty clear. A working episode's text comes from its owning turn's
+latest narrated activity, matched by that turn's own Coop turn id so a follow-up never inherits the
+previous turn's last step: the last tool it started, looked up by server and tool name (Ryker's
+state tools, Emisar's tools) or by the worker's tool kind in a fixed phrase table, never from
+arguments, titles or model text. Before any tool, model narration reads "is thinking…"; a turn with
+nothing narrated, or not yet created, reads "is getting started…". Once a turn has narrated nothing
+for five minutes it reads "is working…" instead of naming its last step. Blocking a Work turn leaves
+its episode working, so a parked task is read from its owning turn and clears too, ranked below a
+new input on the same thread so the arriving message still reports itself. A PostgreSQL row per
+workspace/channel/thread owns the desired text, retry, lease, delivered generation, and 90-second
+refresh. Every semantic change or refresh advances the generation, so an older in-flight receipt
+cannot settle a newer update or clear after restart. Slack writes are paced at three seconds per
+thread and call the verified `assistant.threads.setStatus` shape with `channel_id`, `thread_ts`, and
+`status`.
 
 ## GitHub translation
 
