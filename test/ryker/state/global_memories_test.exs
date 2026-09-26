@@ -7,6 +7,7 @@ defmodule Ryker.State.GlobalMemoriesTest do
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.AnswerMemory
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.MemoryPages
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Retention.Data
@@ -43,7 +44,7 @@ defmodule Ryker.State.GlobalMemoriesTest do
     refute Map.has_key?(fact, "source")
     refute Map.has_key?(fact, "source_read")
     refute inspect(fact) =~ "CPRIVATE"
-    assert [^fact] = Recall.search(context, "portal-prod", "global", 20)
+    assert [^fact] = MemoryPages.facts(context, "portal-prod", "global", 20)
   end
 
   test "different environments remain separate and explicit forgetting removes the saved value" do

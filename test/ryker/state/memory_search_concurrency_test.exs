@@ -5,6 +5,7 @@ defmodule Ryker.State.MemorySearchConcurrencyTest do
   alias Ryker.{CanonicalJSON, Episodes, Repo}
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.MemoryPages
   alias Ryker.Slack.ChannelFence
   alias Ryker.State.{Behavior, Behaviors, Memories, MemoryEntry, MemorySearch, Record}
   alias Ryker.State.Memories.Recall
@@ -384,12 +385,12 @@ defmodule Ryker.State.MemorySearchConcurrencyTest do
   defp read(:fact, :recall, context), do: Recall.recall(context)
 
   defp read(:fact, :search, context),
-    do: Recall.search(context, "draft-ai-suggestions", "workspace", 10)
+    do: MemoryPages.facts(context, "draft-ai-suggestions", "workspace", 10)
 
   defp read(:guidance, :recall, context), do: Behaviors.guidance(context)
 
   defp read(:guidance, :search, context),
-    do: Behaviors.search_guidance(context, "draft-ai-suggestions", "workspace", 10)
+    do: MemoryPages.guidance(context, "draft-ai-suggestions", "workspace", 10)
 
   defp fixture!(kind) do
     # These are structural confirmed-store rows with real offer/turn/session/

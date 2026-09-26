@@ -430,6 +430,42 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
            ) == {:error, "temporarily_unavailable"}
   end
 
+  # A raise inside a tool answered the model "temporarily unavailable" and
+  # left nothing anywhere else, so a host bug looked exactly like a GitHub
+  # outage and nobody could tell them apart.
+  test "a raise inside a GitHub tool is named in the log" do
+    failing =
+      CapabilityTools.options!(%{
+        bindings: %{
+          "github-main" => %{
+            api: FailingContextAPI,
+            client: self(),
+            repository_full_name: "octo/example",
+            repository_id: 2_001
+          }
+        }
+      })
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert CapabilityTools.call(
+                 "search_github",
+                 %{
+                   "cursor" => nil,
+                   "kind" => "all",
+                   "limit" => 20,
+                   "query" => "test",
+                   "state" => "all"
+                 },
+                 work_binding(),
+                 failing
+               ) == {:error, "temporarily_unavailable"}
+      end)
+
+    assert log =~ "search_github"
+    assert log =~ "RuntimeError"
+  end
+
   test "rejects another repository binding and unsupported Slack emoji names" do
     options = options()
 

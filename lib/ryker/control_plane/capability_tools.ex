@@ -9,6 +9,8 @@ defmodule Ryker.ControlPlane.CapabilityTools do
 
   import Ecto.Query
 
+  require Logger
+
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.SourcePage
@@ -62,7 +64,16 @@ defmodule Ryker.ControlPlane.CapabilityTools do
         {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    # The model is told the tool is unavailable; the log says why, since a
+    # raise here is a host bug, not a Chat outage.
+    error ->
+      Logger.error(
+        "Chat tool #{name} raised: " <>
+          Exception.format_banner(:error, error) <>
+          "\n" <> Exception.format_stacktrace(Enum.take(__STACKTRACE__, 5))
+      )
+
+      {:error, "temporarily_unavailable"}
   end
 
   def call(_name, _arguments, _binding), do: {:error, "invalid_arguments"}

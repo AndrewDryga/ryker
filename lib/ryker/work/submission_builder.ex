@@ -646,7 +646,10 @@ defmodule Ryker.Work.SubmissionBuilder do
         document
     end
   rescue
-    _error -> document
+    # SourceRef refuses an identity the platform malformed with ArgumentError,
+    # and that input simply carries no source ref. Anything else is a host bug
+    # and surfaces instead of silently dropping the ref.
+    ArgumentError -> document
   end
 
   defp put_source_ref(
@@ -667,7 +670,7 @@ defmodule Ryker.Work.SubmissionBuilder do
         document
     end
   rescue
-    _error -> document
+    ArgumentError -> document
   end
 
   defp put_source_ref(document, _payload), do: document
