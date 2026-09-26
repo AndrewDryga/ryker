@@ -5,8 +5,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   existing confirmed Pause, Resume and Delete actions.
 
   Every entry here is created only by asking Ryker and confirming what it
-  proposes, so the pages offer no create button; how to ask is each page's
-  "How this page works" help (`PageHelp`).
+  proposes, so the pages offer no create button; how to ask is in each
+  page's help panel (`PageHelp`).
   A row names the entry, says what it does, then one line of facts; nothing
   in a list is a raw enum, reference or JSON.
   """

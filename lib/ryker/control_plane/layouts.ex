@@ -49,6 +49,9 @@ defmodule Ryker.ControlPlane.Layouts do
     """
   end
 
+  # The live shell. page-help-early.js is a classic script so it runs here,
+  # before the body is parsed: it shows or hides the page's help as this
+  # browser chose before anything paints. The module runs after parsing.
   def root(assigns) do
     assigns = assign(assigns, :stylesheets, @stylesheets)
 
@@ -62,6 +65,8 @@ defmodule Ryker.ControlPlane.Layouts do
         <title>{@page_title || "Ryker"} · Ryker</title>
         <link :for={href <- @stylesheets} rel="stylesheet" href={href} />
         <link rel="icon" type="image/svg+xml" href="/assets/brand/avatar.svg" />
+        <script src="/assets/page-help-early.js">
+        </script>
         <script type="module" src="/assets/control-plane.js">
         </script>
       </head>

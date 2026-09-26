@@ -425,7 +425,8 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
 
     for selector <- [
           ".ryker-app .behavior-menu > summary",
-          ".lab-directory.is-open .lab-directory-close"
+          ".lab-directory.is-open .lab-directory-close",
+          ".ryker-app .page-help-toggle"
         ] do
       [_, rule] = Regex.run(Regex.compile!(Regex.escape(selector) <> " \\{([^}]+)\\}"), css)
       assert rule =~ ~r/(min-)?width:44px/, "#{selector} is narrower than 44px"

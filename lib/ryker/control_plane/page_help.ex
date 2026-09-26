@@ -16,9 +16,13 @@ defmodule Ryker.ControlPlane.PageHelp do
   same account the pages read (`Integrations.meanings/1`), so the help can
   never describe a state the page does not show.
 
-  The panel is rendered closed. From 1600px wide the stylesheet sets it
-  beside the page as a column and `page-help.mjs` opens it; below that it is
-  a quiet disclosure above the page that opens only when the reader asks.
+  Andrew, 2026-09-26: the help "should not be collapsible like that"; one
+  button opens or hides the whole side panel, and the browser remembers
+  which. The panel is the help as it is, beside the page from 1280px wide
+  and over it below that, and the button sits at the top right of every
+  page. Whether it shows is the browser's choice, kept on `<html>` as
+  `data-page-help` (`page-help-early.js` before the first paint,
+  `page-help.mjs` after), so both are rendered closed here.
   """
   use Phoenix.Component
 
@@ -93,24 +97,33 @@ defmodule Ryker.ControlPlane.PageHelp do
   attr(:path, :string, required: true, doc: "The page's path, without its query")
 
   @doc """
-  The page's help as one disclosure, closed as rendered, headed "How this
-  page works". Renders nothing for a path without help.
+  The page's help and the one button that shows or hides it, both rendered
+  closed. Renders nothing for a path without help.
   """
   def panel(assigns) do
     assigns = assign(assigns, :help, for_path(assigns.path))
 
     ~H"""
-    <aside :if={@help} class="page-help" aria-label={@help.title}>
-      <details id="page-help" phx-hook="PageHelp">
-        <summary><Components.icon name={:chevron} /><span>How this page works</span></summary>
-        <div class="page-help-body">
-          <h2 class="page-help-title">{@help.title}</h2>
-          <section :for={section <- @help.sections} class="page-help-section">
-            <h3>{section.heading}</h3>
-            <p :for={paragraph <- section.paragraphs}>{paragraph}</p>
-          </section>
-        </div>
-      </details>
+    <button
+      :if={@help}
+      type="button"
+      id="page-help-toggle"
+      class="page-help-toggle"
+      phx-hook="PageHelp"
+      aria-controls="page-help"
+      aria-expanded="false"
+      aria-label="Show help"
+      data-page-help-toggle
+    ><Components.icon name={:help} class="page-help-show" /><Components.icon
+      name={:close}
+      class="page-help-hide"
+    /></button>
+    <aside :if={@help} id="page-help" class="page-help" aria-label={@help.title}>
+      <h2 class="page-help-title">{@help.title}</h2>
+      <section :for={section <- @help.sections} class="page-help-section">
+        <h3>{section.heading}</h3>
+        <p :for={paragraph <- section.paragraphs}>{paragraph}</p>
+      </section>
     </aside>
     """
   end

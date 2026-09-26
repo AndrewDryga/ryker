@@ -132,20 +132,21 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
     # Andrew, 2026-09-25: every page explains itself in "How this page works"
     # instead of a line of small print under a few lists. The crawl opens
     # every kind of page, lists and records alike, so each one it opened must
-    # carry the shell's one help panel, headed by that page's own help and
-    # closed until the reader opens it: open help once filled a phone's first
-    # screen.
+    # carry the shell's one help panel, headed by that page's own help, and
+    # the one button that shows or hides it (2026-09-26: "they should not be
+    # collapsible like that").
     panels = help_panels_seen(%{})
     assert map_size(panels) >= length(@seeds)
 
-    for {href, {labels, open, beside}} <- panels do
+    for {href, {labels, collapsible, toggles, beside}} <- panels do
       path = href |> String.split(["?", "#"], parts: 2) |> hd()
       assert labels == [PageHelp.for_path(path).title], "#{href} renders #{inspect(labels)}"
-      refute open, "#{href} renders its help open"
+      refute collapsible, "#{href} renders its help as a collapsible"
+      assert toggles == 1, "#{href} renders #{toggles} help buttons"
 
-      # From 1600px the help is a sticky column in the first grid row beside
-      # the page. A page drawn as two siblings of it would start its second
-      # part under the column and pin the column to the first part only.
+      # From 1280px the open help is a sticky column in the first grid row
+      # beside the page. A page drawn as two siblings of it would start its
+      # second part under the column and pin the column to the first part.
       assert beside == 1, "#{href} lays out #{beside} elements beside its help"
     end
   end
@@ -197,8 +198,13 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
           self(),
           {:help_panel, href,
            {LazyHTML.attribute(panels, "aria-label"),
-            not Enum.empty?(LazyHTML.query(panels, "details[open]")),
-            document |> LazyHTML.query("main > :not(aside.page-help)") |> Enum.count()}}
+            not Enum.empty?(LazyHTML.query(panels, "details, summary")),
+            document
+            |> LazyHTML.query("main > button#page-help-toggle[aria-controls=page-help]")
+            |> Enum.count(),
+            document
+            |> LazyHTML.query("main > :not(aside.page-help, #page-help-toggle)")
+            |> Enum.count()}}
         )
 
         title = LazyHTML.query(document, "title") |> LazyHTML.text()

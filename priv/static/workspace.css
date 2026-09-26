@@ -1569,18 +1569,22 @@
 .lab-directory-time { font-size:12px; line-height:20px; color:var(--ryker-text-secondary); font-variant-numeric:tabular-nums; white-space:nowrap; }
 .lab-directory-meta { grid-column:1 / -1; display:flex; min-width:0; }
 .lab-directory-meta .state-word { font-size:12px; line-height:16px; }
+/* Where the conversation works, after its state (2026-09-26). */
+.lab-directory-environment { min-width:0; margin-left:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; line-height:16px; color:var(--ryker-text-secondary); }
 
 .lab-chat { background:var(--ryker-surface-sunken); }
 .lab-column { max-width:860px; padding:20px 32px 0; }
 /* The head of the conversation (2026-09-25, "Chat picks its environment"):
    its title on one line, under it where its messages work, and at the right
    the environment they run in as one compact select in the app's control
-   finish; a hairline closes the head above the transcript. */
-.lab-chat-head { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:8px 24px; margin:0 0 4px; padding:0 0 14px; border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 6%, transparent); }
+   finish; a hairline closes the head above the transcript. A new
+   conversation's head is only that select. The resets keep the global
+   header banner (sticky, raised) off it: it read as one more conversation. */
+.lab-chat-head { position:static; z-index:auto; display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:8px 24px; margin:0 0 4px; padding:0 0 14px; border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 6%, transparent); background:transparent; backdrop-filter:none; }
 .lab-chat-head-main { flex:1 1 240px; min-width:0; }
 .ryker-app .lab-chat-title { margin:0; font-size:16px; line-height:24px; font-weight:600; letter-spacing:-.005em; color:var(--ryker-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .lab-chat-place { margin:2px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
-.lab-environment { display:flex; flex:none; align-items:center; gap:8px; margin:0; }
+.lab-environment { display:flex; flex:none; align-items:center; gap:8px; margin:0 0 0 auto; }
 .lab-environment label { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); white-space:nowrap; }
 .ryker-app .lab-environment select { box-sizing:border-box; min-height:32px; max-width:240px; padding:5px 32px 5px 10px; border:1px solid var(--ryker-control-border); border-radius:8px; background-color:var(--ryker-control-bg); background-position:right 15px center,right 10px center; color:var(--ryker-control-text); font:inherit; font-size:13px; line-height:20px; }
 .ryker-app .lab-environment select:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:1px; }
@@ -1614,6 +1618,7 @@
 
 @media (max-width:800px) {
   .lab-column { padding:12px 16px 0; }
+  .lab-environment { margin-left:0; }
   .lab-chat-message { padding-left:40px; }
   .lab-avatar { width:28px; height:28px; border-radius:8px; }
 }
@@ -2488,49 +2493,64 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .usage-performance-table th:not(:first-child), .usage-performance-table td:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
 .usage-performance-table td { vertical-align:middle; }
 @media (max-width:580px) { .page-surface .table-wrap table { min-width:680px; } }
-/* How this page works (PageHelp): below 1600px a quiet disclosure above the
-   page, closed until the reader opens it; from 1600px a sticky column beside
-   the page, which page-help.mjs opens. A page-surface page sits in main's
-   padding. A native page pads itself, so there the disclosure takes the
-   page's own padding at each width and the page starts 16px under it: the
-   summary sits where the title would, and the title 48px lower on both. */
-.ryker-app .page-help { box-sizing:border-box; min-width:0; color:var(--ryker-text-secondary); font-size:13px; line-height:18px; }
-.ryker-app .page-surface > .page-help { margin:0 0 16px; }
-.ryker-app .native-page > .page-help { padding:32px 32px 0; margin-bottom:-16px; }
-.ryker-app .native-page > .page-help:has(+ .conversation-lab) { padding:12px 32px; margin-bottom:0; }
-.ryker-app .page-help > details > summary { display:flex; width:fit-content; max-width:100%; align-items:center; gap:6px; min-height:32px; padding:0; cursor:pointer; list-style:none; color:var(--ryker-text-secondary); font-size:13px; line-height:18px; font-weight:400; }
-.ryker-app .page-help > details > summary::-webkit-details-marker { display:none; }
-.ryker-app .page-help > details > summary::marker { content:""; }
-.ryker-app .page-help > details > summary:hover { color:var(--ryker-text); }
-.ryker-app .page-help > details > summary:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; border-radius:3px; }
-.ryker-app .page-help > details > summary .ui-icon { flex:none; width:12px; height:12px; }
-.ryker-app .page-help > details[open] > summary .ui-icon { transform:rotate(90deg); }
-.ryker-app .page-help-body { max-width:720px; padding:4px 0 8px 18px; }
-.ryker-app .page-help-title { margin:4px 0 12px; font-size:15px; line-height:22px; font-weight:600; letter-spacing:0; color:var(--ryker-text); }
+/* The page's help (PageHelp). Andrew, 2026-09-26: "not collapsible like
+   that ... a button that will open/hide that side bar completely". One quiet
+   44px button at the top right of every page shows or hides it: from 1280px
+   the help is a sticky column beside the page, below that a panel over it.
+   <html data-page-help> says which, set in <head> from this browser's choice
+   (page-help-early.js), so the page never flashes the other way. From 801px
+   every page keeps a 64px gutter at its right edge for the button, so it
+   never sits on a page's own actions; on a phone it sits in the top bar,
+   opposite the mark, and stays over the open panel to close it. */
+.ryker-app .page-help-toggle { position:fixed; top:24px; right:4px; z-index:31; display:grid; place-items:center; box-sizing:border-box; width:44px; height:44px; margin:0; padding:0; border:0; border-radius:10px; background:transparent; color:var(--ryker-text-secondary); cursor:pointer; }
+.ryker-app .page-help-toggle:hover { background:var(--ryker-hover-bg); color:var(--ryker-text); }
+.ryker-app .page-help-toggle:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:-2px; }
+.ryker-app .page-help-toggle .ui-icon { width:20px; height:20px; }
+.ryker-app .page-help-toggle .page-help-hide, html[data-page-help=open] .ryker-app .page-help-toggle .page-help-show { display:none; }
+html[data-page-help=open] .ryker-app .page-help-toggle .page-help-hide { display:block; }
+/* Over the open panel, which sits over everything else. */
+html[data-page-help=open] .ryker-app .page-help-toggle { z-index:41; }
+@media (min-width:801px) {
+  .ryker-app main.page-surface:has(> .page-help-toggle) { padding-right:64px; }
+  .ryker-app main.native-page:has(> .page-help-toggle) { padding-right:32px; }
+}
+/* Chat runs to the window's edge, so its gutter takes the conversation's
+   ground; the open column keeps the page's. */
+.ryker-app main.native-page:has(> .conversation-lab) { background:var(--ryker-surface-sunken); }
+/* The help itself: its title, then a few short sections in quiet type. */
+.ryker-app main > .page-help { display:none; box-sizing:border-box; min-width:0; color:var(--ryker-text-secondary); font-size:13px; line-height:18px; }
+html[data-page-help=open] .ryker-app main > .page-help { display:block; }
+.ryker-app .page-help-title { margin:0 0 12px; font-size:15px; line-height:22px; font-weight:600; letter-spacing:0; color:var(--ryker-text); }
 .ryker-app .page-help-section + .page-help-section { margin-top:16px; }
 .ryker-app .page-help-section h3 { margin:0 0 4px; font-size:13px; line-height:18px; font-weight:600; color:var(--ryker-text); }
 .ryker-app .page-help-section p { margin:0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .ryker-app .page-help-section p + p { margin-top:6px; }
-@media (prefers-reduced-motion:no-preference) { .ryker-app .page-help > details > summary .ui-icon { transition:transform .12s ease; } }
-/* Chat fills the window under the closed disclosure, so its composer stays on the first screen. */
-@media (min-width:801px) and (max-width:1599px) { .ryker-app .native-page > .page-help + .conversation-lab { min-height:calc(100vh - 56px); } }
-@media (max-width:900px) { .ryker-app .native-page > .page-help:has(+ .episode-workbench) { padding:20px 20px 0; margin-bottom:-4px; } }
-@media (max-width:800px) {
-  .ryker-app .native-page > .page-help { padding:24px 20px 0; margin-bottom:-8px; }
-  .ryker-app .native-page > .page-help:has(+ .conversation-lab) { padding:8px 16px; margin-bottom:0; }
-}
-@media (max-width:600px) { .ryker-app .native-page > .page-help { padding:20px 16px 0; margin-bottom:-4px; } }
-@media (max-width:580px) { .ryker-app .native-page > .page-help:has(+ .episode-workbench) { padding:16px 12px 0; margin-bottom:0; } }
 /* The column: the page fills the first track from its own left edge, as it
    does without help, and the help keeps its place at the right on every
-   page, whatever the page's width. */
-@media (min-width:1600px) {
-  .ryker-app main:has(> .page-help) { display:grid; grid-template-columns:minmax(0, 1fr) 272px; column-gap:32px; align-items:start; }
-  .ryker-app main.native-page:has(> .page-help) { padding-right:32px; }
-  .ryker-app main:has(> .page-help) > :not(.page-help) { grid-column:1; min-width:0; margin:0; }
-  .ryker-app .page-surface > .page-help, .ryker-app .native-page > .page-help, .ryker-app .native-page > .page-help:is(:has(+ .episode-workbench), :has(+ .conversation-lab)) { grid-column:2; grid-row:1; position:sticky; top:32px; max-height:calc(100vh - 64px); overflow-y:auto; margin:0; padding:0; }
-  .ryker-app .native-page > .page-help, .ryker-app .native-page > .page-help:is(:has(+ .episode-workbench), :has(+ .conversation-lab)) { top:0; max-height:100vh; padding:32px 0; }
-  .ryker-app .page-help-body { padding:4px 0 0; }
+   page, whatever the page's width. A native page pads itself, so its column
+   takes the page's top padding and the whole gutter. */
+@media (min-width:1280px) {
+  html[data-page-help=open] .ryker-app main:has(> .page-help) { display:grid; grid-template-columns:minmax(0, 1fr) 272px; column-gap:32px; align-items:start; }
+  html[data-page-help=open] .ryker-app main.native-page:has(> .page-help) { padding-right:64px; }
+  html[data-page-help=open] .ryker-app main:has(> .page-help) > :not(.page-help, .page-help-toggle) { grid-column:1; min-width:0; margin:0; }
+  html[data-page-help=open] .ryker-app main > .page-help { grid-column:2; grid-row:1; position:sticky; top:32px; max-height:calc(100vh - 64px); overflow-y:auto; }
+  html[data-page-help=open] .ryker-app main.native-page > .page-help { top:0; max-height:100vh; padding:32px 0; }
+  html[data-page-help=open] .ryker-app main.native-page:has(> .conversation-lab) { background:transparent; }
+}
+/* Over the page: a panel from the right edge with the button at its corner,
+   the whole screen on a phone. */
+@media (max-width:1279px) {
+  html[data-page-help=open] .ryker-app main > .page-help { position:fixed; top:0; right:0; bottom:0; z-index:40; width:min(380px, 100vw); overflow-y:auto; overscroll-behavior:contain; padding:34px 24px 32px; background:var(--ryker-surface-raised); border-left:1px solid var(--ryker-stroke); box-shadow:-16px 0 32px var(--ryker-shadow-medium); }
+  html[data-page-help=open] .ryker-app .page-help-title { padding-right:40px; }
+}
+@media (max-width:800px) {
+  .ryker-app .page-help-toggle { position:absolute; top:0; right:8px; }
+  html[data-page-help=open] .ryker-app .page-help-toggle { position:fixed; }
+  html[data-page-help=open] .ryker-app main > .page-help { width:100%; padding:12px 20px 32px; border-left:0; box-shadow:none; }
+  /* The panel covers the whole screen, so what it covers leaves the
+     keyboard's and screen reader's reach too, as it has left the eye's. */
+  html[data-page-help=open] .ryker-app > .app-sidebar, html[data-page-help=open] .ryker-app .app-workspace > :not(main) { visibility:hidden; }
+  html[data-page-help=open] .ryker-app main > :not(.page-help, .page-help-toggle) { visibility:hidden; }
 }
 
 /* Incident room (2026-09-25, Andrew: "this page is not very helpful and not

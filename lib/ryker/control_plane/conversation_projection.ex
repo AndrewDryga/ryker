@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   alias Ryker.ControlPlane.{
     AdmissionProgress,
+    ConversationLab,
     ConversationTranscript,
     CurrentInputs,
     TranscriptCursor
@@ -70,6 +71,16 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     end)
     |> directory_titles()
     |> directory_states()
+    |> directory_environments()
+  end
+
+  # The environment each conversation works in, the one its head shows, so
+  # the list can name it on every row.
+  defp directory_environments([]), do: []
+
+  defp directory_environments(items) do
+    environments = ConversationLab.environments(Enum.map(items, & &1.id))
+    Enum.map(items, &Map.put(&1, :environment_ref, Map.get(environments, &1.id)))
   end
 
   defp directory_titles([]), do: []

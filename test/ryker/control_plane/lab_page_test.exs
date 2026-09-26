@@ -247,26 +247,117 @@ defmodule Ryker.ControlPlane.LabPageTest do
     assert LazyHTML.query(none, "p.lab-chat-place") |> LazyHTML.text() |> squish() ==
              "Works without code"
 
-    # A new conversation names itself and starts in the default, as the
-    # LiveView hands it; it is not the rejected "Ready for your message" hero.
-    draft =
-      head.(
-        snapshot: %{conversation_id: "draft", messages: [], admission_progress: [], draft: true},
-        environments: environments,
-        environment: "production"
-      )
-
-    assert LazyHTML.query(draft, "h2.lab-chat-title") |> LazyHTML.text() == "New conversation"
-
-    assert LazyHTML.query(draft, "option[selected]") |> LazyHTML.text() |> squish() ==
-             "Production"
-
     # With no environment to choose there is nothing to select, only where it works.
     bare = head.(environments: [], environment: nil)
     assert Enum.empty?(LazyHTML.query(bare, "form.lab-environment, select"))
 
     assert LazyHTML.query(bare, "p.lab-chat-place") |> LazyHTML.text() |> squish() ==
              "Works without code"
+  end
+
+  # Andrew, 2026-09-26: while a new conversation was being written, the top
+  # of Chat showed "New conversation · Works without code" on a raised band
+  # that read as one more conversation in the list, though nothing existed
+  # yet. A new conversation now shows only real conversations; its head keeps
+  # just the environment choice, when there is one to make.
+  test "a new conversation shows no placeholder conversation, only where it will work" do
+    draft = [
+      snapshot: %{conversation_id: "draft", messages: [], admission_progress: [], draft: true}
+    ]
+
+    with_choice =
+      render_component(
+        &LabPage.render/1,
+        lab_assigns(directory(), "draft") ++
+          draft ++ [environments: environments(), environment: "production"]
+      )
+      |> LazyHTML.from_fragment()
+
+    refute LazyHTML.text(with_choice) =~ "New conversation"
+    refute LazyHTML.text(with_choice) =~ "Works "
+    assert Enum.empty?(LazyHTML.query(with_choice, ".lab-chat-title, .lab-chat-place"))
+
+    assert LazyHTML.query(
+             with_choice,
+             "header.lab-chat-head select#lab-environment option[selected]"
+           )
+           |> LazyHTML.text()
+           |> squish() == "Production"
+
+    # The list holds the real conversations and nothing else.
+    assert LazyHTML.query(with_choice, ".lab-directory-list a.lab-directory-item") |> Enum.count() ==
+             length(directory())
+
+    without_choice =
+      render_component(&LabPage.render/1, lab_assigns(directory(), "draft") ++ draft)
+      |> LazyHTML.from_fragment()
+
+    assert Enum.empty?(LazyHTML.query(without_choice, "header.lab-chat-head"))
+    refute LazyHTML.text(without_choice) =~ "Works without code"
+  end
+
+  # The head is a header element, and the stylesheet's first rule dresses
+  # every header as the old application banner: sticky, raised, blurred.
+  # Chat's head inherited it and read as a highlighted row above the
+  # messages, and on a phone it slid over the examples as the page scrolled.
+  test "the conversation head cannot inherit the application banner" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    [_, head] = Regex.run(~r/\n\.lab-chat-head \{([^}]+)\}/, css)
+    assert head =~ "position:static"
+    assert head =~ "background:transparent"
+    assert head =~ "backdrop-filter:none"
+  end
+
+  # Andrew, 2026-09-26: "Each conversation shows its environment." Chat picks
+  # a conversation's environment in its head, but the list named none, so
+  # finding the staging conversation meant opening each one.
+  test "each conversation row names the environment it works in on its state line" do
+    items =
+      Enum.zip_with(directory(), ["production", "staging", nil, "gone", "production"], fn item,
+                                                                                          ref ->
+        Map.put(item, :environment_ref, ref)
+      end)
+
+    document =
+      render_component(
+        &LabPage.render/1,
+        lab_assigns(items, "c") ++ [environments: environments()]
+      )
+      |> LazyHTML.from_fragment()
+
+    rows = LazyHTML.query(document, ".lab-directory-day > a.lab-directory-item")
+
+    assert Enum.map(rows, fn row ->
+             row
+             |> LazyHTML.query(".lab-directory-meta > .lab-directory-environment")
+             |> LazyHTML.text()
+             |> squish()
+           end) == [
+             "· Production",
+             "· Staging",
+             "· No environment",
+             "· No environment",
+             "· Production"
+           ]
+
+    # The state keeps its dot and word first on the line.
+    assert LazyHTML.query(document, ".lab-directory-meta > .state-word:first-child")
+           |> Enum.count() == 5
+
+    # With no environments at all there is nothing to tell conversations
+    # apart by, so no row repeats "No environment".
+    bare =
+      render_component(&LabPage.render/1, lab_assigns(items, "c"))
+      |> LazyHTML.from_fragment()
+
+    assert Enum.empty?(LazyHTML.query(bare, ".lab-directory-environment"))
+  end
+
+  defp environments do
+    [
+      %{ref: "production", name: "Production", default: true, repositories: [], emisar: true},
+      %{ref: "staging", name: "Staging", default: false, repositories: [], emisar: false}
+    ]
   end
 
   # The choices the head offers come from the settings the way every list

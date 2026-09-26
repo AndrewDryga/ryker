@@ -1649,6 +1649,45 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert ConversationLab.environment(@conversation_id) == {:ok, nil}
   end
 
+  # Andrew, 2026-09-26: "Each conversation shows its environment." Chat picks
+  # a conversation's environment in its head, but the list said nothing, so
+  # finding the staging conversation meant opening each one. The list reads
+  # each environment the way the head does: the one chosen or recorded when
+  # the conversation started, none, or the default for a conversation from
+  # before conversations kept theirs (2026-09-25).
+  test "the conversation list carries the environment each conversation works in" do
+    environment!("platform", true)
+    environment!("staging", false)
+    actions = Actions.callbacks(placements(["platform", "staging"]), %{})
+
+    started = fn choice ->
+      id = Ecto.UUID.generate()
+
+      unless choice == :default,
+        do: {:ok, _chosen} = ConversationLab.select_environment(id, choice)
+
+      {:ok, _receipt} = actions.send_lab_message.(id, "Where does this run?", [])
+      id
+    end
+
+    platform = started.(:default)
+    staging = started.("staging")
+    outside = started.(nil)
+    earlier = started.(:default)
+    Repo.query!("DELETE FROM control_plane_conversations WHERE id = $1::text::uuid", [earlier])
+
+    listed = Map.new(Projection.lab_index(), &{&1.id, Map.fetch!(&1, :environment_ref)})
+
+    assert Map.take(listed, [platform, staging, outside, earlier]) == %{
+             platform => "platform",
+             staging => "staging",
+             outside => nil,
+             earlier => "platform"
+           }
+
+    for {id, ref} <- listed, do: assert(ConversationLab.environment(id) == {:ok, ref})
+  end
+
   # An environment that cannot run work right now, its policies unverified
   # say, leaves the conversation's messages outside any environment until it
   # can; the conversation keeps its choice.

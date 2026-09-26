@@ -134,7 +134,7 @@ defmodule Ryker.ControlPlane.LabPage do
               title={directory_time(item.updated_at, @now)}
             >{Kit.clock(item.updated_at)} UTC</time><span class="lab-directory-meta"><.directory_state status={
               item[:status]
-            } /></span></.link>
+            } /><.directory_environment ref={item[:environment_ref]} choices={@environments} /></span></.link>
           </section>
         </div>
       </aside>
@@ -154,7 +154,12 @@ defmodule Ryker.ControlPlane.LabPage do
           {@announcement}
         </p>
         <div class="lab-column">
-          <.conversation_head title={@title} environments={@environments} environment={@environment} />
+          <.conversation_head
+            :if={@title || @environments != []}
+            title={@title}
+            environments={@environments}
+            environment={@environment}
+          />
           <div
             id="lab-history"
             phx-hook="ConversationHistory"
@@ -286,7 +291,11 @@ defmodule Ryker.ControlPlane.LabPage do
     """
   end
 
-  attr(:title, :string, required: true)
+  attr(:title, :string,
+    default: nil,
+    doc: "The conversation's title; nil for a new one, which is not a conversation yet"
+  )
+
   attr(:environments, :list, required: true, doc: "What environment_choices/1 offers")
 
   attr(:environment, :string,
@@ -297,13 +306,16 @@ defmodule Ryker.ControlPlane.LabPage do
   # The head of the conversation (2026-09-25, "Chat picks its environment"):
   # its title, one quiet line saying where its messages work, and the
   # environment they run in as one compact select, when there is one to
-  # choose. The choice is saved for the conversation, not the browser.
+  # choose. The choice is saved for the conversation, not the browser. A new
+  # conversation has no title and no line (2026-09-26: "New conversation ·
+  # Works without code" read as a conversation that did not exist), only the
+  # choice of where it will work.
   defp conversation_head(assigns) do
     assigns = assign(assigns, :place, works_in(assigns.environment, assigns.environments))
 
     ~H"""
     <header class="lab-chat-head">
-      <div class="lab-chat-head-main">
+      <div :if={@title} class="lab-chat-head-main">
         <h2 class="lab-chat-title">{@title}</h2>
         <p class="lab-chat-place">{@place}</p>
       </div>
@@ -375,8 +387,9 @@ defmodule Ryker.ControlPlane.LabPage do
 
   # What the head calls the conversation: the directory's title for it, what
   # one with no messages yet is, or the plain word for one the directory (its
-  # newest hundred) does not list.
-  defp title(%{draft: true}, _items), do: "New conversation"
+  # newest hundred) does not list. A new conversation, still being written,
+  # is not one yet and has no title.
+  defp title(%{draft: true}, _items), do: nil
 
   defp title(snapshot, items) do
     case Enum.find(items, &(&1.id == snapshot.conversation_id)) do
@@ -626,6 +639,30 @@ defmodule Ryker.ControlPlane.LabPage do
     ~H"""
     <Kit.state tone={@tone} word={@word} />
     """
+  end
+
+  attr(:ref, :string, default: nil)
+  attr(:choices, :list, required: true)
+
+  # Where the conversation works, after its state (2026-09-26, "Each
+  # conversation shows its environment"): the environment its head shows, or
+  # "No environment". With no environments at all there is nothing to tell
+  # conversations apart by, so the row says nothing.
+  defp directory_environment(assigns) do
+    assigns = assign(assigns, :name, environment_name(assigns.ref, assigns.choices))
+
+    ~H"""
+    <span :if={@name} class="lab-directory-environment"><span aria-hidden="true">·</span> {@name}</span>
+    """
+  end
+
+  defp environment_name(_ref, []), do: nil
+
+  defp environment_name(ref, choices) do
+    case Enum.find(choices, &(&1.ref == ref)) do
+      %{name: name} -> name
+      nil -> "No environment"
+    end
   end
 
   defp directory_status(:working), do: {:busy, "Working"}
