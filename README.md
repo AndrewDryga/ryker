@@ -405,9 +405,20 @@ selected Coop policies. Slack guests and external Slack Connect identities are d
 
 ## Operations
 
-These Mix tasks run from a source checkout with Mix. The Docker Compose install publishes neither
-PostgreSQL nor Mix, so they need a database you can reach with the installation's `DATABASE_URL`
-and keys; routine recovery on a Compose install is the control plane's Failures page.
+On the Docker Compose install, the release runs the two operator commands a person needs there:
+
+```bash
+scripts/compose.sh doctor
+scripts/compose.sh worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF
+```
+
+`doctor` checks that the saved settings were applied and the durable queues are ready.
+`worker-token` prints a one-time enrolment token for a Coop worker the installation does not run
+itself. Routine recovery on a Compose install is the control plane's Failures page.
+
+The Mix tasks below run from a source checkout with Mix. The Docker Compose install publishes
+neither PostgreSQL nor Mix, so they need a database you can reach with the installation's
+`DATABASE_URL` and keys.
 
 ```bash
 MIX_ENV=prod mix ryker.doctor

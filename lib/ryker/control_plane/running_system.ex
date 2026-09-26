@@ -85,10 +85,10 @@ defmodule Ryker.ControlPlane.RunningSystem do
           <pre><code>coop sessions doctor --socket /var/lib/coop-sessions/control.sock
     coop sessions policies --policies /etc/coop/session-policies.yaml --json</code></pre>
           <p>
-            Create a one-time enrolment token with <code>MIX_ENV=prod mix ryker.coop_worker enroll WORKER_ID WORKSPACE_REF OPERATOR_REF</code>. Store it in a private file with mode <code>0600</code>, then connect with <code>coop sessions connect --config /etc/coop/worker.json</code>.
+            On the machine running Ryker, create a one-time enrolment token with <code>scripts/compose.sh worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF</code>. Store it on the worker in a private file with mode <code>0600</code>, then connect with <code>coop sessions connect --config /etc/coop/worker.json</code>.
           </p>
           <p>Confirm the saved settings were applied:</p>
-          <pre><code>MIX_ENV=prod mix ryker.doctor</code></pre>
+          <pre><code>scripts/compose.sh doctor</code></pre>
           <p>
             Then check that working copies can be saved and restored, and that the repository's
             build tools are installed, before trying the task again.
