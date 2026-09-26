@@ -1,5 +1,6 @@
 defmodule Ryker.Publication.DispatcherTest do
   use Ryker.DataCase, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
 
@@ -963,6 +964,4 @@ defmodule Ryker.Publication.DispatcherTest do
       "source_tree" => String.duplicate("3", 40)
     }
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

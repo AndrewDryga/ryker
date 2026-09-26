@@ -1,6 +1,7 @@
 defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   @moduledoc false
 
+  import Ryker.TestHelpers, only: [digest: 1]
   @behaviour Ryker.Coop.API
 
   alias Ryker.Work.StateBinding
@@ -685,8 +686,6 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
       {{:ok, operation}, next}
     end)
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

@@ -1,5 +1,6 @@
 defmodule Ryker.Publication.GitTest do
   use ExUnit.Case, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ryker.Publication.{Git, Publication, Request}
 
@@ -346,6 +347,4 @@ defmodule Ryker.Publication.GitTest do
     File.mkdir!(path)
     path
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

@@ -1,6 +1,7 @@
 defmodule Ryker.GitHub.ConfirmationsTest do
   # Sync: one test breaks a table for the length of its own transaction.
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import ExUnit.CaptureLog
 
@@ -469,6 +470,4 @@ defmodule Ryker.GitHub.ConfirmationsTest do
       }
     })
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

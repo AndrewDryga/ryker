@@ -1,5 +1,6 @@
 defmodule Ryker.Delivery.DispatcherTest do
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query, only: [from: 2]
   import ExUnit.CaptureIO
@@ -1041,6 +1042,4 @@ defmodule Ryker.Delivery.DispatcherTest do
 
     action
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

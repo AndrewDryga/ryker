@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.ServerTest do
   use ExUnit.Case, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ryker.ControlPlane.Server
   alias Ryker.Ingress.WorkProfile
@@ -175,6 +176,4 @@ defmodule Ryker.ControlPlane.ServerTest do
         end)
     }
   end
-
-  defp digest(seed), do: :sha256 |> :crypto.hash(seed) |> Base.encode16(case: :lower)
 end

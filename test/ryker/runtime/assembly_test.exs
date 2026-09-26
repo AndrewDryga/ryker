@@ -3,6 +3,7 @@ defmodule Ryker.Runtime.AssemblyTest do
   # case here is about that boundary: what an installation's saved connections
   # turn on, what they may never turn on, and what a refusal has to name.
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
 
@@ -1288,8 +1289,6 @@ defmodule Ryker.Runtime.AssemblyTest do
       @actor
     )
   end
-
-  defp digest(seed), do: :sha256 |> :crypto.hash(seed) |> Base.encode16(case: :lower)
 
   defp bootstrap do
     %Bootstrap{

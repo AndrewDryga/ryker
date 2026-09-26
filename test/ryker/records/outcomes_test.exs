@@ -1,5 +1,6 @@
 defmodule Ryker.Records.OutcomesTest do
   use Ryker.DataCase, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -376,6 +377,4 @@ defmodule Ryker.Records.OutcomesTest do
       transport: claim.episode.destination_transport
     }
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

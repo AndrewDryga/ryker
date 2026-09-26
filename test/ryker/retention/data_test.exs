@@ -1,5 +1,6 @@
 defmodule Ryker.Retention.DataTest do
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
 
@@ -1690,6 +1691,5 @@ defmodule Ryker.Retention.DataTest do
     )
   end
 
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
   defp uuid!(value), do: Ecto.UUID.dump!(value)
 end

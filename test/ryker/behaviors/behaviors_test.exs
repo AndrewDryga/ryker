@@ -1,5 +1,6 @@
 defmodule Ryker.Behaviors.BehaviorsTest do
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
 
@@ -1562,6 +1563,4 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     |> Ecto.Changeset.change(%{payload: Map.merge(behavior.payload, overrides)})
     |> Repo.update!()
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

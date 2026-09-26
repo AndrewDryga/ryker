@@ -341,7 +341,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
           "workspace_slots_free" => 2,
           "workspace_slots_total" => 2
         },
-        "clock_at" => DateTime.to_iso8601(database_now!()),
+        "clock_at" => DateTime.to_iso8601(Ryker.Repo.now!()),
         "id" => worker,
         "policy_authority_digests" => %{@policy => @authority},
         "policy_digests" => %{@policy => digest},
@@ -366,7 +366,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
                  episode_id: id,
                  episode_key: key,
                  native_input_id: "source:#{suffix}:#{id}",
-                 occurred_at: database_now!(),
+                 occurred_at: Ryker.Repo.now!(),
                  turn_ref: turn_ref
                })
              )
@@ -397,7 +397,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
                  cancel_ref: "cancel:#{suffix}:#{id}",
                  episode_key: key,
                  expected_owner: %{kind: :turn, ref: turn_ref},
-                 occurred_at: database_now!()
+                 occurred_at: Ryker.Repo.now!()
                })
              )
 
@@ -408,14 +408,14 @@ defmodule Ryker.Retention.WorkerChangeTest do
   defp expire_placements!(session) do
     Repo.update_all(
       from(placement in Placement, where: placement.session_id == ^session.id),
-      set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
+      set: [lease_expires_at: DateTime.add(Ryker.Repo.now!(), -1, :second)]
     )
   end
 
   defp stop_reporting!(worker) do
     {1, nil} =
       Repo.update_all(from(value in Worker, where: value.id == ^worker),
-        set: [last_seen_at: DateTime.add(database_now!(), -600, :second)]
+        set: [last_seen_at: DateTime.add(Ryker.Repo.now!(), -600, :second)]
       )
   end
 
@@ -437,10 +437,5 @@ defmodule Ryker.Retention.WorkerChangeTest do
         limit: 1
       )
     )
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 end

@@ -1,5 +1,6 @@
 defmodule Ryker.Work.ResultCustodyTest do
   use Ryker.DataCase, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
 
@@ -953,8 +954,6 @@ defmodule Ryker.Work.ResultCustodyTest do
 
     receipt
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp final_candidate(title) do
     Jason.encode!(%{

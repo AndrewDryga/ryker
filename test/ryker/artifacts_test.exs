@@ -1,5 +1,6 @@
 defmodule Ryker.ArtifactsTest do
   use Ryker.DataCase, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Outputs
@@ -414,6 +415,4 @@ defmodule Ryker.ArtifactsTest do
     assert {:ok, claim} = Custody.claim_next("output-artifacts:worker:#{suffix}", 60, :work)
     claim.turn.id
   end
-
-  defp digest(data), do: :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
 end

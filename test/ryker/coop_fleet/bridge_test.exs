@@ -108,7 +108,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
     failed =
       command
       |> Ecto.Changeset.change(
-        completed_at: database_now!(),
+        completed_at: Repo.now!(),
         status: :failed,
         error: %{"code" => "revision_conflict", "detail" => "stale", "status" => 409},
         operation_key: command.idempotency_key,
@@ -208,7 +208,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
                  episode_id: episode_id,
                  episode_key: "fleet:bridge:#{episode_id}",
                  native_input_id: "source:bridge:#{episode_id}",
-                 occurred_at: database_now!(),
+                 occurred_at: Repo.now!(),
                  turn_ref: "turn:bridge:#{episode_id}"
                })
              )
@@ -281,10 +281,5 @@ defmodule Ryker.CoopFleet.BridgeTest do
         "workspace_ref" => "workspace-main"
       }
     }
-  end
-
-  defp database_now! do
-    %{rows: [[now]]} = Ryker.Repo.query!("SELECT clock_timestamp()")
-    now
   end
 end

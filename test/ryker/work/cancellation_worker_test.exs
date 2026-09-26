@@ -194,7 +194,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
                    "workspace_slots_free" => 2,
                    "workspace_slots_total" => 2
                  },
-                 "clock_at" => DateTime.to_iso8601(database_now!()),
+                 "clock_at" => DateTime.to_iso8601(Ryker.Repo.now!()),
                  "id" => worker,
                  "policy_authority_digests" => %{@policy => @authority},
                  "policy_digests" => %{@policy => digest},
@@ -216,7 +216,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
         episode_id: id,
         episode_key: "work-stop-worker:#{suffix}:#{id}",
         native_input_id: "source:stop-worker:#{suffix}:#{id}",
-        occurred_at: database_now!(),
+        occurred_at: Ryker.Repo.now!(),
         turn_ref: "turn:stop-worker:#{suffix}:#{id}"
       })
 
@@ -264,12 +264,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
   defp expire_placements!(session) do
     Repo.update_all(
       from(placement in Placement, where: placement.session_id == ^session.id),
-      set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
+      set: [lease_expires_at: DateTime.add(Ryker.Repo.now!(), -1, :second)]
     )
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 end

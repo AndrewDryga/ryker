@@ -134,7 +134,7 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
   defp drain_window(state, remaining) when remaining <= 0, do: state
 
   defp drain_window(state, remaining) do
-    started = database_now!()
+    started = Ryker.Repo.now!()
     {:ok, pass} = run_pass(state)
     state = if pass.executed > 0, do: record_pass(state, started), else: state
 
@@ -314,7 +314,7 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
         Repo.update_all(
           from(publication in Publication, where: publication.status != :published),
           set: [
-            published_at: database_now!(),
+            published_at: Ryker.Repo.now!(),
             published_delivery_receipt: %{"delivered" => true},
             published_delivery_receipt_fingerprint: String.duplicate("c", 64),
             status: :published
@@ -564,7 +564,7 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
   # is about the cleanup lifecycle, so admission is not replayed for every one
   # of several thousand sessions.
   defp arrive!(api, label, kind, count) do
-    now = database_now!()
+    now = Ryker.Repo.now!()
     worker_ids = @workers
 
     rows =
@@ -752,19 +752,14 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
   defp stale_worker!(worker_id) do
     {1, nil} =
       Repo.update_all(from(worker in Worker, where: worker.id == ^worker_id),
-        set: [last_seen_at: DateTime.add(database_now!(), -86_400, :second)]
+        set: [last_seen_at: DateTime.add(Ryker.Repo.now!(), -86_400, :second)]
       )
   end
 
   defp heartbeat_worker!(worker_id) do
     {1, nil} =
       Repo.update_all(from(worker in Worker, where: worker.id == ^worker_id),
-        set: [last_seen_at: database_now!()]
+        set: [last_seen_at: Ryker.Repo.now!()]
       )
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 end

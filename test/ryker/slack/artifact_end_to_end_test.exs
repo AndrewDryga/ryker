@@ -1,5 +1,6 @@
 defmodule Ryker.Slack.ArtifactEndToEndTest do
   use Ryker.DataCase, async: true
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
 
@@ -172,6 +173,4 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
       }
     })
   end
-
-  defp digest(data), do: :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
 end

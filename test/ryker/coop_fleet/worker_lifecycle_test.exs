@@ -148,7 +148,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
   end
 
   defp heartbeat!(worker_id) do
-    now = database_now!()
+    now = Ryker.Repo.now!()
 
     assert {:ok, _response} =
              ControlPlane.handle_poll(worker_id, %{
@@ -188,7 +188,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
         episode_id: Ecto.UUID.generate(),
         episode_key: "worker-lifecycle:#{suffix}",
         native_input_id: "source:#{suffix}",
-        occurred_at: database_now!(),
+        occurred_at: Ryker.Repo.now!(),
         turn_ref: "turn:#{suffix}"
       })
 
@@ -203,10 +203,5 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
              )
 
     session
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 end

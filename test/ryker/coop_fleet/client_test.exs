@@ -353,7 +353,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     command.placement_id
     |> then(&Repo.get!(Placement, &1))
-    |> Ecto.Changeset.change(lease_expires_at: DateTime.add(database_now!(), -1, :second))
+    |> Ecto.Changeset.change(lease_expires_at: DateTime.add(Repo.now!(), -1, :second))
     |> Repo.update!()
 
     assert Client.capabilities(client, session) ==
@@ -1089,7 +1089,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     Repo.get!(Placement, stale.placement_id)
     |> Ecto.Changeset.change(
-      lease_expires_at: DateTime.add(database_now!(), -1, :second),
+      lease_expires_at: DateTime.add(Repo.now!(), -1, :second),
       state: :replaced
     )
     |> Repo.update!()
@@ -1840,7 +1840,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     create.placement_id
     |> then(&Repo.get!(Placement, &1))
     |> Ecto.Changeset.change(
-      lease_expires_at: DateTime.add(database_now!(), -1, :second),
+      lease_expires_at: DateTime.add(Repo.now!(), -1, :second),
       state: :replaced
     )
     |> Repo.update!()
@@ -1954,7 +1954,7 @@ defmodule Ryker.CoopFleet.ClientTest do
                  episode_id: episode_id,
                  episode_key: "fleet:client:#{episode_id}",
                  native_input_id: "source:fleet-client:#{episode_id}",
-                 occurred_at: database_now!(),
+                 occurred_at: Repo.now!(),
                  turn_ref: "turn:fleet-client:#{episode_id}"
                })
              )
@@ -2037,7 +2037,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     command
     |> Ecto.Changeset.change(
-      completed_at: database_now!(),
+      completed_at: Repo.now!(),
       error: error,
       operation_key: command.idempotency_key,
       result: result,
@@ -2089,10 +2089,5 @@ defmodule Ryker.CoopFleet.ClientTest do
         "workspace_ref" => "workspace-main"
       }
     }
-  end
-
-  defp database_now! do
-    %{rows: [[now]]} = Ryker.Repo.query!("SELECT clock_timestamp()")
-    now
   end
 end

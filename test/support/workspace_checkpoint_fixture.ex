@@ -1,6 +1,7 @@
 defmodule Ryker.Fixtures.WorkspaceCheckpoint do
   @moduledoc false
 
+  import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.CoopFleet.WorkspaceCheckpoint
 
   def build(attributes \\ %{}) do
@@ -134,6 +135,4 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
       remainder -> :binary.copy(<<0>>, 512 - remainder)
     end
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

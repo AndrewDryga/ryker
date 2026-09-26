@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   would show.
   """
   use Ryker.DataCase, async: false
+  import Ryker.TestHelpers, only: [eventually: 1]
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
@@ -227,14 +228,5 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     view |> form("#channel-environment", environment: "staging") |> render_submit()
     Process.sleep(100)
     assert FakeSlackAPI.state(context.agent).updates == []
-  end
-
-  # The redraw answers the page on its own time; wait for it, briefly.
-  defp eventually(check, tries \\ 40) do
-    cond do
-      check.() -> true
-      tries == 0 -> false
-      true -> Process.sleep(50) && eventually(check, tries - 1)
-    end
   end
 end
