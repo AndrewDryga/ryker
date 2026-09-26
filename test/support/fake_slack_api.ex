@@ -1,0 +1,210 @@
+defmodule Ryker.TestSupport.FakeSlackAPI do
+  @moduledoc """
+  One Slack workspace for tests, behind the part of `Ryker.Slack.API` the Slack
+  publisher needs, plus the channels Ryker has joined.
+
+  It keeps every message and file share it accepts under the channel, thread
+  and delivery ref (or filenames) it was sent with, so a retry finds what an
+  earlier attempt posted, the way the real client walks history. `state/1`
+  holds every accepted write in order, and when an `:observer` is given each
+  one is also sent to it:
+
+    * `{:slack_posted, channel, thread, document, delivery_ref, message_ref}`
+    * `{:slack_updated, channel, message_ref, document, delivery_ref}`
+    * `{:slack_uploaded, channel, thread, document, delivery_ref, files}`
+
+  Of the optional callbacks it exports only `update_message/5` and
+  `joined_conversations/1`. Code that checks for another one, such as
+  removing a reaction or posting a private line, finds it absent, as it did
+  with every fake this one replaced.
+
+  Options:
+
+    * `:observer` - the process told about each accepted write.
+    * `:message_ref` - `fn n -> ref end` naming the n-th message the workspace
+      holds, posts and file shares counted together from 1. Defaults to
+      `"n.000001"`.
+    * `:render` - when true, a document is rendered with `Ryker.Slack.Renderer`
+      first, as the real client does before it sends; one that does not render
+      is refused with the renderer's error, and the rendered document is what
+      is kept and reported.
+    * `:lose` - the calls, `:post_message` or `:upload_files`, whose first
+      answer is lost after Slack took the write: the write is kept, and the
+      caller sees `{:error, :socket_closed}` once.
+    * `:refuse` - `%{delivery_ref => reason}`: a post with that delivery ref is
+      refused with `{:error, reason}` and nothing is kept. `refuse/2` replaces
+      it mid-test.
+    * `:channels` - what `joined_conversations/1` returns; `put_channels/2`
+      replaces it mid-test.
+  """
+
+  @behaviour Ryker.Slack.API
+
+  alias Ryker.Slack.Renderer
+
+  @options [
+    channels: [],
+    lose: [],
+    message_ref: &__MODULE__.default_message_ref/1,
+    observer: nil,
+    refuse: %{},
+    render: false
+  ]
+
+  def child_spec(options), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [options]}}
+
+  def start_link(options \\ []) do
+    options = Keyword.validate!(options, @options)
+
+    Agent.start_link(fn ->
+      options
+      |> Map.new()
+      |> Map.merge(%{
+        file_finds: 0,
+        files: %{},
+        finds: 0,
+        messages: %{},
+        posts: [],
+        reactions: MapSet.new(),
+        updates: [],
+        uploads: []
+      })
+    end)
+  end
+
+  def state(agent), do: Agent.get(agent, & &1)
+  def refuse(agent, refusals), do: Agent.update(agent, &%{&1 | refuse: refusals})
+  def put_channels(agent, channels), do: Agent.update(agent, &%{&1 | channels: channels})
+
+  @doc false
+  def default_message_ref(n), do: "#{n}.000001"
+
+  @impl true
+  def find_message(agent, channel, thread, delivery_ref) do
+    Agent.get_and_update(agent, fn state ->
+      result = found(Map.fetch(state.messages, {channel, thread, delivery_ref}))
+      {result, %{state | finds: state.finds + 1}}
+    end)
+  end
+
+  @impl true
+  def post_message(agent, channel, thread, document, delivery_ref) do
+    Agent.get_and_update(agent, fn state ->
+      with :ok <- refusal(state, delivery_ref),
+           {:ok, document} <- document(state, document) do
+        message_ref = next_message_ref(state)
+        notify(state, {:slack_posted, channel, thread, document, delivery_ref, message_ref})
+
+        post = %{
+          channel: channel,
+          delivery_ref: delivery_ref,
+          document: document,
+          message_ref: message_ref,
+          thread: thread
+        }
+
+        state
+        |> Map.update!(:messages, &Map.put(&1, {channel, thread, delivery_ref}, message_ref))
+        |> Map.update!(:posts, &(&1 ++ [post]))
+        |> answer(:post_message, {:ok, message_ref})
+      else
+        {:error, _reason} = error -> {error, state}
+      end
+    end)
+  end
+
+  @impl true
+  def update_message(agent, channel, message_ref, document, delivery_ref) do
+    Agent.get_and_update(agent, fn state ->
+      case document(state, document) do
+        {:ok, document} ->
+          notify(state, {:slack_updated, channel, message_ref, document, delivery_ref})
+
+          update = %{
+            channel: channel,
+            delivery_ref: delivery_ref,
+            document: document,
+            message_ref: message_ref
+          }
+
+          {:ok, Map.update!(state, :updates, &(&1 ++ [update]))}
+
+        {:error, _reason} = error ->
+          {error, state}
+      end
+    end)
+  end
+
+  @impl true
+  def find_files(agent, channel, thread, filenames) do
+    Agent.get_and_update(agent, fn state ->
+      result = found(Map.fetch(state.files, {channel, thread, filenames}))
+      {result, %{state | file_finds: state.file_finds + 1}}
+    end)
+  end
+
+  @impl true
+  def upload_files(agent, channel, thread, document, delivery_ref, files) do
+    Agent.get_and_update(agent, fn state ->
+      case document(state, document) do
+        {:ok, document} ->
+          message_ref = next_message_ref(state)
+          filenames = Enum.map(files, & &1.filename)
+          notify(state, {:slack_uploaded, channel, thread, document, delivery_ref, files})
+
+          upload = %{
+            channel: channel,
+            delivery_ref: delivery_ref,
+            document: document,
+            files: files,
+            message_ref: message_ref,
+            thread: thread
+          }
+
+          state
+          |> Map.update!(:files, &Map.put(&1, {channel, thread, filenames}, message_ref))
+          |> Map.update!(:uploads, &(&1 ++ [upload]))
+          |> answer(:upload_files, {:ok, message_ref})
+
+        {:error, _reason} = error ->
+          {error, state}
+      end
+    end)
+  end
+
+  @impl true
+  def add_reaction(agent, channel, message_ref, emoji_name) do
+    Agent.update(agent, fn state ->
+      %{state | reactions: MapSet.put(state.reactions, {channel, message_ref, emoji_name})}
+    end)
+  end
+
+  @impl true
+  def joined_conversations(agent), do: Agent.get(agent, &{:ok, &1.channels})
+
+  defp found({:ok, message_ref}), do: {:ok, message_ref}
+  defp found(:error), do: :not_found
+
+  defp refusal(state, delivery_ref) do
+    case Map.fetch(state.refuse, delivery_ref) do
+      {:ok, reason} -> {:error, reason}
+      :error -> :ok
+    end
+  end
+
+  defp document(%{render: true}, %{} = document), do: Renderer.render(document)
+  defp document(_state, document), do: {:ok, document}
+
+  defp next_message_ref(state),
+    do: state.message_ref.(map_size(state.messages) + map_size(state.files) + 1)
+
+  defp notify(%{observer: nil}, _message), do: :ok
+  defp notify(%{observer: observer}, message), do: send(observer, message)
+
+  # Slack took the write; whether the caller hears so is the only question.
+  defp answer(state, call, result) do
+    if call in state.lose,
+      do: {{:error, :socket_closed}, %{state | lose: List.delete(state.lose, call)}},
+      else: {result, state}
+  end
+end

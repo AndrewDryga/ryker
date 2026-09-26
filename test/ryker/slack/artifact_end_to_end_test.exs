@@ -9,75 +9,13 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Repo
   alias Ryker.Slack.Publisher
-  alias Ryker.TestSupport.FakeWorkCoopAPI
+  alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Custody, Executor, Turn}
 
   @now ~U[2026-08-31 12:00:00.000000Z]
   @old ~U[2020-01-01 00:00:00.000000Z]
   @policy_digest String.duplicate("a", 64)
   @png <<137, 80, 78, 71, 13, 10, 26, 10, "generated-latency-chart">>
-
-  defmodule SlackAPI do
-    @behaviour Ryker.Slack.API
-
-    def start_link(test_pid) do
-      Agent.start_link(fn ->
-        %{
-          file_finds: 0,
-          files: %{},
-          lose_upload_response: true,
-          test_pid: test_pid,
-          uploads: []
-        }
-      end)
-    end
-
-    def state(agent), do: Agent.get(agent, & &1)
-
-    @impl true
-    def find_message(_client, _channel, _thread, _delivery_ref), do: :not_found
-
-    @impl true
-    def post_message(_client, _channel, _thread, _document, _delivery_ref),
-      do: {:error, :not_used}
-
-    @impl true
-    def update_message(_client, _channel, _message_ref, _document, _delivery_ref), do: :ok
-
-    @impl true
-    def find_files(agent, channel, thread, filenames) do
-      Agent.get_and_update(agent, fn state ->
-        result = Map.get(state.files, {channel, thread, filenames}, :not_found)
-        {result, %{state | file_finds: state.file_finds + 1}}
-      end)
-    end
-
-    @impl true
-    def upload_files(agent, channel, thread, document, delivery_ref, files) do
-      Agent.get_and_update(agent, fn state ->
-        filenames = Enum.map(files, & &1.filename)
-        key = {channel, thread, filenames}
-        message_ref = "1788265001.000200"
-
-        send(state.test_pid, {:uploaded, channel, thread, document, delivery_ref, files})
-
-        next = %{
-          state
-          | files: Map.put(state.files, key, {:ok, message_ref}),
-            uploads: state.uploads ++ [{channel, thread, document, delivery_ref, files}]
-        }
-
-        if state.lose_upload_response do
-          {{:error, :socket_closed}, %{next | lose_upload_response: false}}
-        else
-          {{:ok, message_ref}, next}
-        end
-      end)
-    end
-
-    @impl true
-    def add_reaction(_client, _channel, _message_ref, _emoji_name), do: {:error, :not_used}
-  end
 
   test "a lost Slack artifact response reconciles one verified Coop image exactly once" do
     claim = claim_episode!()
@@ -107,7 +45,13 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
     assert stored.data == @png
     assert stored.sha256 == sha256
 
-    {:ok, slack_api} = SlackAPI.start_link(self())
+    {:ok, slack_api} =
+      FakeSlackAPI.start_link(
+        observer: self(),
+        lose: [:upload_files],
+        message_ref: fn _n -> "1788265001.000200" end
+      )
+
     adapters = adapters!(slack_api)
 
     assert {:ok, {:deferred, :message, delivery_ref, {:delivery_uncertain, :socket_closed}}} =
@@ -116,7 +60,7 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
     assert delivery_ref == accepted.turn.delivery_ref
 
     assert_receive {
-      :uploaded,
+      :slack_uploaded,
       "C456",
       "1788265000.000100",
       %{"message" => "The latency chart is attached."},
@@ -136,10 +80,10 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
 
     assert {:ok, {:delivered, :message, ^delivery_ref}} = deliver_once(adapters, "reconcile")
 
-    state = SlackAPI.state(slack_api)
+    state = FakeSlackAPI.state(slack_api)
     assert state.file_finds == 2
     assert length(state.uploads) == 1
-    refute_receive {:uploaded, _, _, _, _, _}
+    refute_receive {:slack_uploaded, _, _, _, _, _}
 
     assert %Turn{status: :settled, external_receipt: receipt} =
              Repo.get!(Turn, accepted.turn.id)
@@ -181,7 +125,9 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"T4E78287F015E" => %{api: SlackAPI, client: slack_api}}},
+                 binding: %{
+                   workspaces: %{"T4E78287F015E" => %{api: FakeSlackAPI, client: slack_api}}
+                 },
                  message_publisher: Publisher,
                  reaction_publisher: Publisher
                }

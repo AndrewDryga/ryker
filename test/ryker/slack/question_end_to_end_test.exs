@@ -17,7 +17,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
   alias Ryker.Episodes
   alias Ryker.Ingress.Inbox
   alias Ryker.Repo
-  alias Ryker.Slack.{Engagement, Gateway, InteractionHandler, Publisher}
+  alias Ryker.Slack.{Engagement, Gateway, InteractionHandler, Publisher, Renderer}
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Slack.{InteractionAudit, InteractionFeedbackWorker}
 
@@ -34,7 +34,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
   }
 
   alias Ryker.StateTools.{Router, Tools}
-  alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
+  alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Custody, Executor, Session, SubmissionBuilder, Turn}
 
   @now ~U[2026-08-31 12:00:01.000200Z]
@@ -45,48 +45,6 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
     @impl true
     def user_allowed(_client, "U123", "TQUESTIONENDTOEND"), do: {:ok, true}
-  end
-
-  defmodule SlackAPI do
-    @behaviour Ryker.Slack.API
-    alias Ryker.Slack.Renderer
-
-    def start_link(test_pid), do: Agent.start_link(fn -> %{count: 0, test_pid: test_pid} end)
-
-    @impl true
-    def find_message(_client, _channel, _thread, _delivery_ref), do: :not_found
-
-    @impl true
-    def post_message(agent, channel, thread, document, delivery_ref) do
-      Agent.get_and_update(agent, fn state ->
-        message_ref =
-          case state.count do
-            0 -> "1788264002.000300"
-            1 -> "1788264005.000600"
-          end
-
-        send(state.test_pid, {:posted, channel, thread, document, delivery_ref, message_ref})
-        {{:ok, message_ref}, %{state | count: state.count + 1}}
-      end)
-    end
-
-    @impl true
-    def update_message(client, channel, message_ref, document, _delivery_ref) do
-      with {:ok, rendered} <- Renderer.render(document) do
-        send(Agent.get(client, & &1.test_pid), {:updated, channel, message_ref, rendered})
-        :ok
-      end
-    end
-
-    @impl true
-    def find_files(_client, _channel, _thread, _filenames), do: :not_found
-
-    @impl true
-    def upload_files(_client, _channel, _thread, _body, _delivery_ref, _files),
-      do: {:error, :not_used}
-
-    @impl true
-    def add_reaction(_client, _channel, _message_ref, _emoji_name), do: {:error, :not_used}
   end
 
   test "an ordinary Slack answer resumes one delivered question in the same Work session" do
@@ -165,14 +123,22 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     assert {:ok, question} = Executor.run(work_claim, executor_options(work_api))
     assert question.turn.status == :delivery_pending
 
-    {:ok, slack_api} = SlackAPI.start_link(self())
+    {:ok, slack_api} =
+      FakeSlackAPI.start_link(
+        observer: self(),
+        message_ref: fn
+          1 -> "1788264002.000300"
+          2 -> "1788264005.000600"
+        end
+      )
+
     adapters = adapters!(slack_api)
 
     assert {:ok, {:delivered, :message, question_delivery_ref}} =
              deliver_once(adapters, "question")
 
     assert_receive {
-      :posted,
+      :slack_posted,
       "C456",
       "1788264001.000200",
       %{"message" => "Which rollout percentage should I use?"},
@@ -286,7 +252,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
     assert {:ok, {:repainted, _}} =
              InteractionFeedbackWorker.run_once(%{
-               api: SlackAPI,
+               api: FakeSlackAPI,
                client: slack_api,
                worker_ref: "typed-question-repaint",
                lease_seconds: 60,
@@ -294,7 +260,8 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
                retry_base_seconds: 1
              })
 
-    assert_receive {:updated, "C456", "1788264002.000300", rendered_question}
+    assert_receive {:slack_updated, "C456", "1788264002.000300", question_document, _ref}
+    assert {:ok, rendered_question} = Renderer.render(question_document)
     assert inspect(rendered_question["blocks"]) =~ request.payload["question"]
     refute Enum.any?(rendered_question["blocks"], &(&1["type"] == "actions"))
     refute inspect(rendered_question["blocks"]) =~ answer_text
@@ -417,7 +384,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
              deliver_once(adapters, "answer")
 
     assert_receive {
-      :posted,
+      :slack_posted,
       "C456",
       "1788264001.000200",
       %{"message" => "I will use one percent and verify the rollout before expanding it."},
@@ -567,7 +534,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
              Adapters.new(%{
                "slack" => %{
                  binding: %{
-                   workspaces: %{"TQUESTIONENDTOEND" => %{api: SlackAPI, client: slack_api}}
+                   workspaces: %{"TQUESTIONENDTOEND" => %{api: FakeSlackAPI, client: slack_api}}
                  },
                  message_publisher: Publisher,
                  reaction_publisher: Publisher

@@ -4,47 +4,15 @@ defmodule Ryker.Slack.CollectionsTest do
   alias Ryker.Fixtures.SavedEntities, as: Fixtures
   alias Ryker.Repo
   alias Ryker.Slack.Collections
+  alias Ryker.TestSupport.FakeSlackAPI
 
   @workspace "T123"
   @channel "C456"
   @conversation "slack:T123:C456"
 
-  defmodule API do
-    def find_message(agent, channel, thread, delivery_ref) do
-      Agent.get(agent, fn state ->
-        case Map.get(state.deliveries, {channel, thread, delivery_ref}) do
-          nil -> :not_found
-          message_ref -> {:ok, message_ref}
-        end
-      end)
-    end
-
-    def post_message(agent, channel, thread, document, delivery_ref) do
-      Agent.get_and_update(agent, fn state ->
-        if MapSet.member?(state.failing, delivery_ref) do
-          {{:error, :slack_down}, state}
-        else
-          message_ref = "#{map_size(state.deliveries) + 1}.000001"
-
-          {{:ok, message_ref},
-           %{
-             state
-             | deliveries:
-                 Map.put(state.deliveries, {channel, thread, delivery_ref}, message_ref),
-               posts:
-                 state.posts ++
-                   [%{delivery_ref: delivery_ref, document: document, thread: thread}]
-           }}
-        end
-      end)
-    end
-  end
-
   setup do
-    agent =
-      start_supervised!({Agent, fn -> %{deliveries: %{}, failing: MapSet.new(), posts: []} end})
-
-    %{options: %{api: API, client: agent}}
+    agent = start_supervised!({FakeSlackAPI, []})
+    %{options: %{api: FakeSlackAPI, client: agent}}
   end
 
   # "What schedules are active?" used to be answered from a prose summary or a
@@ -100,14 +68,14 @@ defmodule Ryker.Slack.CollectionsTest do
     [first, second, third] = for index <- 1..3, do: schedule!(source, "Retry #{index}", index)
     request = request("event:retry")
 
-    Agent.update(options.client, fn state ->
-      %{state | failing: MapSet.new(["slack-collection:event:retry:#{second.ref}"])}
-    end)
+    FakeSlackAPI.refuse(options.client, %{
+      "slack-collection:event:retry:#{second.ref}" => :slack_down
+    })
 
     assert Collections.deliver(:schedules, request, options) == {:error, :slack_down}
     assert Enum.map(posts(options), &get_in(&1.document, ["saved_entity", "ref"])) == [first.ref]
 
-    Agent.update(options.client, &%{&1 | failing: MapSet.new()})
+    FakeSlackAPI.refuse(options.client, %{})
 
     assert {:ok, %{outcome: :delivered, shown: 3, total: 3}} =
              Collections.deliver(:schedules, request, options)
@@ -352,7 +320,7 @@ defmodule Ryker.Slack.CollectionsTest do
     }
   end
 
-  defp posts(options), do: Agent.get(options.client, & &1.posts)
+  defp posts(options), do: FakeSlackAPI.state(options.client).posts
 
   defp source!, do: Fixtures.source!(@conversation)
 

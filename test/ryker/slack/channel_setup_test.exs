@@ -15,52 +15,10 @@ defmodule Ryker.Slack.ChannelSetupTest do
     Renderer
   }
 
+  alias Ryker.TestSupport.FakeSlackAPI
+
   @now ~U[2026-08-28 12:00:00.000000Z]
   @workspace "TD65C7CD93124"
-
-  defmodule API do
-    def find_message(agent, channel, thread, delivery_ref) do
-      Agent.get(agent, fn state ->
-        case Map.get(state.deliveries, {channel, thread, delivery_ref}) do
-          nil -> :not_found
-          message_ref -> {:ok, message_ref}
-        end
-      end)
-    end
-
-    def post_message(agent, channel, thread, document, delivery_ref) do
-      Agent.get_and_update(agent, fn state ->
-        message_ref = "#{map_size(state.deliveries) + 1}.000001"
-        key = {channel, thread, delivery_ref}
-
-        {{:ok, message_ref},
-         %{
-           state
-           | deliveries: Map.put(state.deliveries, key, message_ref),
-             posts:
-               state.posts ++ [%{document: document, message_ref: message_ref, thread: thread}]
-         }}
-      end)
-    end
-
-    def update_message(agent, channel, message_ref, document, delivery_ref) do
-      Agent.update(agent, fn state ->
-        %{
-          state
-          | updates:
-              state.updates ++
-                [
-                  %{
-                    channel: channel,
-                    delivery_ref: delivery_ref,
-                    document: document,
-                    message_ref: message_ref
-                  }
-                ]
-        }
-      end)
-    end
-  end
 
   defmodule Directory do
     def user_allowed(_client, "U123", "TD65C7CD93124"), do: {:ok, true}
@@ -122,7 +80,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
   end
 
   setup do
-    agent = start_supervised!({Agent, fn -> %{deliveries: %{}, posts: [], updates: []} end})
+    agent = start_supervised!({FakeSlackAPI, []})
 
     production =
       ChannelEnvironments.environment!("production", %{repositories: ["payments", "ledger"]})
@@ -130,7 +88,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     staging = ChannelEnvironments.environment!("staging")
 
     options = %{
-      api: API,
+      api: FakeSlackAPI,
       bot_user_ref: "UBOT",
       catalog: %{
         default_environment: "production",
@@ -1050,6 +1008,6 @@ defmodule Ryker.Slack.ChannelSetupTest do
     %{audience: audience, input: input, platform_thread_ref: thread_ref}
   end
 
-  defp posts(options), do: Agent.get(options.client, & &1.posts)
-  defp updates(options), do: Agent.get(options.client, & &1.updates)
+  defp posts(options), do: FakeSlackAPI.state(options.client).posts
+  defp updates(options), do: FakeSlackAPI.state(options.client).updates
 end
