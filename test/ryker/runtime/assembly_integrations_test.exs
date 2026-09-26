@@ -51,15 +51,17 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
     assert Map.keys(reduced[:webhooks].routes) == ["deploys"]
   end
 
-  test "a source whose encrypted credential is missing assembles nothing" do
+  test "a source whose encrypted credential is missing is left out, and the others still run" do
+    # It refused the whole configuration until 2026-09-26, so one deleted
+    # credential kept every newer setting from applying. The source is named
+    # with why instead, for the webhooks page and Advanced to show.
     settings = installation!()
 
     assert {:ok, :ok} = Credentials.delete(:webhook, "alerts", @actor)
 
-    assert {:error, {:settings_not_applicable, reason}} =
-             Assembly.build(bootstrap(), settings)
-
-    assert reason =~ "alerts"
+    assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
+    assert configuration.webhook_sources_left_out == %{"alerts" => :credential_missing}
+    assert Map.keys(configuration[:webhooks].routes) == ["deploys"]
   end
 
   test "an enabled GitHub connection without encrypted credentials is a visible refusal" do

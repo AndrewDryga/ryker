@@ -126,6 +126,13 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
            )
 
     assert has_element?(view, "#settings-webhooks .settings-notice a[href='/environments']")
+
+    # Before Slack runs, a source that posts there waits, and the page says so.
+    assert has_element?(
+             view,
+             "#settings-webhooks .settings-notice",
+             "A source that posts to Slack does not take events until Slack runs"
+           )
   end
 
   test "a source may only reference a credential Ryker has in encrypted custody" do

@@ -7,7 +7,14 @@ defmodule Ryker.ControlPlane.SettingsRows do
   """
 
   alias Ryker.BundledCoop
-  alias Ryker.ControlPlane.{Environments, ExecutionTarget, SettingsSections, SlackNames}
+
+  alias Ryker.ControlPlane.{
+    Environments,
+    ExecutionTarget,
+    Integrations,
+    SettingsSections,
+    SlackNames
+  }
 
   @type row :: %{
           name: String.t(),
@@ -28,12 +35,18 @@ defmodule Ryker.ControlPlane.SettingsRows do
     })
   end
 
+  # A source the running configuration left out says so, and why, where its
+  # row would otherwise say what it does (`Integrations.webhook_source/2`).
   def present(%{key: :webhooks}, source, view) do
+    running = Integrations.webhook_source(view, source)
+    goes = "#{events(source.adapter_kind)} go to #{destination(source)}"
+
     row(%{
       name: source.name,
-      state: if(source.enabled, do: {:on, "On"}, else: {:off, "Off"}),
-      text: "#{events(source.adapter_kind)} go to #{destination(source)}.",
+      state: running.state,
+      text: running.reason || goes <> ".",
       meta: [
+        running.reason && goes,
         credential(source),
         runs_in(view, source.environment_ref),
         grouping(source.group_by_labels)

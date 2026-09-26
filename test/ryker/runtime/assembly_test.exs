@@ -211,10 +211,13 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert Credentials.status(:slack_bot, "primary").status == :configured
     assert Credentials.status(:emisar, "production").status == :configured
 
-    # A route that delivers into Slack cannot outlive the Slack connection: the
-    # whole configuration is refused rather than the route quietly disappearing.
-    assert {:error, {:settings_not_applicable, reason}} = Assembly.build(bootstrap(), settings)
-    assert reason =~ "webhook destination is not a configured delivery target"
+    # A route that delivers into Slack cannot outlive the Slack connection. It
+    # is left out and named with why, so it never quietly disappears, and the
+    # rest of the configuration still applies; refusing all of it kept every
+    # newer setting from applying (QA P1 #4, 2026-09-25).
+    assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
+    assert configuration.webhook_sources_left_out == %{"alerts" => :slack_not_running}
+    refute Map.has_key?(configuration.webhooks.routes, "alerts")
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), disconnect_webhooks(settings))
 
@@ -580,15 +583,18 @@ defmodule Ryker.Runtime.AssemblyTest do
       )
 
     refusals = [
-      {&lifecycle_naming/1, "webhook lifecycle names a repository without reviewed policies"},
-      {&webhook_environment_naming/1, "webhook source names an environment that cannot run work"}
+      {&lifecycle_naming/1, "deploys", :lifecycle_repository_unreviewed},
+      {&webhook_environment_naming/1, "custom", :environment_cannot_run_work}
     ]
 
-    for {save, expected} <- refusals do
+    for {save, name, reason} <- refusals do
       {:ok, changed} = save.(Settings.fetch!().installation.revision)
 
-      assert {:error, {:settings_not_applicable, ^expected}} =
-               Assembly.build(bootstrap(), changed)
+      # The source that would act under an unreviewed repository is left out
+      # and named with why; nothing else is refused because of it.
+      assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
+      assert configuration.webhook_sources_left_out[name] == reason
+      refute Map.has_key?(configuration.webhooks.routes, name)
 
       # The setting stays exactly as the operator wrote it; only the runtime refuses.
       assert Settings.fetch!().installation.revision == changed.installation.revision
@@ -661,18 +667,21 @@ defmodule Ryker.Runtime.AssemblyTest do
     )
   end
 
-  test "a webhook destination that is not a configured delivery target refuses the build" do
-    # A route whose destination cannot be delivered to accepts events into a
-    # dead end. The refusal happens before anything starts.
+  test "a webhook destination that is not a configured delivery target is left out with why" do
+    # A route whose destination cannot be delivered to would accept events into
+    # a dead end, so it never starts; it is named with the reason instead of
+    # refusing every other setting with it.
     connected!()
 
-    for {conversation, thread, transport} <- [
-          {"slack:T9999999999:C0123456789", nil, "slack"},
-          {"github:unbound-app:repository:2001", "github:unbound-app:issue:1", "github"},
-          {"github:ryker-app:repository:9999", "github:ryker-app:issue:1", "github"},
+    for {conversation, thread, transport, reason} <- [
+          {"slack:T9999999999:C0123456789", nil, "slack", :slack_workspace_not_served},
+          {"github:unbound-app:repository:2001", "github:unbound-app:issue:1", "github",
+           :github_repository_not_served},
+          {"github:ryker-app:repository:9999", "github:ryker-app:issue:1", "github",
+           :github_repository_not_served},
           {"control-plane:lab:not-a-conversation", "control-plane:lab:not-a-conversation",
-           "control_plane"},
-          {"control-plane:local", "control-plane:local", "control_plane"}
+           "control_plane", :conversation_not_found},
+          {"control-plane:local", "control-plane:local", "control_plane", :destination_not_served}
         ] do
       {:ok, changed} =
         Settings.put_webhook_source(
@@ -686,13 +695,15 @@ defmodule Ryker.Runtime.AssemblyTest do
           @actor
         )
 
-      assert {:error, {:settings_not_applicable, reason}} = Assembly.build(bootstrap(), changed)
+      assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
 
-      assert reason =~ "webhook destination is not a configured delivery target",
+      assert configuration.webhook_sources_left_out == %{"alerts" => reason},
              "#{transport} destination was accepted"
+
+      refute Map.has_key?(configuration.webhooks.routes, "alerts")
     end
 
-    # Restoring the saved destination makes the same installation assemble.
+    # Restoring the saved destination serves the source again.
     {:ok, restored} =
       Settings.put_webhook_source(
         %{
@@ -705,7 +716,111 @@ defmodule Ryker.Runtime.AssemblyTest do
         @actor
       )
 
-    assert {:ok, _configuration} = Assembly.build(bootstrap(), restored)
+    assert {:ok, configuration} = Assembly.build(bootstrap(), restored)
+    assert Map.has_key?(configuration.webhooks.routes, "alerts")
+    refute Map.has_key?(configuration, :webhook_sources_left_out)
+  end
+
+  test "a webhook source Ryker cannot serve is left out, and every other setting still applies" do
+    # A route Ryker could not serve refused the whole configuration, so one
+    # source posting into a Slack that was switched off, or one short signing
+    # secret (QA P1 #4, 2026-09-25: one five-character secret stopped every
+    # apply), kept every newer setting of every kind from applying. The source
+    # is left out and named with its reason instead, and the Integrations
+    # state reads that and says which source is not running and why.
+    settings = connected!()
+    unreviewed_environment!()
+    {:ok, _} = Credentials.put(:webhook, "short", String.duplicate("s", 20), @actor)
+
+    for {name, change, reason} <- [
+          {"alerts", &Settings.save_slack(%{enabled: false}, &1, @actor), :slack_not_running},
+          {"custom", &webhook_environment_naming/1, :environment_cannot_run_work},
+          {"deploys", &lifecycle_naming/1, :lifecycle_repository_unreviewed},
+          {"deploys", &source_secret("deploys", "gone", &1), :credential_missing},
+          {"custom", &source_secret("custom", "short", &1), :secret_too_short}
+        ] do
+      {:ok, changed} = change.(Settings.fetch!().installation.revision)
+
+      assert {:ok, configuration} = Assembly.build(bootstrap(), changed),
+             "#{name} (#{reason}) refused the whole configuration"
+
+      assert configuration.webhook_sources_left_out == %{name => reason}
+      refute Map.has_key?(configuration.webhooks.routes, name)
+
+      assert Enum.sort(Map.keys(configuration.webhooks.routes)) ==
+               Enum.sort(["alerts", "custom", "deploys"] -- [name])
+
+      # Everything else a setting turns on is still there.
+      assert configuration.work
+      assert configuration.control_plane
+      assert configuration.github
+
+      restore!(settings)
+    end
+
+    # With no source Ryker can serve, nothing listens, and each says why.
+    {:ok, changed} =
+      Settings.save_slack(%{enabled: false}, Settings.fetch!().installation.revision, @actor)
+
+    {:ok, changed} = webhook_environment_naming(changed.installation.revision)
+    {:ok, changed} = source_secret("deploys", "gone", changed.installation.revision)
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
+    assert configuration[:webhooks] == nil
+
+    assert configuration.webhook_sources_left_out == %{
+             "alerts" => :slack_not_running,
+             "custom" => :environment_cannot_run_work,
+             "deploys" => :credential_missing
+           }
+
+    # A clean installation publishes no such list, and publishing removes an old one.
+    restore!(settings)
+    assert {:ok, clean} = Assembly.build(bootstrap(), Settings.fetch!())
+    refute Map.has_key?(clean, :webhook_sources_left_out)
+    assert :webhook_sources_left_out in Assembly.managed_keys()
+  end
+
+  defp unreviewed_environment! do
+    {:ok, _saved} =
+      Settings.put_repository(
+        %{ref: "unreviewed", github_repository: "acme/unreviewed"},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    {:ok, _saved} =
+      Settings.put_environment(
+        %{ref: "unreviewed", display_name: "Unreviewed", repositories: ["unreviewed"]},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+  end
+
+  defp source_secret(name, secret, revision),
+    do: Settings.put_webhook_source(%{name: name, secret_name: secret}, revision, @actor)
+
+  # Puts back the Slack connection and the three sources `connected!/0` saved.
+  defp restore!(original) do
+    {:ok, _} =
+      Settings.save_slack(%{enabled: true}, Settings.fetch!().installation.revision, @actor)
+
+    for source <- original.webhook_sources do
+      {:ok, _} =
+        Settings.put_webhook_source(
+          Map.take(source, [
+            :name,
+            :environment_ref,
+            :secret_name,
+            :publication_lifecycle,
+            :destination_transport,
+            :destination_conversation_ref,
+            :destination_thread_ref
+          ]),
+          Settings.fetch!().installation.revision,
+          @actor
+        )
+    end
   end
 
   test "a GitHub App key is accepted as PEM or base64 and a broken one is named" do
