@@ -156,19 +156,25 @@ defmodule Ryker.Learning.ObservationsTest do
         :ok
       end
 
+      # The completed boundary revokes access once Coop has accepted the answer
+      # and before the decision is saved: routing reads the clock as it records
+      # the finished turn. Routing saves before it closes the session, so the
+      # close is no longer between the answer and the save.
       options = [
         api: FakeAPI,
         client: fake,
         lease_ref: lease,
         max_polls: 10,
-        now: fn -> @now end,
+        now: fn ->
+          if unquote(boundary) == :completed and FakeAPI.state(fake).validations != [],
+            do: revoke.()
+
+          @now
+        end,
         policy: "admission-read-only",
         policy_digest: String.duplicate("a", 64),
         renew_lease: fn -> :ok end,
-        sleep: fn _ -> :ok end,
-        settle_execution_session: fn _, _ ->
-          if unquote(boundary) == :completed, do: revoke.(), else: :ok
-        end
+        sleep: fn _ -> :ok end
       ]
 
       if unquote(boundary) == :restored, do: revoke.()

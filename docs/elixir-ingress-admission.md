@@ -384,7 +384,7 @@ They are opened with the same installation-wide routing policy and digest, share
 and conversation, and never prompted until a message claims one, so they spend no model tokens while
 they wait. An input generation claims one exactly once, under a row lock, before it would create its
 own; with none ready it creates one exactly as before. A claimed session belongs to that generation
-for good and carries at most one turn: routing closes it after the turn, a later run of the same
+for good and carries at most one turn: routing closes it after the decision, a later run of the same
 generation that finds it unused closes it and routes on another session, and cleanup closes it if the
 generation ends any other way. It never becomes ready again. `Ryker.Admission.ReadyPool` keeps the
 count: it starts replacements and retires sessions started under an older routing policy, older than
@@ -409,8 +409,10 @@ reconciliation on the next attempt. Because Coop was still creating the session 
 that release is a wait, not a failure: it does not count against the input's eight attempts. Coop's
 turn timeout ends a turn that never finishes, and readiness names an input left pending.
 
-After a decision, Coop has already parked and cleaned the provider runtime. Ryker also asks Coop to
-close the isolated admission session. Episode Work sessions are separately owned by the retention
+After a decision, Coop has already parked and cleaned the provider runtime. Ryker saves the decision
+first and then asks Coop to close the isolated admission session, so the person waits for neither the
+close nor its bookkeeping. A close that fails changes nothing: retention cleanup closes the session of
+every decided input and removes it. Episode Work sessions are separately owned by the retention
 runtime: it closes the exact recorded Coop session, observes a grace period, reviews Coop's exact
 discard plan, refuses dirty or unpublished work, and discards only a clean or already-published
 workspace. No cleanup path infers ownership from a repository or branch name.

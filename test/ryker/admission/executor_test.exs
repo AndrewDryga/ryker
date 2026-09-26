@@ -8,9 +8,11 @@ defmodule Ryker.Admission.ExecutorTest do
 
   alias Ryker.ControlPlane.{EpisodePage, ModelRequests}
 
-  alias Ryker.Admission.Executor
+  alias Ryker.Admission.{Executor, Runtime}
+  alias Ryker.FakeRetentionCoopAPI, as: RetentionAPI
   alias Ryker.Ingress.Inbox
   alias Ryker.Repo
+  alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
   alias Ryker.Webhooks.{Input, Route}
@@ -107,6 +109,81 @@ defmodule Ryker.Admission.ExecutorTest do
     assert execution.result.entry.decision_action == :reply
     assert execution.cleanup == :closed
     assert FakeAPI.state(fake).session["state"] == "closed"
+  end
+
+  # Live install, 2026-09-26: validating, closing the session and saving the
+  # decision took 6.4 s of the 28.6 s a plain "hi" took, and the person waited
+  # for the close although nothing they see depends on it. The decision is
+  # saved first; the close follows.
+  test "a routing decision is saved before its session is closed" do
+    entry = record_slack_input!("Ev-executor-save-first")
+    lease_ref = claim!(entry)
+    {:ok, fake} = FakeAPI.start_link([decision("reply")])
+    caller = self()
+
+    options =
+      executor_options(fake, lease_ref) ++
+        [
+          settle_execution_session: fn closed_for, _session_id ->
+            {:ok, current} = Inbox.fetch(Inbox.ref(closed_for))
+            send(caller, {:closed_when, current.status})
+            :ok
+          end
+        ]
+
+    assert {:ok, execution} = Executor.run(Inbox.ref(entry), options)
+    assert execution.cleanup == :closed
+    assert_receive {:closed_when, :decided}
+  end
+
+  # Once the decision is saved, a close that fails must not undo it or leave
+  # the session open for good: cleanup closes the session of every decided
+  # message. This is the guarantee the saved-first order stands on.
+  test "a routing session left open after its decision was saved is closed by cleanup" do
+    entry = record_slack_input!("Ev-executor-close-left-open")
+    lease_ref = claim!(entry)
+    {:ok, fake} = FakeAPI.start_link([decision("reply")], fail_first_close: true)
+
+    options = Enum.to_list(Runtime.execution_callbacks()) ++ executor_options(fake, lease_ref)
+
+    assert {:ok, execution} = Executor.run(Inbox.ref(entry), options)
+    assert execution.result.entry.status == :decided
+    assert execution.cleanup == :pending
+
+    session = Repo.one!(from(session in Session, where: session.admission_input_id == ^entry.id))
+    assert session.cleanup_status == :active
+
+    {:ok, cleanup} =
+      RetentionAPI.start_link(
+        sessions: [
+          %{
+            "external_ref" => session.external_ref,
+            "id" => session.coop_session_id,
+            "policy" => session.policy,
+            "policy_digest" => session.policy_digest,
+            "revision" => 2,
+            "state" => "open"
+          }
+        ]
+      )
+
+    for step <- ~w(close plan discard) do
+      assert {:ok, {:executed, _execution}} =
+               RetentionDispatcher.run_once(
+                 api: RetentionAPI,
+                 client: cleanup,
+                 closed_session_grace_seconds: 900,
+                 lease_seconds: 60,
+                 max_attempts: 8,
+                 retained_recheck_seconds: 21_600,
+                 retry_base_seconds: 1,
+                 retry_max_seconds: 60,
+                 worker_ref: "routing-cleanup:#{step}"
+               )
+    end
+
+    assert Repo.get!(Session, session.id).cleanup_status == :discarded
+    assert RetentionAPI.remote_session(cleanup, session.coop_session_id)["state"] == "discarded"
   end
 
   test "fleet execution identity is prepared, bound, and settled around the remote turn" do

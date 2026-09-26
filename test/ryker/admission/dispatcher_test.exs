@@ -700,25 +700,25 @@ defmodule Ryker.Admission.DispatcherTest do
              Dispatcher.run_once(real_options(fake, DateTime.add(@now, 4, :second)))
   end
 
-  test "a lost close response leaves the input pending and reconciles without another model turn" do
+  # The decision is saved before routing closes its session, so a close
+  # whose response is lost no longer holds the message back for a retry:
+  # it is decided on the first run, and cleanup closes the session of every
+  # decided message.
+  test "a lost close response does not hold back a decision already saved" do
     entry = record_input!("Ev-close-response-loss")
     {:ok, fake} = FakeAPI.start_link([decision()], fail_first_close: true)
 
-    assert {:ok, {:deferred, input_ref, {:coop_unavailable, :simulated_close_response_loss}}} =
-             Dispatcher.run_once(real_options(fake, @now))
-
-    assert input_ref == Inbox.ref(entry)
-    assert {:ok, pending} = Inbox.fetch(input_ref)
-    assert pending.status == :pending
-    assert FakeAPI.state(fake).closed
-
-    assert {:ok, {:decided, execution}} =
-             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
-
+    assert {:ok, {:decided, execution}} = Dispatcher.run_once(real_options(fake, @now))
+    assert execution.result.entry.id == entry.id
     assert execution.result.entry.status == :decided
+    assert execution.cleanup == :pending
+
     state = FakeAPI.state(fake)
     assert state.submit_count == 1
-    assert Enum.uniq(state.close_keys) |> length() == 1
+    assert length(state.close_keys) == 1
+
+    assert {:ok, :idle} =
+             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
   end
 
   test "a healthy long turn renews its lease before another worker can reclaim it" do
