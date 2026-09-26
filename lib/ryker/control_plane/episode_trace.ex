@@ -105,7 +105,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       |> Kernel.++(Input.kernel_steps(events, inputs))
       |> Kernel.++(Input.association_steps(episode))
       |> Kernel.++(Preparation.steps(input_rows))
-      |> Kernel.++(Preparation.setup_steps(sessions, turns))
+      |> Kernel.++(Preparation.setup_steps(sessions, turns, edit_runs(turns, inputs)))
       |> Kernel.++(Work.turn_steps(turns, sessions))
       |> Kernel.++(activity)
       |> Kernel.++(Work.slack_status_steps(episode.id))
@@ -526,6 +526,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
   defp metric(label, value, detail, tone \\ nil),
     do: %{detail: to_string(detail), label: label, tone: tone, value: to_string(value)}
+
+  # The runs an edited message started. Admission names each run after the
+  # input that started it, so the edit behind a run is known, and a session
+  # replaced for that run was replaced because of the edit.
+  defp edit_runs(turns, inputs) do
+    for turn <- turns,
+        match?(%{event_kind: :edit}, Map.get(inputs, turn.turn_ref)),
+        into: MapSet.new(),
+        do: turn.id
+  end
 
   defp review_state(%Episode{} = episode, events) do
     latest =

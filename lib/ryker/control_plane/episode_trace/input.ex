@@ -97,8 +97,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
           # The title says what happened; a badge would only repeat the
           # kernel's own name for it.
           state: nil,
-          summary: lifecycle_summary(event.kind, event.payload),
-          title: lifecycle_title(event.kind),
+          summary: summary(event.kind, event.payload, input),
+          title: title(event.kind, input),
           tone: kernel_tone(event.kind)
         }
       )
@@ -142,6 +142,24 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   def lifecycle_title(:episode_cancelled), do: "Request stopped"
   def lifecycle_title(:reaction_recorded), do: "Reaction recorded"
   def lifecycle_title(_kind), do: "Request updated"
+
+  # A wait an edit ended is not "what Ryker was waiting for arrived": the
+  # edit replaced the question and started the work again (QA re-test,
+  # 2026-09-26).
+  defp title(:wait_resumed, %Entry{event_kind: :edit}), do: "Picked up again after an edit"
+  defp title(kind, _input), do: lifecycle_title(kind)
+
+  defp summary(:wait_resumed, %{"expected_wait" => %{"kind" => "input"}}, %Entry{
+         event_kind: :edit
+       }),
+       do:
+         "The message was edited while Ryker waited, so the question it asked was replaced and the work started again from the new wording."
+
+  defp summary(:wait_resumed, _payload, %Entry{event_kind: :edit}),
+    do:
+      "The message was edited while Ryker waited, so the work started again from the new wording."
+
+  defp summary(kind, payload, _input), do: lifecycle_summary(kind, payload)
 
   defp lifecycle_summary(:input_admitted, _payload), do: "Message added to this request."
 
