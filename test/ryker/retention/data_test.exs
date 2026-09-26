@@ -20,6 +20,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Retention.{Data, Operator, OperatorAction}
   alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, ThreadStatusReceipts}
   alias Ryker.Slack.Input, as: SlackInput
+  alias Ryker.StateTools.{CallLog, CallRecord}
 
   alias Ryker.State.{
     BehaviorChangeset,
@@ -83,6 +84,27 @@ defmodule Ryker.Retention.DataTest do
 
     refute inspect(Repo.all(ActivityEvent)) =~ "source-content"
     assert Activity.list_for_episode(work.episode.id) == []
+  end
+
+  test "a recorded state-tool call expires with its turn's bodies" do
+    # Ryker keeps the arguments and error of each state-tool call because Coop
+    # never sends them. They copy what the model wrote, so they must leave with
+    # the turn's other bodies instead of outliving them.
+    work = settled_work!("state-tool-call") |> discard_session!()
+
+    CallLog.record(
+      work,
+      "propose_automation",
+      %{"proposals" => [%{"title" => "state-tool-call secret proposal"}]},
+      {:error, "invalid_arguments"},
+      @old
+    )
+
+    assert [%CallRecord{status: "failed"}] = Repo.all(CallRecord)
+    backdate_operational!(work)
+    assert {:ok, _} = Data.prune(settings())
+    assert Repo.all(CallRecord) == []
+    assert CallLog.list_for_episode(work.episode.id) == []
   end
 
   test "recorded worker evidence expires with episode history and never resurrects" do

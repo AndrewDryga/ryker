@@ -334,7 +334,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       ])
 
     title = html |> LazyHTML.from_fragment() |> LazyHTML.query(".response-title")
-    assert LazyHTML.text(title) =~ "Episode title"
+    assert LazyHTML.text(title) =~ "Request title"
     assert LazyHTML.text(title) =~ "Investigate checkout 502s"
 
     untitled =
@@ -448,7 +448,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     document = render_episode(snapshot, [start, result, briefing]) |> LazyHTML.from_fragment()
 
     assert document |> LazyHTML.query(".chapter-heading h3") |> Enum.map(&LazyHTML.text/1) ==
-             ["Episode setup"]
+             ["Before the first message"]
 
     assert document
            |> LazyHTML.query(".conversation-phase-heading h4")

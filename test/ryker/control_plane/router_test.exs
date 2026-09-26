@@ -785,7 +785,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert html =~ "Execution timeline"
     assert html =~ "Input admitted"
     assert html =~ "Work needs operator recovery"
-    assert html =~ "3 candidate attempts"
+    assert html =~ "3 answers checked"
     assert html =~ "/failures/work/episode%3Aone"
     assert html =~ "Open source message"
     assert html =~ "https://slack.com/archives/C456/p1787832000001000"
@@ -804,9 +804,10 @@ defmodule Ryker.ControlPlane.RouterTest do
 
   test "episode resolution and review use exact confirmed local actions" do
     for {action, title, received} <- [
-          {"resolve", "Close this episode as no longer needed?",
+          {"resolve", "Close this request as no longer needed?",
            {:resolved_episode, "episode:one"}},
-          {"review", "Mark this ending reviewed?", {:reviewed_episode, "episode:one"}}
+          {"review", "Mark how this request ended as reviewed?",
+           {:reviewed_episode, "episode:one"}}
         ] do
       path = "/actions/episode/episode%3Aone/#{action}"
       confirmation = request(:get, path)
@@ -819,6 +820,29 @@ defmodule Ryker.ControlPlane.RouterTest do
       assert accepted.status == 303
       assert get_resp_header(accepted, "location") == ["/timeline/episode%3Aone"]
       assert_received ^received
+    end
+  end
+
+  test "closing, reviewing and discarding are confirmed in words, and say whether they can be undone" do
+    # QA 2026-09-25 read "Ryker will cancel the exact blocked or waiting owner"
+    # and "the local operator read this exact terminal semantic version" on the
+    # pages that ask a person to confirm. A person confirms what they understand.
+    for {path, undo} <- [
+          {"/actions/episode/episode%3Aone/resolve", "You can't reopen it"},
+          {"/actions/episode/episode%3Aone/review", "you can't unmark it"},
+          {"/actions/retention/workspace%3Aunmerged/discard", "This can't be undone."}
+        ] do
+      page = request(:get, path)
+      assert page.status == 200, path
+      document = LazyHTML.from_document(page.resp_body)
+      title = document |> LazyHTML.query("h1") |> LazyHTML.text()
+      body = document |> LazyHTML.query("section.confirm p") |> LazyHTML.text()
+
+      assert body =~ undo, path
+
+      for word <- ~w(episode owner semantic terminal operator plan exact) do
+        refute String.downcase(title <> " " <> body) =~ word, "#{path} says #{word}"
+      end
     end
   end
 
@@ -1177,8 +1201,8 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     discard = request(:get, "/actions/retention/workspace%3Aunmerged/discard")
     assert discard.status == 200
-    assert discard.resp_body =~ "Discard the unmerged commits in this working copy?"
-    assert discard.resp_body =~ "Uncommitted changes are still kept."
+    assert discard.resp_body =~ "Delete this working copy and its unmerged commits?"
+    assert discard.resp_body =~ "keeps it if it has uncommitted changes"
     [_, discard_token] = Regex.run(~r/name="_token" value="([^"]+)"/, discard.resp_body)
 
     accepted_discard =
@@ -1777,7 +1801,6 @@ defmodule Ryker.ControlPlane.RouterTest do
       messages: Enum.map(snapshot.messages, &{"lab-message-#{&1.ref}", &1}),
       history: %{before: nil, exhausted: true, failed: false, page_size: 50},
       announcement: "",
-      placeholder: LabPage.example_for(conversation_id),
       now: ~U[2026-08-28 12:30:00Z]
     )
   end

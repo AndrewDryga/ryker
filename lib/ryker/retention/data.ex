@@ -503,6 +503,21 @@ defmodule Ryker.Retention.Data do
       AND reference.artifact_id = candidates.artifact_id
   """
 
+  @prune_state_tool_calls """
+    WITH candidates AS (
+      SELECT call.id
+      FROM episode_work_state_tool_calls AS call
+      JOIN episode_work_turns AS turn ON turn.id = call.turn_id
+      WHERE turn.operational_pruned_at IS NOT NULL
+      ORDER BY call.turn_id, call.id
+      LIMIT 1000
+      FOR UPDATE OF call SKIP LOCKED
+    )
+    DELETE FROM episode_work_state_tool_calls AS call
+    USING candidates
+    WHERE call.id = candidates.id
+  """
+
   @prune_output_artifacts """
     WITH candidates AS (
       SELECT artifact.id
@@ -575,6 +590,8 @@ defmodule Ryker.Retention.Data do
     _input_artifact_references = execute_count(@prune_input_artifact_references)
 
     _work_artifact_references = execute_count(@prune_work_artifact_references)
+
+    _state_tool_calls = execute_count(@prune_state_tool_calls)
 
     output_artifacts = execute_count(@prune_output_artifacts, [cutoff])
 

@@ -420,7 +420,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     # The split panes hid the processing behind tabs and a second scroll area.
     assert html =~ "Execution timeline"
     assert html =~ "trace-chapter"
-    assert html =~ "Episode setup"
+    assert html =~ "Before the first message"
     assert LazyHTML.from_fragment(html) |> LazyHTML.text() =~ "Answer"
     refute html =~ "aria-label=\"Episode view\""
     refute html =~ "aria-label=\"Selected event\""

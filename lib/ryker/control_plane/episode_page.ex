@@ -36,6 +36,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
     chapters = chapters(assigns.snapshot, assigns.timeline)
     assigns = assign(assigns, :timeline_groups, timeline_groups(chapters))
+    assigns = assign(assigns, :source_link, source_link(assigns.snapshot))
 
     ~H"""
     <div class="episode-workbench execution-document">
@@ -61,18 +62,18 @@ defmodule Ryker.ControlPlane.EpisodePage do
           </nav>
         </div>
         <p class="episode-location">
-          <.status :if={!@startup} state={to_string(@snapshot.episode.state)} />
+          <.status :if={!@startup} state={@snapshot.trace.state} />
           <time>{timestamp(@snapshot.trace.received_at)}</time>
           <a
             :if={!@startup}
             href={outcome_anchor(@snapshot)}
           >Jump to latest outcome ↓</a>
           <a
-            :if={@snapshot.trace.source}
-            href={@snapshot.trace.source.href}
+            :if={@source_link}
+            href={@source_link.href}
             target="_blank"
             rel="noopener noreferrer"
-          >{@snapshot.trace.source.label} →</a>
+          >{@source_link.label} →</a>
           <a
             :if={@snapshot.episode[:conversation_link]}
             href={@snapshot.episode.conversation_link.href}
@@ -158,11 +159,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <section
         :if={!@startup && @related.items != []}
         class="episode-follow-through"
-        aria-label="Related episode history"
+        aria-label="Related requests"
       >
-        <h2>Related episode history</h2>
+        <h2>Related requests</h2>
         <p>
-          These are linked records, not merged episodes. Each retains its original inputs and delivery receipts.
+          These requests are linked to this one, not merged into it. Each keeps its own messages and replies.
         </p>
         <ul>
           <li :for={item <- @related.items}>
@@ -171,7 +172,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           </li>
         </ul>
         <p :if={@related.truncated}>
-          Showing the first 20 linked episodes.
+          Showing the first 20 linked requests.
           <a href={
             Ryker.ControlPlane.Activity.conversation_path(
               @snapshot.episode.transport,
@@ -340,7 +341,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           title:
             if(conversation_turn > 0,
               do: "Message #{conversation_turn}",
-              else: "Episode setup"
+              else: "Before the first message"
             )
         }
       end)
@@ -696,7 +697,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp turn_association(_chapter), do: nil
 
-  defp input_association(:not_recorded), do: "Selected inputs not recorded"
+  # A turn that stopped before choosing its messages, or one frozen before the
+  # choice was kept, explains nothing about them to a reader.
+  defp input_association(:not_recorded), do: nil
   defp input_association(ordinals) when length(ordinals) < 2, do: nil
 
   defp input_association(ordinals),
@@ -1366,6 +1369,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           response={@step.candidate_response.artifact}
           attempt={@step.candidate_response.attempt}
           prefix={@step.candidate_response.prefix}
+          sent_href={@step.candidate_response[:sent_href]}
         />
         <p :if={!@step.candidate_response.artifact}>
           <a href={@step.candidate_response.href}>Inspect response for attempt {@step.candidate_response.attempt} →</a>
@@ -1475,7 +1479,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp silent_result?(_step), do: false
 
   defp chapter_title(%{band: :learning}), do: "Learning"
-  defp chapter_title(%{band: :maintenance}), do: "Maintenance"
+  defp chapter_title(%{band: :maintenance}), do: "Cleanup"
 
   defp chapter_title(%{band: :ready, conversation_turn: turn}) when turn > 1,
     do: "New input received"
@@ -1517,7 +1521,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       "Background learning from these messages. It runs independently of the answer and sends no reply."
 
   defp chapter_description(:maintenance),
-    do: "What happened to the temporary worker session and workspace afterwards."
+    do: "What happened afterwards to the worker Ryker used and its working copy."
 
   defp duration(ms) when ms < 1_000, do: "#{ms} ms"
   defp duration(ms), do: "#{Float.round(ms / 1_000, 1)} s"
@@ -1545,6 +1549,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
     copies = visible_copies(snapshot.trace.steps, messages, timeline.items)
 
+    # A reply sent exactly as checked is read once, in the conversation; the
+    # check keeps its verdict and points there instead of repeating the text.
+    sent =
+      for %{message: %{response_reference: "#" <> anchor} = message} <- messages,
+          into: %{},
+          do: {anchor, "#story-message-#{message.id}"}
+
     # The timeline also carries Ryker's own steps, such as the search for
     # earlier work; only model calls have response sections.
     responses =
@@ -1563,7 +1574,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           owner: step[:owner] || :episode,
           at: step.at,
           kind: :event,
-          step: Map.put(step, :candidate_response, responses[step.id]),
+          step: Map.put(step, :candidate_response, sent_response(responses[step.id], sent)),
           band: step.band
         }
       end)
@@ -1571,6 +1582,15 @@ defmodule Ryker.ControlPlane.EpisodePage do
     # Stable sort preserves the trace's numeric sequence/lifecycle ordering on ties.
     Enum.sort_by(messages ++ steps ++ requests, &unix(&1.at || &1[:sort_at]))
   end
+
+  defp sent_response(%{prefix: prefix, attempt: attempt} = response, sent) do
+    case sent["#{prefix}-response-#{attempt}-body"] do
+      nil -> response
+      href -> Map.put(response, :sent_href, href)
+    end
+  end
+
+  defp sent_response(response, _sent), do: response
 
   defp requests_with_links(requests, record_links) do
     candidate_links =
@@ -1679,12 +1699,21 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp message_timestamp(_at), do: "Not recorded"
   # The label says where the heading came from: Ryker's own name for the
-  # episode, a task's title, or the request that started it.
-  defp title_label(%{title_kind: :episode}), do: "Episode"
+  # request, a task's title, or the message that started it.
+  defp title_label(%{title_kind: :episode}), do: "Request"
   defp title_label(%{title_kind: :task}), do: "Task"
   defp title_label(_case_file), do: "Initial request"
 
   defp base(snapshot), do: "/timeline/" <> URI.encode_www_form(snapshot.episode.ref)
+
+  # A Chat request's source is the Chat itself; the header links there once.
+  defp source_link(%{
+         trace: %{source: %{href: href}},
+         episode: %{conversation_link: %{href: href}}
+       }),
+       do: nil
+
+  defp source_link(snapshot), do: snapshot.trace.source
   defp pending_answer_label(%{episode: %{state: :cancelled}}), do: "Stopped"
   defp pending_answer_label(%{episode: %{state: :complete}}), do: "No further reply was sent"
   defp pending_answer_label(%{trace: %{stopped: %{headline: headline}}}), do: headline

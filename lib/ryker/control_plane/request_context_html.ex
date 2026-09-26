@@ -104,7 +104,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     {"parent_submission_ref", "Previous submission"},
     {"signals", "Alert signals"},
     {"offer_confirmation_supported", "Offer confirmation"},
-    {"episode_title", "Episode title"},
+    {"episode_title", "Request title"},
     {"now", "Routing time"},
     {"continuation_window_minutes", "Continuation window"}
   ]
@@ -2091,7 +2091,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp actor_name("github:user:" <> _, _actor), do: "GitHub user"
   defp actor_name("ryker", _actor), do: "Ryker"
   defp actor_name("control_plane:user:" <> ref, actor), do: actor_name(ref, actor)
-  defp actor_name("local-operator", _actor), do: "Local operator"
+  defp actor_name("local-operator", _actor), do: "You"
   defp actor_name(name, _actor) when is_binary(name), do: name
   defp actor_name(_name, actor), do: human(actor["kind"] || "Source")
 

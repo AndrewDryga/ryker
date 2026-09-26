@@ -29,14 +29,23 @@ There are no compatibility aliases for earlier paths.
 Live invalidation domains follow the first path segment, so `activity` and
 `timeline` are also the PubSub domain names in `ControlPlane.Updates`.
 
+A detail page whose record does not exist (a timeline, schedule, incident room,
+conversation, failure or channel) answers 404 on its first, server-rendered
+load, with the same page a browser shows for it; live navigation inside the
+page makes no HTTP request and so has no status. `/settings` is not a page:
+the navigation's Settings group opens its four pages directly and never links
+the bare path, so it answers 404 like any other unknown path rather than
+redirecting.
+
 ### Timeline evidence: what is recorded and what is not
 
 The Timeline groups evidence by the durable owner each step was recorded
 against (the input row, the Work turn, or the remote turn id on an activity
 event), never by the nearest message in time. Which inputs a turn was built
 from is recorded beside its frozen submission (`episode_work_turns.selected_input_refs`);
-turns frozen before that column say "Selected inputs not recorded" and are
-never reconstructed from today's episode state.
+a turn frozen before that column, or stopped before it chose its messages,
+names no inputs in its heading and is never reconstructed from today's episode
+state. A record a turn saved stays with that turn.
 
 Getting ready runs, per input, **Participation settings**, then **Standing
 rules**, then the **Engagement** decision. The first and last read
@@ -116,6 +125,12 @@ sender, and it changes nothing about engagement, routing or prompts. Unknown
 formats keep the generic card and an expired input loses the recognized card
 rather than borrowing a later revision.
 
+An edited or deleted message is its own card at the time it was edited, under
+its own message; the message it replaced stays at its own time with its own
+text and says "Replaced by an edit" or "Deleted later". The page title still
+reads as the conversation does now. The header's state agrees with NEXT
+ACTION: work that stopped reads "Needs attention", not "Working".
+
 Each received input's **Input details** open on extracted metadata (source,
 event, identifiers, revision, the source event time with its provenance and
 the time Ryker recorded it), followed by three independently collapsed
@@ -137,6 +152,19 @@ request evidence uses the same disclosure state on the Timeline. Tool
 — the command it ran, the file it read, the observation it recorded — is
 derived from them.
 
+Coop's worker keeps tool arguments and error output on the worker: its
+narration names the server and the tool and reports only the status. Ryker
+serves its own state tools, so it records each call it answers in
+`episode_work_state_tool_calls` (the arguments and the error it returned,
+redacted and bounded like retained activity, deleted when the turn's bodies
+expire), and the Timeline joins each narrated state-tool call to the recording
+of the same tool in the same turn that Ryker received inside the call's window.
+A refused call shows what the refusal means in words, with the exact error in
+its Error disclosure. A failure with no error to show says why: a worker tool's
+error never reaches Ryker, a state-tool call with no recording in a turn that
+has others is one Ryker has no record of receiving, and only a state-tool call
+from before these recordings is called older.
+
 Every card carries a link to itself built from its own durable evidence key
 (`event-activity-<id>`, `event-queue-<input id>`, `story-message-<id>`), never
 from its position in the page, so a link keeps resolving as history grows.
@@ -157,7 +185,7 @@ when one of this request's own inputs is a recorded member of a learning batch
 that also read other requests says "1 of 3 from this request" rather than
 claiming the rest, an all-defer judgment says nothing was saved instead of
 reporting a failure, and a rejected or stale result says nothing was saved and
-why. **Maintenance** reads the session's own cleanup fields: closing a session
+why. **Cleanup** reads the session's own cleanup fields: closing a session
 is not removing its workspace, a workspace kept for uncommitted or unpublished
 work is not a failure, a session that never bound a remote one had no remote
 workspace to delete, and blocked cleanup states that the delivered answer is
@@ -184,15 +212,18 @@ channel exists; it is not a directory of local Lab incidents. Room status and
 search filters remain in the URL, and committed lifecycle changes refresh the list
 and detail views.
 
-The **Waits** page at `/subscriptions` shows each wait's saved target,
-matching condition and source request. Relative times refresh with the page;
-exact UTC times and internal references remain available in Technical details.
-A next check is a polling fallback, not an estimated event arrival. Event-only
-waits have no scheduled check or deadline; elapsed times do not mark work complete.
-The list shows up to 100 waits in the selected status, active first and newest
-updates first within each status. Search filters their readable labels;
-exact subscription references search all history within that status. Opening,
-filtering and refreshing this page never changes a wait.
+The **Follow-ups** page at `/follow-ups` (Automations › Follow-ups) lists work
+Ryker paused and will pick up again at a set time or when something happens:
+what each follow-up waits for and its state, the request it continues, and when
+and where in words. Follow-ups still waiting show by default, soonest first;
+`?view=past` shows ended ones, most recently ended first. Relative times refresh with the page; exact UTC times and
+internal references stay in each row's closed Details disclosure. A next check
+is a polling fallback, not an estimated event arrival. Event-only follow-ups
+have no scheduled check or deadline; elapsed times do not mark work complete.
+The list shows up to 100 follow-ups in the selected view. Search filters their
+readable labels; an exact reference searches all history within that view.
+Ryker creates and ends follow-ups itself, so opening, filtering and refreshing
+this page never changes one.
 
 ## Environments
 
@@ -826,7 +857,11 @@ grouped by what Ryker does (Investigate, Build, Remember), and choosing one fill
 the composer without sending. On a phone the composer comes first with the examples under it,
 and a bar above the conversation opens the directory as a drawer; there is no bar
 on a wider screen. The attachment limits (two files, 8 MiB in total) are said
-beside the composer only when a choice breaks them. Each message carries a
+beside the composer only when a choice breaks them. The empty composer says
+"Write a message to Ryker"; Send stays off until there is text or a file; the
+browser's own file field is hidden and the composer names the chosen files
+beside Attach files. Without a pointer to hover, each example is drawn as a row
+to tap. Each message carries a
 `View request` link, opening in a new tab, to its own retained execution: an input's
 own admission request (or its pre-episode request inspector, or its recorded
 decision when it was ignored) and a reply's producing work turn. While a message

@@ -400,10 +400,11 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                    label: "Open source message",
                    transport: "Slack"
                  },
+                 state: "blocked",
                  stats: [%{label: "events", value: 1}],
                  stopped: %{
                    action: "Inspect the failure and retry only after its cause is corrected",
-                   attempted: ["3 candidate attempts", "host validation recorded"],
+                   attempted: ["3 answers checked", "Ryker checked an answer"],
                    headline: "Work needs operator recovery",
                    href: "/failures/work/episode%3Aone",
                    reason: "work execution blocked"

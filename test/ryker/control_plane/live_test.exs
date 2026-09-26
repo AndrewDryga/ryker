@@ -597,13 +597,39 @@ defmodule Ryker.ControlPlane.LiveTest do
   test "native directory entry points and missing records remain usable across live navigation" do
     conn = build_conn() |> Map.put(:host, "localhost")
 
+    # A missing record answers 404 on its first load (the next test), so it is
+    # reached here the way a reader navigating inside the page reaches it.
+    {:ok, view, _} = live(conn, "/")
+
     for path <- [
           "/timeline/missing",
           "/timeline/ingress-input%3A#{Ecto.UUID.generate()}"
         ] do
-      {:ok, missing, _} = live(conn, path)
-      assert has_element?(missing, "a", "Back to activity")
+      render_patch(view, path)
+      assert has_element?(view, "a", "Back to activity")
     end
+  end
+
+  test "a record that does not exist answers 404 with the page a browser shows for it" do
+    # QA 2026-09-25: six not-found detail pages answered 200, so a bookmark
+    # check, a link crawler or a monitor read a missing record as one that
+    # exists. The first, server-rendered load carries the status; the page is
+    # the same live page, with its navigation and its way back.
+    for path <- [
+          "/timeline/bogus",
+          "/schedules/bogus",
+          "/incident-rooms/bogus",
+          "/conversations/bogus",
+          "/failures/work/bogus",
+          "/channels/T1/C1"
+        ] do
+      conn = build_conn() |> Map.put(:host, "localhost") |> get(path)
+      assert conn.status == 404, path
+      assert conn.resp_body =~ "data-phx-main", path
+      assert conn.resp_body =~ "Back to activity", path
+    end
+
+    assert (build_conn() |> Map.put(:host, "localhost") |> get("/schedules")).status == 200
   end
 
   test "retired Card Lab and Test journeys routes cannot mount a live page or redirect" do
@@ -779,35 +805,34 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, "form.lab-native-composer")
   end
 
-  test "the composer placeholder is one of ten authored examples and holds still through patches" do
-    # A placeholder that re-rolled on every refresh flickered under the
-    # operator's eyes every five seconds. It is chosen once per opened view
-    # and is never the field's value.
+  test "the composer asks for a message in plain words and starts with nothing to send" do
+    # QA 2026-09-25: the box showed a random example prompt that read as text
+    # someone had already typed, the browser's "No file chosen" sat beside
+    # Attach files, and Send looked ready over an empty box. The composer now
+    # asks plainly, names chosen files itself, and holds Send until there is
+    # something to send (composer.mjs keeps that true as the reader types).
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/conversations")
-    placeholder = composer_placeholder(render(view))
-    assert placeholder in LabPage.examples()
-    assert composer_value(render(view)) == ""
 
-    render_hook(view, "refresh", %{})
-    assert composer_placeholder(render(view)) == placeholder
+    for path <- ["/conversations", "/conversations/#{Ecto.UUID.generate()}"] do
+      {:ok, view, html} = live(conn, path)
 
-    Phoenix.PubSub.broadcast(
-      Ryker.ControlPlane.PubSub,
-      "control-plane",
-      :control_plane_changed
-    )
+      for page <- [html, render(view), render_hook(view, "refresh", %{})] do
+        document = LazyHTML.from_document(page)
+        composer = LazyHTML.query(document, "form.lab-native-composer")
 
-    assert_receive {:lab_projected, _}, 2_000
-    assert composer_placeholder(render(view)) == placeholder
+        assert composer_placeholder(page) == "Write a message to Ryker"
+        refute composer_placeholder(page) in LabPage.examples()
+        assert composer_value(page) == ""
 
-    id = Ecto.UUID.generate()
-    {:ok, open, open_html} = live(conn, "/conversations/#{id}")
-    opened = composer_placeholder(open_html)
-    assert opened in LabPage.examples()
-    assert composer_placeholder(render(open)) == opened
-    render_hook(open, "refresh", %{})
-    assert composer_placeholder(render(open)) == opened
+        assert composer |> LazyHTML.query("button[type=submit][disabled]") |> Enum.count() == 1
+
+        assert composer
+               |> LazyHTML.query(
+                 "input#lab-attachments[type=file] + label.lab-attach + .lab-attached"
+               )
+               |> Enum.count() == 1
+      end
+    end
   end
 
   test "a new conversation lists the ten examples above its composer and an open one does not" do
@@ -1763,8 +1788,11 @@ defmodule Ryker.ControlPlane.LiveTest do
   } do
     conn = build_conn() |> Map.put(:host, "localhost")
 
+    {:ok, missing, _} = live(conn, "/")
+
     for ref <- ["missing", String.duplicate("a", 3_073)] do
-      {:ok, missing, _} = live(conn, "/timeline/" <> ref)
+      assert get(conn, "/timeline/" <> ref).status == 404
+      render_patch(missing, "/timeline/" <> ref)
       assert has_element?(missing, ".document-unavailable", "This record is unavailable")
       refute has_element?(missing, ".app-warning", "This view could not refresh")
     end

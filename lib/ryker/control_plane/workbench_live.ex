@@ -78,6 +78,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        observed_at: nil,
        domain: nil,
        native: nil,
+       page_status: 200,
        instructions: nil,
        instruction_scope: nil,
        body_lead: "",
@@ -116,7 +117,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        lab_filter: "",
        lab_window: nil,
        lab_draft_id: nil,
-       lab_placeholder: nil,
        lab_environment: nil,
        lab_environments: [],
        readiness: nil
@@ -142,6 +142,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        filter_menu: nil,
        disclosed: navigation_disclosures(socket, location.path),
        native: :loading,
+       page_status: 200,
        body: "",
        page_title: "Workspace",
        page_description: nil,
@@ -159,19 +160,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   # A conversation view is opened once per navigation: the index gets a fresh
-  # identity nothing is written behind, and both get one composer placeholder
-  # that later refreshes never re-roll. Refreshes come through refresh/2, not
+  # identity nothing is written behind. Refreshes come through refresh/2, not
   # here, so a five-second reconcile cannot hand the draft a new identity.
-  defp assign_conversation_draft(socket, "/conversations") do
-    assign(socket, lab_draft_id: Ecto.UUID.generate(), lab_placeholder: LabPage.random_example())
-  end
+  defp assign_conversation_draft(socket, "/conversations"),
+    do: assign(socket, lab_draft_id: Ecto.UUID.generate())
 
-  defp assign_conversation_draft(socket, "/conversations/" <> id) do
-    assign(socket, lab_draft_id: nil, lab_placeholder: LabPage.example_for(id))
-  end
-
-  defp assign_conversation_draft(socket, _path),
-    do: assign(socket, lab_draft_id: nil, lab_placeholder: nil)
+  defp assign_conversation_draft(socket, _path), do: assign(socket, lab_draft_id: nil)
 
   # Reading state belongs to one record. Navigating to a different Timeline must
   # not carry another record's opened bodies, which would load evidence the
@@ -1037,7 +1031,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         load_conversation(socket, snapshot, token, options)
 
       {:error, :path_ref} ->
-        assign(socket, native: :not_found, page_title: "Not found")
+        assign(socket, native: :not_found, page_status: 404, page_title: "Not found")
 
       {:error, _} ->
         throw({:projection_unavailable, :lab})
@@ -1344,6 +1338,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     assign(socket,
       native: nil,
+      page_status: page.status,
       body: page.body,
       page_title: page.title,
       page_description: page.description,
@@ -1373,12 +1368,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         )
 
       _ ->
-        assign(socket, native: :not_found, page_title: "Not found")
+        assign(socket, native: :not_found, page_status: 404, page_title: "Not found")
     end
   end
 
   defp load_unassigned_input(socket, _options),
-    do: assign(socket, native: :not_found, page_title: "Not found")
+    do: assign(socket, native: :not_found, page_status: 404, page_title: "Not found")
 
   defp update_activity(socket, items, true) do
     items = ActivityPage.with_days(items, socket.assigns.observed_at || DateTime.utc_now())
@@ -1720,7 +1715,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             messages={@streams.lab_messages}
             history={@lab_window}
             announcement={@lab_announcement}
-            placeholder={@lab_placeholder}
             readiness={@readiness}
             environments={@lab_environments}
             environment={@lab_environment}
@@ -1773,7 +1767,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           </div>
           <section :if={@native == :not_found} class="document-unavailable">
             <h1>This record is unavailable</h1><p>
-              It may not exist, or the selected request does not belong to this episode.
+              It does not exist or is no longer available. Check the link, or start again from Activity.
             </p><.link navigate="/" class="ui-button secondary">Back to activity</.link>
           </section>
           <div :if={!@native} class="secondary-page">

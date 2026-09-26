@@ -10,6 +10,7 @@ function composer(options = {}) {
   const error = {hidden: true, textContent: "", dataset: {}}
   const status = {hidden: true, textContent: "", dataset: {}}
   const button = {disabled: false}
+  const attached = {textContent: ""}
   const textarea = {value: "", validity: "", reported: 0,
     setCustomValidity(message) { this.validity = message }, reportValidity() { this.reported++ }}
   const files = {type: "file", files: [], disabled: false,
@@ -23,17 +24,77 @@ function composer(options = {}) {
     checkValidity: () => true,
     querySelector: selector => ({
       "textarea": textarea, "textarea[name=message]": textarea, "input[type=file]": files,
-      ".composer-error": error, ".composer-status": status, "button[type=submit]": button
+      ".composer-error": error, ".composer-status": status, "button[type=submit]": button,
+      ".lab-attached": attached
     })[selector] ?? null
   }
+  const root = {querySelectorAll: selector => selector === "form.composer" ? [form] : []}
   textarea.form = form
   files.form = form
   const controls = createComposer({
     pushEvent() {}, active: () => true, storage: () => ({}),
     location: {pathname: "/conversations"}, ...options
   })
-  return {controls, form, textarea, files, error, status, button, attributes}
+  return {controls, form, root, textarea, files, error, status, button, attributes, attached}
 }
+
+test("Send is off until there is something to send, and back off once it is sent", async () => {
+  // QA 2026-09-25: Send looked ready over an empty box, so the only answer to
+  // pressing it was a validation bubble.
+  const c = composer()
+  c.controls.refresh(c.root)
+  assert.equal(c.button.disabled, true)
+
+  c.textarea.value = "  "
+  c.controls.input({target: c.textarea})
+  assert.equal(c.button.disabled, true)
+
+  c.textarea.value = "Why is checkout slow?"
+  c.controls.input({target: c.textarea})
+  assert.equal(c.button.disabled, false)
+
+  c.textarea.value = ""
+  c.files.files = [{name: "trace.log", size: 1}]
+  c.controls.input({target: c.files})
+  assert.equal(c.button.disabled, false)
+
+  // A draft restored from storage after a patch counts as something to send.
+  c.files.files = []
+  c.textarea.value = "Restored draft"
+  c.controls.refresh(c.root)
+  assert.equal(c.button.disabled, false)
+
+  const OriginalFormData = globalThis.FormData
+  const originalFetch = globalThis.fetch
+  globalThis.FormData = class FormData {}
+  globalThis.fetch = async () => ({status: 202, json: async () => ({accepted: true})})
+
+  try {
+    c.controls.submit({target: c.form, defaultPrevented: false, preventDefault() {}})
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // The accepted draft left the box, so Send is off again rather than on.
+    c.textarea.value = ""
+    c.controls.refresh(c.root)
+    assert.equal(c.button.disabled, true)
+  } finally {
+    globalThis.FormData = OriginalFormData
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("chosen files are named beside Attach files instead of the browser's own label", () => {
+  // QA 2026-09-25: the browser's "No file chosen" sat beside Attach files. The
+  // native field is hidden; the composer names what was chosen, and nothing
+  // when nothing was.
+  const c = composer()
+  c.files.files = [{name: "trace.log", size: 1}, {name: "graph.png", size: 1}]
+  c.controls.input({target: c.files})
+  assert.equal(c.attached.textContent, "trace.log, graph.png")
+
+  c.files.files = []
+  c.controls.input({target: c.files})
+  assert.equal(c.attached.textContent, "")
+})
 
 test("a file choice that breaks a limit is explained beside the composer at once and cleared once fixed", () => {
   // Andrew, 2026-09-19: the composer printed "Up to 2 files · 8 MiB" under

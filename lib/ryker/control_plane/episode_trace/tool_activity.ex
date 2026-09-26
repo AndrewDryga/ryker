@@ -10,7 +10,137 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodeCausality, InspectionRedactor}
+  alias Ryker.StateTools.{CallRecord, ErrorCode}
   alias Ryker.Work.{ActivityEvent, ActivityPaths}
+
+  @state_server "responder-state"
+  # Ryker receives a state-tool call between the worker's start and completion
+  # frames. One host shares one clock; the margin covers a remote worker's
+  # drift and stays well under the time a model takes to make its next call.
+  @call_margin_ms 5_000
+
+  @doc """
+  The worker's narration of Ryker's own state tools, joined with what Ryker
+  recorded when it answered each call.
+
+  Coop's narration of a state-tool call names only the server and the tool,
+  and of a failure only its status. Each narrated call takes the first
+  unclaimed recording of the same tool in the same Work turn that Ryker
+  received inside the call's window, so a call whose narration was dropped
+  cannot hand its recording to the next one. A failed call without a
+  recording says which it is: its turn predates the recording, or Ryker has
+  no record of receiving it.
+  """
+  @spec with_state_tool_calls([ActivityEvent.t()], [CallRecord.t()], EpisodeCausality.t()) ::
+          [ActivityEvent.t()]
+  def with_state_tool_calls(events, calls, causality) do
+    completions =
+      for %ActivityEvent{kind: "tool.completed"} = event <- events,
+          into: %{},
+          do: {activity_tool_key(event), event}
+
+    recorded_turns = MapSet.new(calls, & &1.turn_id)
+
+    {joined, _unclaimed} =
+      Enum.reduce(events, {%{}, Enum.group_by(calls, &{&1.turn_id, &1.tool})}, fn event, acc ->
+        join_state_call(event, acc, completions, recorded_turns, causality)
+      end)
+
+    Enum.map(events, &join_call(&1, joined[&1.id]))
+  end
+
+  defp join_state_call(
+         %ActivityEvent{
+           kind: "tool.started",
+           payload: %{"input" => %{"server" => @state_server, "tool" => tool}}
+         } = started,
+         {joined, pending},
+         completions,
+         recorded_turns,
+         causality
+       )
+       when is_binary(tool) do
+    case EpisodeCausality.activity_owner(causality, started.id) do
+      {:turn, turn_id} ->
+        completed = completions[activity_tool_key(started)]
+        {call, unclaimed} = claim_call(Map.get(pending, {turn_id, tool}, []), started, completed)
+        evidence = %{call: call, recorded: MapSet.member?(recorded_turns, turn_id)}
+        joined = Map.put(joined, started.id, evidence)
+        joined = if completed, do: Map.put(joined, completed.id, evidence), else: joined
+        {joined, Map.put(pending, {turn_id, tool}, unclaimed)}
+
+      _not_a_turn ->
+        {joined, pending}
+    end
+  end
+
+  defp join_state_call(_event, acc, _completions, _recorded_turns, _causality), do: acc
+
+  # A recording older than the call's window belongs to a call whose narration
+  # Coop dropped; it is passed over rather than handed to this one.
+  defp claim_call(recordings, started, completed) do
+    opens = DateTime.add(started.occurred_at, -@call_margin_ms, :millisecond)
+    closes = DateTime.add((completed || started).occurred_at, @call_margin_ms, :millisecond)
+
+    case Enum.drop_while(recordings, &(DateTime.compare(&1.called_at, opens) == :lt)) do
+      [call | rest] = remaining ->
+        if DateTime.compare(call.called_at, closes) == :gt,
+          do: {nil, remaining},
+          else: {call, rest}
+
+      [] ->
+        {nil, []}
+    end
+  end
+
+  defp join_call(%ActivityEvent{kind: "tool.started"} = event, %{call: %CallRecord{} = call})
+       when not is_nil(call.arguments),
+       do: update_in(event.payload["input"], &Map.put_new(&1, "arguments", call.arguments))
+
+  defp join_call(
+         %ActivityEvent{kind: "tool.completed", payload: %{"status" => "failed"} = payload} =
+           event,
+         evidence
+       )
+       when is_map(evidence),
+       do: %{event | payload: failed_call(payload, evidence)}
+
+  defp join_call(event, _evidence), do: event
+
+  defp failed_call(payload, %{call: %CallRecord{status: "failed", error: error}}) do
+    payload
+    |> Map.put_new("error", error)
+    |> Map.put("ryker_summary", ErrorCode.explain(error))
+  end
+
+  defp failed_call(payload, %{call: %CallRecord{}}),
+    do:
+      Map.put(
+        payload,
+        "ryker_summary",
+        "Ryker answered the call, but the worker reported it as failed."
+      )
+
+  defp failed_call(payload, %{recorded: recorded}) do
+    cond do
+      payload["error"] || payload["output"] || payload["content"] ->
+        payload
+
+      recorded ->
+        Map.put(
+          payload,
+          "ryker_summary",
+          "The tool failed, and Ryker has no record of receiving the call, so there is no error response to show."
+        )
+
+      true ->
+        Map.put(
+          payload,
+          "ryker_summary",
+          "The tool failed. Its error response was not recorded for this older call."
+        )
+    end
+  end
 
   @doc """
   The narrated activity as steps, each owned by the Work turn that produced it.
@@ -358,9 +488,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
       Enum.reject(start, fn artifact -> Enum.any?(finish, &(&1.label == artifact.label)) end) ++
         finish
 
+  defp tool_outcome(%{"ryker_summary" => summary}, "failed"), do: summary
+
+  # Coop keeps a tool's error output on the worker, so a failure it narrates
+  # without a body has none to show, however recent it is.
   defp tool_outcome(payload, "failed") do
     case payload["error"] || payload["output"] || payload["content"] do
-      nil -> "The tool failed. Its error response was not recorded for this older call."
+      nil -> "The tool failed. The worker does not send tool error details to Ryker."
       value -> value |> InspectionRedactor.artifact(max_bytes: 300) |> Map.fetch!(:text)
     end
   end

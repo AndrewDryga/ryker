@@ -32,6 +32,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   alias Ryker.Operator.EpisodeReview
   alias Ryker.Repo
   alias Ryker.State.Record
+  alias Ryker.StateTools.CallLog
   alias Ryker.Work.{Activity, Session, Turn}
 
   @chapters [
@@ -43,8 +44,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     {:outcome, "What came of it", "Delivery, durable side effects, waits, and follow-up work."},
     {:learning, "Learning",
      "Background learning from these messages. It runs on its own and sends no reply."},
-    {:maintenance, "Maintenance",
-     "What happened to the temporary session and workspace afterwards."}
+    {:maintenance, "Cleanup",
+     "What happened afterwards to the worker Ryker used and its working copy."}
   ]
 
   @spec project(Episode.t(), [Event.t()], [Record.t()], keyword()) :: map()
@@ -71,10 +72,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
         now: Keyword.get(options, :now, DateTime.utc_now())
       )
 
+    activity_events =
+      ToolActivity.with_state_tool_calls(
+        activity_page.events,
+        state_tool_calls(episode.id, activity_page.events),
+        causality
+      )
+
     activity =
-      activity_page.events
+      activity_events
       |> ToolActivity.steps(causality, disclosed)
-      |> EvidenceLinks.attach(activity_page.events, turns, records)
+      |> EvidenceLinks.attach(activity_events, turns, records)
 
     current_turn = List.last(turns)
     stopped = stopped(episode, current_turn)
@@ -132,11 +140,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       response_metrics: response_metrics,
       review: review,
       source: source,
+      state: page_state(episode, stopped),
       stats: stats(steps, activity_page, totals),
       steps: steps,
       stopped: stopped
     }
   end
+
+  # The header's state says what NEXT ACTION says: work that stopped is not
+  # working, whatever the episode's own state still records.
+  defp page_state(%Episode{state: :working}, %{}), do: "blocked"
+  defp page_state(%Episode{state: state}, _stopped), do: to_string(state)
 
   # Only offer another page when one exists and the bound has not been reached.
   defp next_activity_page(%{truncated: true}, pages) when pages < 10, do: pages + 1
@@ -160,6 +174,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   """
   @spec unrouted_title(Entry.t()) :: String.t()
   defdelegate unrouted_title(input), to: CaseFile
+
+  # Only a call Ryker received inside the narration on this page can join it.
+  defp state_tool_calls(_episode_id, []), do: []
+
+  defp state_tool_calls(episode_id, [oldest | _newer]),
+    do: CallLog.list_for_episode(episode_id, DateTime.add(oldest.occurred_at, -1, :minute))
 
   defp sessions(episode_id) do
     Repo.all(
@@ -337,21 +357,22 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
   defp stopped(%Episode{state: :waiting_for_input}, _turn) do
     %{
-      action: "Reply in the bound conversation",
+      action: "Answer the question in the conversation",
       attempted: [],
       headline: "Waiting for a person",
       href: nil,
-      reason: "The model recorded a material question and released its worker lease."
+      reason: "Ryker asked a question and continues when someone answers it."
     }
   end
 
   defp stopped(%Episode{state: :waiting_for_event}, _turn) do
     %{
-      action: "Wait for the recorded event or deadline",
+      action: "Nothing to do now",
       attempted: [],
-      headline: "Waiting for an external event",
+      headline: "Waiting for an event",
       href: nil,
-      reason: "The episode is parked durably and will resume only for its bound trigger."
+      reason:
+        "Ryker paused this request and picks it up again when the event it waits for happens or its deadline passes."
     }
   end
 
@@ -359,9 +380,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     %{
       action: "No action is required",
       attempted: [],
-      headline: "Episode cancelled",
+      headline: "Request stopped",
       href: nil,
-      reason: "The durable episode owner recorded cancellation."
+      reason: "This request was stopped and will not continue. Its history stays on this page."
     }
   end
 
@@ -381,12 +402,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
     attempts =
       [
-        plural(turn.work_attempt_count || 0, "Work claim"),
-        turn.candidate_attempt && plural(turn.candidate_attempt, "candidate attempt"),
-        turn.coop_turn_id && "Coop turn created",
-        turn.validation_intent && "host validation recorded"
+        started(turn.work_attempt_count || 0),
+        turn.candidate_attempt &&
+          plural(turn.candidate_attempt, "answer checked", "answers checked"),
+        turn.coop_turn_id && "The worker began the task",
+        turn.validation_intent && "Ryker checked an answer"
       ]
-      |> Enum.reject(&(&1 in [nil, "0 Work claims"]))
+      |> Enum.reject(&is_nil/1)
 
     %{
       action: recovery.next_step,
@@ -402,6 +424,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   end
 
   defp stopped(_episode, _turn), do: nil
+
+  defp started(0), do: nil
+  defp started(1), do: "Started once"
+  defp started(count), do: "Started #{count} times"
 
   @doc """
   Groups chronological entries by the conversation position each one actually

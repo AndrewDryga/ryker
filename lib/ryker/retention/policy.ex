@@ -375,6 +375,12 @@ defmodule Ryker.Retention.Policy do
       why: "immutable Coop authority binding and cleanup receipt"
     },
     %{
+      table: "episode_work_state_tool_calls",
+      class: :operational,
+      why:
+        "the arguments and error of each state-tool call as Ryker received and answered it; deleted when the turn's bodies expire"
+    },
+    %{
       table: "episode_work_knowledge_exposures",
       class: :cascade,
       why: "content-free revocation fences for knowledge disclosed to one native session"

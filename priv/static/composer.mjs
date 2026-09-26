@@ -38,11 +38,28 @@ export function createComposer({pushEvent, active, storage, location: loc}) {
     else field?.removeAttribute("aria-invalid")
   }
 
+  // Send is on only when there is something to send, and never mid-send. The
+  // browser's own file label is hidden, so the composer names what was chosen.
+  function sync(form) {
+    const button = form.querySelector("button[type=submit]")
+    const text = form.querySelector("textarea[name=message]")?.value || ""
+    const chosen = Array.from(form.querySelector("input[type=file]")?.files || [])
+    if (button) button.disabled = sending || (text.trim() === "" && chosen.length === 0)
+    const attached = form.querySelector(".lab-attached")
+    if (attached) attached.textContent = chosen.map(file => file.name).join(", ")
+  }
+
+  // After a render or a restored draft, which fires no input event.
+  function refresh(root) {
+    Array.from(root?.querySelectorAll?.("form.composer") || []).forEach(sync)
+  }
+
   function input(event) {
     const form = event.target.form
     if (!form?.matches(".composer")) return
     form.querySelector("textarea")?.setCustomValidity("")
     if (event.target.type === "file") showFileProblem(form, validateFiles(Array.from(event.target.files || [])))
+    sync(form)
   }
 
   // Returns true when the event was a composer submission this owns.
@@ -97,10 +114,10 @@ export function createComposer({pushEvent, active, storage, location: loc}) {
       pushEvent("refresh", {})
     } finally {
       sending = false
-      button.disabled = false
       if (files) files.disabled = false
+      sync(form)
     }
   }
 
-  return {input, submit}
+  return {input, refresh, submit}
 }

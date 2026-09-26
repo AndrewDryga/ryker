@@ -80,6 +80,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @environment_repositories_version 20_260_925_001_200
   @slack_retry_caps_version 20_260_926_000_100
   @unwritten_tables_version 20_260_926_000_200
+  @state_tool_calls_version 20_260_926_001_100
   @unwritten_tables ~w(card_lab_feedback card_lab_posts episode_case_lessons slack_channel_setting_overrides)
   @integration_versions [
     20_260_919_000_100,
@@ -111,7 +112,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @environment_setup_step_version,
     @environment_repositories_version,
     @slack_retry_caps_version,
-    @unwritten_tables_version
+    @unwritten_tables_version,
+    @state_tool_calls_version
   ]
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
@@ -312,6 +314,63 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
              ) == [@slack_retry_caps_version]
 
       refute column_exists?(repo, prefix, "slack_task_cards", "status")
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  # A recorded state-tool call is the only account of why Ryker refused it:
+  # Coop never sends the arguments or the error. A rollback must refuse while
+  # one exists rather than drop the table under it.
+  test "a recorded state-tool call survives a refused rollback" do
+    repo = start_migration_repo!()
+    prefix = "state_tool_calls_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @state_tool_calls_version,
+        prefix: prefix,
+        log: false
+      )
+
+      call_id = Ecto.UUID.generate()
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.episode_work_state_tool_calls
+          (id, turn_id, tool, status, arguments, error, called_at)
+        VALUES ($1::text::uuid, $2::text::uuid, 'propose_automation', 'failed',
+                '{"proposals":[]}', '"invalid_arguments"', clock_timestamp())
+        """,
+        [call_id, ids.turn_id]
+      )
+
+      assert_raise Postgrex.Error, ~r/state-tool call history must be exported/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert table_exists?(repo, prefix, "episode_work_state_tool_calls")
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.episode_work_state_tool_calls WHERE id = $1::text::uuid",
+        [call_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@state_tool_calls_version]
+
+      refute table_exists?(repo, prefix, "episode_work_state_tool_calls")
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -3988,8 +4047,11 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
         assert table in triggers(repo, prefix, "ryker_control_plane_changed")
       end
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
-               [@unwritten_tables_version]
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @unwritten_tables_version,
+               prefix: prefix,
+               log: false
+             ) == [@unwritten_tables_version]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
