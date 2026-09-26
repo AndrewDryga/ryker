@@ -47,6 +47,7 @@ defmodule Ryker.ControlPlane.Integrations do
   @on_but_not_working "Slack is on but not working yet, and the page says why."
   @no_sender "No other system can send Ryker events yet."
   @source_left_out "an enabled source is not taking events, and the page says which one and why."
+  @account_left_out "an account is not watched for approval decisions, and the page says which one and why."
   @states %{
     slack: [
       not_connected: %{
@@ -112,6 +113,22 @@ defmodule Ryker.ControlPlane.Integrations do
             "ready. Check what each kind of work may do under Advanced.",
         action: {"Open Advanced", "/settings/advanced"}
       },
+      settings_unusable: %{
+        status: :broken,
+        state: {:bad, "Not running"},
+        means: @on_but_not_working,
+        reason:
+          "Slack is on but did not start, because Ryker could not use its saved Slack " <>
+            "settings. Replace the tokens, or save the Slack settings again.",
+        action: {"Manage", "/integrations/slack"}
+      },
+      not_started: %{
+        status: :broken,
+        state: {:bad, "Not running"},
+        means: @on_but_not_working,
+        reason: "Slack is on but did not start. Advanced shows what the running Ryker loaded.",
+        action: {"Open Advanced", "/settings/advanced"}
+      },
       unknown: %{
         status: :broken,
         state: {:warn, "Unknown"},
@@ -148,6 +165,13 @@ defmodule Ryker.ControlPlane.Integrations do
         means: "Ryker reads code and opens pull requests in the repositories you added.",
         reason: nil,
         action: {"Manage", "/integrations/github"}
+      },
+      not_running: %{
+        status: :broken,
+        state: {:bad, "Not running"},
+        means: "GitHub is on but did not start, and the page says why.",
+        reason: nil,
+        action: {"Repair GitHub", "/integrations/github"}
       }
     ],
     emisar: [
@@ -178,6 +202,20 @@ defmodule Ryker.ControlPlane.Integrations do
         state: {:on, "Connected"},
         means:
           "work in the environments that use an account sends its actions there for approval.",
+        reason: nil,
+        action: {"Manage", "/integrations/emisar"}
+      },
+      partly_watching: %{
+        status: :broken,
+        state: {:warn, "Partly running"},
+        means: @account_left_out,
+        reason: nil,
+        action: {"Manage", "/integrations/emisar"}
+      },
+      not_watching: %{
+        status: :broken,
+        state: {:bad, "Not running"},
+        means: @account_left_out,
         reason: nil,
         action: {"Manage", "/integrations/emisar"}
       }
@@ -248,7 +286,8 @@ defmodule Ryker.ControlPlane.Integrations do
   Slack: verified tokens, then someone who can manage Ryker (which switches
   Slack on), then the running connection. A connection switched on but not
   running says why: still connecting, the settings not applied yet, the
-  worker not ready or no policy for incident rooms.
+  worker not ready, or what the running configuration left it out for (no
+  policy for incident rooms, a saved setting its runtime refused).
   """
   @spec slack(map()) :: t()
   def slack(view) do
@@ -265,20 +304,32 @@ defmodule Ryker.ControlPlane.Integrations do
         state(:slack, :finish, facts: facts([workspace, bot]))
 
       true ->
-        state(:slack, running(view.readiness.slack, view.application),
+        state(:slack, running(view.readiness, view.application),
           facts: facts([workspace, bot, managers(slack.operators)])
         )
     end
   end
 
-  defp running(%{state: :ready}, _application), do: :connected
-  defp running(%{state: :connecting}, _application), do: :connecting
-  defp running(%{state: :runtime_unavailable}, :pending), do: :starting
-  defp running(%{state: :runtime_unavailable}, {:failed, _code}), do: :not_applied
-  defp running(%{state: :runtime_unavailable}, :applied), do: :no_incident_policy
-  defp running(%{state: :unknown}, _application), do: :unknown
+  # What the running configuration left Slack out for is why it is not
+  # running, whatever else is still starting. While newer settings apply,
+  # that reason belongs to the older ones, so Slack reads as starting.
+  defp running(%{left_out: %{slack: :incident_policy_missing}}, application)
+       when application != :pending,
+       do: :no_incident_policy
 
-  defp running(%{state: worker}, _application)
+  defp running(%{left_out: %{slack: _refused}}, application) when application != :pending,
+    do: :settings_unusable
+
+  defp running(%{slack: slack}, application), do: slack_running(slack, application)
+
+  defp slack_running(%{state: :ready}, _application), do: :connected
+  defp slack_running(%{state: :connecting}, _application), do: :connecting
+  defp slack_running(%{state: :runtime_unavailable}, :pending), do: :starting
+  defp slack_running(%{state: :runtime_unavailable}, {:failed, _code}), do: :not_applied
+  defp slack_running(%{state: :runtime_unavailable}, :applied), do: :not_started
+  defp slack_running(%{state: :unknown}, _application), do: :unknown
+
+  defp slack_running(%{state: worker}, _application)
        when worker in [:setting_up, :worker_unavailable, :policy_unavailable],
        do: :waiting
 
@@ -286,18 +337,28 @@ defmodule Ryker.ControlPlane.Integrations do
   defp managers([_one]), do: "1 person can manage Ryker"
   defp managers(people), do: "#{length(people)} people can manage Ryker"
 
-  @doc "GitHub: the App Ryker works through, whether it still works and whether work started."
+  @doc """
+  GitHub: the App Ryker works through, whether it still works and whether
+  work started. A GitHub switched on that the running configuration left out
+  says why, by the credential that stopped it.
+  """
   @spec github(map()) :: t()
   def github(view) do
     github = view.snapshot.github
     app = github.app_slug && "App " <> github.app_slug
+    left_out = Map.get(view.readiness.left_out, :github)
 
     case view.github_connection do
-      :missing ->
-        state(:github, :not_connected, facts: [])
-
       :invalid ->
         state(:github, :repair, facts: [])
+
+      _connection when github.enabled and not is_nil(left_out) ->
+        :github
+        |> state(:not_running, facts: facts([app]))
+        |> Map.put(:reason, github_why(left_out))
+
+      :missing ->
+        state(:github, :not_connected, facts: [])
 
       :ready when github.enabled ->
         state(:github, :connected,
@@ -309,19 +370,62 @@ defmodule Ryker.ControlPlane.Integrations do
     end
   end
 
+  defp github_why(:private_key_missing),
+    do: "GitHub is on, but the App's private key is missing. Connect the App again with its key."
+
+  defp github_why(:private_key_unreadable),
+    do:
+      "GitHub is on, but its saved private key cannot be read. Connect the App again with " <>
+        "its key."
+
+  defp github_why(:private_key_unusable),
+    do:
+      "GitHub is on, but its saved private key cannot be used. Connect the App again with " <>
+        "its current key."
+
+  defp github_why(:webhook_secret_missing),
+    do:
+      "GitHub is on, but its webhook secret is missing. Connect the App again, and Ryker " <>
+        "creates a new one."
+
+  defp github_why(:webhook_secret_unreadable),
+    do:
+      "GitHub is on, but its saved webhook secret cannot be read. Connect the App again, and " <>
+        "Ryker creates a new one."
+
+  defp github_why(_refused),
+    do:
+      "GitHub is on, but Ryker could not use its saved settings. Connect the App again; " <>
+        "Advanced shows what the running Ryker loaded."
+
   @doc """
   Emisar is in use only when work can reach an account that Ryker watches for
   approval decisions: an account that is not paused, with approval monitoring
   on, that an environment uses. Anything short of that says the one thing
-  still missing. Once an account is connected, `unassigned` counts the
-  environments whose work has no account, so no approvals at all.
+  still missing. An account the running configuration left out is not
+  watched at all, so it comes first, named with why. Once an account is
+  connected, `unassigned` counts the environments whose work has no account,
+  so no approvals at all.
   """
   @spec emisar(map()) :: t()
   def emisar(view) do
     accounts = view.snapshot.emisar_connections
     environments = view.snapshot.environments
     used = environments |> Enum.map(& &1.emisar_connection_ref) |> Enum.reject(&is_nil/1)
-    {variant, missing} = emisar_variant(accounts, used)
+    left_out = Map.get(view.readiness.left_out, :emisar, %{})
+    watched = Enum.filter(accounts, & &1.monitoring_enabled)
+    stopped = Enum.filter(watched, &Map.has_key?(left_out, &1.ref))
+
+    {variant, missing} =
+      if stopped != [],
+        do:
+          {if(stopped == watched, do: :not_watching, else: :partly_watching),
+           Enum.map_join(
+             stopped,
+             " ",
+             &"#{&1.display_name} is not watched for approval decisions: #{account_why(left_out[&1.ref])}"
+           )},
+        else: emisar_variant(accounts, used)
 
     :emisar
     |> state(variant, facts: if(accounts == [], do: [], else: [account_names(accounts)]))
@@ -362,6 +466,35 @@ defmodule Ryker.ControlPlane.Integrations do
     end
   end
 
+  @doc """
+  One Emisar account's own state, for its row on the Emisar page: active,
+  paused, or left out of the running watchers, with why.
+  """
+  @spec emisar_account(map(), map()) :: %{state: {tone(), String.t()}, reason: String.t() | nil}
+  def emisar_account(view, account) do
+    case Map.get(Map.get(view.readiness.left_out, :emisar, %{}), account.ref) do
+      reason when account.monitoring_enabled and not is_nil(reason) ->
+        %{
+          state: {:bad, "Not running"},
+          reason: "Not watched for approval decisions: " <> account_why(reason)
+        }
+
+      _watched_or_not ->
+        %{
+          state: if(account.enabled_for_new_work, do: {:on, "Active"}, else: {:off, "Paused"}),
+          reason: nil
+        }
+    end
+  end
+
+  defp account_why(:address_invalid),
+    do:
+      "its saved address is not the exact https address of its Emisar endpoint. Connect the " <>
+        "account again with the right address."
+
+  defp account_why(_refused),
+    do: "Ryker could not use its saved settings. Connect the account again."
+
   defp account_names([account]), do: account.display_name
   defp account_names(accounts), do: count(length(accounts), "account")
 
@@ -400,7 +533,7 @@ defmodule Ryker.ControlPlane.Integrations do
     sources = view.snapshot.webhook_sources
     credentials = Enum.count(view.credentials, &(&1.kind == :webhook))
     enabled = Enum.filter(sources, & &1.enabled)
-    left_out = view.readiness.webhooks.left_out
+    left_out = Map.get(view.readiness.left_out, :webhooks, %{})
     stopped = Enum.filter(enabled, &Map.has_key?(left_out, &1.name))
 
     facts =
@@ -447,7 +580,8 @@ defmodule Ryker.ControlPlane.Integrations do
   """
   @spec webhook_source(map(), map()) :: %{state: {tone(), String.t()}, reason: String.t() | nil}
   def webhook_source(view, source) do
-    case {source.enabled, Map.get(view.readiness.webhooks.left_out, source.name)} do
+    case {source.enabled,
+          view.readiness.left_out |> Map.get(:webhooks, %{}) |> Map.get(source.name)} do
       {false, _reason} ->
         %{state: {:off, "Off"}, reason: nil}
 

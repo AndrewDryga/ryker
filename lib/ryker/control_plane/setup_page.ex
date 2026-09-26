@@ -281,14 +281,16 @@ defmodule Ryker.ControlPlane.SetupPage do
   end
 
   # Short of connected, the panel is titled by what is missing: nothing
-  # connected, an account no work can use yet (a warning, so a person has
-  # something to finish) or every account paused on purpose.
+  # connected, an account the running system left out (so it needs repair),
+  # an account no work can use yet (a warning, so a person has something to
+  # finish) or every account paused on purpose.
   defp emisar(assigns) do
     assigns =
       assign(assigns,
         title:
           case assigns.emisar do
             %{status: :not_set_up} -> "Connect Emisar"
+            %{status: :broken} -> "Repair Emisar"
             %{state: {:warn, _missing}} -> "Finish connecting Emisar"
             %{state: {:off, _paused}} -> "Emisar is paused"
           end,

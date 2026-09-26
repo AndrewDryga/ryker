@@ -617,9 +617,10 @@ defmodule Ryker.IntegrationSetupTest do
     assert pin_work!("channel", "payments").emisar_connection_ref == ref
     assert pin_work!("chat", "default").emisar_connection_ref == ref
 
-    # The setup and integrations pages read the same settings.
+    # The setup and integrations pages read the same settings, with nothing
+    # left out of the running system.
     assert %{status: :on, state: {:on, "Connected"}} =
-             Integrations.emisar(%{snapshot: snapshot})
+             Integrations.emisar(%{snapshot: snapshot, readiness: %{left_out: %{}}})
   end
 
   test "connecting another account never takes over an environment that has one" do

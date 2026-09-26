@@ -2,9 +2,9 @@ defmodule Ryker.ControlPlane.ProductReadiness do
   @moduledoc """
   Whether Chat and Slack can run right now: Chat's state in words, and
   Slack's as the running evidence `Integrations.slack/1` reads, which says it
-  in the words every page uses. Beside them, the webhook sources the running
-  configuration left out and why (`webhooks.left_out`), which
-  `Integrations.webhooks/1` reads the same way.
+  in the words every page uses. Beside them, what the running configuration
+  left out and why (`left_out`): an integration, an Emisar account or a
+  webhook source it could not start, which `Integrations` reads the same way.
 
   These states come from the applied runtime and the live worker fleet, not
   from the presence of saved credentials. They never expose worker
@@ -18,7 +18,12 @@ defmodule Ryker.ControlPlane.ProductReadiness do
   @type t :: %{
           chat: map(),
           slack: %{state: atom()},
-          webhooks: %{left_out: %{String.t() => atom()}}
+          left_out: %{
+            optional(:github) => atom(),
+            optional(:slack) => atom(),
+            optional(:emisar) => %{String.t() => atom()},
+            optional(:webhooks) => %{String.t() => atom()}
+          }
         }
 
   @spec current() :: t()
@@ -40,7 +45,7 @@ defmodule Ryker.ControlPlane.ProductReadiness do
       chat_profile: if(is_map(control_plane), do: chat_profile(control_plane)),
       slack_configured: is_map(slack),
       slack_connected: Gateway.connected?(),
-      webhook_sources_left_out: Application.get_env(:ryker, :webhook_sources_left_out, %{})
+      integrations_left_out: Application.get_env(:ryker, :integrations_left_out, %{})
     }
 
     from(snapshot, Observability.fleet(), runtime)
@@ -73,7 +78,7 @@ defmodule Ryker.ControlPlane.ProductReadiness do
     %{
       chat: chat,
       slack: slack,
-      webhooks: %{left_out: Map.get(runtime, :webhook_sources_left_out, %{})}
+      left_out: Map.get(runtime, :integrations_left_out, %{})
     }
   end
 
@@ -149,7 +154,7 @@ defmodule Ryker.ControlPlane.ProductReadiness do
     %{
       chat: chat,
       slack: %{state: :unknown},
-      webhooks: %{left_out: Application.get_env(:ryker, :webhook_sources_left_out, %{})}
+      left_out: Application.get_env(:ryker, :integrations_left_out, %{})
     }
   end
 end
