@@ -1396,7 +1396,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp map_value(value) when is_map(value), do: value
   defp map_value(_value), do: %{}
 
-  # The routing choices ride on the row itself: all five, with the ones this
+  # The routing choices ride on the row itself: all six, with the ones this
   # input did not allow marked, because a restriction explains a decision the
   # model could not make. The row opens only when it has more to say.
   defp permitted_actions_source(values, rows, root, prefix) do
@@ -1431,7 +1431,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     end
   end
 
-  @routing_actions ~w(start_episode continue_episode reply react ignore)
+  @routing_actions ~w(start_episode continue_episode reply quick_reply react ignore)
 
   defp action_chips(allowed) when is_list(allowed) and allowed != [] do
     choices =

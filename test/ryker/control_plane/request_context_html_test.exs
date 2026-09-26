@@ -885,6 +885,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
              {"Start work", ["true"]},
              {"Continue work (not permitted)", ["false"]},
              {"Reply", ["true"]},
+             {"Quick reply (not permitted)", ["false"]},
              {"React (not permitted)", ["false"]},
              {"Ignore (not permitted)", ["false"]}
            ]
