@@ -543,10 +543,13 @@ defmodule Ryker.Improvement.Analyses do
 
   @doc """
   Saves the diagnosis on the candidate and ends its analysis: the run's
-  answer, confirmed by Coop, checked by the host once more. The lease is
-  given back in the same transaction.
+  answer, confirmed by Coop, checked by the host once more. The completed
+  turn's stop proof is kept and the lease given back in the same
+  transaction, so a step that ends before it leaves the run outstanding and
+  the next one reads the same finished turn instead of asking the model
+  again.
   """
-  def apply_result(claim, run_id) do
+  def apply_result(claim, run_id, %{"state" => "completed", "id" => turn_id} = turn) do
     Repo.transaction(fn ->
       candidate = owned!(claim)
       run = locked_run!(candidate, run_id)
@@ -560,7 +563,14 @@ defmodule Ryker.Improvement.Analyses do
       unless run.status in [:responded, :applied] and is_map(run.validation_receipt),
         do: Repo.rollback(:improvement_validation_unconfirmed)
 
-      run = run |> Ecto.Changeset.change(status: :applied) |> Repo.update!()
+      unless run.coop_turn_id == turn_id and owned_session?(run, turn["session_id"]),
+        do: Repo.rollback(:improvement_remote_identity_conflict)
+
+      run =
+        run
+        |> Ecto.Changeset.change(status: :applied)
+        |> Repo.update!()
+        |> store_stop(terminal_receipt(turn))
 
       forgotten? = not is_nil(candidate.forgotten_at)
 
@@ -582,6 +592,8 @@ defmodule Ryker.Improvement.Analyses do
       )
     end)
   end
+
+  def apply_result(_claim, _run_id, _turn), do: {:error, :improvement_remote_not_stopped}
 
   defp target(%{"target" => target}) when is_binary(target), do: target
   defp target(_producer), do: nil
@@ -613,16 +625,17 @@ defmodule Ryker.Improvement.Analyses do
       unless run.coop_turn_id == turn_id and owned_session?(run, turn["session_id"]),
         do: Repo.rollback(:improvement_remote_identity_conflict)
 
-      store_stop(
-        run,
-        turn
-        |> Map.take(~w(id session_id state error_code validation_attempt))
-        |> Map.put("kind", "terminal_turn")
-      )
+      store_stop(run, terminal_receipt(turn))
     end)
   end
 
   def record_stop(_claim, _run_id, _turn), do: {:error, :improvement_remote_not_stopped}
+
+  defp terminal_receipt(turn),
+    do:
+      turn
+      |> Map.take(~w(id session_id state error_code validation_attempt))
+      |> Map.put("kind", "terminal_turn")
 
   @doc """
   Records a terminal turn that gave no usable answer: the model's output did

@@ -267,6 +267,29 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert length(FakeCoopAPI.state(coop).submissions) == 1
   end
 
+  # A deploy restarts the worker whenever it likes. One that landed after an
+  # accepted answer's stop proof was saved and before its diagnosis left the
+  # run looking finished with nothing kept: the next start paid for a second
+  # model call and, on the last start, gave up with a valid answer on record
+  # (found in review, 2026-09-27). The lease running out at that moment is
+  # the same restart, as the next worker sees it.
+  test "an accepted answer's diagnosis is kept with the proof its turn stopped, or neither is" do
+    request = unhappy_request!("1790100900.000100")
+    coop = coop!([Jason.encode!(@diagnosis), Jason.encode!(@diagnosis)])
+    lose_lease_once_stop_proof_is_written!(Improvement.for_request(request).id)
+
+    drain(settings(coop))
+
+    candidate = Improvement.for_request(request)
+    assert candidate.analysis == :done
+    assert candidate.what_went_wrong == @diagnosis["what_went_wrong"]
+    assert candidate.start_count == 1
+    assert length(FakeCoopAPI.state(coop).submissions) == 1
+
+    assert [%AnalysisRun{status: :applied, remote_stopped_at: %DateTime{}}] =
+             Repo.all(from(run in AnalysisRun, where: run.candidate_id == ^candidate.id))
+  end
+
   # "A person forgetting wins": a message deleted while its analysis is out
   # at Coop erases the prompt, and the run stops without ever sending it.
   test "an analysis whose prompt a person forgot while it was out stops without sending it" do
@@ -314,6 +337,34 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert forgotten.analysis == :failed
     assert forgotten.error_code == "improvement_forgotten"
     assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
+  end
+
+  # The first time this test's process writes a run's stop proof, the
+  # candidate's lease runs out, as it does for a worker that restarted there.
+  defp lose_lease_once_stop_proof_is_written!(candidate_id) do
+    handler = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ryker, :repo, :query],
+        &__MODULE__.lose_lease/4,
+        {self(), candidate_id}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+  end
+
+  def lose_lease(_event, _measurements, %{query: query}, {owner, candidate_id}) do
+    if self() == owner and not Process.get(:lease_lost?, false) and
+         String.starts_with?(query, ~s(UPDATE "improvement_analysis_runs")) and
+         String.contains?(query, ~s("remote_stopped_at")) do
+      Process.put(:lease_lost?, true)
+
+      Repo.update_all(from(c in Candidate, where: c.id == ^candidate_id),
+        set: [lease_expires_at: DateTime.add(DateTime.utc_now(), -60, :second)]
+      )
+    end
   end
 
   defp settings(coop) do

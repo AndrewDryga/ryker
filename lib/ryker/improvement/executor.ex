@@ -341,20 +341,23 @@ defmodule Ryker.Improvement.Executor do
     end
   end
 
-  # The turn is over and its answer accepted: keep the proof, then save the
-  # diagnosis, which gives the lease back.
+  # The turn is over and its answer accepted: the diagnosis is saved with the
+  # turn's stop proof, which gives the lease back. An answer that cannot be
+  # saved ends the attempt, and the finished turn is still its stop proof.
   defp complete(claim, run, turn) do
-    with {:ok, _confirmed} <- Analyses.confirm_candidate(claim, run.id, turn),
-         {:ok, _stopped} <- Analyses.record_stop(claim, run.id, turn) do
-      claim |> Analyses.apply_result(run.id) |> applied(claim, run)
+    result =
+      with {:ok, _confirmed} <- Analyses.confirm_candidate(claim, run.id, turn),
+           do: Analyses.apply_result(claim, run.id, turn)
+
+    case result do
+      {:ok, candidate} ->
+        {:ok, {:applied, candidate}}
+
+      {:error, reason} ->
+        with {:ok, _ended} <- Analyses.end_attempt(claim, run.id, reason),
+             {:ok, _stopped} <- Analyses.record_stop(claim, run.id, turn),
+             do: {:ok, :stopped}
     end
-  end
-
-  defp applied({:ok, candidate}, _claim, _run), do: {:ok, {:applied, candidate}}
-
-  # The turn already stopped; the attempt simply gave no diagnosis.
-  defp applied({:error, reason}, claim, run) do
-    with {:ok, _ended} <- Analyses.end_attempt(claim, run.id, reason), do: {:ok, :stopped}
   end
 
   # -- Stopping ----------------------------------------------------------------------
