@@ -43,7 +43,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     {:answer, "The answer", "Candidate validation, the accepted result, and any refusal."},
     {:outcome, "What came of it", "Delivery, durable side effects, waits, and follow-up work."},
     {:learning, "Learning",
-     "Background learning from these messages. It runs on its own and sends no reply."},
+     "Background learning from these messages, once the work they started has stopped. It sends no reply."},
     {:maintenance, "Cleanup",
      "What happened afterwards to the worker Ryker used and its working copy."}
   ]
