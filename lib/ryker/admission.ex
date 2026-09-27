@@ -1081,7 +1081,7 @@ defmodule Ryker.Admission do
           allowed_relations:
             Candidate.allowed_relations(ranked.episode, %{
               continuation_window: settings.continuation_window,
-              input_repository: entry.repository_ref,
+              input_repository: candidate_input_repository(entry),
               now: arrived,
               pinned_repository: ranked.repository_ref,
               source_owner: ranked.source_owner
@@ -1099,6 +1099,12 @@ defmodule Ryker.Admission do
 
     {:ok, candidates, receipt}
   end
+
+  # A Slack entry carries the channel's default repository before the model
+  # selects the repository named in the message. That default cannot rule out
+  # continuing work already pinned to a different repository in this channel.
+  defp candidate_input_repository(%Entry{source_kind: "slack"}), do: nil
+  defp candidate_input_repository(%Entry{repository_ref: repository_ref}), do: repository_ref
 
   # What each candidate last said or decided: routing chose between earlier
   # work it knew only by its opening message and the state "complete".

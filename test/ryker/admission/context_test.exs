@@ -12,6 +12,7 @@ defmodule Ryker.Admission.ContextTest do
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
+  alias Ryker.Work.Session
 
   @now ~U[2026-08-27 12:00:00.000000Z]
   @current_thread "1787832000.000100"
@@ -197,6 +198,46 @@ defmodule Ryker.Admission.ContextTest do
     assert {:ok, context} = build_context(current)
     candidate = Enum.find(context.candidates, &(&1.episode.id == active.id))
 
+    assert candidate.allowed_relations == [:same_work, :history_only]
+  end
+
+  test "a Slack channel default does not hide active work in another selected repository" do
+    episode =
+      create_episode!(
+        key: "selected-repository",
+        thread_ref: @current_thread,
+        content: %{"text" => "Update the test repository"}
+      )
+
+    Repo.insert!(%Session{
+      id: Ecto.UUID.generate(),
+      episode_id: episode.id,
+      external_ref: "selected-repository",
+      policy: "test-policy",
+      policy_digest: String.duplicate("a", 64),
+      repository_ref: "test"
+    })
+
+    input =
+      input!(
+        content: %{"text" => "Continue the README change in test"},
+        event_ref: "Ev-selected-repository-followup",
+        message_ref: "1787832001.000100",
+        thread_ref: @current_thread
+      )
+
+    assert {:ok, %{entry: entry}} =
+             Inbox.record(input,
+               work_profile: %{
+                 policy: "default-policy",
+                 policy_digest: String.duplicate("b", 64),
+                 repository_ref: "default"
+               }
+             )
+
+    assert entry.repository_ref == "default"
+    assert {:ok, context} = build_context(entry)
+    candidate = Enum.find(context.candidates, &(&1.episode.id == episode.id))
     assert candidate.allowed_relations == [:same_work, :history_only]
   end
 
