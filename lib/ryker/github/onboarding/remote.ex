@@ -93,7 +93,7 @@ defmodule Ryker.GitHub.Onboarding.Remote do
            }) do
       case pull do
         %{status: 201, body: %{"html_url" => url}} when is_binary(url) -> {:ok, %{url: url}}
-        %{status: status} when status in [401, 403] -> {:error, {:github_onboarding, :permission}}
+        %{status: status} = response when status in [401, 403] -> refused(response)
         _other -> reconcile_pull(client, repository.github_repository, owner)
       end
     end
@@ -105,7 +105,7 @@ defmodule Ryker.GitHub.Onboarding.Remote do
     case request(client, :get, path) do
       {:ok, %{status: 200}} -> {:ok, :existing}
       {:ok, %{status: 404}} -> create_branch(client, repository, source_commit)
-      {:ok, %{status: status}} when status in [401, 403] -> permission_error()
+      {:ok, %{status: status} = response} when status in [401, 403] -> refused(response)
       {:ok, _other} -> branch_error()
       {:error, _reason} = error -> error
     end
@@ -117,13 +117,24 @@ defmodule Ryker.GitHub.Onboarding.Remote do
            "sha" => source_commit
          }) do
       {:ok, %{status: 201}} -> {:ok, :created}
-      {:ok, %{status: status}} when status in [401, 403] -> permission_error()
+      {:ok, %{status: status} = response} when status in [401, 403] -> refused(response)
       {:ok, _other} -> branch_error()
       {:error, _reason} = error -> error
     end
   end
 
   defp permission_error, do: {:error, {:github_onboarding, :permission}}
+
+  # GitHub refuses every write to an archived repository with 403 "Repository
+  # was archived so is read-only", which read as a missing App permission
+  # (AndrewDryga/andrewdryga.github.com, 2026-09-27).
+  defp refused(%{body: %{"message" => message}}) when is_binary(message) do
+    if message =~ ~r/archived/i,
+      do: {:error, {:github_onboarding, :archived}},
+      else: permission_error()
+  end
+
+  defp refused(_response), do: permission_error()
   defp branch_error, do: {:error, {:github_onboarding, :branch}}
 
   # The stable setup branch is also the restart checkpoint. If a crash happened
@@ -155,8 +166,8 @@ defmodule Ryker.GitHub.Onboarding.Remote do
 
   defp file_written(%{status: status}) when status in [200, 201], do: :ok
 
-  defp file_written(%{status: status}) when status in [401, 403],
-    do: {:error, {:github_onboarding, :permission}}
+  defp file_written(%{status: status} = response) when status in [401, 403],
+    do: refused(response)
 
   defp file_written(_response), do: {:error, {:github_onboarding, :write}}
 
@@ -175,7 +186,7 @@ defmodule Ryker.GitHub.Onboarding.Remote do
       case response do
         %{status: 200, body: [pull | _]} -> {:ok, pull}
         %{status: 200, body: []} -> {:ok, :not_found}
-        %{status: status} when status in [401, 403] -> {:error, {:github_onboarding, :permission}}
+        %{status: status} = response when status in [401, 403] -> refused(response)
         _other -> {:error, {:github_onboarding, :pull_request}}
       end
     end
@@ -190,8 +201,8 @@ defmodule Ryker.GitHub.Onboarding.Remote do
           do: {:error, :repository_too_large},
           else: {:ok, entries}
 
-      {:ok, %{status: status}} when status in [401, 403] ->
-        permission_error()
+      {:ok, %{status: status} = response} when status in [401, 403] ->
+        refused(response)
 
       {:ok, %{status: 404}} ->
         {:error, {:github_onboarding, :not_found}}
@@ -238,8 +249,8 @@ defmodule Ryker.GitHub.Onboarding.Remote do
       when is_binary(content) ->
         decode_file(content)
 
-      {:ok, %{status: status}} when status in [401, 403] ->
-        permission_error()
+      {:ok, %{status: status} = response} when status in [401, 403] ->
+        refused(response)
 
       {:ok, _unavailable} ->
         {:error, :source_unavailable}

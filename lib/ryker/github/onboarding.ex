@@ -181,6 +181,11 @@ defmodule Ryker.GitHub.Onboarding do
   defp failure({:github_onboarding, :permission}),
     do: "The GitHub App is missing contents or pull-request permission."
 
+  defp failure({:github_onboarding, :archived}),
+    do:
+      "This repository is archived on GitHub, so Ryker can read it but cannot open its " <>
+        "knowledge pull request. Unarchive it on GitHub and retry, or remove it."
+
   defp failure({:github_onboarding, :not_found}),
     do: "The repository or base branch is no longer accessible."
 
