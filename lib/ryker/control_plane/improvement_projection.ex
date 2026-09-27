@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   import Ecto.Query
 
   alias Ryker.ControlPlane.{FeedbackProjection, PagedRelation, PathRef}
+  alias Ryker.Improvement
   alias Ryker.Improvement.Candidate
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
@@ -52,7 +53,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
       category: category,
       counts: status_counts(visible),
       categories: category_counts(in_status),
-      week: week(visible),
+      week: week(),
       exportable: exportable(),
       items: present(paged.items),
       listed: paged.total,
@@ -136,43 +137,11 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   # What the last seven days brought, by the database clock that stamps a
   # candidate and its decision: the candidates found, by what Ryker made of
   # them (a category, still to analyze, or not analyzed), and the ones
-  # accepted or dismissed. There is no weekly report to say it (the Weekly
-  # report setting posts nothing yet), so the page does.
-  defp week(visible) do
-    since = DateTime.add(Repo.now!(), -@week_seconds, :second)
-    found = from([candidate: candidate] in visible, where: candidate.inserted_at >= ^since)
-
-    counts =
-      Repo.one(
-        from([candidate: candidate] in visible,
-          select: %{
-            found: filter(count(), candidate.inserted_at >= ^since),
-            waiting:
-              filter(
-                count(),
-                candidate.inserted_at >= ^since and candidate.analysis in [:pending, :running] and
-                  candidate.status != :dismissed
-              ),
-            accepted:
-              filter(count(), candidate.status == :accepted and candidate.decided_at >= ^since),
-            dismissed:
-              filter(count(), candidate.status == :dismissed and candidate.decided_at >= ^since)
-          }
-        )
-      )
-
-    categories = category_counts(found)
-    categorized = categories |> Map.values() |> Enum.sum()
-
-    Map.merge(counts, %{
-      categories:
-        for(
-          category <- Candidate.categories(),
-          Map.has_key?(categories, category),
-          do: {category, Map.fetch!(categories, category)}
-        ),
-      not_analyzed: counts.found - categorized - counts.waiting
-    })
+  # accepted or dismissed. The weekly report says the same for its own week,
+  # from the same read (`Ryker.Improvement.week/2`).
+  defp week do
+    now = Repo.now!()
+    Improvement.week(DateTime.add(now, -@week_seconds, :second), DateTime.add(now, 1, :second))
   end
 
   defp exportable do
