@@ -20,6 +20,7 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
   alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Work.Custody
 
   @authority_digest String.duplicate("d", 64)
@@ -93,7 +94,7 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: "ryker",
                  workspace_ref: "workspace-main"
                },
@@ -210,7 +211,7 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
                "ryker"
              )
 
-    session
+    WorkerJob.pin!(session)
   end
 
   defp poll(worker_id, poll_ref, options \\ []) do
@@ -219,17 +220,14 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
       "command_results" => [],
       "event_batches" => Keyword.get(options, :event_batches, []),
       "poll_ref" => "poll:#{worker_id}:#{poll_ref}",
-      "version" => 1,
+      "version" => 2,
       "worker" => %{
         "build_version" => "coop-abc123",
-        "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+        "capabilities" => [%{"name" => "controller-tools", "version" => "1"}],
         "capacity" => Keyword.get(options, :capacity, capacity(2)),
         "clock_at" => DateTime.to_iso8601(Repo.now!()),
         "id" => worker_id,
-        "policy_authority_digests" => %{"work-read-only" => @authority_digest},
-        "policy_digests" => %{"work-read-only" => @policy_digest},
-        "protocol_version" => "1",
-        "repositories" => [%{"ref" => "ryker", "revision" => "commit:abc123"}],
+        "protocol_version" => "2",
         "sandbox_digest" => @sandbox_digest,
         "state" => "eligible",
         "storage" => Keyword.get(options, :storage),
