@@ -140,7 +140,9 @@ Passing deterministic and model gates does not deploy the runtime.
 ### Eval cases from feedback
 
 Memory › Feedback › What to fix lists the requests people were unhappy with, each with Ryker's own
-diagnosis of what went wrong (`Ryker.Improvement`). Accepting one keeps it as an eval case.
+diagnosis of what went wrong (`Ryker.Improvement`). Accepting one keeps it as an eval case. GitHub
+requests are analyzed too but cannot be accepted yet: a world scenario replays
+Slack and Chat messages, and the export does not write GitHub events.
 **Download eval cases** there, or `MIX_ENV=prod mix ryker.eval_cases --output DIR`, writes each
 accepted case as a world scenario directory: `scenario.json`, `tool-catalog.json` (the standard
 catalog, by reference), `routing.json` (each routing decision's exact prompt and answer) and

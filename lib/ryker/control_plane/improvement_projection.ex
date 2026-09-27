@@ -155,6 +155,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
         reasons: candidate.reasons,
         signal_count: candidate.signal_count,
         request: FeedbackProjection.request(requests, candidate),
+        transport: candidate.transport,
         analysis: candidate.analysis,
         error_code: candidate.error_code,
         category: candidate.category,

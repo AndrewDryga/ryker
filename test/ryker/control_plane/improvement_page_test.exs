@@ -153,9 +153,72 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     assert Enum.any?(entries, &String.ends_with?(to_string(elem(&1, 0)), "/scenario.json"))
   end
 
-  test "a request whose words are gone says so, and offers only Dismiss", %{waiting: waiting} do
-    Repo.update_all(from(c in Candidate, where: c.id == ^waiting.id),
-      set: [analysis: :failed, error_code: "improvement_evidence_unavailable"]
+  # Every request Ryker could not analyze once read "The person's messages
+  # were deleted or have expired", including GitHub requests whose comments
+  # it simply did not read, and requests an alert started with no person in
+  # them. Each says what is really missing.
+  test "a request Ryker could not analyze says why, and offers only Dismiss", %{waiting: waiting} do
+    for {code, why} <- [
+          {"improvement_evidence_unavailable",
+           "The person's messages were deleted or have expired, so there was nothing to analyze."},
+          {"improvement_evidence_wordless",
+           "The person's messages had no words Ryker can read, such as a file, an image or a review sent without any, so there was nothing to analyze."},
+          {"improvement_evidence_automated",
+           "No person asked for it: an alert, a schedule or an app's message started it, so there were no person's words to analyze."}
+        ] do
+      Repo.update_all(from(c in Candidate, where: c.id == ^waiting.id),
+        set: [analysis: :failed, error_code: code]
+      )
+
+      document =
+        Pages.page(["memory", "feedback", "fix"], %{}, options())
+        |> Map.fetch!(:body)
+        |> LazyHTML.from_fragment()
+
+      row = row(document, waiting.id)
+      assert text(LazyHTML.query(row, "h3 .state-word")) == "Not analyzed"
+      assert row |> LazyHTML.query("h3 .state-word") |> LazyHTML.attribute("title") == [why]
+      assert actions(row) == ["Dismiss"], code
+      assert confirmation("/actions/improvement/#{waiting.id}/accept").status == 404
+    end
+  end
+
+  # An eval case replays Slack and Chat messages; a GitHub request's
+  # diagnosis is still worth reading, and its row says why it has no Accept.
+  test "a GitHub request shows its diagnosis and says it cannot be kept as an eval case yet" do
+    entry = Answers.github_message!(body: "@ryker why did the payments export fail on PR 42?")
+
+    reply =
+      Answers.work_reply!(
+        entry,
+        "It timed out.",
+        "github:issue_comment:#{System.unique_integer([:positive])}",
+        DateTime.utc_now()
+      )
+
+    assert {:ok, _recorded} =
+             Feedback.record(%{
+               kind: :reviewed,
+               value: "cancelled",
+               actor_ref: "control-plane:local",
+               source: "control_plane",
+               source_ref: "episode-review:#{Ecto.UUID.generate()}",
+               occurred_at: DateTime.utc_now(),
+               request: {:episode, reply.episode.id}
+             })
+
+    github = Improvement.for_request({:episode, reply.episode.id})
+
+    Repo.update_all(from(c in Candidate, where: c.id == ^github.id),
+      set: [
+        analysis: :done,
+        category: :model_mistake,
+        step: :work,
+        confidence: :medium,
+        what_went_wrong: "It blamed a timeout; the export log shows a bad credential.",
+        expected: "Names the failed credential from the export log.",
+        analyzed_at: DateTime.utc_now()
+      ]
     )
 
     document =
@@ -163,16 +226,12 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
       |> Map.fetch!(:body)
       |> LazyHTML.from_fragment()
 
-    row = row(document, waiting.id)
-    assert text(LazyHTML.query(row, "h3 .state-word")) == "Not analyzed"
-
-    assert row |> LazyHTML.query("h3 .state-word") |> LazyHTML.attribute("title") ==
-             [
-               "The person's messages were deleted or have expired, so there was nothing to analyze."
-             ]
-
+    row = row(document, github.id)
+    assert text(LazyHTML.query(row, "h3 .state-word")) == "Model mistake"
+    assert text(row) =~ "It blamed a timeout"
+    assert text(row) =~ "Eval case GitHub requests cannot be kept as eval cases yet."
     assert actions(row) == ["Dismiss"]
-    assert confirmation("/actions/improvement/#{waiting.id}/accept").status == 404
+    assert confirmation("/actions/improvement/#{github.id}/accept").status == 404
   end
 
   test "the Feedback page says how many are to decide, accepted and dismissed, and what went wrong",

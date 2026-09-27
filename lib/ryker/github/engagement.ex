@@ -6,6 +6,7 @@ defmodule Ryker.GitHub.Engagement do
   alias Ryker.Behaviors
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.Binding
+  alias Ryker.GitHub.Input, as: GitHubInput
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
   alias Ryker.Repo
@@ -51,7 +52,7 @@ defmodule Ryker.GitHub.Engagement do
   defp mentioned?(input, bot_login) when is_binary(bot_login) do
     with "github-user:" <> id <- input.actor.ref,
          {_id, ""} <- Integer.parse(id),
-         text when is_binary(text) <- message_text(input.content) do
+         text when is_binary(text) <- GitHubInput.body(input.content) do
       cleaned = strip_quoted_and_code(text)
 
       Regex.match?(
@@ -64,13 +65,6 @@ defmodule Ryker.GitHub.Engagement do
   end
 
   defp mentioned?(_input, _bot_login), do: false
-
-  defp message_text(%{"payload" => payload}) do
-    get_in(payload, ["comment", "body"]) || get_in(payload, ["review", "body"]) ||
-      get_in(payload, ["issue", "body"]) || get_in(payload, ["pull_request", "body"])
-  end
-
-  defp message_text(_content), do: nil
 
   defp strip_quoted_and_code(text) do
     text

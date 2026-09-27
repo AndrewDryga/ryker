@@ -23,10 +23,13 @@ defmodule Ryker.ControlPlane.ImprovementPage do
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.Kit
+  alias Ryker.Improvement
   alias Ryker.Improvement.Candidate
 
   @path "/memory/feedback/fix"
   @download "/memory/feedback/fix/eval-cases.zip"
+  @missing ~w(improvement_evidence_unavailable improvement_evidence_wordless
+    improvement_evidence_automated)
 
   @doc "The page's own address."
   def path, do: @path
@@ -129,8 +132,11 @@ defmodule Ryker.ControlPlane.ImprovementPage do
       at_time={@item.at}
       group={@group}
     >
-      <:details :if={@item.expected}>
-        <Kit.facts facts={[{"Ryker should have", @item.expected}]} />
+      <:details :if={@item.expected || not Improvement.replayable?(@item)}>
+        <Kit.facts facts={[
+          {"Ryker should have", @item.expected},
+          {"Eval case", unless(Improvement.replayable?(@item), do: unsupported(@item))}
+        ]} />
       </:details>
       <:actions>
         <.action_button
@@ -148,11 +154,19 @@ defmodule Ryker.ControlPlane.ImprovementPage do
     """
   end
 
-  # A request whose person's words are all gone has no case to keep.
-  defp acceptable?(%{analysis: :failed, error_code: "improvement_evidence_unavailable"}),
-    do: false
+  @doc """
+  Whether a request can be accepted as an eval case: Ryker found the
+  person's words (`Ryker.Improvement.Evidence.gather/2`), from a place a
+  world scenario replays (`Ryker.Improvement.replayable?/1`).
+  """
+  @spec acceptable?(map()) :: boolean()
+  def acceptable?(%{analysis: :failed, error_code: code}) when code in @missing, do: false
+  def acceptable?(item), do: Improvement.replayable?(item)
 
-  defp acceptable?(_item), do: true
+  defp unsupported(%{transport: "github"}),
+    do: "GitHub requests cannot be kept as eval cases yet."
+
+  defp unsupported(_item), do: "Requests from here cannot be kept as eval cases yet."
 
   # -- Words -----------------------------------------------------------------------
 
@@ -210,6 +224,14 @@ defmodule Ryker.ControlPlane.ImprovementPage do
 
   defp failure("improvement_evidence_unavailable"),
     do: "The person's messages were deleted or have expired, so there was nothing to analyze."
+
+  defp failure("improvement_evidence_wordless"),
+    do:
+      "The person's messages had no words Ryker can read, such as a file, an image or a review sent without any, so there was nothing to analyze."
+
+  defp failure("improvement_evidence_automated"),
+    do:
+      "No person asked for it: an alert, a schedule or an app's message started it, so there were no person's words to analyze."
 
   defp failure("improvement_retry_exhausted"),
     do: "Ryker tried three times and got no usable answer from the learning models."

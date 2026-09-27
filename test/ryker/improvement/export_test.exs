@@ -3,7 +3,7 @@ defmodule Ryker.Improvement.ExportTest do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.ConversationLab
+  alias Ryker.ControlPlane.{ActionRefusal, ConversationLab}
   alias Ryker.Evals.WorldCase
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
@@ -360,6 +360,44 @@ defmodule Ryker.Improvement.ExportTest do
     assert [event] = scenario.events
     assert event["payload"]["text"] == "Is the staging database healthy?"
     assert event["occurred_at"] == DateTime.to_iso8601(question.occurred_at)
+  end
+
+  # A world scenario replays Slack and Chat messages; a GitHub comment has
+  # other fields the export does not write yet. Accepting one would keep a
+  # case whose scenario the world runner refuses, and one refused directory
+  # stops every world scenario from loading, so accepting says why instead.
+  test "a GitHub request cannot be kept as an eval case yet, and accepting says why" do
+    entry = Answers.github_message!(body: "@ryker why did the payments export fail on PR 42?")
+
+    reply =
+      Answers.work_reply!(
+        entry,
+        "It timed out.",
+        "github:issue_comment:#{System.unique_integer([:positive])}",
+        DateTime.add(entry.occurred_at, 60, :second)
+      )
+
+    assert {:ok, _recorded} =
+             Feedback.record(%{
+               kind: :reviewed,
+               value: "cancelled",
+               actor_ref: "control-plane:local",
+               source: "control_plane",
+               source_ref: "episode-review:#{Ecto.UUID.generate()}",
+               occurred_at: DateTime.add(entry.occurred_at, 120, :second),
+               request: {:episode, reply.episode.id}
+             })
+
+    candidate = Improvement.for_request({:episode, reply.episode.id})
+
+    assert Improvement.accept(candidate.id, "control-plane:local") ==
+             {:error, :improvement_case_unsupported}
+
+    assert ActionRefusal.explain(:improvement_case_unsupported) =~
+             "GitHub requests cannot be kept as eval cases yet"
+
+    assert Repo.get!(Candidate, candidate.id).status == :open
+    assert Export.accepted() == []
   end
 
   # The harvested correction: a person asks Ryker to check their

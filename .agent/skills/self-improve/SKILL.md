@@ -50,6 +50,7 @@ mistake, not a problem or unclear, the step, what went wrong and what it should 
 
 - Read the surest diagnoses first; open the Timeline where one looks wrong.
 - Accept the real problems as eval cases and dismiss the rest (both are two-step confirms).
+  A GitHub request cannot be accepted yet; fix what its diagnosis names directly.
 - `MIX_ENV=prod mix ryker.eval_cases --output DIR` (or Download eval cases on the page) writes the
   accepted cases as world scenarios; fill in what each `PROVENANCE.md` lists, add them under
   `testdata/scenarios/`, and fix the host or prompt side test-first as in section 1.

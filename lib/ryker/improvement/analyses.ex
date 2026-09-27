@@ -30,7 +30,12 @@ defmodule Ryker.Improvement.Analyses do
 
   @contract_failures ~w(output_contract_failed invalid_improvement_result)
   # Causes another start would meet again: they end the analysis at once.
-  @stopping_reasons [:improvement_evidence_unavailable, :improvement_prompt_too_large]
+  @stopping_reasons [
+    :improvement_evidence_unavailable,
+    :improvement_evidence_wordless,
+    :improvement_evidence_automated,
+    :improvement_prompt_too_large
+  ]
   @terminal ~w(completed failed cancelled interrupted budget_exhausted)
 
   @type claim :: %{candidate: Candidate.t(), lease_ref: Ecto.UUID.t()}
@@ -334,7 +339,7 @@ defmodule Ryker.Improvement.Analyses do
       )
 
       evidence = Evidence.gather(candidate)
-      unless evidence.available?, do: Repo.rollback(:improvement_evidence_unavailable)
+      unless evidence.available?, do: Repo.rollback(evidence.missing)
 
       request = Prompt.build(evidence, retry?(candidate))
       prompt = Prompt.render(request)

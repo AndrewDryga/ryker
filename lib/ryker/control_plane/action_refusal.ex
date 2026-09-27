@@ -27,6 +27,18 @@ defmodule Ryker.ControlPlane.ActionRefusal do
     do:
       "The person's messages were deleted or have expired, so there is nothing to keep as an eval case. You can still dismiss it."
 
+  def explain(:improvement_evidence_wordless),
+    do:
+      "The person's messages have no words Ryker can read, so there is nothing to keep as an eval case. You can still dismiss it."
+
+  def explain(:improvement_evidence_automated),
+    do:
+      "No person asked for it, so there is nothing to keep as an eval case. You can still dismiss it."
+
+  def explain(:improvement_case_unsupported),
+    do:
+      "GitHub requests cannot be kept as eval cases yet: an eval case replays Slack and Chat messages. You can still dismiss it."
+
   def explain(_reason),
     do: "Ryker did not do this. The page may be out of date: go back, reload it, and try again."
 end

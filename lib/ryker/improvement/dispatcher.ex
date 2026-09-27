@@ -81,6 +81,8 @@ defmodule Ryker.Improvement.Dispatcher do
       {:error, reason}
       when reason in [
              :improvement_evidence_unavailable,
+             :improvement_evidence_wordless,
+             :improvement_evidence_automated,
              :improvement_prompt_too_large,
              :improvement_retry_exhausted
            ] ->

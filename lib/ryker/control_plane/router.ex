@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.Router do
     FactsPage,
     FailureExplanation,
     HTML,
+    ImprovementPage,
     LabControls,
     LearningActivity,
     PathRef,
@@ -864,20 +865,23 @@ defmodule Ryker.ControlPlane.Router do
   # each can be changed back later, so neither is in the danger tone.
   defp confirmation("improvement", resource_ref, action, options)
        when action in ["accept", "dismiss"] do
-    case options.projection.improvement_candidate.(resource_ref) do
-      {:ok, %{status: status} = item}
-      when (action == "accept" and status != :accepted and
-              item.error_code != "improvement_evidence_unavailable") or
-             (action == "dismiss" and status != :dismissed) ->
-        {title, explanation} = improvement_confirmation(action, item)
-        {:ok, title, explanation, "improvement:#{action}"}
-
-      _unavailable ->
-        {:error, :not_found}
+    with {:ok, item} <- options.projection.improvement_candidate.(resource_ref),
+         true <- improvement_decidable?(action, item) do
+      {title, explanation} = improvement_confirmation(action, item)
+      {:ok, title, explanation, "improvement:#{action}"}
+    else
+      _unavailable -> {:error, :not_found}
     end
   end
 
   defp confirmation(_kind, _resource_ref, _action, _snapshot), do: {:error, :not_found}
+
+  # Accept only what can become an eval case and is not one yet; dismiss
+  # anything not dismissed already.
+  defp improvement_decidable?("accept", item),
+    do: item.status != :accepted and ImprovementPage.acceptable?(item)
+
+  defp improvement_decidable?("dismiss", item), do: item.status != :dismissed
 
   defp improvement_confirmation("accept", item) do
     {"Accept this as an eval case?",
