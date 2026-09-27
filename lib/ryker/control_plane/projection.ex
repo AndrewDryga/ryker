@@ -39,6 +39,7 @@ defmodule Ryker.ControlPlane.Projection do
 
   alias Ryker.Improvement.Export, as: EvalCases
   alias Ryker.RoutingExamples.Export
+  alias Ryker.WeeklyReport
 
   @spec callbacks() :: map()
   def callbacks do
@@ -82,6 +83,7 @@ defmodule Ryker.ControlPlane.Projection do
       subscriptions: &SubscriptionProjection.list/1,
       usage: &UsageProjection.page/1,
       usage_filter_options: &UsageProjection.filter_options/0,
+      weekly_report_preview: &WeeklyReport.preview/0,
       workspace: &WorkspaceProjection.fetch/1,
       workspace_storage: &WorkspaceProjection.storage/0,
       workspaces: &WorkspaceProjection.list/1

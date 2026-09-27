@@ -248,21 +248,36 @@ defmodule Ryker.ControlPlane.SettingsSections do
       domain: :report,
       kind: :singleton,
       schema: Report,
-      title: "Weekly report",
+      title: "When and where it posts",
       description:
-        "One recurring self report on the existing schedule boundary. " <>
-          "New installations start with it off.",
+        "Ryker posts its report in one Slack channel, once a week, at the day and time you " <>
+          "choose. It stays off until you turn it on.",
       fields: [
-        %{name: :weekly_self_report_enabled, kind: :boolean, label: "Post a weekly report"},
-        %{name: :channel_ref, kind: :text, label: "Channel ID", placeholder: "C0123456789"},
+        %{
+          name: :weekly_self_report_enabled,
+          kind: :boolean,
+          label: "Post a weekly report",
+          help:
+            "The first report goes out at the next day and time below, never the moment " <>
+              "you turn it on."
+        },
+        %{
+          name: :channel_ref,
+          kind: :text,
+          label: "Channel ID",
+          placeholder: "C0123456789",
+          help:
+            "The channel's ID from Slack, under its name's details. Invite Ryker to the " <>
+              "channel first."
+        },
         %{name: :weekday, kind: :select, label: "Day", options: @weekdays},
-        %{name: :local_time, kind: :time, label: "Local time"},
+        %{name: :local_time, kind: :time, label: "Time"},
         %{
           name: :timezone,
           kind: :text,
           label: "Time zone",
-          placeholder: "Europe/Berlin",
-          help: "An IANA name such as Europe/Berlin. The post follows that zone across DST."
+          placeholder: "Etc/UTC",
+          help: "The day and time are read in this zone. This release knows Etc/UTC only."
         }
       ]
     },

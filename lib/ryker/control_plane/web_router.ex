@@ -40,7 +40,7 @@ defmodule Ryker.ControlPlane.WebRouter do
       live("/integrations/#{page}", Ryker.ControlPlane.WorkbenchLive)
     end
 
-    for page <- ~w(models retention prices advanced) do
+    for page <- ~w(models retention prices report advanced) do
       live("/settings/#{page}", Ryker.ControlPlane.WorkbenchLive)
     end
 

@@ -1625,7 +1625,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              pages: 1
            }
 
-    assert map_size(Projection.callbacks()) == 42
+    assert map_size(Projection.callbacks()) == 43
     # The requests to improve and the eval cases accepted from them, for
     # Memory › Feedback › What to fix and its download.
     assert is_function(Projection.callbacks().improvement, 1)
@@ -1633,6 +1633,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert is_function(Projection.callbacks().eval_cases, 0)
     # The routing examples kept for training, a line at a time, for the download.
     assert is_function(Projection.callbacks().routing_examples, 2)
+    # What a weekly report sent now would say, for Settings › Weekly report.
+    assert is_function(Projection.callbacks().weekly_report_preview, 0)
     # What people told Ryker about its answers, for the Feedback page.
     assert is_function(Projection.callbacks().feedback, 1)
     # One finding, for the question its Forget or Mark explained asks first.

@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   `SetupPage`), the environments Ryker works in (see `EnvironmentsPage`), the
   Integrations overview and a page per integration (Slack, GitHub, Emisar,
   Webhooks), and the Settings overview and a page per installation setting
-  (Models, Data retention, Model prices, Advanced). The sidebar is the only
+  (Models, Data retention, Model prices, Weekly report, Advanced). The sidebar is the only
   menu; each page has one title, one sentence and its parts in Kit section
   cards, the overviews and one-part pages included.
 
@@ -34,11 +34,15 @@ defmodule Ryker.ControlPlane.SettingsPage do
     SettingsRows,
     SettingsSections,
     SetupPage,
+    SlackMarkdown,
     WebhookPreview
   }
 
   alias Ryker.Settings
+  alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
+
+  @weekdays ~w(Monday Tuesday Wednesday Thursday Friday Saturday Sunday)
 
   @doc "The title of one page: the name it has in the sidebar, or Set up Ryker."
   @spec title(atom()) :: String.t()
@@ -70,6 +74,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
   )
 
   attr(:params, :map, default: %{}, doc: "The page's query, for pages that search")
+
+  attr(:preview, :any,
+    default: nil,
+    doc: "The weekly report a send now would post (`Ryker.WeeklyReport.preview/1`), when asked"
+  )
 
   def render(%{view: {:error, :settings_not_initialized}} = assigns) do
     assigns = assign(assigns, :page, page(assigns.section))
@@ -225,8 +234,44 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <div :if={@section == :system} class="settings-running">
           {Phoenix.HTML.raw(@body)}
         </div>
+        <.weekly_preview :if={@section == :report} preview={@preview} />
       <% end %>
     </div>
+    """
+  end
+
+  # Weekly report preview ------------------------------------------------------
+
+  attr(:preview, :any, required: true)
+
+  # What a report sent now would say, in the words the channel would get,
+  # rendered as the page renders any Slack message. Asking for it posts
+  # nothing and records nothing; it is a link, so it reads the same on a
+  # reload.
+  defp weekly_preview(assigns) do
+    ~H"""
+    <Kit.section_card
+      id="weekly-report-preview"
+      title="Preview"
+      lede="What a report sent now would say, from the seven days before now. Nothing is posted."
+    >
+      <:actions>
+        <.link
+          :if={is_nil(@preview)}
+          id="preview-weekly-report"
+          patch="/settings/report?preview=week"
+          class="ui-button secondary"
+        >
+          Preview this week's report
+        </.link>
+        <.link :if={@preview} patch="/settings/report" class="ui-button quiet">
+          Hide the preview
+        </.link>
+      </:actions>
+      <div :if={@preview} id="weekly-report-text" class="markdown-preview weekly-report-preview">
+        {Phoenix.HTML.raw(SlackMarkdown.preview(@preview.text))}
+      </div>
+    </Kit.section_card>
     """
   end
 
@@ -418,6 +463,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     model: "/settings/models",
     retention: "/settings/retention",
     pricing: "/settings/prices",
+    report: "/settings/report",
     system: "/settings/advanced"
   ]
 
@@ -440,6 +486,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   defp sets(:pricing),
     do: "What each model costs, for estimating cost when the provider does not report it."
+
+  defp sets(:report),
+    do: "Whether Ryker posts a weekly report of how its week went, where and when."
 
   defp sets(:system), do: "Where work runs and what each kind of work may do."
 
@@ -469,6 +518,19 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
       true ->
         "Uses #{Environments.sentence(models)}, with fallbacks for #{Environments.sentence(fallbacks)}"
+    end
+  end
+
+  defp set_now(:report, %{snapshot: %{report: report, slack: slack}}) do
+    if report.weekly_self_report_enabled do
+      "Posts #{Enum.at(@weekdays, report.weekday - 1)}s at " <>
+        "#{Calendar.strftime(report.local_time, "%H:%M")} #{report.timezone}" <>
+        if(is_binary(slack.workspace_ref) and is_binary(report.channel_ref),
+          do: " in " <> Names.destination("slack:#{slack.workspace_ref}:#{report.channel_ref}"),
+          else: ""
+        )
+    else
+      "Off"
     end
   end
 
@@ -1337,6 +1399,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   defp editors(:model), do: [:request_models, :other_models, :model_accounts, :local_routing]
   defp editors(:retention), do: [:retention]
   defp editors(:pricing), do: [:pricing]
+  defp editors(:report), do: [:report]
   defp editors(:system), do: [:work]
   defp editors(_section), do: []
 
@@ -1344,8 +1407,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # some pages like this have islands while others dont"). A page of several
   # cards titles each one; a page that is one card, such as Data retention or
   # Model prices, leaves it untitled under the page's own title.
-  # Advanced has other parts beside its one editor, so its card keeps a title.
-  defp titled?(:system), do: true
+  # Advanced and Weekly report have other parts beside their one editor, so
+  # its card keeps a title.
+  defp titled?(section) when section in [:system, :report], do: true
   defp titled?(section), do: length(editors(section)) > 1
 
   # Any model or fallback no price covers. The notice is the page's, above its
@@ -1495,7 +1559,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       title: "Settings",
       description:
         "How Ryker itself runs: the models it uses, how long it keeps data, what models " <>
-          "cost and where its work runs."
+          "cost, its weekly report and where its work runs."
     }
 
   defp page(:slack),
@@ -1538,6 +1602,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
     do: %{
       title: "Data retention",
       description: "How many days Ryker keeps each kind of data before deleting it."
+    }
+
+  defp page(:report),
+    do: %{
+      title: "Weekly report",
+      description:
+        "Once a week Ryker can post how its week went in a Slack channel: what people asked, " <>
+          "how they took its answers, what went wrong, what it learned and what it cost."
     }
 
   defp page(:pricing),

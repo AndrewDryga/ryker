@@ -70,6 +70,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     ["settings", "models"] => :model,
     ["settings", "retention"] => :retention,
     ["settings", "prices"] => :pricing,
+    ["settings", "report"] => :report,
     ["settings", "advanced"] => :system
   }
 
@@ -137,6 +138,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        welcome_pending: nil,
        slack_members: [],
        settings_form: nil,
+       weekly_preview: nil,
        carried_notice: nil,
        action_question: nil,
        overview: nil,
@@ -1432,6 +1434,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       settings_commands: settings_commands(options),
       settings_section: section,
       settings_form: form,
+      # Asked for with a link, so a reload shows it again; read afresh with
+      # the page, it never posts or records anything.
+      weekly_preview:
+        if(
+          section == :report and is_nil(form) and match?({:ok, _view}, settings) and
+            socket.assigns.params["preview"] == "week",
+          do: options.projection.weekly_report_preview.()
+        ),
       body:
         if(section == :system and is_nil(form),
           do: configuration_evidence(options, settings),
@@ -2230,6 +2240,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             slack_members={@slack_members}
             form={@settings_form}
             params={@params}
+            preview={@weekly_preview}
           />
           <div :if={@native == :instructions} class="secondary-page instructions-page">
             <Components.page_header
