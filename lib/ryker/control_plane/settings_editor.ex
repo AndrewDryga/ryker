@@ -556,9 +556,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           meta={row.meta}
         >
           <:actions>
-            <.link patch={edit_path(@paths, key)} class="ui-button secondary">
-              Edit<span class="sr-only">{" " <> row.name}</span>
-            </.link>
+            <.link
+              patch={edit_path(@paths, key)}
+              class="ui-button secondary"
+            >Edit<span class="sr-only">{" " <> row.name}</span></.link>
             <button
               type="button"
               class="ui-button quiet"

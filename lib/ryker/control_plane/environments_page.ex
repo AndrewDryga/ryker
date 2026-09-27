@@ -72,9 +72,10 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
           meta={meta(environment, @view)}
         >
           <:actions>
-            <.link patch={edit_path(environment.ref)} class="ui-button secondary">
-              Edit<span class="sr-only">{" " <> environment.display_name}</span>
-            </.link>
+            <.link
+              patch={edit_path(environment.ref)}
+              class="ui-button secondary"
+            >Edit<span class="sr-only">{" " <> environment.display_name}</span></.link>
             <button
               :if={!environment.is_default}
               type="button"
