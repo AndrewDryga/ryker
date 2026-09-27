@@ -560,7 +560,6 @@
 .ui-message-body > :last-child { margin-bottom:0; }
 .ui-message-footer { max-width:none; margin:8px 0 0; padding:0 20px 12px; border:0; color:var(--ryker-text-secondary); font-size:13px; line-height:20px; }
 .ui-message-footer > .ui-disclosure { margin:0; padding:0; border:0; }
-.ui-message-footer > .response-reference { display:inline-flex; align-items:center; min-height:44px; text-decoration:underline; text-underline-offset:3px; }
 .case-event-content { display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:16px; align-items:start; }
 .case-event-summary { grid-column:1 / -1; }
 .candidate-evidence { grid-column:1 / -1; min-width:0; }
@@ -652,7 +651,10 @@
 .timeline-artifact pre { font-size:13px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; max-height:none; color:var(--ink); background:var(--ryker-surface-raised); }
 .candidate-response { min-width:0; margin-top:8px; }
 .candidate-decision-reason { margin:10px 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; }
-.candidate-sent { margin:10px 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; }
+/* The new title an answer gave its request, on that answer's card. */
+.title-update { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:12px 0 4px; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
+.title-update .ui-icon { width:16px; height:16px; flex:none; color:var(--ryker-accent-strong); }
+.title-update strong { min-width:0; color:var(--ryker-text); font-weight:600; }
 .candidate-response-raw { margin-top:8px; border-left-color:var(--ryker-info); }
 .prompt-assembly { margin:0; }
 .episode-request > .prompt-assembly { margin-top:24px; }
@@ -1340,7 +1342,6 @@
 .request-decision dd { font-size:13px; font-weight:400; }
 .request-timing { margin-top:14px; padding-top:10px; }
 .request-timing dd { font-family:var(--ryker-font-mono); font-size:12px; }
-.episode-request > .response-reference { margin:10px 0 0; font-size:13px; }
 .case-card-heading + .ui-facts { margin-top:12px; }
 .ryker-app .case-entry-body .ui-facts > div:first-child { border-top:0; }
 
@@ -1378,7 +1379,6 @@
 .ryker-app .ui-message-footer .ui-facts dt { font-size:11px; line-height:16px; }
 .ryker-app .ui-message-footer .ui-facts dd { font-size:13px; }
 .ui-message-footer .ui-disclosure .ui-disclosure { margin:0; border-top:1px solid var(--bubble-divider); }
-.ui-message-footer > .response-reference { min-height:32px; font-size:12px; }
 .ui-message + .ui-message { margin-top:20px; }
 /* In the timeline the message is the card's content and its title is the card title */
 .message-container .case-entry-body { padding:14px 18px 12px; border:1px solid var(--ryker-stroke); background:var(--ryker-surface-raised); }
@@ -2188,6 +2188,10 @@
 .call-run > div { display:contents; }
 .call-run dt { font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
 .call-run dd { margin:0; font-size:13px; line-height:20px; color:var(--ryker-text); font-variant-numeric:tabular-nums; }
+.episode-request > .case-card-heading + .call-run { margin-top:12px; padding-top:0; border-top:0; }
+.call-run-corrections { display:flex; flex-direction:column; align-items:flex-start; gap:2px; margin-top:2px; }
+.call-run-corrections a { color:var(--ryker-text-secondary); text-decoration:underline; text-decoration-color:var(--ryker-stroke-strong); text-underline-offset:3px; }
+.call-run-corrections a:hover, .call-run-corrections a:focus-visible { color:var(--ryker-accent-strong); }
 @media (max-width:580px) {
   .request-decision { grid-template-columns:1fr; gap:2px 0; }
   .request-decision dd { margin-bottom:6px; }

@@ -322,34 +322,38 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute html =~ "Validation history"
   end
 
-  test "an answer that named its episode shows the name on its card" do
-    # The title is set by the answer the host accepted; the card that shows
-    # that answer is where a reader learns when the episode got its name.
-    html =
-      render_request(:work, :result, [
-        section("candidate", "Response to validate", %{
-          "delivery" => "reply",
-          "message" => "Checked.",
-          "outcome" => %{"record_refs" => []},
-          "title" => "Investigate checkout 502s"
-        })
-      ])
+  # Andrew, 2026-09-27, of a card that read "Request title Hello": "what is
+  # this? updating title of episode? maybe say that? ... or do not show it if
+  # title stayed the same." Every answer carries a title, so the row showed on
+  # every answer, the same one each time.
+  test "an answer's card says it renamed the request only when it did" do
+    answer = %{
+      "delivery" => "reply",
+      "message" => "Checked.",
+      "outcome" => %{"record_refs" => []},
+      "title" => "Investigate checkout 502s"
+    }
 
-    title = html |> LazyHTML.from_fragment() |> LazyHTML.query(".response-title")
-    assert LazyHTML.text(title) =~ "Request title"
-    assert LazyHTML.text(title) =~ "Investigate checkout 502s"
+    renamed =
+      render_component(&EpisodeRequest.render/1,
+        request:
+          request(:work, :result, [section("candidate", "Response to validate", answer)])
+          |> Map.put(:title_update, "Investigate checkout 502s")
+      )
+      |> LazyHTML.from_fragment()
 
-    untitled =
-      render_request(:work, :result, [
-        section("candidate", "Response to validate", %{
-          "delivery" => "reply",
-          "message" => "Checked.",
-          "outcome" => %{"record_refs" => []},
-          "title" => nil
-        })
-      ])
+    assert renamed |> LazyHTML.query(".title-update") |> LazyHTML.text() |> words() ==
+             "Title updated to: Investigate checkout 502s"
 
-    refute untitled =~ "response-title"
+    # The same title again, as every later answer of the request sends it.
+    # Only the raw response, opened on purpose, still carries it.
+    kept =
+      render_request(:work, :result, [section("candidate", "Response to validate", answer)])
+      |> LazyHTML.from_fragment()
+
+    assert kept |> LazyHTML.query(".title-update") |> Enum.empty?()
+    refute kept |> LazyHTML.query(".response-review") |> LazyHTML.text() =~ "502s"
+    refute LazyHTML.text(kept) =~ "Request title"
   end
 
   test "sent text stays visible even when it matches the validated response" do
@@ -396,8 +400,16 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       assert Enum.count(previews, &String.contains?(&1, "The check is partial")) ==
                if(transformed, do: 1, else: 2)
 
-      assert LazyHTML.query(document, "a.response-reference") |> Enum.count() ==
-               if(transformed, do: 0, else: 1)
+      # Andrew, 2026-09-27: the links between a reply and its checked
+      # answer ("View validated response ↑", "View response with attempt
+      # 1's checks ↑") are gone; both cards are on the same page.
+      assert LazyHTML.query(document, ".response-reference") |> Enum.empty?()
+      refute LazyHTML.text(document) =~ "View validated response"
+
+      # A reply is Ryker's, whether or not it went out as checked. The
+      # title came from that link, so a changed reply read "Incoming message".
+      assert LazyHTML.query(document, "#story-message-turn .ui-message-title")
+             |> LazyHTML.text() == "Sent response"
 
       if transformed,
         do: assert(Enum.any?(previews, &String.contains?(&1, "A corrected response")))
@@ -1192,7 +1204,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute html =~ "End of retained execution"
   end
 
-  test "a sent response keeps its text when an exact validated response is linked" do
+  test "a sent response keeps its text when it matches the checked answer" do
     # The latest-outcome shortcut landed on an empty message surface: the link
     # to the validated attempt replaced the very reply the operator came to see.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
@@ -1235,8 +1247,10 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.query(sent, ".ui-message-title") |> LazyHTML.text() == "Sent response"
     assert LazyHTML.query(sent, ".ui-message-body") |> LazyHTML.text() =~ reply.text
 
-    assert LazyHTML.query(sent, "a.response-reference") |> LazyHTML.text() =~
-             "View validated response"
+    # Nothing under the reply leads away from it; the checked answer is on
+    # the same page.
+    assert LazyHTML.query(sent, ".ui-message-footer") |> Enum.empty?()
+    refute LazyHTML.text(sent) =~ "validated response"
   end
 
   test "the header keeps state, actions and navigation in their operator-facing order" do
@@ -1644,6 +1658,52 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute LazyHTML.text(document) =~ "Not reviewed"
   end
 
+  # The same question, on the card of the model call: "Passed first time"
+  # read fine, but a call that needed corrections said "Passed after 1
+  # correction" and gave no way to the answer that was sent back.
+  test "a model call's checks line says on which attempt it passed and leads to what was sent back" do
+    run = fn checks, corrections ->
+      %{
+        target: "codex:gpt-5.6-sol/high@work",
+        tokens: nil,
+        cost: nil,
+        checks: checks,
+        corrections: corrections,
+        segments: [],
+        total_ms: 1_200
+      }
+    end
+
+    first =
+      render_component(&EpisodeRequest.render/1,
+        request: Map.put(request(:work, :result, []), :run, run.("Passed first time", []))
+      )
+      |> LazyHTML.from_fragment()
+
+    assert checks(first) == "Passed first time"
+    assert first |> LazyHTML.query(".call-run a") |> Enum.empty?()
+
+    corrected =
+      render_component(&EpisodeRequest.render/1,
+        request:
+          Map.put(
+            request(:work, :result, []),
+            :run,
+            run.("Passed on attempt 2 · 1 correction", [
+              %{attempt: 1, href: "#event-turn-recorded-validation-1"}
+            ])
+          )
+      )
+      |> LazyHTML.from_fragment()
+
+    assert checks(corrected) ==
+             "Passed on attempt 2 · 1 correction Attempt 1 was sent back to be fixed ↑"
+
+    assert corrected |> LazyHTML.query(".call-run a") |> LazyHTML.attribute("href") == [
+             "#event-turn-recorded-validation-1"
+           ]
+  end
+
   test "active work calls its pending response waiting without missing-measurement prose" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = Projection.episode(episode.key)
@@ -1708,19 +1768,29 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute text =~ "min 0s"
   end
 
-  defp render_request(kind, phase, sections) do
-    render_component(&EpisodeRequest.render/1,
-      request: %{
-        id: "recorded-request",
-        source_kind: kind,
-        phase: phase,
-        target: "codex:gpt-5.6-terra/medium@emisar",
-        timing: [],
-        coverage: "Retained only",
-        href: "/timeline/example#recorded-request",
-        sections: sections
-      }
-    )
+  defp render_request(kind, phase, sections),
+    do: render_component(&EpisodeRequest.render/1, request: request(kind, phase, sections))
+
+  defp request(kind, phase, sections) do
+    %{
+      id: "recorded-request",
+      source_kind: kind,
+      phase: phase,
+      target: "codex:gpt-5.6-terra/medium@emisar",
+      timing: [],
+      coverage: "Retained only",
+      href: "/timeline/example#recorded-request",
+      sections: sections
+    }
+  end
+
+  defp checks(document) do
+    document
+    |> LazyHTML.query(".call-run > div")
+    |> Enum.find(&(&1 |> LazyHTML.query("dt") |> LazyHTML.text() == "Checks"))
+    |> LazyHTML.query("dd")
+    |> LazyHTML.text()
+    |> words()
   end
 
   defp section(id, title, value),

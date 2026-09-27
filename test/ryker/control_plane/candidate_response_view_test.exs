@@ -142,6 +142,40 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
     end
   end
 
+  # Andrew, 2026-09-27, of a checked answer's card that read "Sent as
+  # written. Read the reply below ↓": drop it. The reply is on the same page,
+  # a few cards down, so the checked answer's card keeps its check and its raw
+  # response and says nothing about where the text went.
+  test "an answer sent exactly as checked leaves its card without the text or a pointer to it" do
+    [%{text: body} = response, _second] = responses()
+    message = Jason.decode!(body)["message"]
+
+    unsent =
+      render_component(&RequestPage.candidate_response/1,
+        response: response,
+        attempt: 1,
+        prefix: "turn-x"
+      )
+      |> LazyHTML.from_fragment()
+
+    assert unsent |> LazyHTML.query(".ui-message-body") |> LazyHTML.text() =~
+             String.slice(message, 0, 40)
+
+    sent =
+      render_component(&RequestPage.candidate_response/1,
+        response: response,
+        attempt: 1,
+        prefix: "turn-x",
+        sent: true
+      )
+      |> LazyHTML.from_fragment()
+
+    assert sent |> LazyHTML.query(".ui-message") |> Enum.empty?()
+    assert sent |> LazyHTML.query(".candidate-response-body a") |> Enum.empty?()
+    refute LazyHTML.text(sent) =~ "Sent as written"
+    assert sent |> LazyHTML.query(".ui-disclosure summary") |> LazyHTML.text() =~ "Raw response"
+  end
+
   defp responses do
     @fixture
     |> File.read!()

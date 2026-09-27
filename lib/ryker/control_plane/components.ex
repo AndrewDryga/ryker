@@ -333,6 +333,25 @@ defmodule Ryker.ControlPlane.Components do
     """
   end
 
+  attr(:title, :string, required: true)
+
+  @doc """
+  The new title an answer gave its request, on the card of that answer.
+
+  Andrew, 2026-09-27, of a card that read "Request title Hello": "what is
+  this? updating title of episode? maybe say that?" Only an answer that
+  changed the title says so; one that kept it says nothing.
+  """
+  def title_update(assigns) do
+    ~H"""
+    <p class="title-update">
+      <.icon name={:pen} />
+      <span>Title updated to:</span>
+      <strong>{@title}</strong>
+    </p>
+    """
+  end
+
   attr(:state, :any,
     default: nil,
     doc: "An episode or work state; its label and tone derive from it"

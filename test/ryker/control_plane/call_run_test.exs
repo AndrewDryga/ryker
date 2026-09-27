@@ -69,7 +69,7 @@ defmodule Ryker.ControlPlane.CallRunTest do
     # Fresh input and cache reads are reported apart; the model read both.
     assert run.tokens == "17,204 in · 71% cached · 63 out"
     assert run.cost == "≈ $0.026"
-    assert run.checks == "passed first time"
+    assert run.checks == "Passed first time"
 
     assert Enum.map(run.segments, &{&1.kind, &1.ms}) == [
              prepare: 8_081,
@@ -88,7 +88,8 @@ defmodule Ryker.ControlPlane.CallRunTest do
 
     assert run.tokens == "22,921 in · 95% cached · 46 out"
     assert run.cost == "≈ $0.0072"
-    assert run.checks == "passed first time"
+    assert run.checks == "Passed first time"
+    assert run.corrections == []
 
     assert Enum.map(run.segments, &{&1.kind, &1.ms}) == [
              prepare: 10_992,
@@ -150,18 +151,52 @@ defmodule Ryker.ControlPlane.CallRunTest do
     assert CallRun.from_attempt(%{@attempt | measurements: measured}).cost == "$0.012"
   end
 
-  test "a corrected answer says how many corrections it took" do
-    assert CallRun.from_turn(%{@turn | candidate_attempt: 3}).checks ==
-             "passed after 2 corrections"
+  # Andrew, 2026-09-27, of the Checks line "Passed first time": "it's unclear
+  # how that will look like if they did not pass first time?" It said "passed
+  # after 1 correction" and nothing led to the answer that was sent back.
+  test "a corrected answer says on which attempt it passed and leads to each answer sent back" do
+    corrected =
+      Map.merge(@turn, %{
+        id: "8d6b5f2e-7e0e-4c55-9f55-3d3f5ad6b1a1",
+        candidate_attempt: 3,
+        validation_history: [
+          %{"candidate_attempt" => 1, "verdict" => "reject"},
+          %{"candidate_attempt" => 2, "verdict" => "reject"},
+          %{"candidate_attempt" => 3, "verdict" => "accept"}
+        ]
+      })
 
-    assert CallRun.from_attempt(%{
-             @attempt
-             | response: %{"state" => "completed", "validation_attempt" => 2}
-           }).checks ==
-             "passed after 1 correction"
+    run = CallRun.from_turn(corrected)
+    assert run.checks == "Passed on attempt 3 · 2 corrections"
 
-    returned = %{@turn | accepted_at: nil, validation_history: [%{"verdict" => "reject"}]}
-    assert CallRun.from_turn(returned).checks == "returned for correction"
+    assert run.corrections == [
+             %{attempt: 1, href: "#event-turn-#{corrected.id}-validation-1"},
+             %{attempt: 2, href: "#event-turn-#{corrected.id}-validation-2"}
+           ]
+
+    # Routing corrects itself inside one call, so it says the same words and
+    # has no card to lead to.
+    routing =
+      CallRun.from_attempt(%{
+        @attempt
+        | response: %{"state" => "completed", "validation_attempt" => 2}
+      })
+
+    assert routing.checks == "Passed on attempt 2 · 1 correction"
+    assert routing.corrections == []
+
+    returned =
+      Map.merge(@turn, %{
+        id: corrected.id,
+        accepted_at: nil,
+        validation_history: [%{"candidate_attempt" => 1, "verdict" => "reject"}]
+      })
+
+    assert CallRun.from_turn(returned).checks == "Sent back to be fixed"
+
+    assert CallRun.from_turn(returned).corrections == [
+             %{attempt: 1, href: "#event-turn-#{corrected.id}-validation-1"}
+           ]
   end
 
   test "durations read in the unit a person would use" do

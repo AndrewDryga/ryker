@@ -182,6 +182,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
       Repo.all(from(s in Session, where: s.episode_id == ^episode.id and s.id in ^session_ids))
       |> Map.new(&{&1.id, &1})
 
+    title_updates = title_updates(episode.id)
+
     options =
       [
         secrets: Redactor.configured_secrets(),
@@ -192,7 +194,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
         sessions: sessions,
         admission_failures: admission_failures,
         previous_failures: previous_failures,
-        disclosed: disclosed
+        disclosed: disclosed,
+        title_updates: title_updates
       ]
       |> with_responses(turns, params)
 
@@ -210,7 +213,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
             turn.remote_finished_at,
             turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
             "/timeline/#{URI.encode_www_form(episode.key)}#request-#{turn.id}",
-            %{kind: :work, run: CallRun.from_turn(turn)}
+            %{kind: :work, run: CallRun.from_turn(turn), title_update: title_updates[turn.id]}
           )
       end)
 
@@ -255,6 +258,40 @@ defmodule Ryker.ControlPlane.ModelRequests do
          more: if(truncated && page < @timeline_max_pages, do: page + 1)
        }
      }}
+  end
+
+  # The title each accepted answer gave the request where it changed it: the
+  # first answer that named the request, and each later one that renamed it.
+  # An answer that kept the title, or set none, changed nothing (Andrew,
+  # 2026-09-27: "do not show it if title stayed the same"). The request's title
+  # is adopted from the accepted answer the same way
+  # (`Ryker.Episodes.RoutingDigests.accept_title_in_transaction/2`).
+  defp title_updates(episode_id) do
+    from(turn in Turn,
+      where:
+        turn.episode_id == ^episode_id and not is_nil(turn.accepted_at) and
+          not is_nil(turn.candidate),
+      order_by: [asc: turn.accepted_at, asc: turn.id],
+      limit: 500,
+      # An answer accepted before answers were checked as JSON has no title,
+      # and reading it as JSON must not fail the page.
+      select:
+        {turn.id,
+         fragment(
+           "CASE WHEN ? IS JSON OBJECT THEN (?::jsonb) ->> 'title' END",
+           turn.candidate,
+           turn.candidate
+         )}
+    )
+    |> Repo.all()
+    |> Enum.reduce({%{}, nil}, fn
+      {id, title}, {updates, current} when is_binary(title) and title != current ->
+        {Map.put(updates, id, title), title}
+
+      _unchanged, acc ->
+        acc
+    end)
+    |> elem(0)
   end
 
   # Current settings explain a retained request only when the exact template
@@ -568,7 +605,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
             phase: :result,
             sections: outcome,
             run: Map.get(metadata, :run),
-            retried_after: Map.get(metadata, :retried_after)
+            retried_after: Map.get(metadata, :retried_after),
+            title_update: Map.get(metadata, :title_update)
           })
         ],
         else: []
@@ -1205,6 +1243,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
          attempt: attempt,
          prefix: "turn-#{turn.id}",
          artifact: artifact,
+         # Only the answer that was accepted changed the title.
+         title_update:
+           if(turn.accepted_at && attempt == turn.candidate_attempt,
+             do: (options[:title_updates] || %{})[turn.id]
+           ),
          href:
            if(current?,
              do:

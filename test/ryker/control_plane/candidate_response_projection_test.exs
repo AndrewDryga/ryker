@@ -278,6 +278,80 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     assert render_inspector(mismatched) =~ "artifact-candidate"
   end
 
+  # Andrew, 2026-09-27, of a card that read "Request title Hello": "what is
+  # this? updating title of episode? maybe say that? ... or do not show it if
+  # title stayed the same." Every answer carries a title, so every answer's
+  # card showed one, the same one each time.
+  test "only the answer that changed the request's title says so" do
+    {episode, first, _bodies} = recorded_turn!(1)
+    kept = copy_turn!(first)
+    renamed = copy_turn!(kept)
+    started = DateTime.utc_now()
+    named = "Checkout restarts after the 08:00 deploy"
+
+    first = accept!(first, titled(named), DateTime.add(started, 1))
+    kept = accept!(kept, titled(named), DateTime.add(started, 2))
+
+    renamed =
+      accept!(
+        renamed,
+        titled("Checkout 502s traced to the readiness probe"),
+        DateTime.add(started, 3)
+      )
+
+    document = timeline_document(episode)
+
+    assert title_update(document, first) == "Title updated to: #{named}"
+    assert title_update(document, kept) == nil
+
+    assert title_update(document, renamed) ==
+             "Title updated to: Checkout 502s traced to the readiness probe"
+
+    refute LazyHTML.text(document) =~ "Request title"
+  end
+
+  # Where an answer changed the title is read from the answers themselves,
+  # and an accepted answer saved before answers were checked as JSON is not
+  # one; it must not take the page down with it.
+  test "an accepted answer that is not JSON changes no title and leaves the timeline readable" do
+    {episode, turn, _bodies} = recorded_turn!(1)
+    accept!(turn, "not-json", DateTime.utc_now())
+
+    document = timeline_document(episode)
+
+    assert title_update(document, turn) == nil
+    assert document |> LazyHTML.query("#request-#{turn.id}-result") |> Enum.count() == 1
+  end
+
+  # The checks line of a call that needed corrections leads to each answer
+  # Ryker sent back; the link has to land on that answer's card.
+  test "a corrected call's checks line leads to the card of the answer sent back" do
+    {episode, turn, [rejected_body, accepted_body]} = recorded_turn!(2)
+    [rejected, accepted] = turn.validation_history
+
+    turn
+    |> Ecto.Changeset.change(
+      [validation_history: [rejected, %{accepted | "verdict" => "accept", "violations" => []}]] ++
+        acceptance(turn, DateTime.utc_now())
+    )
+    |> Repo.update!()
+
+    assert rejected_body != accepted_body
+    document = timeline_document(episode)
+    model_call = LazyHTML.query(document, "#request-#{turn.id}-result")
+
+    assert model_call |> LazyHTML.query(".call-run dd") |> LazyHTML.text() =~
+             "Passed on attempt 2 · 1 correction"
+
+    [href] = model_call |> LazyHTML.query(".call-run-corrections a") |> LazyHTML.attribute("href")
+    assert href == "#event-turn-#{turn.id}-validation-1"
+
+    target = LazyHTML.query_by_id(document, String.trim_leading(href, "#"))
+
+    assert target |> LazyHTML.query(".case-card-heading h3") |> LazyHTML.text() ==
+             "Answer rejected"
+  end
+
   def record_query(_event, _measurements, %{query: query, result: {:ok, result}}, owner) do
     if self() == owner && String.contains?(query, "work_candidate_responses"),
       do: send(owner, {:response_query, query, result.num_rows})
@@ -308,6 +382,89 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     end
 
     copy
+  end
+
+  # The harvested answer with the title field Work answers carry now; the
+  # rest of the answer is exactly as it was recorded.
+  defp titled(title) do
+    fixture_responses()
+    |> hd()
+    |> Map.fetch!("body")
+    |> Jason.decode!()
+    |> Map.put("title", title)
+    |> Jason.encode!()
+  end
+
+  # A turn whose only answer was accepted first time, with that answer's
+  # retained response.
+  defp accept!(turn, body, accepted_at) do
+    sha256 = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
+    Repo.delete_all(from(r in CandidateResponse, where: r.turn_id == ^turn.id))
+
+    Repo.insert!(%CandidateResponse{
+      turn_id: turn.id,
+      candidate_attempt: 1,
+      body: body,
+      sha256: sha256,
+      byte_size: byte_size(body),
+      recorded_at: accepted_at
+    })
+
+    turn
+    |> Ecto.Changeset.change(
+      [
+        candidate: body,
+        candidate_attempt: 1,
+        candidate_sha256: sha256,
+        validation_history: [
+          %{
+            "candidate_attempt" => 1,
+            "candidate_sha256" => sha256,
+            "recorded_at" => DateTime.to_iso8601(accepted_at),
+            "response_bytes" => byte_size(body),
+            "verdict" => "accept",
+            "violations" => []
+          }
+        ]
+      ] ++ acceptance(turn, accepted_at)
+    )
+    |> Repo.update!()
+  end
+
+  # What Ryker saves with an answer it accepts, as an accepted turn must
+  # carry it.
+  defp acceptance(turn, accepted_at) do
+    [
+      accepted_at: accepted_at,
+      continuation: %{},
+      result_ref: "result:#{turn.id}",
+      validation_intent: %{},
+      validation_intent_fingerprint: String.duplicate("e", 64),
+      validation_receipt: "receipt:#{turn.id}"
+    ]
+  end
+
+  defp timeline_document(episode) do
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    render_component(&EpisodePage.render/1,
+      snapshot: snapshot,
+      timeline: timeline,
+      requests: nil,
+      params: %{}
+    )
+    |> LazyHTML.from_document()
+  end
+
+  defp title_update(document, turn) do
+    case document
+         |> LazyHTML.query_by_id("event-turn-#{turn.id}-validation-1")
+         |> LazyHTML.query(".title-update")
+         |> Enum.to_list() do
+      [] -> nil
+      [line] -> line |> LazyHTML.text() |> String.split() |> Enum.join(" ")
+    end
   end
 
   defp validation(view), do: Enum.find(view.selected.sections, &(&1.id == "validation"))
