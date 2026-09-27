@@ -10,7 +10,7 @@ defmodule Ryker.Work.CustodyTest do
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Work.{Cancellation, Custody, Submission, Turn, TurnChangeset}
+  alias Ryker.Work.{Cancellation, Custody, Session, Submission, Turn, TurnChangeset}
   alias Ryker.Work.Custody.Sessions
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -43,7 +43,16 @@ defmodule Ryker.Work.CustodyTest do
     :ok = Custody.subscribe_sessions()
     command = create_episode!("announced")
     episode_id = command.episode_id
-    assert_received {:work_session_updated, session_id}
+
+    # The sessions topic carries every test's sessions, so this one's own id is
+    # read, never taken from the first announcement (the gate once took another
+    # test's).
+    session_id =
+      Repo.one!(
+        from(session in Session, where: session.episode_id == ^episode_id, select: session.id)
+      )
+
+    assert_received {:work_session_updated, ^session_id}
 
     :ok = Episodes.subscribe_episode(episode_id)
     assert {:ok, claim} = Custody.claim_next("worker:announced", 60)
