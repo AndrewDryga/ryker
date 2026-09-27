@@ -28,6 +28,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.InspectionRedactor
   alias Ryker.Operator.EpisodeReview
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -521,26 +522,37 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   defp metric(label, value, detail, tone \\ nil),
     do: %{detail: to_string(detail), label: label, tone: tone, value: to_string(value)}
 
+  # Every review of how the request ended, oldest first, each saying whether
+  # it covers the ending the request has now: a request that continued after
+  # a review ends again, and that ending is reviewable on its own.
   defp review_state(%Episode{} = episode, events) do
-    latest =
-      Repo.one(
+    reviews =
+      Repo.all(
         from(review in EpisodeReview,
           where: review.episode_id == ^episode.id,
-          order_by: [desc: review.semantic_version, desc: review.reviewed_at],
-          limit: 1
+          order_by: [desc: review.reviewed_at, desc: review.id],
+          limit: 20
         )
       )
+      |> Enum.reverse()
+      |> Enum.map(fn review ->
+        note = InspectionRedactor.artifact(review.note, max_bytes: 2_048).text
+
+        %{
+          id: review.id,
+          at: review.reviewed_at,
+          current: review.semantic_version == episode.semantic_version,
+          note: if(note not in [nil, ""], do: note)
+        }
+      end)
 
     terminal = episode.state in [:complete, :cancelled]
-    current = not is_nil(latest) and latest.semantic_version == episode.semantic_version
+    current = Enum.any?(reviews, & &1.current)
 
     %{
-      actor_ref: latest && latest.actor_ref,
-      at: latest && latest.reviewed_at,
       awaiting: terminal and not current and not closed_here?(episode, events),
       current: current,
-      note: latest && latest.note,
-      semantic_version: latest && latest.semantic_version
+      reviews: reviews
     }
   end
 

@@ -64,7 +64,6 @@ defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
 
     assert html =~ "id=\"execution-timeline\""
     assert LazyHTML.query(document, ".request-technical-details") |> Enum.empty?()
-    assert LazyHTML.query(document, "details[id^=request-identity-]") |> Enum.count() == 1
   end
 
   test "the initial HTTP response honors activity query filters before connecting" do

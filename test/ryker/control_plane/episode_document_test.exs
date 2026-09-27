@@ -4,8 +4,10 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   alias Ryker.ControlPlane.{Activity, EpisodePage, EpisodeRequest, Projection}
   alias Ryker.Episodes
+  alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.InspectionRedactor
+  alias Ryker.Operator.EpisodeReviews
 
   test "opaque routing candidate references never become nonexistent timeline links" do
     # The live follow-up routed correctly but its 'Joins' link opened a 404:
@@ -111,21 +113,20 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     end
   end
 
-  test "request identity names the destination and keeps its exact reference" do
+  # Andrew, 2026-09-27, of the "Request identity" disclosure (Request ID,
+  # Conversation, Destination ID, Created): "do we even need this? i think
+  # everything in here is duped in message?" The header already says where
+  # the request came from and when, and the message's own details carry its
+  # IDs.
+  test "a request's page ends with its chapters, not an identity box that repeats its header" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = Projection.episode(episode.key)
-    snapshot = put_in(snapshot.episode.destination, "control_plane:lab:demo")
 
-    identity =
-      snapshot
-      |> render_episode([])
-      |> LazyHTML.from_fragment()
-      |> LazyHTML.query(".story-identity")
-      |> LazyHTML.text()
+    document = snapshot |> render_episode([]) |> LazyHTML.from_fragment()
 
-    assert identity =~ "Direct conversation"
-    assert identity =~ "Destination ID"
-    assert identity =~ snapshot.episode.destination
+    assert document |> LazyHTML.query("[id^=request-identity-]") |> Enum.empty?()
+    refute LazyHTML.text(document) =~ "Request identity"
+    refute LazyHTML.text(document) =~ "Destination ID"
   end
 
   test "a visible input and answer do not acquire duplicate receipt cards" do
@@ -1558,16 +1559,89 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute text =~ "Tool calls"
   end
 
-  test "review history shows review state rather than cost coverage" do
+  # Andrew, 2026-09-27, of the "Review history · Not reviewed" disclosure at
+  # the foot of a request: "reviews can be own section like [the Cleanup
+  # background chapter] with own cards."
+  test "each review of how a request ended is its own card in a Reviews chapter" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    {:ok, _cancelled} =
+      Episodes.apply(%Command.CancelEpisode{
+        cancel_ref: "work:stalled:#{Ecto.UUID.generate()}",
+        episode_key: episode.key,
+        expected_owner: %{kind: :turn, ref: episode.owner_ref},
+        occurred_at: DateTime.utc_now(),
+        reason: "Stopped."
+      })
+
+    # Ended and nobody has looked: a quiet line, no chapter.
+    {:ok, ended} = Projection.episode(episode.key)
+    document = ended |> render_episode([]) |> LazyHTML.from_fragment()
+
+    assert document |> LazyHTML.query("#review-awaiting") |> LazyHTML.text() |> words() =~
+             "Not reviewed yet"
+
+    assert document |> LazyHTML.query(".phase-review") |> Enum.empty?()
+
+    {:ok, _review} =
+      EpisodeReviews.review(
+        episode.key,
+        "control-plane:local",
+        "Stopped on purpose; the deploy was rolled back."
+      )
+
+    {:ok, reviewed} = Projection.episode(episode.key)
+    document = reviewed |> render_episode([]) |> LazyHTML.from_fragment()
+    chapter = LazyHTML.query(document, "section.background-chapter.phase-review")
+
+    assert chapter |> LazyHTML.query(".chapter-heading h3") |> LazyHTML.text() == "Reviews"
+    assert chapter |> LazyHTML.query(".phase-number") |> LazyHTML.text() == "R"
+    assert [card] = chapter |> LazyHTML.query("article.case-review") |> Enum.to_list()
+    assert card |> LazyHTML.text() |> words() =~ "Ending reviewed"
+    assert card |> LazyHTML.text() |> words() =~ "Current ending"
+
+    assert card |> LazyHTML.query(".case-event-summary") |> LazyHTML.text() ==
+             "Stopped on purpose; the deploy was rolled back."
+
+    assert document |> LazyHTML.query("#review-awaiting") |> Enum.empty?()
+
+    # The chapter is the page's last, and Jump to reaches it.
+    assert document
+           |> LazyHTML.query(".timeline-index a")
+           |> Enum.map(&LazyHTML.text/1)
+           |> List.last() ==
+             "Reviews"
+
+    # A request that went on after the review and ended again keeps that
+    # review as a card, and says its new ending has not been reviewed.
+    continued =
+      update_in(reviewed.trace.review, fn review ->
+        %{
+          review
+          | awaiting: true,
+            current: false,
+            reviews: Enum.map(review.reviews, &%{&1 | current: false})
+        }
+      end)
+
+    document = continued |> render_episode([]) |> LazyHTML.from_fragment()
+
+    assert document |> LazyHTML.query("article.case-review") |> LazyHTML.text() |> words() =~
+             "An earlier ending"
+
+    assert document |> LazyHTML.query("#review-awaiting .kit-empty-title") |> LazyHTML.text() ==
+             "How it ended this time is not reviewed yet"
+  end
+
+  test "a request still working says nothing about reviews" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = Projection.episode(episode.key)
 
     document = snapshot |> render_episode([]) |> LazyHTML.from_fragment()
-    review = LazyHTML.query(document, ".story-review") |> LazyHTML.text()
 
-    assert review =~ "Not reviewed"
-    refute review =~ "reported"
-    refute review =~ "estimated"
+    assert document |> LazyHTML.query("#review-awaiting") |> Enum.empty?()
+    assert document |> LazyHTML.query(".phase-review") |> Enum.empty?()
+    refute LazyHTML.text(document) =~ "Not reviewed"
   end
 
   test "active work calls its pending response waiting without missing-measurement prose" do

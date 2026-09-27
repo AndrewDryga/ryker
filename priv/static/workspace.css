@@ -810,7 +810,6 @@
 .story-stop { margin:8px 0 20px; padding:16px 20px; font-size:15px; }
 .story-stop h3 { font-size:19px; }
 .story-stop strong { font-size:15px; }
-.story-identity, .story-review { margin-top:16px; }
 @media (max-width:900px) {
   .episode-workbench { padding:20px; }
   .episode-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }

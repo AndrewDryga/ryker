@@ -798,10 +798,8 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
     assert html =~ "execution-timeline"
     assert html =~ "Investigate &lt;script&gt;"
-    assert html =~ "Request identity"
-    assert html =~ "Review history"
+    refute html =~ "Request identity"
     refute html =~ "Technical details &amp; review history"
-    assert html =~ "Created"
 
     assert Enum.all?(
              LazyHTML.query(LazyHTML.from_document(html), ".case-event-details"),
@@ -823,11 +821,14 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     {:ok, detail} = Projection.episode(episode.key)
 
     detail =
-      put_in(
-        detail,
-        [:trace, :review, :note],
-        "Correction: backup citation retained. <script>bad()</script>"
-      )
+      put_in(detail, [:trace, :review, :reviews], [
+        %{
+          id: Ecto.UUID.generate(),
+          at: DateTime.utc_now(),
+          current: true,
+          note: "Correction: backup citation retained. <script>bad()</script>"
+        }
+      ])
 
     html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
     assert html =~ "Correction: backup citation retained."

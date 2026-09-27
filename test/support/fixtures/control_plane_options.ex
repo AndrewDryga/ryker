@@ -399,7 +399,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                    }
                  ],
                  next_action: "continue work",
-                 review: %{actor_ref: nil, at: nil, awaiting: true, current: false, note: nil},
+                 review: %{awaiting: true, current: false, reviews: []},
                  source: %{
                    href: "https://slack.com/archives/C456/p1787832000001000",
                    label: "Open in Slack",
