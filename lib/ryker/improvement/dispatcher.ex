@@ -52,6 +52,11 @@ defmodule Ryker.Improvement.Dispatcher do
       candidate.status == :dismissed ->
         Analyses.yield(claim, 0)
 
+      # Learning is off: what was out at Coop has stopped, and nothing new
+      # starts until it is on again.
+      not settings.enabled ->
+        Analyses.yield(claim, 0)
+
       # Every session this policy creates is refused before anything is sent,
       # so a start would only prove that again. Hold until the policy changes.
       Analyses.policy_refused?(settings) ->

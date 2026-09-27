@@ -46,20 +46,20 @@ defmodule Ryker.Improvement.Analyses do
     Repo.transaction(fn ->
       now = Repo.now!()
 
-      case next_candidate(now, settings.quiet_seconds) do
+      case next_candidate(now, settings.quiet_seconds, settings.enabled) do
         nil -> :idle
         candidate -> lease(candidate, worker, settings.lease_seconds, now)
       end
     end)
   end
 
-  defp next_candidate(now, quiet_seconds) do
+  defp next_candidate(now, quiet_seconds, enabled?) do
     quiet = DateTime.add(now, -quiet_seconds, :second)
 
     Repo.one(
       from(candidate in Candidate,
         as: :candidate,
-        where: ^claimable(now, quiet),
+        where: ^claimable(now, quiet, enabled?),
         order_by: [asc: candidate.last_signal_at, asc: candidate.id],
         limit: 1,
         lock: "FOR UPDATE SKIP LOCKED"
@@ -68,14 +68,22 @@ defmodule Ryker.Improvement.Analyses do
   end
 
   # A worker stopped renewing its lease; or it is due, and either a run of it
-  # is still out at Coop, or it is still wanted, quiet and at rest.
-  defp claimable(now, quiet) do
+  # is still out at Coop, or it is still wanted, quiet and at rest. With
+  # learning off only what is out at Coop is followed, to its stop.
+  defp claimable(now, quiet, true) do
     dynamic(
       [candidate: c],
       ^stale_lease(now) or
         (^due(now) and (exists(outstanding_parent_run()) or (^wanted(quiet) and ^at_rest())))
     )
   end
+
+  defp claimable(now, _quiet, false),
+    do:
+      dynamic(
+        [candidate: c],
+        ^stale_lease(now) or (^due(now) and exists(outstanding_parent_run()))
+      )
 
   defp stale_lease(now),
     do: dynamic([candidate: c], c.analysis == :running and c.lease_expires_at <= ^now)
@@ -125,27 +133,31 @@ defmodule Ryker.Improvement.Analyses do
   @doc """
   The earliest moment after `since` at which a candidate becomes claimable
   by the clock alone: its quiet time ends, its retry or hold ends, or the
-  lease of a worker that stopped renewing it runs out. Nil when nothing waits
-  on the clock; everything else that makes one claimable is announced.
+  lease of a worker that stopped renewing it runs out. With learning off only
+  what is out at Coop counts. Nil when nothing waits on the clock;
+  everything else that makes one claimable is announced.
   """
   @spec next_due_at(DateTime.t(), map()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, settings) do
     quiet = settings.quiet_seconds
+    enabled? = settings.enabled
 
     [quiet_due, retry_due, lease_due] =
       Repo.one(
         from(candidate in Candidate,
+          as: :candidate,
           where: candidate.analysis in [:pending, :running],
           select: [
             filter(
               min(datetime_add(candidate.last_signal_at, ^quiet, "second")),
-              candidate.analysis == :pending and is_nil(candidate.forgotten_at) and
+              ^enabled? and candidate.analysis == :pending and is_nil(candidate.forgotten_at) and
                 candidate.status != :dismissed and
                 datetime_add(candidate.last_signal_at, ^quiet, "second") > ^since
             ),
             filter(
               min(candidate.next_attempt_at),
-              candidate.analysis == :pending and candidate.next_attempt_at > ^since
+              candidate.analysis == :pending and candidate.next_attempt_at > ^since and
+                (^enabled? or exists(outstanding_parent_run()))
             ),
             filter(
               min(candidate.lease_expires_at),
