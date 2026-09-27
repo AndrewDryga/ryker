@@ -16,7 +16,7 @@ defmodule Ryker.Learning.Batch do
     field(:rebuild_selection, Ryker.CanonicalJSON.Type)
 
     field(:status, Ecto.Enum,
-      values: [:queued, :running, :applied, :no_change, :deferred, :superseded]
+      values: [:queued, :running, :applied, :no_change, :deferred, :superseded, :dropped]
     )
 
     field(:start_count, :integer, default: 0)

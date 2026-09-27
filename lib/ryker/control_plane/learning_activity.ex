@@ -28,7 +28,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   alias Ryker.Work.Turn
 
   @page_size 20
-  @states ~w(queued running applied no_change deferred superseded)a
+  @states ~w(queued running applied no_change deferred superseded dropped)a
   # The recent list's outcome filter, in the order the page offers it; the
   # batches that need a person are listed on their own, so no outcome here
   # includes them.
@@ -278,7 +278,10 @@ defmodule Ryker.ControlPlane.LearningActivity do
       retry_available: retryable?(row, relearn, outstanding or busy, policy),
       retry_blocked:
         retry_reason(row.status, outstanding, busy) ||
-          if(row.status == :deferred, do: configuration_error)
+          if(row.status == :deferred, do: configuration_error),
+      # A stopped batch can be dropped once no model execution of its
+      # conversation is still unconfirmed (`Batches.drop_in_transaction/2`).
+      drop_available: row.status == :deferred and not outstanding
     })
   end
 
@@ -294,9 +297,10 @@ defmodule Ryker.ControlPlane.LearningActivity do
   were learned from, each with where to relearn it.
 
   Only a batch stopped by such a topic has any. Every start meets the same
-  topic until it is relearned from messages that still exist, so these, not
-  another start, are what moves the batch; once none is left, one more start
-  can update it.
+  topic until it is relearned from messages that still exist, or forgotten,
+  so these, not another start, are what moves the batch; once none is left,
+  one more start can update it. A forgotten topic is gone for good, so it is
+  never one of them.
   """
   @spec relearn_topics(Batch.t()) :: [%{id: String.t(), title: String.t(), path: String.t()}]
   def relearn_topics(%Batch{} = batch) do
@@ -348,6 +352,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
         from(k in ConversationKnowledge,
           where:
             k.transport == ^batch.transport and k.conversation_ref == ^batch.conversation_ref,
+          where: is_nil(k.forgotten_at),
           where: ^repository,
           order_by: [desc: k.updated_at, desc: k.id],
           limit: 20
@@ -518,6 +523,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   def label(:no_change), do: "No change needed"
   def label(:deferred), do: "Needs attention"
   def label(:superseded), do: "Sources no longer available"
+  def label(:dropped), do: "Dropped"
   def label(:prepared), do: "Prepared"
   def label(:responded), do: "Response recorded"
   def label(:rejected), do: "Response rejected"

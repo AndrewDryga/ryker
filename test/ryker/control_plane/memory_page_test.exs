@@ -798,19 +798,44 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
           attempts: [attempt],
           attempt_page: 1,
           attempt_pages: 1,
+          relearn: [],
           retry_available: true,
-          retry_blocked: nil
+          retry_blocked: nil,
+          drop_available: true
         })
 
-      document = learning(%{@activity | selected: selected})
+      activity = %{@activity | selected: selected}
 
-      assert LazyHTML.query(document, ".memory-back a[href='/memory/learning']")
-             |> LazyHTML.text() =~
-               "All learning"
+      # Andrew, 2026-09-27: "this is poorly designed, especially back button
+      # you can't even find clearly". The batch is a page of its own now: the
+      # shell titles it and leads back to all learning.
+      assert LearningPage.heading(activity, %{"batch" => @batch_id}) == %{
+               title: "Learning from #infra",
+               description: nil,
+               back: {"All learning", "/memory/learning"}
+             }
 
-      assert Enum.empty?(LazyHTML.query(document, "p.kit-status-line, section#recent"))
+      document = learning(activity)
 
-      retry = LazyHTML.query(document, "section#retry")
+      assert Enum.empty?(
+               LazyHTML.query(
+                 document,
+                 ".memory-back, section#recent, h1, h2.memory-record-title"
+               )
+             )
+
+      batch = LazyHTML.query(document, "article.memory-batch")
+
+      assert LazyHTML.query(batch, "p.kit-status-line .state-word[data-tone=warn]")
+             |> LazyHTML.text() == "Needs attention"
+
+      assert LazyHTML.query(batch, ".section-head h2") |> LazyHTML.text() == "What happened"
+
+      assert LazyHTML.query(batch, ".memory-prose") |> LazyHTML.text() =~
+               "approved model starts were used"
+
+      options = LazyHTML.query(document, "section#what-you-can-do")
+      retry = LazyHTML.query(options, "article#retry")
 
       # QA re-test, 2026-09-26: this said "using the current learning policy,
       # ryker-learning", a worker's name for its rulebook.
@@ -818,6 +843,12 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
                "Ryker reads these same messages again with one more start, using the learning settings in place now."
 
       refute LazyHTML.text(retry) =~ "policy"
+
+      assert LazyHTML.query(
+               options,
+               "article#drop form[method=get][action='/actions/learning/#{@batch_id}/drop'] button"
+             )
+             |> LazyHTML.text() == "Drop batch"
 
       form =
         LazyHTML.query(retry, "form[method=post][action='/actions/learning/#{@batch_id}/retry']")
@@ -845,7 +876,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert LazyHTML.query(attempts, ".state-word[data-tone=warn]") |> LazyHTML.text() ==
                "Response rejected"
 
-      assert LazyHTML.query(document, "details.memory-details:not([open]) code")
+      assert LazyHTML.query(document, "details#batch-technical:not([open]) code")
              |> LazyHTML.text() ==
                "learning_retry_exhausted"
 
@@ -890,7 +921,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       }
     }
 
-    query = %{"q" => "deploy", "kind" => "context", "batch" => "b", "page" => "2", "other" => "x"}
+    query = %{"q" => "deploy", "kind" => "context", "page" => "2", "other" => "x"}
 
     for {segments, title, description} <- [
           {["memory"], "Facts",
@@ -914,8 +945,12 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     assert map_size(facts) == 1
     assert_received {:learned, %{"q" => "deploy", "kind" => "context", "page" => "2"} = learned}
     assert map_size(learned) == 3
-    assert_received {:learning, %{"batch" => "b", "page" => "2"} = learning}
-    assert map_size(learning) == 2
+    assert_received {:learning, %{"page" => "2"} = learning}
+    assert map_size(learning) == 1
+
+    # A batch that does not exist is not found, never the list in its place.
+    assert Pages.page(["memory", "learning"], %{"batch" => "b"}, options).status == 404
+    assert_received {:learning, %{"batch" => "b"}}
     assert_received {:findings, %{"page" => "2", "q" => "deploy"} = findings}
     assert map_size(findings) == 2
   end

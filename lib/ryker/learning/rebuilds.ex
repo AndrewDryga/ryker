@@ -17,7 +17,7 @@ defmodule Ryker.Learning.Rebuilds do
   alias Ryker.Learning.Observations
 
   @page_size 20
-  @terminal [:no_change, :deferred, :superseded]
+  @terminal [:no_change, :deferred, :superseded, :dropped]
 
   def preview(id, options) do
     with {:ok, ^id} <- Ecto.UUID.cast(id),

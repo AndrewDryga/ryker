@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   alias Ryker.CanonicalJSON
 
   alias Ryker.ControlPlane.{
+    Actions,
     ConversationMemory,
     CSRF,
     EpisodePage,
@@ -156,8 +157,8 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert LazyHTML.query(document, "#retry") |> Enum.empty?()
     refute LazyHTML.text(document) =~ "Grant one more start"
 
-    assert LazyHTML.query(document, "#relearn-topics a[href='#{relearn}']") |> LazyHTML.text() =~
-             "Relearn it"
+    assert LazyHTML.query(document, "#what-you-can-do #relearn-#{topic.id} a[href='#{relearn}']")
+           |> LazyHTML.text() == "Relearn"
 
     # Once the topic is relearned the cause is gone, and one more start can
     # update it.
@@ -165,6 +166,88 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     selected = LearningActivity.project(params).selected
     assert selected.relearn == []
     assert selected.retry_available
+  end
+
+  test "a batch stuck on a topic that lost its messages can forget that topic or be dropped, not only relearn it" do
+    # Andrew, 2026-09-27: a batch stopped on "Relearn the topic first" offered
+    # only Relearn; "I also need any other option than simply relearning, why
+    # I can't just forget/delete it?"
+    topic = stale_topic!()
+    assert {:ok, claim} = Batches.claim("inspection-test", @settings)
+    assert {:ok, _} = Batches.finish(claim, :deferred, "knowledge_target_unavailable")
+    batch = claim.batch.id
+    batch_page = LearningActivity.path(batch)
+    waiting = LearningActivity.project(%{}).waiting_inputs
+
+    options = LazyHTML.query(page(batch), "section#what-you-can-do")
+
+    forget =
+      LazyHTML.query(
+        options,
+        "article#forget-#{topic.id} form[method=get][action='/actions/knowledge/#{topic.id}/forget']"
+      )
+
+    # The way back rides in the form: a GET form's action drops its query.
+    assert LazyHTML.query(forget, "input[type=hidden][name=back]") |> LazyHTML.attribute("value") ==
+             [batch_page]
+
+    assert LazyHTML.query(forget, "button") |> LazyHTML.text() == "Forget topic"
+
+    assert LazyHTML.query(
+             options,
+             "article#drop form[action='/actions/learning/#{batch}/drop'] button"
+           )
+           |> LazyHTML.text() == "Drop batch"
+
+    # Forgetting the topic asks first and comes back to the batch, where
+    # nothing is left to relearn and one more start can read these messages.
+    forgotten = confirm("/actions/knowledge/#{topic.id}/forget", %{"back" => batch_page})
+    assert forgotten.status == 303
+    assert Plug.Conn.get_resp_header(forgotten, "location") == [batch_page]
+    assert Repo.get!(ConversationKnowledge, topic.id).forgotten_at
+
+    selected = LearningActivity.project(%{"batch" => batch}).selected
+    assert selected.relearn == []
+    assert selected.retry_available
+    assert Enum.empty?(LazyHTML.query(page(batch), "article[id^=forget-], article[id^=relearn-]"))
+
+    # Dropping it asks first too: it stops needing a person, leaves Failures,
+    # and its messages no longer wait. Its cost stays recorded.
+    dropped = confirm("/actions/learning/#{batch}/drop")
+    assert dropped.status == 303
+    assert Plug.Conn.get_resp_header(dropped, "location") == [batch_page]
+
+    assert %{status: :dropped, start_count: 0, start_limit: 3} = Repo.get!(Batch, batch)
+    activity = LearningActivity.project(%{"batch" => batch})
+    assert activity.attention.items == []
+    assert activity.waiting_inputs < waiting
+    assert activity.selected.label == "Dropped"
+    assert FailureProjection.fetch("learning", batch) == :not_found
+
+    assert [%{action: :discard, kind: "learning", resource_ref: ^batch}] = Repo.all(Action)
+
+    assert LazyHTML.query(page(batch), "p.kit-status-line .state-word") |> LazyHTML.text() ==
+             "Dropped"
+
+    assert Enum.empty?(LazyHTML.query(page(batch), "section#what-you-can-do"))
+  end
+
+  test "a batch whose model run is not confirmed stopped cannot be dropped" do
+    # Dropping it would leave the unconfirmed run with no stopped batch to
+    # reconcile it, and every later batch in the conversation waits on it.
+    inputs!()
+    assert {:ok, claim} = Batches.claim("inspection-test", @settings)
+    assert {:ok, run} = Batches.prepare(claim)
+    assert {:ok, _} = Batches.begin_execution(claim, run.id)
+    assert {:ok, _} = Batches.finish(claim, :deferred, "learning_remote_unresolved")
+
+    refute LearningActivity.project(%{"batch" => claim.batch.id}).selected.drop_available
+    assert confirmation("/actions/learning/#{claim.batch.id}/drop").status == 404
+
+    assert Ryker.Operator.Learning.drop(claim.batch.id, 0, "control-plane:local", "test-drop") ==
+             {:error, :learning_remote_outstanding}
+
+    assert Repo.get!(Batch, claim.batch.id).status == :deferred
   end
 
   test "a batch that used every start on a topic that lost its sources points to relearning it" do
@@ -218,7 +301,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     for html <- [render(%{}), render(%{"batch" => claim.batch.id})] do
       assert html =~ "1 model start used"
       refute html =~ "of 3 model starts"
-      refute html =~ "Next check"
+      refute html =~ ~r/next check/i
     end
 
     set_batch_status!(Repo.get!(Batch, claim.batch.id), :queued)
@@ -227,7 +310,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
       set: [next_attempt_at: DateTime.add(DateTime.utc_now(), 30 * 60)]
     )
 
-    assert render(%{"batch" => claim.batch.id}) =~ ~r/Next check in (29|30) min/
+    assert render(%{"batch" => claim.batch.id}) =~ ~r/next check in (29|30) min/i
   end
 
   test "learning from a chat is named by that chat, not only as a direct conversation" do
@@ -690,6 +773,41 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     |> LearningActivity.project()
     |> LearningPage.html([], String.duplicate("s", 32))
     |> IO.iodata_to_binary()
+  end
+
+  defp page(batch), do: %{"batch" => batch} |> render() |> LazyHTML.from_fragment()
+
+  # An action's confirmation page, as the real control plane answers it.
+  defp confirmation(path, query \\ %{}) do
+    Plug.Test.conn(:get, path <> query_string(query))
+    |> Map.put(:host, "localhost")
+    |> Router.call(router())
+  end
+
+  # Opens an action's confirmation, then confirms it the way its form does.
+  defp confirm(path, query \\ %{}) do
+    page = confirmation(path, query)
+    assert page.status == 200, page.resp_body
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, page.resp_body)
+    [_, action] = Regex.run(~r/<form[^>]* action="([^"]+)"/, page.resp_body)
+
+    Plug.Test.conn(:post, unescape(action), URI.encode_query(%{"_token" => token}))
+    |> Map.put(:host, "localhost")
+    |> Plug.Conn.put_req_header("content-type", "application/x-www-form-urlencoded")
+    |> Router.call(router())
+  end
+
+  defp unescape(html), do: String.replace(html, "&amp;", "&")
+  defp query_string(query) when query == %{}, do: ""
+  defp query_string(query), do: "?" <> URI.encode_query(query)
+
+  defp router do
+    Router.init(%{
+      csrf_secret: String.duplicate("s", 32),
+      actions: Actions.callbacks(),
+      observability: %{},
+      projection: Projection.callbacks()
+    })
   end
 
   # The card an attempt's link opens: the page its path names, at its anchor.

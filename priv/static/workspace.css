@@ -1860,16 +1860,6 @@
 .ryker-app .memory-view .entity-text.markdown-preview > :last-child { margin-bottom:0; }
 .ryker-app .memory-note { max-width:720px; margin:6px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .ryker-app .memory-note a { color:var(--ryker-text); font-weight:500; }
-.ryker-app .memory-back { margin:0 0 16px; font-size:13px; line-height:18px; }
-.ryker-app .memory-back a { color:var(--ryker-text-secondary); }
-.ryker-app .memory-back a:hover { color:var(--ryker-text); }
-/* One opened record, a topic or a learning batch: its name and state, what
-   it says, then its facts. */
-.memory-record { max-width:1040px; padding:0 0 16px; border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 7%, transparent); }
-.ryker-app .memory-view .memory-record-title { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; margin:0 0 8px; font-size:20px; line-height:28px; font-weight:600; letter-spacing:0; color:var(--ryker-text); }
-.memory-record-text { max-width:720px; }
-.ryker-app .memory-record-text :is(p, li) { font-size:15px; line-height:24px; }
-.ryker-app .memory-record-lede { max-width:720px; margin:0 0 8px; font-size:14px; line-height:20px; color:var(--ryker-text); }
 /* One topic's or one batch's page (2026-09-27), under the shell's title and
    status line: what the topic says or what happened, in reading type, then
    its facts one per line, then its sections. */
@@ -1899,8 +1889,6 @@
 /* Turning learning off asks in place of the switch, as wide as the
    header's action column allows. */
 .learning-switch .settings-confirm { max-width:360px; margin:0; }
-.memory-retry { margin:8px 0 0; }
-.ryker-app .memory-retry .ui-button { min-height:36px; padding:6px 14px; font-size:13px; line-height:18px; }
 .memory-details { max-width:720px; margin:6px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .ryker-app .memory-details > summary { width:fit-content; padding:4px 0; font-size:13px; line-height:18px; cursor:pointer; color:var(--ryker-text-secondary); }
 .ryker-app .memory-details[open] > summary { color:var(--ryker-text); }

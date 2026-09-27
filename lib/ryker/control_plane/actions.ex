@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Operator.{EpisodeReviews, Failures}
+  alias Ryker.Operator.Learning, as: LearningOperator
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Publication.Custody, as: PublicationCustody
@@ -60,6 +61,7 @@ defmodule Ryker.ControlPlane.Actions do
       delete_lab_message: lab_message_deleter(placements),
       discard_retention: &discard_retention/1,
       edit_lab_message: lab_message_editor(placements),
+      drop_learning: &drop_learning/2,
       forget_memory: &Memories.forget/1,
       forget_knowledge: &Forgetting.forget_topic/1,
       resolve_episode: &resolve_episode/1,
@@ -120,6 +122,15 @@ defmodule Ryker.ControlPlane.Actions do
         {:error, :memory_review_not_found}
     end
   end
+
+  defp drop_learning(id, budget_version),
+    do:
+      LearningOperator.drop(
+        id,
+        budget_version,
+        @actor_ref,
+        "control-plane:learning-drop:#{id}:#{budget_version}"
+      )
 
   defp retry_failure(kind, ref) do
     Failures.retry(kind, ref,

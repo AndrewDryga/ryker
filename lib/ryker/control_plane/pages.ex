@@ -197,19 +197,24 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   # Background learning keeps its worker sessions in the same custody as
-  # working copies; this page shows only its own.
+  # working copies; this page shows only its own. One batch is a sub-page with
+  # its own heading.
   def page(["memory", "learning"], params, options) do
-    activity = options.projection.learning.(Map.take(params, LearningPage.query_keys()))
+    params = Map.take(params, LearningPage.query_keys())
+    activity = options.projection.learning.(params)
 
-    ok(
-      "Learning",
-      ConfigurationGuide.description(:learning),
+    body =
       LearningPage.html(
         activity,
         options.projection.workspaces.(%{}),
         Map.get(options, :csrf_secret)
       )
-    )
+
+    case LearningPage.heading(activity, params) do
+      nil -> ok("Learning", ConfigurationGuide.description(:learning), body)
+      :not_found -> not_found("Learning batch")
+      heading -> sub_page(heading, body)
+    end
   end
 
   def page(["rules"], params, options) do

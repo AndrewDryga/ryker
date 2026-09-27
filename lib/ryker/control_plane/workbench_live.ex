@@ -2005,7 +2005,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               navigate
             >
               <:action :if={@page_action}>{Phoenix.HTML.raw(@page_action)}</:action>
-              <:action :if={@path == "/memory/learning" && match?({:ok, _view}, @settings)}>
+              <:action :if={learning_switch?(@path, @params, @settings)}>
                 <.live_component
                   module={Ryker.ControlPlane.LearningSwitch}
                   id="learning-switch"
@@ -2049,4 +2049,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp import_notice({:import, tone, message}), do: {tone, message}
   defp import_notice(_none_or_retry), do: nil
+
+  # The switch that turns learning on or off belongs to the Learning list
+  # alone. Andrew, 2026-09-27: "i don't need turn off button on subpages"; a
+  # batch's page, which leads back to the list, only says what that batch did.
+  defp learning_switch?("/memory/learning", params, {:ok, _view}),
+    do: not Map.has_key?(params, "batch")
+
+  defp learning_switch?(_path, _params, _settings), do: false
 end

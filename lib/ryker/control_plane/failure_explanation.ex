@@ -2523,10 +2523,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp learning_cause(%{summary: "knowledge_target_unavailable"}),
     do:
       cause(
-        "The topic it stopped on has been relearned since.",
-        "A learned topic these messages would update had lost the messages it was learned from. It has been relearned from messages that still exist.",
+        "The topic it stopped on has been relearned or forgotten since.",
+        "A learned topic these messages would update had lost the messages it was learned from. It has since been relearned from messages that still exist, or forgotten.",
         :ready,
-        "One more start can now update it with these messages."
+        "One more start can now read these messages."
       )
 
   defp learning_cause(%{summary: "knowledge_match_ambiguous"}),
