@@ -6,10 +6,17 @@ defmodule Ryker.ControlPlane.HTML do
   alias Ryker.ControlPlane.{ConversationLab, Emoji, Kit, Layouts, SlackMarkdown}
   alias Ryker.Delivery.ChatCard
 
-  # The title and description are the shell's header; the body owns the rest.
-  @spec page(String.t(), String.t() | nil, iodata()) :: binary()
-  def page(title, description, body) do
-    %{__changed__: nil, title: title, description: description, body: IO.iodata_to_binary(body)}
+  # The title and description are the shell's header, led by the way back
+  # when the page belongs to another; the body owns the rest.
+  @spec page(String.t(), String.t() | nil, iodata(), {String.t(), String.t()} | nil) :: binary()
+  def page(title, description, body, back \\ nil) do
+    %{
+      __changed__: nil,
+      title: title,
+      description: description,
+      back: back,
+      body: IO.iodata_to_binary(body)
+    }
     |> Layouts.static()
     |> Safe.to_iodata()
     |> IO.iodata_to_binary()
@@ -57,7 +64,9 @@ defmodule Ryker.ControlPlane.HTML do
     ]
   end
 
-  def lab_task_record(snapshot, back_path) do
+  # A task record's view; the way back to its conversation is the page's own
+  # (`page/4`), above its title.
+  def lab_task_record(snapshot) do
     navigation =
       Enum.map(snapshot.navigation, fn item ->
         ["<a class=\"button\" href=\"", escape(item.path), "\">", escape(item.label), "</a>"]
@@ -68,9 +77,6 @@ defmodule Ryker.ControlPlane.HTML do
       "<pre>",
       escape(snapshot.body),
       "</pre><div class=\"work-view-actions\">",
-      "<a class=\"quiet-link\" href=\"",
-      escape(back_path),
-      "\">Back to conversation</a>",
       navigation,
       "</div></section>"
     ]

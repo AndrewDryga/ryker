@@ -93,6 +93,39 @@ defmodule Ryker.ControlPlane.PagesTest do
     assert memory.body =~ "Keep separate"
   end
 
+  test "every sub-page leads back to the page it belongs to, from above its title" do
+    # Andrew, 2026-09-27, of a learning batch's page: "especially back button
+    # you can't even find clearly", and of the rest, "it should be
+    # standartized across app too". A failure, a schedule, a room and a
+    # channel had no way back at all but the sidebar.
+    for {path, back} <- [
+          {"/incident-rooms/incident%3Aone", {"All incident rooms", "/incident-rooms"}},
+          {"/schedules/schedule%3Aone", {"All schedules", "/schedules"}},
+          {"/channels/T123/C456", {"All channels", "/channels"}},
+          {"/failures/delivery/delivery%3Aone", {"All failures", "/failures"}}
+        ] do
+      assert page(path).back == back, path
+    end
+
+    for path <-
+          ~w(/incident-rooms /schedules /channels /failures /memory/learned /memory/learning) do
+      refute Map.has_key?(page(path), :back), path
+    end
+
+    failure = page("/failures/delivery/delivery%3Aone")
+
+    header =
+      HTML.page(failure.title, failure.description, failure.body, failure.back)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query(".page-header")
+
+    assert LazyHTML.query(header, "nav.kit-back:first-child a[href='/failures']")
+           |> LazyHTML.text() == "All failures"
+
+    assert LazyHTML.query(header, "nav.kit-back + .page-heading h1") |> LazyHTML.text() ==
+             failure.title
+  end
+
   test "incident rooms have one canonical page with their actual room-only scope" do
     page = page("/incident-rooms")
     assert page.title == "Incident rooms"

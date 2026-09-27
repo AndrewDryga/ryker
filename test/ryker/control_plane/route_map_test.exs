@@ -110,7 +110,7 @@ defmodule Ryker.ControlPlane.RouteMapTest do
     {:ok, entry} = lab_entry()
 
     assert {:ok, view, _html} = live(conn(), "/timeline/ingress-input%3A#{entry.id}")
-    assert has_element?(view, ".back-to-activity", "Activity")
+    assert has_element?(view, ".kit-back a[href=\"/\"]", "Activity")
     assert has_element?(view, "#execution-timeline")
     # Nothing has been routed yet, so the page shows the queue, not a briefing
     # for a call that has not happened.

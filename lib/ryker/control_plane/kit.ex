@@ -2,7 +2,8 @@ defmodule Ryker.ControlPlane.Kit do
   @moduledoc """
   The shared parts every page is built from, from Activity and Incident rooms
   to Channels, Automations, Memory, Usage and Settings: counts, the toolbar
-  row, rows, tables, facts, states, section cards and empty states.
+  row, rows, tables, facts, states, section cards, empty states and the way
+  back from a sub-page.
 
   One list language for all of them: rows sit on the page with faint
   separators, an icon tile for what kind of thing each one is, a name, then
@@ -12,8 +13,10 @@ defmodule Ryker.ControlPlane.Kit do
   tile. A long page of several parts, such as a channel's page or an
   integration's, gives each part its own card, and a list that is one part
   of such a page keeps its rows inside that card. Anything with nothing to
-  show says so with `empty/1`. String-rendered pages call these through
-  `Phoenix.HTML.Safe.to_iodata/1` with `__changed__: nil`.
+  show says so with `empty/1`. A sub-page, such as one topic or one failure,
+  leads back to the page it belongs to with `back/1`, above its title.
+  String-rendered pages call these through `Phoenix.HTML.Safe.to_iodata/1`
+  with `__changed__: nil`.
   """
   use Phoenix.Component
 
@@ -251,6 +254,28 @@ defmodule Ryker.ControlPlane.Kit do
   def state(assigns) do
     ~H"""
     <span class="state-word" data-tone={@tone}>{@word}</span>
+    """
+  end
+
+  attr(:href, :string, required: true, doc: "The page this sub-page belongs to")
+  attr(:label, :string, required: true, doc: "That page's name, such as All topics or Activity")
+  attr(:navigate, :boolean, default: false, doc: "Inside a LiveView, open it without reloading")
+
+  @doc """
+  The way back from a sub-page to the page it belongs to, "← All topics",
+  in the same place on every one: the first thing on the page, above its
+  title, from a request's timeline to one learning batch. Andrew, 2026-09-27,
+  of a learning batch's page: "especially back button you can't even find
+  clearly", and of the rest, "it should be standartized across app too".
+  """
+  def back(assigns) do
+    ~H"""
+    <nav class="kit-back" aria-label="Back">
+      <.link :if={@navigate} navigate={@href}><Components.icon name={:arrow_left} />{@label}</.link><a
+        :if={!@navigate}
+        href={@href}
+      ><Components.icon name={:arrow_left} />{@label}</a>
+    </nav>
     """
   end
 

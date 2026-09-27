@@ -162,13 +162,6 @@ defmodule Ryker.ControlPlane.RequestFilters do
         <.menu :if={@adding && !@disabled} groups={@groups} values={@values} params={@params} />
       </span>
       <.link :if={@cleared && !@disabled} class="filter-clear" patch={@path}>Clear</.link>
-      <a
-        :if={UsageProjection.filtered?(@params) && !@disabled}
-        class="filter-usage"
-        href={usage_path(@params)}
-      >
-        Back to Usage
-      </a>
     </div>
     """
   end
@@ -401,13 +394,6 @@ defmodule Ryker.ControlPlane.RequestFilters do
     if selected in [nil, ""] or Enum.any?(options, &(elem(&1, 0) == selected)),
       do: options,
       else: options ++ [{selected, value_label(type, selected, params, rows)}]
-  end
-
-  defp usage_path(params) do
-    mode = if params["mode"] in ~w(all shadow), do: params["mode"], else: "live"
-
-    "/usage?" <>
-      URI.encode_query(%{window: UsageProjection.window(params["usage_window"]), mode: mode})
   end
 
   defp choice_label(value) when value in @efforts, do: ExecutionTarget.effort_name(value)
