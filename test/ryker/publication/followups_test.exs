@@ -22,6 +22,9 @@ defmodule Ryker.Publication.FollowupsTest do
 
   @now ~U[2026-08-28 12:10:00.000000Z]
 
+  # The next check of a follow-up that is never checked again.
+  @never ~U[9999-01-01 00:00:00.000000Z]
+
   test "published work survives checks, merge, exact deployment correlation, and verification wakeup" do
     %{episode: episode, publication: publication} = PublicationFixture.published!("followup")
 
@@ -232,6 +235,107 @@ defmodule Ryker.Publication.FollowupsTest do
              "delivery:2",
              crossed
            ) == {:ok, :ignored}
+  end
+
+  # The live install listens on 127.0.0.1 only and had never received a GitHub
+  # webhook. On 2026-09-27 its pull request AndrewDryga/test#2 sat after its
+  # first poll with the next check in the year 9999: nothing would ever have
+  # told Ryker it merged, closed or went red, and red checks are what wake the
+  # task to fix its own change.
+  test "an open pull request is checked again ten minutes after each poll, with no webhook" do
+    %{publication: publication} = PublicationFixture.published!("open-recheck")
+
+    assert {:ok, first} = Followups.claim_poll("publication-followup:open-recheck", 60)
+    polled_after = Repo.now!()
+    pending = lifecycle_status(publication, "pending", false)
+    assert {:ok, polled} = Followups.store_poll(publication.ref, first.lease_ref, pending)
+    assert polled.pr_state == "open"
+    assert_next_check(polled, ten_minutes_after: polled_after)
+
+    # Ten minutes on the checks have gone red; the pull request is still open.
+    Repo.update_all(
+      from(saved in Followup, where: saved.publication_id == ^publication.id),
+      set: [next_poll_at: @now]
+    )
+
+    assert {:ok, second} = Followups.claim_poll("publication-followup:open-recheck:again", 60)
+    polled_after = Repo.now!()
+    failing = lifecycle_status(publication, "failing", false)
+    assert {:ok, polled} = Followups.store_poll(publication.ref, second.lease_ref, failing)
+    assert polled.pr_state == "open"
+    assert_next_check(polled, ten_minutes_after: polled_after)
+  end
+
+  # A merge, a close, a head moved outside this publication and the thirty-day
+  # deadline are facts a person owns; checking again would spend GitHub calls
+  # on a pull request Ryker no longer tracks.
+  for ending <- ~w(merged closed stale expired) do
+    test "a #{ending} pull request is not checked again" do
+      %{publication: publication} = PublicationFixture.published!("ended-#{unquote(ending)}")
+      if unquote(ending) == "expired", do: reach_deadline!(publication)
+
+      assert {:ok, claim} = Followups.claim_poll("publication-followup:ended", 60)
+      status = ended_status(publication, unquote(ending))
+      assert {:ok, ended} = Followups.store_poll(publication.ref, claim.lease_ref, status)
+      assert ended.pr_state == unquote(ending)
+      assert ended.next_poll_at == @never
+    end
+  end
+
+  test "a GitHub webhook makes an open pull request's next check due at once" do
+    %{publication: publication} =
+      PublicationFixture.published!("nudge-recheck", pull_request_number: 94)
+
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:nudge-recheck", 60)
+    pending = lifecycle_status(publication, "pending", false)
+    assert {:ok, _polled} = Followups.store_poll(publication.ref, claim.lease_ref, pending)
+
+    # Its next check is ten minutes out, so nothing is due yet.
+    assert {:ok, nil} = Followups.claim_poll("publication-followup:nudge-recheck:early", 60)
+
+    check_run = %{
+      "check_run" => %{
+        "head_sha" => publication.commit_sha,
+        "pull_requests" => [%{"number" => 94}]
+      }
+    }
+
+    assert Followups.nudge_github_event("acme/ryker", "check_run", "delivery:94", check_run) ==
+             {:ok, :nudged}
+
+    assert {:ok, nudged} = Followups.claim_poll("publication-followup:nudge-recheck:now", 60)
+    assert nudged.publication.id == publication.id
+  end
+
+  # Red checks wake the task, and once it accepts a result the follow-up
+  # settles that verification. Settling used to park the pull request as well,
+  # so one still open after the task answered was never checked again unless a
+  # webhook arrived.
+  test "an open pull request is still checked every ten minutes once the task it woke settles" do
+    %{episode: episode, publication: publication} = PublicationFixture.published!("settled-open")
+    turn_ref = "turn:publication-verification:settled-open"
+
+    Repo.update_all(
+      from(saved in Followup, where: saved.publication_id == ^publication.id),
+      set: [
+        next_poll_at: @now,
+        verification_event_ref: "lifecycle:checks:settled-open",
+        verification_sequence: 100,
+        verification_turn_ref: turn_ref
+      ]
+    )
+
+    insert_result_event!(episode.id, 101, turn_ref)
+
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:settled-open", 60)
+    settled_after = Repo.now!()
+
+    assert {:ok, settled} =
+             Followups.reconcile_verification(publication.ref, claim.lease_ref, 60)
+
+    assert %DateTime{} = settled.verified_at
+    assert settled.pr_state == "open"
+    assert_next_check(settled, ten_minutes_after: settled_after)
   end
 
   test "review feedback fails closed when two publications claim one pull request" do
@@ -1206,6 +1310,35 @@ defmodule Ryker.Publication.FollowupsTest do
       "state" => if(merged, do: "closed", else: "open"),
       "url" => publication.pull_request_url
     }
+  end
+
+  # The poll was stored at `polled_after` or a moment later.
+  defp assert_next_check(followup, ten_minutes_after: polled_after) do
+    expected = DateTime.add(polled_after, 10, :minute)
+
+    assert DateTime.diff(followup.next_poll_at, expected, :millisecond) in 0..1_000,
+           "next check at #{followup.next_poll_at}, expected ten minutes after #{polled_after}"
+  end
+
+  defp ended_status(publication, "merged"),
+    do: lifecycle_status(publication, "passing", true, String.duplicate("b", 40))
+
+  defp ended_status(publication, "closed"),
+    do: %{lifecycle_status(publication, "pending", false) | "state" => "closed"}
+
+  defp ended_status(publication, "stale"),
+    do: %{
+      lifecycle_status(publication, "pending", false)
+      | "head_sha" => String.duplicate("d", 40)
+    }
+
+  defp ended_status(publication, "expired"), do: lifecycle_status(publication, "pending", false)
+
+  defp reach_deadline!(publication) do
+    Repo.update_all(
+      from(saved in Followup, where: saved.publication_id == ^publication.id),
+      set: [deadline_at: @now, inserted_at: DateTime.add(@now, -1, :second), next_poll_at: @now]
+    )
   end
 
   # Exactly the row state `persist_publication/3` leaves once the corrected

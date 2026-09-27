@@ -2,9 +2,11 @@ defmodule Ryker.Publication.Followups do
   @moduledoc """
   Episode-owned custody for a published pull request's remaining lifecycle.
 
-  GitHub webhooks nudge one authoritative refresh; idle repositories are never
-  scanned on a timer. External deployment signals must contain an exact recorded
-  PR URL, branch, head SHA, or merge SHA before they can wake the source task.
+  An open pull request Ryker opened is checked every ten minutes until its
+  deadline, and a GitHub webhook makes the next check due at once; no other
+  pull request or repository is scanned. External deployment signals must
+  contain an exact recorded PR URL, branch, head SHA, or merge SHA before they
+  can wake the source task.
 
   This module is the follow-up API for the rest of the host, and the custody
   the follow-up dispatcher and executor run against: publication custody, the
@@ -88,7 +90,11 @@ defmodule Ryker.Publication.Followups do
 
   # --- what records its outcome ---------------------------------------------
 
-  @doc "Stores what a leased poll found and records the lifecycle event it means."
+  @doc """
+  Stores what a leased poll found, records the lifecycle event it means, and
+  schedules the next check: in ten minutes while the pull request is open,
+  never once it is not.
+  """
   defdelegate store_poll(publication_ref, lease_ref, status), to: Polls
 
   @doc "Settles a pending verification, or checks it again after `interval_seconds`."
