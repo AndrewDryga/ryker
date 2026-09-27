@@ -78,7 +78,10 @@ defmodule Ryker.StateTools.EmisarToolsTest do
 
     assert Enum.filter(list(refused), &(&1["name"] in @emisar_names)) == []
 
-    assert %{"isError" => true, "structuredContent" => %{"error" => "emisar_key_refused: " <> why}} =
+    assert %{
+             "isError" => true,
+             "structuredContent" => %{"error" => "emisar_key_refused: " <> why}
+           } =
              call(refused, "find_actions", %{"query" => "disk"})
 
     assert why =~ "Nothing ran"
