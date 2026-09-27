@@ -320,7 +320,9 @@ defmodule Ryker.Work.CandidateResponseTest do
       closed_work_seconds: 60,
       conversation_memory_seconds: 60,
       episode_history_seconds: 60,
-      operational_data_seconds: 60
+      operational_data_seconds: 60,
+      routing_examples_enabled: false,
+      routing_examples_seconds: 365 * 86_400
     }
   end
 end

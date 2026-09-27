@@ -9,7 +9,8 @@ defmodule Ryker.Memories.Forgetting do
   after an edit. The messages themselves stay valid inputs. A topic left with no message it may still use is forgotten with
   them: its text and history are erased and it stays listed as forgotten. A
   topic that also rests on other messages stops being used until it is
-  relearned from those.
+  relearned from those. Every routing example whose prompt quoted a forgotten
+  message or topic is erased with them (`Ryker.RoutingExamples`).
 
   QA re-test, 2026-09-26: after Forget on a fact ("Ryker stops using this
   fact and erases what it saved"), Learned still held the same knowledge,
@@ -32,6 +33,7 @@ defmodule Ryker.Memories.Forgetting do
   alias Ryker.Learning.Observations
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Records.Record
+  alias Ryker.RoutingExamples
 
   @erased %{"retention" => "pruned"}
 
@@ -108,6 +110,7 @@ defmodule Ryker.Memories.Forgetting do
 
     now = Repo.now!()
     Enum.each(observations, &quarantine!(&1, now))
+    :ok = RoutingExamples.forget_messages_in_transaction(observations)
 
     outcome = preview(ids)
     erase!(outcome.forgotten)
@@ -179,6 +182,7 @@ defmodule Ryker.Memories.Forgetting do
       set: [state: @erased, forgotten_at: now]
     )
 
+    :ok = RoutingExamples.forget_topics_in_transaction(ids)
     Enum.each(ids, &Knowledge.broadcast_knowledge_updated/1)
   end
 

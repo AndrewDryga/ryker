@@ -31,6 +31,7 @@ defmodule Ryker.Retention.Data do
           closed_work: non_neg_integer(),
           configuration_sessions: non_neg_integer(),
           conversation_memory: non_neg_integer(),
+          routing_examples: non_neg_integer(),
           routing_responses: non_neg_integer(),
           episode_histories: non_neg_integer(),
           input_artifacts: non_neg_integer(),
@@ -70,8 +71,9 @@ defmodule Ryker.Retention.Data do
            Repo.transaction(fn -> prune_operational(expiring, settings) end),
          {:ok, closed_work} <-
            Repo.transaction(fn -> prune_closed_work(operational, settings) end),
-         {:ok, history} <- Repo.transaction(fn -> prune_history(closed_work, settings) end) do
-      Repo.transaction(fn -> prune_audit(history, settings) end)
+         {:ok, history} <- Repo.transaction(fn -> prune_history(closed_work, settings) end),
+         {:ok, audit} <- Repo.transaction(fn -> prune_audit(history, settings) end) do
+      Repo.transaction(fn -> prune_routing_examples(audit, settings) end)
       |> tap(&broadcast_history_pruned/1)
     end
   end
@@ -962,6 +964,35 @@ defmodule Ryker.Retention.Data do
     }
   end
 
+  # Routing examples: redacted copies of routing decisions kept for training
+  # (`Ryker.RoutingExamples`). They name the rows they were copied from
+  # without a foreign key, so nothing above reaches them: only their own
+  # window, counted from the decision, or turning keeping them off, which
+  # takes every one. Written out because the horizon is one branch of an OR.
+  @prune_routing_examples """
+  WITH candidates AS (
+    SELECT id
+    FROM routing_examples
+    WHERE NOT $1 OR decided_at < clock_timestamp() - ($2 * interval '1 second')
+    ORDER BY decided_at, id
+    LIMIT 1000
+    FOR UPDATE SKIP LOCKED
+  )
+  DELETE FROM routing_examples AS example
+  USING candidates
+  WHERE example.id = candidates.id
+  """
+
+  defp prune_routing_examples(result, settings) do
+    count =
+      execute_count(@prune_routing_examples, [
+        settings.routing_examples_enabled,
+        settings.routing_examples_seconds
+      ])
+
+    %{result | routing_examples: count}
+  end
+
   defp audit_candidates(horizon) do
     @audit_candidates
     |> Repo.query!([horizon])
@@ -1057,6 +1088,7 @@ defmodule Ryker.Retention.Data do
       closed_work: 0,
       configuration_sessions: 0,
       conversation_memory: 0,
+      routing_examples: 0,
       routing_responses: 0,
       episode_histories: 0,
       input_artifacts: 0,
@@ -1078,12 +1110,13 @@ defmodule Ryker.Retention.Data do
   end
 
   defp settings(%{} = settings) do
-    required =
-      ~w(audit_data_seconds closed_work_seconds conversation_memory_seconds episode_history_seconds operational_data_seconds)a
+    horizons =
+      ~w(audit_data_seconds closed_work_seconds conversation_memory_seconds episode_history_seconds operational_data_seconds routing_examples_seconds)a
 
     valid =
-      Map.keys(settings) |> Enum.sort() == Enum.sort(required) and
-        Enum.all?(required, &(is_integer(settings[&1]) and settings[&1] > 0)) and
+      Map.keys(settings) |> Enum.sort() == Enum.sort([:routing_examples_enabled | horizons]) and
+        is_boolean(settings.routing_examples_enabled) and
+        Enum.all?(horizons, &(is_integer(settings[&1]) and settings[&1] > 0)) and
         settings.operational_data_seconds <= settings.closed_work_seconds and
         settings.closed_work_seconds <= settings.episode_history_seconds and
         settings.episode_history_seconds <= settings.audit_data_seconds and

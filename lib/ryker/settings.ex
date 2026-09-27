@@ -42,12 +42,15 @@ defmodule Ryker.Settings do
   @actor "control-plane:local"
   @lock_tag "ryker-settings"
   @day 86_400
+  # Keeping routing examples for training is off until a person turns it on.
   @retention_defaults %{
     operational_data_seconds: 30 * @day,
     conversation_memory_seconds: 90 * @day,
     closed_work_seconds: 30 * @day,
     episode_history_seconds: 30 * @day,
-    audit_data_seconds: 30 * @day
+    audit_data_seconds: 30 * @day,
+    routing_examples_enabled: false,
+    routing_examples_seconds: 365 * @day
   }
   @retention_fields Map.keys(@retention_defaults)
   @application_failures [:assembly_failed, :runtime_start_failed]
@@ -268,9 +271,23 @@ defmodule Ryker.Settings do
 
   defp shortened_fields(current, proposed) do
     @retention_fields
-    |> Enum.filter(&(Map.fetch!(proposed, &1) < Map.fetch!(current, &1)))
+    |> Enum.filter(&shortened?(&1, current, proposed))
     |> Enum.sort()
   end
+
+  # Turning off keeping routing examples deletes the ones kept, so it asks
+  # first, like a shorter limit. While none are kept, a shorter limit for them
+  # deletes nothing and asks nothing.
+  defp shortened?(:routing_examples_enabled, current, proposed),
+    do: current.routing_examples_enabled and not proposed.routing_examples_enabled
+
+  defp shortened?(:routing_examples_seconds, current, proposed),
+    do:
+      current.routing_examples_enabled and
+        proposed.routing_examples_seconds < current.routing_examples_seconds
+
+  defp shortened?(field, current, proposed),
+    do: Map.fetch!(proposed, field) < Map.fetch!(current, field)
 
   defp retention_confirmation(proposed, revision) do
     CanonicalJSON.digest(%{"revision" => revision, "retention" => stringify(proposed)})

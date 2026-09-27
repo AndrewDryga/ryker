@@ -855,7 +855,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How data retention works", [
       {"What this page sets",
        [
-         "How long Ryker keeps each kind of data: prompts, replies and tool activity; finished work; request history; the audit trail; and conversation memory. Older data is deleted on its own."
+         "How long Ryker keeps each kind of data: prompts, replies and tool activity; finished work; request history; the audit trail; conversation memory; and, when you keep them, routing examples for training. Older data is deleted on its own."
        ]},
       {"Shortening a limit",
        [
@@ -865,6 +865,11 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Keep the order",
        [
          "Prompts, replies and tool activity may not be kept longer than finished work, finished work not longer than request history, and that not longer than the audit trail. The page says when limits are out of order."
+       ]},
+      {"Routing examples for training",
+       [
+         "With Keep routing examples for training on, Ryker keeps a copy of each routing decision once its outcome is known. A copy holds the exact prompt, the model's answer, the decision, how the request turned out and the cost. Credentials, and the part of a link after the question mark, are taken out first.",
+         "Copies stay for their own limit, a year unless you change it, after the prompts above are deleted. Turning it off deletes every copy, so Ryker asks first. Deleting a message or a channel, or forgetting what Ryker learned from a message, removes it from every copy at once."
        ]}
     ])
   end

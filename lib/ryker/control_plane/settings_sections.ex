@@ -668,7 +668,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
     },
     # Listed in the order the limits must keep: each of the first four at
     # least as long as the one above it. Conversation memory only has to
-    # outlast the first.
+    # outlast the first. Routing examples come last: a copy kept only while a
+    # person keeps them on, ordered against nothing.
     %{
       key: :retention,
       domain: :retention,
@@ -708,6 +709,22 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :days,
           label: "Conversation memory",
           help: "What Ryker remembers about each conversation."
+        },
+        %{
+          name: :routing_examples_enabled,
+          kind: :boolean,
+          label: "Keep routing examples for training",
+          help:
+            "Keeps a copy of each routing decision, what it was asked and how it turned out, " <>
+              "to train a smaller model that routes messages later. Off until you turn it on."
+        },
+        %{
+          name: :routing_examples_seconds,
+          kind: :days,
+          label: "Routing examples",
+          help:
+            "How long each copy is kept. Deleting a message or forgetting what Ryker learned " <>
+              "from it removes it from every copy at once."
         }
       ]
     },

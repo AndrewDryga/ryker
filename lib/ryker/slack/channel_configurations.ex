@@ -21,6 +21,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   alias Ryker.Continuity
   alias Ryker.Memories
   alias Ryker.Repo
+  alias Ryker.RoutingExamples
   alias Ryker.Settings.Environment
 
   alias Ryker.Slack.{
@@ -941,6 +942,11 @@ defmodule Ryker.Slack.ChannelConfigurations do
       Continuity.delete_slack_channel_in_transaction(
         membership.workspace_ref,
         membership.channel_ref
+      )
+
+    :ok =
+      RoutingExamples.forget_conversation_in_transaction(
+        "slack:#{membership.workspace_ref}:#{membership.channel_ref}"
       )
 
     Repo.delete_all(
