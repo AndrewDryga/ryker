@@ -29,6 +29,7 @@ defmodule Ryker.ControlPlane.Components do
     settings: "M4 6h16 M4 12h16 M4 18h16 M8 3v6 M16 9v6 M10 15v6",
     grid: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
     arrow_up: "M12 19V5 M6 11l6-6 6 6",
+    arrow_left: "M19 12H5 M11 18l-6-6 6-6",
     arrow_down: "M12 5v14 M18 13l-6 6-6-6",
     copy: "M9 9h10v10H9z M5 5h10v4 M5 5v10h4",
     chevron: "m9 5 7 7-7 7",
@@ -440,8 +441,11 @@ defmodule Ryker.ControlPlane.Components do
   attr(:tone, :any, default: :secondary)
 
   @doc """
-  A button that opens an action's confirmation page, as a GET form so it
-  reads and works as a button.
+  A button whose action asks first. In the live page it opens the question
+  in `Kit.confirm_modal/1` over the page ("ask-action"); the modal's button
+  posts the protected action. Before the page is live, and without
+  JavaScript, the same button opens the action's confirmation page instead,
+  as a GET form so it reads and works as a button.
 
   A browser replaces the query of a GET form's action with the form's own
   fields, so the query of `path`, such as `back`, the page the confirmation
@@ -458,7 +462,12 @@ defmodule Ryker.ControlPlane.Components do
       )
 
     ~H"""
-    <form class="action-control" method="get" action={@action}>
+    <form
+      class="action-control"
+      method="get"
+      action={@action}
+      phx-submit={JS.push("ask-action", value: %{path: @path, label: @label})}
+    >
       <input :for={{name, value} <- @fields} type="hidden" name={name} value={value} />
       <button type="submit" class={"ui-button #{@tone}"}>{@label}</button>
     </form>

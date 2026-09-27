@@ -59,6 +59,49 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # What the button of a confirmed action does to the thing it names: these
+  # remove, delete or forget, so their question is in the danger tone.
+  @removals ~w(deleted discard forget merge)
+
+  @doc """
+  The question a confirmed action asks before it runs, for the live page to
+  show in `Kit.confirm_modal/1` over the list it was asked from: the same
+  title and sentence as the action's confirmation page, its tone, and the
+  address and token its button posts, with the `back` the action named.
+  `path` is the action's own address, as `Components.action_button/1` names it.
+  """
+  @spec question(String.t(), map()) ::
+          {:ok,
+           %{
+             title: String.t(),
+             text: String.t(),
+             tone: atom(),
+             action: String.t(),
+             token: String.t()
+           }}
+          | {:error, :not_found}
+  def question(path, options) when is_binary(path) do
+    uri = URI.parse(path)
+
+    with ["actions", kind, encoded, action] <- String.split(uri.path || "", "/", trim: true),
+         {:ok, resource_ref} <- PathRef.decode(encoded),
+         {:ok, title, explanation, canonical_action} <-
+           confirmation(kind, resource_ref, action, options) do
+      {:ok,
+       %{
+         title: title,
+         text: explanation,
+         tone: if(action in @removals, do: :danger, else: :primary),
+         action: action_path(kind, resource_ref, action) <> back_query(back_param(uri.query)),
+         token: CSRF.token(options.csrf_secret, canonical_action, resource_ref)
+       }}
+    else
+      _unknown -> {:error, :not_found}
+    end
+  end
+
+  def question(_path, _options), do: {:error, :not_found}
+
   # The endpoint has already run the guard; running it here as well means a
   # direct call to the router is refused and headed exactly the same way.
   @impl Plug
@@ -938,12 +981,20 @@ defmodule Ryker.ControlPlane.Router do
   # accepted, so the parameter can never send anyone elsewhere.
   @back ~r"\A(?:/(?:timeline|conversations)/(?!\.+\z)[A-Za-z0-9%._~-]+|/memory/learning\?batch=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\z"
 
-  defp back(conn) do
-    case fetch_query_params(conn).query_params do
-      %{"back" => path} when is_binary(path) -> if Regex.match?(@back, path), do: path
-      _other -> nil
-    end
+  defp back(conn), do: allowed_back(fetch_query_params(conn).query_params)
+
+  defp back_param(nil), do: nil
+
+  defp back_param(query) do
+    query |> URI.decode_query() |> allowed_back()
+  rescue
+    ArgumentError -> nil
   end
+
+  defp allowed_back(%{"back" => path}) when is_binary(path),
+    do: if(Regex.match?(@back, path), do: path)
+
+  defp allowed_back(_params), do: nil
 
   defp back_query(nil), do: ""
   defp back_query(back), do: "?" <> URI.encode_query(%{"back" => back})

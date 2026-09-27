@@ -168,9 +168,23 @@ defmodule Ryker.ControlPlane.Pages do
         Map.put(
           page,
           :action,
-          ~s(<a class="ui-button primary" href="#add-repositories">Add repositories</a>)
+          ~s(<a class="ui-button primary" href="/repositories/new" data-phx-link="patch" ) <>
+            ~s(data-phx-link-state="push">Add repositories</a>)
         ),
       else: page
+  end
+
+  # Adding repositories is a page of its own, its form in one card under the
+  # shell's header (`Ryker.ControlPlane.RepositoryImport`), with the list it
+  # adds to above the title.
+  def page(["repositories", "new"], _params, _options) do
+    "Add repositories"
+    |> ok(
+      "Import repositories the connected GitHub App can reach. Each one joins the default " <>
+        "environment, where new channels work.",
+      ""
+    )
+    |> Map.put(:back, %{href: "/repositories", label: "Repositories"})
   end
 
   def page(["memory"], params, options) do
@@ -330,6 +344,7 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   def subscriptions(["repositories"], _params), do: RepositoriesPage.subscriptions()
+  def subscriptions(["repositories", "new"], _params), do: RepositoriesPage.subscriptions()
   def subscriptions(["memory"], _params), do: FactsPage.subscriptions()
   def subscriptions(["memory", "learned"], _params), do: LearnedPage.subscriptions()
   def subscriptions(["memory", "learning"], _params), do: LearningPage.subscriptions()

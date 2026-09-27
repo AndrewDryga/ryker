@@ -1642,7 +1642,6 @@
 .entity-row { position:relative; isolation:isolate; display:grid; grid-template-columns:[icon] auto [body] minmax(0,1fr) [side] auto [actions] auto; align-items:center; padding:14px 0; }
 .entity-row + .entity-row:not(.entity-row-grouped) { border-top:1px solid color-mix(in srgb, var(--ryker-text) 6%, transparent); }
 .entity-row > :is(.entity-icon, .entity-body, .entity-side, .entity-actions) { grid-row:2; }
-.entity-row:has(> .entity-body details[open]), .entity-row:has(> .entity-body > :is(.settings-editor, .settings-manage)) { align-items:start; }
 .entity-group { grid-column:1 / -1; grid-row:1; position:relative; z-index:1; display:flex; align-items:center; gap:12px; margin:0; padding:28px 0 10px; font-size:12px; line-height:16px; font-weight:600; letter-spacing:.02em; color:var(--ryker-text-secondary); }
 .entity-group::after { content:""; flex:1; height:1px; background:color-mix(in srgb, var(--ryker-text) 6%, transparent); }
 .entity-row-grouped { padding-top:0; row-gap:10px; }
@@ -1804,11 +1803,8 @@
 .channel-page .channel-usage { display:flex; flex-wrap:wrap; gap:4px 16px; margin:0; font-size:14px; line-height:20px; color:var(--ryker-text); }
 .channel-page .channel-usage-note { margin:4px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 /* Adding repositories: a disclosure that reads like a section head. */
-.repository-import { max-width:1040px; margin:32px 0 0; }
-.repository-import > summary { width:max-content; max-width:100%; cursor:pointer; }
-.repository-import-title { font-size:16px; line-height:24px; font-weight:600; color:var(--ryker-text); }
-.repository-import-lede { display:block; margin:2px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.repository-import-body { display:grid; gap:16px; max-width:760px; margin:12px 0 0; }
+.repository-import-body { display:grid; justify-items:start; gap:16px; }
+.repository-import-body > :is(form, .kit-empty, .repository-discovery-result, .form-feedback) { justify-self:stretch; }
 .repository-import form { display:grid; gap:16px; }
 .repository-import ul { margin:0; padding:0; list-style:none; }
 .repository-import li { border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 7%, transparent); }
@@ -1888,7 +1884,6 @@
 .ryker-app .learning-switch-error { margin:0; max-width:32ch; font-size:13px; line-height:18px; color:var(--ryker-error); text-align:right; }
 /* Turning learning off asks in place of the switch, as wide as the
    header's action column allows. */
-.learning-switch .settings-confirm { max-width:360px; margin:0; }
 .memory-details { max-width:720px; margin:6px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .ryker-app .memory-details > summary { width:fit-content; padding:4px 0; font-size:13px; line-height:18px; cursor:pointer; color:var(--ryker-text-secondary); }
 .ryker-app .memory-details[open] > summary { color:var(--ryker-text); }
@@ -1943,12 +1938,6 @@
 .settings-connection-action { display:flex; flex:none; gap:8px; }
 .settings-state-line { margin:0 0 8px; }
 
-.settings-confirm { max-width:720px; margin:12px 0 0; padding:14px 16px; border:1px solid color-mix(in srgb, var(--ryker-error) 40%, transparent); border-radius:8px; background:color-mix(in srgb, var(--ryker-error) 6%, transparent); }
-.settings-confirm > p { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text); }
-.settings-confirm > p strong { font-weight:600; }
-.settings-confirm .form-feedback { margin:10px 0 0; }
-.settings-confirm-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-.ryker-app .settings-confirm-actions .ui-button { min-height:36px; padding:6px 14px; font-size:13px; line-height:18px; }
 
 .secret-reveal { max-width:720px; margin:0 0 16px; padding:14px 16px; border:1px solid color-mix(in srgb, var(--ryker-warning) 45%, transparent); border-radius:8px; background:color-mix(in srgb, var(--ryker-warning) 7%, transparent); }
 .secret-reveal > p { margin:0 0 10px; font-size:14px; line-height:20px; color:var(--ryker-text); }
@@ -2054,9 +2043,12 @@
 /* Several prices read as one row of short fields, not a tall stack. */
 .settings-group-row { grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); column-gap:16px; }
 .settings-group-row > .settings-group-title { grid-column:1 / -1; }
-.settings-editor-heading { margin:0 0 12px; font-size:15px; line-height:22px; font-weight:600; color:var(--ryker-text); }
-.settings-collection > .settings-editor, .settings-section > .settings-editor { max-width:720px; margin:20px 0 0; }
-.entity-body > .settings-editor, .entity-body > .settings-manage { margin:16px 0 8px; }
+/* A field in such a row is as tall as the row's tallest, one with help text;
+   its input keeps its own height at the bottom, level with its neighbours'. */
+.settings-group-row > .settings-field { align-content:space-between; }
+.settings-group-row > .settings-field > :is(input, select) { align-self:end; }
+.entity-row:has(> .entity-body details[open]) { align-items:start; }
+.settings-section > .settings-editor { max-width:720px; margin:20px 0 0; }
 .settings-collection-bar { display:flex; align-items:center; justify-content:space-between; gap:16px; max-width:1040px; margin:8px 0 4px; }
 .settings-collection-bar p { margin:0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .settings-impact, .settings-conflict { padding:14px 16px; border:1px solid color-mix(in srgb, var(--ryker-warning) 45%, transparent); border-radius:8px; background:color-mix(in srgb, var(--ryker-warning) 6%, transparent); }
@@ -2082,15 +2074,10 @@
 
 .settings-people-form { display:grid; gap:16px; max-width:720px; }
 .settings-people-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:0 16px; max-height:360px; overflow:auto; }
-.settings-manage { display:grid; gap:20px; max-width:720px; }
 .settings-inline-form { display:flex; align-items:flex-end; flex-wrap:wrap; gap:8px 12px; max-width:720px; }
 .settings-inline-form > .settings-field { flex:1 1 320px; }
 .settings-inline-form .settings-field input { max-width:none; }
 .ryker-app .settings-inline-form > .ui-button { min-height:40px; }
-.settings-form > .settings-editor-heading { margin:0; }
-.settings-manage-line { display:flex; align-items:center; justify-content:space-between; gap:16px; }
-.settings-manage-line p { margin:0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.settings-manage-line strong { display:block; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
 .settings-start { display:grid; justify-items:start; gap:16px; max-width:720px; }
 .settings-start > .section-head { margin-top:8px; }
 
@@ -2111,7 +2098,7 @@
 .webhook-preview-event pre { max-height:320px; overflow:auto; }
 @media (max-width:800px) {
   .ryker-app .native-page > .settings-page { padding:24px 20px 48px; }
-  .settings-connection, .settings-manage-line { flex-wrap:wrap; }
+  .settings-connection { flex-wrap:wrap; }
 }
 @media (max-width:600px) {
   .ryker-app .native-page > .settings-page { padding:20px 16px 40px; }
@@ -2124,15 +2111,21 @@
 /* Environments (2026-09-25): an environment's repositories in order, as rows
    with faint separators. Every one is available to its work and the first is
    the default; the arrows move one place up or down. */
-.environment-repositories { display:grid; max-width:560px; margin:4px 0 0; padding:0; list-style:none; }
-.environment-repository { display:grid; grid-template-columns:18px minmax(0,1fr) auto; align-items:center; gap:10px; min-height:44px; border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 7%, transparent); }
-.environment-repository > input { width:18px; height:18px; margin:0; accent-color:var(--ryker-accent); }
-.environment-repository > label { display:flex; align-items:baseline; flex-wrap:wrap; gap:2px 8px; min-width:0; cursor:pointer; }
-.environment-repository strong { font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text); overflow-wrap:anywhere; }
-.environment-repository small { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.environment-repository-order { display:flex; gap:4px; }
-.ryker-app .settings-page .environment-repository-order .ui-button { min-width:32px; min-height:32px; padding:0 7px; }
-/* A channel chooses its environment in place, beside the facts it changes. */
+/* An environment's repositories: every added repository once, by name, in a
+   grid of what it is, what work may do in it and whether it is the default. */
+.environment-repositories { display:grid; grid-template-columns:minmax(0,1fr) 168px 64px; max-width:640px; margin:4px 0 0; }
+.environment-repositories-head, .environment-repository { display:contents; }
+.environment-repositories-head > span { padding:0 0 6px; border-bottom:1px solid var(--ryker-stroke); font-size:12px; line-height:16px; font-weight:600; color:var(--ryker-text-secondary); }
+.environment-repositories-head > span:last-child, .environment-repository-default { text-align:center; }
+.environment-repository > span { display:flex; align-items:center; min-height:48px; border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 7%, transparent); }
+.environment-repository-name { gap:10px; min-width:0; }
+.environment-repository-name > input, .environment-repository-default > input { flex:none; width:18px; height:18px; margin:0; accent-color:var(--ryker-accent); cursor:pointer; }
+.environment-repository-name > label { min-width:0; font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text); overflow-wrap:anywhere; cursor:pointer; }
+.environment-repository[data-chosen=false] .environment-repository-name > label { color:var(--ryker-text-secondary); font-weight:400; }
+.environment-repository-default { justify-content:center; }
+.settings-field .environment-repository-access select { min-height:34px; padding-top:5px; padding-bottom:5px; font-size:13px; line-height:20px; }
+.settings-field .environment-repository-access select:disabled { color:var(--ryker-text-secondary); background-color:var(--ryker-surface-sunken); opacity:1; }
+@media (max-width:600px) { .environment-repositories { grid-template-columns:minmax(0,1fr) 156px 52px; } }
 /* A channel's settings change in place (Andrew, 2026-09-27): a compact
    select, a quiet note and the saved mark on one line, the label beside it
    level with the select's words. */
@@ -2315,8 +2308,39 @@
 /* A list that opens or closes a card sits on the card's padding, not on its rows' own too. */
 .kit-card > .entity-list:first-child { margin-top:-14px; }
 .kit-card > .entity-list:last-child { margin-bottom:-14px; }
-.kit-card :is(.settings-form, .settings-editor, .settings-editor > form), .kit-card > :is(.settings-notice, .settings-confirm) { max-width:none; }
+.kit-card :is(.settings-form, .settings-editor, .settings-editor > form), .kit-card > .settings-notice { max-width:none; }
 .kit-card form > .settings-actions:last-child { padding-top:20px; border-top:1px solid var(--ryker-stroke); }
+/* Kit: a page of one form (Andrew, 2026-09-27: an add form above a list "blends
+   into the content"). One card, as wide as a readable form, holds the form;
+   its groups of fields are parted by hairlines and its actions sit under the
+   last one. The page's title says what it adds or edits. */
+.kit-form-card { max-width:760px; }
+.kit-form-card .settings-form, .kit-form-card .settings-editor > form { gap:24px; }
+.kit-form-card :is(.kit-form-section, .settings-group) + :is(.kit-form-section, .settings-group) { padding-top:24px; border-top:1px solid var(--ryker-stroke); }
+.kit-form-section { display:grid; gap:20px; min-width:0; }
+.kit-form-card .settings-group > .settings-group-title { margin:0 0 -8px; font-size:14px; line-height:20px; color:var(--ryker-text); }
+.kit-form-card .settings-field :is(input[type=text], input[type=password], input[type=url], input:not([type]), select) { max-width:520px; }
+.kit-form-card + .kit-form-card { margin-top:24px; }
+/* Kit: the question before anything that removes, deletes or forgets, over the
+   page (Andrew, 2026-09-27: a question inside a row made "that table line
+   extend"). The page behind is dimmed and holds still; the panel is the raised
+   surface every card uses, and only the icon and the button carry the tone. */
+html:has(.kit-modal) { overflow:hidden; }
+.kit-modal { position:fixed; inset:0; z-index:60; display:grid; place-items:center; padding:16px; }
+.kit-modal-backdrop { position:fixed; inset:0; background:rgb(0 0 0 / 62%); backdrop-filter:blur(2px); }
+.kit-modal-panel { position:relative; box-sizing:border-box; display:grid; grid-template-columns:40px minmax(0,1fr); column-gap:16px; width:100%; max-width:460px; max-height:calc(100dvh - 32px); overflow-y:auto; padding:24px; border:1px solid var(--ryker-stroke-strong); border-radius:12px; background:var(--ryker-surface-raised); box-shadow:0 24px 64px var(--ryker-shadow-overlay); animation:kit-modal-in 140ms ease-out; }
+.kit-modal-icon { grid-row:1 / span 2; display:grid; place-items:center; width:40px; height:40px; border-radius:50%; background:var(--ryker-error-soft); color:var(--ryker-error); }
+.kit-modal-icon[data-tone=primary] { background:var(--ryker-accent-soft); color:var(--ryker-accent-strong); }
+.kit-modal-icon .ui-icon { width:20px; height:20px; }
+.ryker-app .kit-modal-title { grid-column:2; margin:0; font-size:17px; line-height:24px; font-weight:600; letter-spacing:-.2px; color:var(--ryker-text); overflow-wrap:anywhere; }
+.ryker-app .kit-modal-text { grid-column:2; margin:6px 0 0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
+.kit-modal-error { grid-column:2; margin:12px 0 0; }
+.kit-modal-actions { grid-column:1 / -1; display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-top:24px; }
+.kit-modal-form { display:contents; }
+.ryker-app .kit-modal-actions .ui-button { min-height:36px; padding:7px 14px; border-radius:8px; font-size:13px; line-height:20px; }
+@keyframes kit-modal-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce) { .kit-modal-panel { animation:none; } }
+@media (max-width:600px) { .kit-modal-panel { grid-template-columns:minmax(0,1fr); } .kit-modal-icon { grid-row:auto; margin-bottom:12px; } .ryker-app .kit-modal-title, .ryker-app .kit-modal-text, .kit-modal-error { grid-column:1; } }
 /* Facts in a card keep the head's rhythm from whatever follows them, such as a setting's form. */
 .ryker-app .kit-card > .kit-facts + * { margin-top:20px; }
 @media (max-width:600px) {

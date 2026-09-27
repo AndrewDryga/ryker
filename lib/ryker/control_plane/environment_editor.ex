@@ -1,15 +1,22 @@
 defmodule Ryker.ControlPlane.EnvironmentEditor do
   @moduledoc """
-  Adds or edits one environment: its name, what it is for, the repositories
-  work in it may use, its Emisar account and whether it is the default.
+  Adds or edits one environment, on its own page: its name, what it is for,
+  the repositories work in it may use and how, its Emisar account and whether
+  it is the default environment.
 
-  The repositories are every added repository, the chosen ones first and in
-  their order. Every chosen one is available to work in the environment and a
-  task picks the one it changes; the first is only the default, and Move up
-  and Move down change which one that is. A live refresh never overwrites an
-  unsaved draft; a refused save keeps the draft and says what to fix in
-  words; a save against settings that changed underneath is refused rather
-  than written over them. The LiveView closes the editor once a save lands.
+  Every added repository is listed once, by name, in the same place whatever
+  is chosen. A chosen repository is read only or read and write, and one of
+  them is the default: the one a task changes unless it picks another, so it
+  is always read and write (Andrew, 2026-09-27: "can we here limit read or
+  read/write access per repo?", and of ordering them to pick the default:
+  "default can be just a checkbox button or smth like that"). A repository
+  starts read and write when it is chosen, as every repository was before
+  access could be limited; Read only limits it.
+
+  A live refresh never overwrites an unsaved draft; a refused save keeps the
+  draft and says what to fix in words; a save against settings that changed
+  underneath is refused rather than written over them. The LiveView returns
+  to the list once a save lands.
   """
 
   use Phoenix.LiveComponent
@@ -52,7 +59,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
     )
   end
 
-  defp saved(_view, "new"), do: nil
+  defp saved(_view, nil), do: nil
 
   defp saved(view, ref) do
     case Environments.find(view.snapshot, ref) do
@@ -60,12 +67,16 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
         nil
 
       environment ->
+        refs = Environment.repository_refs(environment)
+
         %{
+          access: Map.new(environment.repositories, &{&1.repository_ref, &1.access}),
+          default_repository: List.first(refs),
           description: environment.description || "",
           display_name: environment.display_name,
           emisar_connection_ref: environment.emisar_connection_ref,
           is_default: environment.is_default,
-          repositories: Environment.repository_refs(environment)
+          repositories: Enum.sort(refs)
         }
     end
   end
@@ -74,6 +85,8 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   # the person says otherwise.
   defp blank(view) do
     %{
+      access: %{},
+      default_repository: nil,
       description: "",
       display_name: "",
       emisar_connection_ref: nil,
@@ -86,37 +99,30 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   def handle_event("change", %{"environment" => params}, socket),
     do: {:noreply, socket |> put_draft(params) |> assign(:error, nil)}
 
-  def handle_event("move", %{"repository" => ref, "direction" => direction}, socket)
-      when direction in ["up", "down"] do
-    repositories = move(socket.assigns.draft.repositories, ref, direction)
-
-    {:noreply,
-     assign(socket, draft: %{socket.assigns.draft | repositories: repositories}, dirty: true)}
-  end
-
   def handle_event("save", %{"environment" => params}, socket),
     do: {:noreply, socket |> put_draft(params) |> save()}
 
-  # The browser sends the chosen repositories in the order the list shows
-  # them: the chosen ones first, in their order, then the rest. A box ticked
-  # just now therefore lands after the ones already chosen.
   defp put_draft(socket, params) do
     draft = socket.assigns.draft
 
     repositories =
       case Map.fetch(params, "repositories") do
         {:ok, values} ->
-          ticked = values |> List.wrap() |> Enum.filter(&(is_binary(&1) and &1 != ""))
-          kept = Enum.filter(draft.repositories, &(&1 in ticked))
-          kept ++ Enum.uniq(ticked -- kept)
+          values |> List.wrap() |> Enum.filter(&(is_binary(&1) and &1 != "")) |> Enum.uniq()
 
         :error ->
           draft.repositories
       end
+      |> Enum.sort()
+
+    access = access(params, draft, repositories)
+    default = default_repository(params["default_repository"], draft, repositories, access)
 
     draft = %{
       draft
-      | description: text(params, "description", draft.description),
+      | access: if(default, do: Map.put(access, default, :read_write), else: access),
+        default_repository: default,
+        description: text(params, "description", draft.description),
         display_name: text(params, "display_name", draft.display_name),
         emisar_connection_ref:
           case Map.get(params, "emisar_connection_ref", draft.emisar_connection_ref) do
@@ -134,6 +140,34 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
     assign(socket, draft: draft, dirty: true)
   end
 
+  # Each chosen repository's access as the form says it, else as the draft
+  # had it; one chosen just now starts read and write.
+  defp access(params, draft, repositories) do
+    submitted = if is_map(params["access"]), do: params["access"], else: %{}
+
+    Map.new(repositories, fn ref ->
+      access =
+        case Map.get(submitted, ref) do
+          "read_write" -> :read_write
+          "read_only" -> :read_only
+          _absent -> Map.get(draft.access, ref, :read_write)
+        end
+
+      {ref, access}
+    end)
+  end
+
+  # The default as chosen, else the one the draft had while it is still
+  # chosen, else the first chosen read and write repository, else the first.
+  defp default_repository(chosen, draft, repositories, access) do
+    cond do
+      repositories == [] -> nil
+      chosen in repositories -> chosen
+      draft.default_repository in repositories -> draft.default_repository
+      true -> Enum.find(repositories, &(access[&1] == :read_write)) || hd(repositories)
+    end
+  end
+
   defp text(params, key, fallback) do
     case Map.get(params, key) do
       value when is_binary(value) -> value
@@ -141,33 +175,19 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
     end
   end
 
-  defp move(repositories, ref, direction) do
-    case Enum.find_index(repositories, &(&1 == ref)) do
-      nil ->
-        repositories
-
-      index ->
-        target = if direction == "up", do: index - 1, else: index + 1
-
-        if target in 0..(length(repositories) - 1)//1 do
-          repositories
-          |> List.replace_at(index, Enum.at(repositories, target))
-          |> List.replace_at(target, ref)
-        else
-          repositories
-        end
-    end
-  end
-
   defp save(socket) do
     %{draft: draft, ref: ref, view: view} = socket.assigns
     name = String.trim(draft.display_name)
+    default = draft.default_repository
 
     attributes = %{
-      ref: if(ref == "new", do: new_ref(name, view), else: ref),
+      ref: ref || new_ref(name, view),
       display_name: name,
       description: String.trim(draft.description),
-      repositories: draft.repositories,
+      # Settings keep the default first; the rest have no order that matters.
+      repositories:
+        if(default, do: [default | List.delete(draft.repositories, default)], else: []),
+      access: draft.access,
       emisar_connection_ref: draft.emisar_connection_ref,
       is_default: draft.is_default
     }
@@ -226,8 +246,8 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   defp refused({:description, _length}), do: "Keep the description to 500 characters or fewer."
 
   # With several repositories, work opens every one it does not change
-  # beside the one it does, under the repository's own name, and a task may
-  # change any of them, so every name has to fit.
+  # beside the one it does, under the repository's own name, so every name
+  # has to fit.
   defp refused({:repositories, :companion_name}),
     do:
       "With more than one repository, each name has to be up to 48 lowercase letters, " <>
@@ -239,6 +259,12 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
 
   defp refused({:repositories, _list}), do: "Choose each repository once, and 33 at most."
 
+  defp refused({:access, :default_read_only}),
+    do: "The default repository is the one a task changes, so it has to be read and write."
+
+  defp refused({:access, _reason}),
+    do: "A chosen repository is no longer added. Reload the page and choose again."
+
   defp refused({:emisar_connection_ref, _unknown}),
     do: "That Emisar account no longer exists. Choose another one."
 
@@ -247,33 +273,27 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   @impl true
   def render(assigns) do
     snapshot = assigns.view.snapshot
-    chosen = assigns.draft.repositories
-
-    unchosen =
-      for repository <- snapshot.repositories,
-          repository.ref not in chosen,
-          do: choice(snapshot, repository.ref, nil)
+    %{draft: draft} = assigns
 
     choices =
-      Enum.map(Enum.with_index(chosen), fn {ref, position} -> choice(snapshot, ref, position) end) ++
-        Enum.sort_by(unchosen, &String.downcase(&1.name))
+      snapshot.repositories
+      |> Enum.map(fn repository ->
+        chosen = repository.ref in draft.repositories
 
-    assigns =
-      assign(assigns,
-        accounts: snapshot.emisar_connections,
-        choices: choices,
-        last: length(chosen) - 1,
-        title:
-          if(assigns.ref == "new",
-            do: "Add an environment",
-            else:
-              "Edit " <> ((assigns.baseline && assigns.baseline.display_name) || "environment")
-          )
-      )
+        %{
+          ref: repository.ref,
+          name: Environments.repository_name(snapshot, repository.ref),
+          chosen: chosen,
+          access: chosen && Map.get(draft.access, repository.ref, :read_write),
+          default: chosen and repository.ref == draft.default_repository
+        }
+      end)
+      |> Enum.sort_by(&String.downcase(&1.name))
+
+    assigns = assign(assigns, accounts: snapshot.emisar_connections, choices: choices)
 
     ~H"""
-    <div id={@id} class="settings-editor environment-editor">
-      <h3 class="settings-editor-heading">{@title}</h3>
+    <div id={@id} class="environment-editor">
       <form
         id={"#{@id}-form"}
         class="settings-form"
@@ -283,85 +303,106 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
         data-dirty={to_string(@dirty)}
         autocomplete="off"
       >
-        <div class="settings-field">
-          <label for={"#{@id}-name"}>Name</label>
-          <input
-            id={"#{@id}-name"}
-            type="text"
-            name="environment[display_name]"
-            value={@draft.display_name}
-            maxlength="80"
-            required
-          />
+        <div class="kit-form-section">
+          <div class="settings-field">
+            <label for={"#{@id}-name"}>Name</label>
+            <input
+              id={"#{@id}-name"}
+              type="text"
+              name="environment[display_name]"
+              value={@draft.display_name}
+              maxlength="80"
+              required
+            />
+          </div>
+          <div class="settings-field">
+            <label for={"#{@id}-description"}>Description</label>
+            <p class="settings-help" id={"#{@id}-description-help"}>
+              Optional. What work in this environment is for.
+            </p>
+            <input
+              id={"#{@id}-description"}
+              type="text"
+              name="environment[description]"
+              value={@draft.description}
+              maxlength="500"
+              aria-describedby={"#{@id}-description-help"}
+            />
+          </div>
         </div>
-        <div class="settings-field">
-          <label for={"#{@id}-description"}>Description</label>
-          <p class="settings-help" id={"#{@id}-description-help"}>
-            Optional. What work in this environment is for.
-          </p>
-          <input
-            id={"#{@id}-description"}
-            type="text"
-            name="environment[description]"
-            value={@draft.description}
-            maxlength="500"
-            aria-describedby={"#{@id}-description-help"}
-          />
+        <div class="kit-form-section">
+          <fieldset class="settings-field" aria-describedby={"#{@id}-repositories-help"}>
+            <legend>Repositories</legend>
+            <p class="settings-help" id={"#{@id}-repositories-help"}>
+              Work here can read every repository you choose. A task changes one that is read and
+              write: the default, unless it picks another. The default is always read and write.
+            </p>
+            <input type="hidden" name="environment[repositories][]" value="" />
+            <div :if={@choices != []} class="environment-repositories">
+              <div class="environment-repositories-head" aria-hidden="true">
+                <span>Repository</span>
+                <span>Access</span>
+                <span>Default</span>
+              </div>
+              <div
+                :for={choice <- @choices}
+                class="environment-repository"
+                data-repository={choice.ref}
+                data-chosen={to_string(choice.chosen)}
+              >
+                <span class="environment-repository-name">
+                  <input
+                    type="checkbox"
+                    id={"#{@id}-repository-#{choice.ref}"}
+                    name="environment[repositories][]"
+                    value={choice.ref}
+                    checked={choice.chosen}
+                  />
+                  <label for={"#{@id}-repository-#{choice.ref}"}>{choice.name}</label>
+                </span>
+                <span class="environment-repository-access">
+                  <select
+                    :if={choice.chosen}
+                    id={"#{@id}-access-#{choice.ref}"}
+                    name={"environment[access][#{choice.ref}]"}
+                    aria-label={"What work may do in #{choice.name}"}
+                    disabled={choice.default}
+                  >
+                    <option value="read_write" selected={choice.access == :read_write}>
+                      Read and write
+                    </option>
+                    <option value="read_only" selected={choice.access == :read_only}>
+                      Read only
+                    </option>
+                  </select>
+                  <input
+                    :if={choice.default}
+                    type="hidden"
+                    name={"environment[access][#{choice.ref}]"}
+                    value="read_write"
+                  />
+                </span>
+                <span class="environment-repository-default">
+                  <input
+                    :if={choice.chosen}
+                    type="radio"
+                    id={"#{@id}-default-#{choice.ref}"}
+                    name="environment[default_repository]"
+                    value={choice.ref}
+                    checked={choice.default}
+                    aria-label={"Make #{choice.name} the default"}
+                  />
+                </span>
+              </div>
+            </div>
+            <p :if={@choices == []} class="settings-help">
+              No repositories are added yet.
+              <.link navigate="/repositories/new">Add repositories</.link>
+              first, or save without any: Ryker then works here without code.
+            </p>
+          </fieldset>
         </div>
-        <fieldset class="settings-field">
-          <legend>Repositories</legend>
-          <p class="settings-help">
-            Every repository here is available to work in this environment. The first one is the
-            default; a task picks the one it changes.
-          </p>
-          <input type="hidden" name="environment[repositories][]" value="" />
-          <ol :if={@choices != []} class="environment-repositories">
-            <li
-              :for={choice <- @choices}
-              class="environment-repository"
-              data-repository={choice.ref}
-            >
-              <input
-                type="checkbox"
-                id={"#{@id}-repository-#{choice.ref}"}
-                name="environment[repositories][]"
-                value={choice.ref}
-                checked={not is_nil(choice.position)}
-              />
-              <label for={"#{@id}-repository-#{choice.ref}"}>
-                <strong>{choice.name}</strong>
-                <small :if={choice.position == 0}>Default</small>
-              </label>
-              <span :if={choice.position} class="environment-repository-order">
-                <button
-                  type="button"
-                  class="ui-button quiet"
-                  phx-click="move"
-                  phx-value-repository={choice.ref}
-                  phx-value-direction="up"
-                  phx-target={@myself}
-                  disabled={choice.position == 0}
-                  title="Move up"
-                ><Components.icon name={:arrow_up} /><span class="sr-only">Move {choice.name} up</span></button>
-                <button
-                  type="button"
-                  class="ui-button quiet"
-                  phx-click="move"
-                  phx-value-repository={choice.ref}
-                  phx-value-direction="down"
-                  phx-target={@myself}
-                  disabled={choice.position == @last}
-                  title="Move down"
-                ><Components.icon name={:arrow_down} /><span class="sr-only">Move {choice.name} down</span></button>
-              </span>
-            </li>
-          </ol>
-          <p :if={@choices == []} class="settings-help">
-            No repositories are added yet. <.link navigate="/repositories">Add repositories</.link>
-            first, or save without any: Ryker then works here without code.
-          </p>
-        </fieldset>
-        <div class="settings-field">
+        <div class="kit-form-section settings-field">
           <label for={"#{@id}-emisar"}>Emisar account</label>
           <p class="settings-help" id={"#{@id}-emisar-help"}>
             Work here sends the actions it wants to run to this account, where a person approves them.
@@ -381,7 +422,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
             </option>
           </select>
         </div>
-        <div class="settings-field settings-field-boolean">
+        <div class="kit-form-section settings-field settings-field-boolean">
           <input type="hidden" name="environment[is_default]" value="false" />
           <input
             type="checkbox"
@@ -391,7 +432,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
             checked={@draft.is_default}
             aria-describedby={"#{@id}-default-help"}
           />
-          <label for={"#{@id}-default"}>Use as default</label>
+          <label for={"#{@id}-default"}>Default environment</label>
           <p class="settings-help" id={"#{@id}-default-help"}>
             Chat and every conversation without its own environment work here.
           </p>
@@ -399,7 +440,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
         <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
         <div class="settings-actions">
           <button type="submit" class="ui-button primary" phx-disable-with="Saving…">
-            {if @ref == "new", do: "Add environment", else: "Save changes"}
+            {if is_nil(@ref), do: "Add environment", else: "Save changes"}
           </button>
           <.link patch="/environments" class="ui-button secondary">Cancel</.link>
         </div>
@@ -407,7 +448,4 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
     </div>
     """
   end
-
-  defp choice(snapshot, ref, position),
-    do: %{ref: ref, name: Environments.repository_name(snapshot, ref), position: position}
 end

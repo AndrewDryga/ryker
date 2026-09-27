@@ -149,7 +149,7 @@ defmodule Ryker.ControlPlane.Integrations do
         state: {:warn, "Add a repository to start"},
         means: "the App is verified, and GitHub work starts once a repository is added.",
         reason: "The App is verified. Ryker starts GitHub work once a repository is added.",
-        action: {"Add repositories", "/repositories"}
+        action: {"Add repositories", "/repositories/new"}
       },
       connected: %{
         status: :on,

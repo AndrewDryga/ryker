@@ -34,6 +34,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     EpisodeProjection,
     IntegrationErrors,
     Integrations,
+    Kit,
     LabControls,
     LabPage,
     Navigation,
@@ -41,6 +42,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     Pages,
     PathRef,
     RequestFilters,
+    Router,
     RunningSystem,
     SettingsPage,
     SettingsView,
@@ -130,8 +132,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        channel_notice: nil,
        welcome_pending: nil,
        slack_members: [],
-       emisar_edit_ref: nil,
-       webhook_credential_editing: false,
+       settings_form: nil,
+       carried_notice: nil,
+       action_question: nil,
        overview: nil,
        activity: nil,
        filter_menu: nil,
@@ -179,12 +182,21 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        page_description: nil,
        page_back: nil,
        observed_at: nil,
-       webhook_credential_editing: false,
-       # An outcome or an open question belongs to the page it happened on.
-       # Closing an editor stays on its page, so what the save did stays said.
-       setup_notice: if(location.path == socket.assigns.path, do: socket.assigns.setup_notice),
+       # An outcome or an open question belongs to the page it happened on. A
+       # form that saved returns to its list and carries what the save did
+       # there (`return_with/3`), so the list says it.
+       setup_notice:
+         socket.assigns.carried_notice ||
+           if(location.path == socket.assigns.path, do: socket.assigns.setup_notice),
+       carried_notice: nil,
+       repository_notice:
+         if(location.path == socket.assigns.path,
+           do: socket.assigns.repository_notice,
+           else: carried_repository_notice(socket.assigns.repository_notice, location.path)
+         ),
        setup_failure: nil,
        settings_confirm: nil,
+       action_question: nil,
        channel_notice: nil,
        welcome_pending: nil,
        lab_environment_saved: nil
@@ -192,6 +204,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      |> assign_conversation_draft(location.path)
      |> refresh(true)}
   end
+
+  # What an import added is said on the list it returned to; every other
+  # outcome on Repositories stays with the page it happened on.
+  defp carried_repository_notice({:imported, _tone, _message} = notice, "/repositories"),
+    do: notice
+
+  defp carried_repository_notice(_notice, _path), do: nil
 
   # A conversation view is opened once per navigation: the index gets a fresh
   # identity nothing is written behind. Reloads come through refresh/2, not
@@ -232,21 +251,21 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # dispatched here as `load_page/3` loads them, every other page by `Pages`.
   # `draft_id` is the identity an empty Chat draft will start.
   @doc false
-  def page_subscriptions(path, params, draft_id),
-    do: path |> String.split("/", trim: true) |> page_subscriptions_at(params, draft_id)
+  def page_subscriptions(path, params, draft_id) do
+    segments = String.split(path, "/", trim: true)
+
+    case settings_route(segments, params) do
+      {:setup, nil} -> SettingsView.setup_subscriptions()
+      {_section, _form} -> SettingsView.subscriptions()
+      nil -> page_subscriptions_at(segments, params, draft_id)
+    end
+  end
 
   defp page_subscriptions_at(segments, _params, _draft_id) when segments in [[], ["activity"]],
     do: ActivityPage.subscriptions()
 
   defp page_subscriptions_at(["timeline", _ref], params, _draft_id),
     do: EpisodeProjection.subscriptions(params["ref"])
-
-  defp page_subscriptions_at(["setup"], _params, _draft_id),
-    do: SettingsView.setup_subscriptions()
-
-  defp page_subscriptions_at(segments, _params, _draft_id)
-       when is_map_key(@settings_pages, segments),
-       do: SettingsView.subscriptions()
 
   defp page_subscriptions_at(["instructions"], _params, _draft_id),
     do: BehaviorPage.subscriptions(:instructions)
@@ -338,12 +357,31 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  # A saved environment closes its editor and says so on the list.
+  # A saved environment returns to the list, which says so.
   def handle_info({:environment_saved, view, message}, socket) do
     {:noreply,
      socket
-     |> assign(settings: {:ok, view}, setup_notice: message, setup_failure: nil)
-     |> push_patch(to: "/environments")}
+     |> assign(settings: {:ok, view}, setup_failure: nil)
+     |> return_with("/environments", message)}
+  end
+
+  # A row of a settings list saved on its own page returns to that list.
+  def handle_info({:settings_item_saved, view, list, message}, socket) do
+    {:noreply,
+     socket
+     |> assign(settings: {:ok, view}, setup_failure: nil)
+     |> return_with(list, message)}
+  end
+
+  # A row removed from a settings list: the page says so above the list.
+  def handle_info({:settings_notice, view, message}, socket) do
+    {:noreply,
+     assign(socket,
+       settings: {:ok, view},
+       settings_error: nil,
+       setup_notice: message,
+       setup_failure: nil
+     )}
   end
 
   # Anything else, such as a reply to a request this page no longer waits
@@ -600,24 +638,33 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     case IntegrationSetup.import_github_repositories(repositories,
            auto_add_repositories: Map.get(params, "auto_add_repositories") == "true"
          ) do
-      # The list above gains the new rows at once, and the picker marks what
-      # is now added, so a second "Add selected" cannot repeat the first.
+      # The picker marks what is now added, so a second "Add selected" cannot
+      # repeat the first. An import that added everything chosen returns to
+      # the list, which has the new rows and says so; anything else stays on
+      # the form, which says what is left to do.
       {:ok, result} ->
         handled = MapSet.new(result.added ++ result.already_present)
+        tone = import_tone(result)
+        message = import_message(result, default_environment())
+
+        socket =
+          assign(socket,
+            github_repositories:
+              Enum.map(socket.assigns.github_repositories, fn repository ->
+                if MapSet.member?(handled, repository.full_name),
+                  do: %{repository | already_present: true},
+                  else: repository
+              end)
+          )
 
         {:noreply,
-         socket
-         |> assign(
-           github_repositories:
-             Enum.map(socket.assigns.github_repositories, fn repository ->
-               if MapSet.member?(handled, repository.full_name),
-                 do: %{repository | already_present: true},
-                 else: repository
-             end),
-           repository_notice:
-             {:import, import_tone(result), import_message(result, default_environment())}
-         )
-         |> refresh(true)}
+         if(tone == :success,
+           do:
+             socket
+             |> assign(repository_notice: {:imported, tone, message})
+             |> push_patch(to: "/repositories"),
+           else: socket |> assign(repository_notice: {:import, tone, message}) |> refresh(true)
+         )}
 
       {:error, reason} ->
         {:noreply,
@@ -625,30 +672,27 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
+  # A connected account returns to the list of accounts, which says where it
+  # is used; a refused one keeps its form open and says why.
   def handle_event("connect-emisar", %{"connection" => params}, socket) do
-    result = IntegrationSetup.connect_emisar(params)
-    {:noreply, finish_emisar_edit(socket, result, emisar_connected(result))}
-  end
+    case IntegrationSetup.connect_emisar(params) do
+      {:ok, _connection} = result ->
+        {:noreply,
+         socket
+         |> refresh_settings()
+         |> assign(setup_failure: nil, setup_reveal: nil)
+         |> return_with("/integrations/emisar", emisar_connected(result))}
 
-  def handle_event("show-emisar-form", %{"ref" => ref}, socket) when is_binary(ref) do
-    {:noreply,
-     assign(socket,
-       emisar_edit_ref: ref,
-       setup_notice: nil,
-       setup_failure: nil,
-       settings_confirm: nil
-     )}
-  end
-
-  def handle_event("hide-emisar-form", _params, socket) do
-    {:noreply, assign(socket, emisar_edit_ref: nil, settings_confirm: nil)}
+      {:error, reason} ->
+        {:noreply, failed(socket, reason)}
+    end
   end
 
   def handle_event("rotate-emisar", %{"connection" => params}, socket) do
     result =
       IntegrationSetup.rotate_emisar(Map.get(params, "ref", ""), Map.get(params, "token", ""))
 
-    {:noreply, finish_emisar_edit(socket, result, "Emisar token was rotated.")}
+    {:noreply, finish_setup(socket, result, "Emisar token was rotated.")}
   end
 
   def handle_event("disable-emisar", %{"ref" => ref}, socket) when is_binary(ref) do
@@ -668,7 +712,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("disable-emisar-monitoring", %{"ref" => ref}, socket)
       when is_binary(ref) do
     {:noreply,
-     finish_emisar_edit(
+     finish_setup(
        socket,
        IntegrationSetup.disable_emisar_monitoring(ref),
        "Approval monitoring is off for this account."
@@ -678,7 +722,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("enable-emisar-monitoring", %{"ref" => ref}, socket)
       when is_binary(ref) do
     {:noreply,
-     finish_emisar_edit(
+     finish_setup(
        socket,
        IntegrationSetup.enable_emisar_monitoring(ref),
        "Approval monitoring is on for this account."
@@ -692,14 +736,22 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         Map.get(params, "display_name", "")
       )
 
-    {:noreply, finish_emisar_edit(socket, result, "Emisar account name was updated.")}
+    {:noreply, finish_setup(socket, result, "Emisar account name was updated.")}
   end
 
+  # A removed account's page is gone, so its removal returns to the list.
   def handle_event("delete-emisar", %{"ref" => ref}, socket) when is_binary(ref) do
     confirmed(socket, {"delete-emisar", ref}, fn socket ->
-      socket
-      |> finish_setup(IntegrationSetup.delete_emisar(ref), "The Emisar account was removed.")
-      |> assign(:emisar_edit_ref, nil)
+      case IntegrationSetup.delete_emisar(ref) do
+        {:ok, _snapshot} ->
+          socket
+          |> refresh_settings()
+          |> assign(setup_failure: nil)
+          |> return_with("/integrations/emisar", "The Emisar account was removed.")
+
+        {:error, reason} ->
+          failed(socket, reason)
+      end
     end)
   end
 
@@ -741,15 +793,18 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
            Map.get(params, "name", ""),
            Map.get(params, "secret")
          ) do
+      # The list shows the secret once, beside the credential it signs for.
       {:ok, result} ->
         {:noreply,
          socket
          |> refresh_settings()
          |> assign(
-           setup_notice: "Signing credential #{result.name} is ready.",
            setup_failure: nil,
-           setup_reveal: %{label: "Signing secret", value: result.secret},
-           webhook_credential_editing: false
+           setup_reveal: %{label: "Signing secret", value: result.secret}
+         )
+         |> return_with(
+           "/integrations/webhooks",
+           "Signing credential #{result.name} is ready."
          )}
 
       {:error, reason} ->
@@ -757,11 +812,26 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  def handle_event("show-webhook-credential-form", _params, socket),
-    do: {:noreply, assign(socket, :webhook_credential_editing, true)}
+  # A confirmed action's button asks in a modal over the page it is on; the
+  # modal's own button posts the action, as its confirmation page's would.
+  # One that is gone since the page was drawn draws the page again instead.
+  def handle_event("ask-action", %{"path" => path} = params, socket) when is_binary(path) do
+    case Router.question(path, Endpoint.config(:control_plane)) do
+      {:ok, question} ->
+        {:noreply,
+         assign(
+           socket,
+           :action_question,
+           Map.put(question, :label, button_label(params["label"]))
+         )}
 
-  def handle_event("hide-webhook-credential-form", _params, socket),
-    do: {:noreply, assign(socket, :webhook_credential_editing, false)}
+      {:error, :not_found} ->
+        {:noreply, socket |> assign(:action_question, nil) |> refresh(true)}
+    end
+  end
+
+  def handle_event("cancel-action", _params, socket),
+    do: {:noreply, assign(socket, :action_question, nil)}
 
   # Anything on the settings pages that disconnects or deletes asks first. The
   # button that starts it only opens the question; the action runs when the
@@ -1081,7 +1151,48 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   defp load_page(socket, options, _reset) do
-    load_detail(socket, options, String.split(socket.assigns.path, "/", trim: true))
+    segments = String.split(socket.assigns.path, "/", trim: true)
+
+    case settings_route(segments, socket.assigns.params) do
+      {section, form} -> load_settings(socket, options, section, form)
+      nil -> load_detail(socket, options, segments)
+    end
+  end
+
+  # Each list with a page of one form: the list's address, the settings page
+  # it is on and the kind of form. `<list>/new` adds one and `<list>/<key>/edit`
+  # edits one; the router lets through only the ones that exist.
+  @form_lists %{
+    ["environments"] => {:environments, :environment},
+    ["settings", "prices"] => {:pricing, :pricing},
+    ["integrations", "emisar"] => {:emisar, :emisar},
+    ["integrations", "webhooks", "credentials"] => {:webhooks, :webhook_credential},
+    ["integrations", "webhooks", "sources"] => {:webhooks, :webhooks}
+  }
+
+  @doc false
+  # A settings page, or a page of one form on it: {section, form}, where form
+  # is nil or {kind, key}, key nil for a new one. A key comes from the route's
+  # decoded parameters, never from the raw path.
+  def settings_route(segments, params) do
+    case Map.fetch(@settings_pages, segments) do
+      {:ok, section} -> {section, nil}
+      :error -> segments |> Enum.reverse() |> form_route(params)
+    end
+  end
+
+  defp form_route(["new" | list], _params), do: form_list(Enum.reverse(list), nil)
+
+  defp form_route(["edit", _key | list], params),
+    do: form_list(Enum.reverse(list), params["ref"] || params["item"])
+
+  defp form_route(_segments, _params), do: nil
+
+  defp form_list(list, key) do
+    case Map.fetch(@form_lists, list) do
+      {:ok, {section, kind}} -> {section, {kind, key}}
+      :error -> nil
+    end
   end
 
   defp load_detail(socket, options, ["timeline", _ref | _rest]) do
@@ -1108,22 +1219,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     else
       :not_found -> load_unassigned_input(socket, options)
     end
-  end
-
-  # Setup, the integrations and the installation settings are one native page
-  # family; the route map only lets through the pages that exist.
-  defp load_detail(socket, options, segments) when is_map_key(@settings_pages, segments) do
-    section = Map.fetch!(@settings_pages, segments)
-    settings = options.projection.settings.()
-
-    assign(socket,
-      native: :settings,
-      page_title: SettingsPage.title(section),
-      settings: settings,
-      settings_commands: settings_commands(options),
-      settings_section: section,
-      body: if(section == :system, do: configuration_evidence(options, settings), else: "")
-    )
   end
 
   # The global editor, then the channels that add their own instructions and
@@ -1218,6 +1313,27 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   defp load_detail(socket, options, _segments), do: load_snapshot(socket, options)
+
+  # Setup, the environments, the integrations and the installation settings
+  # are one native page family, with a page of its own for each form that adds
+  # or edits one thing on them; the route map lets through only these.
+  defp load_settings(socket, options, section, form) do
+    settings = options.projection.settings.()
+
+    assign(socket,
+      native: :settings,
+      page_title: SettingsPage.title(section, form, settings),
+      settings: settings,
+      settings_commands: settings_commands(options),
+      settings_section: section,
+      settings_form: form,
+      body:
+        if(section == :system and is_nil(form),
+          do: configuration_evidence(options, settings),
+          else: ""
+        )
+    )
+  end
 
   defp load_conversation(socket, snapshot, token, options) do
     reset =
@@ -1326,14 +1442,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp credential_users(_socket, _name), do: "a webhook source"
 
-  defp finish_emisar_edit(socket, {:ok, _result} = result, message) do
-    socket
-    |> finish_setup(result, message)
-    |> assign(:emisar_edit_ref, nil)
-  end
+  # The modal's button says what the button that asked said: Forget, Delete,
+  # Pause. It is the page's own word, bounded; anything else reads Confirm.
+  defp button_label(label) when is_binary(label) and byte_size(label) in 1..60,
+    do: String.trim(label)
 
-  defp finish_emisar_edit(socket, {:error, _reason} = result, message),
-    do: finish_setup(socket, result, message)
+  defp button_label(_label), do: "Confirm"
+
+  # A form that did what it was for returns to its list, carrying what it did.
+  defp return_with(socket, path, notice),
+    do: socket |> assign(carried_notice: notice) |> push_patch(to: path)
 
   # Connecting says where the account is used now, by environment name.
   defp emisar_connected({:ok, %{environments: refs}}) do
@@ -1351,8 +1469,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     Integrations.emisar_connected(names)
   end
-
-  defp emisar_connected({:error, _reason}), do: nil
 
   # One write to one environment at the revision the page shows. A removal the
   # settings refuse names who still chooses the environment.
@@ -1970,8 +2086,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             confirm={@settings_confirm}
             reveal={@setup_reveal}
             slack_members={@slack_members}
-            emisar_edit_ref={@emisar_edit_ref}
-            webhook_credential_editing={@webhook_credential_editing}
+            form={@settings_form}
             params={@params}
           />
           <div :if={@native == :instructions} class="secondary-page instructions-page">
@@ -2019,8 +2134,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               :if={@path == "/channels"}
               settings={@settings}
             />
+            <%!-- The add page says where GitHub stands only while the form cannot
+            show; once it works, its line would lead back to the page itself. --%>
             <Ryker.ControlPlane.RepositoriesPage.github_status
-              :if={@path == "/repositories"}
+              :if={
+                @path == "/repositories" or
+                  (@path == "/repositories/new" and
+                     not match?({:ok, %{github_connection: :ready}}, @settings))
+              }
               settings={@settings}
             />
             <Components.form_feedback
@@ -2029,18 +2150,42 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               tone={elem(@repository_notice, 1)}
               message={elem(@repository_notice, 2)}
             />
-            {Phoenix.HTML.raw(@body)}
-            <Ryker.ControlPlane.RepositoryImport.repository_import
+            <Components.form_feedback
               :if={
-                @path == "/repositories" &&
+                @path == "/repositories" && match?({:imported, _tone, _message}, @repository_notice)
+              }
+              id="repository-imported-notice"
+              class="page-feedback"
+              tone={elem(@repository_notice, 1)}
+              message={elem(@repository_notice, 2)}
+            />
+            {Phoenix.HTML.raw(@body)}
+            <Kit.form_card
+              :if={
+                @path == "/repositories/new" &&
                   match?({:ok, %{github_connection: :ready}}, @settings)
               }
-              view={elem(@settings, 1)}
-              repositories={@github_repositories}
-              discovery={@github_repository_discovery}
-              notice={import_notice(@repository_notice)}
-            />
+              label="Add repositories"
+            >
+              <Ryker.ControlPlane.RepositoryImport.repository_import
+                view={elem(@settings, 1)}
+                repositories={@github_repositories}
+                discovery={@github_repository_discovery}
+                notice={import_notice(@repository_notice)}
+              />
+            </Kit.form_card>
           </div>
+          <Kit.confirm_modal
+            :if={@action_question}
+            id="action-question"
+            title={@action_question.title}
+            text={@action_question.text}
+            label={@action_question.label}
+            tone={@action_question.tone}
+            cancel="cancel-action"
+            action={@action_question.action}
+            token={@action_question.token}
+          />
         </main>
       </div>
     </div>

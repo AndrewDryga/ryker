@@ -6,20 +6,22 @@ defmodule Ryker.ControlPlane.SettingsPage do
   Webhooks), and the Settings overview and a page per installation setting
   (Models, Data retention, Model prices, Advanced). The sidebar is the only
   menu; each page has one title, one sentence and its parts in Kit section
-  cards, the overviews and one-part pages included. A page's Add opens its
-  form under the button, above the list it adds to, and pressed again closes
-  it.
+  cards, the overviews and one-part pages included.
+
+  Adding or editing one thing in a list, an environment, a price, an Emisar
+  account, a signing credential or a webhook source, happens on a page of its
+  own (`form`): its title says what it adds or edits, a link above it goes
+  back to the list, and the form sits in one `Kit.form_card/1`.
 
   A connection reads as a dot and a word, why when it is not working, and the
   one action that fits it, in the words every page uses (see
-  `Integrations`). Anything that disconnects or deletes asks first and says,
-  in words, what it will do; the LiveView runs it only after that question
-  was asked.
+  `Integrations`). Anything that disconnects or deletes asks first in
+  `Kit.confirm_modal/1` and says, in words, what it will do; the LiveView runs
+  it only after that question was asked.
   """
 
   use Phoenix.Component
 
-  alias Phoenix.LiveView.JS
   alias Ryker.BundledCoop
 
   alias Ryker.ControlPlane.{
@@ -29,6 +31,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     Integrations,
     Kit,
     SettingsEditor,
+    SettingsRows,
     SettingsSections,
     SetupPage,
     WebhookPreview
@@ -41,6 +44,15 @@ defmodule Ryker.ControlPlane.SettingsPage do
   @spec title(atom()) :: String.t()
   def title(section), do: page(section).title
 
+  @doc """
+  The title of a page, a page of one form included: what it adds, or
+  "Edit" and the name of what it edits, read from the settings `view`.
+  """
+  @spec title(atom(), term(), {:ok, map()} | {:error, term()}) :: String.t()
+  def title(section, nil, _view), do: title(section)
+  def title(section, form, {:ok, view}), do: heading(section, form, view).title
+  def title(section, _form, _unavailable), do: title(section)
+
   attr(:view, :any, required: true)
   attr(:commands, :map, required: true)
   attr(:section, :atom, required: true)
@@ -51,13 +63,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:reveal, :map, default: nil)
   attr(:confirm, :any, default: nil, doc: "{action, ref} of the question now open, if any")
   attr(:slack_members, :list, default: [])
-  attr(:emisar_edit_ref, :string, default: nil)
-  attr(:webhook_credential_editing, :boolean, default: false)
 
-  attr(:params, :map,
-    default: %{},
-    doc: "The page's query, for pages that search or edit in place"
+  attr(:form, :any,
+    default: nil,
+    doc: "{kind, key}: the one thing a page of one form adds (key nil) or edits"
   )
+
+  attr(:params, :map, default: %{}, doc: "The page's query, for pages that search")
 
   def render(%{view: {:error, :settings_not_initialized}} = assigns) do
     assigns = assign(assigns, :page, page(assigns.section))
@@ -101,14 +113,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
     assigns =
       assigns
       |> assign(:view, view)
-      |> assign(:page, page(assigns.section, view))
+      |> assign(:page, heading(assigns.section, assigns.form, view))
       |> assign(:notices, if(assigns.section == :model, do: model_notices(view), else: []))
 
     ~H"""
     <div class="settings-page" id="settings-page" phx-hook="SettingsDraft">
-      <Components.page_header title={@page.title} description={@page.description}>
-        <:action :if={@section == :environments}>
-          <EnvironmentsPage.add open={@params["edit"] == "new"} />
+      <Components.page_header title={@page.title} description={@page.description} back={@page[:back]}>
+        <:action :if={@section == :environments and is_nil(@form)}>
+          <EnvironmentsPage.add />
         </:action>
       </Components.page_header>
 
@@ -144,57 +156,177 @@ defmodule Ryker.ControlPlane.SettingsPage do
         </Components.copy_block>
       </section>
 
-      <SetupPage.render :if={@section == :setup} view={@view} />
-      <EnvironmentsPage.render
-        :if={@section == :environments}
-        view={@view}
-        params={@params}
-        confirm={@confirm}
-      />
-      <.integrations :if={@section == :integrations} view={@view} />
-      <.settings_overview :if={@section == :settings} view={@view} />
-      <.slack
-        :if={@section == :slack}
+      <.form_page
+        :if={@form}
+        section={@section}
+        form={@form}
         view={@view}
         commands={@commands}
         confirm={@confirm}
-        slack_members={@slack_members}
       />
-      <.github :if={@section == :github} view={@view} commands={@commands} confirm={@confirm} />
-      <.emisar
-        :if={@section == :emisar}
-        view={@view}
-        confirm={@confirm}
-        edit_ref={@emisar_edit_ref}
-      />
-      <.webhooks
-        :if={@section == :webhooks}
-        view={@view}
-        commands={@commands}
-        confirm={@confirm}
-        editing={@webhook_credential_editing}
-      />
-      <div :if={@notices != []} id="model-notices">
-        <p :for={notice <- @notices} class="settings-notice">
-          {notice.text}
-          <.link :if={notice[:href]} navigate={notice.href}>{notice.link}</.link>
-        </p>
-      </div>
-      <.live_component
-        :for={key <- editors(@section)}
-        module={SettingsEditor}
-        id={"settings-#{key}"}
-        section={section!(key)}
-        view={@view}
-        commands={@commands}
-        show_header={titled?(@section)}
-      />
-      <div :if={@section == :system} class="settings-running">
-        {Phoenix.HTML.raw(@body)}
-      </div>
+      <%= if is_nil(@form) do %>
+        <SetupPage.render :if={@section == :setup} view={@view} />
+        <EnvironmentsPage.render
+          :if={@section == :environments}
+          view={@view}
+          params={@params}
+          confirm={@confirm}
+        />
+        <.integrations :if={@section == :integrations} view={@view} />
+        <.settings_overview :if={@section == :settings} view={@view} />
+        <.slack
+          :if={@section == :slack}
+          view={@view}
+          commands={@commands}
+          confirm={@confirm}
+          slack_members={@slack_members}
+        />
+        <.github :if={@section == :github} view={@view} commands={@commands} confirm={@confirm} />
+        <.emisar :if={@section == :emisar} view={@view} />
+        <.webhooks
+          :if={@section == :webhooks}
+          view={@view}
+          commands={@commands}
+          confirm={@confirm}
+        />
+        <div :if={@notices != []} id="model-notices">
+          <p :for={notice <- @notices} class="settings-notice">
+            {notice.text}
+            <.link :if={notice[:href]} navigate={notice.href}>{notice.link}</.link>
+          </p>
+        </div>
+        <.live_component
+          :for={key <- editors(@section)}
+          module={SettingsEditor}
+          id={"settings-#{key}"}
+          section={section!(key)}
+          view={@view}
+          commands={@commands}
+          show_header={titled?(@section)}
+          paths={paths(key)}
+        />
+        <div :if={@section == :system} class="settings-running">
+          {Phoenix.HTML.raw(@body)}
+        </div>
+      <% end %>
     </div>
     """
   end
+
+  # Pages of one form ------------------------------------------------------------
+
+  attr(:section, :atom, required: true)
+  attr(:form, :any, required: true)
+  attr(:view, :map, required: true)
+  attr(:commands, :map, required: true)
+  attr(:confirm, :any, default: nil)
+
+  # The one thing a page of one form adds or edits, in its card; a row that is
+  # gone says so and leads back to its list instead of showing an empty form.
+  defp form_page(%{form: {:environment, ref}} = assigns) do
+    assigns = assign(assigns, :ref, ref)
+
+    ~H"""
+    <EnvironmentsPage.form view={@view} ref={@ref} />
+    """
+  end
+
+  defp form_page(%{form: {key, item}} = assigns) when key in [:pricing, :webhooks] do
+    collection = section!(key)
+
+    assigns =
+      assign(assigns,
+        key: key,
+        item: item,
+        collection: collection,
+        found:
+          is_nil(item) or
+            Enum.any?(
+              SettingsSections.items(collection, assigns.view),
+              &(to_string(Map.get(&1, collection.item_key)) == item)
+            )
+      )
+
+    ~H"""
+    <Kit.form_card :if={@found} label={heading(@section, @form, @view).title}>
+      <.live_component
+        module={SettingsEditor}
+        id={"settings-#{@key}"}
+        section={@collection}
+        view={@view}
+        commands={@commands}
+        show_header={false}
+        frame={:none}
+        form={{:form, @item}}
+        paths={paths(@key)}
+      />
+    </Kit.form_card>
+    <.gone
+      :if={!@found}
+      noun={Map.get(@collection, :item_label, "entry")}
+      back={paths(@key).list}
+    />
+    """
+  end
+
+  defp form_page(%{form: {:emisar, nil}} = assigns) do
+    ~H"""
+    <Kit.form_card label="Connect an Emisar account">
+      <.emisar_form />
+    </Kit.form_card>
+    """
+  end
+
+  defp form_page(%{form: {:emisar, ref}} = assigns) do
+    assigns =
+      assign(
+        assigns,
+        :account,
+        Enum.find(assigns.view.snapshot.emisar_connections, &(&1.ref == ref))
+      )
+
+    ~H"""
+    <.emisar_manage :if={@account} account={@account} view={@view} confirm={@confirm} />
+    <.gone :if={!@account} noun="Emisar account" back="/integrations/emisar" />
+    """
+  end
+
+  defp form_page(%{form: {:webhook_credential, nil}} = assigns) do
+    ~H"""
+    <Kit.form_card label="Add a signing credential">
+      <.webhook_credential_form />
+    </Kit.form_card>
+    """
+  end
+
+  attr(:noun, :string, required: true)
+  attr(:back, :string, required: true)
+
+  # An address for something that is no longer there.
+  defp gone(assigns) do
+    ~H"""
+    <Kit.empty
+      id="form-not-found"
+      icon={:search}
+      title={"That #{@noun} was not found"}
+      text="It may have been removed. Go back to the list to see what is there now."
+    >
+      <.link patch={@back} class="ui-button secondary">Back to the list</.link>
+    </Kit.empty>
+    """
+  end
+
+  @doc """
+  Where each list section of these pages lives: its list, and the address its
+  rows' forms are under (`/new` adds one, `/<key>/edit` edits one).
+  """
+  @spec paths(atom()) :: %{list: String.t(), items: String.t()}
+  def paths(:pricing), do: %{list: "/settings/prices", items: "/settings/prices"}
+
+  def paths(:webhooks),
+    do: %{list: "/integrations/webhooks", items: "/integrations/webhooks/sources"}
+
+  def paths(_singleton), do: nil
 
   # Integrations overview ----------------------------------------------------
 
@@ -375,7 +507,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     ~H"""
     <.connection state={@line.state} text={@line.reason}>
       <:facts :if={@line.facts != []}>{facts(@line.facts)}</:facts>
-      <:action :if={@verified and @confirm != {"disconnect-slack", "slack"}}>
+      <:action :if={@verified}>
         <button
           type="button"
           class="ui-button secondary"
@@ -384,23 +516,24 @@ defmodule Ryker.ControlPlane.SettingsPage do
           phx-value-ref="slack"
         >{if @connected, do: "Disconnect", else: "Remove the tokens"}</button>
       </:action>
-      <%!-- Slack that was never switched on is not running, so removing its
-      tokens stops nothing: the question says only what it deletes. --%>
-      <:question :if={@confirm == {"disconnect-slack", "slack"}}>
-        <.confirmation
-          title={if @connected, do: "Disconnect Slack?", else: "Remove the Slack tokens?"}
-          text={
-            if @connected,
-              do:
-                "Ryker stops reading and replying in Slack, and the saved tokens are deleted. Channels, instructions and history stay.",
-              else: "The saved tokens are deleted. Channels, instructions and history stay."
-          }
-          label={if @connected, do: "Disconnect Slack", else: "Remove the tokens"}
-          phx-click="disconnect-integration"
-          phx-value-kind="slack"
-        />
-      </:question>
     </.connection>
+    <%!-- Slack that was never switched on is not running, so removing its
+    tokens stops nothing: the question says only what it deletes. --%>
+    <Kit.confirm_modal
+      :if={@confirm == {"disconnect-slack", "slack"}}
+      id="confirm-disconnect-slack"
+      title={if @connected, do: "Disconnect Slack?", else: "Remove the Slack tokens?"}
+      text={
+        if @connected,
+          do:
+            "Ryker stops reading and replying in Slack, and the saved tokens are deleted. Channels, instructions and history stay.",
+          else: "The saved tokens are deleted. Channels, instructions and history stay."
+      }
+      label={if @connected, do: "Disconnect Slack", else: "Remove the tokens"}
+      cancel="cancel-settings-action"
+      phx-click="disconnect-integration"
+      phx-value-kind="slack"
+    />
 
     <Kit.section_card
       :if={!@verified}
@@ -547,7 +680,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       <:action :if={@line.status == :broken}>
         <a href="#github-app" class="ui-button secondary">Repair</a>
       </:action>
-      <:action :if={@ready and @confirm != {"disconnect-github", "github"}}>
+      <:action :if={@ready}>
         <button
           type="button"
           class="ui-button secondary"
@@ -556,16 +689,17 @@ defmodule Ryker.ControlPlane.SettingsPage do
           phx-value-ref="github"
         >Disconnect</button>
       </:action>
-      <:question :if={@confirm == {"disconnect-github", "github"}}>
-        <.confirmation
-          title="Disconnect GitHub?"
-          text="Ryker stops receiving GitHub events and starting GitHub work, and the App's private key and webhook secret are deleted. Repositories and history stay."
-          label="Disconnect GitHub"
-          phx-click="disconnect-integration"
-          phx-value-kind="github"
-        />
-      </:question>
     </.connection>
+    <Kit.confirm_modal
+      :if={@confirm == {"disconnect-github", "github"}}
+      id="confirm-disconnect-github"
+      title="Disconnect GitHub?"
+      text="Ryker stops receiving GitHub events and starting GitHub work, and the App's private key and webhook secret are deleted. Repositories and history stay."
+      label="Disconnect GitHub"
+      cancel="cancel-settings-action"
+      phx-click="disconnect-integration"
+      phx-value-kind="github"
+    />
 
     <Kit.section_card
       :if={!@ready}
@@ -595,7 +729,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     >
       <:actions>
         <.link
-          navigate="/repositories"
+          navigate={if @repositories == 0, do: "/repositories/new", else: "/repositories"}
           class={["ui-button", if(@repositories == 0, do: "primary", else: "secondary")]}
         >{if @repositories == 0, do: "Add repositories", else: "Manage repositories"}</.link>
       </:actions>
@@ -727,9 +861,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # Emisar --------------------------------------------------------------------
 
   attr(:view, :map, required: true)
-  attr(:confirm, :any, default: nil)
-  attr(:edit_ref, :string, default: nil)
 
+  # The connection, then the accounts. Connecting another account and editing
+  # one each happen on a page of its own.
   defp emisar(assigns) do
     snapshot = assigns.view.snapshot
 
@@ -756,36 +890,28 @@ defmodule Ryker.ControlPlane.SettingsPage do
     </.connection>
 
     <Kit.section_card
-      :if={@accounts == []}
-      class="settings-section"
-      title="Connect an account"
-      lede="Create an API token in your Emisar account and paste it here. Ryker starts watching it for approval decisions at once, and the first account serves every environment that has none."
-    >
-      <.emisar_form />
-    </Kit.section_card>
-
-    <Kit.section_card
-      :if={@accounts != []}
       class="settings-section"
       title="Accounts"
       lede="Pause an account to stop sending it new work. Its history stays."
     >
-      <:actions>
-        <button
-          type="button"
-          class="ui-button secondary"
-          phx-click={if @edit_ref == "new", do: "hide-emisar-form", else: "show-emisar-form"}
-          phx-value-ref="new"
-          aria-expanded={to_string(@edit_ref == "new")}
-        ><Components.icon name={:plus} />Add account</button>
+      <:actions :if={@accounts != []}>
+        <.link patch="/integrations/emisar/new" class="ui-button secondary">
+          <Components.icon name={:plus} />Add account
+        </.link>
       </:actions>
-      <div :if={@edit_ref == "new"} class="settings-editor">
-        <h3 class="settings-editor-heading">Add an account</h3>
-        <.emisar_form cancel={true} />
-      </div>
-      <Kit.entity_list label="Emisar accounts">
+      <Kit.empty
+        :if={@accounts == []}
+        variant={:hint}
+        icon={:plug}
+        title="No Emisar account yet"
+        text="Create an API token in your Emisar account and connect it here. The first account serves every environment that has none."
+      >
+        <.link patch="/integrations/emisar/new" class="ui-button primary">Connect an account</.link>
+      </Kit.empty>
+      <Kit.entity_list :if={@accounts != []} label="Emisar accounts">
         <Kit.entity_row
           :for={account <- @accounts}
+          id={"emisar-account-" <> account.ref}
           name={account.display_name}
           state={@account_states[account.ref].state}
           text={@account_states[account.ref].reason}
@@ -795,36 +921,17 @@ defmodule Ryker.ControlPlane.SettingsPage do
             watching(account, @account_states[account.ref])
           ]}
         >
-          <:actions :if={@edit_ref != account.ref}>
+          <:actions>
             <button
               type="button"
               class="ui-button secondary"
               phx-click={if account.enabled_for_new_work, do: "disable-emisar", else: "enable-emisar"}
               phx-value-ref={account.ref}
             >{if account.enabled_for_new_work, do: "Pause", else: "Resume"}</button>
-            <button
-              type="button"
-              class="ui-button secondary"
-              phx-click="show-emisar-form"
-              phx-value-ref={account.ref}
-            >Manage</button>
+            <.link patch={"/integrations/emisar/#{account.ref}/edit"} class="ui-button secondary">
+              Edit<span class="sr-only">{" " <> account.display_name}</span>
+            </.link>
           </:actions>
-          <:details>
-            <details class="settings-row-details">
-              <summary>Details</summary>
-              <dl>
-                <div>
-                  <dt>Address</dt>
-                  <dd><code>{account.rpc_url}</code></dd>
-                </div>
-              </dl>
-            </details>
-            <.emisar_manage
-              :if={@edit_ref == account.ref}
-              account={account}
-              confirm={@confirm}
-            />
-          </:details>
         </Kit.entity_row>
       </Kit.entity_list>
     </Kit.section_card>
@@ -832,11 +939,28 @@ defmodule Ryker.ControlPlane.SettingsPage do
   end
 
   attr(:account, :map, required: true)
+  attr(:view, :map, required: true)
   attr(:confirm, :any, default: nil)
 
+  # One account's page: each thing that can change about it is a part of its
+  # own, saved on its own, and removing it asks first.
   defp emisar_manage(assigns) do
+    assigns =
+      assign(assigns,
+        state: Integrations.emisar_account(assigns.view, assigns.account),
+        used: used_by(assigns.view.snapshot, assigns.account)
+      )
+
     ~H"""
-    <div class="settings-manage">
+    <Kit.section_card class="settings-section" title="Account">
+      <Kit.status_line id="emisar-account-state" state={@state.state}>
+        <span :if={@state.reason}>{" " <> @state.reason}</span>
+      </Kit.status_line>
+      <Kit.facts facts={[
+        {"Address", @account.rpc_url},
+        {"Emisar account", @account.account_label},
+        {"Environments", @used}
+      ]} />
       <form phx-submit="rename-emisar" class="settings-inline-form">
         <input type="hidden" name="connection[ref]" value={@account.ref} />
         <div class="settings-field">
@@ -851,11 +975,17 @@ defmodule Ryker.ControlPlane.SettingsPage do
         </div>
         <button class="ui-button secondary" type="submit">Save name</button>
       </form>
+    </Kit.section_card>
+
+    <Kit.section_card
+      class="settings-section"
+      title="API token"
+      lede="Replace it when you create a new token in Emisar. Ryker checks the new one works before it uses it."
+    >
       <form phx-submit="rotate-emisar" autocomplete="off" class="settings-inline-form">
         <input type="hidden" name="connection[ref]" value={@account.ref} />
         <div class="settings-field">
           <label for={"emisar-token-#{@account.ref}"}>New API token</label>
-          <p class="settings-help">Ryker checks it belongs to the same account before using it.</p>
           <input
             id={"emisar-token-#{@account.ref}"}
             type="password"
@@ -865,15 +995,20 @@ defmodule Ryker.ControlPlane.SettingsPage do
         </div>
         <button class="ui-button secondary" type="submit">Replace token</button>
       </form>
-      <div class="settings-manage-line">
-        <p>
-          <strong>Approval monitoring</strong>
-          {if @account.monitoring_enabled,
-            do:
-              "Ryker watches this account for approval decisions. If you turn this off, tasks waiting on its approvals stop and show on Failures.",
-            else:
-              "Ryker is not watching this account, so tasks waiting on its approvals are stopped. They show on Failures until you turn this on."}
-        </p>
+    </Kit.section_card>
+
+    <Kit.section_card
+      class="settings-section"
+      title="Approval monitoring"
+      lede={
+        if @account.monitoring_enabled,
+          do:
+            "Ryker watches this account for approval decisions. If you turn this off, tasks waiting on its approvals stop and show on Failures.",
+          else:
+            "Ryker is not watching this account, so tasks waiting on its approvals are stopped. They show on Failures until you turn this on."
+      }
+    >
+      <:actions>
         <button
           type="button"
           class="ui-button secondary"
@@ -884,46 +1019,46 @@ defmodule Ryker.ControlPlane.SettingsPage do
           }
           phx-value-ref={@account.ref}
         >{if @account.monitoring_enabled, do: "Turn off", else: "Turn on"}</button>
-      </div>
-      <div :if={@confirm != {"delete-emisar", @account.ref}} class="settings-manage-line">
-        <p>
-          <strong>Remove account</strong>
-          The environments that use it are left without an Emisar account. An account that
-          tasks or approvals still name cannot be removed; pause it instead.
-        </p>
+      </:actions>
+    </Kit.section_card>
+
+    <Kit.section_card
+      class="settings-section"
+      title="Remove account"
+      lede="The environments that use it are left without an Emisar account. An account that tasks or approvals still name cannot be removed; pause it instead."
+    >
+      <:actions>
         <button
           type="button"
-          class="ui-button quiet"
+          class="ui-button danger"
           phx-click="confirm-settings-action"
           phx-value-action="delete-emisar"
           phx-value-ref={@account.ref}
         >Remove account</button>
-      </div>
-      <.confirmation
-        :if={@confirm == {"delete-emisar", @account.ref}}
-        title={"Remove #{@account.display_name}?"}
-        text="Ryker stops sending it work, the environments that use it are left without an Emisar account and its token is deleted."
-        label="Remove account"
-        phx-click="delete-emisar"
-        phx-value-ref={@account.ref}
-      />
-      <div class="settings-actions">
-        <button type="button" class="ui-button secondary" phx-click="hide-emisar-form">
-          Close
-        </button>
-      </div>
-    </div>
+      </:actions>
+    </Kit.section_card>
+    <Kit.confirm_modal
+      :if={@confirm == {"delete-emisar", @account.ref}}
+      id="confirm-delete-emisar"
+      title={"Remove #{@account.display_name}?"}
+      text="Ryker stops sending it work, the environments that use it are left without an Emisar account and its token is deleted."
+      label="Remove account"
+      cancel="cancel-settings-action"
+      phx-click="delete-emisar"
+      phx-value-ref={@account.ref}
+    />
     """
   end
 
-  attr(:cancel, :boolean, default: false, doc: "Whether the form can be closed without adding")
-
+  # The form on its own page: the token and where Emisar answers.
   defp emisar_form(assigns) do
     ~H"""
     <form phx-submit="connect-emisar" autocomplete="off" class="settings-form">
       <div class="settings-field">
         <label for="emisar-connect-token">API token</label>
-        <p class="settings-help">Ryker checks the account, then stores the token encrypted.</p>
+        <p class="settings-help">
+          Create one in your Emisar account. Ryker checks the account, then stores the token encrypted.
+        </p>
         <input id="emisar-connect-token" type="password" name="connection[token]" required />
       </div>
       <div class="settings-field">
@@ -938,13 +1073,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
         />
       </div>
       <div class="settings-actions">
-        <button class="ui-button primary" type="submit">Connect account</button>
-        <button
-          :if={@cancel}
-          type="button"
-          class="ui-button secondary"
-          phx-click="hide-emisar-form"
-        >Cancel</button>
+        <button class="ui-button primary" type="submit" phx-disable-with="Connecting…">
+          Connect account
+        </button>
+        <.link patch="/integrations/emisar" class="ui-button secondary">Cancel</.link>
       </div>
     </form>
     """
@@ -955,7 +1087,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:view, :map, required: true)
   attr(:commands, :map, required: true)
   attr(:confirm, :any, default: nil)
-  attr(:editing, :boolean, default: false)
 
   defp webhooks(assigns) do
     credentials = Enum.filter(assigns.view.credentials, &(&1.kind == :webhook))
@@ -963,6 +1094,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
     assigns =
       assign(assigns,
         credentials: credentials,
+        deleting:
+          case assigns.confirm do
+            {"delete-webhook-credential", name} -> name
+            _other -> nil
+          end,
         line: Integrations.webhooks(assigns.view),
         users: credential_users(assigns.view.snapshot.webhook_sources)
       )
@@ -978,50 +1114,51 @@ defmodule Ryker.ControlPlane.SettingsPage do
       lede="Senders sign each request with a shared secret, so Ryker knows it is theirs."
     >
       <:actions :if={@credentials != []}>
-        <button
-          type="button"
-          class="ui-button secondary"
-          phx-click={
-            if @editing, do: "hide-webhook-credential-form", else: "show-webhook-credential-form"
-          }
-          aria-expanded={to_string(@editing)}
-        >
+        <.link patch="/integrations/webhooks/credentials/new" class="ui-button secondary">
           <Components.icon name={:plus} />Add signing credential
-        </button>
+        </.link>
       </:actions>
-      <.webhook_credential_form :if={@credentials == [] or @editing} cancel={@credentials != []} />
+      <Kit.empty
+        :if={@credentials == []}
+        variant={:hint}
+        icon={:plug}
+        title="No signing credential yet"
+        text="A webhook source needs one: its sender signs each request with the credential's secret."
+      >
+        <.link patch="/integrations/webhooks/credentials/new" class="ui-button primary">
+          Add signing credential
+        </.link>
+      </Kit.empty>
       <Kit.entity_list :if={@credentials != []} label="Signing credentials">
         <Kit.entity_row
           :for={credential <- @credentials}
+          id={"webhook-credential-" <> credential.name}
           name={credential.name}
           state={credential_state(credential)}
           meta={[credential_use(@users, credential.name)]}
         >
-          <:actions :if={
-            Map.get(@users, credential.name, []) == [] and
-              @confirm != {"delete-webhook-credential", credential.name}
-          }>
+          <:actions :if={Map.get(@users, credential.name, []) == []}>
             <button
               type="button"
               class="ui-button quiet"
               phx-click="confirm-settings-action"
               phx-value-action="delete-webhook-credential"
               phx-value-ref={credential.name}
-            >Delete</button>
+            >Delete<span class="sr-only">{" " <> credential.name}</span></button>
           </:actions>
-          <:details>
-            <.confirmation
-              :if={@confirm == {"delete-webhook-credential", credential.name}}
-              title={"Delete #{credential.name}?"}
-              text="Its secret is deleted. A sender still using it can no longer deliver events."
-              label="Delete credential"
-              phx-click="delete-webhook-credential"
-              phx-value-name={credential.name}
-            />
-          </:details>
         </Kit.entity_row>
       </Kit.entity_list>
     </Kit.section_card>
+    <Kit.confirm_modal
+      :if={@deleting}
+      id="confirm-delete-webhook-credential"
+      title={"Delete #{@deleting}?"}
+      text="Its secret is deleted. A sender still using it can no longer deliver events."
+      label="Delete credential"
+      cancel="cancel-settings-action"
+      phx-click="delete-webhook-credential"
+      phx-value-name={@deleting}
+    />
 
     <.live_component
       module={SettingsEditor}
@@ -1029,6 +1166,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       section={section!(:webhooks)}
       view={@view}
       commands={@commands}
+      paths={paths(:webhooks)}
     />
 
     <.live_component
@@ -1040,51 +1178,43 @@ defmodule Ryker.ControlPlane.SettingsPage do
     """
   end
 
-  attr(:cancel, :boolean, required: true, doc: "Whether the form can be closed without adding")
-
-  # Opens under the section's Add button, above the credentials it adds to.
+  # The form on its own page: a name, and a secret to keep or one Ryker makes.
   defp webhook_credential_form(assigns) do
     ~H"""
-    <div class="settings-editor">
-      <h3 class="settings-editor-heading">Add a signing credential</h3>
-      <form phx-submit="create-webhook-credential" autocomplete="off" class="settings-form">
-        <div class="settings-field">
-          <label for="webhook-credential-name">Name</label>
-          <p class="settings-help">
-            Lowercase letters, numbers, dots, dashes, underscores and colons, such as grafana.
-          </p>
-          <input
-            id="webhook-credential-name"
-            type="text"
-            name="credential[name]"
-            pattern="[a-z0-9][a-z0-9_.:\-]{0,127}"
-            title="Lowercase letters, numbers, dots, dashes, underscores and colons, starting with a letter or number"
-            required
-          />
-        </div>
-        <div class="settings-field">
-          <label for="webhook-credential-secret">Existing secret (optional)</label>
-          <p class="settings-help">
-            At least 32 characters. Leave empty and Ryker creates a strong one and shows it to you once.
-          </p>
-          <input
-            id="webhook-credential-secret"
-            type="password"
-            name="credential[secret]"
-            minlength="32"
-          />
-        </div>
-        <div class="settings-actions">
-          <button class="ui-button primary" type="submit">Create credential</button>
-          <button
-            :if={@cancel}
-            type="button"
-            class="ui-button secondary"
-            phx-click="hide-webhook-credential-form"
-          >Cancel</button>
-        </div>
-      </form>
-    </div>
+    <form phx-submit="create-webhook-credential" autocomplete="off" class="settings-form">
+      <div class="settings-field">
+        <label for="webhook-credential-name">Name</label>
+        <p class="settings-help">
+          Lowercase letters, numbers, dots, dashes, underscores and colons, such as grafana.
+        </p>
+        <input
+          id="webhook-credential-name"
+          type="text"
+          name="credential[name]"
+          pattern="[a-z0-9][a-z0-9_.:\-]{0,127}"
+          title="Lowercase letters, numbers, dots, dashes, underscores and colons, starting with a letter or number"
+          required
+        />
+      </div>
+      <div class="settings-field">
+        <label for="webhook-credential-secret">Existing secret (optional)</label>
+        <p class="settings-help">
+          At least 32 characters. Leave empty and Ryker creates a strong one and shows it to you once.
+        </p>
+        <input
+          id="webhook-credential-secret"
+          type="password"
+          name="credential[secret]"
+          minlength="32"
+        />
+      </div>
+      <div class="settings-actions">
+        <button class="ui-button primary" type="submit" phx-disable-with="Creating…">
+          Create credential
+        </button>
+        <.link patch="/integrations/webhooks" class="ui-button secondary">Cancel</.link>
+      </div>
+    </form>
     """
   end
 
@@ -1094,11 +1224,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:text, :string, default: nil)
   slot(:facts, doc: "What is connected, on one line under the sentence")
   slot(:action)
-  slot(:question, doc: "What an action that disconnects asks before it does")
 
   # The page's first card, its connection: a dot and a word, what it means
-  # when that is not obvious, what is connected, the one action that fits it
-  # and the question that action asks first.
+  # when that is not obvious, what is connected and the one action that fits
+  # it. An action that disconnects asks first, in a modal the page renders.
   defp connection(assigns) do
     ~H"""
     <Kit.section_card class="settings-section" title="Connection">
@@ -1110,37 +1239,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         </div>
         <div :if={@action != []} class="settings-connection-action">{render_slot(@action)}</div>
       </div>
-      {render_slot(@question)}
     </Kit.section_card>
-    """
-  end
-
-  attr(:title, :string, required: true)
-  attr(:text, :string, required: true)
-  attr(:label, :string, required: true)
-  attr(:rest, :global)
-
-  @doc """
-  The second step of anything that disconnects or deletes. The button that
-  opened it only asked; this one does it, and Cancel closes the question.
-  """
-  def confirmation(assigns) do
-    ~H"""
-    <div
-      class="settings-confirm"
-      role="group"
-      aria-label={@title}
-      tabindex="-1"
-      phx-mounted={JS.focus()}
-    >
-      <p><strong>{@title}</strong> {@text}</p>
-      <div class="settings-confirm-actions">
-        <button type="button" class="ui-button danger" {@rest}>{@label}</button>
-        <button type="button" class="ui-button secondary" phx-click="cancel-settings-action">
-          Cancel
-        </button>
-      </div>
-    </div>
     """
   end
 
@@ -1245,6 +1344,87 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # page is for. Setup's sentence follows how far setup is.
   defp page(:setup, view), do: %{title: "Set up Ryker", description: SetupPage.description(view)}
   defp page(section, _view), do: page(section)
+
+  # A page's heading: its own, or for a page of one form what the form adds
+  # or edits, with the list it returns to above the title.
+  defp heading(section, nil, view), do: page(section, view)
+
+  defp heading(_section, {:environment, nil}, _view),
+    do: %{
+      title: "Add an environment",
+      description:
+        "Name it, choose the repositories work in it may use and how, and its Emisar account.",
+      back: {"Environments", "/environments"}
+    }
+
+  defp heading(_section, {:environment, ref}, view),
+    do: %{
+      title: edit_title(Environments.find(view.snapshot, ref), "environment"),
+      description: "What work in this environment may use: its repositories and Emisar account.",
+      back: {"Environments", "/environments"}
+    }
+
+  defp heading(_section, {:emisar, nil}, _view),
+    do: %{
+      title: "Connect an Emisar account",
+      description:
+        "Paste an API token from your Emisar account. Ryker starts watching it for approval decisions at once.",
+      back: {"Emisar", "/integrations/emisar"}
+    }
+
+  defp heading(_section, {:emisar, ref}, view),
+    do: %{
+      title:
+        edit_title(
+          Enum.find(view.snapshot.emisar_connections, &(&1.ref == ref)),
+          "Emisar account"
+        ),
+      description:
+        "Its name, its API token, whether Ryker watches it for approvals, or remove it.",
+      back: {"Emisar", "/integrations/emisar"}
+    }
+
+  defp heading(_section, {:webhook_credential, nil}, _view),
+    do: %{
+      title: "Add a signing credential",
+      description:
+        "A shared secret a sender signs each request with, so Ryker knows it is theirs.",
+      back: {"Webhooks", "/integrations/webhooks"}
+    }
+
+  defp heading(section, {key, item_key}, view) when key in [:pricing, :webhooks] do
+    collection = section!(key)
+    noun = Map.get(collection, :item_label, "entry")
+
+    title =
+      case item_key do
+        nil ->
+          "Add a " <> noun
+
+        item_key ->
+          collection
+          |> SettingsSections.items(view)
+          |> Enum.find(&(to_string(Map.get(&1, collection.item_key)) == item_key))
+          |> then(&(&1 && SettingsRows.present(collection, &1, view)))
+          |> edit_title(noun)
+      end
+
+    %{
+      title: title,
+      description: form_description(key),
+      back: {page(section).title, paths(key).list}
+    }
+  end
+
+  defp edit_title(%{display_name: name}, _noun), do: "Edit " <> name
+  defp edit_title(%{name: name}, _noun), do: "Edit " <> name
+  defp edit_title(nil, noun), do: "Edit " <> noun
+
+  defp form_description(:pricing),
+    do: "What one model costs per million tokens, from the day the price applies."
+
+  defp form_description(:webhooks),
+    do: "Where a sender posts its events, how Ryker reads them and where Ryker works on them."
 
   defp page(:setup),
     do: %{title: "Set up Ryker", description: "Connect Ryker to Slack and your code."}

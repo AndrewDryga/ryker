@@ -19,10 +19,17 @@ defmodule Ryker.ControlPlane.Kit do
   `empty/1`. A sub-page, such as one topic or one failure, leads back to the
   page it belongs to with `back/1`, above its title. String-rendered pages
   call these through `Phoenix.HTML.Safe.to_iodata/1` with `__changed__: nil`.
+
+  Adding or editing one thing happens on a page of its own, the form in one
+  `form_card/1` under a title that says what it adds or edits and the way
+  back to its list; a list never opens a form in place. Anything that
+  removes, deletes or forgets asks first in `confirm_modal/1`, over the page,
+  so the row that asked never grows or moves.
   """
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
+  alias Phoenix.LiveView.JS
   alias Ryker.ControlPlane.{Components, ShortTime}
 
   attr(:id, :string, default: nil)
@@ -479,6 +486,110 @@ defmodule Ryker.ControlPlane.Kit do
       </.section_head>
       {render_slot(@inner_block)}
     </section>
+    """
+  end
+
+  attr(:label, :string,
+    required: true,
+    doc: "What the form adds or edits, for assistive technology"
+  )
+
+  attr(:id, :string, default: nil)
+  attr(:class, :any, default: nil)
+  slot(:inner_block, required: true, doc: "The form: its fields, then its actions")
+
+  @doc """
+  The one card an add or edit form sits in, alone on its own page under the
+  page's title and a link back to its list (Andrew, 2026-09-27: an add form
+  opened above a list "blends into the content, has counters and search in
+  top looking like part of create form and list below breaking up entire
+  design"). The card is as wide as a readable form, its groups of fields are
+  parted by hairlines, and its Save and Cancel sit under the last one.
+  """
+  def form_card(assigns) do
+    ~H"""
+    <section id={@id} class={["kit-card", "kit-form-card", @class]} aria-label={@label}>
+      {render_slot(@inner_block)}
+    </section>
+    """
+  end
+
+  attr(:id, :string, required: true)
+  attr(:title, :string, required: true, doc: "The question: Remove Staging?")
+  attr(:text, :string, default: nil, doc: "What doing it changes, and what stays")
+  attr(:label, :string, required: true, doc: "The button that does it: Remove environment")
+
+  attr(:tone, :atom,
+    values: [:danger, :primary],
+    default: :danger,
+    doc: "Danger removes, deletes or forgets; primary is any other step that asks first"
+  )
+
+  attr(:cancel, :any, required: true, doc: "The event Cancel, Escape and the backdrop send")
+  attr(:target, :any, default: nil, doc: "The live component the events go to, if any")
+  attr(:error, :string, default: nil, doc: "Why the last try did not go through, in words")
+
+  attr(:action, :string,
+    default: nil,
+    doc: "An address the button posts to, with `token`, instead of sending an event"
+  )
+
+  attr(:token, :string, default: nil)
+  attr(:rest, :global, doc: "The event, and its values, of the button that does it")
+
+  @doc """
+  The question before anything that removes, deletes or forgets, and before
+  every other step that asks first: over the page, centred, with the page
+  dimmed behind it (Andrew, 2026-09-27: a question opened inside a table row
+  "extends and design breaks (icon, button moves, etc)"). It says what it
+  asks, what doing it changes, and why the last try did not go through; Cancel
+  comes first and takes the focus, so Enter never removes anything by
+  accident, and Escape and a click outside cancel too. The page renders it
+  while its question is open, and the button that opened it only asked.
+
+  The button that does it sends the event in `rest`, or, with `action`,
+  posts to that address with its `token`, as a confirmed action's page does.
+  """
+  def confirm_modal(assigns) do
+    ~H"""
+    <div
+      id={@id}
+      class="kit-modal"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={@id <> "-title"}
+      aria-describedby={@text && @id <> "-text"}
+      phx-window-keydown={@cancel}
+      phx-key="escape"
+      phx-target={@target}
+    >
+      <div class="kit-modal-backdrop" aria-hidden="true" phx-click={@cancel} phx-target={@target}>
+      </div>
+      <.focus_wrap
+        id={@id <> "-panel"}
+        class="kit-modal-panel"
+        phx-mounted={JS.focus_first(to: "#" <> @id <> "-actions")}
+      >
+        <span class="kit-modal-icon" data-tone={@tone} aria-hidden="true">
+          <Components.icon name={if @tone == :danger, do: :incident, else: :help} />
+        </span>
+        <h2 id={@id <> "-title"} class="kit-modal-title">{@title}</h2>
+        <p :if={@text} id={@id <> "-text"} class="kit-modal-text">{@text}</p>
+        <Components.form_feedback :if={@error} message={@error} tone={:error} class="kit-modal-error" />
+        <div id={@id <> "-actions"} class="kit-modal-actions">
+          <button type="button" class="ui-button secondary" phx-click={@cancel} phx-target={@target}>
+            Cancel
+          </button>
+          <button :if={!@action} type="button" class={["ui-button", Atom.to_string(@tone)]} {@rest}>
+            {@label}
+          </button>
+          <form :if={@action} method="post" action={@action} class="kit-modal-form">
+            <input type="hidden" name="_token" value={@token} />
+            <button type="submit" class={["ui-button", Atom.to_string(@tone)]}>{@label}</button>
+          </form>
+        </div>
+      </.focus_wrap>
+    </div>
     """
   end
 

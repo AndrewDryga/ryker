@@ -177,32 +177,31 @@ defmodule Ryker.Settings.Environment do
   # Each repository's access as the write names it, else as the environment
   # has it, else read and write; the default has to be read and write.
   defp put_access(changeset, refs, access, current) do
-    with {:ok, named} <- named_access(access, refs) do
-      held = Map.new(current.repositories, &{&1.repository_ref, &1.access})
+    case named_access(access, refs) do
+      {:ok, named} ->
+        held = Map.new(current.repositories, &{&1.repository_ref, &1.access})
 
-      rows =
-        Enum.map(refs, fn ref ->
-          {ref, Map.get(named, ref) || Map.get(held, ref) || :read_write}
-        end)
+        refs
+        |> Enum.map(&{&1, Map.get(named, &1) || Map.get(held, &1) || :read_write})
+        |> put_rows(changeset, current)
 
-      cond do
-        match?([{_default, :read_only} | _rest], rows) ->
-          add_error(changeset, :access, "the default repository has to be read and write",
-            validation: :default_read_only
-          )
-
-        rows == Enum.map(current.repositories, &{&1.repository_ref, &1.access}) ->
-          changeset
-
-        true ->
-          put_change(changeset, :repository_rows, rows)
-      end
-    else
       {:error, reason} ->
         add_error(changeset, :access, "must give each repository of the environment an access",
           validation: reason
         )
     end
+  end
+
+  defp put_rows([{_default, :read_only} | _rest], changeset, _current),
+    do:
+      add_error(changeset, :access, "the default repository has to be read and write",
+        validation: :default_read_only
+      )
+
+  defp put_rows(rows, changeset, current) do
+    if rows == Enum.map(current.repositories, &{&1.repository_ref, &1.access}),
+      do: changeset,
+      else: put_change(changeset, :repository_rows, rows)
   end
 
   defp named_access(nil, _refs), do: {:ok, %{}}

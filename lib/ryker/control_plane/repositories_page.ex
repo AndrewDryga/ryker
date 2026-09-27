@@ -126,7 +126,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         title="No repositories yet"
         text={
           if @connected,
-            do: "Add repositories from GitHub below, so Ryker can read their code and work in them.",
+            do: "Add repositories from GitHub, so Ryker can read their code and work in them.",
             else: "Once GitHub is connected, add the repositories Ryker should work in here."
         }
       />

@@ -43,7 +43,7 @@ defmodule Ryker.ControlPlane.SetupPageTest do
     for {done, label, href} <- [
           {[], "Connect Slack", "/integrations/slack"},
           {[:slack], "Connect GitHub", "/integrations/github"},
-          {[:slack, :github], "Add repositories", "/repositories"}
+          {[:slack, :github], "Add repositories", "/repositories/new"}
         ] do
       document = render_setup(view(done: done))
 

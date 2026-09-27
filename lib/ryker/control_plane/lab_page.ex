@@ -369,7 +369,7 @@ defmodule Ryker.ControlPlane.LabPage do
       <span class="lab-environment-label">Environment</span>
       <span>None yet</span>
       <span aria-hidden="true">·</span>
-      <.link navigate="/environments?edit=new">Add one</.link>
+      <.link navigate="/environments/new">Add one</.link>
     </p>
     """
   end

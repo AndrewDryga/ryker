@@ -42,6 +42,18 @@ defmodule Ryker.ControlPlane.WebRouter do
       live("/settings/#{page}", Ryker.ControlPlane.WorkbenchLive)
     end
 
+    # Each form that adds or edits one thing in a list has a page of its own.
+    live("/repositories/new", Ryker.ControlPlane.WorkbenchLive)
+    live("/environments/new", Ryker.ControlPlane.WorkbenchLive)
+    live("/environments/:ref/edit", Ryker.ControlPlane.WorkbenchLive)
+    live("/settings/prices/new", Ryker.ControlPlane.WorkbenchLive)
+    live("/settings/prices/:item/edit", Ryker.ControlPlane.WorkbenchLive)
+    live("/integrations/emisar/new", Ryker.ControlPlane.WorkbenchLive)
+    live("/integrations/emisar/:ref/edit", Ryker.ControlPlane.WorkbenchLive)
+    live("/integrations/webhooks/credentials/new", Ryker.ControlPlane.WorkbenchLive)
+    live("/integrations/webhooks/sources/new", Ryker.ControlPlane.WorkbenchLive)
+    live("/integrations/webhooks/sources/:item/edit", Ryker.ControlPlane.WorkbenchLive)
+
     live("/conversations/:id", Ryker.ControlPlane.WorkbenchLive)
     live("/timeline/:ref", Ryker.ControlPlane.WorkbenchLive)
     live("/incident-rooms/:ref", Ryker.ControlPlane.WorkbenchLive)
