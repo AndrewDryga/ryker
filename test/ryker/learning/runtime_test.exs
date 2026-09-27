@@ -17,8 +17,8 @@ defmodule Ryker.Learning.RuntimeTest do
     assert settings.worker_ref == "host:learning:slot-1"
     assert settings.batch_size == 16
     assert settings.lease_seconds == 300
-    assert settings.quiet_seconds == 10
-    assert settings.maximum_delay_seconds == 60
+    assert settings.quiet_seconds == 300
+    assert settings.maximum_delay_seconds == 1_800
     assert settings.execution_timeout_seconds == 600
   end
 
