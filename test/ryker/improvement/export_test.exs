@@ -107,6 +107,64 @@ defmodule Ryker.Improvement.ExportTest do
              )
   end
 
+  # Chat is the other place people talk to Ryker; its case replays as the
+  # local operator in the same conversation, the way the world runner feeds
+  # Chat inputs.
+  test "a Chat request exports as a world scenario the eval runner loads" do
+    {:ok, profile} =
+      Ryker.Ingress.WorkProfile.new(%{
+        policy: "export-chat",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    conversation = Ecto.UUID.generate()
+
+    {:ok, %{entry: question}} =
+      Ryker.ControlPlane.ConversationLab.send_message(
+        conversation,
+        "Summarize the deploy",
+        profile
+      )
+
+    reply =
+      Answers.work_reply!(
+        question,
+        "Nothing was deployed.",
+        "control-plane-reply:#{conversation}",
+        DateTime.add(question.occurred_at, 30, :second)
+      )
+
+    assert {:ok, _recorded} =
+             Feedback.record(%{
+               kind: :reaction_added,
+               value: "-1",
+               actor_ref: "local-operator",
+               source: "control_plane",
+               source_ref: "control-plane-reaction:#{conversation}",
+               occurred_at: DateTime.add(question.occurred_at, 60, :second),
+               request: {:episode, reply.episode.id}
+             })
+
+    candidate = Improvement.for_request({:episode, reply.episode.id})
+    assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
+
+    root = tmp_dir!()
+    assert {:ok, 1} = Export.write(Path.join(root, "cases"))
+    File.mkdir_p!(Path.join([root, "cases", "va1-health-review-repairs-and-finishes"]))
+
+    File.cp!(
+      @catalog,
+      Path.join([root, "cases", "va1-health-review-repairs-and-finishes", "tool-catalog.json"])
+    )
+
+    assert {:ok, scenario} = WorldCase.load(Path.join([root, "cases", Export.case_id(accepted)]))
+    assert [%{"actor_ref" => "control_plane:user:local-operator"} = event] = scenario.events
+    assert event["payload"]["text"] == "Summarize the deploy"
+    assert event["destination"]["transport"] == "control_plane"
+    assert event["destination"]["conversation_ref"] == question.destination_conversation_ref
+  end
+
   # A request's messages expire at the operational horizon; a case accepted
   # before then keeps the words it was accepted on.
   test "accepting keeps the evidence, so the case outlives the request's messages" do

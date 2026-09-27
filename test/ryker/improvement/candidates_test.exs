@@ -123,14 +123,16 @@ defmodule Ryker.Improvement.CandidatesTest do
     request = work_request!("1790004100.000100")
     :ok = Improvement.subscribe_improvement()
 
-    assert {:error, :rolled_back} =
+    # The topic is shared by every test that records feedback, so each
+    # announcement is looked for by the candidate it names.
+    assert {:error, {:rolled_back, rolled_back}} =
              Repo.transaction(fn ->
                {:ok, _recorded} = Feedback.record_in_transaction(attributes(request, "rolled"))
-               Repo.rollback(:rolled_back)
+               Repo.rollback({:rolled_back, Improvement.for_request(request).id})
              end)
 
     assert Improvement.for_request(request) == nil
-    refute_received {:improvement_updated, _id}
+    refute_received {:improvement_updated, ^rolled_back}
 
     assert {:ok, _recorded} = Feedback.record(attributes(request, "kept"))
     %Candidate{id: id} = Improvement.for_request(request)
