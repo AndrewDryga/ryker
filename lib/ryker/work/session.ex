@@ -14,6 +14,8 @@ defmodule Ryker.Work.Session do
     field(:policy, :string)
     field(:policy_digest, :string)
     field(:authority_digest, :string)
+    field(:worker_job_document, Ryker.CanonicalJSON.Type)
+    field(:worker_job_digest, :string)
     field(:repository_ref, :string)
     field(:repository_context, Ryker.CanonicalJSON.Type)
     field(:repository_source, Ryker.CanonicalJSON.Type)
@@ -91,6 +93,8 @@ defmodule Ryker.Work.Session do
           policy: String.t() | nil,
           policy_digest: String.t() | nil,
           authority_digest: String.t() | nil,
+          worker_job_document: map() | nil,
+          worker_job_digest: String.t() | nil,
           repository_ref: String.t() | nil,
           repository_context: map() | nil,
           repository_source: map() | nil,

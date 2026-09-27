@@ -11,11 +11,13 @@ defmodule Ryker.Work.ExecutorTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.StateTools.FixedTools
   alias Ryker.TestSupport.FakeWorkCoopAPI, as: FakeAPI
 
@@ -296,8 +298,7 @@ defmodule Ryker.Work.ExecutorTest do
         dispatch(client, :capabilities, fn ->
           {:ok,
            %{
-             "repository_freshness_receipt_versions" => [2],
-             "repository_source_selector_versions" => [1]
+             "repository_freshness_receipt_versions" => [2]
            }}
         end)
 
@@ -312,6 +313,12 @@ defmodule Ryker.Work.ExecutorTest do
     def operation_by_key(client, key),
       do:
         dispatch(client, :operation_by_key, fn -> FakeAPI.operation_by_key(client.fake, key) end)
+
+    def prepare_create_session(client, key, policy, task, source),
+      do:
+        dispatch(client, :prepare_create_session, fn ->
+          FakeAPI.prepare_create_session(client.fake, key, policy, task, source)
+        end)
 
     def create_session(client, key, policy, task, source),
       do:
@@ -438,6 +445,28 @@ defmodule Ryker.Work.ExecutorTest do
         {:ok, response} -> response
       end
     end
+  end
+
+  test "source preparation cannot launch work after the original caller's lease expires" do
+    claim = claim_episode!("source-outlives-lease")
+    {:ok, fake} = FakeAPI.start_link([reply("Must not run.")])
+    parent = self()
+
+    prepare = fn _fallback ->
+      Repo.get!(Ryker.Work.Turn, claim.turn.id)
+      |> Ecto.Changeset.change(lease_expires_at: DateTime.add(Repo.now!(), -1, :second))
+      |> Repo.update!()
+
+      send(parent, :source_prepared_after_lease_expired)
+      :ok
+    end
+
+    assert {:error, _reason} =
+             Executor.run(claim, protocol_options(fake, %{prepare_create_session: prepare}))
+
+    assert_received :source_prepared_after_lease_expired
+    assert FakeAPI.state(fake).create_count == 0
+    assert FakeAPI.state(fake).submit_count == 0
   end
 
   test "one frozen turn reaches a validated durable delivery intent" do
@@ -1184,8 +1213,8 @@ defmodule Ryker.Work.ExecutorTest do
              StateBinding.sha256(binding["token"])
 
     [submitted] = state.submissions
-    assert submitted.responder_binding == binding
-    tool_names = submitted.prompt |> Jason.decode!() |> get_in(["work", "responder_state_tools"])
+    assert submitted.controller_tools == binding
+    tool_names = submitted.prompt |> Jason.decode!() |> get_in(["work", "controller_tools"])
     refute "wait_for" in tool_names
     assert "propose_automation" in tool_names
   end
@@ -1890,14 +1919,11 @@ defmodule Ryker.Work.ExecutorTest do
       id: worker_id,
       workspace_ref: "workspace-cancel-expired",
       certificate_sha256: String.duplicate("c", 64),
-      protocol_version: "1",
+      protocol_version: "2",
       build_version: "coop-test",
       clock_at: now,
       sandbox_digest: String.duplicate("d", 64),
-      policy_digests: %{work.session.policy => work.session.policy_digest},
-      policy_authority_digests: %{},
-      repositories: [%{"ref" => work.session.repository_ref, "revision" => "commit:abc123"}],
-      capabilities: [%{"name" => "responder-state", "version" => "1"}],
+      capabilities: [%{"name" => "controller-tools", "version" => "1"}],
       capacity: %{
         "cooldown_until" => nil,
         "session_slots_free" => 1,
@@ -1956,7 +1982,7 @@ defmodule Ryker.Work.ExecutorTest do
     FakeAPI.update(fake, fn state ->
       %{
         state
-        | turn: Map.put(state.turn, "responder_binding_digest", StateBinding.binding_digest(turn))
+        | turn: Map.put(state.turn, "controller_tools_digest", StateBinding.binding_digest(turn))
       }
     end)
 
@@ -2433,40 +2459,23 @@ defmodule Ryker.Work.ExecutorTest do
     assert turn.state_tools_token_sha256 == StateBinding.sha256(binding["token"])
   end
 
-  test "a model changed in Settings moves a created session onto its policy's current digest" do
-    # The conversation's session was created under the old model. Choosing
-    # another model gave the policy a new digest, no worker offered the old one
-    # any more, and every later turn blocked as "no eligible worker with
-    # available capacity".
-    authority = String.duplicate("f", 64)
-    claim = claim_with_bound_empty_session!("model-moved-rotation", authority)
-    new_digest = String.duplicate("9", 64)
-    policy_binding!(claim.session.policy, new_digest, authority)
-    {:ok, fake} = fake_for(claim, [reply("The new model answered.")])
+  test "changing model settings does not rotate a running immutable job" do
+    claim = claim_with_bound_empty_session!("model-setting-frozen", String.duplicate("f", 64))
+    {:ok, fake} = fake_for(claim, [reply("The frozen model answered.")])
+    saved = Repo.reload!(claim.session)
+    {:ok, snapshot} = Settings.initialize("control-plane:local")
 
-    # The worker now runs the policy under its new digest.
-    FakeAPI.update(fake, fn state ->
-      %{
-        state
-        | session: Map.merge(state.session, %{"policy_digest" => new_digest, "state" => "closed"})
-      }
-    end)
+    assert {:ok, _} =
+             Settings.save_work(
+               %{conversation_models: ["codex:gpt-5.6-terra/high@default"]},
+               snapshot.installation.revision,
+               "control-plane:local"
+             )
 
-    assert {:ok, execution} = Executor.run(claim, options(fake))
-    assert execution.status == :accepted
-
-    sessions =
-      Ryker.Repo.all(
-        from(session in Ryker.Work.Session,
-          where: session.episode_id == ^claim.episode.id,
-          order_by: [asc: session.generation]
-        )
-      )
-
-    assert Enum.map(sessions, &{&1.generation, &1.policy_digest}) ==
-             [{1, claim.session.policy_digest}, {2, new_digest}]
-
-    assert Ryker.Repo.get!(Ryker.Work.Turn, claim.turn.id).session_id == List.last(sessions).id
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, options(fake))
+    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).session_id == claim.session.id
+    assert Repo.reload!(claim.session).worker_job_document == saved.worker_job_document
+    assert FakeAPI.state(fake).create_count == 0
   end
 
   test "a new repository session waits for freshness v2 before remote creation" do
@@ -2496,8 +2505,7 @@ defmodule Ryker.Work.ExecutorTest do
         session_capabilities:
           {:ok,
            %{
-             "repository_freshness_receipt_versions" => [2, 2],
-             "repository_source_selector_versions" => [1]
+             "repository_freshness_receipt_versions" => [2, 2]
            }}
       })
 
@@ -2809,14 +2817,14 @@ defmodule Ryker.Work.ExecutorTest do
     wrong_authority = claim_with_bound_empty_session!("wrong-session-authority")
     {:ok, wrong_authority_fake} = fake_for(wrong_authority, [reply("unused")])
 
-    change_policy_digest = fn fallback ->
+    change_job_digest = fn fallback ->
       {:ok, session} = fallback.()
-      {:ok, Map.put(session, "policy_digest", String.duplicate("f", 64))}
+      {:ok, Map.put(session, "job_digest", String.duplicate("f", 64))}
     end
 
     assert Executor.run(
              wrong_authority,
-             protocol_options(wrong_authority_fake, %{get_session: change_policy_digest})
+             protocol_options(wrong_authority_fake, %{get_session: change_job_digest})
            ) == {:error, {:coop_protocol_error, :session_authority}}
 
     expected_authority = String.duplicate("d", 64)
@@ -2826,15 +2834,15 @@ defmodule Ryker.Work.ExecutorTest do
 
     {:ok, wrong_execution_authority_fake} = fake_for(wrong_execution_authority, [reply("unused")])
 
-    change_authority_digest = fn fallback ->
+    change_job_ref = fn fallback ->
       {:ok, session} = fallback.()
-      {:ok, Map.put(session, "authority_digest", String.duplicate("e", 64))}
+      {:ok, Map.put(session, "job_ref", "another-job")}
     end
 
     assert Executor.run(
              wrong_execution_authority,
              protocol_options(wrong_execution_authority_fake, %{
-               get_session: change_authority_digest
+               get_session: change_job_ref
              })
            ) == {:error, {:coop_protocol_error, :session_authority}}
 
@@ -2910,7 +2918,7 @@ defmodule Ryker.Work.ExecutorTest do
 
     change_binding_digest = fn fallback ->
       {:ok, turn} = fallback.()
-      {:ok, Map.put(turn, "responder_binding_digest", String.duplicate("f", 64))}
+      {:ok, Map.put(turn, "controller_tools_digest", String.duplicate("f", 64))}
     end
 
     binding_options =
@@ -3171,10 +3179,7 @@ defmodule Ryker.Work.ExecutorTest do
     assert workspace["source"] == binding
   end
 
-  # An intentionally local policy has no remote identity to bind. Coop refuses
-  # every selector but its own default there and returns no binding; the primary
-  # receipt alone proves the workspace head, exactly as it did before selectors.
-  test "a local-only policy resolves the default without a binding and nothing else" do
+  test "default and branch selections both require their frozen source binding" do
     claim =
       claim_with_bound_source_session!("source-local-default", "ryker", %{"kind" => "default"})
 
@@ -3184,8 +3189,10 @@ defmodule Ryker.Work.ExecutorTest do
       %{state | session: Map.delete(state.session, "source")}
     end)
 
-    assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
-    refute Map.has_key?(get_in(accepted.submission, ["context", "workspace"]), "source")
+    assert Executor.run(claim, options(fake)) ==
+             {:error, {:coop_protocol_error, :repository_source}}
+
+    assert FakeAPI.state(fake).submit_count == 0
 
     branch = %{"kind" => "branch", "name" => "feature/payments"}
     selected = claim_with_bound_source_session!("source-local-branch", "ryker", branch)
@@ -3296,10 +3303,8 @@ defmodule Ryker.Work.ExecutorTest do
     end
   end
 
-  # A session bound before source selection existed keeps running: its binding is
-  # checked for internal consistency and never re-resolved against a selector it
-  # never had.
-  test "a historical session without a persisted selector still runs" do
+  # Historical source metadata cannot be upgraded into a new execution grant.
+  test "a historical jobless session cannot run while a new bare job can" do
     selected = String.duplicate("3", 40)
     default_head = String.duplicate("2", 40)
 
@@ -3321,11 +3326,13 @@ defmodule Ryker.Work.ExecutorTest do
 
     claim = claim_with_bound_empty_session!("source-historical-session")
     assert claim.session.repository_source == nil
-    {:ok, fake} = fake_for(claim, [reply("The historical session still runs.")])
+    {:ok, fake} = fake_for(claim, [reply("Must not run.")], job_backed: false)
     bind_source_session!(fake, binding, default_head, [], freshness)
 
-    assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
-    assert get_in(accepted.submission, ["context", "workspace", "source"]) == binding
+    assert {:error, {:coop_protocol_error, :session_authority}} =
+             Executor.run(claim, options(fake))
+
+    assert FakeAPI.state(fake).submit_count == 0
     assert Ryker.Repo.get!(Ryker.Work.Session, claim.session.id).repository_source == nil
 
     # Workspace-free work with no binding at all keeps running as before.
@@ -3342,7 +3349,7 @@ defmodule Ryker.Work.ExecutorTest do
     refute Map.has_key?(get_in(accepted.submission, ["context", "workspace"]), "source")
   end
 
-  test "selector-bound work is never dispatched to a worker without the versioned capability" do
+  test "source-bound work is refused before creation without version-2 freshness receipts" do
     source = %{"kind" => "branch", "name" => "feature/payments"}
     claim = claim_with_source_session!("source-old-worker", "ryker", source)
 
@@ -3350,11 +3357,11 @@ defmodule Ryker.Work.ExecutorTest do
 
     options =
       protocol_options(fake, %{
-        capabilities: {:ok, %{"repository_freshness_receipt_versions" => [2]}}
+        capabilities: {:ok, %{"repository_freshness_receipt_versions" => [1]}}
       })
 
     assert Executor.run(claim, options) ==
-             {:error, {:coop_upgrade_required, :repository_source_selector_v1}}
+             {:error, {:coop_upgrade_required, :repository_freshness_v2}}
 
     assert FakeAPI.state(fake).create_count == 0
   end
@@ -3679,8 +3686,8 @@ defmodule Ryker.Work.ExecutorTest do
                   %{
                     "external_ref" => revision_claim.session.external_ref,
                     "id" => revision_claim.session.coop_session_id,
-                    "policy" => revision_claim.session.policy,
-                    "policy_digest" => revision_claim.session.policy_digest,
+                    "job_ref" => revision_claim.session.external_ref,
+                    "job_digest" => FakeAPI.state(revision_fake).session["job_digest"],
                     "state" => "open"
                   }}
              })
@@ -4221,29 +4228,6 @@ defmodule Ryker.Work.ExecutorTest do
     %{claim | session: session, turn: turn}
   end
 
-  defp policy_binding!(policy_name, policy_digest, authority_digest) do
-    {:ok, snapshot} =
-      case Ryker.Settings.fetch() do
-        {:ok, snapshot} -> {:ok, snapshot}
-        {:error, :settings_not_initialized} -> Ryker.Settings.initialize("control-plane:local")
-      end
-
-    {:ok, _snapshot} =
-      Ryker.Settings.put_policy_binding(
-        %{
-          authority_digest: authority_digest,
-          policy_digest: policy_digest,
-          policy_name: policy_name,
-          purpose: :conversational,
-          scope_kind: :installation,
-          scope_ref: "",
-          verified_by: :import
-        },
-        snapshot.installation.revision,
-        "control-plane:local"
-      )
-  end
-
   defp claim_with_bound_empty_session!(suffix, authority_digest \\ nil) do
     claim = claim_episode!(suffix, nil, :live, authority_digest)
 
@@ -4413,14 +4397,11 @@ defmodule Ryker.Work.ExecutorTest do
       id: worker_id,
       workspace_ref: "workspace-#{session.id}",
       certificate_sha256: String.duplicate("c", 64),
-      protocol_version: "1",
+      protocol_version: "2",
       build_version: "coop-test",
       clock_at: now,
       sandbox_digest: String.duplicate("d", 64),
-      policy_digests: %{session.policy => session.policy_digest},
-      policy_authority_digests: %{},
-      repositories: [],
-      capabilities: [%{"name" => "responder-state", "version" => "1"}],
+      capabilities: [%{"name" => "controller-tools", "version" => "1"}],
       capacity: %{
         "cooldown_until" => nil,
         "session_slots_free" => 1,
@@ -4452,15 +4433,21 @@ defmodule Ryker.Work.ExecutorTest do
   end
 
   defp fake_for(claim, candidates, options \\ []) do
+    saved = Repo.reload!(claim.session)
+
+    pinned =
+      if Keyword.get(options, :job_backed, true),
+        do: WorkerJob.pin!(saved),
+        else: saved
+
     with {:ok, fake} <- FakeAPI.start_link(candidates, options) do
       FakeAPI.update(fake, fn state ->
         session =
           Map.merge(state.session, %{
             "external_ref" => Session.coop_task_ref(claim.session),
             "id" => claim.session.coop_session_id || "remote:#{claim.episode.id}",
-            "policy" => claim.session.policy,
-            "policy_digest" => claim.session.policy_digest,
-            "authority_digest" => claim.session.authority_digest
+            "job_ref" => claim.session.external_ref,
+            "job_digest" => pinned.worker_job_digest
           })
 
         %{state | session: session}

@@ -439,7 +439,7 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
 
   defp state_tool(call, tool) do
     %{
-      "input" => %{"server" => "responder-state", "tool" => tool},
+      "input" => %{"server" => "controller-tools", "tool" => tool},
       "kind" => "execute",
       "tool_call_id" => call
     }

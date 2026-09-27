@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.TaskEndToEndTest do
   use Ryker.DataCase, async: false
 
-  import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
   import Plug.Conn
   import Plug.Test
@@ -50,9 +48,9 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   end
 
   defmodule PublicationCoop do
-    def get_session(agent, _session_id), do: {:ok, Agent.get(agent, & &1.session)}
+    def get_session({agent, _publisher}, _session_id), do: {:ok, Agent.get(agent, & &1.session)}
 
-    def run_review(agent, _session_id, key, expected_revision) do
+    def run_review({agent, _publisher}, _session_id, key, expected_revision) do
       Agent.get_and_update(agent, fn state ->
         response = %{
           "operation" => %{
@@ -70,29 +68,18 @@ defmodule Ryker.Slack.TaskEndToEndTest do
       end)
     end
 
-    def get_review_patch(agent, artifact_id, digest, bytes) do
-      Agent.get_and_update(agent, fn state ->
-        call = {artifact_id, digest, bytes}
-        {{:ok, state.patch}, %{state | patch_calls: state.patch_calls ++ [call]}}
-      end)
-    end
-  end
-
-  defmodule DraftPublisher do
-    @behaviour Ryker.Publication.Publisher
-
-    def publish(request, agent) do
+    def publish_review({_coop, agent}, _session_id, _review_key, _review_id, _key, body) do
       Agent.get_and_update(agent, fn state ->
         receipt = %{
-          "branch_ref" => "refs/heads/ryker/#{String.replace(request.publication_ref, ":", "-")}",
-          "candidate_tree" => request.review["candidate_tree"],
-          "commit_sha" => String.duplicate("9", 40),
+          "branch_ref" => "refs/heads/" <> body["branch"],
+          "candidate_tree" => body["candidate_tree"],
+          "commit_sha" => body["candidate_head"],
           "pull_request_number" => 91,
           "pull_request_url" => "https://github.com/acme/ryker/pull/91",
-          "repository" => request.repository
+          "repository" => "ryker"
         }
 
-        {{:ok, receipt}, %{state | requests: state.requests ++ [request]}}
+        {{:ok, receipt}, %{state | requests: state.requests ++ [body]}}
       end)
     end
   end
@@ -373,14 +360,11 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert publication.status == :review_pending
 
     task_session = Repo.get!(Session, task_session.id)
-    patch = "diff --git a/lib/parser.ex b/lib/parser.ex\n+fixed retry handling\n"
-    review = review_document(task_session, patch)
+    review = review_document(task_session)
 
     {:ok, publication_coop} =
       Agent.start_link(fn ->
         %{
-          patch: patch,
-          patch_calls: [],
           review: review,
           review_calls: [],
           # Publication must review the real task session too. Reconstructing a
@@ -443,8 +427,10 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert published_card["publication"]["pull_request_number"] == 91
 
     assert [request] = Agent.get(draft_publisher, & &1.requests)
-    assert request.patch == patch
-    assert request.repository == "ryker"
+    assert request["candidate_head"] == review["candidate_head"]
+    assert request["candidate_tree"] == review["candidate_tree"]
+    assert request["pull_request_number"] == 0
+    refute Map.has_key?(request, "patch")
 
     response =
       github_review_post(
@@ -607,14 +593,9 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     # this publication already owns, so the recorded client updates PR 91
     # instead of opening a second draft for the same task.
     assert [_first_request, corrected_request] = Agent.get(draft_publisher, & &1.requests)
-    assert corrected_request.publication_ref == publication.ref
-
-    assert corrected_request.existing_pull_request == %{
-             "head_commit" => published.commit_sha,
-             "number" => 91,
-             "ref" => published.branch_ref,
-             "url" => "https://github.com/acme/ryker/pull/91"
-           }
+    assert corrected_request["expected_head"] == published.commit_sha
+    assert corrected_request["pull_request_number"] == 91
+    assert "refs/heads/" <> corrected_request["branch"] == published.branch_ref
 
     assert [one_publication] =
              Repo.all(from(p in Publication, where: p.episode_id == ^task_episode.id))
@@ -749,9 +730,8 @@ defmodule Ryker.Slack.TaskEndToEndTest do
       executor_options: [
         adapters: adapters,
         api: PublicationCoop,
-        client: coop,
-        publisher: DraftPublisher,
-        publisher_binding: publisher
+        client: {coop, publisher},
+        repositories: %{"ryker" => %{base_branch: "main", branch_prefix: "ryker"}}
       ],
       lease_seconds: 60,
       retry_base_seconds: 1,
@@ -930,7 +910,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     }
   end
 
-  defp review_document(session, patch) do
+  defp review_document(session) do
     %{
       "candidate_head" => String.duplicate("6", 40),
       "candidate_tree" => String.duplicate("7", 40),
@@ -940,11 +920,9 @@ defmodule Ryker.Slack.TaskEndToEndTest do
       "operation_id" => "operation:review:#{session.id}",
       "parent_head" => String.duplicate("5", 40),
       "parent_tree" => String.duplicate("4", 40),
-      "patch_artifact_id" => "review-patch:#{session.id}",
-      "patch_bytes" => byte_size(patch),
-      "patch_digest" => digest(patch),
+      "candidate_retained" => true,
       "patch_truncated" => false,
-      "policy_digest" => session.policy_digest,
+      "job_digest" => session.worker_job_digest,
       "policy_findings" => [],
       "publishable" => true,
       "pull_request" => nil,

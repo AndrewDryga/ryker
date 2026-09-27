@@ -6,6 +6,8 @@ defmodule Ryker.Evals.WorldInputs do
   and the evaluation-only delivery adapters that settle visible output.
   """
 
+  alias Ryker.Artifacts
+  alias Ryker.CanonicalJSON
   alias Ryker.Delivery.Adapters
 
   alias Ryker.Evals.{
@@ -107,7 +109,8 @@ defmodule Ryker.Evals.WorldInputs do
          {:ok, event_kind} <- input_atom(profile["event_kind"], :event_kind),
          {:ok, occurred_at_source} <-
            input_atom(profile["occurred_at_source"], :occurred_at_source),
-         {:ok, content} <- world_replay_content(content, event, occurred_at, occurred_at_source) do
+         {:ok, content} <- world_replay_content(content, event, occurred_at, occurred_at_source),
+         {:ok, content} <- fixture_content(content, scenario, profile["source"]["kind"]) do
       Input.new(%{
         actor: %{kind: actor_kind, ref: profile["actor"]["ref"]},
         content: content,
@@ -127,6 +130,79 @@ defmodule Ryker.Evals.WorldInputs do
       {:error, _reason} = error -> error
       _invalid -> {:error, {:invalid_world_runner, :input_profile}}
     end
+  end
+
+  defp fixture_content(content, scenario, source_kind) do
+    with false <- Map.has_key?(content, "world_fixture_context"),
+         {:ok, captures} <- WorldCase.fixture_context(scenario),
+         true <- Enum.sum(Enum.map(captures, &length(&1["files"]))) <= 5,
+         true <-
+           captures |> Enum.flat_map(& &1["files"]) |> Enum.map(& &1["bytes"]) |> Enum.sum() <=
+             Artifacts.maximum_bytes(),
+         {:ok, context} <- store_fixture_context(captures, scenario.id, source_kind) do
+      if context == [],
+        do: {:ok, content},
+        else: {:ok, Map.put(content, "world_fixture_context", context)}
+    else
+      {:error, _reason} = error -> error
+      _invalid -> {:error, :invalid_world_fixture_context}
+    end
+  end
+
+  defp store_fixture_context(captures, scenario_id, source_kind) do
+    Enum.reduce_while(captures, {:ok, []}, fn capture, {:ok, context} ->
+      case store_fixture_files(capture, scenario_id, source_kind) do
+        {:ok, files} ->
+          entry =
+            capture
+            |> Map.put("files", files)
+            |> Map.put("kind", "captured_source_excerpts")
+            |> Map.put(
+              "context",
+              "Captured source excerpts, not a checkout or current repository evidence."
+            )
+
+          {:cont, {:ok, context ++ [entry]}}
+
+        error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  defp store_fixture_files(capture, scenario_id, source_kind) do
+    Enum.reduce_while(capture["files"], {:ok, []}, fn file, {:ok, files} ->
+      identity =
+        CanonicalJSON.digest([
+          scenario_id,
+          capture["repository"],
+          capture["sha256"],
+          file["path"]
+        ])
+
+      case Artifacts.put(%{
+             data: file["data"],
+             media_type: "text/plain",
+             name: Path.basename(file["path"]),
+             source_kind: source_kind,
+             source_ref: "world-fixture:" <> identity
+           }) do
+        {:ok, artifact} ->
+          descriptor = %{
+            "artifact_ref" => artifact.ref,
+            "bytes" => artifact.byte_size,
+            "media_type" => artifact.media_type,
+            "name" => artifact.name,
+            "sha256" => artifact.sha256,
+            "status" => "available"
+          }
+
+          {:cont, {:ok, files ++ [%{"path" => file["path"], "artifact" => descriptor}]}}
+
+        error ->
+          {:halt, error}
+      end
+    end)
   end
 
   @doc false

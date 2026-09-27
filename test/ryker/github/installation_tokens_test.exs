@@ -222,8 +222,11 @@ defmodule Ryker.GitHub.InstallationTokensTest do
     assert InstallationTokens.token(provider, "github-main", :publication) ==
              {:ok, "publication-token"}
 
-    assert InstallationTokens.token(provider, "github-main", :repository_write) ==
-             {:ok, "repository-token"}
+    assert InstallationTokens.fresh_publication_token(provider, "github-main", %{
+             repository_id: 99,
+             installation_id: 41
+           }) ==
+             {:ok, %{token: "repository-token", expires_at: DateTime.add(@now, 3_600, :second)}}
 
     documents =
       Agent.get(requester, &Enum.map(&1.calls, fn {_m, _p, document, _h} -> document end))
@@ -236,13 +239,13 @@ defmodule Ryker.GitHub.InstallationTokensTest do
              %{
                "permissions" => %{
                  "checks" => "read",
-                 "pull_requests" => "write",
+                 "pull_requests" => "read",
                  "statuses" => "read"
                },
                "repository_ids" => [99]
              },
              %{
-               "permissions" => %{"contents" => "write"},
+               "permissions" => %{"contents" => "write", "pull_requests" => "write"},
                "repository_ids" => [99]
              }
            ]
@@ -251,6 +254,77 @@ defmodule Ryker.GitHub.InstallationTokensTest do
              {:ok, "delivery-token"}
 
     assert length(Agent.get(requester, & &1.calls)) == 3
+  end
+
+  test "source acquisition receives only repository contents read access" do
+    {provider, requester} =
+      provider_with([
+        token_response("source-token", DateTime.add(@now, 3_600, :second))
+      ])
+
+    assert InstallationTokens.token(provider, "github-main", :source_read) ==
+             {:ok, "source-token"}
+
+    assert [{:post, "/app/installations/41/access_tokens", document, _headers}] =
+             Agent.get(requester, & &1.calls)
+
+    assert document == %{
+             "permissions" => %{"contents" => "read"},
+             "repository_ids" => [99]
+           }
+  end
+
+  test "worker source grants mint a fresh read-only token instead of sharing the source cache" do
+    expiration = DateTime.add(@now, 3_600, :second)
+
+    {provider, requester} =
+      provider_with([
+        token_response("ryker-cache-token", expiration),
+        token_response("worker-one-token", expiration),
+        token_response("worker-two-token", expiration)
+      ])
+
+    assert InstallationTokens.token(provider, "github-main", :source_read) ==
+             {:ok, "ryker-cache-token"}
+
+    assert InstallationTokens.fresh_source_token(provider, "github-main", %{
+             repository_id: 99,
+             installation_id: 41
+           }) ==
+             {:ok, %{token: "worker-one-token", expires_at: expiration}}
+
+    assert InstallationTokens.fresh_source_token(provider, "github-main", %{
+             repository_id: 99,
+             installation_id: 41
+           }) ==
+             {:ok, %{token: "worker-two-token", expires_at: expiration}}
+
+    assert InstallationTokens.token(provider, "github-main", :source_read) ==
+             {:ok, "ryker-cache-token"}
+
+    assert Agent.get(requester, &Enum.map(&1.calls, fn {_m, _p, body, _h} -> body end)) ==
+             List.duplicate(
+               %{"permissions" => %{"contents" => "read"}, "repository_ids" => [99]},
+               3
+             )
+  end
+
+  test "a changed repository binding cannot mint a worker token for another repository" do
+    {provider, requester} = provider_with([])
+
+    assert {:error, {:github_installation_token_unavailable, :binding}} =
+             InstallationTokens.fresh_source_token(provider, "github-main", %{
+               repository_id: 100,
+               installation_id: 41
+             })
+
+    assert {:error, {:github_installation_token_unavailable, :binding}} =
+             InstallationTokens.fresh_source_token(provider, "github-main", %{
+               repository_id: 99,
+               installation_id: 42
+             })
+
+    assert Agent.get(requester, & &1.calls) == []
   end
 
   test "rejects every malformed trusted credential-provider configuration" do

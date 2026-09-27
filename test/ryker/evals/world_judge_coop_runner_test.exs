@@ -1,7 +1,7 @@
 defmodule Ryker.Evals.WorldJudgeCoopRunnerTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.Evals.{CoopRunner, WorldCase, WorldJudgeCase}
+  alias Ryker.Evals.{CoopRunner, Job, WorldCase, WorldJudgeCase}
   alias Ryker.TestSupport.FakeCoopAPI
 
   test "repairs an invalid quality judgment in the same turn and preserves a failing score" do
@@ -43,8 +43,7 @@ defmodule Ryker.Evals.WorldJudgeCoopRunnerTest do
       client: fake,
       id_generator: fn -> "world-judge-run" end,
       max_polls: 4,
-      policy: "world-judge-read-only",
-      policy_digest: String.duplicate("a", 64),
+      job: elem(Job.new(:judge, "codex:fixture/low@eval"), 1),
       poll_interval_ms: 0,
       sleep: fn _milliseconds -> :ok end
     ]

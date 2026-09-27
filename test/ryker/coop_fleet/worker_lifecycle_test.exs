@@ -15,6 +15,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
   alias Ryker.CoopFleet.WorkerLifecycle
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.StateTools.Binding
   alias Ryker.Work.{Custody, StateBinding}
 
@@ -52,7 +53,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: "ryker",
                  workspace_ref: "workspace-main"
                },
@@ -156,10 +157,10 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
                "command_results" => [],
                "event_batches" => [],
                "poll_ref" => "poll:#{worker_id}",
-               "version" => 1,
+               "version" => 2,
                "worker" => %{
                  "build_version" => "coop-test",
-                 "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+                 "capabilities" => [%{"name" => "controller-tools", "version" => "1"}],
                  "capacity" => %{
                    "cooldown_until" => nil,
                    "session_slots_free" => 1,
@@ -172,9 +173,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
                  },
                  "clock_at" => DateTime.to_iso8601(now),
                  "id" => worker_id,
-                 "policy_digests" => %{"work-read-only" => String.duplicate("b", 64)},
-                 "protocol_version" => "1",
-                 "repositories" => [%{"ref" => "ryker", "revision" => "commit:test"}],
+                 "protocol_version" => "2",
                  "sandbox_digest" => String.duplicate("a", 64),
                  "state" => "eligible",
                  "workspace_ref" => "workspace-main"
@@ -202,6 +201,6 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
                "ryker"
              )
 
-    session
+    WorkerJob.pin!(session)
   end
 end

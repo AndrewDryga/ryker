@@ -203,6 +203,11 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     # the advertised follow-up window. The next message therefore had to create
     # another session even though it arrived eight seconds later. Cleanup between
     # turns must keep the same remote session open until the window expires.
+    # Routing has its own earlier cleanup item. A separate worker holds it while
+    # this single-session fake exercises the conversation's follow-up window.
+    assert {:ok, %{session: %{execution_kind: :admission}}} =
+             Ryker.Retention.Custody.claim_next("conversation-lab-routing-cleanup", 300)
+
     assert {:ok, {:executed, %{phase: :grace}}} =
              RetentionDispatcher.run_once(retention_options(work, "between-turns"))
 

@@ -5,6 +5,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
   alias Ryker.CoopFleet.{Bridge, ControlPlane, Placement}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Repo
   alias Ryker.Work.Custody
 
@@ -32,11 +33,11 @@ defmodule Ryker.CoopFleet.BridgeTest do
           "create_session",
           %{
             "external_ref" => session.external_ref,
-            "policy" => session.policy,
-            "policy_digest" => session.policy_digest
+            "job" => session.worker_job_document,
+            "job_digest" => session.worker_job_digest
           },
           "ryker:work:create:#{session.id}:g1",
-          capability_names: ["responder-state"],
+          capability_names: ["controller-tools"],
           poll_interval_ms: 1,
           wait: fn ->
             send(parent, :bridge_waiting)
@@ -56,11 +57,21 @@ defmodule Ryker.CoopFleet.BridgeTest do
     assert {:ok, %{"commands" => [command]}} =
              ControlPlane.handle_poll(worker_id, poll(worker_id, "command"))
 
+    assert command["kind"] == "api_request"
+    assert command["command_version"] == 2
+    assert command["payload"]["method"] == "POST"
+    assert command["payload"]["path"] == "/v1/sessions"
+    assert command["payload"]["body"]["task"] == session.external_ref
+    refute Map.has_key?(command["payload"]["body"], "policy")
+
     result = %{
       "command_id" => command["command_id"],
       "error" => nil,
       "operation_key" => command["idempotency_key"],
-      "resource" => %{"operation" => %{"id" => "operation-1", "state" => "running"}},
+      "resource" => %{
+        "status" => 202,
+        "body" => %{"operation" => %{"id" => "operation-1", "state" => "running"}}
+      },
       "state" => "succeeded"
     }
 
@@ -142,7 +153,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
       uncertain
       |> Ecto.Changeset.change(
         error: nil,
-        result: %{"id" => "remote-result"},
+        result: %{"status" => 200, "body" => %{"id" => "remote-result"}},
         status: :succeeded
       )
       |> Repo.update!()
@@ -177,6 +188,73 @@ defmodule Ryker.CoopFleet.BridgeTest do
              )
 
     assert is_binary(missing_id)
+  end
+
+  test "transport success does not turn an API refusal into business success" do
+    command = queued_command!()
+
+    command
+    |> Ecto.Changeset.change(
+      completed_at: Repo.now!(),
+      status: :succeeded,
+      operation_key: command.idempotency_key,
+      result_fingerprint: String.duplicate("e", 64),
+      result: %{
+        "status" => 409,
+        "body" => %{"error" => %{"code" => "revision_conflict", "detail" => "stale"}}
+      }
+    )
+    |> Repo.update!()
+
+    assert {:error, {:coop_error, 409, "revision_conflict", "stale"}} =
+             Bridge.await_command(command.id, max_waits: 1, workspace_ref: "workspace-main")
+
+    assert {:ok, [1, 2]} = Bridge.response(%{"status" => 200, "body" => [1, 2]})
+    assert {:ok, nil} = Bridge.response(%{"status" => 204})
+    assert {:error, {:invalid_coop_worker_bridge, :response}} = Bridge.response(%{"id" => "old"})
+  end
+
+  test "stored response bodies resolve as JSON or a binary file without losing their identity" do
+    alias Ryker.CoopFleet.Bodies
+    key = :binary.copy(<<7>>, 32)
+    command = queued_command!()
+    root = Path.join(System.tmp_dir!(), "coop-bridge-bodies-#{Ecto.UUID.generate()}")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    for {id, type, bytes} <- [
+          {command.id, "application/json",
+           Jason.encode!(%{"large" => String.duplicate("j", 300 * 1_024)})},
+          {Ecto.UUID.generate(), "application/octet-stream", <<0, 255, 1, 2>>}
+        ] do
+      reference = %{
+        "byte_size" => byte_size(bytes),
+        "sha256" => Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+      }
+
+      assert :ok = Bodies.put(root, id, :response, reference, [bytes], key)
+
+      response = %{
+        command
+        | id: id,
+          result: %{
+            "status" => 200,
+            "headers" => %{"Content-Type" => type},
+            "body_ref" => reference
+          }
+      }
+
+      if type == "application/json" do
+        assert {:ok, body} = Bridge.command_response(response, root, key)
+        assert body == Jason.decode!(bytes)
+      else
+        assert {:ok, %{stored_body: body, body_ref: ^reference}} =
+                 Bridge.command_response(response, root, key)
+
+        assert {:ok, ^bytes} = Bodies.read(body, key, byte_size(bytes))
+      end
+
+      assert {:error, _} = Bridge.command_response(response, Path.join(root, "unavailable"), key)
+    end
   end
 
   test "bridge options and session identities fail closed before placement" do
@@ -216,7 +294,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
     assert {:ok, session} =
              Custody.pin_episode(episode_id, "work-read-only", @policy_digest, "ryker")
 
-    session
+    WorkerJob.pin!(session)
   end
 
   defp queued_command! do
@@ -233,7 +311,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: session.repository_ref,
                  workspace_ref: "workspace-main"
                },
@@ -257,10 +335,10 @@ defmodule Ryker.CoopFleet.BridgeTest do
       "command_results" => Keyword.get(options, :command_results, []),
       "event_batches" => [],
       "poll_ref" => "poll:#{worker_id}:#{suffix}",
-      "version" => 1,
+      "version" => 2,
       "worker" => %{
         "build_version" => "coop-test",
-        "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+        "capabilities" => [%{"name" => "controller-tools", "version" => "1"}],
         "capacity" => %{
           "cooldown_until" => nil,
           "session_slots_free" => 2,
@@ -273,9 +351,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
         },
         "clock_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
         "id" => worker_id,
-        "policy_digests" => %{"work-read-only" => @policy_digest},
-        "protocol_version" => "1",
-        "repositories" => [%{"ref" => "ryker", "revision" => "commit:abc123"}],
+        "protocol_version" => "2",
         "sandbox_digest" => String.duplicate("a", 64),
         "state" => "eligible",
         "workspace_ref" => "workspace-main"

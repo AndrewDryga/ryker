@@ -6,6 +6,7 @@ defmodule Ryker.Publication.CustodyTest do
 
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Observability
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Publication.Changeset, as: PublicationChangeset
@@ -177,20 +178,18 @@ defmodule Ryker.Publication.CustodyTest do
              )
 
     review = review_document(claim)
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-    review = %{review | "patch_bytes" => byte_size(patch), "patch_digest" => digest(patch)}
 
     assert {:ok, reviewed} =
              PublicationCustody.store_review(
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review,
-               patch
+               review
              )
 
     assert reviewed.status == :review_ready
-    assert reviewed.review_patch == patch
+    assert reviewed.review_patch == nil
+    assert reviewed.review_document["candidate_retained"]
 
     assert {:ok, review_delivery_claim} =
              PublicationCustody.claim_next("publication:review-delivery", 60)
@@ -254,7 +253,7 @@ defmodule Ryker.Publication.CustodyTest do
     publication_receipt = %{
       "branch_ref" => "refs/heads/ryker/#{publication.id}",
       "candidate_tree" => review["candidate_tree"],
-      "commit_sha" => String.duplicate("9", 40),
+      "commit_sha" => String.duplicate("6", 40),
       "pull_request_number" => 91,
       "pull_request_url" => "https://github.com/acme/ryker/pull/91",
       "repository" => "ryker"
@@ -338,20 +337,16 @@ defmodule Ryker.Publication.CustodyTest do
                7
              )
 
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-
     review =
       claim
       |> review_document()
-      |> Map.merge(%{"patch_bytes" => byte_size(patch), "patch_digest" => digest(patch)})
 
     assert {:ok, _reviewed} =
              PublicationCustody.store_review(
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review,
-               patch
+               review
              )
 
     assert {:ok, delivery_claim} =
@@ -436,9 +431,7 @@ defmodule Ryker.Publication.CustodyTest do
       |> Map.merge(%{
         "gate" => "failed",
         "not_publishable_reasons" => ["gate_failed"],
-        "patch_artifact_id" => nil,
-        "patch_bytes" => 0,
-        "patch_digest" => nil,
+        "candidate_retained" => true,
         "publishable" => false,
         "session_revision" => 3
       })
@@ -448,8 +441,7 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review,
-               nil
+               review
              )
 
     assert {:ok, delivery_claim} =
@@ -495,7 +487,7 @@ defmodule Ryker.Publication.CustodyTest do
     assert PublicationCustody.approve(crossed) == {:error, :publication_not_publishable}
   end
 
-  test "review mutations reconcile exact generations, revisions, leases, policy, and patch bytes" do
+  test "review mutations reconcile exact generations, revisions, leases, job authority, and retained candidates" do
     %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!("review-fences")
     request = review_request(offer, receipt)
 
@@ -572,40 +564,34 @@ defmodule Ryker.Publication.CustodyTest do
              )
 
     review = review_document(claim)
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-    review = %{review | "patch_bytes" => byte_size(patch), "patch_digest" => digest(patch)}
 
     assert PublicationCustody.store_review(
              publication.ref,
              review_claim.lease_ref,
              refrozen.review_generation + 1,
-             review,
-             patch
+             review
            ) == {:error, :publication_review_generation_stale}
 
     assert PublicationCustody.store_review(
              publication.ref,
              review_claim.lease_ref,
              refrozen.review_generation,
-             %{review | "policy_digest" => String.duplicate("b", 64)},
-             patch
-           ) == {:error, :publication_review_policy_mismatch}
+             %{review | "job_digest" => String.duplicate("b", 64)}
+           ) == {:error, :publication_review_job_mismatch}
 
     assert PublicationCustody.store_review(
              publication.ref,
              review_claim.lease_ref,
              refrozen.review_generation,
-             review,
-             "wrong patch"
-           ) == {:error, :publication_review_patch_mismatch}
+             %{review | "candidate_retained" => false}
+           ) == {:error, {:invalid_publication_review, :publishable}}
 
     assert {:ok, ready} =
              PublicationCustody.store_review(
                publication.ref,
                review_claim.lease_ref,
                refrozen.review_generation,
-               review,
-               patch
+               review
              )
 
     assert ready.status == :review_ready
@@ -778,42 +764,55 @@ defmodule Ryker.Publication.CustodyTest do
     assert updated.approval_ref == nil
   end
 
-  test "an unreconciled first-publish conflict remains discardable without update identity" do
-    reviewed = reviewed_publication!("discard-unreconciled-first-publish", true)
+  for code <- ~w(publication_pull_request_mismatch publication_authorization_revoked) do
+    @terminal_code code
+    test "#{code} stops retries and remains discardable without update identity" do
+      reviewed = reviewed_publication!("discard-unreconciled-first-publish", true)
 
-    assert {:ok, %{publication: approved, status: :approved}} =
-             PublicationCustody.approve(%{
-               actor_ref: "slack:user:U-operator",
-               approval_ref: "interaction:discard-unreconciled",
-               occurred_at: @now,
-               publication_ref: reviewed.ref,
-               target: %{
-                 conversation_ref: reviewed.destination_conversation_ref,
-                 message_ref: reviewed.review_delivery_receipt["message_ref"],
-                 thread_ref: reviewed.destination_thread_ref,
-                 transport: reviewed.destination_transport
-               }
-             })
+      assert {:ok, %{publication: approved, status: :approved}} =
+               PublicationCustody.approve(%{
+                 actor_ref: "slack:user:U-operator",
+                 approval_ref: "interaction:discard-unreconciled",
+                 occurred_at: @now,
+                 publication_ref: reviewed.ref,
+                 target: %{
+                   conversation_ref: reviewed.destination_conversation_ref,
+                   message_ref: reviewed.review_delivery_receipt["message_ref"],
+                   thread_ref: reviewed.destination_thread_ref,
+                   transport: reviewed.destination_transport
+                 }
+               })
 
-    assert {:ok, claim} = PublicationCustody.claim_next("publication:discard-unreconciled", 60)
+      assert {:ok, claim} = PublicationCustody.claim_next("publication:discard-unreconciled", 60)
 
-    assert {:ok, conflicted} =
-             PublicationCustody.defer(
-               approved.ref,
-               claim.lease_ref,
-               60,
-               "publication_pull_request_mismatch",
-               "No exact App-owned pull request could be reconciled."
-             )
+      assert {:ok, conflicted} =
+               PublicationCustody.defer(
+                 approved.ref,
+                 claim.lease_ref,
+                 60,
+                 @terminal_code,
+                 "The worker refused publication."
+               )
 
-    assert is_nil(conflicted.expected_remote_head_sha)
+      assert is_nil(conflicted.expected_remote_head_sha)
 
-    assert {:ok, %{publication: discarded}} =
-             PublicationCustody.recover(conflicted.ref, :discard, 1)
+      Repo.update_all(
+        from(saved in Publication, where: saved.id == ^approved.id),
+        set: [next_attempt_at: @now]
+      )
 
-    assert discarded.status == :discarded
-    assert discarded.recovery_generation == 2
-    assert is_nil(discarded.expected_remote_head_sha)
+      assert {:ok, nil} = PublicationCustody.claim_next("publication:must-not-retry", 60)
+
+      assert PublicationCustody.recover(approved.ref, :retry, 1) ==
+               {:error, :publication_recovery_not_allowed}
+
+      assert {:ok, %{publication: discarded}} =
+               PublicationCustody.recover(conflicted.ref, :discard, 1)
+
+      assert discarded.status == :discarded
+      assert discarded.recovery_generation == 2
+      assert is_nil(discarded.expected_remote_head_sha)
+    end
   end
 
   test "operator discard preserves an unapproved review outcome as evidence" do
@@ -910,7 +909,7 @@ defmodule Ryker.Publication.CustodyTest do
     assert PublicationCustody.advance_review_generation("publication", "lease", 0) ==
              {:error, {:invalid_publication, :review_generation}}
 
-    assert PublicationCustody.store_review("publication", "lease", 0, %{}, nil) ==
+    assert PublicationCustody.store_review("publication", "lease", 0, %{}) ==
              {:error, {:invalid_publication, :review_generation}}
 
     assert PublicationCustody.renew("publication", "lease", 0) ==
@@ -1021,7 +1020,7 @@ defmodule Ryker.Publication.CustodyTest do
     # snapshot is offered to a person instead.
     assert blocked.status == :blocked
     assert blocked.approval_ref == nil
-    assert blocked.review_patch
+    assert blocked.review_document["candidate_retained"]
 
     assert {:ok, %{publication: discarded}} =
              PublicationCustody.recover(blocked.ref, :discard, blocked.recovery_generation)
@@ -1058,7 +1057,7 @@ defmodule Ryker.Publication.CustodyTest do
     # "Checkpointing is preservation, not evidence that a gate passed": the
     # exact snapshot survives so a person can read it, and the missing check
     # stays missing.
-    assert blocked.review_patch == "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
+    assert blocked.review_document["candidate_retained"]
     refute Review.publishable?(blocked.review_document)
     assert Review.draft_shareable?(blocked.review_document)
 
@@ -1195,8 +1194,6 @@ defmodule Ryker.Publication.CustodyTest do
     assert {:ok, frozen} =
              PublicationCustody.freeze_review_revision(reviewed.ref, claim.lease_ref, 7)
 
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+corrected\n"
-
     review =
       %{
         episode: %{id: reviewed.episode_id},
@@ -1204,9 +1201,7 @@ defmodule Ryker.Publication.CustodyTest do
       }
       |> review_document()
       |> Map.merge(%{
-        "patch_artifact_id" => "review-patch:review-card-generations:2",
-        "patch_bytes" => byte_size(patch),
-        "patch_digest" => digest(patch)
+        "candidate_retained" => true
       })
 
     assert {:ok, ready} =
@@ -1214,8 +1209,7 @@ defmodule Ryker.Publication.CustodyTest do
                reviewed.ref,
                claim.lease_ref,
                frozen.review_generation,
-               review,
-               patch
+               review
              )
 
     assert ready.status == :review_ready
@@ -1521,7 +1515,7 @@ defmodule Ryker.Publication.CustodyTest do
     receipt = %{
       "branch_ref" => "refs/heads/ryker/#{publication.id}",
       "candidate_tree" => authorized.review_document["candidate_tree"],
-      "commit_sha" => String.duplicate("9", 40),
+      "commit_sha" => String.duplicate("6", 40),
       "pull_request_number" => 91,
       "pull_request_url" => "https://github.com/acme/ryker/pull/91",
       "repository" => "ryker"
@@ -1570,7 +1564,6 @@ defmodule Ryker.Publication.CustodyTest do
 
     gate = Keyword.get(options, :gate, "passed")
     publishable? = gate == "passed"
-    patch = if publishable?, do: "diff --git a/lib/fix.ex b/lib/fix.ex\n+#{label}\n"
 
     review =
       claim
@@ -1578,9 +1571,7 @@ defmodule Ryker.Publication.CustodyTest do
       |> Map.merge(%{
         "gate" => gate,
         "not_publishable_reasons" => if(publishable?, do: [], else: ["The checks did not pass."]),
-        "patch_artifact_id" => "review-patch:#{suffix}:#{label}",
-        "patch_bytes" => if(patch, do: byte_size(patch), else: 0),
-        "patch_digest" => if(patch, do: digest(patch), else: nil),
+        "candidate_retained" => true,
         "publishable" => publishable?
       })
 
@@ -1589,8 +1580,7 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review,
-               patch
+               review
              )
 
     assert {:ok, delivery_claim} =
@@ -1633,8 +1623,6 @@ defmodule Ryker.Publication.CustodyTest do
 
     gate = Keyword.get(options, :gate, "passed")
     findings = Keyword.get(options, :policy_findings, [])
-    shareable? = gate != "failed" and findings == []
-    patch = if shareable?, do: "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
 
     review =
       claim
@@ -1643,8 +1631,7 @@ defmodule Ryker.Publication.CustodyTest do
         "gate" => gate,
         "not_publishable_reasons" =>
           if(gate == "passed" and findings == [], do: [], else: ["The checks did not pass."]),
-        "patch_bytes" => if(patch, do: byte_size(patch), else: 0),
-        "patch_digest" => if(patch, do: digest(patch), else: nil),
+        "candidate_retained" => findings == [],
         "policy_findings" => findings,
         "publishable" => gate == "passed" and findings == []
       })
@@ -1654,8 +1641,7 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review,
-               patch
+               review
              )
 
     assert {:ok, delivery_claim} =
@@ -1748,17 +1734,13 @@ defmodule Ryker.Publication.CustodyTest do
                7
              )
 
-    patch = if publishable?, do: "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n", else: nil
-
     review =
       claim
       |> review_document()
       |> Map.merge(%{
         "gate" => if(publishable?, do: "passed", else: "failed"),
         "not_publishable_reasons" => if(publishable?, do: [], else: ["gate_failed"]),
-        "patch_artifact_id" => if(publishable?, do: "review-patch:#{suffix}", else: nil),
-        "patch_bytes" => if(publishable?, do: byte_size(patch), else: 0),
-        "patch_digest" => if(publishable?, do: digest(patch), else: nil),
+        "candidate_retained" => true,
         "publishable" => publishable?
       })
 
@@ -1767,8 +1749,7 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review,
-               patch
+               review
              )
 
     assert {:ok, delivery_claim} =
@@ -1954,6 +1935,8 @@ defmodule Ryker.Publication.CustodyTest do
   end
 
   defp bind_remote!(claim) do
+    WorkerJob.pin!(claim.session)
+
     assert {:ok, submission} =
              Submission.new(
                %{"input" => claim.episode.key},
@@ -2018,11 +2001,9 @@ defmodule Ryker.Publication.CustodyTest do
       "operation_id" => "op-review-#{claim.episode.id}",
       "parent_head" => String.duplicate("4", 40),
       "parent_tree" => String.duplicate("5", 40),
-      "patch_artifact_id" => "op-review-#{claim.episode.id}",
-      "patch_bytes" => 1,
-      "patch_digest" => String.duplicate("8", 64),
+      "candidate_retained" => true,
       "patch_truncated" => false,
-      "policy_digest" => String.duplicate("a", 64),
+      "job_digest" => claim.session.worker_job_digest,
       "policy_findings" => [],
       "publishable" => true,
       "rebase" => "clean",

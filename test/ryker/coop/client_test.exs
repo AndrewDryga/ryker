@@ -3,6 +3,7 @@ defmodule Ryker.Coop.ClientTest do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Coop.Client
+  alias Ryker.Evals.Job
   alias Ryker.Work.{Session, StateBinding, Turn}
 
   test "creates an asynchronous session through Coop's Unix socket" do
@@ -16,49 +17,52 @@ defmodule Ryker.Coop.ClientTest do
     }
 
     with_unix_server(response, fn client, request ->
+      {:ok, template} = Job.new(:judge, "codex:fixture/low@eval")
+      {:ok, job, _digest} = Job.bind(template, "ryker-eval:world-judge:123:case")
+
       assert {:ok, ^response} =
                Client.create_session(
                  client,
-                 "ryker:admission:create:123",
-                 "admission-read-only",
-                 "ryker-admission:123",
+                 "ryker:eval:world-judge:123:create",
+                 template,
+                 "ryker-eval:world-judge:123:case",
                  nil
                )
 
       captured = request.()
       assert captured.method == "POST"
       assert captured.path == "/v1/sessions"
-      assert captured.headers["idempotency-key"] == "ryker:admission:create:123"
+      assert captured.headers["idempotency-key"] == "ryker:eval:world-judge:123:create"
       assert captured.headers["prefer"] == "respond-async"
 
       assert Jason.decode!(captured.body) == %{
-               "policy" => "admission-read-only",
-               "task" => "ryker-admission:123"
+               "job" => job,
+               "task" => "ryker-eval:world-judge:123:case"
              }
     end)
   end
 
-  test "create and fence send one byte-identical selector for the same session" do
+  test "create and fence send one byte-identical job for the same session" do
     response = %{"operation" => %{"id" => "op_create", "state" => "running"}}
-    source = %{"kind" => "pull_request", "number" => 514}
+    {:ok, template} = Job.new(:judge, "codex:fixture/low@eval")
+    {:ok, job, _digest} = Job.bind(template, "ryker-eval:world-judge:456:case")
 
     created =
       with_unix_server(response, fn client, request ->
         assert {:ok, ^response} =
                  Client.create_session(
                    client,
-                   "ryker:work:create:session:g1",
-                   "work-contributor",
-                   "episode:123",
-                   source
+                   "ryker:eval:world-judge:456:create",
+                   template,
+                   "ryker-eval:world-judge:456:case",
+                   nil
                  )
 
         captured = request.()
 
         assert Jason.decode!(captured.body) == %{
-                 "policy" => "work-contributor",
-                 "source" => %{"kind" => "pull_request", "number" => 514},
-                 "task" => "episode:123"
+                 "job" => job,
+                 "task" => "ryker-eval:world-judge:456:case"
                }
 
         Jason.decode!(captured.body)
@@ -68,10 +72,10 @@ defmodule Ryker.Coop.ClientTest do
       assert {:ok, ^response} =
                Client.fence_create_session(
                  client,
-                 "ryker:work:create:session:g1",
-                 "work-contributor",
-                 "episode:123",
-                 source
+                 "ryker:eval:world-judge:456:create",
+                 template,
+                 "ryker-eval:world-judge:456:case",
+                 nil
                )
 
       assert Jason.decode!(request.().body) == %{
@@ -187,7 +191,7 @@ defmodule Ryker.Coop.ClientTest do
                )
 
       body = request.() |> Map.fetch!(:body) |> Jason.decode!()
-      assert body["responder_binding"] == binding
+      assert body["controller_tools"] == binding
       refute body["prompt"] =~ binding["token"]
     end)
 
@@ -211,7 +215,7 @@ defmodule Ryker.Coop.ClientTest do
                )
 
       document = request.() |> Map.fetch!(:body) |> Jason.decode!()
-      assert document["request"]["responder_binding"] == binding
+      assert document["request"]["controller_tools"] == binding
     end)
   end
 
@@ -274,6 +278,9 @@ defmodule Ryker.Coop.ClientTest do
   end
 
   test "fences the exact prepared create and submit identities without replaying them" do
+    {:ok, template} = Job.new(:judge, "codex:fixture/low@eval")
+    {:ok, job, _digest} = Job.bind(template, "ryker-eval:world-judge:123:case")
+
     fenced = %{
       "error_code" => "operation_fenced",
       "id" => "op_fenced",
@@ -285,19 +292,19 @@ defmodule Ryker.Coop.ClientTest do
       assert {:ok, ^fenced} =
                Client.fence_create_session(
                  client,
-                 "ryker:work:create:session:g1",
-                 "work-read-only",
-                 "episode:123",
+                 "ryker:eval:world-judge:123:create",
+                 template,
+                 "ryker-eval:world-judge:123:case",
                  nil
                )
 
       captured = request.()
       assert captured.path == "/v1/operations/fence"
-      assert captured.headers["idempotency-key"] == "ryker:work:create:session:g1"
+      assert captured.headers["idempotency-key"] == "ryker:eval:world-judge:123:create"
 
       assert Jason.decode!(captured.body) == %{
                "method" => "CreateRemoteSession",
-               "request" => %{"policy" => "work-read-only", "task" => "episode:123"}
+               "request" => %{"job" => job, "task" => "ryker-eval:world-judge:123:case"}
              }
     end)
 
@@ -604,26 +611,6 @@ defmodule Ryker.Coop.ClientTest do
     end)
   end
 
-  test "streams and verifies the complete reviewed patch artifact" do
-    patch = "diff --git a/lib/a.ex b/lib/a.ex\n+reviewed\n"
-    digest = :crypto.hash(:sha256, patch) |> Base.encode16(case: :lower)
-
-    with_unix_binary_server(
-      patch,
-      [
-        {"content-type", "text/x-diff; charset=utf-8"},
-        {"etag", ~s("#{digest}")},
-        {"content-length", Integer.to_string(byte_size(patch))}
-      ],
-      fn client, request ->
-        assert {:ok, ^patch} =
-                 Client.get_review_patch(client, "op_review", digest, byte_size(patch))
-
-        assert request.().path == "/v1/operations/op_review/review-patch"
-      end
-    )
-  end
-
   test "streams one exact bounded output artifact from its owning turn" do
     data = <<137, 80, 78, 71, 13, 10, 26, 10, "verified-chart">>
     digest = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
@@ -815,9 +802,6 @@ defmodule Ryker.Coop.ClientTest do
     assert Client.get_changes_page(client, "remote_123", 0, 0) ==
              {:error, {:invalid_coop_request, :patch_limit}}
 
-    assert Client.get_review_patch(client, "artifact_123", digest, 0) ==
-             {:error, {:invalid_coop_request, :patch_bytes}}
-
     assert Client.submit_turn(client, "remote_123", "turn:key", 1, "", schema) ==
              {:error, {:invalid_coop_request, :prompt}}
 
@@ -944,19 +928,6 @@ defmodule Ryker.Coop.ClientTest do
                  {:error, {:coop_protocol_error, :output_artifact}}
       end)
     end
-
-    with_unix_binary_server(
-      body,
-      [
-        {"content-type", "text/x-diff"},
-        {"etag", ~s("#{digest}")},
-        {"content-length", Integer.to_string(byte_size(body))}
-      ],
-      fn client, _request ->
-        assert Client.get_review_patch(client, "op_review", digest, byte_size(body) - 1) ==
-                 {:error, {:coop_protocol_error, :review_patch}}
-      end
-    )
   end
 
   test "normalizes semantic violations exactly as Coop counts them" do

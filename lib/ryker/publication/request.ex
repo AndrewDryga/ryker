@@ -2,9 +2,8 @@ defmodule Ryker.Publication.Request do
   @moduledoc """
   Immutable host-authorized input to one draft-pull-request publisher.
 
-  The request carries the exact Coop review and verified complete patch. The
-  trusted publisher binding, not this value, owns checkout paths, credentials,
-  base branches, and GitHub installation authority.
+  The request identifies the immutable candidate retained by Coop. Code and
+  credentials never pass through this value or Ryker's publication database.
   """
 
   alias Ryker.CanonicalJSON
@@ -16,7 +15,6 @@ defmodule Ryker.Publication.Request do
     :approved_by_actor_ref,
     :body,
     :existing_pull_request,
-    :patch,
     :publication_ref,
     :repository,
     :review,
@@ -30,7 +28,6 @@ defmodule Ryker.Publication.Request do
           approved_by_actor_ref: String.t(),
           body: String.t(),
           existing_pull_request: nil | map(),
-          patch: binary(),
           publication_ref: String.t(),
           repository: String.t(),
           review: map(),
@@ -45,7 +42,6 @@ defmodule Ryker.Publication.Request do
       approved_by_actor_ref: publication.approved_by_actor_ref,
       body: publication.body,
       existing_pull_request: existing_pull_request(publication),
-      patch: publication.review_patch,
       publication_ref: publication.ref,
       repository: publication.repository,
       review: publication.review_document,
@@ -61,9 +57,6 @@ defmodule Ryker.Publication.Request do
          :ok <- text(request.body, 8_000, :body),
          :ok <- validate_existing_pull_request(request.existing_pull_request),
          true <- is_map(request.review) and Review.draft_shareable?(request.review),
-         true <- is_binary(request.patch) and request.patch != "",
-         true <- byte_size(request.patch) == request.review["patch_bytes"],
-         true <- digest(request.patch) == request.review["patch_digest"],
          :ok <- CanonicalJSON.validate(document(request), max_bytes: 512 * 1_024) do
       {:ok, request}
     else
@@ -83,7 +76,6 @@ defmodule Ryker.Publication.Request do
       "approved_by_actor_ref" => request.approved_by_actor_ref,
       "body" => request.body,
       "existing_pull_request" => request.existing_pull_request,
-      "patch_digest" => digest(request.patch),
       "publication_ref" => request.publication_ref,
       "repository" => request.repository,
       "review" => request.review,
@@ -91,7 +83,73 @@ defmodule Ryker.Publication.Request do
     }
   end
 
+  def worker_body(%__MODULE__{} = request, repositories) do
+    case repositories[request.repository] do
+      %{base_branch: base, branch_prefix: prefix} ->
+        existing = request.existing_pull_request || request.review["pull_request"]
+
+        {:ok,
+         %{
+           "authorization_ref" => request.approval_ref,
+           "candidate_head" => request.review["candidate_head"],
+           "candidate_tree" => request.review["candidate_tree"],
+           "branch" => publication_branch(request, existing, prefix),
+           "base_branch" => String.replace_prefix(base, "refs/heads/", ""),
+           "expected_head" => if(existing, do: existing["head_commit"], else: ""),
+           "pull_request_number" => if(existing, do: existing["number"], else: 0),
+           "title" => safe_text(request.title),
+           "body" => pull_request_body(request)
+         }}
+
+      _missing ->
+        {:error, {:publication_repository_not_configured, request.repository}}
+    end
+  end
+
   defp reference(value, field), do: text(value, 1_024, field)
+
+  defp publication_branch(_request, %{"ref" => ref}, _prefix),
+    do: String.replace_prefix(ref, "refs/heads/", "")
+
+  defp publication_branch(request, nil, prefix) do
+    slug =
+      request.title
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/, "-")
+      |> String.trim("-")
+      |> String.slice(0, 42)
+      |> String.trim_trailing("-")
+
+    slug = if slug == "", do: "change", else: slug
+    suffix = request.publication_ref |> String.split(":") |> List.last() |> String.slice(-10, 10)
+    "#{prefix}/#{slug}-#{suffix}"
+  end
+
+  defp pull_request_body(request) do
+    """
+    ## Ryker task
+
+    #{safe_text(request.body)}
+
+    ## Publication proof
+
+    - Coop session: `#{request.review["session_id"]}`
+    - Reviewed parent: `#{request.review["parent_head"]}`
+    - Reviewed tree: `#{request.review["candidate_tree"]}`
+    - Publication commit: `#{request.review["candidate_head"]}`
+    - Gate: `#{request.review["gate"]}`
+    - Rebase: `#{request.review["rebase"]}`
+    """
+    |> String.trim()
+  end
+
+  defp safe_text(value) do
+    value
+    |> String.replace(~r/[\x00-\x1f\x7f]/u, " ")
+    |> String.replace("@", "@\u200B")
+    |> String.split()
+    |> Enum.join(" ")
+  end
 
   defp validate_existing_pull_request(nil), do: :ok
 
@@ -161,6 +219,4 @@ defmodule Ryker.Publication.Request do
        do: :ok,
        else: {:error, {:invalid_publication_request, field}}
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

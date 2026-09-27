@@ -66,18 +66,24 @@ tool catalog, can be compiled without credentials:
 MIX_ENV=test scripts/elixir-mix.sh ryker.eval world-pack
 ```
 
-Evaluation authority is supplied explicitly through the evaluation environment and is refused
-if it matches a reviewed production policy binding; the no-tools policy is the one the tool-free
-quality judge runs under:
+Use a dedicated evaluation worker enrolled with a separate, persistent evaluation controller,
+never the production controller. `connect` starts the owner-private socket; the per-observation
+gateway and disposable database are not the worker's enrollment controller:
+
+```bash
+coop sessions connect --controller https://eval-controller.example \
+  --token-file /absolute/eval-worker-token --state /absolute/evaluation-coop
+```
+
+Provision the controller and enroll the worker separately before running evals. The harness does
+not start that controller. The worker needs its own provider login and enough capacity for the
+concurrent shards. Select model targets explicitly; the harness computes immutable job digests:
 
 ```bash
 export RYKER_EVAL_SOCKET=/absolute/evaluation-coop/control.sock
-export RYKER_EVAL_NO_TOOLS_POLICY=ryker-eval-no-tools-v1
-export RYKER_EVAL_NO_TOOLS_POLICY_DIGEST=SHA256
-export RYKER_EVAL_WORLD_POLICY=ryker-eval-world-v1
-export RYKER_EVAL_WORLD_POLICY_DIGEST=SHA256
-export RYKER_EVAL_WORLD_BASELINE_POLICY=ryker-eval-world-baseline-v1
-export RYKER_EVAL_WORLD_BASELINE_POLICY_DIGEST=SHA256
+export RYKER_EVAL_JUDGE_TARGET='<provider:model/effort@account>'
+export RYKER_EVAL_WORLD_TARGET='<provider:model/effort@account>'
+export RYKER_EVAL_BASELINE_TARGET='<provider:model/effort@account>'
 ```
 
 The world evaluation exercises the real episode kernel, Work executor, lease-scoped state tools,
@@ -109,11 +115,13 @@ fails fails the run without a merge and leaves them there. Each shard holds a po
 PostgreSQL connections, so the server the campaign databases live on must allow ten per shard
 on top of whatever else is connected to it.
 
-The evaluation environment must name a dedicated `RYKER_EVAL_SOCKET`,
-`RYKER_EVAL_NO_TOOLS_POLICY` and `RYKER_EVAL_WORLD_POLICY`, each policy with its digest. The full
-paired gate also requires `RYKER_EVAL_WORLD_BASELINE_POLICY`. These identities must be isolated from
-production policies and repositories; the resolver refuses any policy whose name or digest matches
-a reviewed production binding in the database it is pointed at. The evaluation database must contain no pre-existing episodes. Each observation runs
+The evaluation environment must name `RYKER_EVAL_SOCKET`, `RYKER_EVAL_JUDGE_TARGET` and
+`RYKER_EVAL_WORLD_TARGET`; the paired gate also requires `RYKER_EVAL_BASELINE_TARGET`.
+Every job has an empty read-only repository, no companions and no project environment or MCP.
+Only subject turns receive the scenario controller tools; judges receive none. This does not
+disable provider-native tools or internet access. Captured source excerpts are checked immutable
+input artifacts, labelled with their provenance, not live repository checkouts.
+No production settings are inherited. The evaluation database must be empty. Each observation runs
 against its own database, copied from the migrated campaign database its shard creates and always
 drops, so no observation sees another's custody and a failed one never stops the rest of the plan.
 An observation that passed drops its database; one that failed or faulted preserves it, and both

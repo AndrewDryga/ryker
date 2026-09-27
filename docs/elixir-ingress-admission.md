@@ -22,7 +22,7 @@ Every adapter produces `Ryker.Ingress.Input` with:
 - occurrence time and revision; and
 - arbitrary bounded JSON content.
 
-Content cannot select a channel, thread, episode, model, Coop policy, or authority. The exact derived
+Content cannot select a channel, thread, episode, model, job settings, or authority. The exact derived
 episode command is validated before the input can enter the inbox.
 
 The Slack adapter binds a top-level message to its own thread and preserves an existing reply thread.
@@ -199,11 +199,10 @@ repository content.
 These are durable settings, edited in the control plane rather than a configuration file:
 
 - **Work › Repositories** holds one row per repository — its reference, display metadata, GitHub
-  repository slug, base branch and optional publication checkout path.
-- Execution policies, under **Settings › Advanced**, bind each purpose (conversational, standard,
-  deep, contributor, schedule) to a reviewed worker policy for that repository or context. The
-  digest and authority digest are copied from the authenticated worker advertisement; nothing
-  types one.
+  repository slug and base branch. Coop fetches and publishes code directly; Ryker needs no checkout.
+- Worker job settings, under **Settings › Advanced**, select execution settings for each purpose
+  (conversational, standard, deep, contributor, schedule). Ryker freezes the complete job and
+  source identity before placement; workers do not advertise local policy catalogs.
 - **Integrations › GitHub** holds the App identity, and each added repository keeps one verified
   GitHub binding: installation ID, repository ID and the Ryker actor ID. For each
   conversational webhook, Ryker asks GitHub for the sender's effective repository permission;
@@ -343,11 +342,12 @@ repository is rejected before an episode exists (`admission_rejected:
 repository_source_not_available`). A malformed selector is refused, never repaired. The host
 supplies `default` for a new repository-backed episode when the model chose nothing, and the chosen
 selector is frozen in the same transaction that pins the Work policy. See
-[elixir-work-runtime.md](elixir-work-runtime.md) for how Coop resolves and Ryker verifies it.
+[elixir-work-runtime.md](elixir-work-runtime.md) for how Ryker resolves and Coop fetches and verifies it.
 
 The model never returns a provider, model, effort, policy name, repository, credential, or write
 authority. Those remain trusted configuration. The three class policies for one route must carry
-the same Coop-computed `authority_digest`; startup, fleet placement, and session binding enforce it.
+the same Ryker-derived `authority_digest`. Ryker freezes that authority in the job before
+placement; Coop verifies its digest and enforces the settings within its hard limits.
 A deeper model is not permission to write. Confirmed
 engineering work moves through its separately authorized contributor policy. Existing episodes keep
 their already-pinned policy and native Coop session even if a later input is classified differently

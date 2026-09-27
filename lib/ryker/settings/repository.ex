@@ -1,14 +1,14 @@
 defmodule Ryker.Settings.Repository do
-  @moduledoc "A connected repository: display metadata, base branch and publication checkout."
+  @moduledoc "A connected repository: display metadata and the base branch supplied to Coop."
   use Ecto.Schema
   import Ecto.Changeset
   alias Ryker.Settings.{Environment, Validation}
 
   @primary_key {:ref, :string, autogenerate: false}
   @fields ~w(
-    ref display_name description github_repository base_branch publication_checkout_path
+    ref display_name description github_repository base_branch
     github_access onboarding_state onboarding_error source_commit knowledge_pull_request_url
-    last_github_event_at materialized_at knowledge_content knowledge_status knowledge_source_commit knowledge_sha256
+    knowledge_content knowledge_status knowledge_source_commit knowledge_sha256
   )a
 
   schema "repository_settings" do
@@ -16,7 +16,6 @@ defmodule Ryker.Settings.Repository do
     field(:description, :string)
     field(:github_repository, :string)
     field(:base_branch, :string, default: "main")
-    field(:publication_checkout_path, :string)
 
     field(:github_access, Ecto.Enum,
       values: [:available, :suspended, :removed],
@@ -35,8 +34,6 @@ defmodule Ryker.Settings.Repository do
     field(:knowledge_status, Ecto.Enum, values: [:accepted, :proposed])
     field(:knowledge_source_commit, :string)
     field(:knowledge_sha256, :string)
-    field(:last_github_event_at, :utc_datetime_usec)
-    field(:materialized_at, :utc_datetime_usec)
     timestamps(type: :utc_datetime_usec)
   end
 
@@ -53,7 +50,6 @@ defmodule Ryker.Settings.Repository do
     |> validate_length(:description, min: 1, max: 1_000)
     |> validate_format(:github_repository, Validation.github_repository_pattern())
     |> Validation.validate_git_ref(:base_branch)
-    |> Validation.validate_absolute_path(:publication_checkout_path)
     |> validate_length(:onboarding_error, max: 1_024)
     |> validate_length(:knowledge_content, max: 128_000)
     |> validate_format(:source_commit, ~r/\A[0-9a-f]{40}\z/)
@@ -72,16 +68,7 @@ defmodule Ryker.Settings.Repository do
   defp references(snapshot, repository_ref) do
     [
       Enum.any?(snapshot.environments, &(repository_ref in Environment.repository_refs(&1))),
-      Enum.any?(snapshot.github_bindings, &(&1.repository_ref == repository_ref)),
-      Enum.any?(snapshot.policy_bindings, &scoped_reference?(&1, repository_ref))
+      Enum.any?(snapshot.github_bindings, &(&1.repository_ref == repository_ref))
     ]
   end
-
-  defp scoped_reference?(%{scope_kind: :repository} = binding, repository_ref),
-    do: binding.scope_ref == repository_ref
-
-  defp scoped_reference?(%{scope_kind: :environment} = binding, repository_ref),
-    do: binding.repository_ref == repository_ref
-
-  defp scoped_reference?(_binding, _repository_ref), do: false
 end

@@ -37,7 +37,7 @@ defmodule Ryker.GitHub.InstallationTokens do
     delivery: %{"issues" => "write", "pull_requests" => "write"},
     publication: %{
       "checks" => "read",
-      "pull_requests" => "write",
+      "pull_requests" => "read",
       "statuses" => "read"
     },
     onboarding: %{
@@ -45,7 +45,8 @@ defmodule Ryker.GitHub.InstallationTokens do
       "metadata" => "read",
       "pull_requests" => "write"
     },
-    repository_write: %{"contents" => "write"}
+    source_read: %{"contents" => "read"},
+    worker_publication: %{"contents" => "write", "pull_requests" => "write"}
   }
 
   @type binding :: %{installation_id: pos_integer(), repository_id: pos_integer()}
@@ -83,6 +84,35 @@ defmodule Ryker.GitHub.InstallationTokens do
   def token(_server, _binding_name, _purpose),
     do: {:error, {:github_installation_token_unavailable, :binding}}
 
+  @doc "Mint a distinct repository-read token for one authorized worker source transfer."
+  @spec fresh_source_token(String.t(), binding()) :: {:ok, map()} | {:error, term()}
+  def fresh_source_token(binding_name, binding),
+    do: fresh_source_token(__MODULE__, binding_name, binding)
+
+  @spec fresh_source_token(GenServer.server(), String.t(), binding()) ::
+          {:ok, map()} | {:error, term()}
+  def fresh_source_token(server, binding_name, binding) do
+    fresh_worker_token(server, binding_name, binding, :source_read)
+  end
+
+  @doc "Mint an uncached, single-repository write grant for one approved worker publication."
+  def fresh_publication_token(server, binding_name, binding) do
+    fresh_worker_token(server, binding_name, binding, :worker_publication)
+  end
+
+  defp fresh_worker_token(server, binding_name, binding, purpose) do
+    if valid_binding?({binding_name, binding}),
+      do:
+        GenServer.call(
+          server,
+          {:fresh_worker_token, binding_name, binding, purpose},
+          @call_timeout_ms
+        ),
+      else: unavailable(:binding)
+  catch
+    :exit, reason -> {:error, {:github_installation_token_unavailable, reason}}
+  end
+
   @doc false
   @spec options!(map() | keyword()) :: map()
   def options!(configuration) do
@@ -116,6 +146,20 @@ defmodule Ryker.GitHub.InstallationTokens do
     case Map.fetch(state.bindings, binding_name) do
       {:ok, binding} -> token_for_binding(state, binding_name, binding, purpose, permissions)
       :error -> {:reply, {:error, {:github_installation_token_unavailable, :binding}}, state}
+    end
+  end
+
+  @impl GenServer
+  def handle_call({:fresh_worker_token, binding_name, binding, purpose}, _from, state)
+      when purpose in [:source_read, :worker_publication] do
+    with {:ok, ^binding} <- Map.fetch(state.bindings, binding_name),
+         {:ok, now} <- current_time(state.clock),
+         {:ok, token} <- mint(state, binding, Map.fetch!(@purpose_permissions, purpose), now) do
+      {:reply, {:ok, token}, state}
+    else
+      :error -> {:reply, unavailable(:binding), state}
+      {:ok, _changed_binding} -> {:reply, unavailable(:binding), state}
+      {:error, _reason} = error -> {:reply, error, state}
     end
   end
 

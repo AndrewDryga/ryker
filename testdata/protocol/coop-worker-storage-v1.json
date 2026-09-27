@@ -1,25 +1,19 @@
 {
   "poll": {
-    "version": 1,
+    "version": 2,
     "poll_ref": "poll:worker-a:4711",
     "worker": {
       "id": "worker-a",
       "workspace_ref": "workspace-main",
-      "protocol_version": "1",
+      "protocol_version": "2",
       "build_version": "coop-abc123",
       "clock_at": "2026-09-11T09:30:00Z",
       "sandbox_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "policy_digests": {
-        "responder-read-only-v1": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-      },
-      "policy_authority_digests": {
-        "responder-read-only-v1": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-      },
-      "repositories": [
-        {"ref": "responder", "revision": "commit:abc123"}
-      ],
       "capabilities": [
-        {"name": "responder-state", "version": "1"}
+        {
+          "name": "responder-state",
+          "version": "1"
+        }
       ],
       "capacity": {
         "session_slots_free": 0,

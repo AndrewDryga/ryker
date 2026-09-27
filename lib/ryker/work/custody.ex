@@ -284,9 +284,6 @@ defmodule Ryker.Work.Custody do
 
   @spec claim_next(String.t(), pos_integer()) ::
           {:ok, claim() | nil} | {:error, term()}
-  @doc "The digest a session's policy runs under now; see `Sessions.current_policy_digest/1`."
-  defdelegate current_policy_digest(session), to: Sessions
-
   defdelegate claim_next(worker_ref, lease_seconds), to: Claims
 
   @spec claim_next(String.t(), pos_integer(), :any | :work | :delivery) ::

@@ -126,7 +126,7 @@ defmodule Ryker.Admission.ReadySessionsTest do
     assert cleaned_up?(fake, ready)
 
     execution = route!(fake, "Ev-ready-off", "C400")
-    assert execution.session_id == "remote_test"
+    assert execution.session_id == FakeAPI.state(fake).session["id"]
     assert [_created] = routing_creates(FakeAPI.state(fake))
   end
 
@@ -148,14 +148,14 @@ defmodule Ryker.Admission.ReadySessionsTest do
     outdated = ready_sessions()
 
     # The routing model changed, and the policy's digest with it.
-    FakeAPI.set_policy_digest(fake, @new_digest)
-    assert route!(fake, "Ev-ready-policy", "C501", @new_digest).session_id == "remote_test"
+    routed = route!(fake, "Ev-ready-policy", "C501", @new_digest)
+    assert routed.session_id == FakeAPI.state(fake).session["id"]
     assert Enum.all?(outdated, &(Repo.get!(Session, &1.id).ready_state == :ready))
 
     assert {:ok, %{retired: 2, started: 2}} = keep(fake, 2, @new_digest)
     assert Enum.all?(ready_sessions(), &(&1.policy_digest == @new_digest))
 
-    assert FakeAPI.state(fake).turn_sessions == [fresh.coop_session_id, "remote_test"]
+    assert FakeAPI.state(fake).turn_sessions == [fresh.coop_session_id, routed.session_id]
     assert cleaned_up?(fake, [expired | outdated])
   end
 
@@ -261,7 +261,8 @@ defmodule Ryker.Admission.ReadySessionsTest do
     FakeAPI.allow_create(fake)
     wait_past!(11)
     assert {:ok, %{started: 1}} = keep(fake, 1)
-    assert [%Session{coop_session_id: "ready_1"}] = ready_sessions()
+    assert [%Session{coop_session_id: id}] = ready_sessions()
+    assert Map.has_key?(FakeAPI.sessions(fake), id)
   end
 
   defp pool_rows,

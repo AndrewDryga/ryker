@@ -4,7 +4,7 @@ defmodule Ryker.Publication.Receipt do
   alias Ryker.CanonicalJSON
 
   @fields ~w(branch_ref candidate_tree commit_sha pull_request_number pull_request_url repository)
-  @git_identity ~r/\A[a-f0-9]{40,64}\z/
+  @git_identity ~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/
   @branch ~r/\Arefs\/heads\/[A-Za-z0-9._\/-]{1,240}\z/
 
   @spec prepare(map(), map(), String.t()) :: {:ok, map()} | {:error, term()}
@@ -13,6 +13,7 @@ defmodule Ryker.Publication.Receipt do
     with true <- Map.keys(receipt) |> Enum.sort() == @fields,
          true <- receipt["repository"] == repository,
          true <- receipt["candidate_tree"] == review["candidate_tree"],
+         true <- receipt["commit_sha"] == review["candidate_head"],
          true <- is_binary(receipt["branch_ref"]) and Regex.match?(@branch, receipt["branch_ref"]),
          true <- git_identity?(receipt["commit_sha"]),
          true <- is_integer(receipt["pull_request_number"]) and receipt["pull_request_number"] > 0,

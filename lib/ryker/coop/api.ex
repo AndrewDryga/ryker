@@ -14,9 +14,8 @@ defmodule Ryker.Coop.API do
               {:ok, map()} | :not_found | {:error, term()}
   @doc """
   Reports the versioned repository capabilities of the worker that runs, or will
-  run, a session: `repository_freshness_receipt_versions` (freshness receipt
-  version 2) and `repository_source_selector_versions` (selector contract
-  version 1). Selector-bound work is never created on a worker missing either.
+  run, a session: `repository_freshness_receipt_versions` (receipt version 2).
+  Exact source selection is part of the frozen job, not a separate worker catalog.
   """
   @callback capabilities(client :: term()) :: {:ok, map()} | {:error, term()}
   @callback capabilities(client :: term(), session :: term()) ::
@@ -28,6 +27,23 @@ defmodule Ryker.Coop.API do
   a fence request hashes exactly what create would have sent.
   """
   @type repository_source :: map() | nil
+
+  @doc "Prepare source authority before the caller rechecks its execution lease; never launches work."
+  @callback prepare_create_session(
+              term(),
+              String.t(),
+              String.t(),
+              String.t(),
+              repository_source()
+            ) ::
+              :ok | {:error, term()}
+  @optional_callbacks prepare_create_session: 5
+
+  def prepare_create_session(api, client, key, policy, task, source) do
+    if function_exported?(api, :prepare_create_session, 5),
+      do: api.prepare_create_session(client, key, policy, task, source),
+      else: :ok
+  end
 
   @callback create_session(
               client :: term(),
@@ -80,19 +96,14 @@ defmodule Ryker.Coop.API do
               key :: String.t(),
               expected_revision :: integer()
             ) :: {:ok, map()} | {:error, term()}
-  @callback get_review_patch(
-              client :: term(),
-              artifact_id :: String.t(),
-              expected_sha256 :: String.t(),
-              expected_bytes :: pos_integer()
-            ) :: {:ok, binary()} | {:error, term()}
-  @callback get_session_review_patch(
+  @callback publish_review(
               client :: term(),
               session_id :: String.t(),
-              artifact_id :: String.t(),
-              expected_sha256 :: String.t(),
-              expected_bytes :: pos_integer()
-            ) :: {:ok, binary()} | {:error, term()}
+              review_key :: String.t(),
+              review_operation_id :: String.t(),
+              publish_key :: String.t(),
+              body :: map()
+            ) :: {:ok, map()} | {:error, term()}
   @callback close_session(
               client :: term(),
               session_id :: String.t(),
@@ -158,7 +169,7 @@ defmodule Ryker.Coop.API do
               key :: String.t(),
               expected_revision :: integer(),
               submission :: map(),
-              responder_binding :: map() | nil,
+              controller_tools :: map() | nil,
               artifacts :: [map()]
             ) :: {:ok, map()} | {:error, term()}
 
@@ -168,7 +179,7 @@ defmodule Ryker.Coop.API do
               key :: String.t(),
               expected_revision :: integer(),
               submission :: map(),
-              responder_binding :: map() | nil,
+              controller_tools :: map() | nil,
               artifacts :: [map()]
             ) :: {:ok, map()} | {:error, term()}
 
@@ -185,9 +196,8 @@ defmodule Ryker.Coop.API do
   @optional_callbacks list_events: 4,
                       get_changes: 2,
                       get_changes_page: 4,
-                      get_session_review_patch: 5,
                       run_review: 4,
-                      get_review_patch: 4,
+                      publish_review: 6,
                       plan_discard: 6,
                       discard_session: 4,
                       submit_frozen_turn: 7,

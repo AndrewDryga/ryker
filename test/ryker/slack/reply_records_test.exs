@@ -128,12 +128,14 @@ defmodule Ryker.Slack.ReplyRecordsTest do
     # asks for it every turn. Counting it as provenance would let a model launder
     # any URL into a receipt by writing evidence and then reading it back — the
     # whole gate, defeated without a single external observation.
-    claim = claim!()
-    {:ok, record} = evidence!(claim, @github_url)
-    event!(claim, work_state_activity(record))
+    for server <- ["controller-tools", "responder-state"] do
+      claim = claim!()
+      {:ok, record} = evidence!(claim, @github_url)
+      event!(claim, put_in(work_state_activity(record), ["input", "server"], server))
 
-    [plain] = ReplyRecords.documents("slack", claim.episode.id, [record])
-    refute plain["presentation"]
+      [plain] = ReplyRecords.documents("slack", claim.episode.id, [record])
+      refute plain["presentation"]
+    end
   end
 
   test "ingestion retains exactly the URL a completed call returned, and no sibling" do
@@ -229,7 +231,7 @@ defmodule Ryker.Slack.ReplyRecordsTest do
     # get_work_state, inside the same tool.completed envelope.
     %{
       "input" => %{
-        "server" => "responder-state",
+        "server" => "controller-tools",
         "tool" => "get_work_state",
         "arguments" => %{"limit" => 100}
       },

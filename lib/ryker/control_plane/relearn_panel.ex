@@ -186,7 +186,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
 
   def reason(:learning_configuration_invalid),
     do:
-      "Learning needs a valid worker policy before this topic can be relearned. Check its configuration."
+      "Learning cannot start with its current configuration. Check Learning and Models in Settings before relearning this topic."
 
   def reason(:knowledge_rebuild_conflict),
     do:

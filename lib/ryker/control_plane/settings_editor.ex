@@ -22,7 +22,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   use Phoenix.LiveComponent
 
   alias Phoenix.LiveView.JS
-  alias Ryker.BundledCoop
 
   alias Ryker.ControlPlane.{
     Components,
@@ -1260,33 +1259,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp slack_notice(_slack), do: nil
 
-  # Outside the distribution nothing here is used. Inside it, first what the
-  # worker could not load, since a saved change it refused never ran, then
-  # any model or fallback no price covers.
-  defp notice(%{key: :model} = section, view) do
-    if BundledCoop.distribution?() do
-      [refused(view), unpriced_notice(section, view)]
-    else
-      %{
-        text:
-          "This installation runs on separately managed workers. " <>
-            "Their own policies choose their models, so these settings are not used."
-      }
-    end
-  end
-
+  defp notice(%{key: :model} = section, view), do: unpriced_notice(section, view)
   defp notice(_section, _view), do: nil
-
-  # The worker keeps running what it loaded before when Coop refuses the
-  # newest models (`BundledCoop.policy_problem/0`).
-  defp refused(%{policy_problem: reason}) when is_binary(reason),
-    do: %{
-      text:
-        "The worker is still running the models saved before your last change, because " <>
-          reason
-    }
-
-  defp refused(_view), do: nil
 
   # A model or fallback no price covers still runs; its cost reads as not
   # priced, and the page says which one before anyone wonders why.
@@ -1413,8 +1387,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp phrase(:github_required), do: "needs a connected GitHub App."
   defp phrase(:slack_required), do: "needs a connected Slack workspace."
   defp phrase(:unregistered_secret), do: "is not a signing credential Ryker has."
-  defp phrase(:policy_unavailable), do: "is not offered by any connected worker."
-  defp phrase(:policy_ambiguous), do: "is offered in different versions by different workers."
   defp phrase(:mapping_required), do: "needs paths for the event ID, status and title."
   defp phrase(:mapping_fields), do: "names a field Ryker does not know."
   defp phrase(:mapping_values), do: "has a path that is empty or too long."

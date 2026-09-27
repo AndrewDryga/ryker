@@ -1,25 +1,19 @@
 {
   "poll": {
-    "version": 1,
+    "version": 2,
     "poll_ref": "poll:worker-a:42",
     "worker": {
       "id": "worker-a",
       "workspace_ref": "workspace-main",
-      "protocol_version": "1",
+      "protocol_version": "2",
       "build_version": "coop-abc123",
       "clock_at": "2026-08-29T12:00:00Z",
       "sandbox_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "policy_digests": {
-        "responder-read-only-v1": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-      },
-      "policy_authority_digests": {
-        "responder-read-only-v1": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-      },
-      "repositories": [
-        {"ref": "responder", "revision": "commit:abc123"}
-      ],
       "capabilities": [
-        {"name": "responder-state", "version": "1"}
+        {
+          "name": "controller-tools",
+          "version": "1"
+        }
       ],
       "capacity": {
         "session_slots_free": 3,
@@ -33,13 +27,24 @@
       },
       "state": "eligible"
     },
-    "acknowledged_command_ids": ["command:create:1"],
+    "acknowledged_command_ids": [
+      "command:create:1"
+    ],
     "command_results": [
       {
         "command_id": "command:create:1",
         "state": "succeeded",
         "operation_key": "responder:work:create:session-1:g1",
-        "resource": {"session_id": "coop-session-1"},
+        "resource": {
+          "status": 202,
+          "body": {
+            "operation": {
+              "id": "operation-create-1",
+              "method": "CreateRemoteSession",
+              "state": "running"
+            }
+          }
+        },
         "error": null
       }
     ],
@@ -83,10 +88,12 @@
     ]
   },
   "response": {
-    "version": 1,
+    "version": 2,
     "poll_ref": "poll:worker-a:42",
     "server_time": "2026-08-29T12:00:01Z",
-    "acknowledged_result_command_ids": ["command:create:1"],
+    "acknowledged_result_command_ids": [
+      "command:create:1"
+    ],
     "commands": [
       {
         "command_id": "command:turn:2",
@@ -95,26 +102,28 @@
         "placement_generation": 1,
         "lease_ref": "placement-lease:session-1:g1",
         "lease_expires_at": "2026-08-29T12:01:01Z",
-        "kind": "submit_turn",
-        "command_version": 1,
+        "kind": "api_request",
+        "command_version": 2,
         "payload": {
-          "coop_session_id": "coop-session-1",
-          "expected_revision": 2,
-          "submission": {
-            "contract_version": "work-final-live-v2",
-            "context": {"mode": "delta", "turn_ref": "turn-2"},
-            "input_artifact_refs": [],
-            "output_schema": {"type": "object"},
-            "prompt": "Continue the selected episode."
-          },
-          "submission_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          "turn_ref": "turn-2"
+          "method": "POST",
+          "path": "/v1/sessions/coop-session-1/turns",
+          "body": {
+            "expected_revision": 2,
+            "prompt": "Continue the selected episode.",
+            "output_schema": {
+              "type": "object"
+            }
+          }
         },
         "idempotency_key": "responder:work:turn:turn-2:g1"
       }
     ],
     "event_acknowledgements": [
-      {"session_ref": "session-1", "placement_generation": 1, "sequence": 2}
+      {
+        "session_ref": "session-1",
+        "placement_generation": 1,
+        "sequence": 2
+      }
     ]
   }
 }

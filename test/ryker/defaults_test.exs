@@ -14,7 +14,7 @@ defmodule Ryker.DefaultsTest do
            }
 
     assert Defaults.fetch!(:work) == %{
-             capability_names: ["responder-state"],
+             capability_names: ["controller-tools"],
              concurrency: 4,
              poll_interval_ms: 250
            }

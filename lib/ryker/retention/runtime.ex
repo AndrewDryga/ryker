@@ -73,6 +73,7 @@ defmodule Ryker.Retention.Runtime do
       {Worker,
        [
          dispatcher_options: dispatcher_options,
+         body_root: body_root(settings.client),
          maintenance_options: %{
            audit_data_seconds: settings.audit_data_seconds,
            closed_work_seconds: settings.closed_work_seconds,
@@ -100,6 +101,9 @@ defmodule Ryker.Retention.Runtime do
     validate!(settings)
     settings
   end
+
+  defp body_root(%Ryker.CoopFleet.Client{bridge_options: options}), do: options[:body_root]
+  defp body_root(_client), do: nil
 
   defp normalize!(configuration) do
     Options.normalize!(configuration, @required ++ @optional, @required,

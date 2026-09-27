@@ -3,6 +3,7 @@ defmodule Ryker.Work.SessionChangeset do
 
   import Ecto.Changeset
 
+  alias Ryker.CoopFleet.JobSpec
   alias Ryker.Work.{RepositoryContext, RepositorySource, Session}
 
   @spec insert(
@@ -64,6 +65,8 @@ defmodule Ryker.Work.SessionChangeset do
     repository_context = Map.get(options, :repository_context)
     repository_source = Map.get(options, :repository_source)
     environment_ref = Map.get(options, :environment_ref)
+    worker_job_document = Map.get(options, :worker_job_document)
+    worker_job_digest = Map.get(options, :worker_job_digest)
     emisar = Map.get(options, :emisar)
 
     %Session{}
@@ -76,6 +79,8 @@ defmodule Ryker.Work.SessionChangeset do
         policy: policy,
         policy_digest: policy_digest,
         authority_digest: authority_digest,
+        worker_job_document: worker_job_document,
+        worker_job_digest: worker_job_digest,
         repository_ref: repository_ref,
         repository_context: repository_context,
         repository_source: repository_source,
@@ -94,6 +99,8 @@ defmodule Ryker.Work.SessionChangeset do
         :policy,
         :policy_digest,
         :authority_digest,
+        :worker_job_document,
+        :worker_job_digest,
         :repository_ref,
         :repository_context,
         :repository_source,
@@ -117,6 +124,7 @@ defmodule Ryker.Work.SessionChangeset do
     |> validate_length(:policy, min: 1, max: 1_024)
     |> validate_format(:policy_digest, ~r/\A[0-9a-f]{64}\z/)
     |> validate_format(:authority_digest, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_worker_job()
     |> validate_length(:repository_ref, min: 1, max: 1_024)
     |> validate_length(:external_ref, min: 1, max: 1_024)
     |> validate_format(:environment_ref, ~r/\A[a-z0-9][a-z0-9-]{0,63}\z/)
@@ -132,6 +140,41 @@ defmodule Ryker.Work.SessionChangeset do
     |> check_constraint(:repository_source, name: :episode_work_session_repository_source_valid)
     |> check_constraint(:emisar_connection_ref, name: :episode_work_session_emisar_pin_valid)
     |> check_constraint(:environment_ref, name: :episode_work_session_environment_valid)
+    |> check_constraint(:worker_job_document, name: :episode_work_session_worker_job_valid)
+  end
+
+  def pin_worker_job(session, document, digest) do
+    session
+    |> cast(%{worker_job_document: document, worker_job_digest: digest}, [
+      :worker_job_document,
+      :worker_job_digest
+    ])
+    |> validate_required([:worker_job_document, :worker_job_digest])
+    |> validate_worker_job()
+    |> check_constraint(:worker_job_document, name: :episode_work_session_worker_job_valid)
+  end
+
+  defp validate_worker_job(changeset) do
+    document = get_field(changeset, :worker_job_document)
+    digest = get_field(changeset, :worker_job_digest)
+
+    case {document, digest} do
+      {nil, nil} ->
+        changeset
+
+      {%{} = document, digest} when is_binary(digest) ->
+        case {JobSpec.digest(document),
+              document["job_ref"] == get_field(changeset, :external_ref)} do
+          {{:ok, ^digest}, true} ->
+            changeset
+
+          _invalid ->
+            add_error(changeset, :worker_job_document, "does not match its immutable digest")
+        end
+
+      _invalid ->
+        add_error(changeset, :worker_job_document, "and digest must be pinned together")
+    end
   end
 
   defp validate_emisar_pin(changeset) do

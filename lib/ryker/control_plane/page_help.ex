@@ -861,12 +861,13 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How advanced settings work", [
       {"What this page shows",
        [
-         "Where Ryker's work runs and what each kind of work may do. Ryker runs its work on a worker: a machine with your code checked out that runs the model and its tools.",
+         "Where Ryker's work runs and what each kind of work may do. A worker is a machine that runs the model and its tools in isolation.",
          "The bundled worker is set up for you, so most installations never change anything here."
        ]},
-      {"Policies for each kind of work",
+      {"Code and settings for each job",
        [
-         "A policy is a worker's rulebook for one kind of work: which model runs it, whether it may change files, which repositories it sees and what it may run. The bundled worker writes these for you; add one only for a worker you run yourself."
+         "Ryker selects the code and settings for each job. When a job uses a repository, the worker fetches its code into an isolated working copy.",
+         "Choose models on the Models page. Workers need no policy files."
        ]},
       {"Tasks that change code",
        [

@@ -3,7 +3,6 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-  import Ryker.TestHelpers, only: [eventually: 1]
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SettingsPage, SettingsView, SetupPage}
   alias Ryker.Credentials
@@ -817,8 +816,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     initialize!()
     {:ok, view, _html} = open("/settings/models")
 
-    # Outside the Compose distribution, workers' own policies choose models.
-    assert has_element?(view, ".settings-notice", "separately managed workers")
+    # Ryker supplies these models to every worker, including separate VMs.
+    refute has_element?(view, ".settings-notice", "separately managed workers")
 
     bundled_worker!()
     {:ok, view, _html} = open("/settings/models")
@@ -1255,82 +1254,6 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert Settings.fetch!().work.model_accounts == ["codex@default"]
   end
 
-  # Andrew, 2026-09-26: a fallback on an account the worker had not signed in
-  # (claude@zzqa) made Coop refuse the whole policy file and took the worker
-  # offline. The worker now keeps running the models it last loaded, so the
-  # page must say the saved change did not reach it, and why, without anyone
-  # reloading it; otherwise a save that changed nothing reads as applied.
-  test "a change the worker could not load says what still runs and how to fix it" do
-    initialize!()
-    shared = bundled_worker!()
-    snapshot = Settings.fetch!()
-
-    {:ok, snapshot} =
-      Settings.put_pricing_rate(
-        %{
-          execution_target: "claude:claude-opus-4-6",
-          input_usd_per_million: "5",
-          cached_input_usd_per_million: "0.5",
-          output_usd_per_million: "25",
-          effective_from: ~D[2026-09-26],
-          provenance: "https://www.anthropic.com/pricing"
-        },
-        snapshot.installation.revision,
-        @actor
-      )
-
-    {:ok, snapshot} =
-      Settings.save_work(
-        %{model_accounts: ["codex@default", "claude@zzqa"]},
-        snapshot.installation.revision,
-        @actor
-      )
-
-    {:ok, snapshot} =
-      Settings.save_work(
-        %{
-          routing_models: ["codex:gpt-5.6-sol/medium@default", "claude:claude-opus-4-6/high@zzqa"],
-          deep_models: ["codex:gpt-5.6-luna/high@default"]
-        },
-        snapshot.installation.revision,
-        @actor
-      )
-
-    rate = Enum.find(snapshot.pricing_rates, &(&1.execution_target == "codex:gpt-5.6-luna"))
-
-    {:ok, _snapshot} =
-      Settings.delete_pricing_rate(rate.id, snapshot.installation.revision, @actor)
-
-    {:ok, view, _html} = open("/settings/models")
-    notices = fn -> view |> render() |> LazyHTML.from_fragment() |> notice_texts() end
-    assert [unpriced] = notices.()
-    assert unpriced =~ "No price covers the model for Deep work"
-
-    File.write!(
-      Path.join(shared, "policy-problem"),
-      File.read!("testdata/coop/policies-unsigned-account.stderr")
-    )
-
-    Phoenix.PubSub.broadcast(Ryker.PubSub, "control-plane", :control_plane_changed)
-
-    refused =
-      "The worker is still running the models saved before your last change, because the " <>
-        "claude@zzqa account is not signed in on the worker. Sign it in with " <>
-        "scripts/compose.sh model-login claude@zzqa, or choose another account."
-
-    assert eventually(fn -> notices.() == [refused, unpriced] end)
-
-    File.rm!(Path.join(shared, "policy-problem"))
-    Phoenix.PubSub.broadcast(Ryker.PubSub, "control-plane", :control_plane_changed)
-    assert eventually(fn -> notices.() == [unpriced] end)
-  end
-
-  defp notice_texts(document) do
-    document
-    |> LazyHTML.query("#settings-model .settings-notice")
-    |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
-  end
-
   # The value of the option a select shows as chosen; "" for its prompt.
   defp selected(view, selector) do
     view
@@ -1620,7 +1543,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     refute has_element?(view, "#settings-pricing > .settings-editor")
   end
 
-  test "the Advanced page explains a worker and a policy in plain words" do
+  test "the Advanced page explains workers without a policy configuration step" do
     # Andrew, 2026-09-25: "even I don't know what a workspace or an execution
     # policy is; the page doesn't explain that in simple language, so users
     # will never understand any of it." The words changed, not the data: the
@@ -1636,8 +1559,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     # Without the bundled worker, the page never claims one is set up.
     assert page_description(html) ==
              worker <>
-               " This installation uses workers you run yourself; choose their install and " <>
-               "what each kind of work may do below."
+               " This installation uses workers you run yourself; choose their install below. " <>
+               "Ryker supplies the code and settings for each job."
 
     bundled_worker!()
     {:ok, view, html} = open("/settings/advanced")
@@ -1650,7 +1573,6 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert html |> LazyHTML.from_document() |> LazyHTML.query("main .section-head h2") |> texts() ==
              [
                "Where work runs",
-               "What each kind of work may do",
                "Tasks that change code",
                "What is running"
              ]
@@ -1663,18 +1585,10 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "Which worker install runs Ryker's work. A worker reports its install name when it connects."
            )
 
-    assert has_element?(
-             view,
-             "#settings-policies .section-head p",
-             "A policy is a worker's rulebook for one kind of work: which model runs it, " <>
-               "whether it may change files, which repositories it sees and what it may run. " <>
-               "The bundled worker writes these for you."
-           )
-
-    assert has_element?(view, "#settings-policies button.settings-editor-add", "Add policy")
+    refute has_element?(view, "#settings-policies")
 
     # Where the page speaks, it uses none of the worker's own terms.
-    for selector <- ["header.page-header", "#settings-work", "#settings-policies"],
+    for selector <- ["header.page-header", "#settings-work"],
         term <- ["workspace", "Workspace", "execution polic", "Execution polic"] do
       refute view |> element(selector) |> render() |> LazyHTML.from_fragment() |> LazyHTML.text() =~
                term,

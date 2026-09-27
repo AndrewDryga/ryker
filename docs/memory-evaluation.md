@@ -173,17 +173,14 @@ migrations inside those captured input bodies or add a permissive legacy admissi
 
 Existing credentialed commands are:
 
-Evaluation authority is supplied explicitly through the evaluation environment and is refused
-if it matches a reviewed production policy binding:
+Use a separately enrolled evaluation worker/controller as described in [Testing](testing.md).
+Select targets explicitly; the harness supplies fixed empty-workspace jobs and computes their digests:
 
 ```bash
 export RYKER_EVAL_SOCKET=/absolute/evaluation-coop/control.sock
-export RYKER_EVAL_NO_TOOLS_POLICY=ryker-eval-no-tools-v1
-export RYKER_EVAL_NO_TOOLS_POLICY_DIGEST=SHA256
-export RYKER_EVAL_WORLD_POLICY=ryker-eval-world-v1
-export RYKER_EVAL_WORLD_POLICY_DIGEST=SHA256
-export RYKER_EVAL_WORLD_BASELINE_POLICY=ryker-eval-world-baseline-v1
-export RYKER_EVAL_WORLD_BASELINE_POLICY_DIGEST=SHA256
+export RYKER_EVAL_JUDGE_TARGET='<provider:model/effort@account>'
+export RYKER_EVAL_WORLD_TARGET='<provider:model/effort@account>'
+export RYKER_EVAL_BASELINE_TARGET='<provider:model/effort@account>'
 ```
 
 ```console
@@ -191,7 +188,7 @@ make eval-world-smoke
 make eval-world
 ```
 
-Use dedicated evaluation policies, isolated databases, inert delivery, and the same recorded world
+Use dedicated evaluation workers, isolated databases, inert delivery, and the same recorded world
 for candidate and baseline. No production Slack/GitHub writes or infrastructure mutations are
 needed. The full schema/operation-list gate is required for a changed contract; the wording-only
 smoke exception is not sufficient here.
@@ -201,17 +198,17 @@ dedicated lane drives the actual durable dispatcher, current prompt/schema, sour
 topic application, and proof-bearing cleanup:
 
 ```console
-MIX_ENV=test PGDATABASE=ryker_learning_eval_haproxy scripts/elixir-mix.sh ryker.learning_eval --database ryker_learning_eval_haproxy --socket /absolute/evaluation-coop.sock --scratch /absolute/canonical-empty-git-repository --policy learning-eval-only --policy-digest POLICY_SHA256 --results /absolute/new-learning-report.json --scenario haproxy
+MIX_ENV=test PGDATABASE=ryker_learning_eval_haproxy scripts/elixir-mix.sh ryker.learning_eval --database ryker_learning_eval_haproxy --socket /absolute/evaluation-coop/control.sock --target '<provider:model/effort@account>' --results /absolute/new-learning-report.json --scenario haproxy
 ```
 
 Create and migrate the named disposable database first; configure its PostgreSQL connection with
 the normal `PGHOST`, `PGPORT`, `PGUSER`, and `PGPASSWORD` variables. Do not start the Ryker application. The task starts only Repo and Finch,
 and refuses a nonempty database, a configured background runtime, or an existing report file.
-The scratch repository must have an empty committed tree and no other files; its canonical path
-and exact HEAD are checked. The public Coop session must report that HEAD as `base_commit`, the
-configured policy digest, read-only repository access, no project environment/MCP, and no companions.
-Policy names are not evidence of those properties: qualify the actual policy separately.
-Also require an absent Ryker binding digest. These checks prove the restricted project
+No host scratch checkout is needed. The harness pins an immutable job with no source, read-only
+repository access, no project environment/MCP, and no companions. Coop creates its empty baseline;
+every session receipt must match the exact saved job reference and digest. The optional recall
+probe retains conversation scope but requests no repository checkout. No controller tools are
+granted to learning turns. These checks prove the restricted project
 integration boundary, not disabled provider-native tools, writable scratch/output, or network
 egress. The learner's no-action instruction is not an enforced no-tools sandbox; do not report
 the evaluation as proof of that stronger boundary.
@@ -474,7 +471,7 @@ false merges, duplicate subjects, missed corrections, source attribution, unnece
 context bytes, latency, and cost. Separate policy/provider availability failures from model-quality
 failures. Missing cases are `UNRUN`, not implicit passes.
 
-Finally qualify the actual learning policy: inspect the read-only empty scratch checkout, absence
+Finally qualify the actual learning job: inspect its empty source, read-only repository, absence
 of project environment/MCP/companions, exact fleet ownership, and close/plan/discard receipts.
 Deployment and readiness must name the exact running commit separately from all of these results.
 

@@ -6,7 +6,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
   defmodule HeldAPI do
     def get_session(observer, _session_id), do: hold(observer)
     def get_publication_status(observer, _repository, _number), do: hold(observer)
-    def get_review_patch(_, _, _, _), do: {:error, :not_used}
+    def publish_review(_, _, _, _, _, _), do: {:error, :not_used}
     def run_review(_, _, _, _), do: {:error, :not_used}
 
     defp hold(observer) do
@@ -27,7 +27,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
     def advance_review_generation(_, _, _), do: {:error, :not_used}
     def freeze_review_revision(_, _, _), do: {:error, :not_used}
     def store_publication(_, _, _), do: {:error, :not_used}
-    def store_review(_, _, _, _, _), do: {:error, :not_used}
+    def store_review(_, _, _, _), do: {:error, :not_used}
     def admit_wakeup(_, _), do: {:error, :not_used}
     def reconcile_verification(_, _, _), do: {:error, :not_used}
     def store_poll(_, _, _, _), do: {:error, :not_used}
@@ -38,7 +38,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
   defmodule ImmediateAPI do
     def get_session(observer, _session_id), do: finish(observer)
     def get_publication_status(observer, _repository, _number), do: finish(observer)
-    defdelegate get_review_patch(client, session, generation, revision), to: HeldAPI
+    defdelegate publish_review(client, session, review_key, review_id, key, body), to: HeldAPI
     defdelegate run_review(client, session, generation, revision), to: HeldAPI
 
     defp finish(observer) do
@@ -56,7 +56,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
     defdelegate advance_review_generation(ref, lease, generation), to: RaisingCustody
     defdelegate freeze_review_revision(ref, lease, revision), to: RaisingCustody
     defdelegate store_publication(ref, lease, receipt), to: RaisingCustody
-    defdelegate store_review(ref, lease, generation, dossier, patch), to: RaisingCustody
+    defdelegate store_review(ref, lease, generation, dossier), to: RaisingCustody
     defdelegate admit_wakeup(ref, lease), to: RaisingCustody
     defdelegate reconcile_verification(ref, lease, interval), to: RaisingCustody
     defdelegate store_poll(ref, lease, status, interval), to: RaisingCustody
@@ -82,16 +82,12 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
     end
   end
 
-  defmodule Publisher do
-    def publish(_, _), do: {:error, :not_used}
-  end
-
   # The pool-outage guard now keeps pollers alive. A child left behind by a
   # raised renewal can still act and send unmatched messages to that survivor,
   # defeating the recovery fix. This is host fault injection, not model output.
   test "a publication callback is reaped before raised renewal reaches its surviving caller" do
     options =
-      options() ++ [publisher: Publisher, publisher_binding: nil]
+      options() ++ [repositories: %{}]
 
     assert_callback_reaped(fn -> Executor.run(publication_claim(), options) end)
   end
@@ -102,7 +98,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
 
   test "a publication result queued during raised renewal is drained without unrelated messages" do
     options =
-      options(custody: QueuedResultCustody) ++ [publisher: Publisher, publisher_binding: nil]
+      options(custody: QueuedResultCustody) ++ [repositories: %{}]
 
     assert_callback_reaped(fn -> Executor.run(publication_claim(), options) end)
   end
@@ -117,7 +113,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
   # must stop too, or it can still act after a replacement reclaims the lease.
   test "a publication callback stops when its lease owner is brutally terminated" do
     options =
-      options(lease_seconds: 60) ++ [publisher: Publisher, publisher_binding: nil]
+      options(lease_seconds: 60) ++ [repositories: %{}]
 
     assert_owner_death_stops_callback(fn -> Executor.run(publication_claim(), options) end)
   end
@@ -135,7 +131,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
   test "an immediate publication result survives raised renewal without orphaned messages" do
     options =
       options(api: ImmediateAPI, lease_seconds: 60) ++
-        [publisher: Publisher, publisher_binding: nil]
+        [repositories: %{}]
 
     assert_callback_reaped(fn -> Executor.run(publication_claim(), options) end)
   end

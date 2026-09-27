@@ -215,10 +215,21 @@ case "$command" in
     compose exec -T database dropdb -U ryker --if-exists ryker
     compose exec -T database createdb -U ryker ryker
     compose exec -T database pg_restore -U ryker -d ryker --exit-on-error --no-owner --no-privileges <"$scratch/database.dump"
+    if [ -r "$scratch/ryker-state.tar.gz" ]; then
+      compose run --rm --no-deps -T --entrypoint tar volume-init \
+        -xzf - -C /var/lib/ryker <"$scratch/ryker-state.tar.gz"
+    else
+      file_checkpoints=$(compose exec -T database psql -XAt -U ryker -d ryker -v ON_ERROR_STOP=1 \
+        -c "SELECT count(*) FROM coop_worker_workspace_checkpoints AS checkpoint WHERE to_jsonb(checkpoint)->>'body_command_id' IS NOT NULL")
+      [ "$file_checkpoints" = 0 ] || {
+        echo "This database needs encrypted checkpoint files, but the backup has no Ryker state archive. Ryker remains stopped." >&2
+        exit 1
+      }
+    fi
     if [ -r "$scratch/worker-state.tar.gz" ]; then
       compose up --detach --wait volume-init
       compose run --rm --no-deps -T --entrypoint tar ryker-coop \
-        -xzf - -C /var/lib <"$scratch/worker-state.tar.gz"
+        -xzf - -C /var/lib coop ryker-coop <"$scratch/worker-state.tar.gz"
     fi
     compose up --detach --wait ryker
     compose exec -T ryker /opt/ryker/bin/ryker eval 'Ryker.Release.prepare_bundled_coop(log: false)'
@@ -290,14 +301,32 @@ case "$command" in
     mkdir -p "$backup_dir"
     chmod 0700 "$backup_dir"
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-backup.XXXXXX")
-    trap 'rm -rf -- "$scratch"' EXIT HUP INT TERM
+    restart_controller=0
+    finish_backup() {
+      backup_status=$?
+      if [ "$restart_controller" = 1 ]; then
+        compose start ryker >/dev/null || backup_status=1
+      fi
+      rm -rf -- "$scratch"
+      exit "$backup_status"
+    }
+    trap finish_backup EXIT
+    trap 'exit 1' HUP INT TERM
+    running_services=$(compose ps --status running --services)
+    if printf '%s\n' "$running_services" | grep -qx ryker; then
+      echo "Pausing Ryker to capture the database and encrypted files consistently." >&2
+      restart_controller=1
+      compose stop ryker
+    fi
     compose exec -T database pg_dump -U ryker -d ryker --format=custom --no-owner --no-privileges >"$scratch/database.dump"
+    compose run --rm --no-deps -T --entrypoint tar volume-init \
+      -czf - -C /var/lib/ryker . >"$scratch/ryker-state.tar.gz"
     compose run --rm --no-deps -T --entrypoint tar ryker-coop \
-      -czf - -C /var/lib coop ryker-coop ryker-workspaces >"$scratch/worker-state.tar.gz"
+      -czf - -C /var/lib coop ryker-coop >"$scratch/worker-state.tar.gz"
     cp "$env_file" "$scratch/compose.env"
-    chmod 0600 "$scratch/database.dump" "$scratch/worker-state.tar.gz" "$scratch/compose.env"
+    chmod 0600 "$scratch/database.dump" "$scratch/ryker-state.tar.gz" "$scratch/worker-state.tar.gz" "$scratch/compose.env"
     backup=$backup_dir/ryker-$(date -u +%Y%m%dT%H%M%SZ).tar.gz
-    tar -czf "$backup" -C "$scratch" database.dump worker-state.tar.gz compose.env
+    tar -czf "$backup" -C "$scratch" database.dump ryker-state.tar.gz worker-state.tar.gz compose.env
     chmod 0600 "$backup"
     echo "$backup"
     ;;

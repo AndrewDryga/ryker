@@ -11,19 +11,19 @@ defmodule Ryker.Work.CancellationWorkerTest do
 
   import Ecto.Query
 
-  alias Ryker.CoopFleet.{Client, ControlPlane, Placement, WorkerLifecycle}
+  alias Ryker.CoopFleet.{Client, Command, ControlPlane, Placement, WorkerLifecycle}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Work.{Cancellation, Custody, Dispatcher, Submission, Turn}
 
   @policy "ryker-chat"
   @started String.duplicate("a", 64)
   @newer String.duplicate("3", 64)
   @authority String.duplicate("9", 64)
-  @sandbox String.duplicate("c", 64)
   @workspace "workspace-cancellation-worker"
   @requirements %{
-    capability_names: ["responder-state"],
+    capability_names: ["controller-tools"],
     repository_ref: nil,
     workspace_ref: "workspace-cancellation-worker"
   }
@@ -71,7 +71,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
   # version of the run's policy (a model change in Settings): placement refused
   # every command for the run, so its cancel could never be sent and the stop
   # was deferred forever. Cancelling and closing do no policy work.
-  test "a stop reaches the worker that holds its run after the worker's policy changed" do
+  test "a stop reaches its holder after the worker sandbox changes" do
     worker = enroll!("newer-policy")
     work = bound_turn!("newer-policy", worker)
 
@@ -94,7 +94,8 @@ defmodule Ryker.Work.CancellationWorkerTest do
     assert {:ok, holder} = ControlPlane.place_session(work.session.id, @requirements, 60)
     assert holder.worker_id == worker
     assert holder.generation == 2
-    assert holder.requirements["policy_digest"] == @newer
+    assert holder.requirements["sandbox_digest"] == @newer
+    refute Map.has_key?(holder.requirements, "policy_digest")
   end
 
   # The placement that let a stop through under a newer policy version must not
@@ -118,6 +119,60 @@ defmodule Ryker.Work.CancellationWorkerTest do
     expire_placements!(work.session)
     _retired = ControlPlane.place_session(work.session.id, @requirements, 60)
     assert {:ok, holder} = ControlPlane.place_session(work.session.id, @requirements, 60)
+
+    path = "/v1/sessions/" <> work.session.coop_session_id
+    start_turn = %{"method" => "POST", "path" => path <> "/turns", "body" => %{}}
+
+    for {kind, payload} <- [
+          {"api_request", start_turn},
+          {"run_review", %{"coop_session_id" => work.session.coop_session_id}},
+          {"submit_turn",
+           %{"coop_session_id" => work.session.coop_session_id, "submission" => %{}}}
+        ] do
+      assert {:error, :coop_cleanup_only_placement} =
+               ControlPlane.enqueue_command(
+                 holder.id,
+                 kind,
+                 payload,
+                 "denied:#{kind}:#{holder.id}"
+               )
+    end
+
+    # A request queued by an older build is checked again before delivery.
+    assert {:ok, queued} =
+             ControlPlane.enqueue_command(
+               holder.id,
+               "api_request",
+               %{"method" => "GET", "path" => path},
+               "queued:#{holder.id}"
+             )
+
+    queued |> Ecto.Changeset.change(payload: start_turn) |> Repo.update!()
+    poll!(worker, @newer)
+    assert Repo.get!(Command, queued.id).status == :failed
+
+    assert {:ok, _} =
+             ControlPlane.enqueue_command(
+               holder.id,
+               "cancel_turn",
+               %{
+                 "coop_session_id" => work.session.coop_session_id,
+                 "coop_turn_id" => "turn:one~two",
+                 "expected_revision" => 1
+               },
+               "encoded-cancel:#{holder.id}"
+             )
+
+    assert {:error, :coop_cleanup_only_placement} =
+             ControlPlane.enqueue_command(
+               holder.id,
+               "api_request",
+               %{
+                 "method" => "POST",
+                 "path" => path <> "/turns/part%2Ftwo/cancel"
+               },
+               "encoded-separator:#{holder.id}"
+             )
 
     # The worker proved the run stopped; the transfer keeps the session open.
     assert {:ok, claim} = Custody.claim_next("worker:fenced-stop", 60, :work)
@@ -154,7 +209,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
   defp dispatcher(worker) do
     assert {:ok, client} =
              Client.new(
-               capability_names: ["responder-state"],
+               capability_names: ["controller-tools"],
                lease_seconds: 60,
                max_waits: 1,
                poll_interval_ms: 1,
@@ -180,10 +235,10 @@ defmodule Ryker.Work.CancellationWorkerTest do
                "command_results" => [],
                "event_batches" => [],
                "poll_ref" => "poll:#{worker}:#{System.unique_integer([:positive])}",
-               "version" => 1,
+               "version" => 2,
                "worker" => %{
                  "build_version" => "coop-cancellation-worker",
-                 "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+                 "capabilities" => [%{"name" => "controller-tools", "version" => "1"}],
                  "capacity" => %{
                    "cooldown_until" => nil,
                    "session_slots_free" => 2,
@@ -196,11 +251,8 @@ defmodule Ryker.Work.CancellationWorkerTest do
                  },
                  "clock_at" => DateTime.to_iso8601(Ryker.Repo.now!()),
                  "id" => worker,
-                 "policy_authority_digests" => %{@policy => @authority},
-                 "policy_digests" => %{@policy => digest},
-                 "protocol_version" => "1",
-                 "repositories" => [],
-                 "sandbox_digest" => @sandbox,
+                 "protocol_version" => "2",
+                 "sandbox_digest" => digest,
                  "state" => "eligible",
                  "workspace_ref" => @workspace
                }
@@ -222,6 +274,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
 
     assert {:ok, _transition} = Episodes.apply(command)
     assert {:ok, pinned} = Custody.pin_episode(id, @policy, @started, @authority, nil)
+    pinned = WorkerJob.pin!(pinned)
     assert {:ok, placement} = ControlPlane.place_session(pinned.id, @requirements, 60)
     assert placement.worker_id == worker
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)

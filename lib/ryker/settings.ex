@@ -25,7 +25,6 @@ defmodule Ryker.Settings do
     GitHubBinding,
     Installation,
     Learning,
-    PolicyBinding,
     PricingRate,
     Publication,
     Report,
@@ -67,7 +66,6 @@ defmodule Ryker.Settings do
           repositories: [Repository.t()],
           environments: [Environment.t()],
           github_bindings: [GitHubBinding.t()],
-          policy_bindings: [PolicyBinding.t()],
           webhook_sources: [WebhookSource.t()],
           pricing_rates: [PricingRate.t()]
         }
@@ -424,12 +422,6 @@ defmodule Ryker.Settings do
   def delete_github_binding(name, expected_revision, actor_ref),
     do: delete_item(:github, GitHubBinding, :name, name, expected_revision, actor_ref)
 
-  def put_policy_binding(attributes, expected_revision, actor_ref),
-    do: put_item(:policies, PolicyBinding, :id, attributes, expected_revision, actor_ref)
-
-  def delete_policy_binding(id, expected_revision, actor_ref),
-    do: delete_item(:policies, PolicyBinding, :id, id, expected_revision, actor_ref)
-
   def put_webhook_source(attributes, expected_revision, actor_ref),
     do: put_item(:webhooks, WebhookSource, :name, attributes, expected_revision, actor_ref)
 
@@ -670,8 +662,6 @@ defmodule Ryker.Settings do
       repositories: Repo.all(from(r in Repository, order_by: r.ref)),
       environments: Repo.all(from(e in Environment, order_by: e.ref, preload: :repositories)),
       github_bindings: Repo.all(from(b in GitHubBinding, order_by: b.name)),
-      policy_bindings:
-        Repo.all(from(p in PolicyBinding, order_by: [p.scope_kind, p.scope_ref, p.purpose])),
       webhook_sources: Repo.all(from(w in WebhookSource, order_by: w.name)),
       pricing_rates:
         Repo.all(from(p in PricingRate, order_by: [p.execution_target, p.effective_from]))

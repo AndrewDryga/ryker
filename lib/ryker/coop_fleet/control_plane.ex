@@ -43,10 +43,9 @@ defmodule Ryker.CoopFleet.ControlPlane do
   Whether any current worker could take this session's next placement.
 
   A recovery surface may only offer to move work when the fleet could actually
-  accept it. The learning lane sat unplaceable for twelve hours on 2026-09-11
-  because one worker advertised no digest for its policy, so this asks the same
-  question placement asks — policy, authority, repository, capabilities,
-  freshness and capacity — without taking a slot to find out.
+  accept it. This asks the same question placement asks — frozen job authority,
+  workspace, capabilities, freshness and capacity — without taking a slot to
+  find out. Retired policy and repository advertisements are not authority.
   """
   @spec worker_available?(Session.t(), map()) :: boolean()
   defdelegate worker_available?(session, requirements), to: Placements
@@ -62,9 +61,12 @@ defmodule Ryker.CoopFleet.ControlPlane do
   @spec portable_workspace(Session.t(), map()) ::
           %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
           | nil
-  defdelegate portable_workspace(session, requirements), to: Placements
+  defdelegate portable_workspace(session, requirements, body_root \\ nil), to: Placements
 
   @spec enqueue_command(Ecto.UUID.t(), String.t(), map(), String.t()) ::
           {:ok, Command.t()} | {:error, term()}
   defdelegate enqueue_command(placement_id, kind, payload, idempotency_key), to: Commands
+
+  @doc false
+  defdelegate fence_command(session, kind, intent, key), to: Commands
 end

@@ -1065,7 +1065,6 @@ defmodule Ryker.Publication.FollowupsTest do
           update_publication.review_delivery_receipt_fingerprint,
         review_document: update_publication.review_document,
         review_fingerprint: update_publication.review_fingerprint,
-        review_patch: update_publication.review_patch,
         reviewed_at: update_publication.reviewed_at,
         status: :publish_pending
       ]

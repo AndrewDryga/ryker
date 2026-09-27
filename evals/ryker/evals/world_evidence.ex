@@ -130,8 +130,8 @@ defmodule Ryker.Evals.WorldEvidence do
       )
     )
     |> Enum.flat_map(fn
-      %{"input" => %{"server" => "responder-state", "tool" => tool}} = payload
-      when is_binary(tool) and tool != "" ->
+      %{"input" => %{"server" => server, "tool" => tool}} = payload
+      when server in ["controller-tools", "responder-state"] and is_binary(tool) and tool != "" ->
         outcome =
           if payload["status"] == "completed" and get_in(payload, ["output", "error"]) == nil,
             do: "succeeded",

@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelp do
     "admission" => {
       "Routing",
       "Decides whether an incoming message needs a reply, a reaction, more work or nothing.",
-      "Runs before any work starts, under a reviewed worker policy it keeps to. Turning it on does not mean a worker is ready to route right now.",
+      "Runs before any work starts, using the routing model and permissions saved in Ryker. Turning it on does not mean a worker is ready to route right now.",
       "Always on."
     },
     "work" => {
@@ -104,12 +104,6 @@ defmodule Ryker.ControlPlane.ConfigurationHelp do
       "Whether this is a full installation or a partial one for development and tests.",
       "A full installation needs workers, their connections, Ryker's tools and cleanup. A partial one leaves some of them out for development; it is not how Ryker runs for a team.",
       "Required: product (a full installation) or component (a partial one)."
-    },
-    "admission.policy" => {
-      "Routing policy",
-      "The worker policy routing runs under. It is a policy name, not a model name.",
-      "The policy decides the model and what routing may use; its fingerprint pins the exact version that was reviewed. Change the policy's name and fingerprint together: a new name alone does not safely change the model.",
-      "Required: an existing reviewed worker policy and its exact fingerprint."
     },
     "admission.decision_timeout_ms" => {
       "Routing time limit",
@@ -259,11 +253,11 @@ defmodule Ryker.ControlPlane.ConfigurationHelp do
 
   def grant("MCP tool"),
     do:
-      "A tool from a connected tool server. That server and the worker's policy decide who may use it; being listed here does not grant permission."
+      "A tool from a connected tool server. Ryker's job access and that server's permissions decide who may use it; being listed here does not grant permission."
 
   def grant("source/action tool"),
     do:
-      "A tool name the model is told about. Being told is not permission; the worker's policy decides what the model may use."
+      "A tool name the model is told about. Being told is not permission; Ryker's job access and the tool server decide what the model may use."
 
   def grant(_kind),
     do: "Explanation unavailable for this grant type; the name alone does not grant permission."

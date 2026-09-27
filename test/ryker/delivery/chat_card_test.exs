@@ -7,7 +7,6 @@ defmodule Ryker.Delivery.ChatCardTest do
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
 
-  @digest String.duplicate("a", 64)
   @git String.duplicate("b", 40)
 
   test "an unschedulable wait explains its failure and hard deadline without presenting success" do
@@ -477,8 +476,6 @@ defmodule Ryker.Delivery.ChatCardTest do
         "candidate_tree" => @git,
         "gate" => "passed",
         "not_publishable_reasons" => [],
-        "patch_bytes" => 4_096,
-        "patch_digest" => @digest,
         "policy_findings" => [],
         "publishable" => true,
         "rebase" => "clean"
@@ -495,7 +492,7 @@ defmodule Ryker.Delivery.ChatCardTest do
     assert review.ref == "record:publication_offer:one"
     assert review.status == :reviewed
     assert {"Gate", "passed"} in review.details
-    assert {"Patch", "4096 bytes"} in review.details
+    refute Enum.any?(review.details, fn {label, _value} -> label == "Patch" end)
     assert review.url == nil
 
     published = %{

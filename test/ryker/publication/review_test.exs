@@ -3,6 +3,29 @@ defmodule Ryker.Publication.ReviewTest do
 
   alias Ryker.Publication.Review
 
+  test "publication retains metadata even when Coop includes a large truncated display preview" do
+    document =
+      review_document()
+      |> Map.merge(%{
+        "patch" => Base.encode64(String.duplicate("x", 1_024 * 1_024)),
+        "patch_truncated" => true,
+        "source" => %{"repository" => "repo"}
+      })
+
+    assert {:ok, retained} =
+             Review.prepare(document, %{revision: 7, session_id: "session-review"})
+
+    refute Map.has_key?(retained, "patch")
+    refute Map.has_key?(retained, "source")
+    assert Review.draft_shareable?(retained)
+
+    assert {:error, {:invalid_publication_review, :fields}} =
+             Review.prepare(Map.put(document, "unknown", true), %{
+               revision: 7,
+               session_id: "session-review"
+             })
+  end
+
   test "malformed pull request identities fail closed without raising" do
     expected = %{revision: 7, session_id: "session-review"}
 
@@ -83,14 +106,19 @@ defmodule Ryker.Publication.ReviewTest do
     refute Review.draft_shareable?(conflict)
 
     truncated = unpublishable(%{"patch_truncated" => true})
-    refute Review.draft_shareable?(truncated)
+    assert Review.draft_shareable?(truncated)
 
-    for missing <- ~w(patch_artifact_id patch_digest) do
+    for missing <- ~w(candidate_retained candidate_head candidate_tree) do
       refute Review.draft_shareable?(unpublishable() |> Map.delete(missing)),
              "#{missing} is part of the exact snapshot identity"
     end
 
-    refute Review.draft_shareable?(unpublishable(%{"patch_bytes" => 0}))
+    refute Review.draft_shareable?(unpublishable(%{"candidate_retained" => false}))
+
+    refute Review.draft_shareable?(
+             unpublishable(%{"candidate_tree" => String.duplicate("5", 40)})
+           )
+
     refute Review.draft_shareable?(%{})
     refute Review.draft_shareable?(nil)
   end
@@ -138,11 +166,9 @@ defmodule Ryker.Publication.ReviewTest do
       "operation_id" => "operation-review",
       "parent_head" => String.duplicate("4", 40),
       "parent_tree" => String.duplicate("5", 40),
-      "patch_artifact_id" => "patch-review",
-      "patch_bytes" => 1,
-      "patch_digest" => String.duplicate("8", 64),
+      "candidate_retained" => true,
       "patch_truncated" => false,
-      "policy_digest" => String.duplicate("a", 64),
+      "job_digest" => String.duplicate("a", 64),
       "policy_findings" => [],
       "publishable" => true,
       "pull_request" => %{

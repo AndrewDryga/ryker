@@ -1,6 +1,6 @@
 defmodule Ryker.Evals.WorldJudgeCase do
   @moduledoc """
-  Bounded, tool-free quality judgment for one completed model-world run.
+  Bounded quality judgment for one completed model-world run, with no controller tools.
 
   Hard safety and trajectory assertions are evaluated before this case exists.
   The judge can only score the human-language rubric; it cannot override a host

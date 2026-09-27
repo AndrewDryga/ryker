@@ -9,6 +9,27 @@ defmodule Ryker.SettingsTest do
   @actor "control-plane:local"
   @day 86_400
 
+  test "historical policy rows do not keep an otherwise unreferenced repository alive" do
+    {:ok, initialized} = Settings.initialize(@actor)
+
+    {:ok, snapshot} =
+      Settings.put_repository(%{ref: "retired"}, initialized.installation.revision, @actor)
+
+    Repo.query!("""
+    INSERT INTO policy_bindings
+      (id, purpose, scope_kind, scope_ref, policy_name, policy_digest, verified_by, inserted_at, updated_at)
+    VALUES ('00000000-0000-4000-8000-000000000001', 'conversational', 'repository', 'retired',
+      'retired-policy', repeat('a', 64), 'import', NOW(), NOW())
+    """)
+
+    assert {:ok, saved} =
+             Settings.delete_repository("retired", snapshot.installation.revision, @actor)
+
+    assert saved.repositories == []
+    refute Map.has_key?(saved, :policy_bindings)
+    assert Repo.query!("SELECT count(*) FROM policy_bindings").rows == [[1]]
+  end
+
   test "a missing installation is explicit rather than an implicit default grant" do
     assert Settings.fetch() == {:error, :settings_not_initialized}
 

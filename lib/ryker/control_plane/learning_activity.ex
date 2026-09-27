@@ -590,10 +590,10 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   def error("learning_session_not_isolated"),
     do:
-      "The worker gave this session the project environment, MCP servers, write access or Ryker tools, so Ryker sent it nothing. Set project_env: false and project_mcp: false on the learning policy; learning resumes by itself when the policy changes."
+      "The worker reported broader access than the learning job allows, so Ryker sent it nothing. Check the job and worker version before starting a new attempt."
 
   def error("learning_policy_changed"),
-    do: "The learning policy changed before this attempt started, so it never ran."
+    do: "The learning settings changed before this attempt started, so it never ran."
 
   def error("learning_remote_outstanding"),
     do: "An earlier model execution has not been confirmed stopped. Wait for reconciliation."
@@ -605,7 +605,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
     do: "This batch changed after the form was opened. Refresh it before retrying."
 
   def error("learning_disabled"),
-    do: "Learning is disabled. Configure a learning policy before retrying."
+    do: "Learning is disabled. Enable Learning in Settings before retrying."
 
   def error("learning_configuration_invalid"),
     do: "The current learning configuration is invalid. Correct it before retrying."

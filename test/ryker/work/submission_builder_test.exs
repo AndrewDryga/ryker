@@ -256,12 +256,12 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert input["source_ref"] == GitHubSourceRef.item("github-main", "issue_comment", 9_001)
     assert submission["context"]["offer_confirmation_supported"]
 
-    assert "propose_automation" in submission["context"]["responder_state_tools"]
-    assert "propose_memory" in submission["context"]["responder_state_tools"]
-    assert "request_task" in submission["context"]["responder_state_tools"]
+    assert "propose_automation" in submission["context"]["controller_tools"]
+    assert "propose_memory" in submission["context"]["controller_tools"]
+    assert "request_task" in submission["context"]["controller_tools"]
 
-    assert "request_input" in submission["context"]["responder_state_tools"]
-    assert "record_feedback" in submission["context"]["responder_state_tools"]
+    assert "request_input" in submission["context"]["controller_tools"]
+    assert "record_feedback" in submission["context"]["controller_tools"]
   end
 
   test "a Conversation Lab briefing exposes confirmable state offers through Work" do
@@ -277,7 +277,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
       )
 
     assert {:ok, submission} = SubmissionBuilder.build(claim)
-    names = submission["context"]["responder_state_tools"]
+    names = submission["context"]["controller_tools"]
 
     assert submission["context"]["offer_confirmation_supported"]
     assert "propose_automation" in names
@@ -536,7 +536,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
     assert {:ok, submission} = SubmissionBuilder.build(claim)
 
-    assert submission["context"]["responder_state_tools"] ==
+    assert submission["context"]["controller_tools"] ==
              ~w(get_work_state cite_source record_finding request_input wait_for list_automations get_automation propose_automation plan_goal update_goal request_task search_memory propose_memory propose_preference remember_answer update_conversation_summary record_feedback validate_final)
 
     refute Map.has_key?(submission["context"], "state_tools")
@@ -556,12 +556,12 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, unbound} =
              SubmissionBuilder.build(claim, state_tool_capabilities: nil)
 
-    assert unbound["context"]["responder_state_tools"] == []
+    assert unbound["context"]["controller_tools"] == []
 
     assert {:ok, schedule_only} =
              SubmissionBuilder.build(claim, state_tool_capabilities: [:schedules])
 
-    names = schedule_only["context"]["responder_state_tools"]
+    names = schedule_only["context"]["controller_tools"]
     refute "wait_for" in names
     assert "propose_automation" in names
     assert "validate_final" in names
@@ -571,7 +571,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                state_tool_capabilities: [:emisar_approvals, :event_waits]
              )
 
-    assert "record_emisar_approval" in governed["context"]["responder_state_tools"]
+    assert "record_emisar_approval" in governed["context"]["controller_tools"]
   end
 
   test "an observe-only Slack briefing omits confirmation tools it cannot execute" do
@@ -581,7 +581,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
       )
 
     assert {:ok, submission} = SubmissionBuilder.build(claim)
-    names = submission["context"]["responder_state_tools"]
+    names = submission["context"]["controller_tools"]
 
     refute submission["context"]["offer_confirmation_supported"]
     refute "propose_automation" in names

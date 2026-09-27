@@ -3,6 +3,9 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
 
   @behaviour Ryker.Coop.API
 
+  alias Ryker.Evals.Job
+  alias Ryker.Fixtures.WorkerJob
+
   def start_link(candidates, options \\ []) do
     resume_operations = Keyword.get(options, :resume_operations, false)
     {turn, candidates} = resumed_turn(candidates, resume_operations)
@@ -53,7 +56,6 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         omit_validation_receipt: Keyword.get(options, :omit_validation_receipt, false),
         operation_calls: %{},
         operation_mode: Keyword.get(options, :operation_mode, :succeeded),
-        policy_digest: Keyword.get(options, :policy_digest, String.duplicate("a", 64)),
         resume_operations: resume_operations,
         schema: nil,
         # Routing sessions kept ready, by id, beside the one session routing
@@ -62,8 +64,6 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         session: %{
           "external_ref" => nil,
           "id" => "remote_test",
-          "policy" => nil,
-          "policy_digest" => Keyword.get(options, :policy_digest, String.duplicate("a", 64)),
           "project_env" => Keyword.get(options, :project_env, false),
           "project_mcp" => Keyword.get(options, :project_mcp, false),
           "repository_read_only" => Keyword.get(options, :repository_read_only, true),
@@ -94,16 +94,24 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
     Agent.get(agent, fn state -> Map.put(state.sessions, state.session["id"], state.session) end)
   end
 
-  @doc "The routing policy changed: sessions started from now on report this digest."
-  def set_policy_digest(agent, digest) do
-    Agent.update(agent, fn state ->
-      %{state | policy_digest: digest, session: Map.put(state.session, "policy_digest", digest)}
-    end)
-  end
-
   @impl true
   def operation_by_key(agent, key) do
+    receipt =
+      if Agent.get(agent, & &1.resume_operations) and
+           String.starts_with?(key, "ryker:admission:create:"),
+         do:
+           job_receipt(String.replace_prefix(key, "ryker:admission:create:", "ryker-admission:")),
+         else: %{}
+
     Agent.get_and_update(agent, fn state ->
+      session = with_job(state.session, receipt)
+
+      turn =
+        if map_size(receipt) > 0 and state.turn,
+          do: Map.put(state.turn, "session_id", session["id"]),
+          else: state.turn
+
+      state = %{state | session: session, turn: turn}
       calls = Map.update(state.operation_calls, key, 1, &(&1 + 1))
       state = %{state | operation_calls: calls}
 
@@ -112,14 +120,47 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
   end
 
   @impl true
+  def prepare_create_session(_agent, _key, _policy, task, _source) do
+    job_receipt(task)
+    :ok
+  end
+
+  defp job_receipt(task) do
+    if String.starts_with?(task, [
+         "ryker-admission:",
+         "ryker-admission-ready:",
+         "ryker-learning:",
+         "ryker-work:"
+       ]),
+       do: task |> WorkerJob.for_task!() |> WorkerJob.receipt(),
+       else: %{}
+  end
+
+  defp with_job(session, receipt) when map_size(receipt) > 0,
+    do:
+      session
+      |> Map.merge(receipt)
+      |> Map.put("id", "remote:" <> receipt["job_ref"])
+
+  defp with_job(session, _receipt), do: session
+
+  @impl true
+  def create_session(agent, key, %{} = template, task, nil) do
+    {:ok, job, digest} = Job.bind(template, task)
+    receipt = %{"job_ref" => job["job_ref"], "job_digest" => digest}
+    create_routing_session(agent, key, nil, task, nil, receipt)
+  end
+
   def create_session(agent, key, policy, task, source) do
+    receipt = job_receipt(task)
+
     if String.starts_with?(key, "ryker:admission-ready:"),
-      do: create_ready_session(agent, key, policy, task, source),
-      else: create_routing_session(agent, key, policy, task, source)
+      do: create_ready_session(agent, key, policy, task, source, receipt),
+      else: create_routing_session(agent, key, policy, task, source, receipt)
   end
 
   # A session kept ready is a separate Coop session with its own identity.
-  defp create_ready_session(agent, key, policy, task, source) do
+  defp create_ready_session(agent, key, _policy, task, source, receipt) do
     Agent.get_and_update(agent, fn state ->
       id = "ready_#{map_size(state.sessions) + 1}"
 
@@ -127,11 +168,11 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         Map.merge(state.session, %{
           "external_ref" => task,
           "id" => id,
-          "policy" => policy,
-          "policy_digest" => state.policy_digest,
           "revision" => 1,
           "state" => "open"
         })
+        |> with_job(receipt)
+        |> Map.put("id", id)
 
       state = %{
         state
@@ -166,14 +207,14 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
     end)
   end
 
-  defp create_routing_session(agent, key, policy, task, source) do
+  defp create_routing_session(agent, key, _policy, task, source, receipt) do
     Agent.get_and_update(agent, fn state ->
       session =
         Map.merge(state.session, %{
           "external_ref" => task,
-          "policy" => policy,
           "state" => "open"
         })
+        |> with_job(receipt)
 
       response =
         cond do
@@ -521,7 +562,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
          }}
 
       state.resume_operations ->
-        {operation(key, state.operation_mode, calls), state}
+        {operation(key, state.operation_mode, calls, state.session["id"]), state}
 
       true ->
         {:not_found, state}
@@ -663,18 +704,18 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
   defp maybe_put(document, _field, nil), do: document
   defp maybe_put(document, field, value), do: Map.put(document, field, value)
 
-  defp operation(key, :pending_once, 1) do
+  defp operation(key, :pending_once, 1, _session_id) do
     {:ok, %{"id" => "op_pending", "method" => operation_method(key), "state" => "reserved"}}
   end
 
-  defp operation(key, :failed, _calls) do
+  defp operation(key, :failed, _calls, _session_id) do
     {:ok, failed_operation(operation_method(key))}
   end
 
-  defp operation(key, _mode, _calls) do
+  defp operation(key, _mode, _calls, session_id) do
     {resource_type, resource_id} =
       if String.contains?(key, ":create:"),
-        do: {"session", "remote_test"},
+        do: {"session", session_id},
         else: {"turn", "turn_test"}
 
     {:ok, succeeded_operation(operation_method(key), resource_type, resource_id)}

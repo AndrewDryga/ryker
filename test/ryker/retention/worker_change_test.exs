@@ -16,6 +16,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
   alias Ryker.CoopFleet.{Client, Command, ControlPlane, Placement, Worker, WorkerLifecycle}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Retention.Dispatcher
   alias Ryker.Work.{Custody, Session}
 
@@ -26,7 +27,6 @@ defmodule Ryker.Retention.WorkerChangeTest do
   @started String.duplicate("a", 64)
   @newer String.duplicate("3", 64)
   @authority String.duplicate("9", 64)
-  @sandbox String.duplicate("c", 64)
   @workspace "workspace-retention-worker-change"
 
   # Found live 2026-09-24: two "Closing a worker session stopped · Retry won't
@@ -36,7 +36,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
   # attempt behind a button that could never work. Close, discard planning and
   # discard do no policy work, so the worker that holds the session takes them
   # under whatever it runs now.
-  test "a cleanup whose worker changed policy closes without a person" do
+  test "historical cleanup completes after its worker sandbox changes" do
     worker = enroll!("policy-change")
     session = terminal_session!("policy-change", worker)
 
@@ -62,7 +62,8 @@ defmodule Ryker.Retention.WorkerChangeTest do
 
     holder = current_placement!(session)
     assert holder.worker_id == worker
-    assert holder.requirements["policy_digest"] == @newer
+    assert holder.requirements["sandbox_digest"] == @newer
+    refute Map.has_key?(holder.requirements, "policy_digest")
   end
 
   # The same trap, one step later: the worker removed from Ryker can never
@@ -185,7 +186,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
   defp fleet_client(worker, digest, answer) do
     assert {:ok, client} =
              Client.new(
-               capability_names: ["responder-state"],
+               capability_names: ["controller-tools"],
                lease_seconds: 60,
                max_waits: 3,
                poll_interval_ms: 1,
@@ -208,17 +209,20 @@ defmodule Ryker.Retention.WorkerChangeTest do
               "command_id" => command["command_id"],
               "error" => nil,
               "operation_key" => command["idempotency_key"],
-              "resource" => resource,
+              "resource" => %{"status" => 200, "body" => resource},
               "state" => "succeeded"
             }
 
           {:error, error} ->
             %{
               "command_id" => command["command_id"],
-              "error" => error,
+              "error" => nil,
               "operation_key" => command["idempotency_key"],
-              "resource" => nil,
-              "state" => "failed"
+              "resource" => %{
+                "status" => error["status"],
+                "body" => %{"error" => Map.drop(error, ["status"])}
+              },
+              "state" => "succeeded"
             }
         end
       end)
@@ -248,22 +252,26 @@ defmodule Ryker.Retention.WorkerChangeTest do
 
     fn command ->
       remote_id = session.coop_session_id
+      path = "/v1/sessions/#{remote_id}"
+      assert command["kind"] == "api_request"
+      request = command["payload"]
 
-      case {command["kind"], Repo.get_by!(Session, id: session.id).cleanup_status} do
-        {"get_session", :close_pending} ->
+      case {{request["method"], request["path"]},
+            Repo.get_by!(Session, id: session.id).cleanup_status} do
+        {{"GET", ^path}, :close_pending} ->
           {:ok, document.("open", 7)}
 
-        {"close_session", _status} ->
+        {{"POST", close}, _status} when close == path <> "/close" ->
           {:ok,
            %{
              "operation" => operation("op_close", "CloseSession", "session", remote_id),
              "session" => document.("closed", 8)
            }}
 
-        {"get_session", :plan_pending} ->
+        {{"GET", ^path}, :plan_pending} ->
           {:ok, document.("closed", 8)}
 
-        {"plan_discard", _status} ->
+        {{"POST", plan}, _status} when plan == path <> "/discard-plan" ->
           {:ok,
            %{
              "operation" => operation("op_plan", "PlanDiscard", "discard_plan", remote_id),
@@ -286,10 +294,10 @@ defmodule Ryker.Retention.WorkerChangeTest do
              }
            }}
 
-        {"get_session", :discard_pending} ->
+        {{"GET", ^path}, :discard_pending} ->
           {:ok, document.("closed", 8)}
 
-        {"discard_session", _status} ->
+        {{"POST", discard}, _status} when discard == path <> "/discard" ->
           {:ok,
            %{
              "operation" => operation("op_discard", "Discard", "session", remote_id),
@@ -327,10 +335,10 @@ defmodule Ryker.Retention.WorkerChangeTest do
       "command_results" => Keyword.get(options, :command_results, []),
       "event_batches" => [],
       "poll_ref" => "poll:#{worker}:#{System.unique_integer([:positive])}",
-      "version" => 1,
+      "version" => 2,
       "worker" => %{
         "build_version" => "coop-worker-change",
-        "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+        "capabilities" => [%{"name" => "controller-tools", "version" => "1"}],
         "capacity" => %{
           "cooldown_until" => nil,
           "session_slots_free" => 2,
@@ -343,11 +351,8 @@ defmodule Ryker.Retention.WorkerChangeTest do
         },
         "clock_at" => DateTime.to_iso8601(Ryker.Repo.now!()),
         "id" => worker,
-        "policy_authority_digests" => %{@policy => @authority},
-        "policy_digests" => %{@policy => digest},
-        "protocol_version" => "1",
-        "repositories" => [],
-        "sandbox_digest" => @sandbox,
+        "protocol_version" => "2",
+        "sandbox_digest" => digest,
         "state" => "eligible",
         "workspace_ref" => @workspace
       }
@@ -372,12 +377,13 @@ defmodule Ryker.Retention.WorkerChangeTest do
              )
 
     assert {:ok, session} = Custody.pin_episode(id, @policy, @started, @authority, nil)
+    session = WorkerJob.pin!(session)
 
     assert {:ok, placement} =
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: nil,
                  workspace_ref: @workspace
                },
@@ -388,7 +394,11 @@ defmodule Ryker.Retention.WorkerChangeTest do
 
     session =
       session
-      |> Ecto.Changeset.change(coop_session_id: "remote_#{suffix}_#{String.replace(id, "-", "")}")
+      |> Ecto.Changeset.change(
+        coop_session_id: "remote_#{suffix}_#{String.replace(id, "-", "")}",
+        worker_job_document: nil,
+        worker_job_digest: nil
+      )
       |> Repo.update!()
 
     assert {:ok, _transition} =

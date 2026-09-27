@@ -10,7 +10,7 @@ defmodule Ryker.Evals.LearningRunner do
   import Ecto.Query
   alias Ryker.Admission.Decision
   alias Ryker.CanonicalJSON
-  alias Ryker.Evals.LearningProbe
+  alias Ryker.Evals.{Job, LearningProbe}
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
   alias Ryker.Learning.{Batch, Batches, Dispatcher, InputMembership, Runtime}
   alias Ryker.Repo
@@ -27,48 +27,6 @@ defmodule Ryker.Evals.LearningRunner do
   @terminal [:applied, :no_change, :deferred, :superseded]
   @runtime_keys ~w(admission learning work retention delivery publication slack github webhooks
     schedules event_waits state_tools coop_worker_gateway)a
-
-  defmodule ScratchAPI do
-    @moduledoc false
-    # Reject a crossed policy repository before any retained source is submitted.
-    def get_session(client, id), do: client.api.get_session(client.client, id) |> checked(client)
-
-    def create_session(client, key, policy, ref, source),
-      do: client.api.create_session(client.client, key, policy, ref, source) |> checked(client)
-
-    defp checked({:ok, %{"session" => session} = response}, client) do
-      with {:ok, _} <- checked({:ok, session}, client), do: {:ok, response}
-    end
-
-    defp checked({:ok, %{"base_commit" => head} = session}, %{scratch_head: head}),
-      do: {:ok, session}
-
-    defp checked({:ok, %{"operation" => _}} = response, _client), do: response
-    defp checked({:ok, _}, _client), do: {:error, :learning_eval_scratch_mismatch}
-    defp checked(error, _client), do: error
-
-    for {name, arity} <- [
-          capabilities: 0,
-          operation_by_key: 1,
-          get_turn: 2,
-          fence_create_session: 4,
-          submit_frozen_turn: 6,
-          fence_frozen_turn: 6,
-          validate_frozen_candidate: 6,
-          cancel_turn: 4,
-          checkpoint_workspace: 3,
-          get_changes: 1,
-          get_output_artifact: 3,
-          close_session: 3,
-          plan_discard: 5,
-          discard_session: 3
-        ] do
-      arguments = Macro.generate_arguments(arity, __MODULE__)
-
-      def unquote(name)(client, unquote_splicing(arguments)),
-        do: apply(client.api, unquote(name), [client.client, unquote_splicing(arguments)])
-    end
-  end
 
   @doc "Loads exact harvested sources, never the fixture's recorded model answers."
   def recorded_sequence(scenario \\ "haproxy")
@@ -130,14 +88,12 @@ defmodule Ryker.Evals.LearningRunner do
   @doc "Returns a public report even when a model or cleanup step fails; never deletes receipts."
   def run(sequence, options) when is_list(sequence) and is_map(options) do
     with :ok <- preflight(options), :ok <- valid_sequence(sequence) do
-      {head, 0} = System.cmd("git", ["-C", options.scratch_repository, "rev-parse", "HEAD"])
-
       settings =
         %{
-          api: ScratchAPI,
-          client: %{api: options.api, client: options.client, scratch_head: String.trim(head)},
-          policy: options.policy,
-          policy_digest: options.policy_digest,
+          api: options.api,
+          client: options.client,
+          policy: options.job.name,
+          policy_digest: options.job.digest,
           worker_ref: "learning-eval",
           quiet_seconds: 0,
           batch_size: 1
@@ -159,13 +115,11 @@ defmodule Ryker.Evals.LearningRunner do
       {:ok,
        Map.merge(retained_report(), %{
          database: database,
-         policy: options.policy,
-         policy_digest: options.policy_digest,
-         scratch_repository: options.scratch_repository,
-         scratch_head: String.trim(head),
+         job: options.job.document,
+         job_digest: options.job.digest,
          execution: if(options.api == Ryker.Coop.Client, do: "live_model", else: "host_plumbing"),
          transformation:
-           "Original input bodies, identities and event times retained; learning uses silent shadow admission, removed transport capabilities, dedicated evaluation policy and current ingestion receipts. Only the optional, separately labelled Work probe creates an episode with inert delivery.",
+           "Original input bodies, identities and event times retained; learning uses silent shadow admission, removed transport capabilities, an empty-workspace evaluation job and current ingestion receipts. Only the optional, separately labelled Work probe creates an episode with inert delivery.",
          semantic_review:
            "required; structural checks do not prove the model's factual interpretation",
          passed: learned and (is_nil(probe) or probe.passed),
@@ -206,7 +160,9 @@ defmodule Ryker.Evals.LearningRunner do
         {:error, problem}
 
       true ->
-        with :ok <- empty_database(), do: empty_scratch(options[:scratch_repository])
+        with :ok <- empty_database(),
+             {:ok, _job, _digest} <- Job.bind(options[:job], "eval-preflight"),
+             do: :ok
     end
   end
 
@@ -249,25 +205,6 @@ defmodule Ryker.Evals.LearningRunner do
 
     exists
   end
-
-  defp empty_scratch(root) when is_binary(root) do
-    with true <- Path.type(root) == :absolute,
-         {actual, 0} <-
-           System.cmd("git", ["-C", root, "rev-parse", "--show-toplevel"], stderr_to_stdout: true),
-         true <- String.trim(actual) == root,
-         {"", 0} <-
-           System.cmd("git", ["-C", root, "ls-tree", "-r", "--name-only", "HEAD"],
-             stderr_to_stdout: true
-           ),
-         {"", 0} <-
-           System.cmd("git", ["-C", root, "ls-files", "--cached", "--others"],
-             stderr_to_stdout: true
-           ),
-         do: :ok,
-         else: (_ -> {:error, :learning_eval_requires_empty_scratch_repository})
-  end
-
-  defp empty_scratch(_), do: {:error, :learning_eval_requires_empty_scratch_repository}
 
   defp valid_sequence(sequence) when length(sequence) in 1..8 do
     if Enum.all?(sequence, fn step ->
@@ -538,7 +475,7 @@ defmodule Ryker.Evals.LearningRunner do
       :discarded
     else
       case Ryker.Retention.Dispatcher.run_once(
-             api: ScratchAPI,
+             api: settings.api,
              client: settings.client,
              worker_ref: "learning-eval-cleanup",
              closed_session_grace_seconds: 0

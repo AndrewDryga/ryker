@@ -92,7 +92,7 @@ defmodule Ryker.Evals.LearningProbe do
              work_profile: %{
                policy: settings.policy,
                policy_digest: settings.policy_digest,
-               repository_ref: source.repository_ref
+               repository_ref: nil
              }
            ),
          {:ok, %{entry: %{id: claimed_id}, lease_ref: lease}} <-
@@ -122,7 +122,7 @@ defmodule Ryker.Evals.LearningProbe do
              work_policy: %{
                name: settings.policy,
                digest: settings.policy_digest,
-               repository_ref: source.repository_ref
+               repository_ref: nil
              }
            ) do
       {:ok, result.episode}

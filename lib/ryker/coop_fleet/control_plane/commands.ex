@@ -12,24 +12,138 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Command, Placement, Protocol}
+  alias Ryker.CoopFleet.{Bodies, Command, Placement, Protocol, Requests}
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
   alias Ryker.Repo
   alias Ryker.StateTools.Binding
   alias Ryker.Work.{Session, StateBinding, Turn}
 
+  @purposes ~w(
+    api_request
+    get_review
+    get_checkpoint_bundle
+    ensure_workspace
+    create_session
+    get_session
+    get_session_evidence
+    submit_turn
+    get_turn
+    get_output_artifact
+    get_changes
+    get_changes_page
+    run_review
+    plan_discard
+    discard_session
+    validate_candidate
+    cancel_turn
+    fence_operation
+    checkpoint_workspace
+    close_session
+    reconcile_operation
+  )
+
   @terminal_command_states [:succeeded, :failed, :uncertain]
+
+  # Session -> key -> placement is the shared lock order for enqueue and fence.
+  # Source preparation and waiting on the remote worker never hold these locks.
+  @doc false
+  def with_session_command(session_id, key, callback) do
+    with :ok <- Shared.uuid(session_id, :session_id),
+         :ok <- Shared.reference(key, 512, :idempotency_key) do
+      Repo.transaction(fn ->
+        session =
+          Repo.one(
+            from(session in Session, where: session.id == ^session_id, lock: "FOR NO KEY UPDATE")
+          ) ||
+            Shared.rollback({:coop_session_not_found, session_id})
+
+        Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+          "coop-command:" <> key
+        ])
+
+        callback.(session, Repo.get_by(Command, idempotency_key: key))
+      end)
+    end
+  end
+
+  @doc false
+  def create_intent(session, task \\ nil),
+    do:
+      Map.take(session, [
+        :id,
+        :generation,
+        :external_ref,
+        :policy,
+        :policy_digest,
+        :authority_digest,
+        :repository_ref,
+        :repository_context,
+        :repository_source,
+        :environment_ref,
+        :workspace_task
+      ])
+      |> Map.new(fn {field, value} -> {Atom.to_string(field), value} end)
+      |> Map.put("task", task)
+
+  @doc false
+  def local_fence?(%Command{
+        placement_id: nil,
+        status: :failed,
+        error: %{"code" => "operation_not_enqueued"}
+      }),
+      do: true
+
+  def local_fence?(_command), do: false
+
+  @doc false
+  def fence_command(%Session{} = session, kind, intent, key)
+      when kind in ~w(create_session submit_turn) do
+    with_session_command(session.id, key, fn current, command ->
+      unless create_intent(current) == create_intent(session),
+        do: Shared.rollback({:coop_worker_command_conflict, key})
+
+      fence_command_locked(command, current, kind, intent, key)
+    end)
+  end
+
+  defp fence_command_locked(%Command{} = command, session, kind, intent, key) do
+    if command.session_id == session.id and command.kind == kind and
+         (not local_fence?(command) or command.payload == intent),
+       do: command,
+       else: Shared.rollback({:coop_worker_command_conflict, key})
+  end
+
+  defp fence_command_locked(nil, session, kind, intent, key) do
+    error = %{
+      "code" => "operation_not_enqueued",
+      "status" => 409,
+      "detail" => "The fleet mutation was fenced before it could reach Coop."
+    }
+
+    command = %Command{
+      id: Ecto.UUID.generate(),
+      session_id: session.id,
+      kind: kind,
+      payload: intent,
+      payload_fingerprint: CanonicalJSON.digest(intent),
+      idempotency_key: key,
+      status: :failed,
+      operation_key: key,
+      error: error,
+      completed_at: Repo.now!()
+    }
+
+    Repo.insert!(%{command | result_fingerprint: CanonicalJSON.digest(error)})
+  end
 
   @spec enqueue_command(Ecto.UUID.t(), String.t(), map(), String.t()) ::
           {:ok, Command.t()} | {:error, term()}
   def enqueue_command(placement_id, kind, payload, idempotency_key) do
     with :ok <- Shared.uuid(placement_id, :placement_id),
-         :ok <- enum(kind, Protocol.command_kinds(), :command_kind),
+         :ok <- enum(kind, @purposes, :command_kind),
          :ok <- CanonicalJSON.validate(payload, max_bytes: 768 * 1_024),
          :ok <- Shared.reference(idempotency_key, 512, :idempotency_key) do
-      Repo.transaction(fn ->
-        enqueue_command_locked(placement_id, kind, payload, idempotency_key)
-      end)
+      enqueue_on_placement(placement_id, kind, payload, idempotency_key)
     else
       {:error, {:too_large, _actual, _limit}} ->
         {:error, {:invalid_coop_worker_command, :payload}}
@@ -39,7 +153,19 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     end
   end
 
-  defp enqueue_command_locked(placement_id, kind, payload, idempotency_key) do
+  defp enqueue_on_placement(placement_id, kind, payload, idempotency_key) do
+    case Repo.get(Placement, placement_id) do
+      %Placement{session_id: session_id} ->
+        with_session_command(session_id, idempotency_key, fn session, _command ->
+          enqueue_command_locked(session, placement_id, kind, payload, idempotency_key)
+        end)
+
+      nil ->
+        {:error, {:coop_session_placement_not_found, placement_id}}
+    end
+  end
+
+  defp enqueue_command_locked(session, placement_id, kind, payload, idempotency_key) do
     fingerprint =
       CanonicalJSON.digest(%{
         "idempotency_key" => idempotency_key,
@@ -57,6 +183,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         Shared.rollback({:coop_worker_command_conflict, idempotency_key})
 
       nil ->
+        validate_create_lifecycle(session, kind)
         now = Repo.now!()
 
         placement =
@@ -69,6 +196,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
         unless Placements.current?(placement, now),
           do: Shared.rollback({:coop_session_placement_not_current, placement_id})
+
+        case placement_request(placement, kind, payload) do
+          :ok -> :ok
+          {:error, reason} -> Shared.rollback(reason)
+        end
 
         %Command{}
         |> cast(
@@ -123,6 +255,57 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     end
   end
 
+  defp validate_create_lifecycle(session, "create_session") do
+    unless session.cleanup_status == :active and is_nil(session.coop_session_id),
+      do: Shared.rollback({:coop_fleet_authority_mismatch, :worker_job})
+  end
+
+  defp validate_create_lifecycle(_session, _kind), do: :ok
+
+  defp placement_request(
+         %{requirements: %{"purpose" => "stop_or_cleanup"}} = placement,
+         kind,
+         payload
+       ) do
+    with {:ok, request} <- Requests.encode(kind, payload, placement),
+         %Session{coop_session_id: id} when is_binary(id) <-
+           Repo.get(Session, placement.session_id),
+         true <- cleanup_request?(request, id) do
+      :ok
+    else
+      _ -> {:error, :coop_cleanup_only_placement}
+    end
+  end
+
+  defp placement_request(_placement, _kind, _payload), do: :ok
+
+  defp cleanup_request?(%{"method" => "GET"}, _id), do: true
+  defp cleanup_request?(%{"method" => "POST", "path" => "/v1/operations/fence"}, _id), do: true
+
+  defp cleanup_request?(%{"method" => "POST", "path" => path}, id) when is_binary(path) do
+    prefix = "/v1/sessions/" <> URI.encode(id, &URI.char_unreserved?/1)
+
+    case String.split(path, prefix, parts: 2) do
+      ["", suffix] ->
+        suffix in ~w(/close /discard-plan /discard) or cancel_path?(suffix)
+
+      _ ->
+        false
+    end
+  end
+
+  defp cleanup_request?(_request, _id), do: false
+
+  defp cancel_path?(path) do
+    case String.split(path, "/") do
+      ["", "turns", id, "cancel"] when id != "" ->
+        not String.contains?(URI.decode(id), ["/", "\\", <<0>>])
+
+      _ ->
+        false
+    end
+  end
+
   @doc false
   def fail_undelivered_commands(placement, now) do
     commands =
@@ -140,28 +323,32 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         "status" => 409
       }
 
-      fingerprint =
-        CanonicalJSON.digest(%{
-          "command_id" => command.id,
-          "error" => error,
-          "operation_key" => command.idempotency_key,
-          "resource" => nil,
-          "state" => "failed"
-        })
-
-      command
-      |> change(%{
-        completed_at: now,
-        error: error,
-        operation_key: command.idempotency_key,
-        result_fingerprint: fingerprint,
-        status: :failed
-      })
-      |> check_constraint(:status, name: :coop_worker_command_result_valid)
-      |> Repo.update!()
+      reject_command(command, error, now)
     end)
 
     :ok
+  end
+
+  defp reject_command(command, error, now) do
+    fingerprint =
+      CanonicalJSON.digest(%{
+        "command_id" => command.id,
+        "error" => error,
+        "operation_key" => command.idempotency_key,
+        "resource" => nil,
+        "state" => "failed"
+      })
+
+    command
+    |> change(%{
+      completed_at: now,
+      error: error,
+      operation_key: command.idempotency_key,
+      result_fingerprint: fingerprint,
+      status: :failed
+    })
+    |> check_constraint(:status, name: :coop_worker_command_result_valid)
+    |> Repo.update!()
   end
 
   @doc false
@@ -185,65 +372,78 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   end
 
   @doc false
-  def apply_command_results(worker_id, results, now) do
-    Enum.map(results, fn result ->
-      command = locked_command!(result["command_id"], worker_id)
-      fingerprint = CanonicalJSON.digest(result)
-      placement = locked_command_placement!(command)
+  def apply_command_results(worker_id, results, now, body_root) do
+    Enum.map(results, &apply_command_result(worker_id, &1, now, body_root))
+  end
 
-      cond do
-        command.operation_key != nil and command.result_fingerprint == fingerprint ->
-          :ok
+  defp apply_command_result(worker_id, result, now, body_root) do
+    command = locked_command!(result["command_id"], worker_id)
+    fingerprint = CanonicalJSON.digest(result)
+    placement = locked_command_placement!(command)
 
-        command.operation_key != nil ->
-          Shared.rollback({:coop_worker_command_result_conflict, command.id})
+    cond do
+      command.operation_key != nil and command.result_fingerprint == fingerprint ->
+        :ok
 
-        command.status == :queued ->
-          Shared.rollback({:coop_worker_command_not_delivered, command.id})
+      command.operation_key != nil ->
+        Shared.rollback({:coop_worker_command_result_conflict, command.id})
 
-        command.idempotency_key != result["operation_key"] ->
-          Shared.rollback({:coop_worker_operation_key_mismatch, command.id})
+      command.status == :queued ->
+        Shared.rollback({:coop_worker_command_not_delivered, command.id})
 
-        not Placements.current?(placement, now) ->
-          command
-          |> change(%{
-            completed_at: now,
-            error: %{
-              "code" => "placement_not_authorized",
-              "detail" => "worker result arrived after placement authority ended",
-              "status" => 409
-            },
-            operation_key: result["operation_key"],
-            result_fingerprint: fingerprint,
-            status: :uncertain
-          })
-          |> check_constraint(:status, name: :coop_worker_command_result_valid)
-          |> Repo.update()
-          |> Shared.unwrap_write()
+      command.idempotency_key != result["operation_key"] ->
+        Shared.rollback({:coop_worker_operation_key_mismatch, command.id})
 
-        true ->
-          attributes = %{
-            completed_at: now,
-            error: result["error"],
-            operation_key: result["operation_key"],
-            result: result["resource"],
-            result_fingerprint: fingerprint,
-            status: String.to_existing_atom(result["state"])
-          }
+      not Placements.current?(placement, now) ->
+        command
+        |> change(%{
+          completed_at: now,
+          error: %{
+            "code" => "placement_not_authorized",
+            "detail" => "worker result arrived after placement authority ended",
+            "status" => 409
+          },
+          operation_key: result["operation_key"],
+          result_fingerprint: fingerprint,
+          status: :uncertain
+        })
+        |> check_constraint(:status, name: :coop_worker_command_result_valid)
+        |> Repo.update()
+        |> Shared.unwrap_write()
 
-          command
-          |> change(attributes)
-          |> check_constraint(:status, name: :coop_worker_command_result_valid)
-          |> Repo.update()
-          |> Shared.unwrap_write()
-      end
+      true ->
+        verify_response_body(command.id, body_root, get_in(result, ["resource", "body_ref"]))
 
-      command.id
-    end)
+        attributes = %{
+          completed_at: now,
+          error: result["error"],
+          operation_key: result["operation_key"],
+          result: result["resource"],
+          result_fingerprint: fingerprint,
+          status: String.to_existing_atom(result["state"])
+        }
+
+        command
+        |> change(attributes)
+        |> check_constraint(:status, name: :coop_worker_command_result_valid)
+        |> Repo.update()
+        |> Shared.unwrap_write()
+    end
+
+    command.id
+  end
+
+  defp verify_response_body(_id, _root, nil), do: :ok
+
+  defp verify_response_body(id, root, reference) do
+    case Bodies.fetch(root, id, :response, reference) do
+      {:ok, _path, _identity} -> :ok
+      _ -> Shared.rollback({:coop_worker_response_body_missing, id})
+    end
   end
 
   @doc false
-  def deliver_commands(worker_id, now, state_tools_secret) do
+  def deliver_commands(worker_id, now, state_tools_secret, body_root, checkpoint_key) do
     commands =
       Repo.all(
         from(command in Command,
@@ -260,58 +460,108 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         )
       )
 
-    Enum.map(commands, fn {command, placement} ->
+    {delivered, _bytes} =
+      Enum.reduce(commands, {[], 0}, fn {command, placement}, acc ->
+        case materialize_command_payload(
+               command,
+               placement,
+               state_tools_secret,
+               body_root,
+               checkpoint_key
+             ) do
+          {:ok, request} ->
+            deliver_command(command, placement, request, now, acc)
+
+          {:error, _reason} when command.status == :queued ->
+            reject_command(
+              command,
+              %{
+                "code" => "invalid_command",
+                "status" => 400,
+                "detail" => "The frozen request cannot be prepared."
+              },
+              now
+            )
+
+            acc
+
+          _deferred ->
+            # A storage outage or an already-delivered request cannot roll back
+            # other results and the heartbeat that keeps their placements alive.
+            acc
+        end
+      end)
+
+    Enum.reverse(delivered)
+  end
+
+  defp deliver_command(command, placement, request, now, {delivered, bytes} = acc) do
+    envelope = %{
+      "command_id" => command.id,
+      "command_version" => command.command_version,
+      "idempotency_key" => command.idempotency_key,
+      "kind" => "api_request",
+      "lease_expires_at" => DateTime.to_iso8601(placement.lease_expires_at),
+      "lease_ref" => placement.lease_ref,
+      "payload" => request,
+      "placement_generation" => placement.generation,
+      "session_ref" => placement.session_id,
+      "worker_id" => placement.worker_id
+    }
+
+    size = byte_size(CanonicalJSON.encode!(envelope))
+
+    if bytes + size <= 768 * 1_024 do
       if command.status == :queued do
-        command
-        |> change(%{delivered_at: now, status: :delivered})
-        |> Repo.update!()
+        command |> change(%{delivered_at: now, status: :delivered}) |> Repo.update!()
       end
 
-      placement
-      |> change(%{last_command_id: command.id})
-      |> Repo.update!()
-
-      %{
-        "command_id" => command.id,
-        "command_version" => command.command_version,
-        "idempotency_key" => command.idempotency_key,
-        "kind" => command.kind,
-        "lease_expires_at" => DateTime.to_iso8601(placement.lease_expires_at),
-        "lease_ref" => placement.lease_ref,
-        "payload" => materialize_command_payload!(command, placement, state_tools_secret),
-        "placement_generation" => placement.generation,
-        "session_ref" => placement.session_id,
-        "worker_id" => placement.worker_id
-      }
-    end)
-  end
-
-  defp materialize_command_payload!(command, placement, state_tools_secret) do
-    command.payload
-    |> materialize_binding_at!(command, placement, state_tools_secret, ["responder_binding"])
-    |> materialize_binding_at!(
-      command,
-      placement,
-      state_tools_secret,
-      ["request", "responder_binding"]
-    )
-  end
-
-  defp materialize_binding_at!(payload, command, placement, state_tools_secret, path) do
-    case get_in(payload, path) do
-      nil ->
-        payload
-
-      descriptor ->
-        put_in(
-          payload,
-          path,
-          materialize_binding!(command, placement, descriptor, state_tools_secret)
-        )
+      placement |> change(%{last_command_id: command.id}) |> Repo.update!()
+      {[envelope | delivered], bytes + size}
+    else
+      acc
     end
   end
 
-  defp materialize_binding!(
+  defp materialize_command_payload(
+         command,
+         placement,
+         state_tools_secret,
+         body_root,
+         checkpoint_key
+       ) do
+    with :ok <- placement_request(placement, command.kind, command.payload),
+         {:ok, payload} <-
+           materialize_binding_at(command.payload, command, placement, state_tools_secret, [
+             "controller_tools"
+           ]),
+         {:ok, payload} <-
+           materialize_binding_at(payload, command, placement, state_tools_secret, [
+             "request",
+             "controller_tools"
+           ]),
+         {:ok, request} <- Requests.encode(command.kind, payload, placement) do
+      case Bodies.prepare_request(request, body_root, command.id, checkpoint_key) do
+        {:ok, request} -> {:ok, request}
+        {:error, _reason} = error -> {:defer, error}
+      end
+    end
+  end
+
+  defp materialize_binding_at(payload, command, placement, state_tools_secret, path) do
+    case get_in(payload, path) do
+      nil ->
+        {:ok, payload}
+
+      descriptor ->
+        with {:ok, binding} <-
+               materialize_binding(command, placement, descriptor, state_tools_secret) do
+          {:ok, put_in(payload, path, binding)}
+        end
+    end
+  end
+
+  defp materialize_binding(
          command,
          placement,
          %{"endpoint" => endpoint, "token_sha256" => token_sha256} = descriptor,
@@ -344,14 +594,14 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
            ),
          true <- binding.token_sha256 == token_sha256,
          {:ok, _current} <- Binding.resolve(binding.token) do
-      StateBinding.document(binding)
+      {:ok, StateBinding.document(binding)}
     else
-      _invalid -> Shared.rollback({:coop_worker_state_binding_not_current, command.id})
+      _invalid -> {:error, {:coop_worker_state_binding_not_current, command.id}}
     end
   end
 
-  defp materialize_binding!(command, _placement, _descriptor, _state_tools_secret),
-    do: Shared.rollback({:coop_worker_state_binding_not_current, command.id})
+  defp materialize_binding(command, _placement, _descriptor, _state_tools_secret),
+    do: {:error, {:coop_worker_state_binding_not_current, command.id}}
 
   defp locked_command!(command_id, worker_id) do
     Repo.one(

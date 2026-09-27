@@ -70,10 +70,10 @@ defmodule Ryker.Work.Prompt do
   starting from somebody's branch or pull request never permits pushing to it, and engineering work
   still has to commit its own changes beyond the admitted source tree.
 
-  The fixed tools are exposed by the responder-state MCP server. work.responder_state_tools names
+  The fixed tools are exposed by the controller-tools MCP server. work.controller_tools names
   the tools supplied to this session. They need not appear as separate top-level functions: use the
   runtime's generic MCP caller or tool search. When that caller accepts server, tool, and arguments:
-  Generic MCP call example: {"server":"responder-state","tool":"list_automations","arguments":{"limit":20,"relationship":"either"}}
+  Generic MCP call example: {"server":"controller-tools","tool":"list_automations","arguments":{"limit":20,"relationship":"either"}}
   If the runtime exposes direct named tools, pass the same arguments to that tool instead.
   Read the tool's input schema before choosing other arguments; names alone do not specify its fields
   or bounds. list_automations accepts limit 1-50, not 100. validate_final is always required, even for

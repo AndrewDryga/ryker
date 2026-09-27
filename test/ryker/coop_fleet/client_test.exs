@@ -7,6 +7,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     Client,
     Command,
     ControlPlane,
+    JobSpec,
     Placement,
     WorkspaceCheckpointTransfer
   }
@@ -34,10 +35,10 @@ defmodule Ryker.CoopFleet.ClientTest do
 
       case kind do
         "create_session" ->
-          {:ok, %{"id" => "remote-resource", "revision" => 1, "state" => "open"}}
+          {:ok, %{"session" => %{"id" => "remote-resource", "revision" => 1, "state" => "open"}}}
 
         "ensure_workspace" ->
-          {:ok, %{"id" => "remote-resource", "revision" => 2, "state" => "open"}}
+          {:ok, %{"session" => %{"id" => "remote-resource", "revision" => 2, "state" => "open"}}}
 
         "checkpoint_workspace" ->
           {:ok,
@@ -64,6 +65,9 @@ defmodule Ryker.CoopFleet.ClientTest do
         "run_review" ->
           Process.get(:coop_fleet_run_review_result, {:ok, %{"id" => "remote-resource"}})
 
+        "get_output_artifact" ->
+          Process.get(:coop_fleet_binary_result, {:error, :missing_test_body})
+
         _other ->
           {:ok, %{"id" => "remote-resource", "state" => "succeeded"}}
       end
@@ -71,7 +75,11 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     def await_command(command_id, _options) do
       send(Process.get(:coop_fleet_client_test_pid), {:fleet_await, command_id})
-      Process.get(:coop_fleet_await_result, {:error, :unexpected_command_wait})
+
+      case Process.get(:coop_fleet_await_result, {:error, :unexpected_command_wait}) do
+        callback when is_function(callback, 1) -> callback.(command_id)
+        result -> result
+      end
     end
   end
 
@@ -89,7 +97,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert {:ok, client} =
              Client.new(
                bridge: FakeBridge,
-               capability_names: ["responder-state"],
+               capability_names: ["controller-tools"],
                lease_seconds: 30,
                max_waits: 2,
                poll_interval_ms: 1,
@@ -113,6 +121,48 @@ defmodule Ryker.CoopFleet.ClientTest do
              Client.new(workspace_ref: String.duplicate("w", 1_025))
   end
 
+  test "create and fence use the same pinned job instead of a worker policy", %{
+    client: client,
+    session: session
+  } do
+    job = session.worker_job_document
+    digest = session.worker_job_digest
+
+    key = "ryker:work:create:#{session.id}:job"
+
+    assert {:ok, %{"session" => %{"id" => "remote-resource"}}} =
+             Client.create_session(
+               client,
+               key,
+               @policy,
+               session.external_ref,
+               session.repository_source
+             )
+
+    assert_receive {:fleet_command, ^session, "create_session", payload, ^key, _options}
+
+    assert payload == %{
+             "external_ref" => session.external_ref,
+             "job" => job,
+             "job_digest" => digest
+           }
+
+    session
+    |> Ecto.Changeset.change(worker_job_digest: String.duplicate("f", 64))
+    |> Repo.update!()
+
+    assert Client.fence_create_session(
+             client,
+             key,
+             @policy,
+             session.external_ref,
+             session.repository_source
+           ) ==
+             {:error, {:coop_fleet_authority_mismatch, :worker_job}}
+
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
   test "an unplaced session exposes only its enforced placement capability", %{session: session} do
     assert {:ok, unversioned} = Client.new(workspace_ref: "workspace-main")
 
@@ -134,13 +184,239 @@ defmodule Ryker.CoopFleet.ClientTest do
              {:error, {:coop_upgrade_required, :repository_freshness_v2}}
   end
 
+  test "a create key selects its execution even when another session reuses the workspace offer",
+       %{client: client, session: session} do
+    offer = "offer:shared-create"
+
+    session =
+      session |> Ecto.Changeset.change(workspace_task: %{"offer_ref" => offer}) |> Repo.update!()
+
+    newer =
+      session!()
+      |> Ecto.Changeset.change(generation: 2, workspace_task: %{"offer_ref" => offer})
+      |> Repo.update!()
+
+    key = "ryker:work:create:#{session.id}:g#{session.create_generation}"
+
+    assert :ok =
+             Client.prepare_create_session(client, key, @policy, offer, session.repository_source)
+
+    assert {:ok, _} =
+             Client.create_session(client, key, @policy, offer, session.repository_source)
+
+    assert_receive {:fleet_command, ^session, "create_session", _, ^key, _}
+    refute_receive {:fleet_command, ^newer, "create_session", _, _, _}
+
+    assert {:ok, receipt} =
+             Client.fence_create_session(client, key, @policy, offer, session.repository_source)
+
+    assert Repo.get_by!(Command, idempotency_key: key).session_id == session.id
+
+    session |> Ecto.Changeset.change(create_generation: 2) |> Repo.update!()
+
+    assert {:ok, ^receipt} =
+             Client.fence_create_session(client, key, @policy, offer, session.repository_source)
+  end
+
+  test "an unknown stale create key cannot prepare or enqueue a newer attempt",
+       %{client: client, session: session} do
+    key = "ryker:work:create:#{session.id}:g#{session.create_generation}"
+    session |> Ecto.Changeset.change(create_generation: 2) |> Repo.update!()
+
+    for call <- [
+          &Client.prepare_create_session/5,
+          &Client.create_session/5,
+          &Client.fence_create_session/5
+        ] do
+      assert {:error, {:coop_worker_command_conflict, ^key}} =
+               call.(client, key, @policy, session.external_ref, session.repository_source)
+    end
+
+    refute_receive {:fleet_command, _, _, _, _, _}
+    assert Repo.aggregate(Command, :count) == 0
+    assert Repo.aggregate(Placement, :count) == 0
+  end
+
+  test "a create fence survives late source preparation without placing or launching work", %{
+    client: client,
+    session: session
+  } do
+    session =
+      session
+      |> Ecto.Changeset.change(worker_job_document: nil, worker_job_digest: nil)
+      |> Repo.update!()
+
+    key = "create:source-unavailable"
+
+    assert {:ok, %{"state" => "failed", "error_code" => "operation_not_enqueued"}} =
+             Client.fence_create_session(
+               client,
+               key,
+               session.policy,
+               session.external_ref,
+               session.repository_source
+             )
+
+    assert Repo.get!(Ryker.Work.Session, session.id).worker_job_document == nil
+    assert Repo.aggregate(Placement, :count) == 0
+
+    assert %Command{
+             status: :failed,
+             placement_id: nil,
+             error: %{"code" => "operation_not_enqueued"}
+           } =
+             Repo.get_by!(Command, idempotency_key: key)
+
+    # Source preparation runs without DB locks. A creator already fetching when
+    # this cancellation arrived can finish pinning, but must never enqueue afterward.
+    session = pin_job!(session)
+    assert {:ok, restarted} = Client.new(workspace_ref: "workspace-main")
+
+    assert {:ok, receipt} = Client.operation_by_key(restarted, key)
+    assert receipt["state"] == "failed"
+    assert receipt["error_code"] == "operation_not_enqueued"
+
+    assert {:error, {:coop_error, 409, "operation_not_enqueued", _}} =
+             Client.create_session(
+               restarted,
+               key,
+               session.policy,
+               session.external_ref,
+               session.repository_source
+             )
+
+    assert {:ok, ^receipt} =
+             Client.fence_create_session(
+               restarted,
+               key,
+               session.policy,
+               session.external_ref,
+               session.repository_source
+             )
+
+    assert Repo.aggregate(Placement, :count) == 0
+    assert Repo.aggregate(Command, :count) == 1
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
+  test "a create fence binds the requested task but survives advancing the next create attempt",
+       %{client: client, session: session} do
+    offer = "offer:fenced-workspace"
+
+    session =
+      session |> Ecto.Changeset.change(workspace_task: %{"offer_ref" => offer}) |> Repo.update!()
+
+    key = "create:task-identity"
+
+    assert {:ok, receipt} =
+             Client.fence_create_session(
+               client,
+               key,
+               session.policy,
+               offer,
+               session.repository_source
+             )
+
+    assert {:error, {:coop_worker_command_conflict, ^key}} =
+             Client.fence_create_session(
+               client,
+               key,
+               session.policy,
+               session.external_ref,
+               session.repository_source
+             )
+
+    assert {:ok, real} = Client.new(workspace_ref: "workspace-main")
+
+    assert {:error, {:coop_worker_command_conflict, ^key}} =
+             Client.create_session(
+               real,
+               key,
+               session.policy,
+               session.external_ref,
+               session.repository_source
+             )
+
+    session
+    |> Ecto.Changeset.change(create_generation: session.create_generation + 1)
+    |> Repo.update!()
+
+    assert {:ok, ^receipt} =
+             Client.fence_create_session(
+               client,
+               key,
+               session.policy,
+               offer,
+               session.repository_source
+             )
+
+    assert Repo.aggregate(Placement, :count) == 0
+  end
+
+  test "unplaced terminal commands cannot have missing receipts or partial placement identity", %{
+    client: client,
+    session: session
+  } do
+    key = "create:database-constraint"
+
+    assert {:ok, _receipt} =
+             Client.fence_create_session(
+               client,
+               key,
+               session.policy,
+               session.external_ref,
+               session.repository_source
+             )
+
+    command = Repo.get_by!(Command, idempotency_key: key)
+
+    for fields <- [
+          %{operation_key: nil},
+          %{result_fingerprint: nil},
+          %{worker_id: "partial-worker"}
+        ] do
+      changeset =
+        command
+        |> Ecto.Changeset.change(fields)
+        |> Ecto.Changeset.check_constraint(:operation_key,
+          name: :coop_worker_command_identity_valid
+        )
+
+      assert {:error, %Ecto.Changeset{errors: [_ | _]}} = Repo.update(changeset, mode: :savepoint)
+    end
+
+    assert Repo.get!(Command, command.id) == command
+  end
+
+  test "direct create enqueue cannot resurrect a bound or discarded session", %{session: session} do
+    command = command!(session, "placement-before-pruning")
+
+    for attributes <- [
+          %{coop_session_id: "already-bound"},
+          %{coop_session_id: nil, cleanup_status: :discarded}
+        ] do
+      session = session |> Ecto.Changeset.change(attributes) |> Repo.update!()
+      key = "create:after-prune:#{Ecto.UUID.generate()}"
+
+      assert {:error, {:coop_fleet_authority_mismatch, :worker_job}} =
+               ControlPlane.enqueue_command(
+                 command.placement_id,
+                 "create_session",
+                 create_payload(session, session.external_ref),
+                 key
+               )
+
+      refute Repo.get_by(Command, idempotency_key: key)
+    end
+  end
+
   test "create session carries the admission-pinned authority and no worker-selected policy", %{
     client: client,
     session: session
   } do
     key = "ryker:work:create:#{session.id}:g1"
 
-    assert {:ok, %{"id" => "remote-resource"}} =
+    assert {:ok, %{"session" => %{"id" => "remote-resource"}}} =
              Client.create_session(
                client,
                key,
@@ -151,16 +427,10 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     assert_receive {:fleet_command, ^session, "create_session", payload, ^key, options}
 
-    assert payload == %{
-             "authority_digest" => @authority_digest,
-             "external_ref" => session.external_ref,
-             "policy" => @policy,
-             "policy_digest" => @policy_digest,
-             "source" => %{"kind" => "default"}
-           }
+    assert payload == create_payload(session, session.external_ref)
 
     assert Keyword.fetch!(options, :workspace_ref) == "workspace-main"
-    assert Keyword.fetch!(options, :capability_names) == ["responder-state"]
+    assert Keyword.fetch!(options, :capability_names) == ["controller-tools"]
 
     assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
              Client.create_session(
@@ -190,20 +460,14 @@ defmodule Ryker.CoopFleet.ClientTest do
     refute_receive {:fleet_command, _, _, _, _, _}
 
     session =
-      session |> Ecto.Changeset.change(repository_source: source) |> Repo.update!()
+      session |> Ecto.Changeset.change(repository_source: source) |> Repo.update!() |> pin_job!()
 
-    assert {:ok, %{"id" => "remote-resource"}} =
+    assert {:ok, %{"session" => %{"id" => "remote-resource"}}} =
              Client.create_session(client, key, @policy, session.external_ref, source)
 
     assert_receive {:fleet_command, ^session, "create_session", created, ^key, _options}
 
-    assert created == %{
-             "authority_digest" => @authority_digest,
-             "external_ref" => session.external_ref,
-             "policy" => @policy,
-             "policy_digest" => @policy_digest,
-             "source" => %{"kind" => "branch", "name" => "feature/payments"}
-           }
+    assert created == create_payload(session)
 
     fence_key = "#{key}:durable"
 
@@ -265,55 +529,25 @@ defmodule Ryker.CoopFleet.ClientTest do
     refute_receive {:fleet_command, _, _, _, _, _}
   end
 
-  test "a worker without the versioned source-selector capability is never eligible", %{
-    client: client,
-    session: session
-  } do
-    command = command!(session, "selector-capability")
-
-    assert {:ok, _response} =
-             ControlPlane.handle_poll(
-               command.worker_id,
-               poll(command.worker_id, "freshness-only", true)
-             )
-
-    assert {:ok, %{"repository_source_selector_versions" => []}} =
-             Client.capabilities(client, session)
-
-    assert {:ok, _response} =
-             ControlPlane.handle_poll(
-               command.worker_id,
-               poll(command.worker_id, "selector-upgraded", true, true)
-             )
-
-    assert {:ok,
-            %{
-              "repository_freshness_receipt_versions" => [2],
-              "repository_source_selector_versions" => [1]
-            }} = Client.capabilities(client, session)
-  end
-
-  test "an unplaced session reports the configured source-selector requirement", %{
+  test "an unplaced session reports the configured freshness requirement", %{
     session: session
   } do
     assert {:ok, unversioned} = Client.new(workspace_ref: "workspace-main")
 
-    assert {:ok, %{"repository_source_selector_versions" => []}} =
+    assert {:ok, %{"repository_freshness_receipt_versions" => []}} =
              Client.capabilities(unversioned, session)
 
     assert {:ok, versioned} =
              Client.new(
                capability_versions: %{
-                 "repository-freshness" => "2",
-                 "repository-source-selector" => "1"
+                 "repository-freshness" => "2"
                },
                workspace_ref: "workspace-main"
              )
 
     assert {:ok,
             %{
-              "repository_freshness_receipt_versions" => [2],
-              "repository_source_selector_versions" => [1]
+              "repository_freshness_receipt_versions" => [2]
             }} = Client.capabilities(versioned, session)
   end
 
@@ -381,7 +615,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     key = "ryker:work:create:#{session.id}:g1"
 
-    assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
+    assert {:ok, %{"session" => %{"id" => "remote-resource", "revision" => 2}}} =
              Client.create_session(
                client,
                key,
@@ -405,13 +639,18 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert ensure_key =~ "ryker:workspace:"
   end
 
-  test "an accepted engineering milestone requests one exact durable checkpoint", %{
+  test "a worker's invented transfer receipt is not accepted as durable checkpoint custody", %{
     client: client,
     session: session
   } do
+    client = %{
+      client
+      | bridge_options: Keyword.put(client.bridge_options, :checkpoint_secrets, [])
+    }
+
     session = bind_session!(session, "coop-session-checkpoint")
 
-    assert {:ok, %{"transfer_id" => "018f04f4-5555-7000-8000-000000000001"}} =
+    assert {:error, :checkpoint_not_available} =
              Client.checkpoint_workspace(client, session.coop_session_id, "checkpoint-key-1", 4)
 
     assert_receive {:fleet_command, ^session, "checkpoint_workspace", payload, "checkpoint-key-1",
@@ -506,6 +745,8 @@ defmodule Ryker.CoopFleet.ClientTest do
         %{
           authority_digest: source.authority_digest,
           repository_source: source.repository_source,
+          worker_job_document: source.worker_job_document,
+          worker_job_digest: source.worker_job_digest,
           workspace_task: nil
         }
       )
@@ -515,7 +756,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     key = "ryker:work:create:#{replacement.id}:g1"
 
-    assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
+    assert {:ok, %{"session" => %{"id" => "remote-resource", "revision" => 2}}} =
              Client.create_session(
                client,
                key,
@@ -539,6 +780,28 @@ defmodule Ryker.CoopFleet.ClientTest do
              "transfer_id" => transfer_id
            }
 
+    saved = Repo.get!(WorkspaceCheckpointTransfer, transfer_id)
+
+    legacy =
+      %{saved | id: Ecto.UUID.generate(), checkpoint_ref: "checkpoint:historical-v1"}
+      |> Ecto.Changeset.change(
+        descriptor: Map.put(checkpoint, "version", 1),
+        inserted_at: DateTime.add(saved.inserted_at, 1, :second)
+      )
+      |> Repo.insert!()
+
+    assert {:error, {:coop_workspace_checkpoint_read_only, "checkpoint:historical-v1"}} =
+             Client.create_session(
+               client,
+               key,
+               @policy,
+               workspace_task["offer_ref"],
+               replacement.repository_source
+             )
+
+    refute_receive {:fleet_command, ^replacement, "ensure_workspace", _, _, _}
+    Repo.delete!(legacy)
+
     # A checkpoint taken from another source can never seed this generation.
     # Rotation copies the selector verbatim, so a mismatch is tampering or a
     # bug, and the answer is to refuse rather than start from the wrong tree.
@@ -547,7 +810,10 @@ defmodule Ryker.CoopFleet.ClientTest do
     |> Repo.update!()
 
     other =
-      replacement |> Ecto.Changeset.change(external_ref: "other-generation") |> Repo.update!()
+      replacement
+      |> Ecto.Changeset.change(external_ref: "other-generation")
+      |> Repo.update!()
+      |> pin_job!()
 
     assert Client.create_session(
              client,
@@ -555,7 +821,7 @@ defmodule Ryker.CoopFleet.ClientTest do
              @policy,
              other.external_ref,
              other.repository_source
-           ) == {:error, {:coop_protocol_error, :create_session_response}}
+           ) == {:error, {:coop_workspace_checkpoint_source_mismatch, other.id, other.generation}}
 
     refute_receive {:fleet_command, ^other, "ensure_workspace", _, _, _}
   end
@@ -591,6 +857,8 @@ defmodule Ryker.CoopFleet.ClientTest do
         %{
           authority_digest: source.authority_digest,
           repository_source: source.repository_source,
+          worker_job_document: source.worker_job_document,
+          worker_job_digest: source.worker_job_digest,
           workspace_task: nil
         }
       )
@@ -603,7 +871,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     # Covers: TestUnboundTaskReplacementStartsClean
     # The third live retry had a remote session ID but never acquired a writable workspace;
     # requiring a nonexistent checkpoint would strand the repaired task again.
-    assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
+    assert {:ok, %{"session" => %{"id" => "remote-resource", "revision" => 2}}} =
              Client.create_session(
                client,
                key,
@@ -666,6 +934,8 @@ defmodule Ryker.CoopFleet.ClientTest do
         %{
           authority_digest: source.authority_digest,
           repository_source: source.repository_source,
+          worker_job_document: source.worker_job_document,
+          worker_job_digest: source.worker_job_digest,
           workspace_task: nil
         }
       )
@@ -677,7 +947,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     # The production session was task-bound but closed with turns_used=0. With no submit
     # command, there is no model-authored workspace state to checkpoint into the replacement.
-    assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
+    assert {:ok, %{"session" => %{"id" => "remote-resource", "revision" => 2}}} =
              Client.create_session(
                client,
                key,
@@ -741,6 +1011,8 @@ defmodule Ryker.CoopFleet.ClientTest do
         %{
           authority_digest: source.authority_digest,
           repository_source: source.repository_source,
+          worker_job_document: source.worker_job_document,
+          worker_job_digest: source.worker_job_digest,
           workspace_task: nil
         }
       )
@@ -750,7 +1022,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     key = "ryker:work:create:#{replacement.id}:g1"
 
-    assert {:error, {:coop_protocol_error, :create_session_response}} =
+    assert {:error, {:coop_workspace_checkpoint_required, source_id, source_generation}} =
              Client.create_session(
                client,
                key,
@@ -758,6 +1030,9 @@ defmodule Ryker.CoopFleet.ClientTest do
                workspace_task["offer_ref"],
                replacement.repository_source
              )
+
+    assert source_id == source.id
+    assert source_generation == source.generation
 
     refute_receive {:fleet_command, ^replacement, "ensure_workspace", _, _, _}
   end
@@ -799,7 +1074,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert payload == %{
              "coop_session_id" => "coop-session-1",
              "expected_revision" => 4,
-             "responder_binding" => %{
+             "controller_tools" => %{
                "endpoint" => binding["endpoint"],
                "token_sha256" => StateBinding.sha256(binding["token"])
              },
@@ -880,6 +1155,214 @@ defmodule Ryker.CoopFleet.ClientTest do
              "verdict" => "reject",
              "violations" => ["missing required evidence"]
            }
+  end
+
+  test "publication freezes the original review placement and command, never placing a new worker",
+       %{client: client, session: session} do
+    session = bind_session!(session, "publication-owner")
+    owner = uncertain_review!(session, "publication-owner")
+    body = publication_body()
+    response = publication_response(session)
+    Process.put(:coop_fleet_await_result, {:ok, response})
+    key = "publish:owner"
+
+    assert {:ok, receipt} =
+             Client.publish_review(
+               client,
+               session.coop_session_id,
+               owner.idempotency_key,
+               "review-op",
+               key,
+               body
+             )
+
+    command = Repo.get_by!(Command, idempotency_key: key)
+    assert command.placement_id == owner.placement_id
+    assert command.payload["body"] == body
+    assert command.payload["path"] == "/v1/sessions/publication-owner/reviews/review-op/publish"
+    assert receipt == response["publication"]["receipt"]
+    complete_command!(command, :succeeded, response)
+
+    Repo.get!(Placement, owner.placement_id)
+    |> Ecto.Changeset.change(state: :retired)
+    |> Repo.update!()
+
+    changed_settings =
+      Map.merge(body, %{"branch" => "new-prefix/ignored", "title" => "New title"})
+
+    assert {:ok, ^receipt} =
+             Client.publish_review(
+               client,
+               session.coop_session_id,
+               owner.idempotency_key,
+               "review-op",
+               key,
+               changed_settings
+             )
+
+    assert Repo.get!(Command, command.id).payload["body"] == body
+
+    assert {:error, {:coop_worker_command_conflict, ^key}} =
+             Client.publish_review(
+               client,
+               session.coop_session_id,
+               owner.idempotency_key,
+               "review-op",
+               key,
+               Map.put(body, "candidate_head", String.duplicate("f", 40))
+             )
+
+    assert {:error, {:coop_session_replacement_required, _, _}} =
+             Client.publish_review(
+               client,
+               session.coop_session_id,
+               owner.idempotency_key,
+               "review-op",
+               "new-publish",
+               body
+             )
+
+    assert Repo.aggregate(Command, :count) == 2
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
+  test "accepted background publication recovers through the real poll and remains readable after placement expiry",
+       %{session: session} do
+    session = bind_session!(session, "publication-background")
+    owner = uncertain_review!(session, "publication-background")
+    response = publication_response(session)
+    pending = %{"operation" => Map.put(response["operation"], "state", "running")}
+    key = "publish:background"
+
+    assert {:ok, client} =
+             Client.new(
+               workspace_ref: "workspace-main",
+               max_waits: 2,
+               poll_interval_ms: 1,
+               wait: fn ->
+                 {:ok, %{"commands" => [request]}} =
+                   ControlPlane.handle_poll(
+                     owner.worker_id,
+                     poll(owner.worker_id, Ecto.UUID.generate())
+                   )
+
+                 stored = Repo.get!(Command, request["command_id"])
+                 assert stored.placement_id == owner.placement_id
+
+                 {status, result} =
+                   case request["payload"] do
+                     %{"method" => "POST", "body" => body} ->
+                       assert body == publication_body()
+                       {202, pending}
+
+                     %{"method" => "GET", "path" => "/v1/operations?" <> query} ->
+                       assert URI.decode_query(query) == %{"key" => key}
+                       {200, response["operation"]}
+
+                     %{
+                       "method" => "GET",
+                       "path" => "/v1/sessions/publication-background/publications/publish-op"
+                     } ->
+                       {200, response}
+                   end
+
+                 result = %{
+                   "command_id" => request["command_id"],
+                   "operation_key" => request["idempotency_key"],
+                   "state" => "succeeded",
+                   "error" => nil,
+                   "resource" => %{"status" => status, "body" => result}
+                 }
+
+                 {:ok, acknowledgement} =
+                   ControlPlane.handle_poll(
+                     owner.worker_id,
+                     Map.put(poll(owner.worker_id, Ecto.UUID.generate()), "command_results", [
+                       result
+                     ])
+                   )
+
+                 assert acknowledgement["acknowledged_result_command_ids"] == [
+                          request["command_id"]
+                        ]
+
+                 :ok
+               end
+             )
+
+    assert {:ok, receipt} =
+             Client.publish_review(
+               client,
+               session.coop_session_id,
+               owner.idempotency_key,
+               "review-op",
+               key,
+               publication_body()
+             )
+
+    assert Repo.get_by!(Command, idempotency_key: key).result["status"] == 202
+    assert Repo.aggregate(Command, :count) == 4
+
+    Repo.get!(Placement, owner.placement_id)
+    |> Ecto.Changeset.change(lease_expires_at: DateTime.add(Repo.now!(), -1))
+    |> Repo.update!()
+
+    assert {:ok, ^receipt} =
+             Client.publish_review(
+               client,
+               session.coop_session_id,
+               owner.idempotency_key,
+               "review-op",
+               key,
+               publication_body()
+             )
+
+    assert Repo.aggregate(Command, :count) == 4
+  end
+
+  test "publication preserves terminal refusals without creating conflict evidence or retrying",
+       %{client: client, session: session} do
+    session = bind_session!(session, "publication-refused")
+    owner = uncertain_review!(session, "publication-refused")
+
+    for code <- [
+          :publication_authorization_revoked,
+          :publication_branch_already_exists,
+          :publication_existing_pull_request_changed,
+          :publication_pull_request_mismatch
+        ] do
+      response =
+        Map.put(publication_response(session), "publication", %{
+          "status" => "refused",
+          "error_code" => Atom.to_string(code)
+        })
+
+      Process.put(:coop_fleet_await_result, {:ok, response})
+
+      assert {:error, ^code} =
+               Client.publish_review(
+                 client,
+                 session.coop_session_id,
+                 owner.idempotency_key,
+                 "review-op",
+                 "publish:#{code}",
+                 publication_body()
+               )
+    end
+
+    Process.put(:coop_fleet_await_result, {:ok, %{"operation" => %{"state" => "succeeded"}}})
+
+    assert {:error, {:coop_protocol_error, :publication_resource}} =
+             Client.publish_review(
+               client,
+               session.coop_session_id,
+               owner.idempotency_key,
+               "review-op",
+               "publish:malformed",
+               publication_body()
+             )
+
+    refute_receive {:fleet_command, _, _, _, _, _}
   end
 
   test "workspace review and retention remain typed commands on the same placed session", %{
@@ -992,21 +1475,24 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert Repo.get!(Command, command.id) == command
   end
 
-  test "a worker without completed review lookup names the required upgrade", %{
+  test "a failed completed-review lookup remains a failure", %{
     client: client,
     session: session
   } do
-    # Independently upgraded workers can still return only the operation metadata;
-    # call that missing capability out instead of misreporting a corrupt review.
     response = completed_review_fixture()
     session = bind_session!(session, response["review"]["session_id"])
     command = uncertain_review!(session, "upgrade")
-    Process.put(:coop_fleet_await_result, {:ok, response["operation"]})
 
-    assert {:error, {:coop_upgrade_required, :completed_review_lookup, detail}} =
+    Process.put(:coop_fleet_await_result, fn id ->
+      case Repo.get!(Command, id).kind do
+        "reconcile_operation" -> {:ok, response["operation"]}
+        "get_review" -> {:error, {:coop_error, 404, "review_not_found", "missing"}}
+      end
+    end)
+
+    assert {:error, {:coop_error, 404, "review_not_found", "missing"}} =
              Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
 
-    assert detail =~ "Upgrade the Coop daemon and worker connector"
     assert Repo.get!(Command, command.id) == command
   end
 
@@ -1028,14 +1514,29 @@ defmodule Ryker.CoopFleet.ClientTest do
                             poll(command.worker_id, "read")
                           )
 
-                 assert read["kind"] == "reconcile_operation"
-                 assert read["payload"] == %{"operation_key" => command.idempotency_key}
+                 assert read["kind"] == "api_request"
+                 assert read["payload"]["method"] == "GET"
+                 path = read["payload"]["path"]
+
+                 body =
+                   if String.starts_with?(path, "/v1/operations?") do
+                     assert URI.decode_query(URI.parse(path).query) == %{
+                              "key" => command.idempotency_key
+                            }
+
+                     response["operation"]
+                   else
+                     assert path ==
+                              "/v1/sessions/#{session.coop_session_id}/reviews/#{response["operation"]["id"]}"
+
+                     response
+                   end
 
                  result = %{
                    "command_id" => read["command_id"],
                    "error" => nil,
                    "operation_key" => read["idempotency_key"],
-                   "resource" => response,
+                   "resource" => %{"status" => 200, "body" => body},
                    "state" => "succeeded"
                  }
 
@@ -1131,6 +1632,51 @@ defmodule Ryker.CoopFleet.ClientTest do
       assert {:error, {:coop_protocol_error, :review_resource}} =
                Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
     end
+  end
+
+  test "output artifacts use verified generic response files", %{
+    client: client,
+    session: session
+  } do
+    alias Ryker.CoopFleet.Bodies
+    key = :binary.copy(<<7>>, 32)
+    client = %{client | bridge_options: Keyword.put(client.bridge_options, :checkpoint_key, key)}
+    session = bind_session!(session, "s-binary")
+    root = Path.join(System.tmp_dir!(), "coop-client-binary-#{Ecto.UUID.generate()}")
+    on_exit(fn -> File.rm_rf!(root) end)
+    id = Ecto.UUID.generate()
+    bytes = <<0, 1, 2, 255>>
+
+    reference = %{
+      "byte_size" => byte_size(bytes),
+      "sha256" => Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+    }
+
+    assert :ok = Bodies.put(root, id, :response, reference, [bytes], key)
+    assert {:ok, stored, ^reference} = Bodies.fetch(root, id, :response)
+
+    response = %{
+      stored_body: stored,
+      body_ref: reference,
+      headers: %{"Etag" => ~s("#{reference["sha256"]}"), "Content-Type" => "image/png"}
+    }
+
+    Process.put(:coop_fleet_binary_result, {:ok, response})
+
+    assert {:ok, artifact} = Client.get_output_artifact(client, session.coop_session_id, "t", "a")
+
+    assert artifact == %{
+             "id" => "a",
+             "data" => bytes,
+             "bytes" => 4,
+             "sha256" => reference["sha256"],
+             "media_type" => "image/png"
+           }
+
+    Process.put(:coop_fleet_binary_result, {:ok, put_in(response, [:headers, "Etag"], "wrong")})
+
+    assert {:error, {:coop_protocol_error, :output_artifact_transfer}} =
+             Client.get_output_artifact(client, session.coop_session_id, "t", "a")
   end
 
   test "frozen turn transports exact artifact references without persisting their bytes", %{
@@ -1359,13 +1905,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     command =
       command!(session, "created-before-bind",
         kind: "create_session",
-        payload: %{
-          "authority_digest" => @authority_digest,
-          "external_ref" => session.external_ref,
-          "policy" => @policy,
-          "policy_digest" => @policy_digest,
-          "source" => %{"kind" => "default"}
-        },
+        payload: create_payload(session, session.external_ref),
         key: "ryker:work:create:#{session.id}:g1"
       )
 
@@ -1403,6 +1943,8 @@ defmodule Ryker.CoopFleet.ClientTest do
     client: client,
     session: session
   } do
+    Process.put(:coop_fleet_binary_result, {:ok, %{"unexpected" => "not a body receipt"}})
+
     assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
              Client.create_session(
                client,
@@ -1422,20 +1964,6 @@ defmodule Ryker.CoopFleet.ClientTest do
              )
 
     session = bind_session!(session, "coop-session-transfers")
-
-    assert {:error, :coop_fleet_review_patch_session_required} =
-             Client.get_review_patch(client, "artifact", String.duplicate("a", 64), 10)
-
-    assert {:error, {:coop_protocol_error, :review_patch_transfer}} =
-             Client.get_session_review_patch(
-               client,
-               session.coop_session_id,
-               "artifact",
-               String.duplicate("a", 64),
-               10
-             )
-
-    assert_receive {:fleet_command, ^session, "get_review_patch", _payload, _key, _options}
 
     assert {:error, {:coop_protocol_error, :output_artifact_transfer}} =
              Client.get_output_artifact(
@@ -1573,13 +2101,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     create =
       command!(session, "async-workspace-binding",
         kind: "create_session",
-        payload: %{
-          "authority_digest" => @authority_digest,
-          "external_ref" => workspace_task["offer_ref"],
-          "policy" => @policy,
-          "policy_digest" => @policy_digest,
-          "source" => %{"kind" => "default"}
-        },
+        payload: create_payload(session, workspace_task["offer_ref"]),
         key: key
       )
 
@@ -1653,13 +2175,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     create =
       command!(session, "uncertain-workspace-binding",
         kind: "create_session",
-        payload: %{
-          "authority_digest" => @authority_digest,
-          "external_ref" => workspace_task["offer_ref"],
-          "policy" => @policy,
-          "policy_digest" => @policy_digest,
-          "source" => %{"kind" => "default"}
-        },
+        payload: create_payload(session, workspace_task["offer_ref"]),
         key: key
       )
 
@@ -1703,13 +2219,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     command =
       command!(session, "create-fence",
         kind: "create_session",
-        payload: %{
-          "authority_digest" => @authority_digest,
-          "external_ref" => session.external_ref,
-          "policy" => @policy,
-          "policy_digest" => @policy_digest,
-          "source" => %{"kind" => "default"}
-        },
+        payload: create_payload(session, session.external_ref),
         key: key
       )
 
@@ -1774,13 +2284,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     create =
       command!(session, "expired-create-receipts",
         kind: "create_session",
-        payload: %{
-          "authority_digest" => @authority_digest,
-          "external_ref" => workspace_task["offer_ref"],
-          "policy" => @policy,
-          "policy_digest" => @policy_digest,
-          "source" => %{"kind" => "default"}
-        },
+        payload: create_payload(session, workspace_task["offer_ref"]),
         key: key
       )
 
@@ -1968,7 +2472,71 @@ defmodule Ryker.CoopFleet.ClientTest do
                "ryker"
              )
 
+    pin_job!(session)
+  end
+
+  defp pin_job!(session) do
+    job = %{
+      "version" => 1,
+      "job_ref" => session.external_ref,
+      "source" => %{
+        "repository_ref" => "ryker",
+        "github_repository" => "example/repository",
+        "github_repository_id" => 17,
+        "binding" => %{
+          "version" => 1,
+          "kind" => "default",
+          "requested" => %{"kind" => "default"},
+          "remote_identity" => "origin",
+          "default_ref" => "refs/heads/main",
+          "default_commit" => String.duplicate("a", 40),
+          "selected_ref" => "refs/heads/main",
+          "selected_commit" => String.duplicate("a", 40),
+          "base_commit" => String.duplicate("a", 40),
+          "admitted_tree" => String.duplicate("c", 40),
+          "resolved_at" => "2026-09-26T12:00:00Z"
+        },
+        "submodules" => []
+      },
+      "companions" => [],
+      "targets" => ["codex"],
+      "mode" => "normal",
+      "project_env" => false,
+      "project_mcp" => false,
+      "repository_read_only" => false,
+      "egress" => %{"mode" => "none", "rules" => [], "export_destinations" => false},
+      "limits" => %{
+        "max_turns" => 100,
+        "max_queued_turns" => 20,
+        "max_queued_bytes" => 1_048_576,
+        "turn_timeout_ms" => 3_600_000,
+        "warm_idle_timeout_ms" => 0,
+        "max_patch_bytes" => 1_048_576
+      }
+    }
+
+    source = session.repository_source || %{"kind" => "default"}
+    job = put_in(job, ["source", "binding", "requested"], source)
+    job = put_in(job, ["source", "binding", "kind"], source["kind"])
+
+    job =
+      if source["kind"] == "branch",
+        do: put_in(job, ["source", "binding", "selected_ref"], "refs/heads/" <> source["name"]),
+        else: job
+
+    {:ok, digest} = JobSpec.digest(job)
+
     session
+    |> Ecto.Changeset.change(worker_job_document: job, worker_job_digest: digest)
+    |> Repo.update!()
+  end
+
+  defp create_payload(session, task \\ nil) do
+    %{
+      "external_ref" => task || session.external_ref,
+      "job" => session.worker_job_document,
+      "job_digest" => session.worker_job_digest
+    }
   end
 
   defp completed_review_fixture do
@@ -1992,6 +2560,43 @@ defmodule Ryker.CoopFleet.ClientTest do
     })
   end
 
+  defp publication_body do
+    %{
+      "authorization_ref" => "approval:one",
+      "candidate_head" => String.duplicate("6", 40),
+      "candidate_tree" => String.duplicate("7", 40),
+      "branch" => "ryker/change",
+      "base_branch" => "main",
+      "expected_head" => "",
+      "pull_request_number" => 0,
+      "title" => "Change",
+      "body" => "Reviewed work"
+    }
+  end
+
+  defp publication_response(session) do
+    %{
+      "operation" => %{
+        "id" => "publish-op",
+        "method" => "PublishReview",
+        "state" => "succeeded",
+        "resource_type" => "publication",
+        "resource_id" => session.coop_session_id
+      },
+      "publication" => %{
+        "status" => "published",
+        "receipt" => %{
+          "repository" => session.repository_ref,
+          "branch_ref" => "refs/heads/ryker/change",
+          "candidate_tree" => String.duplicate("7", 40),
+          "commit_sha" => String.duplicate("6", 40),
+          "pull_request_number" => 7,
+          "pull_request_url" => "https://github.com/example/repository/pull/7"
+        }
+      }
+    }
+  end
+
   defp bind_session!(session, coop_session_id) do
     session
     |> Ecto.Changeset.change(coop_session_id: coop_session_id)
@@ -2011,7 +2616,7 @@ defmodule Ryker.CoopFleet.ClientTest do
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: session.repository_ref,
                  workspace_ref: "workspace-main"
                },
@@ -2040,22 +2645,18 @@ defmodule Ryker.CoopFleet.ClientTest do
       completed_at: Repo.now!(),
       error: error,
       operation_key: command.idempotency_key,
-      result: result,
+      result: if(status == :succeeded, do: %{"status" => 200, "body" => result}, else: result),
       result_fingerprint: String.duplicate("d", 64),
       status: status
     )
     |> Repo.update!()
   end
 
-  defp poll(worker_id, suffix, freshness_v2? \\ false, selector_v1? \\ false) do
+  defp poll(worker_id, suffix, freshness_v2? \\ false) do
     capabilities =
-      [%{"name" => "responder-state", "version" => "1"}] ++
+      [%{"name" => "controller-tools", "version" => "1"}] ++
         if(freshness_v2?,
           do: [%{"name" => "repository-freshness", "version" => "2"}],
-          else: []
-        ) ++
-        if(selector_v1?,
-          do: [%{"name" => "repository-source-selector", "version" => "1"}],
           else: []
         )
 
@@ -2064,7 +2665,7 @@ defmodule Ryker.CoopFleet.ClientTest do
       "command_results" => [],
       "event_batches" => [],
       "poll_ref" => "poll:#{worker_id}:#{suffix}",
-      "version" => 1,
+      "version" => 2,
       "worker" => %{
         "build_version" => "coop-test",
         "capabilities" => capabilities,
@@ -2080,10 +2681,7 @@ defmodule Ryker.CoopFleet.ClientTest do
         },
         "clock_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
         "id" => worker_id,
-        "policy_authority_digests" => %{@policy => @authority_digest},
-        "policy_digests" => %{@policy => @policy_digest},
-        "protocol_version" => "1",
-        "repositories" => [%{"ref" => "ryker", "revision" => "commit:test"}],
+        "protocol_version" => "2",
         "sandbox_digest" => String.duplicate("a", 64),
         "state" => "eligible",
         "workspace_ref" => "workspace-main"

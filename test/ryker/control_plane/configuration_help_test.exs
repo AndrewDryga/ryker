@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
   alias Ryker.ControlPlane.RunningSystem
   alias Ryker.Work.CodeEditingSetup
 
-  @settings ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks runtime.mode admission.policy admission.decision_timeout_ms work.concurrency work.poll_interval_ms retention.operational_data_seconds retention.closed_work_seconds retention.episode_history_seconds retention.audit_data_seconds retention.disposable_bytes_limit retention.reclaim_target_seconds retention.storage_high_watermark_bytes retention.storage_low_watermark_bytes retention.storage_reserve_bytes)
+  @settings ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks runtime.mode admission.decision_timeout_ms work.concurrency work.poll_interval_ms retention.operational_data_seconds retention.closed_work_seconds retention.episode_history_seconds retention.audit_data_seconds retention.disposable_bytes_limit retention.reclaim_target_seconds retention.storage_high_watermark_bytes retention.storage_low_watermark_bytes retention.storage_reserve_bytes)
 
   test "code-change help keeps compose recovery concise and own-worker setup folded" do
     # Andrew, 2026-09-25: "Work execution" and "Custom worker fleet" named
@@ -21,7 +21,9 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
     refute section =~ "Settings → Work placement"
     commands = LazyHTML.query(document, "#code-editing details") |> text()
     assert commands =~ "If you run your own workers"
-    assert commands =~ "What each kind of work may do"
+    assert commands =~ "Ryker supplies the code and settings for each job"
+    assert commands =~ "workers need no policy files"
+    refute commands =~ "What each kind of work may do"
     assert commands =~ "coop sessions doctor"
     assert commands =~ "coop sessions connect"
     # A Compose install is a release with no Mix; its commands run through
@@ -51,7 +53,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
 
     Application.put_env(:ryker, :work, api: Ryker.CoopFleet.Client)
     assert CodeEditingSetup.checkpoint_supported?()
-    assert html([]) =~ "Workers can save and restore the copy of the code a task works in"
+    assert html([]) =~ "This installation supports saving and restoring a task's working copy"
     refute html([]) =~ "If you run your own workers"
   end
 
@@ -135,13 +137,11 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
     refute page =~ "Not configured unless publication is present"
   end
 
-  test "policy help explains immutable pins instead of treating policy names as model names" do
-    page = html([row("admission.policy", "ryker-admission-v1")])
-    assert page =~ "The worker policy routing runs under"
-    assert page =~ "fingerprint pins the exact version that was reviewed"
-    assert page =~ "not a model name"
-    assert page =~ "Change the policy&#39;s name and fingerprint together"
-    assert page =~ "ryker-admission-v1"
+  test "routing help points to Ryker settings, not retired worker policies" do
+    page = html([row("admission", "enabled")])
+    assert page =~ "routing model and permissions saved in Ryker"
+    refute page =~ "reviewed worker policy"
+    refute ConfigurationHelp.setting("admission.policy").documented
   end
 
   test "the details of a loaded setting say what it does in plain words" do
@@ -187,9 +187,9 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
     refute "Key" in labels
   end
 
-  test "policy names are never mistaken for component presence flags" do
+  test "unknown setting values are never mistaken for component presence flags" do
     for name <- ["enabled", "disabled"] do
-      document = html([row("admission.policy", name)]) |> LazyHTML.from_document()
+      document = html([row("future.option", name)]) |> LazyHTML.from_document()
       assert LazyHTML.text(LazyHTML.query(document, ".configuration-value")) == name
       assert ConfigurationHelp.value("future.option", name) == name
     end
@@ -220,7 +220,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
   test "the current configuration projection cannot silently outgrow its explanations" do
     configured = %{
       runtime_mode: :product,
-      admission: %{policy: "ryker-admission-v1", decision_timeout_ms: 30_000},
+      admission: %{decision_timeout_ms: 30_000},
       work: %{concurrency: 4, poll_interval_ms: 250},
       retention: %{
         operational_data_seconds: 86_400,

@@ -74,14 +74,9 @@ defmodule Ryker.Observability.Fleet do
          {:ok, worker_states} <- Query.counts(Worker, :state) do
       fresh = Enum.filter(workers, &fresh?(&1, cutoff))
       eligible = Enum.filter(fresh, &eligible?(&1, settings.workspace_ref, settings.capabilities))
-      profiles = policy_profiles()
 
       {:ok,
        %{
-         available_policy_profiles:
-           Enum.count(profiles, fn profile ->
-             Enum.any?(eligible, &supports_profile?(&1, profile))
-           end),
          capacity: capacity(eligible),
          checkpoints: %{
            latest_age_seconds: Query.age_seconds(now, latest_checkpoint),
@@ -98,7 +93,6 @@ defmodule Ryker.Observability.Fleet do
          provider_states: Enum.frequencies_by(fresh, &provider_state/1),
          required: settings.required,
          required_capabilities: length(settings.capabilities),
-         required_policy_profiles: length(profiles),
          stale_workers: Enum.count(workers, &(not fresh?(&1, cutoff))),
          storage: storage(workers, cutoff, now),
          workers: worker_states
@@ -115,10 +109,6 @@ defmodule Ryker.Observability.Fleet do
 
   def issues(fleet, stall_after_seconds) do
     []
-    |> maybe_issue(
-      fleet.available_policy_profiles < fleet.required_policy_profiles,
-      :missing_policy_capacity
-    )
     |> maybe_issue(fleet.eligible_workers == 0, :no_eligible_workers)
     |> maybe_issue(fleet.capacity.session.free == 0, :no_session_capacity)
     |> maybe_issue(fleet.capacity.turn.free == 0, :no_turn_capacity)
@@ -206,21 +196,6 @@ defmodule Ryker.Observability.Fleet do
     end
   end
 
-  defp policy_profiles do
-    case Application.get_env(:ryker, :fleet_profiles, %{}) do
-      profiles when is_map(profiles) ->
-        profiles
-        |> Map.values()
-        |> Enum.filter(fn profile ->
-          is_map(profile) and is_binary(profile.policy) and is_binary(profile.policy_digest)
-        end)
-        |> Enum.uniq_by(&{&1.policy, &1.policy_digest, Map.get(&1, :repository_ref)})
-
-      _invalid ->
-        []
-    end
-  end
-
   defp fresh?(%Worker{last_seen_at: %DateTime{} = last_seen_at}, cutoff) do
     DateTime.compare(last_seen_at, cutoff) != :lt
   end
@@ -228,7 +203,8 @@ defmodule Ryker.Observability.Fleet do
   defp fresh?(_worker, _cutoff), do: false
 
   defp eligible?(worker, workspace_ref, capabilities) do
-    worker.workspace_ref == workspace_ref and worker.state == :eligible and
+    worker.protocol_version == "2" and worker.workspace_ref == workspace_ref and
+      worker.state == :eligible and
       is_nil(worker.drain_requested_at) and is_nil(worker.revoked_at) and
       provider_state(worker) == "eligible" and capabilities?(worker, capabilities) and
       Enum.all?(@slot_kinds, &(slot(worker, &1, :free) > 0))
@@ -237,17 +213,6 @@ defmodule Ryker.Observability.Fleet do
   defp capabilities?(worker, required) do
     available = MapSet.new(worker.capabilities, & &1["name"])
     Enum.all?(required, &MapSet.member?(available, &1))
-  end
-
-  defp supports_profile?(worker, profile) do
-    worker.policy_digests[profile.policy] == profile.policy_digest and
-      repository_available?(worker.repositories, Map.get(profile, :repository_ref))
-  end
-
-  defp repository_available?(_repositories, nil), do: true
-
-  defp repository_available?(repositories, repository_ref) do
-    Enum.any?(repositories, &(&1["ref"] == repository_ref))
   end
 
   defp provider_state(worker) do

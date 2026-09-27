@@ -1,43 +1,89 @@
 #!/bin/sh
 set -eu
+umask 077
 
 state=/var/lib/coop
 shared=/var/lib/ryker-coop
-workspaces=/var/lib/ryker-workspaces
-policies=$workspaces/session-policies.yaml
-# The copy of Ryker's policies the worker last loaded, which it connects with,
-# and Coop's reason when it refused a newer one (ryker-coop-load-policies).
-loaded=$state/session-policies.loaded.yaml
-problem=$shared/policy-problem
-repositories=$workspaces/repositories.json
-worker=$state/worker.json
-identity=$state/identity.pem
+identity=$state/sessions/identity.json
 token=$shared/enrollment-token
+marker=$shared/enrolled
 ca=$shared/worker-ca.pem
+controller=https://172.30.42.10:4322
+worker_id=${RYKER_BUNDLED_COOP_WORKER_ID:-ryker-compose}
+workspace_ref=${RYKER_BUNDLED_COOP_WORKSPACE:-ryker-compose}
 trusted_box=ryker-coop-box
 trusted_box_dockerfile=/usr/local/share/ryker/Box.Dockerfile
+connector=
 
-mkdir -p "$state/sessions" "$state/journal" "$state/agents" "$state/tmp"
-chmod 0700 "$state" "$state/sessions" "$state/journal" "$state/agents" "$state/tmp"
+mkdir -p "$state/sessions" "$state/agents" "$state/tmp"
+chmod 0700 "$state" "$state/sessions" "$state/agents" "$state/tmp"
 
-recover_expired_identity() {
-  if [ -s "$identity" ] &&
-     ! openssl x509 -in "$identity" -noout -checkend 0 >/dev/null 2>&1; then
-    echo "Ryker's worker identity expired; requesting a replacement." >&2
-    rm -f "$identity" "$marker" "$token"
+stop_connector() {
+  if [ -n "$connector" ]; then
+    kill "$connector" 2>/dev/null || true
+    wait "$connector" || true
+    connector=
+  fi
+}
+trap stop_connector EXIT
+trap 'exit 0' HUP INT TERM
+
+# An invalid identity is not an expired identity: never erase it as recovery.
+# Read one bounded snapshot so a concurrent atomic renewal cannot mix keys.
+identity_state() {
+  [ ! -L "$identity" ] || return 1
+  if [ ! -e "$identity" ]; then
+    echo absent
+    return
+  fi
+  [ "$(find "$identity" -prune -type f -perm 0600 -size -65537c -print)" = "$identity" ] || return 1
+  document=$(head -c 65537 "$identity") || return 1
+  certificate=$(printf '%s' "$document" | jq -er \
+    --arg controller "$controller" --arg worker "$worker_id" --arg workspace "$workspace_ref" '
+    select(type == "object" and
+      keys == ["ca_certificate_pem", "certificate_pem", "controller_url",
+               "private_key_pem", "worker_id", "workspace_ref"]) |
+    select(.controller_url == $controller and .worker_id == $worker and
+      .workspace_ref == $workspace) | .certificate_pem | select(type == "string")
+  ') || return 1
+  printf '%s\n' "$certificate" | openssl verify -no_check_time -purpose sslclient \
+    -CAfile "$ca" -no-CApath >/dev/null 2>&1 || return 1
+  subject=$(printf '%s\n' "$certificate" | openssl x509 -noout -subject -nameopt RFC2253) || return 1
+  case "$subject" in
+    "subject=CN=$worker_id"|"subject=CN=$worker_id,"*) ;;
+    *) return 1 ;;
+  esac
+  cert_key=$(printf '%s\n' "$certificate" | openssl x509 -noout -pubkey) || return 1
+  identity_key=$(printf '%s' "$document" | jq -er '.private_key_pem | select(type == "string")' |
+    openssl pkey -pubout -passin pass: 2>/dev/null) || return 1
+  [ "$cert_key" = "$identity_key" ] || return 1
+  if printf '%s\n' "$certificate" | openssl x509 -noout -checkend 0 >/dev/null 2>&1; then
+    printf '%s\n' "$certificate" | openssl verify -purpose sslclient \
+      -CAfile "$ca" -no-CApath >/dev/null 2>&1 || return 1
+    echo valid
+  else
+    echo expired
   fi
 }
 
-wait_for_identity() {
-  until [ -r "$ca" ] && [ -r "$policies" ] && [ -r "$repositories" ] &&
-        { [ -r "$identity" ] || [ -r "$token" ]; }; do
-    sleep 1
-  done
+# Call only after the connector exits, then re-read: it may have renewed while stopping.
+recover_identity() {
+  identity_status=$(identity_state) || {
+    echo "Ryker's worker identity is invalid; leaving it untouched." >&2
+    return 1
+  }
+  case "$identity_status" in
+    expired)
+      echo "Ryker's worker identity expired; requesting a replacement." >&2
+      rm -f "$identity" "$marker"
+      ;;
+    absent) rm -f "$marker" ;;
+    valid) : >"$marker" ;;
+  esac
 }
 
-marker=$shared/enrolled
-recover_expired_identity
-wait_for_identity
+until [ -r "$ca" ]; do sleep 1; done
+recover_identity
 
 if ! docker image inspect coop-box >/dev/null 2>&1 &&
    ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q '^coop-box:'; then
@@ -69,95 +115,25 @@ prepare_ryker_box() {
 prepare_ryker_box
 
 while :; do
-  recover_expired_identity
-  wait_for_identity
-
-  # A newer file Coop refuses leaves the worker on the policies it loaded
-  # before; with nothing loaded yet, it waits.
-  if ! policy_json=$(ryker-coop-load-policies "$policies" "$loaded" "$problem"); then
-    echo "Ryker's worker is waiting for model access. Open Settings to connect a model account." >&2
-    sleep 10
-    continue
-  fi
-
-  sandbox_digest=$(coop version | sha256sum | awk '{print $1}')
-  # Ryker's newest file, not the loaded copy: a refused file does not
-  # reconnect in a loop, and the next change to it is tried again.
-  policy_sha=$(sha256sum "$policies" "$repositories" | sha256sum | awk '{print $1}')
-
-  jq -n \
-    --arg ca "$ca" \
-    --arg identity "$identity" \
-    --arg journal "$state/journal" \
-    --arg loaded "$loaded" \
-    --arg state_endpoint "https://172.30.42.10:4322" \
-    --arg sandbox "$sandbox_digest" \
-    --arg socket "$state/sessions/control.sock" \
-    --arg state "$state/sessions" \
-    --arg token "$token" \
-    --arg worker_id "${RYKER_BUNDLED_COOP_WORKER_ID:-ryker-compose}" \
-    --arg workspace_ref "${RYKER_BUNDLED_COOP_WORKSPACE:-ryker-compose}" \
-    --argjson authority "$(printf '%s' "$policy_json" | jq '.policy_authority_digests')" \
-    --argjson digests "$(printf '%s' "$policy_json" | jq '.policy_digests')" \
-    --argjson repositories "$(cat "$repositories")" \
-    '{
-      version: 1,
-      worker_id: $worker_id,
-      workspace_ref: $workspace_ref,
-      responder_url: $state_endpoint,
-      ca_file: $ca,
-      identity_file: $identity,
-      enrollment_token_file: $token,
-      coop_socket: $socket,
-      session_state_dir: $state,
-      session_policy_path: $loaded,
-      journal_dir: $journal,
-      sandbox_digest: $sandbox,
-      policy_digests: $digests,
-      policy_authority_digests: $authority,
-      repositories: $repositories,
-      capabilities: [{name: "responder-state", version: "1"}],
-      capacity: {
-        session_slots_free: 4,
-        session_slots_total: 4,
-        turn_slots_free: 4,
-        turn_slots_total: 4,
-        workspace_slots_free: 3,
-        workspace_slots_total: 3,
-        state: "eligible",
-        cooldown_until: null
-      },
-      poll_interval_ms: 1000,
-      request_timeout_ms: 30000,
-      renew_before_seconds: 3600
-    }' >"$worker.tmp"
-  chmod 0600 "$worker.tmp"
-  mv "$worker.tmp" "$worker"
-
-  coop sessions connect --config "$worker" &
+  recover_identity
+  until [ -r "$identity" ] || [ -r "$token" ]; do sleep 1; done
+  coop sessions connect --controller "$controller" --token-file "$token" \
+    --ca-file "$ca" --state "$state/sessions" &
   connector=$!
 
   while kill -0 "$connector" 2>/dev/null; do
-    if [ -s "$identity" ] &&
-       ! openssl x509 -in "$identity" -noout -checkend 0 >/dev/null 2>&1; then
-      kill "$connector" 2>/dev/null || true
-      recover_expired_identity
-      break
-    fi
-
-    if [ -r "$identity" ]; then
-      : >"$marker"
-      chmod 0600 "$marker"
-    fi
-
-    current=$(sha256sum "$policies" "$repositories" | sha256sum | awk '{print $1}')
-    if [ "$current" != "$policy_sha" ]; then
-      kill "$connector" 2>/dev/null || true
-      break
-    fi
+    identity_status=$(identity_state) || {
+      echo "Ryker's worker identity is invalid; leaving it untouched." >&2
+      exit 1
+    }
+    case "$identity_status" in
+      valid) : >"$marker" ;;
+      expired) break ;;
+    esac
     sleep 2
   done
 
-  wait "$connector" || true
+  stop_connector
+  recover_identity
   sleep 1
 done

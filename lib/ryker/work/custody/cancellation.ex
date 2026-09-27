@@ -346,7 +346,8 @@ defmodule Ryker.Work.Custody.Cancellation do
           join: c in Ryker.CoopFleet.Command,
           on: c.id == t.command_id,
           where:
-            c.session_id == ^session.id and c.idempotency_key == ^key and c.status == :succeeded
+            c.session_id == ^session.id and c.idempotency_key == ^key and c.status == :succeeded and
+              fragment("(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb", c.result)
         )
       )
 
@@ -365,12 +366,16 @@ defmodule Ryker.Work.Custody.Cancellation do
       when is_binary(session_id) do
     with %Session{} = session <- Repo.get(Session, session_id),
          workspace_ref when is_binary(workspace_ref) <- Settings.worker_workspace_ref() do
-      FleetControlPlane.portable_workspace(session, %{
-        capability_names: Defaults.fetch!(:work).capability_names,
-        capability_versions: %{},
-        repository_ref: session.repository_ref,
-        workspace_ref: workspace_ref
-      })
+      FleetControlPlane.portable_workspace(
+        session,
+        %{
+          capability_names: Defaults.fetch!(:work).capability_names,
+          capability_versions: %{},
+          repository_ref: session.repository_ref,
+          workspace_ref: workspace_ref
+        },
+        Path.join(Ryker.Bootstrap.storage_root!(), "worker-bodies")
+      )
     else
       _unavailable -> nil
     end

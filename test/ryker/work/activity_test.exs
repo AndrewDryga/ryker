@@ -136,10 +136,10 @@ defmodule Ryker.Work.ActivityTest do
     events = [
       event(session, 1, "tool.started", %{
         "tool_call_id" => "exec-fea1da1f",
-        "title" => "responder-state · plan_goal",
+        "title" => "controller-tools · plan_goal",
         "kind" => "mcp",
         "input" => %{
-          "server" => "responder-state",
+          "server" => "controller-tools",
           "tool" => "plan_goal",
           "arguments" => %{"read_only_repositories" => ["emisar"], "token" => "must-not-survive"}
         }
@@ -580,9 +580,9 @@ defmodule Ryker.Work.ActivityTest do
     events = [
       event(session, 1, "tool.started", %{
         "tool_call_id" => "exec-learn",
-        "title" => "responder-state · recall",
+        "title" => "controller-tools · recall",
         "kind" => "mcp",
-        "input" => %{"server" => "responder-state", "tool" => "recall", "arguments" => %{}}
+        "input" => %{"server" => "controller-tools", "tool" => "recall", "arguments" => %{}}
       }),
       event(session, 2, "tool.completed", %{
         "tool_call_id" => "exec-learn",

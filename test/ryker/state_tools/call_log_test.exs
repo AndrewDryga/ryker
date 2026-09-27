@@ -36,7 +36,7 @@ defmodule Ryker.StateTools.CallLogTest do
     assert {:ok, %{inserted: 2}} =
              Activity.ingest(work.session.id, [
                coop_event(work, 1, "tool.started", DateTime.add(before_call, -3, :millisecond), %{
-                 "input" => %{"server" => "responder-state", "tool" => "propose_automation"},
+                 "input" => %{"server" => "controller-tools", "tool" => "propose_automation"},
                  "kind" => "execute",
                  "tool_call_id" => "exec-fecaf7f6-0788-49ad-8cd5-3fc6a3d5ae08"
                }),
@@ -157,7 +157,7 @@ defmodule Ryker.StateTools.CallLogTest do
                  "tool_call_id" => "exec-read"
                }),
                coop_event(work, 3, "tool.started", later, %{
-                 "input" => %{"server" => "responder-state", "tool" => "propose_automation"},
+                 "input" => %{"server" => "controller-tools", "tool" => "propose_automation"},
                  "kind" => "execute",
                  "tool_call_id" => "exec-proposal"
                }),
@@ -187,7 +187,7 @@ defmodule Ryker.StateTools.CallLogTest do
     assert {:ok, %{inserted: 2}} =
              Activity.ingest(work.session.id, [
                coop_event(work, 5, "tool.started", DateTime.add(listed_at, -2, :millisecond), %{
-                 "input" => %{"server" => "responder-state", "tool" => "list_automations"},
+                 "input" => %{"server" => "controller-tools", "tool" => "list_automations"},
                  "kind" => "execute",
                  "tool_call_id" => "exec-list"
                }),

@@ -5,15 +5,112 @@ defmodule Ryker.CoopFleet.RouterTest do
   import Plug.Conn
   import Plug.Test
 
-  alias Ryker.Artifacts
-  alias Ryker.CoopFleet.{ArtifactTransport, ControlPlane, Enrollment, Placement, Router}
+  alias Ecto.Adapters.SQL.Sandbox
+
+  alias Ryker.CoopFleet.{
+    Bodies,
+    Checkpoints,
+    ControlPlane,
+    Enrollment,
+    JobSpec,
+    Placement,
+    Router,
+    SourceGrants,
+    WorkspaceCheckpointTransfer
+  }
+
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Work.{Custody, Session, SessionChangeset, StateBinding}
 
   @policy_digest String.duplicate("b", 64)
+
+  defmodule SourceGrantRequester do
+    def request(test_pid, method, path, document, _headers) do
+      send(test_pid, {:source_token_request, self(), method, path, document})
+
+      receive do
+        :complete_source_token ->
+          {:ok,
+           %{
+             status: 201,
+             body: %{
+               "token" => "host-only-source-token",
+               "expires_at" =>
+                 DateTime.utc_now() |> DateTime.add(3_600, :second) |> DateTime.to_iso8601()
+             }
+           }}
+      after
+        5_000 -> {:error, :test_mint_not_released}
+      end
+    end
+  end
+
+  test "generic bodies bind streaming custody to the current command before result acknowledgement" do
+    key = :binary.copy(<<7>>, 32)
+    certificate = authorize_and_poll!()
+    command = command!("api_request", %{"method" => "GET", "path" => "/v1/sessions/s/changes"})
+    root = Path.join(System.tmp_dir!(), "coop-route-bodies-#{Ecto.UUID.generate()}")
+    on_exit(fn -> File.rm_rf!(root) end)
+    bytes = :binary.copy("test bytes", 40_000)
+
+    reference = %{
+      "sha256" => Base.encode16(:crypto.hash(:sha256, bytes), case: :lower),
+      "byte_size" => byte_size(bytes)
+    }
+
+    result = %{
+      "command_id" => command.id,
+      "operation_key" => command.idempotency_key,
+      "state" => "succeeded",
+      "error" => nil,
+      "resource" => %{"status" => 200, "body_ref" => reference}
+    }
+
+    completed =
+      poll() |> Map.put("poll_ref", "poll:body-result") |> Map.put("command_results", [result])
+
+    assert {:error, {:coop_worker_response_body_missing, _}} =
+             ControlPlane.handle_poll_certificate(certificate, completed, body_root: root)
+
+    upload = fn id, hash ->
+      :put
+      |> conn("/v1/coop-workers/commands/#{id}/response-body", bytes)
+      |> put_req_header("content-length", to_string(byte_size(bytes)))
+      |> put_req_header("x-coop-body-sha256", hash)
+      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
+      |> Router.call(body_root: root, checkpoint_key: key)
+    end
+
+    assert upload.(Ecto.UUID.generate(), reference["sha256"]).status == 404
+    assert upload.(command.id, String.duplicate("0", 64)).status == 400
+    assert {:error, _} = Bodies.fetch(root, command.id, :response)
+    assert upload.(command.id, reference["sha256"]).status == 200
+    assert upload.(command.id, reference["sha256"]).status == 200
+    assert {:ok, body, ^reference} = Bodies.fetch(root, command.id, :response)
+    assert {:ok, ^bytes} = Bodies.read(body, key, byte_size(bytes))
+
+    assert :ok = Bodies.put(root, command.id, :request, reference, [bytes], key)
+
+    download =
+      :get
+      |> conn("/v1/coop-workers/commands/#{command.id}/request-body")
+      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
+      |> Router.call(body_root: root, checkpoint_key: key)
+
+    assert download.status == 200
+    assert download.resp_body == bytes
+
+    assert {:ok, response} =
+             ControlPlane.handle_poll_certificate(certificate, completed, body_root: root)
+
+    assert response["acknowledged_result_command_ids"] == [command.id]
+    assert upload.(command.id, reference["sha256"]).status == 404
+  end
 
   test "a one-time token enrolls without mTLS and renewal requires the issued certificate" do
     authority = enrollment_authority()
@@ -27,9 +124,7 @@ defmodule Ryker.CoopFleet.RouterTest do
         "/v1/coop-workers/enroll",
         Jason.encode!(%{
           "public_key_pem" => public_key_pem(),
-          "token" => issued_token.token,
-          "worker_id" => "worker-enrolled",
-          "workspace_ref" => "workspace-main"
+          "token" => issued_token.token
         })
       )
       |> put_req_header("content-type", "application/json")
@@ -45,9 +140,7 @@ defmodule Ryker.CoopFleet.RouterTest do
         "/v1/coop-workers/enroll",
         Jason.encode!(%{
           "public_key_pem" => public_key_pem(),
-          "token" => issued_token.token,
-          "worker_id" => "worker-enrolled",
-          "workspace_ref" => "workspace-main"
+          "token" => issued_token.token
         })
       )
       |> put_req_header("content-type", "application/json")
@@ -213,187 +306,272 @@ defmodule Ryker.CoopFleet.RouterTest do
     assert denied.status == 401
   end
 
-  test "one delivered submit command can fetch only its exact authenticated input artifact" do
+  test "only an actively leased job may request its exact GitHub source grant without a create command" do
     certificate = authorize_and_poll!()
+    session = session!()
+    task_ref = "offer:workspace-source"
+    job_ref = session.external_ref
+    refute job_ref == task_ref
 
-    assert {:ok, artifact} =
-             Artifacts.put(%{
-               data: "exact pull request context",
-               media_type: "text/plain",
-               name: "review.txt",
-               source_kind: "github",
-               source_ref: "github:artifact:#{Ecto.UUID.generate()}"
-             })
+    session
+    |> Ecto.Changeset.change(workspace_task: %{"offer_ref" => task_ref})
+    |> Repo.update!()
 
-    command =
-      command!("submit_turn", %{
-        "submission" => %{"input_artifact_refs" => [artifact.ref]}
-      })
+    {:ok, snapshot} = Settings.initialize("control-plane:local")
 
-    conn =
-      :get
-      |> conn("/v1/coop-workers/commands/#{command.id}/input-artifacts/#{artifact.ref}")
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call([])
+    {:ok, snapshot} =
+      Settings.put_repository(
+        %{ref: "ryker", github_repository: "example/repository", base_branch: "main"},
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
 
-    assert conn.status == 200
-    assert conn.resp_body == artifact.data
-    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
-    assert get_resp_header(conn, "x-responder-artifact-sha256") == [artifact.sha256]
+    {:ok, _snapshot} =
+      Settings.put_github_binding(
+        %{
+          name: "source-test",
+          repository_ref: "ryker",
+          installation_id: 41,
+          repository_id: 17,
+          ryker_actor_id: 30
+        },
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
 
-    denied =
-      :get
-      |> conn("/v1/coop-workers/commands/#{command.id}/input-artifacts/artifact:input:wrong")
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call([])
+    commit = String.duplicate("a", 40)
 
-    assert denied.status == 404
-  end
+    job = %{
+      "version" => 1,
+      "job_ref" => job_ref,
+      "source" => %{
+        "repository_ref" => "ryker",
+        "github_repository" => "example/repository",
+        "github_repository_id" => 17,
+        "binding" => %{
+          "version" => 1,
+          "kind" => "default",
+          "requested" => %{"kind" => "default"},
+          "remote_identity" => "origin",
+          "default_ref" => "refs/heads/main",
+          "default_commit" => commit,
+          "selected_ref" => "refs/heads/main",
+          "selected_commit" => commit,
+          "base_commit" => commit,
+          "admitted_tree" => String.duplicate("c", 40),
+          "resolved_at" => "2026-09-26T12:00:00Z"
+        },
+        "submodules" => []
+      },
+      "companions" => [],
+      "targets" => ["codex"],
+      "mode" => "normal",
+      "project_env" => false,
+      "project_mcp" => false,
+      "repository_read_only" => false,
+      "egress" => %{"mode" => "none", "rules" => [], "export_destinations" => false},
+      "limits" => %{
+        "max_turns" => 100,
+        "max_queued_turns" => 20,
+        "max_queued_bytes" => 1_048_576,
+        "turn_timeout_ms" => 3_600_000,
+        "warm_idle_timeout_ms" => 0,
+        "max_patch_bytes" => 1_048_576
+      }
+    }
 
-  test "an exact SubmitTurn fence can fetch its frozen artifact but other fences cannot" do
-    certificate = authorize_and_poll!()
+    job_source =
+      Map.take(job["source"], ~w(repository_ref github_repository github_repository_id))
 
-    assert {:ok, artifact} =
-             Artifacts.put(%{
-               data: "frozen review evidence",
-               media_type: "text/plain",
-               name: "evidence.txt",
-               source_kind: "github",
-               source_ref: "github:fence-artifact:#{Ecto.UUID.generate()}"
-             })
+    assert {:ok, digest} = JobSpec.digest(job)
 
-    command =
-      command!("fence_operation", %{
-        "input_artifact_refs" => [artifact.ref],
-        "method" => "SubmitTurn",
-        "request" => %{"session_id" => "coop-session-1"}
-      })
+    session
+    |> Ecto.Changeset.change(worker_job_document: job, worker_job_digest: digest)
+    |> Repo.update!()
 
-    accepted =
-      :get
-      |> conn("/v1/coop-workers/commands/#{command.id}/input-artifacts/#{artifact.ref}")
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call([])
-
-    assert accepted.status == 200
-    assert accepted.resp_body == artifact.data
-
-    assert {:ok, crossed} =
-             ControlPlane.enqueue_command(
-               command.placement_id,
-               "fence_operation",
+    assert {:ok, placement} =
+             ControlPlane.place_session(
+               session.id,
                %{
-                 "input_artifact_refs" => [artifact.ref],
-                 "method" => "CreateRemoteSession",
-                 "request" => %{}
+                 capability_names: [],
+                 repository_ref: session.repository_ref,
+                 workspace_ref: "workspace-main"
                },
-               "ryker:test:fence-crossed:#{Ecto.UUID.generate()}"
+               60
              )
 
-    followup_poll =
-      poll()
-      |> Map.put("acknowledged_command_ids", [command.id])
-      |> Map.put("poll_ref", "poll:worker-a:fence-crossed")
+    assert {:ok, %{name: "source-test", repository_id: 17, installation_id: 41}, ^job_source} =
+             SourceGrants.source_grant_authority(
+               certificate,
+               job_ref,
+               job_source
+             )
 
-    assert {:ok, %{"commands" => commands}} =
-             ControlPlane.handle_poll("worker-a", followup_poll)
-
-    assert Enum.any?(commands, &(&1["command_id"] == crossed.id))
-
-    denied =
-      :get
-      |> conn("/v1/coop-workers/commands/#{crossed.id}/input-artifacts/#{artifact.ref}")
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call([])
-
-    assert denied.status == 404
-  end
-
-  test "one delivered output command uploads and reconciles only its exact immutable bytes" do
-    certificate = authorize_and_poll!()
-    artifact_ref = "artifact_chart"
-
-    command =
-      command!("get_output_artifact", %{
-        "artifact_ref" => artifact_ref,
-        "coop_session_id" => "coop-session-1",
-        "coop_turn_id" => "coop-turn-1"
+    # Isolate graph membership: this fixture job authorizes the configured
+    # repository only as a nested child, never as its primary.
+    child =
+      Map.merge(job_source, %{
+        "path" => "nested",
+        "commit" => commit,
+        "tree" => String.duplicate("c", 40),
+        "submodules" => []
       })
 
-    data = <<137, 80, 78, 71, 13, 10, 26, 10, "chart">>
-    sha256 = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+    parent = %{
+      job["source"]
+      | "repository_ref" => "parent",
+        "github_repository" => "example/parent",
+        "github_repository_id" => 99,
+        "submodules" => [
+          %{
+            child
+            | "path" => "vendor/library",
+              "repository_ref" => "middle",
+              "github_repository" => "example/middle",
+              "github_repository_id" => 98,
+              "submodules" => [child]
+          }
+        ]
+    }
 
-    upload = fn body, digest ->
-      :put
-      |> conn(
-        "/v1/coop-workers/commands/#{command.id}/output-artifacts/#{artifact_ref}",
-        body
-      )
-      |> put_req_header("content-type", "image/png")
-      |> put_req_header("content-length", Integer.to_string(byte_size(body)))
-      |> put_req_header(
-        "x-responder-artifact-name",
-        Base.url_encode64("chart.png", padding: false)
-      )
-      |> put_req_header("x-responder-artifact-sha256", digest)
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call([])
+    nested_job = Map.put(job, "source", parent)
+    assert {:ok, nested_digest} = JobSpec.digest(nested_job)
+
+    Repo.get!(Session, session.id)
+    |> Ecto.Changeset.change(worker_job_document: nested_job, worker_job_digest: nested_digest)
+    |> Repo.update!()
+
+    assert {:ok, _, ^job_source} =
+             SourceGrants.source_grant_authority(certificate, job_ref, job_source)
+
+    Repo.get!(Session, session.id)
+    |> Ecto.Changeset.change(worker_job_document: job, worker_job_digest: digest)
+    |> Repo.update!()
+
+    assert {:error, :coop_worker_source_grant_not_authorized} =
+             SourceGrants.source_grant_authority(
+               certificate,
+               task_ref,
+               job_source
+             )
+
+    for source <- [
+          Map.put(job_source, "repository_ref", "other"),
+          Map.put(job_source, "github_repository_id", 18),
+          Map.put(job_source, "binding", job["source"]["binding"]),
+          Map.put(job_source, "github_repository", "other/repository")
+        ] do
+      denied =
+        :post
+        |> conn(
+          "/v1/coop-workers/jobs/#{job_ref}/source-grants",
+          Jason.encode!(source)
+        )
+        |> put_req_header("content-type", "application/json")
+        |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
+        |> Router.call([])
+
+      assert denied.status == 404
+      assert get_resp_header(denied, "cache-control") == ["no-store"]
     end
 
-    first = upload.(data, sha256)
-    assert first.status == 200
-    response = Jason.decode!(first.resp_body)
-    assert response["artifact_ref"] == artifact_ref
-    assert response["bytes"] == byte_size(data)
+    assert (:get
+            |> conn("/v1/coop-workers/commands/#{Ecto.UUID.generate()}/job-sources/ryker/grant")
+            |> Router.call([])).status == 404
 
-    assert {:ok, stored} = ArtifactTransport.fetch_output(response["transfer_id"])
-    assert stored["data"] == data
-    assert stored["name"] == "chart.png"
+    for changes <- [
+          [state: :revoking],
+          [state: :replaced],
+          [state: :retired],
+          [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
+        ] do
+      Repo.get!(Placement, placement.id) |> Ecto.Changeset.change(changes) |> Repo.update!()
 
-    replay = upload.(data, sha256)
-    assert replay.status == 200
-    assert Jason.decode!(replay.resp_body)["transfer_id"] == response["transfer_id"]
+      assert {:error, :coop_worker_source_grant_not_authorized} =
+               SourceGrants.source_grant_authority(
+                 certificate,
+                 job_ref,
+                 job_source
+               )
 
-    changed = <<137, 80, 78, 71, 13, 10, 26, 10, "changed">>
-    changed_sha = :crypto.hash(:sha256, changed) |> Base.encode16(case: :lower)
-    assert upload.(changed, changed_sha).status == 400
-  end
+      Repo.get!(Placement, placement.id)
+      |> Ecto.Changeset.change(state: :active, lease_expires_at: placement.lease_expires_at)
+      |> Repo.update!()
 
-  test "a publication review patch crosses only its exact command-scoped binary route" do
-    certificate = authorize_and_poll!()
-    patch = "diff --git a/lib/a.ex b/lib/a.ex\n+verified\n"
-    sha256 = :crypto.hash(:sha256, patch) |> Base.encode16(case: :lower)
-    artifact_id = "review-artifact-1"
+      assert {:ok, %{name: "source-test", repository_id: 17, installation_id: 41}, ^job_source} =
+               SourceGrants.source_grant_authority(
+                 certificate,
+                 job_ref,
+                 job_source
+               )
+    end
 
-    command =
-      command!("get_review_patch", %{
-        "artifact_id" => artifact_id,
-        "coop_session_id" => "coop-session-1",
-        "expected_bytes" => byte_size(patch),
-        "expected_sha256" => sha256
-      })
-
-    conn =
-      :put
-      |> conn(
-        "/v1/coop-workers/commands/#{command.id}/review-patches/#{artifact_id}",
-        patch
+    provider =
+      start_supervised!(
+        {Ryker.GitHub.InstallationTokens,
+         %{
+           app_http: self(),
+           name: nil,
+           requester: SourceGrantRequester,
+           bindings: %{"source-test" => %{repository_id: 17, installation_id: 41}}
+         }}
       )
-      |> put_req_header("content-type", "text/x-diff")
-      |> put_req_header("content-length", Integer.to_string(byte_size(patch)))
-      |> put_req_header("x-responder-artifact-sha256", sha256)
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call([])
 
-    assert conn.status == 200
-    response = Jason.decode!(conn.resp_body)
-    assert response["artifact_id"] == artifact_id
-    assert {:ok, ^patch} = ArtifactTransport.fetch_review_patch(response["transfer_id"])
+    begin_mint = fn ->
+      task =
+        Task.async(fn ->
+          receive do
+            :begin_source_grant ->
+              SourceGrants.source_grant(
+                certificate,
+                job_ref,
+                job_source,
+                provider
+              )
+          end
+        end)
+
+      Sandbox.allow(Repo, self(), task.pid)
+      send(task.pid, :begin_source_grant)
+
+      assert_receive {:source_token_request, ^provider, :post,
+                      "/app/installations/41/access_tokens",
+                      %{"permissions" => %{"contents" => "read"}, "repository_ids" => [17]}},
+                     5_000
+
+      task
+    end
+
+    task = begin_mint.()
+    send(provider, :complete_source_token)
+
+    assert {:ok, %{"token" => "host-only-source-token", "github_repository_id" => 17}} =
+             Task.await(task)
+
+    task = begin_mint.()
+
+    Repo.get!(Placement, placement.id)
+    |> Ecto.Changeset.change(state: :revoking)
+    |> Repo.update!()
+
+    send(provider, :complete_source_token)
+    assert {:error, :coop_worker_source_grant_not_authorized} = Task.await(task)
+    Repo.get!(Placement, placement.id) |> Ecto.Changeset.change(state: :active) |> Repo.update!()
+
+    Repo.get!(Session, session.id)
+    |> Ecto.Changeset.change(worker_job_digest: String.duplicate("f", 64))
+    |> Repo.update!()
+
+    assert {:error, :coop_worker_source_grant_not_authorized} =
+             SourceGrants.source_grant_authority(
+               certificate,
+               job_ref,
+               job_source
+             )
   end
 
-  test "one checkpoint command stores only its verified encrypted bundle and exact replays reconcile" do
+  test "generic API checkpoint custody restores an authenticated body with no special transfer route" do
     certificate = authorize_and_poll!()
-    key = :crypto.strong_rand_bytes(32)
 
     command =
       command!("checkpoint_workspace", %{
@@ -408,65 +586,60 @@ defmodule Ryker.CoopFleet.RouterTest do
         placement_generation: command.placement_generation
       })
 
-    upload = fn checkpoint, body ->
-      :put
-      |> conn(
-        "/v1/coop-workers/commands/#{command.id}/workspace-checkpoints/#{checkpoint["checkpoint_ref"]}",
-        body
-      )
-      |> put_req_header("content-type", checkpoint["bundle"]["media_type"])
-      |> put_req_header("content-length", Integer.to_string(byte_size(body)))
-      |> put_req_header(
-        "x-responder-checkpoint-descriptor",
-        checkpoint |> Jason.encode!() |> Base.url_encode64(padding: false)
-      )
-      |> put_req_header("x-responder-checkpoint-sha256", checkpoint["bundle"]["sha256"])
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call(checkpoint_key: key, checkpoint_secrets: [])
-    end
+    {result, options, response} = capture_checkpoint(command, checkpoint, bundle, certificate)
+    assert {:ok, receipt} = result
+    assert receipt["state"] == "stored"
+    transfer = Repo.get!(WorkspaceCheckpointTransfer, receipt["transfer_id"])
+    assert transfer.command_id == command.id
+    assert transfer.body_command_id != command.id
+    assert transfer.ciphertext == nil
+    assert transfer.descriptor == checkpoint
+    assert_body_retention(options[:body_root], transfer.body_command_id)
 
-    first = upload.(checkpoint, bundle)
-    assert first.status == 200
-    response = Jason.decode!(first.resp_body)
-    assert response["checkpoint_ref"] == checkpoint["checkpoint_ref"]
-    assert response["state"] == "stored"
+    assert {:ok, ^receipt} =
+             Checkpoints.capture(command.session_id, command.idempotency_key, response, options)
 
-    assert {:ok, stored} = ArtifactTransport.fetch_checkpoint(response["transfer_id"], key)
-    assert stored.checkpoint == checkpoint
-    assert stored.bundle == bundle
+    source = Repo.get!(Session, command.session_id)
 
-    %{rows: [[ciphertext]]} =
-      Repo.query!("SELECT ciphertext FROM coop_worker_workspace_checkpoints WHERE id = $1", [
-        Ecto.UUID.dump!(response["transfer_id"])
-      ])
+    requirements = %{
+      capability_names: [],
+      repository_ref: source.repository_ref,
+      workspace_ref: "workspace-main"
+    }
 
-    refute ciphertext == bundle
-    refute :binary.match(ciphertext, "Status: in_progress") != :nomatch
+    assert ControlPlane.portable_workspace(source, requirements, options[:body_root]) != nil
+    data_path = Path.join([options[:body_root], transfer.body_command_id, "response", "data"])
+    File.rename!(data_path, data_path <> ".held")
+    assert ControlPlane.portable_workspace(source, requirements, options[:body_root]) == nil
+    File.rename!(data_path <> ".held", data_path)
 
-    replay = upload.(checkpoint, bundle)
-    assert replay.status == 200
-    assert Jason.decode!(replay.resp_body)["transfer_id"] == response["transfer_id"]
-
-    source_session = Repo.get!(Session, command.session_id)
-
-    command.placement_id
-    |> then(&Repo.get!(Placement, &1))
+    Repo.get!(Placement, command.placement_id)
     |> Ecto.Changeset.change(state: :replaced)
     |> Repo.update!()
 
     replacement =
       SessionChangeset.insert(
         Ecto.UUID.generate(),
-        source_session.episode_id,
-        source_session.generation + 1,
-        source_session.policy,
-        source_session.policy_digest,
-        source_session.repository_ref,
-        source_session.external_ref
+        source.episode_id,
+        source.generation + 1,
+        source.policy,
+        source.policy_digest,
+        source.repository_ref,
+        source.external_ref
       )
+      |> Ecto.Changeset.change(repository_source: source.repository_source)
       |> Repo.insert!()
 
-    assert {:ok, replacement_placement} =
+    {:ok, job, digest} =
+      JobSpec.rebind(
+        source.worker_job_document,
+        source.worker_job_digest,
+        replacement.external_ref
+      )
+
+    replacement = replacement |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update!()
+
+    assert {:ok, placement} =
              ControlPlane.place_session(
                replacement.id,
                %{
@@ -477,54 +650,153 @@ defmodule Ryker.CoopFleet.RouterTest do
                60
              )
 
-    assert {:ok, restore_command} =
+    assert {:ok, restore} =
              ControlPlane.enqueue_command(
-               replacement_placement.id,
+               placement.id,
                "ensure_workspace",
                %{
                  "checkpoint" => %{
+                   "transfer_id" => transfer.id,
                    "byte_size" => byte_size(bundle),
                    "checkpoint_ref" => checkpoint["checkpoint_ref"],
                    "sha256" => checkpoint["bundle"]["sha256"],
                    "source_placement_generation" => command.placement_generation,
-                   "source_session_ref" => command.session_id,
-                   "transfer_id" => response["transfer_id"]
+                   "source_session_ref" => command.session_id
                  },
-                 "coop_session_id" => "coop-session-replacement",
-                 "expected_revision" => 1,
-                 "task" => %{"offer_ref" => "record:task_offer:replacement"}
+                 "coop_session_id" => "replacement",
+                 "expected_revision" => 1
                },
-               "ryker:test:ensure-workspace:restore"
+               "restore:#{Ecto.UUID.generate()}"
              )
 
-    restore_command
-    |> Ecto.Changeset.change(status: :delivered, delivered_at: Repo.now!())
-    |> Repo.update!()
+    # Enqueue is durable, but no command goes out while its large body is absent.
+    assert {:ok, %{"commands" => []}} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               Map.put(poll(), "poll_ref", Ecto.UUID.generate()),
+               options
+             )
+
+    assert :ok = Checkpoints.prepare_restore(restore, options)
+
+    assert {:ok, %{"commands" => [wire]}} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               Map.put(poll(), "poll_ref", Ecto.UUID.generate()),
+               options
+             )
+
+    assert wire["kind"] == "api_request"
+    assert wire["payload"]["path"] == "/v1/sessions/replacement/workspace/restore"
+    assert wire["payload"]["body_ref"] == Map.take(checkpoint["bundle"], ~w(sha256 byte_size))
 
     download =
       :get
-      |> conn(
-        "/v1/coop-workers/commands/#{restore_command.id}/workspace-checkpoints/#{response["transfer_id"]}"
-      )
+      |> conn("/v1/coop-workers/commands/#{restore.id}/request-body")
       |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call(checkpoint_key: key, checkpoint_secrets: [])
+      |> Router.call(options)
 
     assert download.status == 200
     assert download.resp_body == bundle
 
-    assert download
-           |> get_resp_header("x-responder-checkpoint-descriptor")
-           |> List.first()
-           |> Base.url_decode64!(padding: false)
-           |> Jason.decode!() == checkpoint
+    # Existing installations retain their historical GCM rows; only new writes
+    # use the encrypted file store. Restore upgrades custody without plaintext disk.
+    sealed =
+      WorkspaceCheckpointFixture.seal_historical(options[:checkpoint_key], checkpoint, bundle)
 
-    changed = put_in(checkpoint, ["candidate_tree_sha256"], String.duplicate("a", 64))
-    assert upload.(changed, bundle).status == 400
+    transfer |> Ecto.Changeset.change(Map.put(sealed, :body_command_id, nil)) |> Repo.update!()
+
+    assert {:ok, historical_restore} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "ensure_workspace",
+               restore.payload,
+               "restore:historical:#{Ecto.UUID.generate()}"
+             )
+
+    assert :ok = Checkpoints.prepare_restore(historical_restore, options)
+
+    assert {:ok, historical_body, _} =
+             Bodies.fetch(options[:body_root], historical_restore.id, :request)
+
+    assert {:ok, ^bundle} =
+             Bodies.read(
+               historical_body,
+               options[:checkpoint_key],
+               byte_size(bundle)
+             )
+
+    changed = put_in(response, ["checkpoint", "candidate_tree_sha256"], String.duplicate("a", 64))
+
+    assert {:error, :checkpoint_not_authorized} =
+             Checkpoints.capture(command.session_id, command.idempotency_key, changed, options)
+
+    # Historical encryption is still readable, but v1 content cannot reconstruct
+    # complete Git/LFS history. Refuse before copying or offering it for recovery.
+    {legacy, legacy_bundle} =
+      WorkspaceCheckpointFixture.build(%{
+        version: 1,
+        session_ref: command.session_id,
+        placement_generation: command.placement_generation
+      })
+
+    transfer
+    |> Ecto.Changeset.change(
+      WorkspaceCheckpointFixture.seal_historical(
+        options[:checkpoint_key],
+        legacy,
+        legacy_bundle
+      )
+      |> Map.merge(%{
+        descriptor: legacy,
+        body_command_id: nil,
+        bundle_sha256: legacy["bundle"]["sha256"],
+        bundle_byte_size: byte_size(legacy_bundle)
+      })
+    )
+    |> Repo.update!()
+
+    legacy_payload =
+      restore.payload
+      |> put_in(["checkpoint", "sha256"], legacy["bundle"]["sha256"])
+      |> put_in(["checkpoint", "byte_size"], byte_size(legacy_bundle))
+
+    assert {:ok, legacy_restore} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "ensure_workspace",
+               legacy_payload,
+               "restore:read-only:#{Ecto.UUID.generate()}"
+             )
+
+    assert {:error, :checkpoint_version_read_only} =
+             Checkpoints.prepare_restore(legacy_restore, options)
+
+    assert {:error, _} = Bodies.fetch(options[:body_root], legacy_restore.id, :request)
+    assert ControlPlane.portable_workspace(source, requirements, options[:body_root]) == nil
   end
 
-  test "checkpoint upload rejects a credential-shaped task before durable storage" do
+  defp assert_body_retention(root, live_id) do
+    orphan = Ecto.UUID.generate()
+    recent = Ecto.UUID.generate()
+    old = System.os_time(:second) - 86_401
+    for id <- [orphan, recent], do: File.mkdir_p!(Path.join(root, id))
+    File.touch!(Path.join(root, orphan), old)
+    File.touch!(Path.join(root, live_id), old)
+    link = Path.join(root, Ecto.UUID.generate())
+    File.ln_s!(Path.join(root, live_id), link)
+    File.mkdir_p!(Path.join(root, "unrecognized"))
+    File.touch!(Path.join(root, "unrecognized"), old)
+    assert :ok = Bodies.prune_orphans(root)
+    refute File.exists?(Path.join(root, orphan))
+    assert File.dir?(Path.join(root, recent))
+    assert File.dir?(Path.join(root, live_id))
+    assert File.lstat!(link).type == :symlink
+    assert File.dir?(Path.join(root, "unrecognized"))
+  end
+
+  test "checkpoint capture rejects credential-bearing content before recording portable custody" do
     certificate = authorize_and_poll!()
-    key = :crypto.strong_rand_bytes(32)
 
     command =
       command!("checkpoint_workspace", %{
@@ -540,24 +812,107 @@ defmodule Ryker.CoopFleet.RouterTest do
         task: "token=ghp_abcdefghijklmnopqrstuvwxyz123456\n"
       })
 
-    conn =
-      :put
-      |> conn(
-        "/v1/coop-workers/commands/#{command.id}/workspace-checkpoints/#{checkpoint["checkpoint_ref"]}",
-        bundle
-      )
-      |> put_req_header("content-type", checkpoint["bundle"]["media_type"])
-      |> put_req_header("content-length", Integer.to_string(byte_size(bundle)))
-      |> put_req_header(
-        "x-responder-checkpoint-descriptor",
-        checkpoint |> Jason.encode!() |> Base.url_encode64(padding: false)
-      )
-      |> put_req_header("x-responder-checkpoint-sha256", checkpoint["bundle"]["sha256"])
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call(checkpoint_key: key, checkpoint_secrets: [])
+    {result, _options, _response} = capture_checkpoint(command, checkpoint, bundle, certificate)
+    assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} = result
+    assert Repo.aggregate(WorkspaceCheckpointTransfer, :count) == 0
+  end
 
-    assert conn.status == 400
-    assert %{rows: [[0]]} = Repo.query!("SELECT count(*) FROM coop_worker_workspace_checkpoints")
+  test "historical v1 checkpoints cannot acquire new portable custody" do
+    certificate = authorize_and_poll!()
+
+    command =
+      command!("checkpoint_workspace", %{
+        "coop_session_id" => "coop-session-1",
+        "expected_revision" => 4,
+        "repository_ref" => "ryker"
+      })
+
+    {checkpoint, bundle} =
+      WorkspaceCheckpointFixture.build(%{
+        version: 1,
+        session_ref: command.session_id,
+        placement_generation: command.placement_generation
+      })
+
+    {result, _options, _response} = capture_checkpoint(command, checkpoint, bundle, certificate)
+    assert {:error, :checkpoint_version_read_only} = result
+    assert Repo.aggregate(WorkspaceCheckpointTransfer, :count) == 0
+  end
+
+  defp capture_checkpoint(command, checkpoint, bundle, certificate) do
+    root = Path.join(System.tmp_dir!(), "checkpoint-api-#{Ecto.UUID.generate()}")
+    on_exit(fn -> File.rm_rf!(root) end)
+    key = :binary.copy(<<7>>, 32)
+
+    response = %{
+      "checkpoint" => checkpoint,
+      "operation" => %{
+        "id" => "op-checkpoint",
+        "method" => "CheckpointWorkspace",
+        "state" => "succeeded"
+      }
+    }
+
+    finish = fn id, operation_key, resource ->
+      result = %{
+        "command_id" => id,
+        "operation_key" => operation_key,
+        "error" => nil,
+        "state" => "succeeded",
+        "resource" => resource
+      }
+
+      document =
+        poll()
+        |> Map.put("poll_ref", Ecto.UUID.generate())
+        |> Map.put("command_results", [result])
+
+      assert {:ok, _} = ControlPlane.handle_poll("worker-a", document, body_root: root)
+      :ok
+    end
+
+    finish.(command.id, command.idempotency_key, %{"status" => 200, "body" => response})
+
+    options = [
+      body_root: root,
+      checkpoint_key: key,
+      checkpoint_secrets: [],
+      workspace_ref: "workspace-main",
+      max_waits: 3,
+      poll_interval_ms: 1,
+      wait: fn ->
+        assert {:ok, %{"commands" => [get]}} =
+                 ControlPlane.handle_poll(
+                   "worker-a",
+                   Map.put(poll(), "poll_ref", Ecto.UUID.generate())
+                 )
+
+        assert get["payload"]["method"] == "GET"
+        assert get["payload"]["path"] == "/v1/operations/op-checkpoint/checkpoint-bundle"
+
+        upload =
+          :put
+          |> conn("/v1/coop-workers/commands/#{get["command_id"]}/response-body", bundle)
+          |> put_req_header("content-length", to_string(byte_size(bundle)))
+          |> put_req_header("x-coop-body-sha256", checkpoint["bundle"]["sha256"])
+          |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
+          |> Router.call(body_root: root, checkpoint_key: key)
+
+        assert upload.status == 200
+
+        finish.(get["command_id"], get["idempotency_key"], %{
+          "status" => 200,
+          "body_ref" => Map.take(checkpoint["bundle"], ~w(sha256 byte_size)),
+          "headers" => %{
+            "Content-Type" => checkpoint["bundle"]["media_type"],
+            "Etag" => ~s("#{checkpoint["bundle"]["sha256"]}")
+          }
+        })
+      end
+    ]
+
+    {Checkpoints.capture(command.session_id, command.idempotency_key, response, options), options,
+     response}
   end
 
   test "worker HTTP boundaries return typed errors before accepting malformed authority or bytes" do
@@ -589,7 +944,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     for {method, path, body, expected_status} <- [
           {:post, "/v1/coop-workers/renew", "{}", 400},
           {:post, "/v1/coop-workers/poll", Jason.encode!(poll()), 401},
-          {:get, "/v1/coop-workers/commands/missing/input-artifacts/missing", "", 401}
+          {:get, "/v1/coop-workers/commands/missing/request-body", "", 404}
         ] do
       unauthorized =
         method
@@ -605,230 +960,44 @@ defmodule Ryker.CoopFleet.RouterTest do
       assert unauthorized.status == expected_status
     end
 
-    upload_data = "bytes"
-    upload_sha256 = :crypto.hash(:sha256, upload_data) |> Base.encode16(case: :lower)
+    root = Path.join(System.tmp_dir!(), "coop-body-errors-#{Ecto.UUID.generate()}")
+    on_exit(fn -> File.rm_rf!(root) end)
+    command = command!("api_request", %{"method" => "GET", "path" => "/v1/sessions/s"})
+    path = "/v1/coop-workers/commands/#{command.id}/response-body"
 
-    for {path, content_type, headers} <- [
-          {
-            "/v1/coop-workers/commands/missing/output-artifacts/missing",
-            "image/png",
-            [{"x-responder-artifact-name", Base.url_encode64("file.png", padding: false)}]
-          },
-          {
-            "/v1/coop-workers/commands/missing/review-patches/missing",
-            "text/x-diff",
-            []
-          }
+    for {hash, length} <- [
+          {"wrong", "5"},
+          {String.duplicate("a", 64), "0"},
+          {String.duplicate("a", 64), "9223372036854775807"}
         ] do
-      unauthorized =
-        :put
-        |> conn(path, upload_data)
-        |> put_req_header("content-type", content_type)
-        |> put_req_header("content-length", Integer.to_string(byte_size(upload_data)))
-        |> put_req_header("x-responder-artifact-sha256", upload_sha256)
-        |> put_peer_data(%{
-          address: {127, 0, 0, 1},
-          port: 1234,
-          ssl_cert: unknown_certificate
-        })
-
-      unauthorized =
-        Enum.reduce(headers, unauthorized, fn {name, value}, request ->
-          put_req_header(request, name, value)
-        end)
-
-      assert Router.call(unauthorized, []).status == 401
-    end
-
-    unsupported_renewal =
-      :post
-      |> conn("/v1/coop-workers/renew", "{}")
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call(enrollment_authority: authority)
-
-    assert unsupported_renewal.status == 415
-
-    invalid_renewal =
-      :post
-      |> conn("/v1/coop-workers/renew", "{")
-      |> put_req_header("content-type", "application/json")
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call(enrollment_authority: authority)
-
-    assert invalid_renewal.status == 400
-
-    no_state_token =
-      :post
-      |> conn("/v1/state-tools/mcp", "{}")
-      |> put_req_header("content-type", "application/json")
-      |> Router.call(state_tools: %{capabilities: []})
-
-    assert no_state_token.status == 401
-
-    oversized = String.duplicate("x", 1_048_577)
-
-    for {path, options} <- [
-          {"/v1/coop-workers/enroll", [enrollment_authority: authority]},
-          {"/v1/coop-workers/renew", [enrollment_authority: authority]},
-          {"/v1/coop-workers/poll", []}
-        ] do
-      too_large =
-        :post
-        |> conn(path, oversized)
-        |> put_req_header("content-type", "application/json")
-        |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-        |> Router.call(options)
-
-      assert too_large.status == 413
-    end
-
-    assert 415 ==
-             (:post
-              |> conn("/v1/coop-workers/poll", "{}")
-              |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-              |> Router.call([])).status
-
-    assert 400 ==
-             (:post
-              |> conn("/v1/coop-workers/poll", "{")
-              |> put_req_header("content-type", "application/json")
-              |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-              |> Router.call([])).status
-
-    for {path, content_type, extra_headers} <- [
-          {"/v1/coop-workers/commands/missing/output-artifacts/missing",
-           "application/octet-stream", []},
-          {"/v1/coop-workers/commands/missing/review-patches/missing", "text/x-diff", []}
-        ] do
-      invalid_headers =
+      response =
         :put
         |> conn(path, "bytes")
-        |> put_req_header("content-type", content_type)
+        |> put_req_header("content-length", length)
+        |> put_req_header("x-coop-body-sha256", hash)
         |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
+        |> Router.call(body_root: root, checkpoint_key: :binary.copy(<<7>>, 32))
 
-      invalid_headers =
-        Enum.reduce(extra_headers, invalid_headers, fn {name, value}, request ->
-          put_req_header(request, name, value)
-        end)
-
-      assert Router.call(invalid_headers, []).status in [400, 415]
+      assert response.status == 400
     end
 
-    invalid_output_headers =
-      :put
-      |> conn("/v1/coop-workers/commands/missing/output-artifacts/missing", upload_data)
-      |> put_req_header("content-type", "image/png")
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call([])
-
-    assert invalid_output_headers.status == 400
-
-    invalid_review_digest =
-      :put
-      |> conn("/v1/coop-workers/commands/missing/review-patches/missing", upload_data)
-      |> put_req_header("content-type", "text/x-diff")
-      |> put_req_header("content-length", Integer.to_string(byte_size(upload_data)))
-      |> put_req_header("x-responder-artifact-sha256", "not-a-digest")
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call([])
-
-    assert invalid_review_digest.status == 415
-
-    for {path, content_type, headers} <- [
-          {
-            "/v1/coop-workers/commands/missing/output-artifacts/missing",
-            "image/png",
-            [{"x-responder-artifact-name", Base.url_encode64("file.png", padding: false)}]
-          },
-          {
-            "/v1/coop-workers/commands/missing/review-patches/missing",
-            "text/x-diff",
-            []
-          }
+    # These endpoints were removed, not kept as compatibility aliases.
+    for route <- [
+          "input-artifacts/a",
+          "output-artifacts/a",
+          "review-patches/a",
+          "workspace-checkpoints/a"
         ] do
-      mismatched_length =
-        :put
-        |> conn(path, upload_data)
-        |> put_req_header("content-type", content_type)
-        |> put_req_header("content-length", Integer.to_string(byte_size(upload_data) + 1))
-        |> put_req_header("x-responder-artifact-sha256", upload_sha256)
-        |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
+      assert (:get
+              |> conn("/v1/coop-workers/commands/#{command.id}/#{route}")
+              |> Router.call([])).status == 404
 
-      mismatched_length =
-        Enum.reduce(headers, mismatched_length, fn {name, value}, request ->
-          put_req_header(request, name, value)
-        end)
-
-      assert Router.call(mismatched_length, []).status == 400
+      assert (:put
+              |> conn("/v1/coop-workers/commands/#{command.id}/#{route}", "bytes")
+              |> Router.call([])).status == 404
     end
 
-    oversized_artifact = String.duplicate("x", 8 * 1_024 * 1_024 + 1)
-
-    artifact_too_large =
-      :put
-      |> conn(
-        "/v1/coop-workers/commands/missing/output-artifacts/missing",
-        oversized_artifact
-      )
-      |> put_req_header("content-type", "image/png")
-      |> put_req_header("content-length", Integer.to_string(8 * 1_024 * 1_024))
-      |> put_req_header(
-        "x-responder-artifact-name",
-        Base.url_encode64("large.png", padding: false)
-      )
-      |> put_req_header("x-responder-artifact-sha256", String.duplicate("a", 64))
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call([])
-
-    assert artifact_too_large.status == 413
-
-    assert 401 ==
-             (:get
-              |> conn("/v1/coop-workers/commands/missing/input-artifacts/missing")
-              |> Router.call([])).status
-
-    for {path, expected_status} <- [
-          {"/v1/coop-workers/commands/missing/output-artifacts/missing", 415},
-          {"/v1/coop-workers/commands/missing/review-patches/missing", 400}
-        ] do
-      assert 401 == (:put |> conn(path, "bytes") |> Router.call([])).status
-
-      unsupported =
-        :put
-        |> conn(path, "bytes")
-        |> put_req_header("content-type", "application/octet-stream")
-        |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-        |> Router.call([])
-
-      assert unsupported.status == expected_status
-    end
-
-    assert 404 == (:get |> conn("/not-a-worker-route") |> Router.call([])).status
-  end
-
-  test "artifact transfer identifiers and unauthenticated direct calls fail closed" do
-    missing = Ecto.UUID.generate()
-
-    assert {:error, :coop_worker_output_artifact_not_found} =
-             ArtifactTransport.fetch_output("not-a-uuid")
-
-    assert {:error, :coop_worker_output_artifact_not_found} =
-             ArtifactTransport.fetch_output(missing)
-
-    assert {:error, :coop_worker_review_patch_not_found} =
-             ArtifactTransport.fetch_review_patch("not-a-uuid")
-
-    assert {:error, :coop_worker_review_patch_not_found} =
-             ArtifactTransport.fetch_review_patch(missing)
-
-    assert {:error, :coop_worker_certificate_not_authorized} =
-             ArtifactTransport.fetch_input("unknown-certificate", missing, "artifact")
-
-    assert {:error, :coop_worker_certificate_not_authorized} =
-             ArtifactTransport.put_output("unknown-certificate", missing, "artifact", %{})
-
-    assert {:error, :coop_worker_certificate_not_authorized} =
-             ArtifactTransport.put_review_patch("unknown-certificate", missing, "artifact", %{})
+    assert (:put |> conn(path, "bytes") |> Router.call(body_root: root)).status == 401
   end
 
   defp authorize_and_poll! do
@@ -844,6 +1013,15 @@ defmodule Ryker.CoopFleet.RouterTest do
 
   defp command!(kind, payload) do
     session = session!()
+
+    session =
+      if is_binary(payload["coop_session_id"]) do
+        session
+        |> Ecto.Changeset.change(coop_session_id: payload["coop_session_id"])
+        |> Repo.update!()
+      else
+        session
+      end
 
     payload =
       if kind == "checkpoint_workspace",
@@ -896,7 +1074,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     assert {:ok, session} =
              Custody.pin_episode(episode_id, "work-read-only", @policy_digest, "ryker")
 
-    session
+    WorkerJob.pin!(session)
   end
 
   defp poll do
@@ -905,7 +1083,7 @@ defmodule Ryker.CoopFleet.RouterTest do
       "command_results" => [],
       "event_batches" => [],
       "poll_ref" => "poll:worker-a:router",
-      "version" => 1,
+      "version" => 2,
       "worker" => %{
         "build_version" => "coop-test",
         "capabilities" => [],
@@ -921,9 +1099,7 @@ defmodule Ryker.CoopFleet.RouterTest do
         },
         "clock_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
         "id" => "worker-a",
-        "policy_digests" => %{"work-read-only" => @policy_digest},
-        "protocol_version" => "1",
-        "repositories" => [%{"ref" => "ryker", "revision" => "commit:test"}],
+        "protocol_version" => "2",
         "sandbox_digest" => String.duplicate("a", 64),
         "state" => "eligible",
         "workspace_ref" => "workspace-main"

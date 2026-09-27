@@ -12,7 +12,7 @@ defmodule Ryker.CoopFleet.Command do
     field(:session_id, :binary_id)
     field(:placement_generation, :integer)
     field(:kind, :string)
-    field(:command_version, :integer, default: 1)
+    field(:command_version, :integer, default: 2)
     field(:payload, Ryker.CanonicalJSON.Type)
     field(:payload_fingerprint, :string)
     field(:idempotency_key, :string)

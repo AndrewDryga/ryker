@@ -2,13 +2,11 @@ defmodule Ryker.ControlPlane.SettingsRows do
   @moduledoc """
   How one saved row of a settings collection reads in a list: a name, its
   state, what it does and one line of facts. Identifiers a person needs only
-  for support, such as a worker's name for a policy and its pinned version,
+  for support, such as a saved identity,
   go under a closed Details disclosure instead of the facts line.
   """
 
-  alias Ryker.BundledCoop
-
-  alias Ryker.ControlPlane.{Environments, Integrations, SettingsSections}
+  alias Ryker.ControlPlane.{Integrations, SettingsSections}
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
 
@@ -51,40 +49,6 @@ defmodule Ryker.ControlPlane.SettingsRows do
     })
   end
 
-  # The kind of work, then where it applies, what it may do and who offers
-  # it, in words; the worker's own name for the policy is support detail.
-  def present(%{key: :policies} = section, binding, view) do
-    status = row_status(section, binding, view)
-    {state, text} = policy_state(status.tone, binding)
-
-    row(%{
-      name: option_label(section, :purpose, binding.purpose),
-      state: state,
-      text: text,
-      meta: [
-        policy_scope(view, binding),
-        allows(binding),
-        offered(view, binding)
-      ],
-      # The two fingerprints are for support to compare, never to read: a
-      # short form, with the whole value a copy away.
-      details:
-        Enum.reject(
-          [
-            {"Worker policy", binding.policy_name},
-            {"Reviewed version", fingerprint(binding.policy_digest)},
-            {"Allowed access", fingerprint(binding.authority_digest)},
-            {"Confirmed by",
-             if(binding.verified_by == :import,
-               do: "Imported",
-               else: binding.verified_worker_ref
-             )}
-          ],
-          fn {_label, value} -> value in [nil, "", {:fingerprint, nil}, {:fingerprint, ""}] end
-        )
-    })
-  end
-
   def present(section, item, _view) do
     [first | rest] = section.fields
 
@@ -100,8 +64,6 @@ defmodule Ryker.ControlPlane.SettingsRows do
     })
   end
 
-  defp fingerprint(value), do: {:fingerprint, value}
-
   @doc "What removing a row does, said before it is done."
   @spec removal(map()) :: String.t()
   def removal(%{key: :pricing}),
@@ -110,7 +72,6 @@ defmodule Ryker.ControlPlane.SettingsRows do
   def removal(%{key: :webhooks}),
     do: "Ryker stops accepting events at its address. Events already received stay."
 
-  def removal(%{key: :policies}), do: "New work of this kind stops using this policy."
   def removal(_section), do: "It is removed from these settings."
 
   @doc "The address a sender posts one source's events to."
@@ -216,31 +177,6 @@ defmodule Ryker.ControlPlane.SettingsRows do
   defp runs_in(_view, nil), do: nil
   defp runs_in(view, ref), do: "Runs in " <> named(view.snapshot.environments, ref)
 
-  # A policy applies everywhere, to one repository or to one environment; the
-  # kind of scope says which list its ref names. An environment binds each
-  # kind of work once per repository, since its work may change any of them,
-  # so the row names that repository too.
-  defp policy_scope(_view, %{scope_kind: :installation}), do: "Everywhere"
-
-  defp policy_scope(view, %{scope_kind: :repository, scope_ref: ref}),
-    do: "Only in " <> Environments.repository_name(view.snapshot, ref)
-
-  defp policy_scope(view, %{scope_kind: :environment, scope_ref: ref, repository_ref: repository}),
-       do:
-         "Only in #{Environments.repository_name(view.snapshot, repository)} in the " <>
-           "#{named(view.snapshot.environments, ref)} environment"
-
-  # What a policy lets its work do, when that is known. A task changes code,
-  # and the host refuses to start one on a session that cannot, so a task's
-  # policy can whoever wrote it. The bundled worker writes every other policy
-  # read-only. A worker someone runs themselves advertises no more than a
-  # policy's name and digests, so for its other policies the row says nothing.
-  defp allows(%{purpose: :contributor}), do: "Can change code"
-
-  defp allows(%{policy_name: name}) do
-    if BundledCoop.distribution?() and BundledCoop.policy?(name), do: "Read only"
-  end
-
   defp named(items, ref) do
     case Enum.find(items, &(&1.ref == ref)) do
       nil -> ref
@@ -250,42 +186,4 @@ defmodule Ryker.ControlPlane.SettingsRows do
 
   defp name(%{display_name: name, ref: ref}) when name in [nil, ""], do: ref
   defp name(%{display_name: name}), do: name
-
-  defp row_status(%{row_status: {module, function}}, item, view),
-    do: apply(module, function, [item, view])
-
-  defp policy_state("verified", _binding), do: {{:on, "Ready"}, nil}
-
-  defp policy_state("changed", _binding),
-    do:
-      {{:warn, "Changed on the workers"},
-       "The workers now offer a different version. Ryker keeps running the version pinned here."}
-
-  defp policy_state(_unavailable, %{verified_by: :import}),
-    do:
-      {{:warn, "Not confirmed"}, "It was imported, and no connected worker has confirmed it yet."}
-
-  defp policy_state(_unavailable, _binding),
-    do:
-      {{:warn, "Unavailable"},
-       "No connected worker offers this policy, so this kind of work cannot start."}
-
-  defp offered(view, binding) do
-    case Enum.filter(view.workers.policies, &(&1.name == binding.policy_name)) do
-      [] -> nil
-      advertisements -> "Offered by #{count(advertisements)}"
-    end
-  end
-
-  defp count(advertisements) do
-    case advertisements |> Enum.flat_map(& &1.workers) |> Enum.uniq() |> length() do
-      1 -> "1 worker"
-      workers -> "#{workers} workers"
-    end
-  end
-
-  defp option_label(section, field_name, value) do
-    field = Enum.find(section.fields, &(&1.name == field_name))
-    SettingsSections.row_value(field, value)
-  end
 end

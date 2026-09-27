@@ -600,7 +600,8 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert LearningActivity.project(%{}).state == :paused
     html = render(%{})
     assert html =~ "Learning is paused"
-    assert html =~ "project_env: false and project_mcp: false"
+    assert html =~ "Check the job and worker version"
+    refute html =~ "project_env: false and project_mcp: false"
 
     # A different configured policy is a new digest: nothing holds it.
     configuration = Application.fetch_env!(:ryker, :learning)

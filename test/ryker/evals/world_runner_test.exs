@@ -5,6 +5,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
   import Ecto.Query
 
+  alias Ryker.Artifacts.Artifact
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.Adapters
   alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
@@ -214,10 +215,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     # pin was hidden behind the harness's generic work_retry_exhausted result.
     {:ok, scenario} = WorldCase.fetch("ordinary-thread-question-gets-natural-answer")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-
-    FakeWorkCoopAPI.update(fake, fn state ->
-      put_in(state, [:session, "policy_digest"], String.duplicate("b", 64))
-    end)
+    cross_created_job(fake)
 
     result =
       WorldRunner.run(scenario,
@@ -251,11 +249,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
   test "a failed world cannot attribute another episode's remote turn to its model" do
     {:ok, scenario} = WorldCase.fetch("ordinary-thread-question-gets-natural-answer")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-
-    FakeWorkCoopAPI.update(
-      fake,
-      &put_in(&1, [:session, "policy_digest"], String.duplicate("b", 64))
-    )
+    cross_created_job(fake)
 
     before_execute = fn claim, _scenario ->
       other_id = Ecto.UUID.generate()
@@ -1197,8 +1191,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     test "#{scenario_id} crosses real state custody, final validation, and inert delivery" do
       {:ok, scenario} = WorldCase.fetch(@scenario_id)
 
-      {:ok, fake} =
-        FakeWorkCoopAPI.start_link([], companions: scenario_companions(scenario))
+      {:ok, fake} = FakeWorkCoopAPI.start_link([])
 
       {:ok, turn_counter} = Agent.start_link(fn -> 0 end)
       {:ok, cassette} = start_supervised({WorldCassette, scenario})
@@ -1377,7 +1370,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
   test "later repository feedback replaces the pending task offer instead of creating another task" do
     {:ok, scenario} = WorldCase.fetch("rivals-engineering-task-offer")
-    {:ok, fake} = FakeWorkCoopAPI.start_link([], companions: scenario_companions(scenario))
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
     {:ok, turn_state} = Agent.start_link(fn -> %{index: 0, record_ref: nil} end)
 
     prompts = [
@@ -1451,6 +1444,59 @@ defmodule Ryker.Evals.WorldRunnerTest do
              "superseded",
              "open"
            ]
+
+    assert {:ok, [capture]} = WorldCase.fixture_context(scenario)
+    assert length(capture["files"]) == 2
+    state = FakeWorkCoopAPI.state(fake)
+    assert state.create_count == 1
+    assert state.submit_count == 3
+    assert state.session["companions"] == []
+
+    expected = Map.new(capture["files"], &{Path.basename(&1["path"]), {&1["data"], &1["sha256"]}})
+
+    for submission <- state.submissions do
+      assert Map.new(submission.artifacts, &{&1["name"], {&1["data"], &1["sha256"]}}) == expected
+      assert submission.prompt =~ "captured_source_excerpts"
+      assert submission.prompt =~ "captured_revision"
+    end
+  end
+
+  test "corrupt captured source bytes cannot reach a model turn" do
+    {:ok, scenario} = WorldCase.fetch("rivals-engineering-task-offer")
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+
+    before_execute = fn _claim, _scenario ->
+      assert [artifact | _] = Repo.all(Artifact)
+
+      Repo.update_all(from(a in Artifact, where: a.id == ^artifact.id),
+        set: [data: String.duplicate("x", artifact.byte_size)]
+      )
+
+      :ok
+    end
+
+    assert {:error, {:world_eval_assertions, report}} =
+             WorldRunner.run(scenario,
+               api: FakeWorkCoopAPI,
+               before_execute: before_execute,
+               client: fake,
+               policy: "world-eval-read-only",
+               policy_digest: @policy_digest,
+               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+               state_tools_secret: "world-eval-state-tools-secret",
+               worker_ref: "world-corrupt-fixture"
+             )
+
+    assert FakeWorkCoopAPI.state(fake).submit_count == 0
+    assert report.runtime.turns == []
+
+    assert {:world_eval_failed, {:work_not_accepted, %{status: :blocked, turn_id: turn_id}}} =
+             report.execution_error
+
+    turn = Repo.get!(Turn, turn_id)
+
+    assert Ryker.Artifacts.coop_inputs(turn.submission["input_artifact_refs"]) ==
+             {:error, :input_artifact_bound_exceeded}
   end
 
   for {scenario_id, transport} <- @platform_scenarios do
@@ -2360,19 +2406,23 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert failure["record_kind"] == "task_offer"
   end
 
+  defp cross_created_job(fake) do
+    FakeWorkCoopAPI.update(fake, fn state ->
+      %{
+        state
+        | on_create_session: fn _task ->
+            FakeWorkCoopAPI.update(
+              fake,
+              &put_in(&1, [:session, "job_digest"], String.duplicate("b", 64))
+            )
+          end
+      }
+    end)
+  end
+
   defp successful_before_execute(scenario, fake, cassette) do
     assert {:ok, callback} = WorldHostReplay.before_execute(scenario, fake, cassette: cassette)
     callback
-  end
-
-  defp scenario_companions(scenario) do
-    Enum.map(WorldCase.repository_requirements(scenario), fn requirement ->
-      %{
-        "base_commit" => requirement["base_commit"],
-        "name" => requirement["name"],
-        "path" => "/coop/repositories/#{requirement["name"]}"
-      }
-    end)
   end
 
   defp record_state_tool!("request_task", claim) do

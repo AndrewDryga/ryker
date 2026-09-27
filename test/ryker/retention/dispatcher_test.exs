@@ -9,6 +9,7 @@ defmodule Ryker.Retention.DispatcherTest do
   alias Ryker.FakeRetentionCoopAPI, as: FakeAPI
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Retention.{Dispatcher, Executor}
   alias Ryker.Work.{Custody, Session}
 
@@ -163,7 +164,7 @@ defmodule Ryker.Retention.DispatcherTest do
     crossed =
       session
       |> remote_session()
-      |> Map.put("policy_digest", String.duplicate("f", 64))
+      |> Map.put("job_digest", String.duplicate("f", 64))
 
     {:ok, api} = FakeAPI.start_link(sessions: [crossed])
 
@@ -637,6 +638,7 @@ defmodule Ryker.Retention.DispatcherTest do
 
     session =
       session
+      |> WorkerJob.pin!()
       |> Ecto.Changeset.change(coop_session_id: "remote:#{suffix}:#{id}")
       |> Repo.update!()
 
@@ -655,10 +657,10 @@ defmodule Ryker.Retention.DispatcherTest do
 
   defp remote_session(session) do
     %{
-      "external_ref" => session.external_ref,
+      "external_ref" => Session.coop_task_ref(session),
       "id" => session.coop_session_id,
-      "policy" => session.policy,
-      "policy_digest" => session.policy_digest,
+      "job_ref" => session.external_ref,
+      "job_digest" => session.worker_job_digest,
       "revision" => 7,
       "state" => "open"
     }

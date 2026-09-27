@@ -575,14 +575,19 @@ defmodule Ryker.Evals.WorldCaseTest do
 
     assert {:ok, [compiled]} = WorldCase.all(fixture)
 
-    assert WorldCase.repository_requirements(compiled) == [
-             %{
-               "base_commit" => "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7",
-               "name" => "blitz-rivals-scraper"
-             }
-           ]
+    assert {:ok, [capture]} = WorldCase.fixture_context(compiled)
+    assert capture["captured_revision"] == "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7"
+    assert capture["repository"] == "blitz-rivals-scraper"
+    assert capture["sha256"] == repository_digest(repository_dir)
+    assert [file] = capture["files"]
+    assert file["path"] == "gate.py"
+    assert file["data"] == "def timeout_window():\n    return 300\n"
+    assert file["bytes"] == byte_size(file["data"])
+    assert file["sha256"] == Base.encode16(:crypto.hash(:sha256, file["data"]), case: :lower)
 
     File.write!(Path.join(repository_dir, "gate.py"), "def timeout_window():\n    return 600\n")
+
+    assert {:error, :repository_digest} = WorldCase.fixture_context(compiled)
 
     assert {:error, {:invalid_world_case, ^case_id, :repository_digest}} =
              WorldCase.all(fixture)

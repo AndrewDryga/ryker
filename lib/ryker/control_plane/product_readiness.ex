@@ -87,7 +87,7 @@ defmodule Ryker.ControlPlane.ProductReadiness do
       state(
         :setting_up,
         "Chat is finishing setup",
-        "The bundled worker is installing the Chat policy. This page will update when it is ready."
+        "Ryker is applying the saved work settings. This page will update when it is ready."
       )
 
   defp chat_state(_profile, {:error, _reason}),
@@ -107,23 +107,14 @@ defmodule Ryker.ControlPlane.ProductReadiness do
       )
 
   defp chat_state(_profile, {:ok, fleet}) do
-    cond do
-      fleet.eligible_workers == 0 ->
-        state(
-          :worker_unavailable,
-          "Chat is waiting for its worker",
-          "The bundled worker is offline or still starting."
-        )
-
-      fleet.available_policy_profiles < fleet.required_policy_profiles ->
-        state(
-          :policy_unavailable,
-          "Chat policies are still loading",
-          "The bundled worker has not advertised every policy Ryker needs."
-        )
-
-      true ->
-        state(:ready, "Chat is ready", "Messages can be accepted and processed.")
+    if fleet.eligible_workers == 0 do
+      state(
+        :worker_unavailable,
+        "Chat is waiting for its worker",
+        "The bundled worker is offline or still starting."
+      )
+    else
+      state(:ready, "Chat is ready", "Messages can be accepted and processed.")
     end
   end
 

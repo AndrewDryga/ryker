@@ -42,14 +42,6 @@ defmodule Ryker.Work.Executor.Workspace do
   # workspace must actually start at the commit that binding pinned. A
   # workspace-free session has no persisted request, so a binding it reports is
   # only checked for internal consistency; it is never re-resolved.
-  #
-  # An intentionally local policy has no remote identity to bind: Coop refuses
-  # every selector but its own default there and returns no binding, and the
-  # primary freshness receipt already proves that workspace head.
-  defp repository_source_binding(%{repository_source: %{"kind" => "default"}}, remote, _primary)
-       when not is_map_key(remote, "source"),
-       do: {:ok, nil}
-
   defp repository_source_binding(session, remote_session, primary) do
     case RepositorySource.reconcile(
            Map.get(remote_session, "source"),

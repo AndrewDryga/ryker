@@ -126,10 +126,7 @@ defmodule Ryker.Observability.Readiness do
 
   defp learning_runtime_expected?(snapshot) do
     snapshot.learning.enabled and Defaults.execution() == :fleet and
-      is_binary(snapshot.work.workspace_ref) and
-      Enum.any?(snapshot.policy_bindings, fn binding ->
-        binding.purpose == :learning and binding.scope_kind == :installation
-      end)
+      is_binary(snapshot.work.workspace_ref)
   end
 
   defp runtime_status do

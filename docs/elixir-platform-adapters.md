@@ -15,7 +15,7 @@ platform request
 
 This split is deliberate. Platform code translates identities, capabilities, threads, API calls, and
 receipts. The model interprets arbitrary content. The host alone chooses destinations, credentials,
-Coop policy, and available operations.
+job settings, and available operations.
 
 ## Inbound adapters
 

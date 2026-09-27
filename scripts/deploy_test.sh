@@ -53,7 +53,7 @@ mkdir -p "$repo/scripts"
 git init -q --initial-branch=main "$repo"
 git -C "$repo" config user.email deploy-test@example.invalid
 git -C "$repo" config user.name "deploy test"
-cp "$root/scripts/deploy.sh" "$root/scripts/elixir-release-version.sh" "$repo/scripts/"
+cp "$root/scripts/deploy.sh" "$root/scripts/compose.sh" "$root/scripts/elixir-release-version.sh" "$repo/scripts/"
 printf 'name: ryker\n' >"$repo/compose.yml"
 git -C "$repo" add -A
 git -C "$repo" commit -q -m "first"
@@ -122,6 +122,11 @@ case " $* " in
   *" exec -T database pg_isready "*) [[ -f $fake/database.down ]] && exit 1 ;;
   *" exec -T database pg_dump "*) printf 'PGDMP fake dump\n' ;;
   *" exec -T database pg_restore --list "*) cat >/dev/null ;;
+  *" run --rm --no-deps -T --entrypoint tar volume-init "*)
+    [[ -f $fake/archive.fail ]] && exit 1
+    tar -czf - -T /dev/null
+    ;;
+  *" run --rm --no-deps -T --entrypoint tar ryker-coop "*) tar -czf - -T /dev/null ;;
   *" build ryker "*)
     printf 'RYKER_VERSION=%s RYKER_IMAGE=%s\n' "${RYKER_VERSION:-}" "${RYKER_IMAGE:-}" >>"$fake/build.env"
     [[ -f $fake/build.fail ]] && { echo "fake: the image did not build" >&2; exit 1; }
@@ -132,6 +137,8 @@ case " $* " in
     [[ -f $fake/up.stale ]] || printf '%s\n' "${RYKER_VERSION:-}" >"$fake/version"
     ;;
   *" logs "*) echo "fake container log line" ;;
+  *" ps --status running --services "*) [[ -f $fake/controller.stopped ]] || echo "ryker" ;;
+  *" exec -T database psql "*) echo 1 ;;
   *" ps "*) echo "ryker fake running" ;;
   *" image ls "*) cat "$fake/images" 2>/dev/null ;;
 esac
@@ -237,6 +244,14 @@ check "one pre-deploy backup was written" "1" "$(backups)"
 backup=$(find "$state/backups" -name 'pre-deploy-*.tar.gz' | head -n 1)
 check "the backup is owner-only" "600" "$(mode "$backup")"
 check "the backup holds the database dump" "database.dump" "$(tar -tzf "$backup")"
+check "the backup holds encrypted file custody" "ryker-state.tar.gz" "$(tar -tzf "$backup")"
+stop_line=$(grep -n 'stop ryker' <<<"$calls" | head -n 1 | cut -d: -f1)
+if [[ -n $stop_line && $stop_line -lt $dump_line ]]; then
+  printf 'ok   database and file custody share a quiescent snapshot\n'
+else
+  printf 'FAIL snapshot did not stop its writer before pg_dump\n'
+  failures=$((failures + 1))
+fi
 check "the backup holds the environment" "compose.env" "$(tar -tzf "$backup")"
 check "the backup's environment pins the version that was running before" \
   "RYKER_VERSION=$old_version" "$(tar -xzOf "$backup" compose.env)"
@@ -273,6 +288,15 @@ check "the worktree is removed after a failed build" "1" "$(worktrees)"
 
 # ---------------------------------------------------------------------------
 # A container that does not come up healthy.
+seed
+touch "$fake/archive.fail"
+out=$(run)
+check "a failed state archive aborts deployment" "exit=1" "$out"
+check "a failed state archive restarts the existing controller" "start ryker" "$(cat "$fake/calls")"
+refute "a failed state archive never replaces the container" "up --detach" "$(cat "$fake/calls")"
+check "a failed state archive preserves the old pin" "RYKER_VERSION=$old_version" "$(cat "$state/compose.env")"
+rm "$fake/archive.fail"
+
 seed
 touch "$fake/up.fail"
 out=$(run)
@@ -318,6 +342,37 @@ out=$(run --allow-not-main)
 check "--allow-not-main deploys the branch on purpose" "exit=0" "$out"
 check "the branch deploy pins its own commit" "RYKER_VERSION=0.1.0-g$(git -C "$repo" rev-parse HEAD)" "$(cat "$state/compose.env")"
 git -C "$repo" checkout -q main
+
+# Lifecycle backup uses the same file custody and restores a paused controller
+# on both success and failure, without starting one the operator had stopped.
+seed
+out=$(cd "$repo" && sh scripts/compose.sh backup 2>&1; echo "exit=$?")
+check "lifecycle backup succeeds" "exit=0" "$out"
+check "lifecycle backup resumes its writer" "start ryker" "$(cat "$fake/calls")"
+backup=$(find "$state/backups" -name 'ryker-*.tar.gz' | head -n 1)
+check "lifecycle backup includes encrypted state" "ryker-state.tar.gz" "$(tar -tzf "$backup")"
+
+legacy="$work/legacy-backup"
+mkdir -p "$legacy"
+tar -xzf "$backup" -C "$legacy" database.dump compose.env
+tar -czf "$work/legacy.tar.gz" -C "$legacy" database.dump compose.env
+out=$(cd "$repo" && sh scripts/compose.sh restore "$work/legacy.tar.gz" 2>&1; echo "exit=$?")
+check "restore refuses file-backed rows without their archive" "Ryker remains stopped" "$out"
+check "missing required file custody makes restore fail" "exit=1" "$out"
+
+seed
+touch "$fake/archive.fail"
+out=$(cd "$repo" && sh scripts/compose.sh backup 2>&1; echo "exit=$?")
+check "lifecycle archive failure is reported" "exit=1" "$out"
+check "lifecycle archive failure resumes its writer" "start ryker" "$(cat "$fake/calls")"
+rm "$fake/archive.fail"
+
+seed
+touch "$fake/controller.stopped"
+out=$(cd "$repo" && sh scripts/compose.sh backup 2>&1; echo "exit=$?")
+check "an already stopped controller can be backed up" "exit=0" "$out"
+refute "backup preserves the operator's stopped controller" "start ryker" "$(cat "$fake/calls")"
+rm "$fake/controller.stopped"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures deploy check(s) failed"

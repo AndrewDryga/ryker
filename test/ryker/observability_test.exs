@@ -39,24 +39,15 @@ defmodule Ryker.ObservabilityTest do
   # maps with the same keys instead of assuming an alphabetical order.
   test "the probes answer the same bytes for the same installation" do
     previous =
-      Map.new([:work, :fleet_profiles, :slack], &{&1, Application.get_env(:ryker, &1, :missing)})
+      Map.new([:work, :slack], &{&1, Application.get_env(:ryker, &1, :missing)})
 
     on_exit(fn -> Enum.each(previous, fn {key, value} -> restore_env(key, value) end) end)
 
     assert {:ok, client} =
-             Client.new(capability_names: ["responder-state"], workspace_ref: "workspace-probes")
+             Client.new(capability_names: ["controller-tools"], workspace_ref: "workspace-probes")
 
     Application.put_env(:ryker, :work, %{api: Client, client: client})
     Application.delete_env(:ryker, :slack)
-
-    Application.put_env(:ryker, :fleet_profiles, %{
-      {"read_only", nil} => %{
-        authority_digest: String.duplicate("d", 64),
-        policy: "work-read-only",
-        policy_digest: String.duplicate("b", 64),
-        repository_ref: nil
-      }
-    })
 
     now = Repo.now!()
     ingress_at = DateTime.add(now, -7_200, :second)
@@ -228,8 +219,6 @@ defmodule Ryker.ObservabilityTest do
         "ryker_coop_fleet_fresh_workers 1",
         "ryker_coop_fleet_stale_workers 0",
         "ryker_coop_fleet_eligible_workers 1",
-        "ryker_coop_fleet_required_policy_profiles 1",
-        "ryker_coop_fleet_available_policy_profiles 1",
         "ryker_coop_fleet_current_placements 0",
         "ryker_coop_fleet_expired_current_placements 0",
         "ryker_coop_fleet_event_cursor_lag 0",
@@ -492,32 +481,19 @@ defmodule Ryker.ObservabilityTest do
   end
 
   test "fleet execution requires fresh compatible worker capacity" do
-    authority_digest = String.duplicate("d", 64)
-    policy_digest = String.duplicate("b", 64)
     workspace_ref = "workspace-observability"
     previous_work = Application.get_env(:ryker, :work, :missing)
-    previous_profiles = Application.get_env(:ryker, :fleet_profiles, :missing)
 
     assert {:ok, client} =
              Client.new(
-               capability_names: ["responder-state"],
+               capability_names: ["controller-tools"],
                workspace_ref: workspace_ref
              )
 
     Application.put_env(:ryker, :work, %{api: Client, client: client})
 
-    Application.put_env(:ryker, :fleet_profiles, %{
-      {"read_only", nil} => %{
-        authority_digest: authority_digest,
-        policy: "work-read-only",
-        policy_digest: policy_digest,
-        repository_ref: nil
-      }
-    })
-
     on_exit(fn ->
       restore_env(:work, previous_work)
-      restore_env(:fleet_profiles, previous_profiles)
     end)
 
     assert {:error, unavailable} =
@@ -529,7 +505,6 @@ defmodule Ryker.ObservabilityTest do
 
     assert unavailable.fleet_issues ==
              [
-               :missing_policy_capacity,
                :no_eligible_workers,
                :no_session_capacity,
                :no_turn_capacity,
@@ -546,12 +521,7 @@ defmodule Ryker.ObservabilityTest do
     assert {:ok, _poll} =
              ControlPlane.handle_poll(
                "worker-observability",
-               fleet_poll(
-                 "worker-observability",
-                 workspace_ref,
-                 policy_digest,
-                 authority_digest
-               )
+               fleet_poll("worker-observability", workspace_ref)
              )
 
     assert {:ok, readiness} =
@@ -564,8 +534,6 @@ defmodule Ryker.ObservabilityTest do
     assert readiness.fleet_issues == []
     assert readiness.fleet.required
     assert readiness.fleet.eligible_workers == 1
-    assert readiness.fleet.available_policy_profiles == 1
-    assert readiness.fleet.required_policy_profiles == 1
     assert readiness.fleet.capacity.turn.free == 2
     assert readiness.fleet.capacity.turn.total == 4
 
@@ -1010,25 +978,17 @@ defmodule Ryker.ObservabilityTest do
   # alerted. A fleet that cannot allocate a workspace cannot start any work.
   test "a fleet whose every worker refuses storage is not ready" do
     previous_work = Application.get_env(:ryker, :work, :missing)
-    previous_profiles = Application.get_env(:ryker, :fleet_profiles, :missing)
 
     assert {:ok, client} =
-             Client.new(capability_names: ["responder-state"], workspace_ref: "workspace-refused")
+             Client.new(
+               capability_names: ["controller-tools"],
+               workspace_ref: "workspace-refused"
+             )
 
     Application.put_env(:ryker, :work, %{api: Client, client: client})
 
-    Application.put_env(:ryker, :fleet_profiles, %{
-      {"read_only", nil} => %{
-        authority_digest: String.duplicate("d", 64),
-        policy: "work-read-only",
-        policy_digest: String.duplicate("b", 64),
-        repository_ref: nil
-      }
-    })
-
     on_exit(fn ->
       restore_env(:work, previous_work)
-      restore_env(:fleet_profiles, previous_profiles)
     end)
 
     assert {:ok, _worker} =
@@ -1085,12 +1045,7 @@ defmodule Ryker.ObservabilityTest do
     assert {:ok, _poll} =
              ControlPlane.handle_poll(
                "worker-silent",
-               fleet_poll(
-                 "worker-silent",
-                 "workspace-storage",
-                 String.duplicate("b", 64),
-                 String.duplicate("d", 64)
-               )
+               fleet_poll("worker-silent", "workspace-storage")
              )
 
     assert {:ok, snapshot} = Observability.snapshot(86_400)
@@ -1173,7 +1128,7 @@ defmodule Ryker.ObservabilityTest do
     }
 
     worker_id
-    |> fleet_poll(workspace_ref, String.duplicate("b", 64), String.duplicate("d", 64))
+    |> fleet_poll(workspace_ref)
     |> put_in(["worker", "storage"], storage)
     |> put_in(["poll_ref"], "poll:#{worker_id}:#{System.unique_integer([:positive])}")
   end
@@ -1250,16 +1205,16 @@ defmodule Ryker.ObservabilityTest do
     })
   end
 
-  defp fleet_poll(worker_id, workspace_ref, policy_digest, authority_digest) do
+  defp fleet_poll(worker_id, workspace_ref) do
     %{
       "acknowledged_command_ids" => [],
       "command_results" => [],
       "event_batches" => [],
       "poll_ref" => "poll:#{worker_id}:observability",
-      "version" => 1,
+      "version" => 2,
       "worker" => %{
         "build_version" => "coop-observability",
-        "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+        "capabilities" => [%{"name" => "controller-tools", "version" => "1"}],
         "capacity" => %{
           "cooldown_until" => nil,
           "session_slots_free" => 2,
@@ -1272,10 +1227,7 @@ defmodule Ryker.ObservabilityTest do
         },
         "clock_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
         "id" => worker_id,
-        "policy_authority_digests" => %{"work-read-only" => authority_digest},
-        "policy_digests" => %{"work-read-only" => policy_digest},
-        "protocol_version" => "1",
-        "repositories" => [],
+        "protocol_version" => "2",
         "sandbox_digest" => String.duplicate("a", 64),
         "state" => "eligible",
         "workspace_ref" => workspace_ref

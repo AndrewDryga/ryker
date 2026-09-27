@@ -150,8 +150,11 @@ defmodule Ryker.Evals.WorldCase do
   @spec state_tools(t()) :: [map()]
   def state_tools(%__MODULE__{tool_catalog: %{"servers" => servers}}) do
     Enum.find_value(servers, [], fn
-      %{"name" => "responder-state", "tools" => tools} -> tools
-      _other -> nil
+      %{"name" => name, "tools" => tools} when name in ["controller-tools", "responder-state"] ->
+        tools
+
+      _other ->
+        nil
     end)
   end
 
@@ -195,13 +198,24 @@ defmodule Ryker.Evals.WorldCase do
     end)
   end
 
-  @spec repository_requirements(t()) :: [map()]
-  def repository_requirements(%__MODULE__{world: %{"repositories" => repositories}}) do
-    Enum.map(repositories, fn repository ->
-      %{
-        "base_commit" => repository["base_commit"],
-        "name" => repository["ref"]
-      }
+  @doc "Captured source excerpts, verified from the exact bytes supplied to the candidate."
+  @spec fixture_context(t()) :: {:ok, [map()]} | {:error, term()}
+  def fixture_context(%__MODULE__{world: %{"repositories" => repositories}, path: directory}) do
+    Enum.reduce_while(repositories, {:ok, []}, fn repository, {:ok, context} ->
+      with {:ok, path} <- safe_relative_path(directory, repository["path"]),
+           {:ok, files} <- captured_repository(path),
+           true <- repository_identity(files) == repository["sha256"] do
+        captured = %{
+          "captured_revision" => repository["base_commit"],
+          "files" => files,
+          "repository" => repository["ref"],
+          "sha256" => repository["sha256"]
+        }
+
+        {:cont, {:ok, context ++ [captured]}}
+      else
+        _invalid -> {:halt, {:error, :repository_digest}}
+      end
     end)
   end
 
@@ -606,11 +620,18 @@ defmodule Ryker.Evals.WorldCase do
   defp safe_relative_path(_directory, _path), do: {:error, :path}
 
   defp repository_digest(path) do
+    with {:ok, entries} <- captured_repository(path), do: {:ok, repository_identity(entries)}
+  end
+
+  defp repository_identity(entries),
+    do: entries |> Enum.map(&Map.delete(&1, "data")) |> CanonicalJSON.digest()
+
+  defp captured_repository(path) do
     with {:ok, %File.Stat{type: :directory}} <- File.lstat(path),
          {:ok, entries} <- repository_entries(path, path, []),
          true <- entries != [] and length(entries) <= @maximum_repository_files,
          true <- Enum.sum(Enum.map(entries, & &1["bytes"])) <= @maximum_repository_bytes do
-      {:ok, CanonicalJSON.digest(entries)}
+      {:ok, entries}
     else
       _invalid -> {:error, :repository_digest}
     end
@@ -663,6 +684,7 @@ defmodule Ryker.Evals.WorldCase do
   defp add_repository_entry(root, path, bytes, collected) do
     entry = %{
       "bytes" => byte_size(bytes),
+      "data" => bytes,
       "path" => Path.relative_to(path, root),
       "sha256" => sha256(bytes)
     }

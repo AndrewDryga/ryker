@@ -3,7 +3,7 @@ defmodule Ryker.Publication.Card do
 
   alias Ryker.Publication.{Publication, Review}
 
-  @review_fields ~w(candidate_tree draft_authorized gate patch_bytes patch_digest policy_findings publishable reasons rebase repository title)
+  @review_fields ~w(candidate_tree draft_authorized gate policy_findings publishable reasons rebase repository title)
   @result_fields ~w(branch_ref commit_sha pull_request_number pull_request_url repository title)
 
   @doc """
@@ -24,8 +24,6 @@ defmodule Ryker.Publication.Card do
         "candidate_tree" => review["candidate_tree"],
         "draft_authorized" => draft_authorized?,
         "gate" => review["gate"],
-        "patch_bytes" => review["patch_bytes"],
-        "patch_digest" => review["patch_digest"],
         "policy_findings" => review["policy_findings"],
         "publishable" => Review.publishable?(review),
         "reasons" => reasons,
@@ -59,6 +57,10 @@ defmodule Ryker.Publication.Card do
           record
       )
       when map_size(record) == 4 do
+    # Old delivered cards remain readable; new cards never carry transferred patch metadata.
+    payload =
+      if is_map(payload), do: Map.drop(payload, ["patch_bytes", "patch_digest"]), else: payload
+
     with true <- reference?(ref),
          true <- is_map(payload) and Map.keys(payload) |> Enum.sort() == @review_fields,
          true <- bounded_text?(payload["title"], 120),
@@ -66,8 +68,6 @@ defmodule Ryker.Publication.Card do
          true <- git_identity?(payload["candidate_tree"]),
          true <- payload["gate"] in ~w(passed failed startup_error not_run none),
          true <- payload["rebase"] in ~w(clean conflict),
-         true <- is_integer(payload["patch_bytes"]) and payload["patch_bytes"] >= 0,
-         true <- optional_digest?(payload["patch_digest"]),
          true <- is_boolean(payload["publishable"]),
          true <- is_boolean(payload["draft_authorized"]),
          true <- bounded_list?(payload["policy_findings"], 64, 4_096),
@@ -107,10 +107,7 @@ defmodule Ryker.Publication.Card do
     do: is_binary(value) and Regex.match?(~r/\Apublication:[A-Za-z0-9_.:-]{1,240}\z/, value)
 
   defp git_identity?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[a-f0-9]{40,64}\z/, value)
-
-  defp optional_digest?(nil), do: true
-  defp optional_digest?(value), do: is_binary(value) and Regex.match?(~r/\A[a-f0-9]{64}\z/, value)
+    do: is_binary(value) and Regex.match?(~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/, value)
 
   defp bounded_list?(values, count, bytes) when is_list(values) and length(values) <= count,
     do: Enum.all?(values, &bounded_text?(&1, bytes))

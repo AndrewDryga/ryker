@@ -24,7 +24,7 @@ tools own durable records. The generic Delivery module owns external message cus
 
 ## End-to-end flow
 
-1. Admission commits the input and pins a trusted Coop policy in the same transaction.
+1. Admission commits the input and pins Ryker's trusted execution settings in the same transaction.
 2. One slot in the local worker pool claims only a `turn` owner using PostgreSQL time and
    `FOR UPDATE SKIP LOCKED`.
 3. The runtime freezes the exact self-contained first briefing, including each input's own origin,
@@ -50,25 +50,25 @@ tools own durable records. The generic Delivery module owns external message cus
 - A worker cannot choose episode policy. Admission chooses only the abstract conversational,
   standard, or deep class and maps it through a host-owned profile. Existing episodes retain their
   pinned policy across deploys and later classifications.
-- Every class policy carries Coop's model-independent authority digest. The three classes must share
-  it, each eligible fleet worker must advertise it, and the created Coop session must return it.
+- Ryker derives each class's model-independent authority digest from its trusted job settings.
+  The three classes must share that authority. Workers advertise capabilities and capacity, not
+  policy names or digests; the created session must return the exact frozen job identity and digest.
 - Every new repository-backed session carries one immutable repository source, frozen in the same
   transaction that pins policy, digests, the environment and its repository context. Admission may select
   `{"kind":"default"}`, `{"kind":"branch","name":...}`, `{"kind":"pull_request","number":...}` or
   `{"kind":"commit","sha":...}` inside the already selected repository; the host supplies `default`
-  when nobody chose. Workspace-free work carries no selector. The selector rides the create and
-  fence documents byte-identically as `source` (the evaluation client's `POST /v1/sessions` body
-  and the fleet `create_session` payload alike), so a retry under the same operation identity that carries a
-  different selector conflicts instead of rebinding, and the fleet refuses to forward any selector
-  other than the one custody persisted (`coop_fleet_authority_mismatch: repository_source`).
+  when nobody chose. Workspace-free work carries no selector. Ryker resolves the selector into
+  exact commits and freezes that source inside the immutable job before placement. Both the
+  evaluation client and fleet send that job through `POST /v1/sessions`; a changed retry conflicts
+  instead of rebinding, and the fleet refuses authority other than what custody persisted.
   Rotation, failover and checkpoint restore copy the predecessor's selector verbatim; a checkpoint
   taken from another source never seeds a replacement. An active session is never rebound; another
   source is new linked work through a confirmed `request_task`.
-- Selector-bound work is dispatched only to workers advertising `repository-source-selector:1`
-  next to `repository-freshness:2`. An older or partially upgraded worker is ineligible before the
-  session exists (`coop_upgrade_required: repository_source_selector_v1`); there is no fallback to
-  the policy's own checkout.
-- Coop resolves the selector through the operator-configured remote and returns the session's
+- Exact source selection belongs to the frozen job. Repository work requires
+  `repository-freshness:2`; workers do not advertise policies, repositories or a separate
+  source-selector capability. Missing freshness support refuses creation before code is used.
+- Ryker resolves the selector through the authorized GitHub repository. Coop fetches and verifies
+  that frozen source and returns the session's
   version-1 `source` binding (`requested`, `remote_identity`, `default_ref`, `default_commit`,
   `selected_ref`, `selected_commit`, merge-base `base_commit`, `admitted_tree`, `resolved_at`, plus
   `pull_request_number` and optional `pull_request_expected_head` for a pull request). Ryker
@@ -77,11 +77,9 @@ tools own durable records. The generic Delivery module owns external message cus
   binding's `base_commit` (the workspace itself starts at `selected_commit`). Every non-default
   selection also needs its own `source` freshness receipt
   naming the derived ref, or the exact object id for a commit, so a locally cached object is never
-  accepted as remote proof (`coop_protocol_error: repository_freshness`). An intentionally local
-  policy has no remote identity to bind: Coop refuses every selector but `default` there and
-  returns no binding, and the primary receipt alone proves that head. Sessions pinned before this
-  contract have no persisted selector, are never re-resolved, and only have their binding checked
-  for consistency.
+  accepted as remote proof (`coop_protocol_error: repository_freshness`). Workspace-free jobs
+  carry no repository source. Historical sessions remain inspectable but cannot acquire new
+  execution authority by reinterpreting an old local policy.
 - The validated binding is exposed to the model as `work.workspace.source`: a fact about where the
   checkout starts, never publication authority. Engineering completion still requires a committed
   tree beyond `admitted_source_tree`; review-only work may finish unchanged. Publication keeps its
@@ -242,14 +240,14 @@ the episode. Optional history can be omitted while that producer is busy.
 
 ### Background execution and recovery
 
-The example YAML enables `learning` with a trusted Coop policy/digest, one worker, batches of up
-to 16 inputs, a 10-second quiet delay, and a 60-second maximum coalescing delay. Omitting the
-section disables this runtime. Configuration must use a dedicated empty scratch repository with
-`repository_read_only=true`, `project_env=false`, `project_mcp=false`, no companions, and no
-Ryker state/action tools; a returned Ryker binding digest is rejected before source
+Learning uses a controller-authored empty-source job, its configured model ladder, one worker,
+batches of up to 16 inputs, a 10-second quiet delay, and a 60-second maximum coalescing delay.
+The job has `repository_read_only=true`, `project_env=false`, `project_mcp=false`, no companions,
+and no controller state/action tools. No host scratch repository is configured.
+A returned controller binding digest is rejected before source
 submission. Coop still owns an execution fork and exposes provider built-in tools. Read-only
 restricts the repository mount, not writable output/scratch or the provider home; network egress
-is not disabled by these policy flags. Instructions prohibit native external actions, but this is
+is not disabled by these job fields. Instructions prohibit native external actions, but this is
 an integration-free read-only sandbox, not enforced no-tools execution. Production learning uses
 the existing outbound fleet adapter, not an extra local Coop runtime.
 
@@ -260,12 +258,12 @@ uncertainty never buys a fresh model execution. Before another judgment starts, 
 turn must have exact stop proof. After twelve rapid unresolved reconciliations, the scope stays
 fenced and only reconciliation retries hourly; unrelated scopes can continue. An attempt that never
 froze a submission has no turn: when its worker session can never be addressed again, it stops on
-that local proof and the batch continues with a fresh session under the configured policy. A
+that local proof and the batch continues with a fresh job from the current settings. A
 session without the isolation above is bound, refused before any source is sent, and holds new
-attempts under that policy digest until the configured policy changes.
+attempts under that settings digest until the configuration changes.
 
 Three host starts are allowed initially for one batch, shared by provider failures, semantic
-rejection, and match corrections. Provider-internal attempts have their own pinned-policy limit;
+rejection, and match corrections. Provider-internal attempts have their own frozen-job limit;
 three host starts are not necessarily three model invocations. Restart, generation changes, source
 invalidation after a start, and receipt pruning do not erase spent starts. An audited operator
 retry grants exactly one additional start against the displayed `budget_version`: its ceiling is
@@ -273,11 +271,11 @@ the lifetime starts already spent plus one. Duplicate or stale requests cannot i
 Missing source authority, another active batch, or unresolved older remote work blocks retry.
 Owned sessions use the existing close/plan/discard retention custody, including after failure.
 
-Explicit operator retry and rebuild reselection use the current trusted learning policy for the
-next attempt, recording old and new policy identities in the audit. Prior attempts and spent
+Explicit operator retry and rebuild reselection use the current trusted learning settings for the
+next attempt, recording old and new configuration identities in the audit. Prior attempts and spent
 starts are immutable. Automatic worker recovery reconciles an outstanding attempt under its own
-pinned policy; a new attempt a batch prepares on its own also adopts the current policy, because
-a worker places only sessions of the digests it advertises. Missing or invalid current
+pinned job; a new attempt a batch prepares on its own adopts the current trusted settings and
+freezes a new job before placement. Missing or invalid current
 configuration blocks a new grant, while replaying an already recorded action returns its original
 receipt without another start.
 
@@ -491,15 +489,15 @@ make eval-world
 ```
 
 `world-pack` compiles every versioned scenario and its exact tool catalog without a model. The
-tool-free quality judge runs each completed observation through the dedicated `RYKER_EVAL_SOCKET`
-in an isolated Coop session under `RYKER_EVAL_NO_TOOLS_POLICY`, which must be read-only and
-expose no tools. Judge sessions are closed, checked with Coop's exact discard
+quality judge runs each completed observation through the dedicated `RYKER_EVAL_SOCKET`
+using `RYKER_EVAL_JUDGE_TARGET`, an empty-source read-only job, and no controller or project tools.
+Provider-native tools are not disabled. Judge sessions are closed, checked with Coop's exact discard
 plan, and discarded only when the workspace is clean. Unsafe cleanup fails the eval and retains the
 session for inspection.
 
 The world lane proves behavior with tools. `eval-world-smoke` runs the nine smoke-tagged scenarios
 once at a strict 100% floor. The release `eval-world` gate runs the full corpus three times for a
-dedicated candidate policy and a separately pinned baseline policy in the exact same deterministic
+dedicated candidate target and a separately pinned baseline target in the exact same deterministic
 world, enforcing aggregate, per-case, hard-invariant, `UNRUN`, and paired-regression limits. One
 versioned scenario directory is shared
 by deterministic host replay and real-model execution. Its production Ryker state tools are real
@@ -507,12 +505,12 @@ and lease-authorized against an empty disposable PostgreSQL database; its metric
 and similar external tools are a strict recorded cassette. Calls match important normalized
 arguments rather than a global order, controlled failures are replayed per rule, and unmatched calls
 return a bounded error instead of fabricated data. Visible output goes only to the inert `eval`
-transport. Hard checks run first, then a tool-free judge session scores every human-language rubric
+transport. Hard checks run first, then an isolated judge session scores every human-language rubric
 criterion exactly once. Missing judge evidence remains `UNRUN`, never green.
 Production has no Coop socket for the eval socket to be confused with: product builds reach Coop
 only through the enrolled worker fleet, and the local socket client lives in `evals/`, which no
 release compiles. Before any model turn, Ryker verifies the
-exact policy digest and Coop's public `repository_read_only` bit; the dedicated daemon is deployed
+exact job reference/digest and Coop's public `repository_read_only` bit; the dedicated worker runs
 without production environment, credentials, network mutation tools, or project MCP configuration.
 
 ## Configuration
@@ -549,25 +547,22 @@ its environment cannot run work; a webhook source names its own; an incident roo
 environment of the conversation it was opened from; GitHub events for a repository run in the
 environment whose default repository it is, else the first (by ref) that holds it, else on the
 repository alone, with that repository as the default choice. A confirmed task changes the
-repository it names, under its environment's policy for that repository: the conversation's own
-environment when that holds it, else the first environment (by ref) that does. The bundled Coop
-distribution writes one policy set per repository of a shared environment,
-`ryker-env-<environment>-<repository>-<suffix>`, each declaring that repository as its checkout and
-the others as companions; an environment of one repository runs on that repository's
-`ryker-repo-<repository>-<suffix>` policies. Policy bindings of scope `environment` carry the
-`repository_ref` they are for. GitHub tools accept any repository of the session's environment. There
+repository it names, under its environment's job template for that repository: the conversation's own
+environment when that holds it, else the first environment (by ref) that does. Ryker freezes the
+primary repository and companions, exact commits, model targets and execution bounds in one job
+before placement. Coop fetches those repositories directly; it has no local policy catalog or
+Ryker-owned checkout mount. Environment templates carry the `repository_ref` they are for.
+GitHub tools accept any repository of the session's environment. There
 are no repository groups and no per-purpose Emisar routes.
 
 The Work runtime does not contain a model router. The adapter freezes a three-class Work profile at
-ingress, admission selects one abstract class, and Coop resolves the selected policy to its immutable
-target. The recommended targets are Terra/medium for conversational work, Sol/medium for standard
-work, and Sol/xhigh for deep work. Keep those three policies authority-equivalent. Writable task
-execution remains a separate confirmed contributor policy rather than a `deep` side effect.
+ingress, admission selects one abstract class, and Ryker freezes that class's configured target in
+the job. Keep conversational, standard and deep templates authority-equivalent. Writable task
+execution remains a separate confirmed contributor grant rather than a `deep` side effect.
 
-Obtain both `policy_digests` and `policy_authority_digests` from
-`coop sessions policies --policies /etc/coop/session-policies.yaml --json`. Copy the matching full
-digest and shared authority digest into every Work profile and worker advertisement; never derive or
-hand-write either digest in Ryker.
+Ryker derives template and authority digests from its own settings. It also persists the complete
+job and its digest before the first remote operation. Retries and restarts use that exact job;
+operators never copy digests from workers or maintain a second policy configuration.
 
 For example, where `fleet_client` is the client assembly built for the workspace:
 
@@ -583,8 +578,8 @@ config :ryker, :work,
 ```
 
 There is no YAML field; the runtime option is `platform_tools` (the evaluation settings pass the
-same list as `source_and_action_tools`). The configured names must exactly match tools actually supplied to that Coop
-policy by its owner-private MCP configuration. Ryker never reads MCP credentials, and an
+same list as `source_and_action_tools`). The configured names must exactly match tools supplied by
+the turn's controller-tools binding. An
 incoming Slack, GitHub, webhook, or direct-conversation message cannot add a tool or change this list.
 All of those sources share the same trusted Work runtime. Direct conversations also install a loopback
 implementation of the exact Slack chat capability schemas: `list_slack_channels`, `search_slack`,

@@ -2,10 +2,9 @@ defmodule Ryker.Settings.DomainsTest do
   use Ryker.DataCase, async: false
 
   alias Ryker.Settings
-  alias Ryker.Settings.{Edit, PolicyBinding}
+  alias Ryker.Settings.Edit
 
   @actor "control-plane:local"
-  @digest String.duplicate("a", 64)
 
   setup do
     {:ok, snapshot} = Settings.initialize(@actor)
@@ -342,49 +341,13 @@ defmodule Ryker.Settings.DomainsTest do
     assert Enum.map(saved.repositories, & &1.ref) == ["ryker"]
   end
 
-  test "policy bindings pin one policy per purpose and scope and refuse scopes that do not fit" do
-    {:ok, _} = Settings.put_repository(%{ref: "ryker"}, 1, @actor)
-
-    binding = %{
-      purpose: :admission,
-      scope_kind: :installation,
-      scope_ref: "",
-      policy_name: "ryker-admission-v1",
-      policy_digest: @digest,
-      verified_by: :worker,
-      verified_worker_ref: "worker-1"
-    }
-
-    assert {:ok, saved} = Settings.put_policy_binding(binding, 2, @actor)
-    assert [%PolicyBinding{purpose: :admission, policy_digest: @digest}] = saved.policy_bindings
-
-    assert {:error, {:invalid_settings, [{:purpose, :already_bound}]}} =
-             Settings.put_policy_binding(binding, 3, @actor)
-
-    assert {:error, {:invalid_settings, [{:scope_kind, :scope}]}} =
-             Settings.put_policy_binding(
-               %{binding | scope_kind: :repository, scope_ref: "ryker"},
-               3,
-               @actor
-             )
-
-    assert {:error, {:invalid_settings, [{:scope_ref, :unknown_repository}]}} =
-             Settings.put_policy_binding(
-               %{
-                 binding
-                 | purpose: :conversational,
-                   scope_kind: :repository,
-                   scope_ref: "missing"
-               },
-               3,
-               @actor
-             )
-
-    assert {:error, {:invalid_settings, errors}} =
-             Settings.put_policy_binding(%{binding | policy_digest: "not-a-digest"}, 3, @actor)
-
-    assert {:policy_digest, :format} in errors
-    assert {:ok, ^saved} = Settings.fetch()
+  test "retired policy edit receipts stay readable without a settings registry" do
+    edit = Repo.get_by!(Edit, revision: 1)
+    Repo.query!("UPDATE settings_edits SET domain = 'policies' WHERE revision = 1")
+    assert Repo.get!(Edit, edit.id).domain == :policies
+    assert {:ok, snapshot} = Settings.fetch()
+    refute Map.has_key?(snapshot, :policy_bindings)
+    refute function_exported?(Settings, :put_policy_binding, 3)
   end
 
   test "custom webhook mappings need exact typed fields and presets take no mapping" do
@@ -515,9 +478,8 @@ defmodule Ryker.Settings.DomainsTest do
     assert revision == length(saves()) + 1
     assert recorded -- Edit.domains() == []
 
-    # `:import` is recorded only by the one-time importer, which creates the
-    # installation instead of saving into one.
-    assert Edit.domains() -- recorded == [:import]
+    # Retired domains remain decodable, but no current settings command writes them.
+    assert Edit.domains() -- recorded == [:policies, :import]
   end
 
   defp saves do
@@ -558,18 +520,6 @@ defmodule Ryker.Settings.DomainsTest do
       ),
       &Settings.save_learning(%{enabled: false}, &1, @actor),
       &Settings.save_work(%{workspace_ref: "ryker-local-main"}, &1, @actor),
-      &Settings.put_policy_binding(
-        %{
-          purpose: :conversational,
-          scope_kind: :repository,
-          scope_ref: "ryker",
-          policy_name: "ryker-conversation-v1",
-          policy_digest: @digest,
-          verified_by: :import
-        },
-        &1,
-        @actor
-      ),
       &Settings.put_environment(
         %{ref: "production", display_name: "Production", repositories: ["ryker"]},
         &1,

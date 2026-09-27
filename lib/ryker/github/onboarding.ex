@@ -10,7 +10,7 @@ defmodule Ryker.GitHub.Onboarding do
 
   require Logger
 
-  alias Ryker.{BundledCoop, Settings}
+  alias Ryker.Settings
 
   @actor "github:onboarding"
 
@@ -27,7 +27,6 @@ defmodule Ryker.GitHub.Onboarding do
     with {:ok, repository, binding} <- repository(repository_ref),
          :ok <- available(repository),
          {:ok, source_commit} <- pin(repository, binding, api),
-         :ok <- BundledCoop.materialize_repository(repository_ref),
          {:ok, scan} <- scan(repository_ref, repository, binding, source_commit, api),
          {:ok, outcome} <- publish(repository_ref, repository, binding, source_commit, scan, api) do
       {:ok, outcome}

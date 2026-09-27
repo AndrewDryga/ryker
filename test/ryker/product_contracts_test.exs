@@ -330,12 +330,15 @@ defmodule Ryker.ProductContractsTest do
   end
 
   test "publication receipts bind the exact reviewed GitHub identity" do
-    review = %{"candidate_tree" => String.duplicate("b", 40)}
+    review = %{
+      "candidate_head" => String.duplicate("c", 40),
+      "candidate_tree" => String.duplicate("b", 40)
+    }
 
     receipt = %{
       "branch_ref" => "refs/heads/ryker/fix",
       "candidate_tree" => review["candidate_tree"],
-      "commit_sha" => String.duplicate("c", 40),
+      "commit_sha" => review["candidate_head"],
       "pull_request_number" => 91,
       "pull_request_url" => "https://github.com/acme/ryker/pull/91",
       "repository" => "acme/ryker"
@@ -349,6 +352,7 @@ defmodule Ryker.ProductContractsTest do
           Map.put(receipt, "candidate_tree", String.duplicate("d", 40)),
           Map.put(receipt, "branch_ref", "main"),
           Map.put(receipt, "commit_sha", "not-a-commit"),
+          Map.put(receipt, "commit_sha", String.duplicate("d", 40)),
           Map.put(receipt, "pull_request_number", 0),
           Map.put(receipt, "pull_request_url", "http://github.com/acme/ryker/pull/91"),
           Map.put(receipt, "pull_request_url", "https://example.com/acme/ryker/pull/91"),

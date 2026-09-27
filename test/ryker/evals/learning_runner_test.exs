@@ -1,7 +1,7 @@
 defmodule Ryker.Evals.LearningRunnerTest do
   use Ryker.DataCase, async: false
   alias Mix.Tasks.Ryker.LearningEval
-  alias Ryker.Evals.LearningRunner
+  alias Ryker.Evals.{Job, LearningRunner}
   alias Ryker.TestSupport.FakeCoopAPI, as: Fake
 
   defmodule HostAPI do
@@ -10,11 +10,11 @@ defmodule Ryker.Evals.LearningRunnerTest do
       do:
         {:ok,
          %{
-           "repository_freshness_receipt_versions" => [2],
-           "repository_source_selector_versions" => [1]
+           "repository_freshness_receipt_versions" => [2]
          }}
 
     defdelegate operation_by_key(client, key), to: Fake
+    defdelegate prepare_create_session(client, key, policy, ref, source), to: Fake
     defdelegate fence_create_session(client, key, policy, ref, source), to: Fake
     defdelegate cancel_turn(client, sid, tid, key, revision), to: Fake
 
@@ -53,7 +53,21 @@ defmodule Ryker.Evals.LearningRunnerTest do
         )
       end)
 
-      Fake.create_session(client, key, policy, ref, source)
+      result = Fake.create_session(client, key, policy, ref, source)
+
+      if Agent.get(client, &Map.get(&1, :eval_cross_job, false)) do
+        Agent.update(client, &put_in(&1, [:session, "job_digest"], String.duplicate("b", 64)))
+
+        case result do
+          {:ok, %{"session" => session}} ->
+            {:ok, %{"session" => Map.put(session, "job_digest", String.duplicate("b", 64))}}
+
+          other ->
+            other
+        end
+      else
+        result
+      end
     end
 
     def submit_frozen_turn(
@@ -213,7 +227,7 @@ defmodule Ryker.Evals.LearningRunnerTest do
     options = Map.put(options, :probe_question, "What happened to the Host OOM kills alert?")
     assert {:ok, report} = LearningRunner.run(LearningRunner.recorded_sequence(), options)
     probe = report.work_probe
-    assert report.passed, inspect(probe, pretty: true)
+    assert report.passed, inspect(probe, pretty: true, limit: :infinity)
     assert probe.provenance =~ "authored"
     assert probe.proof =~ "automatic recall"
     assert "explicit search_memory invocation" in probe.not_qualified
@@ -222,6 +236,8 @@ defmodule Ryker.Evals.LearningRunnerTest do
     assert probe.turn["validation_receipt"] != nil
     assert probe.turn["external_receipt"]["transport"] == "slack"
     assert probe.session["cleanup_status"] == "discarded"
+    assert probe.session["repository_ref"] == nil
+    assert probe.session["worker_job_document"]["source"] == nil
 
     assert [%{"knowledge_id" => id, "version" => 2}] =
              Enum.map(probe.knowledge_exposures, &Map.take(&1, ~w(knowledge_id version)))
@@ -241,32 +257,11 @@ defmodule Ryker.Evals.LearningRunnerTest do
   end
 
   setup do
-    {root, 0} = System.cmd("mktemp", ["-d", "-t", "ryker-learning-eval.XXXXXX"])
-    root = String.trim(root)
-    {_, 0} = System.cmd("git", ["init", "--quiet", root])
-    {canonical, 0} = System.cmd("git", ["-C", root, "rev-parse", "--show-toplevel"])
-    root = String.trim(canonical)
-
-    {_, 0} =
-      System.cmd("git", [
-        "-C",
-        root,
-        "-c",
-        "user.name=Host Fixture",
-        "-c",
-        "user.email=fixture@example.invalid",
-        "commit",
-        "--quiet",
-        "--allow-empty",
-        "-m",
-        "Disposable empty evaluation repository"
-      ])
-
-    # Only this newly created, exact disposable directory is removed.
-    on_exit(fn -> File.rm_rf!(root) end)
     {:ok, fake} = Fake.start_link([])
-    {head, 0} = System.cmd("git", ["-C", root, "rev-parse", "HEAD"])
-    head = String.trim(head)
+    {:ok, job} = Job.new(:learning, "codex:fixture/high@eval")
+    # Actual Coop empty-workspace baseline, not a host checkout. The Work
+    # recall probe still validates primary freshness before submitting a turn.
+    head = "6b883aa2202644da23f8cae15f2d8a71404566a7"
 
     Agent.update(fake, fn state ->
       put_in(
@@ -274,9 +269,6 @@ defmodule Ryker.Evals.LearningRunnerTest do
         Map.merge(state.session, %{
           "base_commit" => head,
           "companions" => [],
-          # The intentionally local learning scratch keeps local semantics: it has
-          # no remote identity to bind, so Coop returns no source binding and the
-          # primary receipt alone proves its default head.
           "repository_freshness_status" => "recorded",
           "repository_freshness" => [
             %{
@@ -299,11 +291,9 @@ defmodule Ryker.Evals.LearningRunnerTest do
     %{
       options: %{
         database: database,
-        scratch_repository: root,
         api: HostAPI,
         client: fake,
-        policy: "learning-evaluation-only",
-        policy_digest: String.duplicate("a", 64),
+        job: job,
         max_polls: 400,
         # The recorded provider answers at once: waiting like a live run cost
         # this suite 97 s of every gate. Polls return as soon as a batch ends.
@@ -574,13 +564,10 @@ defmodule Ryker.Evals.LearningRunnerTest do
     assert third.cleanup == :discarded
   end
 
-  test "a crossed repository refuses source submission and leaves receipts intact", %{
+  test "a crossed job refuses source submission and leaves receipts intact", %{
     options: options
   } do
-    Agent.update(
-      options.client,
-      &put_in(&1, [:session, "base_commit"], String.duplicate("b", 40))
-    )
+    Agent.update(options.client, &Map.put(&1, :eval_cross_job, true))
 
     assert {:ok, report} =
              LearningRunner.run(LearningRunner.recorded_sequence(), %{options | max_polls: 1})
@@ -663,12 +650,9 @@ defmodule Ryker.Evals.LearningRunnerTest do
     assert report.topics == []
   end
 
-  test "an untracked file makes the scratch checkout ineligible", %{options: options} do
-    File.write!(Path.join(options.scratch_repository, ".env"), "HOST_FIXTURE_ONLY=not_a_secret")
-
-    assert {:error, :learning_eval_requires_empty_scratch_repository} =
-             LearningRunner.preflight(options)
-
+  test "a job granting project access is refused before imports", %{options: options} do
+    options = put_in(options, [:job, :document, "project_env"], true)
+    assert {:error, :invalid_model_eval_job} = LearningRunner.preflight(options)
     assert Fake.state(options.client).create_keys == []
   end
 
@@ -694,18 +678,14 @@ defmodule Ryker.Evals.LearningRunnerTest do
       "ryker_learning_eval_command",
       "--socket",
       "/fixture/coop.sock",
-      "--scratch",
-      "/fixture/scratch",
-      "--policy",
-      "eval",
-      "--policy-digest",
-      String.duplicate("a", 64),
+      "--target",
+      "codex:fixture/high@eval",
       "--results",
       "/fixture/result.json"
     ]
 
     assert_raise Mix.Error, ~r/each required flag once/, fn ->
-      LearningEval.run(flags ++ ["--policy", "another"])
+      LearningEval.run(flags ++ ["--target", "another"])
     end
 
     assert_raise Mix.Error, "unknown learning scenario", fn ->
@@ -720,12 +700,8 @@ defmodule Ryker.Evals.LearningRunnerTest do
         "ryker_learning_eval_chatter",
         "--socket",
         "/not-opened.sock",
-        "--scratch",
-        "/not-opened",
-        "--policy",
-        "not-used",
-        "--policy-digest",
-        String.duplicate("a", 64),
+        "--target",
+        "codex:fixture/high@eval",
         "--results",
         "/not-created.json",
         "--scenario",
@@ -768,12 +744,8 @@ defmodule Ryker.Evals.LearningRunnerTest do
         "ryker_learning_eval_one_off",
         "--socket",
         "/not-opened.sock",
-        "--scratch",
-        "/not-opened",
-        "--policy",
-        "not-used",
-        "--policy-digest",
-        String.duplicate("a", 64),
+        "--target",
+        "codex:fixture/high@eval",
         "--results",
         "/not-created.json",
         "--scenario",

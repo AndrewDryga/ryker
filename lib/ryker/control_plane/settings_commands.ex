@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   alias Ryker.ControlPlane.SettingsSections
   alias Ryker.Credentials
   alias Ryker.Settings
-  alias Ryker.Settings.WorkerPolicies
   alias Ryker.Webhooks.Preview
 
   @type result :: {:ok, Settings.snapshot()} | {:error, term()}
@@ -133,16 +132,6 @@ defmodule Ryker.ControlPlane.SettingsCommands do
     end
   end
 
-  # The form chooses a policy by name; the digest and authority come from the
-  # worker advertisement, so a browser can neither invent a pin nor keep one
-  # the fleet has stopped offering.
-  defp put(%{key: :policies}, attributes, revision) do
-    case WorkerPolicies.resolve(attributes, workspace_ref()) do
-      {:ok, verified} -> Settings.put_policy_binding(verified, revision, actor())
-      {:error, reason} -> {:error, {:invalid_settings, [{:policy_name, reason}]}}
-    end
-  end
-
   defp remove(%{key: :pricing}, id, revision),
     do: Settings.delete_pricing_rate(id, revision, actor())
 
@@ -152,9 +141,6 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   defp remove(%{key: :github_bindings}, name, revision),
     do: Settings.delete_github_binding(name, revision, actor())
 
-  defp remove(%{key: :policies}, id, revision),
-    do: Settings.delete_policy_binding(id, revision, actor())
-
   defp remove(%{key: :webhooks}, name, revision),
     do: Settings.delete_webhook_source(name, revision, actor())
 
@@ -162,13 +148,6 @@ defmodule Ryker.ControlPlane.SettingsCommands do
     Credentials.statuses()
     |> Enum.filter(&(&1.kind == :webhook))
     |> Enum.map(& &1.name)
-  end
-
-  defp workspace_ref do
-    case Settings.fetch() do
-      {:ok, snapshot} -> snapshot.work.workspace_ref
-      {:error, _reason} -> nil
-    end
   end
 
   defp actor, do: Settings.actor()

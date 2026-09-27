@@ -2,6 +2,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
   use Ryker.DataCase, async: false
 
   alias Mix.Tasks.Ryker.Eval
+  alias Ryker.Evals.WorldCase
   alias Ryker.Settings
 
   setup do
@@ -67,10 +68,10 @@ defmodule Ryker.Evals.OperatorTaskTest do
     assert "model-world" in document["scenario"]["tags"]
     assert document["tool_catalog_sha256"] =~ ~r/\A[0-9a-f]{64}\z/
 
-    assert Enum.any?(document["tool_catalog"]["servers"], fn server ->
-             server["name"] == "responder-state" and
-               Enum.any?(server["tools"], &(&1["name"] == "request_input"))
-           end)
+    assert {:ok, scenario} = WorldCase.fetch(document["scenario"]["id"])
+    assert document["tool_catalog"] == scenario.tool_catalog
+    assert document["tool_catalog_sha256"] == scenario.tool_catalog_digest
+    assert Enum.any?(WorldCase.state_tools(scenario), &(&1["name"] == "request_input"))
 
     schedule_document =
       Enum.find(
@@ -78,10 +79,10 @@ defmodule Ryker.Evals.OperatorTaskTest do
         &(get_in(&1, ["scenario", "id"]) == "weekly-health-review-offers-schedule")
       )
 
-    assert Enum.any?(schedule_document["tool_catalog"]["servers"], fn server ->
-             server["name"] == "responder-state" and
-               Enum.any?(server["tools"], &(&1["name"] == "propose_automation"))
-           end)
+    assert {:ok, schedule} = WorldCase.fetch(schedule_document["scenario"]["id"])
+    assert schedule_document["tool_catalog"] == schedule.tool_catalog
+    assert schedule_document["tool_catalog_sha256"] == schedule.tool_catalog_digest
+    assert Enum.any?(WorldCase.state_tools(schedule), &(&1["name"] == "propose_automation"))
   end
 
   test "the operator command refuses ambiguous invocation before starting Coop" do
@@ -147,34 +148,16 @@ defmodule Ryker.Evals.OperatorTaskTest do
     assert makefile =~ ~r/^check: test-db-ready$/m
   end
 
-  test "live evals refuse to inherit a reviewed production authority" do
-    # The eval must not be able to acquire the installation's admission grant by
-    # naming it; isolation is checked against the database it is pointed at.
+  test "live evals refuse a configured installation before any remote work" do
+    {:ok, _snapshot} = Settings.initialize("control-plane:local")
+
     environment(%{
       "RYKER_EVAL_SOCKET" => "/tmp/ryker-eval-does-not-exist.sock",
-      "RYKER_EVAL_NO_TOOLS_POLICY" => "ryker-admission-v1",
-      "RYKER_EVAL_NO_TOOLS_POLICY_DIGEST" => String.duplicate("a", 64),
-      "RYKER_EVAL_WORLD_POLICY" => "ryker-eval-world-v1",
-      "RYKER_EVAL_WORLD_POLICY_DIGEST" => String.duplicate("c", 64)
+      "RYKER_EVAL_JUDGE_TARGET" => "codex:fixture/low@eval",
+      "RYKER_EVAL_WORLD_TARGET" => "codex:fixture/high@eval"
     })
 
-    {:ok, _} = Settings.initialize("control-plane:local")
-
-    {:ok, _} =
-      Settings.put_policy_binding(
-        %{
-          purpose: :admission,
-          scope_kind: :installation,
-          scope_ref: "",
-          policy_name: "ryker-admission-v1",
-          policy_digest: String.duplicate("a", 64),
-          verified_by: :import
-        },
-        1,
-        "control-plane:local"
-      )
-
-    assert_raise Mix.Error, ~r/model_eval_reuses_production_authority/, fn ->
+    assert_raise Mix.Error, ~r/model_world_database_not_disposable/, fn ->
       Eval.run(["world", "--results", "/absolute/world.json"])
     end
   end
@@ -187,7 +170,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
     on_exit(fn -> File.rm_rf!(root) end)
     results_path = Path.join(root, "world-results.json")
 
-    assert_raise Mix.Error, ~r/model_eval_policies_not_configured/, fn ->
+    assert_raise Mix.Error, ~r/model_eval_targets_not_configured/, fn ->
       Eval.run(["world", "--results", results_path])
     end
 

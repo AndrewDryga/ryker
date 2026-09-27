@@ -100,8 +100,12 @@ origin="http://$control_bind:$control_port"
 # --- cleanup, whatever happens ---------------------------------------------
 worktree=
 scratch=
+restart_controller=0
 cleanup() {
   local status=$?
+  if [[ $restart_controller -eq 1 ]]; then
+    "${compose[@]}" start ryker >/dev/null || status=1
+  fi
   if [[ -n $worktree && -d $worktree ]]; then
     git -C "$repository" worktree remove --force "$worktree" >/dev/null 2>&1 || rm -rf -- "$worktree"
     git -C "$repository" worktree prune >/dev/null 2>&1 || true
@@ -136,17 +140,26 @@ fi
 backup_dir=$state_dir/backups
 mkdir -p "$backup_dir"
 chmod 0700 "$backup_dir"
+running_services=$("${compose[@]}" ps --status running --services)
+if grep -qx ryker <<<"$running_services"; then
+  say "pausing Ryker to capture the database and encrypted files consistently"
+  restart_controller=1
+  "${compose[@]}" stop ryker
+fi
 "${compose[@]}" exec -T database pg_dump -U ryker -d ryker --format=custom --no-owner --no-privileges \
   >"$scratch/database.dump"
 [[ -s $scratch/database.dump ]] || fail "the database backup is empty"
 "${compose[@]}" exec -T database pg_restore --list <"$scratch/database.dump" >/dev/null ||
   fail "the database backup does not read back as a PostgreSQL archive"
+"${compose[@]}" run --rm --no-deps -T --entrypoint tar volume-init \
+  -czf - -C /var/lib/ryker . >"$scratch/ryker-state.tar.gz"
+tar -tzf "$scratch/ryker-state.tar.gz" >/dev/null || fail "the encrypted state backup does not read back"
 cp "$env_file" "$scratch/compose.env"
-chmod 0600 "$scratch/database.dump" "$scratch/compose.env"
+chmod 0600 "$scratch/database.dump" "$scratch/ryker-state.tar.gz" "$scratch/compose.env"
 backup="$backup_dir/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
-tar -czf "$backup" -C "$scratch" database.dump compose.env
+tar -czf "$backup" -C "$scratch" database.dump ryker-state.tar.gz compose.env
 chmod 0600 "$backup"
-say "database backed up to $backup (scripts/compose.sh restore takes it)"
+say "database and encrypted state backed up to $backup (scripts/compose.sh restore takes it)"
 
 # --- replace the container ---------------------------------------------------
 report_failure() {
@@ -160,6 +173,7 @@ report_failure() {
 }
 
 say "replacing the ryker container with $image (migrations run when it boots)"
+restart_controller=0
 if ! env RYKER_VERSION="$version" RYKER_IMAGE="$image" \
   "${compose[@]}" up --detach --no-build --wait --wait-timeout "$ready_timeout" --no-deps ryker; then
   report_failure "the ryker container did not become healthy as $version"

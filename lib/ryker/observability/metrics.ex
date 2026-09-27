@@ -108,8 +108,6 @@ defmodule Ryker.Observability.Metrics do
       metric("ryker_coop_fleet_fresh_workers", fleet.fresh_workers),
       metric("ryker_coop_fleet_stale_workers", fleet.stale_workers),
       metric("ryker_coop_fleet_eligible_workers", fleet.eligible_workers),
-      metric("ryker_coop_fleet_required_policy_profiles", fleet.required_policy_profiles),
-      metric("ryker_coop_fleet_available_policy_profiles", fleet.available_policy_profiles),
       metric("ryker_coop_fleet_current_placements", fleet.current_placements),
       metric(
         "ryker_coop_fleet_expired_current_placements",

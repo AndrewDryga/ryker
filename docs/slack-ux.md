@@ -127,9 +127,9 @@ An explicit repository-change request can produce a **Start task** button. Until
 active full workspace member confirms it, no writable session or fork is created. Confirmation posts
 a durable task card in the same Slack thread and creates an isolated Coop working copy. Active full
 members may collaborate there, edit, validate, and commit repository files under the contributor
-policy, then inspect and review the changes. The contributor policy is a worker policy like any
-other: the bundled worker withholds the project environment and MCP servers only from background
-learning, so a member's task gets the same tools as other work in its environment, including the
+job settings, then inspect and review the changes. Ryker supplies the contributor's execution
+authority and withholds the project environment and MCP servers from background
+learning, so a member's task gets the tools configured for work in its environment, including the
 environment's Emisar account. Publishing is off until **Let Ryker open pull requests** is turned
 on; once it is, a confirmed task opens its own draft pull request when its review is clean (see
 Controls). Only a configured operator can press **Create draft PR**, stop, close, or discard task
@@ -286,7 +286,7 @@ receives a
 bounded set of recent summaries from the same channel and from public channels across the
 workspace, preferring the same repository. Private-channel summaries stay local unless a future
 membership-aware path can prove the requester may read them. A work session is replaced when its
-worker reports it exhausted, closed or discarded (the bundled worker's policy allows 100 turns),
+worker reports it exhausted, closed or discarded (Ryker's default job allows 100 turns),
 when its knowledge context goes stale, when the model setting for its kind of work changes, or when
 its worker is lost; Ryker has no age or turn-count rotation of its own. Conversation summaries
 survive for the conversation-memory retention period.
@@ -454,9 +454,9 @@ An approved or permitted incident decision retains the original Slack message as
 acknowledges the source thread, and enters the same channel, root-card, isolated-fork, and
 policy-controlled investigation workflow. Every admitted watched message is one accepted request,
 decided in channel order. When a work session is exhausted, Ryker continues in a fresh one. The
-bound is the worker's own policy (the bundled worker allows 100 turns, 20 queued turns and a
-one-hour turn timeout); Ryker has no turn ceiling of its own, and no Slack control changes the
-worker's limits. Coop policy and service-wide limits remain authoritative.
+bound is frozen in the Ryker-authored job (by default, 100 turns, 20 queued turns and a
+one-hour turn timeout) and enforced by Coop within its service-wide limits. No Slack control
+changes an existing job's limits; exhaustion creates a replacement session, not an extension.
 
 An explicit mention goes through the same admission as any other input. Incident wording is not
 matched as a phrase: the model decides to offer an incident room, and an operator's press creates
@@ -519,7 +519,7 @@ where each capability lives now.
 | `timeline`, `evidence`, `handoff`, `postmortem` | The overflow menu on the incident or task card (**Open evidence** is a button on an incident card) |
 | `update`, `changes`, `review`, `publish`, `stop`, `close` | The buttons on the pinned card (**Stop current run**, the close control, the publication controls), or ask in the thread |
 | `extend` | Nothing. An exhausted session continues in a fresh one |
-| `turn-limit` | A worker execution bound in the worker's own policy |
+| `turn-limit` | A Ryker-authored job limit enforced by the worker |
 | `assignments create` | Ask for the rule in words; the offer card shows what it would save and nothing exists until it is confirmed |
 
 Slack does not provide application-defined autocomplete for text after a slash command, so the
@@ -660,10 +660,11 @@ host rejects them for nonoperators before any repository or session mutation:
   candidate at **Create draft PR** for a person. The grant is publication only — merge, deployment
   and any other repository stay separate decisions — and an operator's **Discard candidate** is the
   last word on publishing that candidate.
-- **Create draft PR** explicitly approves the retained review and its verified complete,
-  content-addressed patch. The publisher reproduces that exact approved tree in an isolated
-  checkout and publishes only a lease-protected Ryker branch, using the configured GitHub
-  App repository binding. On a blocked candidate whose checks could not finish, the same control
+- **Create draft PR** explicitly approves the complete candidate retained by Coop. Ryker asks
+  that worker to push the exact reviewed commit and its LFS objects directly to GitHub, using
+  a short-lived repository-scoped App grant. The branch update checks its expected remote head;
+  neither code nor credentials enter Ryker's publication records or the model sandbox.
+  On a blocked candidate whose checks could not finish, the same control
   offers an explicitly unverified draft: its confirmation names the repository and the check that
   never ran, and says that a draft waives nothing and neither merges nor deploys.
   After publication the task shows **Open PR** and **Check delivery**, and a draft opened that way

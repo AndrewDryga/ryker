@@ -7,23 +7,29 @@ defmodule Ryker.Coop.Client do
   runs through `Ryker.CoopFleet.Client`.
 
   It never opens a TCP connection and never accepts repository, model, or tool
-  authority from an incoming event. Those remain in Coop's named policy.
+  authority from an incoming event. Eval jobs have fixed empty-workspace
+  authority and an explicitly selected model target.
   """
 
   @behaviour Ryker.Coop.API
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Work.{RepositorySource, ValidationIntent}
+  import Ecto.Query
+
+  alias Ryker.CoopFleet.JobAuthority
+  alias Ryker.Evals.Job
+  alias Ryker.Repo
+  alias Ryker.Work.Custody.Sessions
+  alias Ryker.Work.{Session, SessionChangeset, ValidationIntent}
 
   @fields [:finch, :receive_timeout, :socket]
   @max_output_artifact_bytes 8 * 1_024 * 1_024
   @max_changes_page_bytes 1_024 * 1_024
-  @max_review_patch_bytes 64 * 1_024 * 1_024
   @max_response_bytes 3 * 1_024 * 1_024
   @output_artifact_media_types ~w(image/png image/jpeg image/webp image/gif)
 
   @enforce_keys @fields
-  defstruct @fields
+  defstruct @fields ++ [job: nil]
 
   @type t :: %__MODULE__{
           finch: atom(),
@@ -54,8 +60,13 @@ defmodule Ryker.Coop.Client do
   def capabilities(%__MODULE__{} = client), do: request(client, :get, "/v1/capabilities")
 
   @impl true
+  def prepare_create_session(client, key, policy, task, source) do
+    with {:ok, _document} <- create_session_document(client, key, policy, task, source), do: :ok
+  end
+
+  @impl true
   def create_session(%__MODULE__{} = client, key, policy, task, source) do
-    with {:ok, document} <- create_session_document(key, policy, task, source) do
+    with {:ok, document} <- create_session_document(client, key, policy, task, source) do
       request(client, :post, "/v1/sessions",
         body: CanonicalJSON.encode!(document),
         headers: [
@@ -69,7 +80,7 @@ defmodule Ryker.Coop.Client do
 
   @impl true
   def fence_create_session(%__MODULE__{} = client, key, policy, task, source) do
-    with {:ok, document} <- create_session_document(key, policy, task, source) do
+    with {:ok, document} <- create_session_document(client, key, policy, task, source) do
       fence_operation(client, key, "CreateRemoteSession", document)
     end
   end
@@ -123,37 +134,6 @@ defmodule Ryker.Coop.Client do
       })
     end
   end
-
-  @impl true
-  def get_review_patch(client, artifact_id, expected_sha256, expected_bytes) do
-    with {:ok, artifact_id} <- path_id(artifact_id),
-         :ok <- digest(expected_sha256),
-         true <- is_integer(expected_bytes) and expected_bytes in 1..@max_review_patch_bytes do
-      path = "/v1/operations/#{artifact_id}/review-patch"
-
-      request_verified_binary(
-        client,
-        path,
-        "text/x-diff",
-        @max_review_patch_bytes,
-        expected_sha256,
-        expected_bytes
-      )
-    else
-      false -> {:error, {:invalid_coop_request, :patch_bytes}}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  @impl true
-  def get_session_review_patch(
-        client,
-        _session_id,
-        artifact_id,
-        expected_sha256,
-        expected_bytes
-      ),
-      do: get_review_patch(client, artifact_id, expected_sha256, expected_bytes)
 
   @impl true
   def close_session(client, session_id, key, expected_revision) do
@@ -324,52 +304,139 @@ defmodule Ryker.Coop.Client do
   end
 
   # Create and fence build the identical document, so a fence request hashes the
-  # exact selector create would have sent.
-  defp create_session_document(key, policy, task, source) do
+  # exact immutable job create would have sent.
+  defp create_session_document(client, key, selection, task, nil) do
     with :ok <- reference(key, :idempotency_key),
-         :ok <- reference(policy, :policy),
          :ok <- reference(task, :task),
-         {:ok, source} <- repository_source(source) do
-      {:ok, maybe_put(%{"policy" => policy, "task" => task}, "source", source)}
+         {:ok, job} <- create_job(client, key, selection, task) do
+      {:ok, %{"job" => job, "task" => task}}
     end
   end
 
-  defp maybe_put(document, _key, nil), do: document
-  defp maybe_put(document, key, value), do: Map.put(document, key, value)
+  defp create_session_document(_client, _key, _selection, _task, _source),
+    do: {:error, {:invalid_coop_request, :repository_source}}
 
-  defp repository_source(source) do
-    case RepositorySource.parse_optional(source) do
-      {:ok, source} -> {:ok, source}
-      {:error, _reason} -> {:error, {:invalid_coop_request, :repository_source}}
+  # Standalone judges have no Work row. All Work/learning creates must first
+  # pin the job on their exact durable execution identity, even through Unix.
+  defp create_job(
+         _client,
+         "ryker:eval:world-judge:" <> suffix,
+         %{name: "ryker-eval-judge"} = template,
+         task
+       ) do
+    run_ref = String.replace_suffix(suffix, ":create", "")
+
+    with true <- suffix == run_ref <> ":create" and run_ref != "",
+         true <- String.starts_with?(task, "ryker-eval:world-judge:#{run_ref}:"),
+         {:ok, job, _digest} <- Job.bind(template, task) do
+      {:ok, job}
+    else
+      _invalid -> {:error, :invalid_model_eval_job}
     end
   end
 
-  defp responder_binding(%{"endpoint" => endpoint, "token" => token} = binding)
+  defp create_job(%{job: %{name: name} = template}, key, name, task) do
+    Repo.transaction(fn ->
+      session = eval_session(key)
+
+      unless not is_nil(session) and exact_create_key?(session, key) and
+               Session.coop_task_ref(session) == task and session.policy == name and
+               session.policy_digest == template.digest and is_nil(session.repository_ref) and
+               is_nil(session.repository_source),
+             do: Repo.rollback(:model_eval_session_authority_mismatch)
+
+      with {:ok, job, digest} <- Job.bind(template, session.external_ref),
+           {:ok, pinned} <- pin_job(session, job, digest),
+           {:ok, _session} <- JobAuthority.validate(pinned) do
+        pinned.worker_job_document
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp create_job(_client, _key, _selection, _task),
+    do: {:error, :invalid_model_eval_job}
+
+  defp eval_session(key) do
+    query = from(session in Session, lock: "FOR UPDATE")
+
+    case String.split(key, ":") do
+      ["ryker", "work", "create", id, "g" <> generation] ->
+        with {:ok, id} <- Ecto.UUID.cast(id),
+             {generation, ""} <- Integer.parse(generation) do
+          Repo.one(
+            from(session in query,
+              where: session.id == ^id and session.create_generation == ^generation
+            )
+          )
+        else
+          _invalid -> nil
+        end
+
+      ["ryker", "learning", "create", id] ->
+        case Ecto.UUID.cast(id) do
+          {:ok, id} -> Repo.one(from(session in query, where: session.learning_run_id == ^id))
+          :error -> nil
+        end
+
+      _invalid ->
+        nil
+    end
+  end
+
+  defp exact_create_key?(%Session{execution_kind: :work} = session, key),
+    do: key == Sessions.create_operation_key(session)
+
+  defp exact_create_key?(%Session{execution_kind: :learning, learning_run_id: id}, key),
+    do: key == "ryker:learning:create:#{id}"
+
+  defp exact_create_key?(_session, _key), do: false
+
+  defp pin_job(
+         %{
+           worker_job_document: nil,
+           worker_job_digest: nil,
+           coop_session_id: nil,
+           cleanup_status: :active
+         } = session,
+         job,
+         digest
+       ),
+       do: session |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update()
+
+  defp pin_job(%{worker_job_document: job, worker_job_digest: digest} = session, job, digest),
+    do: {:ok, session}
+
+  defp pin_job(_session, _job, _digest), do: {:error, :model_eval_session_authority_mismatch}
+
+  defp controller_tools(%{"endpoint" => endpoint, "token" => token} = binding)
        when map_size(binding) == 2 and is_binary(endpoint) and is_binary(token) do
     with %URI{
            scheme: "https",
            host: host,
-           path: "/v1/state-tools/mcp",
+           path: path,
            userinfo: nil,
            query: nil,
            fragment: nil
          }
-         when is_binary(host) and host != "" <- URI.parse(endpoint),
+         when is_binary(host) and host != "" and is_binary(path) and path != "" <-
+           URI.parse(endpoint),
          true <- byte_size(endpoint) <= 2_048,
          true <- Regex.match?(~r/\A[A-Za-z0-9_-]{32,256}\z/, token) do
       {:ok, binding}
     else
-      _invalid -> {:error, {:invalid_coop_responder_binding, :fields}}
+      _invalid -> {:error, {:invalid_coop_controller_tools, :fields}}
     end
   end
 
-  defp responder_binding(_binding), do: {:error, {:invalid_coop_responder_binding, :fields}}
+  defp controller_tools(_binding), do: {:error, {:invalid_coop_controller_tools, :fields}}
 
   defp submit_turn_document(expected_revision, prompt, schema, binding, artifacts) do
     with :ok <- positive_revision(expected_revision),
          :ok <- prompt(prompt),
          {:ok, contract} <- output_contract(schema),
-         {:ok, binding} <- optional_responder_binding(binding),
+         {:ok, binding} <- optional_controller_tools(binding),
          {:ok, artifacts} <- input_artifacts(artifacts) do
       document = %{
         "expected_revision" => expected_revision,
@@ -378,12 +445,12 @@ defmodule Ryker.Coop.Client do
       }
 
       document = if artifacts == [], do: document, else: Map.put(document, "artifacts", artifacts)
-      {:ok, if(binding, do: Map.put(document, "responder_binding", binding), else: document)}
+      {:ok, if(binding, do: Map.put(document, "controller_tools", binding), else: document)}
     end
   end
 
-  defp optional_responder_binding(nil), do: {:ok, nil}
-  defp optional_responder_binding(binding), do: responder_binding(binding)
+  defp optional_controller_tools(nil), do: {:ok, nil}
+  defp optional_controller_tools(binding), do: controller_tools(binding)
 
   defp boolean(value, _field) when is_boolean(value), do: :ok
   defp boolean(_value, field), do: {:error, {:invalid_coop_request, field}}
@@ -499,93 +566,6 @@ defmodule Ryker.Coop.Client do
       {:error, reason, _state} -> {:error, {:coop_unavailable, reason}}
     end
   end
-
-  defp request_verified_binary(
-         client,
-         path,
-         expected_media_type,
-         maximum_bytes,
-         expected_sha256,
-         expected_bytes
-       ) do
-    request =
-      Finch.build(
-        :get,
-        "http://localhost" <> path,
-        [{"accept", expected_media_type}],
-        nil,
-        unix_socket: client.socket
-      )
-
-    initial = %{body: [], bytes: 0, headers: %{}, status: nil, too_large: false}
-
-    stream = fn
-      {:status, status}, state ->
-        {:cont, %{state | status: status}}
-
-      {:headers, headers}, state ->
-        normalized = Map.new(headers, fn {name, value} -> {String.downcase(name), value} end)
-        {:cont, %{state | headers: Map.merge(state.headers, normalized)}}
-
-      {:data, chunk}, state when state.bytes <= maximum_bytes - byte_size(chunk) ->
-        {:cont, %{state | body: [chunk | state.body], bytes: state.bytes + byte_size(chunk)}}
-
-      {:data, _chunk}, state ->
-        {:halt, %{state | too_large: true}}
-
-      {:trailers, _headers}, state ->
-        {:cont, state}
-    end
-
-    case Finch.stream_while(request, client.finch, initial, stream,
-           receive_timeout: client.receive_timeout
-         ) do
-      {:ok, state} ->
-        decode_verified_binary(
-          state,
-          expected_media_type,
-          expected_sha256,
-          expected_bytes
-        )
-
-      {:error, reason, _state} ->
-        {:error, {:coop_unavailable, reason}}
-    end
-  end
-
-  defp decode_verified_binary(%{too_large: true}, _media_type, _sha256, _bytes),
-    do: {:error, {:coop_protocol_error, :review_patch_too_large}}
-
-  defp decode_verified_binary(
-         %{body: chunks, headers: headers, status: 200},
-         expected_media_type,
-         expected_sha256,
-         expected_bytes
-       ) do
-    body = chunks |> Enum.reverse() |> IO.iodata_to_binary()
-    content_type = headers["content-type"]
-
-    media_type =
-      content_type && content_type |> String.split(";", parts: 2) |> hd() |> String.trim()
-
-    with true <- media_type == expected_media_type,
-         true <- body != "" and byte_size(body) == expected_bytes,
-         {^expected_bytes, ""} <- Integer.parse(headers["content-length"] || ""),
-         {:ok, ^expected_sha256} <- artifact_etag(headers["etag"]),
-         true <- sha256(body) == expected_sha256 do
-      {:ok, body}
-    else
-      _invalid -> {:error, {:coop_protocol_error, :review_patch}}
-    end
-  end
-
-  defp decode_verified_binary(%{body: chunks, status: status}, _media_type, _sha256, _bytes)
-       when is_integer(status) do
-    chunks |> Enum.reverse() |> IO.iodata_to_binary() |> then(&decode_response(status, &1))
-  end
-
-  defp decode_verified_binary(_state, _media_type, _sha256, _bytes),
-    do: {:error, {:coop_protocol_error, :review_patch}}
 
   defp decode_binary_artifact(%{too_large: true}, _artifact_id),
     do: {:error, {:coop_protocol_error, :artifact_too_large}}
@@ -751,7 +731,7 @@ defmodule Ryker.Coop.Client do
   end
 
   defp normalize_attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    if Map.keys(Map.delete(attributes, :job)) |> Enum.sort() == Enum.sort(@fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_coop_client, :fields}}
   end
@@ -768,6 +748,9 @@ defmodule Ryker.Coop.Client do
 
       not valid_socket?(client.socket) ->
         {:error, {:invalid_coop_client, :socket}}
+
+      not is_nil(client.job) and not match?({:ok, _, _}, Job.bind(client.job, "eval-validation")) ->
+        {:error, {:invalid_coop_client, :job}}
 
       true ->
         :ok

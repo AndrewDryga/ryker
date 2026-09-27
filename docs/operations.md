@@ -10,6 +10,16 @@ PostgreSQL is the durable authority for ingress, episodes, Work, delivery, waits
 approvals, publication, worker placement and retention. Restarting containers recovers that
 custody; it does not create a second deployment state.
 
+The bundled Coop worker uses the same outbound job API as a worker on another VM. Ryker supplies
+each job's code identity and settings; Coop fetches code directly on its trusted host. There are no
+worker policy files, generated worker JSON, or Ryker-side repository checkouts. The shared
+`ryker-coop-config` volume carries only enrollment state and the controller CA; model workspaces
+remain in the worker's private state volume.
+
+Upgrading this configuration leaves an existing `ryker-workspaces` Docker volume untouched but
+unused. Keep it with any pre-upgrade backup until the old installation no longer needs it. Current
+backups retain Ryker state, worker state, enrollment state and keys, not that retired checkout volume.
+
 ## Install
 
 Requirements are Docker, Docker Compose v2, OpenSSL, curl and tar. From a release directory run:
@@ -127,9 +137,12 @@ Create a backup while the project is running:
 scripts/compose.sh backup
 ```
 
-The resulting owner-only archive under `.ryker/backups/` contains a custom-format PostgreSQL dump
-and the exact generated environment needed to decrypt stored credentials and checkpoints. Store it
-as sensitive material.
+The helper pauses Ryker while it captures a consistent PostgreSQL dump, private state volume
+(including encrypted checkpoint bodies), and the generated environment containing decryption
+keys. It restarts the previously running controller even if the backup fails. Worker leases use
+their normal expiry rules during this maintenance window; allow time for large bodies to copy.
+Pre-deploy backups use the same database-and-files boundary. Store these owner-only archives as
+sensitive material.
 
 Restore with:
 
@@ -139,8 +152,9 @@ scripts/compose.sh restore .ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz
 
 Restore refuses an archive whose cryptographic roots differ from an existing installation. With no
 existing installation state it restores the archived roots first, starts only PostgreSQL, replaces
-the database, then starts Ryker and verifies the exact running version. A missing, wrong or damaged
-root must fail; never generate a replacement key for an existing database.
+the database and private state, then starts Ryker and verifies the exact running version. A
+database containing file-backed checkpoints cannot start from an archive missing those files.
+A missing, wrong or damaged root must fail; never generate a replacement key for an existing database.
 
 ## Destruction
 
@@ -173,8 +187,7 @@ preserve the fences that make recovery safe.
 The product is Ryker. A few wire names remain `responder-*` because Coop workers, webhook senders,
 or previously delivered GitHub markers own those contracts. They change only with the other party:
 
-- Coop capability and binding names such as `responder-state`;
-- the Coop worker configuration field `responder_url`;
+- retained tool activity naming `responder-state`, and the immutable state-record identity `responder-state:v1` (new Coop bindings use `controller-tools`);
 - webhook signature and event headers beginning `x-responder-`;
 - the `responder.publication_lifecycle.v1` event type; and
 - the hidden `<!-- responder-delivery:… -->` marker on already delivered GitHub comments.

@@ -246,7 +246,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
           where:
             command.session_id == ^placement.session_id and
               command.placement_generation == ^placement.generation and
-              command.kind == "ensure_workspace" and command.status == :succeeded,
+              command.kind == "ensure_workspace" and command.status == :succeeded and
+              fragment(
+                "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
+                command.result
+              ),
           order_by: [desc: command.completed_at, desc: command.id],
           limit: 1
         )
@@ -257,9 +261,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
         %Command{
           payload: %{"coop_session_id" => ^remote_id, "task" => ^workspace_task},
           result: %{
-            "session" => %{
-              "id" => ^remote_id,
-              "workspace_task" => %{"offer_ref" => ^offer_ref}
+            "body" => %{
+              "session" => %{
+                "id" => ^remote_id,
+                "workspace_task" => %{"offer_ref" => ^offer_ref}
+              }
             }
           }
         },

@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
   alias Ryker.ControlPlane.{Actions, Projection, Publisher}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.{Changeset, Publication}
   alias Ryker.Publication.Custody, as: PublicationCustody
@@ -17,7 +18,6 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
   @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc3e6"
   @now ~U[2026-08-30 18:00:00.000000Z]
   @digest String.duplicate("a", 64)
-  @git String.duplicate("b", 40)
 
   test "a Lab publication offer reaches review and explicit publish approval in the same conversation" do
     fixture = delivered_publication_offer!()
@@ -35,22 +35,14 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     assert requested.publication.repository == "ryker"
     assert requested.publication.status == :review_pending
 
-    review = %{
-      "candidate_tree" => @git,
-      "gate" => "passed",
-      "not_publishable_reasons" => [],
-      "patch_bytes" => 4_096,
-      "patch_digest" => @digest,
-      "policy_findings" => [],
-      "publishable" => true,
-      "rebase" => "clean"
-    }
+    session = Repo.get!(Ryker.Work.Session, requested.publication.session_id)
+    review = review_document(session, requested.publication.episode_id)
 
     requested.publication
     |> Changeset.update(%{
       review_document: review,
       review_fingerprint: digest(review),
-      review_patch: "diff --git a/lib/a.ex b/lib/a.ex",
+      review_expected_revision: 7,
       reviewed_at: DateTime.add(@now, 2, :second),
       status: :review_ready
     })
@@ -243,16 +235,15 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
                7
              )
 
-    patch = "diff --git a/lib/lab.ex b/lib/lab.ex\n+publication parity\n"
-    review = review_document("coop-session:task-readiness", confirmation.episode.id, patch)
+    session = Repo.get_by!(Ryker.Work.Session, coop_session_id: "coop-session:task-readiness")
+    review = review_document(session, confirmation.episode.id)
 
     assert {:ok, %{status: :review_ready}} =
              PublicationCustody.store_review(
                readiness.publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review,
-               patch
+               review
              )
 
     assert {:ok, review_delivery_claim} =
@@ -335,7 +326,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     publication_receipt = %{
       "branch_ref" => "refs/heads/ryker/lab-parity",
       "candidate_tree" => review["candidate_tree"],
-      "commit_sha" => String.duplicate("c", 40),
+      "commit_sha" => review["candidate_head"],
       "pull_request_number" => 42,
       "pull_request_url" => "https://github.com/example/ryker/pull/42",
       "repository" => "ryker"
@@ -493,6 +484,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
   end
 
   defp bind_claim!(claim, suffix) do
+    WorkerJob.pin!(claim.session)
     assert {:ok, submission} = SubmissionBuilder.build(claim)
 
     assert {:ok, _turn} =
@@ -637,6 +629,8 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     assert {:ok, claim} =
              Ryker.Work.Custody.claim_next("lab-publication-work", 60, :work)
 
+    WorkerJob.pin!(session)
+
     assert {:ok, record} =
              Records.create(
                Records.token(claim.turn),
@@ -763,7 +757,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
 
   defp conversation_ref, do: "control-plane:lab:#{@conversation_id}"
 
-  defp review_document(session_id, episode_id, patch) do
+  defp review_document(session, episode_id) do
     %{
       "candidate_head" => String.duplicate("6", 40),
       "candidate_tree" => String.duplicate("7", 40),
@@ -773,15 +767,13 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
       "operation_id" => "lab-review-#{episode_id}",
       "parent_head" => String.duplicate("4", 40),
       "parent_tree" => String.duplicate("5", 40),
-      "patch_artifact_id" => "lab-review-#{episode_id}",
-      "patch_bytes" => byte_size(patch),
-      "patch_digest" => digest(patch),
+      "candidate_retained" => true,
       "patch_truncated" => false,
-      "policy_digest" => @digest,
+      "job_digest" => session.worker_job_digest,
       "policy_findings" => [],
       "publishable" => true,
       "rebase" => "clean",
-      "session_id" => session_id,
+      "session_id" => session.coop_session_id,
       "session_revision" => 7,
       "source_head" => String.duplicate("2", 40),
       "source_tree" => String.duplicate("3", 40)

@@ -7,9 +7,11 @@ defmodule Ryker.Work.CustodyTest do
   alias Ryker.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Work.{Cancellation, Custody, Submission, Turn, TurnChangeset}
+  alias Ryker.Work.Custody.Sessions
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @authority_digest String.duplicate("f", 64)
@@ -85,43 +87,36 @@ defmodule Ryker.Work.CustodyTest do
     assert claim.session.repository_ref == "infrastructure"
   end
 
-  test "a model change moves an episode onto its policy's current digest when authority is unchanged" do
-    # Choosing another model in Settings changes a policy's digest but not its
-    # authority. The session stayed pinned to the old digest, no worker
-    # advertised it any more, and the conversation's next turn blocked as "no
-    # eligible worker with available capacity".
+  test "settings changes never rewrite a frozen job or its next-generation authority" do
     command = create_kernel_episode!("model-moved")
-    old = String.duplicate("a", 64)
-    new = String.duplicate("b", 64)
 
     assert {:ok, pinned} =
-             Custody.pin_episode(command.episode_id, "ryker-chat", old, @authority_digest, nil)
+             Custody.pin_episode(
+               command.episode_id,
+               "ryker-chat",
+               @policy_digest,
+               @authority_digest,
+               nil
+             )
 
-    binding!("ryker-chat", new, @authority_digest)
-    assert Custody.current_policy_digest(pinned) == new
+    pinned = WorkerJob.pin!(pinned)
+    {:ok, snapshot} = Settings.initialize(@actor)
 
-    # No worker has created this session yet, so it takes the current digest.
+    assert {:ok, _} =
+             Settings.save_work(
+               %{conversation_models: ["codex:gpt-5.6-terra/high@default"]},
+               snapshot.installation.revision,
+               @actor
+             )
+
     assert {:ok, claim} = Custody.claim_next("worker:model-moved", 60)
     assert claim.session.id == pinned.id
-    assert claim.session.policy == "ryker-chat"
-    assert claim.session.policy_digest == new
-    assert claim.session.authority_digest == @authority_digest
-  end
-
-  test "a policy whose authority changed keeps an episode on its pinned digest" do
-    # Only a model change is followed. Different tools or repository access
-    # would change what the running work may do, so the pin stands.
-    command = create_kernel_episode!("authority-moved")
-    old = String.duplicate("a", 64)
-
-    assert {:ok, pinned} =
-             Custody.pin_episode(command.episode_id, "ryker-chat", old, @authority_digest, nil)
-
-    binding!("ryker-chat", String.duplicate("b", 64), String.duplicate("c", 64))
-    assert Custody.current_policy_digest(pinned) == old
-
-    assert {:ok, claim} = Custody.claim_next("worker:authority-moved", 60)
-    assert claim.session.policy_digest == old
+    assert claim.session.policy_digest == pinned.policy_digest
+    assert claim.session.worker_job_document == pinned.worker_job_document
+    assert claim.session.worker_job_digest == pinned.worker_job_digest
+    authority = Sessions.session_authority(claim.session)
+    assert authority.worker_job_document == pinned.worker_job_document
+    assert authority.policy_digest == pinned.policy_digest
   end
 
   test "a frozen turn context and Coop session survive lease expiry" do
@@ -1552,7 +1547,7 @@ defmodule Ryker.Work.CustodyTest do
 
   defp enroll!(id) do
     Repo.insert!(%Worker{
-      capabilities: [%{"name" => "responder-state", "version" => "1"}],
+      capabilities: [%{"name" => "controller-tools", "version" => "1"}],
       capacity: %{
         "session_slots_free" => 2,
         "session_slots_total" => 4,
@@ -1566,20 +1561,21 @@ defmodule Ryker.Work.CustodyTest do
       clock_at: DateTime.utc_now(),
       id: id,
       last_seen_at: DateTime.utc_now(),
-      policy_authority_digests: %{"work-read-only" => @authority_digest},
-      policy_digests: %{"work-read-only" => @policy_digest},
-      repositories: [%{"ref" => "ryker", "revision" => "commit:abc123"}],
       state: :eligible,
+      protocol_version: "2",
+      sandbox_digest: String.duplicate("a", 64),
       workspace_ref: "workspace-main"
     })
   end
 
   defp checkpoint!(session) do
+    session = WorkerJob.pin!(session)
+
     assert {:ok, placement} =
              FleetControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: session.repository_ref,
                  workspace_ref: "workspace-main"
                },
@@ -1604,7 +1600,7 @@ defmodule Ryker.Work.CustodyTest do
         Ecto.Changeset.change(command,
           completed_at: DateTime.utc_now(),
           operation_key: command.idempotency_key,
-          result: %{"state" => "stored"},
+          result: %{"status" => 200, "body" => %{"state" => "stored"}},
           result_fingerprint: String.duplicate("d", 64),
           status: :succeeded
         )
@@ -1616,7 +1612,7 @@ defmodule Ryker.Work.CustodyTest do
       checkpoint_ref: "checkpoint:custody",
       ciphertext: :binary.copy(<<3>>, 4_096),
       command_id: command.id,
-      descriptor: %{"checkpoint_ref" => "checkpoint:custody"},
+      descriptor: %{"version" => 2, "checkpoint_ref" => "checkpoint:custody"},
       encryption_key_sha256: String.duplicate("a", 64),
       encryption_nonce: :binary.copy(<<1>>, 12),
       encryption_tag: :binary.copy(<<2>>, 16),
@@ -1626,29 +1622,6 @@ defmodule Ryker.Work.CustodyTest do
       session_ref: session.id,
       worker_id: command.worker_id
     })
-  end
-
-  defp binding!(policy_name, policy_digest, authority_digest) do
-    {:ok, snapshot} =
-      case Ryker.Settings.fetch() do
-        {:ok, snapshot} -> {:ok, snapshot}
-        {:error, :settings_not_initialized} -> Ryker.Settings.initialize("control-plane:local")
-      end
-
-    {:ok, _snapshot} =
-      Ryker.Settings.put_policy_binding(
-        %{
-          authority_digest: authority_digest,
-          policy_digest: policy_digest,
-          policy_name: policy_name,
-          purpose: :conversational,
-          scope_kind: :installation,
-          scope_ref: "",
-          verified_by: :import
-        },
-        snapshot.installation.revision,
-        "control-plane:local"
-      )
   end
 
   defp create_episode!(suffix, turn_ref \\ nil) do

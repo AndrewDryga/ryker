@@ -3,22 +3,26 @@ defmodule Ryker.Publication.Review do
 
   alias Ryker.CanonicalJSON
 
-  @required ~w(candidate_head candidate_tree creation_base gate not_publishable_reasons operation_id parent_head parent_tree patch_bytes patch_truncated policy_digest policy_findings publishable rebase session_id session_revision source_head source_tree)
-  @optional ~w(gate_error patch patch_artifact_id patch_digest pull_request)
-  @git_identity ~r/\A[a-f0-9]{40,64}\z/
+  @required ~w(candidate_head candidate_retained candidate_tree creation_base gate job_digest not_publishable_reasons operation_id parent_head parent_tree patch_truncated policy_findings publishable rebase session_id session_revision source_head source_tree)
+  @optional ~w(gate_error pull_request)
+  @git_identity ~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
   @spec prepare(map(), map()) :: {:ok, map()} | {:error, term()}
   def prepare(document, expected) when is_map(document) and is_map(expected) do
+    # Publication retains identity, not the bounded display preview or source projection.
+    document = Map.drop(document, ["patch", "source"])
+
     with :ok <- fields(document),
          :ok <- reference(document["operation_id"], :operation_id),
          true <- document["session_id"] == expected.session_id,
          true <- document["session_revision"] == expected.revision,
-         true <- digest?(document["policy_digest"]),
+         true <- digest?(document["job_digest"]),
          :ok <- git_identities(document),
          :ok <- enum(document["gate"], ~w(passed failed startup_error not_run none), :gate),
          :ok <- enum(document["rebase"], ~w(clean conflict), :rebase),
          true <- is_boolean(document["patch_truncated"]),
+         true <- is_boolean(document["candidate_retained"]),
          true <- is_boolean(document["publishable"]),
          :ok <- bounded_strings(document["policy_findings"], 64, 4_096, :policy_findings),
          :ok <-
@@ -28,7 +32,7 @@ defmodule Ryker.Publication.Review do
              256,
              :not_publishable_reasons
            ),
-         :ok <- patch_identity(document),
+         :ok <- candidate_identity(document),
          :ok <- pull_request(document["pull_request"]),
          :ok <- CanonicalJSON.validate(document, max_bytes: 512 * 1_024) do
       {:ok, document}
@@ -143,10 +147,9 @@ defmodule Ryker.Publication.Review do
 
   defp snapshot_reason(document) do
     exact =
-      match?(:ok, reference(document["patch_artifact_id"], :patch_artifact_id)) and
-        digest?(document["patch_digest"]) and is_integer(document["patch_bytes"]) and
-        document["patch_bytes"] > 0 and document["patch_bytes"] <= 64 * 1_024 * 1_024 and
-        document["patch_truncated"] == false
+      document["candidate_retained"] == true and
+        git_identities(document) == :ok and
+        document["candidate_tree"] != document["parent_tree"]
 
     if exact, do: nil, else: "No exact complete snapshot of the change was retained."
   end
@@ -191,12 +194,8 @@ defmodule Ryker.Publication.Review do
     end
   end
 
-  defp patch_identity(%{"publishable" => true} = document) do
-    with :ok <- reference(document["patch_artifact_id"], :patch_artifact_id),
-         true <- digest?(document["patch_digest"]),
-         true <- is_integer(document["patch_bytes"]) and document["patch_bytes"] > 0,
-         true <- document["patch_bytes"] <= 64 * 1_024 * 1_024,
-         true <- document["patch_truncated"] in [true, false],
+  defp candidate_identity(%{"publishable" => true} = document) do
+    with true <- is_nil(snapshot_reason(document)),
          true <- document["gate"] == "passed" and document["rebase"] == "clean",
          true <- document["policy_findings"] == [],
          true <- document["not_publishable_reasons"] == [] do
@@ -207,11 +206,7 @@ defmodule Ryker.Publication.Review do
     end
   end
 
-  defp patch_identity(%{"publishable" => false, "patch_bytes" => bytes})
-       when is_integer(bytes) and bytes >= 0 and bytes <= 64 * 1_024 * 1_024,
-       do: :ok
-
-  defp patch_identity(_document), do: {:error, {:invalid_publication_review, :patch}}
+  defp candidate_identity(%{"publishable" => false}), do: :ok
 
   defp pull_request(nil), do: :ok
 

@@ -94,7 +94,7 @@ defmodule Ryker.ControlPlane.ToolCardTest do
   test "a preference proposal is named as inert confirmation work" do
     payload = %{
       "input" => %{
-        "server" => "responder-state",
+        "server" => "controller-tools",
         "tool" => "propose_preference",
         "arguments" => %{
           "explicit_request" => true,
@@ -128,7 +128,7 @@ defmodule Ryker.ControlPlane.ToolCardTest do
   test "a finding tool shows the conclusion and reason with a meaningful action name" do
     payload = %{
       "input" => %{
-        "server" => "responder-state",
+        "server" => "controller-tools",
         "tool" => "record_finding",
         "arguments" => %{
           "what" => "Zero instances are intentional",
@@ -157,7 +157,7 @@ defmodule Ryker.ControlPlane.ToolCardTest do
   test "failed state tool does not claim evidence was recorded" do
     payload = %{
       "input" => %{
-        "server" => "responder-state",
+        "server" => "controller-tools",
         "tool" => "cite_source",
         "arguments" => %{"subject" => "<script>"}
       }
@@ -221,7 +221,7 @@ defmodule Ryker.ControlPlane.ToolCardTest do
     }
 
     payload = %{
-      "input" => %{"server" => "responder-state", "tool" => "plan_goal", "arguments" => args}
+      "input" => %{"server" => "controller-tools", "tool" => "plan_goal", "arguments" => args}
     }
 
     html = render_component(&ToolCard.render/1, step: step(payload))

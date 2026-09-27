@@ -180,7 +180,13 @@ defmodule Ryker.Retention.Data do
     table: "coop_worker_commands",
     as: "command",
     join: "JOIN episode_work_sessions AS session ON session.id = command.session_id",
-    where: "command.status IN ('succeeded', 'failed') AND session.cleanup_status = 'discarded'",
+    where: """
+    command.status IN ('succeeded', 'failed') AND session.cleanup_status = 'discarded'
+    AND NOT EXISTS (
+      SELECT 1 FROM coop_worker_workspace_checkpoints AS checkpoint
+      WHERE checkpoint.body_command_id = command.id
+    )
+    """,
     age: "updated_at",
     horizon: :operational_data_seconds
   }

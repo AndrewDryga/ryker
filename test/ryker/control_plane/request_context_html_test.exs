@@ -410,48 +410,49 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       |> File.read!()
       |> Jason.decode!()
 
-    document =
-      work
-      |> Map.take(["responder_state_tools", "source_and_action_tools"])
-      |> Map.update!("responder_state_tools", &(&1 ++ ["record_emisar_approval"]))
-      |> InspectionRedactor.artifact()
-      |> RequestContextHTML.assembly("$.work", "tools")
-      |> IO.iodata_to_binary()
-      |> LazyHTML.from_fragment()
+    for key <- ["controller_tools", "responder_state_tools"] do
+      document =
+        Map.take(work, ["source_and_action_tools"])
+        |> Map.put(key, work["responder_state_tools"] ++ ["record_emisar_approval"])
+        |> InspectionRedactor.artifact()
+        |> RequestContextHTML.assembly("$.work", "tools")
+        |> IO.iodata_to_binary()
+        |> LazyHTML.from_fragment()
 
-    state = LazyHTML.query(document, "[data-source=responder_state_tools]")
+      state = LazyHTML.query(document, "[data-source=#{key}]")
 
-    assert LazyHTML.text(state) =~
-             "Tools Ryker could use for this request. Listed here does not mean it used them."
+      assert LazyHTML.text(state) =~
+               "Tools Ryker could use for this request. Listed here does not mean it used them."
 
-    refute LazyHTML.text(state) =~ "State operations advertised"
-    refute LazyHTML.text(state) =~ "receipt"
+      refute LazyHTML.text(state) =~ "State operations advertised"
+      refute LazyHTML.text(state) =~ "receipt"
 
-    for {source, names} <- [
-          {"responder_state_tools", work["responder_state_tools"] ++ ["record_emisar_approval"]},
-          {"source_and_action_tools", work["source_and_action_tools"]}
-        ] do
-      rows =
-        document
-        |> LazyHTML.query("[data-source=#{source}] .context-rows > div")
-        |> Enum.map(fn row ->
-          {row |> LazyHTML.query("dt") |> LazyHTML.text(),
-           row |> LazyHTML.query("dd") |> LazyHTML.text()}
-        end)
+      for {source, names} <- [
+            {key, work["responder_state_tools"] ++ ["record_emisar_approval"]},
+            {"source_and_action_tools", work["source_and_action_tools"]}
+          ] do
+        rows =
+          document
+          |> LazyHTML.query("[data-source=#{source}] .context-rows > div")
+          |> Enum.map(fn row ->
+            {row |> LazyHTML.query("dt") |> LazyHTML.text(),
+             row |> LazyHTML.query("dd") |> LazyHTML.text()}
+          end)
 
-      assert Enum.map(rows, &elem(&1, 0)) == names
+        assert Enum.map(rows, &elem(&1, 0)) == names
 
-      for {name, description} <- rows do
-        assert description =~ ~r/^[A-Z][^_]+\.$/, "#{name} has no plain description"
+        for {name, description} <- rows do
+          assert description =~ ~r/^[A-Z][^_]+\.$/, "#{name} has no plain description"
+        end
       end
+
+      rows = LazyHTML.query(document, "[data-source=#{key}] .context-rows > div")
+
+      assert Enum.find_value(rows, fn row ->
+               if LazyHTML.text(LazyHTML.query(row, "dt")) == "request_input",
+                 do: LazyHTML.text(LazyHTML.query(row, "dd"))
+             end) == "Asks a person a question and waits for the answer."
     end
-
-    rows = LazyHTML.query(document, "[data-source=responder_state_tools] .context-rows > div")
-
-    assert Enum.find_value(rows, fn row ->
-             if LazyHTML.text(LazyHTML.query(row, "dt")) == "request_input",
-               do: LazyHTML.text(LazyHTML.query(row, "dd"))
-           end) == "Asks a person a question and waits for the answer."
   end
 
   test "every tool Ryker can offer a request has words for what it is for" do
@@ -462,12 +463,12 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
         ["record_emisar_approval"] ++ Enum.map(CapabilityTools.list(), & &1["name"])
 
     described =
-      %{"responder_state_tools" => names}
+      %{"controller_tools" => names}
       |> InspectionRedactor.artifact()
       |> RequestContextHTML.assembly("$.work", "catalog")
       |> IO.iodata_to_binary()
       |> LazyHTML.from_fragment()
-      |> LazyHTML.query("[data-source=responder_state_tools] .context-rows > div")
+      |> LazyHTML.query("[data-source=controller_tools] .context-rows > div")
       |> Enum.map(fn row ->
         {row |> LazyHTML.query("dt") |> LazyHTML.text(),
          row |> LazyHTML.query("dd") |> LazyHTML.text() |> String.trim()}
@@ -479,7 +480,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
   test "a tool this view has no words for keeps its name and gains no invented description" do
     document =
-      %{"responder_state_tools" => ["validate_final", "retired_tool"]}
+      %{"controller_tools" => ["validate_final", "retired_tool"]}
       |> InspectionRedactor.artifact()
       |> RequestContextHTML.assembly("$.work", "tools")
       |> IO.iodata_to_binary()
@@ -487,7 +488,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     rows =
       document
-      |> LazyHTML.query("[data-source=responder_state_tools] .context-rows > div")
+      |> LazyHTML.query("[data-source=controller_tools] .context-rows > div")
       |> Enum.map(fn row ->
         {row |> LazyHTML.query("dt") |> LazyHTML.text(),
          row |> LazyHTML.query("dd") |> LazyHTML.text() |> String.trim()}

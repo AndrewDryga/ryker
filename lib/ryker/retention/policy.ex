@@ -103,7 +103,7 @@ defmodule Ryker.Retention.Policy do
     %{
       table: "repository_settings",
       class: :kept,
-      why: "connected repositories, display metadata, base branch and publication checkout"
+      why: "connected repositories, display metadata and base branch"
     },
     %{
       table: "environment_settings",
@@ -119,8 +119,7 @@ defmodule Ryker.Retention.Policy do
     %{
       table: "policy_bindings",
       class: :kept,
-      why:
-        "reviewed purpose-to-policy pins that authorize execution; active work keeps its own frozen pins"
+      why: "historical local-policy settings; retained as history, never execution authority"
     },
     %{
       table: "webhook_source_settings",

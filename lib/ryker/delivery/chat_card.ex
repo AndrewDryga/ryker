@@ -136,7 +136,6 @@ defmodule Ryker.Delivery.ChatCard do
          {"Repository", payload["repository"]},
          {"Gate", payload["gate"]},
          {"Rebase", payload["rebase"]},
-         {"Patch", "#{payload["patch_bytes"]} bytes"},
          {"Candidate tree", payload["candidate_tree"]}
        ],
        kind: "publication_review",

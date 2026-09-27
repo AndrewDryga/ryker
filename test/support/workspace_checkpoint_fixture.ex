@@ -5,7 +5,8 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
   alias Ryker.CoopFleet.WorkspaceCheckpoint
 
   def build(attributes \\ %{}) do
-    patch = Map.get(attributes, :patch, <<>>)
+    version = Map.get(attributes, :version, 2)
+    patch = Map.get(attributes, :patch, :binary.copy(<<0>>, 1_024))
     task = Map.get(attributes, :task, "Status: in_progress\n")
 
     checkpoint_ref =
@@ -19,7 +20,7 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
     task_digest = digest(task)
 
     manifest = %{
-      "version" => 1,
+      "version" => version,
       "checkpoint_ref" => checkpoint_ref,
       "repository_ref" => repository_ref,
       "base_revision" => base_revision,
@@ -51,15 +52,32 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
       "gate_receipt" => nil
     }
 
+    manifest =
+      if version == 2 do
+        manifest
+        |> Map.delete("tracked_patch")
+        |> Map.put("repository", %{
+          "entry" => "repository.tar",
+          "sha256" => digest(patch),
+          "byte_size" => byte_size(patch)
+        })
+        |> Map.put("tracked_tree", String.duplicate("3", 40))
+      else
+        manifest
+      end
+
     bundle =
-      tar([
-        {"manifest.json", Jason.encode!(manifest)},
-        {"workspace.patch", patch},
-        {"task/000000", task}
-      ])
+      tar(
+        [
+          {"manifest.json", Jason.encode!(manifest)},
+          {if(version == 2, do: "repository.tar", else: "workspace.patch"), patch},
+          {"task/000000", task}
+        ],
+        version
+      )
 
     checkpoint = %{
-      "version" => 1,
+      "version" => version,
       "checkpoint_ref" => checkpoint_ref,
       "session_ref" => session_ref,
       "placement_generation" => Map.get(attributes, :placement_generation, 1),
@@ -78,7 +96,7 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
       },
       "gate" => %{"status" => "not_run"},
       "bundle" => %{
-        "media_type" => WorkspaceCheckpoint.bundle_media_type(),
+        "media_type" => WorkspaceCheckpoint.bundle_media_type(version),
         "sha256" => digest(bundle),
         "byte_size" => byte_size(bundle)
       },
@@ -88,27 +106,59 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
     {checkpoint, bundle}
   end
 
-  defp tar(members) do
+  # Historical PostgreSQL rows remain readable, but production has no GCM writer.
+  def seal_historical(key, checkpoint, bundle) do
+    nonce = :crypto.strong_rand_bytes(12)
+
+    aad =
+      [
+        "ryker-workspace-checkpoint-v1",
+        checkpoint["checkpoint_ref"],
+        checkpoint["session_ref"],
+        to_string(checkpoint["placement_generation"]),
+        checkpoint["repository_ref"],
+        checkpoint["bundle"]["sha256"],
+        to_string(checkpoint["bundle"]["byte_size"])
+      ]
+      |> Enum.join(<<0>>)
+
+    {ciphertext, tag} =
+      :crypto.crypto_one_time_aead(:aes_256_gcm, key, nonce, bundle, aad, 16, true)
+
+    %{
+      ciphertext: ciphertext,
+      encryption_nonce: nonce,
+      encryption_tag: tag,
+      encryption_key_sha256: digest(key)
+    }
+  end
+
+  defp tar(members, version) do
     members
-    |> Enum.map(fn {name, body} -> [tar_header(name, byte_size(body)), body, padding(body)] end)
+    |> Enum.map(fn {name, body} ->
+      [tar_header(name, byte_size(body), version), body, padding(body)]
+    end)
     |> then(&[&1, :binary.copy(<<0>>, 1_024)])
     |> IO.iodata_to_binary()
   end
 
-  defp tar_header(name, size) do
+  def tar_header(name, size, version \\ 2) do
     header =
       IO.iodata_to_binary([
         field(name, 100),
         octal(0o644, 8),
         octal(0, 8),
         octal(0, 8),
-        octal(size, 12),
+        if(size < 8_589_934_592,
+          do: octal(size, 12),
+          else: <<128, size::unsigned-big-integer-size(88)>>
+        ),
         octal(0, 12),
         "        ",
         "0",
         field("", 100),
-        "ustar\0",
-        "00",
+        if(version == 1, do: "ustar\0", else: "ustar "),
+        if(version == 1, do: "00", else: " \0"),
         field("", 32),
         field("", 32),
         octal(0, 8),

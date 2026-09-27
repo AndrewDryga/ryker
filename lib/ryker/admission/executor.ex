@@ -13,10 +13,14 @@ defmodule Ryker.Admission.Executor do
   require Logger
 
   alias Ryker.Admission
-  alias Ryker.Admission.{Attempts, Context, Decision, Prompt}
+  alias Ryker.Admission.{Attempts, Context, Decision, FleetSession, Prompt}
+  alias Ryker.Coop.API
+  alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Knowledge
   alias Ryker.Learning.Observations
+  alias Ryker.Repo
+  alias Ryker.Work.Session
 
   @retryable_terminal_turn_states ~w(failed)
   @stopped_turn_states ~w(cancelled interrupted budget_exhausted)
@@ -305,7 +309,16 @@ defmodule Ryker.Admission.Executor do
   defp create_session(entry, key, settings) do
     task = session_external_ref(entry)
 
-    with :ok <- renew_lease(settings) do
+    with :ok <-
+           API.prepare_create_session(
+             settings.api,
+             settings.client,
+             key,
+             settings.policy,
+             task,
+             nil
+           ),
+         :ok <- renew_lease(settings) do
       settings.api.create_session(settings.client, key, settings.policy, task, nil)
     end
     |> case do
@@ -850,7 +863,8 @@ defmodule Ryker.Admission.Executor do
              current,
              settings,
              session["id"],
-             ~w(open exhausted closed discarded)
+             ~w(open exhausted closed discarded),
+             :cleanup
            ),
          :ok <- close_current_session(current, entry, settings) do
       _ = Activity.close_admission(entry, session["id"])
@@ -875,7 +889,8 @@ defmodule Ryker.Admission.Executor do
                closed,
                settings,
                session_id,
-               ~w(closed discarded)
+               ~w(closed discarded),
+               :cleanup
              ) do
           {:ok, _closed} -> :ok
           {:error, _reason} = error -> error
@@ -919,7 +934,7 @@ defmodule Ryker.Admission.Executor do
       validate_settings(%{
         api: Keyword.fetch!(options, :api),
         bind_execution_session:
-          Keyword.get(options, :bind_execution_session, fn _entry, _session_id -> :ok end),
+          Keyword.get(options, :bind_execution_session, &FleetSession.bind/2),
         candidate_limit: Keyword.get(options, :candidate_limit, 20),
         claim_ready_session:
           Keyword.get(options, :claim_ready_session, fn _entry, _policy -> :none end),
@@ -936,10 +951,10 @@ defmodule Ryker.Admission.Executor do
         policy_digest: Keyword.fetch!(options, :policy_digest),
         poll_interval_ms: Keyword.get(options, :poll_interval_ms, 250),
         prepare_execution_session:
-          Keyword.get(options, :prepare_execution_session, fn _entry, _policy -> :ok end),
+          Keyword.get(options, :prepare_execution_session, &FleetSession.ensure/2),
         renew_lease: Keyword.fetch!(options, :renew_lease),
         settle_execution_session:
-          Keyword.get(options, :settle_execution_session, fn _entry, _session_id -> :ok end),
+          Keyword.get(options, :settle_execution_session, &FleetSession.settle/2),
         sleep: Keyword.get(options, :sleep, &Process.sleep/1)
       })
     else
@@ -1041,17 +1056,17 @@ defmodule Ryker.Admission.Executor do
   defp validate_session(session, settings, expected_id),
     do: validate_session_state(session, settings, expected_id, ["open"])
 
+  defp validate_session_state(session, settings, expected_id, allowed_states, purpose \\ :execute)
+
   defp validate_session_state(
          %{
-           "external_ref" => external_ref,
            "id" => id,
-           "policy" => policy,
-           "policy_digest" => policy_digest,
            "state" => state
          } = session,
          settings,
          expected_id,
-         allowed_states
+         allowed_states,
+         purpose
        ) do
     cond do
       not valid_ref?(id) or (expected_id != nil and id != expected_id) ->
@@ -1060,8 +1075,7 @@ defmodule Ryker.Admission.Executor do
       state not in allowed_states ->
         {:error, {:coop_protocol_error, :session_state}}
 
-      policy != settings.policy or policy_digest != settings.policy_digest or
-          external_ref != settings.session_external_ref ->
+      not exact_job_receipt?(session, settings, purpose) ->
         {:error, {:coop_protocol_error, :session_authority}}
 
       true ->
@@ -1069,8 +1083,21 @@ defmodule Ryker.Admission.Executor do
     end
   end
 
-  defp validate_session_state(_session, _settings, _expected_id, _allowed_states),
+  defp validate_session_state(_session, _settings, _expected_id, _allowed_states, _purpose),
     do: {:error, {:coop_protocol_error, :session_resource}}
+
+  defp exact_job_receipt?(remote, settings, purpose) do
+    case Repo.get_by(Session, external_ref: settings.session_external_ref) do
+      %Session{policy: policy, policy_digest: digest} = saved
+      when policy == settings.policy and digest == settings.policy_digest ->
+        if purpose == :cleanup,
+          do: JobAuthority.exact_cleanup_receipt(saved, remote) == :ok,
+          else: JobAuthority.exact_receipt(saved, remote) == :ok
+
+      _missing ->
+        false
+    end
+  end
 
   defp session_revision(%{"revision" => revision})
        when is_integer(revision) and revision > 0,

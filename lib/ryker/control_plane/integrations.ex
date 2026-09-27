@@ -105,15 +105,6 @@ defmodule Ryker.ControlPlane.Integrations do
         reason: "The newest settings could not be applied, so Slack is not running.",
         action: {"Open Advanced", "/settings/advanced"}
       },
-      no_incident_policy: %{
-        status: :broken,
-        state: {:bad, "Not running"},
-        means: @on_but_not_working,
-        reason:
-          "Slack is on but did not start, because no worker policy for incident rooms is " <>
-            "ready. Check what each kind of work may do under Advanced.",
-        action: {"Open Advanced", "/settings/advanced"}
-      },
       settings_unusable: %{
         status: :broken,
         state: {:bad, "Not running"},
@@ -314,10 +305,6 @@ defmodule Ryker.ControlPlane.Integrations do
   # What the running configuration left Slack out for is why it is not
   # running, whatever else is still starting. While newer settings apply,
   # that reason belongs to the older ones, so Slack reads as starting.
-  defp running(%{left_out: %{slack: :incident_policy_missing}}, application)
-       when application != :pending,
-       do: :no_incident_policy
-
   defp running(%{left_out: %{slack: _refused}}, application) when application != :pending,
     do: :settings_unusable
 
@@ -331,7 +318,7 @@ defmodule Ryker.ControlPlane.Integrations do
   defp slack_running(%{state: :unknown}, _application), do: :unknown
 
   defp slack_running(%{state: worker}, _application)
-       when worker in [:setting_up, :worker_unavailable, :policy_unavailable],
+       when worker in [:setting_up, :worker_unavailable],
        do: :waiting
 
   # Who can manage Ryker, as the Slack page lists them: the workspace's admins
@@ -643,7 +630,7 @@ defmodule Ryker.ControlPlane.Integrations do
     do: "its signing credential is shorter than the 16 characters a token needs."
 
   defp why(_source, :lifecycle_repository_unreviewed, _view),
-    do: "its deployment reports name a repository with no reviewed worker policies."
+    do: "its deployment reports name a repository that has not been added to Ryker."
 
   defp why(_source, :mapping_unknown_field, _view),
     do: "its field mapping names a field Ryker does not know."

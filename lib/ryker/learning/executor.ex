@@ -1,5 +1,7 @@
 defmodule Ryker.Learning.Executor do
   @moduledoc "One resumable, bounded learning step. All remote effects use the frozen run identity."
+  alias Ryker.Coop.API
+  alias Ryker.CoopFleet.JobAuthority
   alias Ryker.{Learning, Repo}
   alias Ryker.Learning.{Batches, FleetSession}
   alias Ryker.Work.Session
@@ -62,16 +64,69 @@ defmodule Ryker.Learning.Executor do
   defp remote_session(claim, run, settings, mode) do
     local = Repo.get_by!(Session, learning_run_id: run.id)
 
-    result = locate_session(claim, run, local.coop_session_id, settings, mode)
+    if mode == :fence and is_nil(local.worker_job_document) and is_nil(local.worker_job_digest) and
+         is_nil(local.coop_session_id) and is_nil(run.submit_revision) and
+         is_nil(run.coop_turn_id),
+       do: historical_cleanup_session(claim, run, local, settings),
+       else: locate_and_bind_session(claim, run, local, settings, mode)
+  end
 
-    with {:ok, %{} = session} <- result,
-         :ok <- exact_session(session, run, local.coop_session_id),
+  # Only a succeeded operation at this run's exact key can recover an unbound old
+  # session. A direct fence response is not proof, and this path never starts work.
+  defp historical_cleanup_session(claim, run, local, settings) do
+    key = Learning.operation_key(run, :create)
+
+    with {:ok,
+          %{
+            "method" => "CreateRemoteSession",
+            "state" => "succeeded",
+            "resource_type" => "session",
+            "resource_id" => id
+          }}
+         when is_binary(id) and byte_size(id) in 1..1024 <-
+           call(claim, settings, :operation_by_key, [key]),
+         {:ok, %{"id" => ^id, "state" => state, "revision" => revision} = remote} <-
+           call(claim, settings, :get_session, [id]),
+         true <- remote["external_ref"] == Session.coop_task_ref(local),
+         true <- valid_session_state?(state, revision),
+         {:ok, saved} <- Batches.with_lease(claim, fn -> FleetSession.bind(run, id) end),
+         :ok <- JobAuthority.exact_cleanup_receipt(saved, remote) do
+      {:ok, remote}
+    else
+      {:error, _reason} = error -> error
+      _unproven -> {:error, :learning_remote_unresolved}
+    end
+  end
+
+  defp locate_and_bind_session(claim, run, local, settings, mode) do
+    with :ok <- prepare_session(claim, run, settings, mode),
+         {:ok, %{} = session} <-
+           locate_session(claim, run, local.coop_session_id, settings, mode),
+         :ok <- exact_session(session, local, mode),
          {:ok, _} <- Batches.with_lease(claim, fn -> FleetSession.bind(run, session["id"]) end) do
       {:ok, session}
     end
   end
 
-  # Retained messages go only to an isolated session. Its policy fixed that
+  # Freeze before the first remote read too: if that read stays unreachable until
+  # the attempt expires, cleanup still needs the exact create document to fence.
+  defp prepare_session(claim, run, settings, :create) do
+    with :ok <-
+           API.prepare_create_session(
+             settings.api,
+             settings.client,
+             Learning.operation_key(run, :create),
+             run.policy,
+             FleetSession.external_ref(run),
+             nil
+           ),
+         {:ok, _} <- Batches.renew(claim, settings.lease_seconds),
+         do: :ok
+  end
+
+  defp prepare_session(_claim, _run, _settings, :fence), do: :ok
+
+  # Retained messages go only to an isolated session. Its saved job fixed that
   # authority when the session was created, so no retry of this attempt can
   # change it: stop the attempt before anything is disclosed.
   defp disclosable(claim, run, session, settings) do
@@ -86,8 +141,8 @@ defmodule Ryker.Learning.Executor do
   end
 
   # A worker session this attempt can no longer use: its placement ended and
-  # learning never replaces a session (the fleet re-places only a bound one, on
-  # a worker still offering its policy), or its identity is not this run's. The
+  # learning never replaces a session (the fleet recovers only its bound holder),
+  # or its identity is not this run's. The
   # submission revision is frozen before any turn is sent, so without one there
   # is no model turn to wait for, and closing costs a start, never a model call.
   defp unaddressable?(run, reason),
@@ -442,19 +497,19 @@ defmodule Ryker.Learning.Executor do
   defp exact_session(
          %{
            "id" => id,
-           "policy" => policy,
-           "policy_digest" => digest,
-           "external_ref" => external,
            "state" => state,
            "revision" => revision
-         },
-         run,
-         expected
+         } = remote,
+         local,
+         mode
        ) do
-    if is_binary(id) and byte_size(id) in 1..1024 and expected in [nil, id] and
-         policy == run.policy and
-         digest == run.policy_digest and external == FleetSession.external_ref(run) and
-         valid_session_state?(state, revision),
+    authority =
+      if mode == :fence,
+        do: JobAuthority.exact_cleanup_receipt(local, remote),
+        else: JobAuthority.exact_receipt(local, remote)
+
+    if is_binary(id) and byte_size(id) in 1..1024 and local.coop_session_id in [nil, id] and
+         authority == :ok and valid_session_state?(state, revision),
        do: :ok,
        else: {:error, :learning_session_authority_conflict}
   end
@@ -466,7 +521,7 @@ defmodule Ryker.Learning.Executor do
 
   defp isolated_session?(session),
     do:
-      is_nil(session["responder_binding_digest"]) and is_nil(session["workspace_task"]) and
+      is_nil(session["controller_tools_digest"]) and is_nil(session["workspace_task"]) and
         session["repository_read_only"] == true and
         session["project_env"] == false and session["project_mcp"] == false and
         Map.get(session, "companions", []) == []

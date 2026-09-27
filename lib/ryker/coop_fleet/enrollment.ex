@@ -105,9 +105,9 @@ defmodule Ryker.CoopFleet.Enrollment do
         )
       ) || rollback(:coop_worker_enrollment_not_authorized)
 
-    ensure_token_usable!(token, request, now)
-    issued = issue_certificate!(request.public_key_pem, request.worker_id, signer, now)
-    worker = upsert_enrolled_worker!(request.worker_id, request.workspace_ref, issued.sha256)
+    ensure_token_usable!(token, now)
+    issued = issue_certificate!(request.public_key_pem, token.worker_id, signer, now)
+    worker = upsert_enrolled_worker!(token.worker_id, token.workspace_ref, issued.sha256)
     insert_certificate!(worker.id, token.id, issued, :enrollment, token.operator_ref)
 
     token
@@ -152,19 +152,13 @@ defmodule Ryker.CoopFleet.Enrollment do
     response(worker, issued, signer.ca_certificate_pem)
   end
 
-  defp ensure_token_usable!(token, request, now) do
+  defp ensure_token_usable!(token, now) do
     cond do
       token.consumed_at ->
         rollback(:coop_worker_enrollment_token_consumed)
 
       DateTime.compare(token.expires_at, now) != :gt ->
         rollback(:coop_worker_enrollment_token_expired)
-
-      token.worker_id != request.worker_id ->
-        rollback(:coop_worker_enrollment_not_authorized)
-
-      token.workspace_ref != request.workspace_ref ->
-        rollback(:coop_worker_enrollment_not_authorized)
 
       true ->
         :ok
@@ -275,23 +269,11 @@ defmodule Ryker.CoopFleet.Enrollment do
     }
   end
 
-  defp enrollment_request(%{} = document) do
-    if Map.keys(document) |> Enum.sort() ==
-         ~w(public_key_pem token worker_id workspace_ref) do
-      with :ok <- reference(document["worker_id"], :worker_id),
-           :ok <- reference(document["workspace_ref"], :workspace_ref),
-           :ok <- token(document["token"]),
-           :ok <- public_key_pem(document["public_key_pem"]) do
-        {:ok,
-         %{
-           public_key_pem: document["public_key_pem"],
-           token: document["token"],
-           worker_id: document["worker_id"],
-           workspace_ref: document["workspace_ref"]
-         }}
-      end
-    else
-      {:error, :invalid_coop_worker_enrollment}
+  defp enrollment_request(%{"public_key_pem" => key, "token" => value} = document)
+       when map_size(document) == 2 do
+    with :ok <- token(value),
+         :ok <- public_key_pem(key) do
+      {:ok, %{public_key_pem: key, token: value}}
     end
   end
 

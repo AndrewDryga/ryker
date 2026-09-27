@@ -15,9 +15,7 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
              Enrollment.enroll(
                %{
                  "public_key_pem" => public_key_pem(private_key),
-                 "token" => issued_token.token,
-                 "worker_id" => "worker-enroll",
-                 "workspace_ref" => "workspace-main"
+                 "token" => issued_token.token
                },
                authority
              )
@@ -41,12 +39,34 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
              Enrollment.enroll(
                %{
                  "public_key_pem" => public_key_pem(private_key()),
-                 "token" => issued_token.token,
-                 "worker_id" => "worker-enroll",
-                 "workspace_ref" => "workspace-main"
+                 "token" => issued_token.token
                },
                authority
              )
+  end
+
+  test "a fresh worker learns its identity and workspace from the token alone" do
+    assert {:ok, issued_token} =
+             Enrollment.issue_token(
+               "worker-token-only",
+               "workspace-remote",
+               "operator:andrew",
+               300
+             )
+
+    request = %{
+      "public_key_pem" => public_key_pem(private_key()),
+      "token" => issued_token.token
+    }
+
+    assert {:ok, enrolled} = Enrollment.enroll(request, authority())
+    assert enrolled["worker_id"] == "worker-token-only"
+    assert enrolled["workspace_ref"] == "workspace-remote"
+    assert enrolled["ca_certificate_pem"] =~ "BEGIN CERTIFICATE"
+    assert Repo.get!(EnrollmentToken, issued_token.id).consumed_at
+
+    assert {:error, :coop_worker_enrollment_token_consumed} =
+             Enrollment.enroll(request, authority())
   end
 
   test "certificate renewal overlaps old and new identities so a lost response cannot strand the worker" do
@@ -59,9 +79,7 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
              Enrollment.enroll(
                %{
                  "public_key_pem" => public_key_pem(private_key()),
-                 "token" => issued_token.token,
-                 "worker_id" => "worker-rotate",
-                 "workspace_ref" => "workspace-main"
+                 "token" => issued_token.token
                },
                authority
              )
@@ -95,7 +113,7 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
       "workspace_ref" => "workspace-bound"
     }
 
-    assert {:error, :coop_worker_enrollment_not_authorized} =
+    assert {:error, :invalid_coop_worker_enrollment} =
              Enrollment.enroll(request, authority)
 
     refute Repo.get!(EnrollmentToken, issued_token.id).consumed_at
@@ -117,15 +135,11 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
           %{},
           %{
             "public_key_pem" => public_key_pem(private_key()),
-            "token" => "short",
-            "worker_id" => "worker",
-            "workspace_ref" => "workspace"
+            "token" => "short"
           },
           %{
             "public_key_pem" => nil,
-            "token" => String.duplicate("t", 32),
-            "worker_id" => "worker",
-            "workspace_ref" => "workspace"
+            "token" => String.duplicate("t", 32)
           }
         ] do
       assert {:error, :invalid_coop_worker_enrollment} = Enrollment.enroll(document, authority)
@@ -133,9 +147,7 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
 
     valid_document = %{
       "public_key_pem" => public_key_pem(private_key()),
-      "token" => String.duplicate("t", 32),
-      "worker_id" => "worker",
-      "workspace_ref" => "workspace"
+      "token" => String.duplicate("t", 32)
     }
 
     assert {:error, :invalid_coop_worker_certificate_authority} =

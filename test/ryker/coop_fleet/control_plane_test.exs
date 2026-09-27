@@ -17,6 +17,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Ingress.Inbox
   alias Ryker.Observability
   alias Ryker.Repo
@@ -29,7 +30,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   @policy_digest String.duplicate("b", 64)
   @sandbox_digest String.duplicate("a", 64)
 
-  test "an authenticated heartbeat records only the enrolled worker identity and coarse authority" do
+  test "an authenticated heartbeat records identity capabilities and measured capacity" do
     certificate = "worker-a-client-certificate"
 
     assert {:ok, enrolled} =
@@ -50,10 +51,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     worker = Repo.get!(Worker, "worker-a")
     assert worker.workspace_ref == "workspace-main"
     assert worker.state == :eligible
-    assert worker.policy_digests == %{"work-read-only" => @policy_digest}
-    assert worker.policy_authority_digests == %{"work-read-only" => @authority_digest}
-    assert worker.repositories == [%{"ref" => "ryker", "revision" => "commit:abc123"}]
-    assert worker.capabilities == [%{"name" => "responder-state", "version" => "1"}]
+    assert worker.capabilities == [%{"name" => "controller-tools", "version" => "1"}]
     assert worker.capacity["turn_slots_free"] == 2
     assert worker.last_seen_at != nil
 
@@ -75,12 +73,12 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   end
 
   test "placement applies hard authority constraints and remains sticky" do
-    authorize_and_poll!("worker-b", capacity: capacity(1, 4), repositories: ["other"])
+    authorize_and_poll!("worker-b", capacity: capacity(1, 4))
     authorize_and_poll!("worker-a", capacity: capacity(2, 4))
     session = session!("sticky-placement")
 
     requirements = %{
-      capability_names: ["responder-state"],
+      capability_names: ["controller-tools"],
       repository_ref: "ryker",
       workspace_ref: "workspace-main"
     }
@@ -106,7 +104,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     authorize_and_poll!("worker-freshness-v2",
       capabilities: [
-        %{"name" => "responder-state", "version" => "1"},
+        %{"name" => "controller-tools", "version" => "1"},
         %{"name" => "repository-freshness", "version" => "2"}
       ],
       capacity: capacity(2, 4)
@@ -118,7 +116,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  capability_versions: %{"repository-freshness" => "2"},
                  repository_ref: "ryker",
                  workspace_ref: "workspace-main"
@@ -163,11 +161,13 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert {:ok, session} =
              FleetSession.ensure(entry, %{name: "work-read-only", digest: @policy_digest})
 
+    session = WorkerJob.pin!(session)
+
     assert {:ok, placement} =
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: nil,
                  workspace_ref: "workspace-main"
                },
@@ -184,7 +184,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     first = session!("free-capacity-first")
 
     requirements = %{
-      capability_names: ["responder-state"],
+      capability_names: ["controller-tools"],
       repository_ref: "ryker",
       workspace_ref: "workspace-main"
     }
@@ -201,6 +201,20 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              )
 
     second = session!("free-capacity-second")
+
+    assert ControlPlane.place_session(second.id, requirements, 60) ==
+             {:error, {:coop_worker_capacity_unavailable, second.id}}
+
+    first |> Ecto.Changeset.change(coop_session_id: "coop-free-capacity-first") |> Repo.update!()
+
+    assert {:ok, _} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:bound-one-free",
+                 capacity: capacity(1, 4)
+               )
+             )
+
     assert {:ok, second_placement} = ControlPlane.place_session(second.id, requirements, 60)
     assert second_placement.worker_id == "worker-a"
   end
@@ -227,13 +241,17 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     authorize_and_poll!("worker-a", capacity: capacity(2, 2))
 
     requirements = %{
-      capability_names: ["responder-state"],
+      capability_names: ["controller-tools"],
       repository_ref: "ryker",
       workspace_ref: "workspace-main"
     }
 
     first = session!("reflected-capacity-first")
     assert {:ok, _placement} = ControlPlane.place_session(first.id, requirements, 60)
+
+    # Only the validated create receipt binds a session. A heartbeat alone
+    # cannot prove that this placement has reached the worker.
+    first |> Ecto.Changeset.change(coop_session_id: "coop-reflected-first") |> Repo.update!()
 
     assert {:ok, _response} =
              ControlPlane.handle_poll(
@@ -245,6 +263,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     second = session!("reflected-capacity-second")
     assert {:ok, _placement} = ControlPlane.place_session(second.id, requirements, 60)
+    second |> Ecto.Changeset.change(coop_session_id: "coop-reflected-second") |> Repo.update!()
 
     assert {:ok, _response} =
              ControlPlane.handle_poll(
@@ -285,7 +304,73 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
                poll("worker-a", "workspace-main", "poll:worker-a:session-evidence")
              )
 
-    assert delivered["kind"] == "get_session_evidence"
+    assert delivered["kind"] == "api_request"
+
+    assert delivered["payload"] == %{
+             "method" => "GET",
+             "path" => "/v1/sessions/coop-session-evidence-command/evidence"
+           }
+  end
+
+  test "failed body preparation cannot roll back another result or the worker heartbeat" do
+    authorize_and_poll!("worker-a")
+    placement = place!("body-outage")
+
+    assert {:ok, ready} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "get_session",
+               %{"coop_session_id" => "s"},
+               "body:ready"
+             )
+
+    assert {:ok, %{"commands" => [_]}} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "body:deliver")
+             )
+
+    assert {:ok, deferred} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "api_request",
+               %{
+                 "method" => "POST",
+                 "path" => "/v1/sessions/s/turns",
+                 "body" => %{"prompt" => String.duplicate("p", 300 * 1_024)}
+               },
+               "body:deferred"
+             )
+
+    assert {:ok, invalid} =
+             ControlPlane.enqueue_command(placement.id, "create_session", %{}, "body:invalid")
+
+    old_expiry = DateTime.add(Repo.now!(), 1, :second)
+    placement |> Ecto.Changeset.change(lease_expires_at: old_expiry) |> Repo.update!()
+
+    result = %{
+      "command_id" => ready.id,
+      "operation_key" => ready.idempotency_key,
+      "state" => "succeeded",
+      "error" => nil,
+      "resource" => %{"status" => 200, "body" => %{"id" => "s"}}
+    }
+
+    # An unavailable body root affects only the command which needs that storage.
+    assert {:ok, response} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "body:outage", command_results: [result]),
+               body_root: nil
+             )
+
+    assert response["commands"] == []
+    assert response["acknowledged_result_command_ids"] == [ready.id]
+    assert Repo.get!(Command, deferred.id).status == :queued
+    assert Repo.get!(Command, invalid.id).error["code"] == "invalid_command"
+
+    assert DateTime.compare(Repo.get!(Placement, placement.id).lease_expires_at, old_expiry) ==
+             :gt
   end
 
   test "a successfully closed session no longer reserves a reported worker slot" do
@@ -299,7 +384,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              ControlPlane.enqueue_command(
                closed_placement.id,
                "close_session",
-               %{"session_id" => "coop-closed-placement-capacity"},
+               %{"coop_session_id" => "coop-closed-placement-capacity", "expected_revision" => 1},
                "ryker:test:closed-placement-capacity"
              )
 
@@ -324,8 +409,13 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
                      "error" => nil,
                      "operation_key" => command.idempotency_key,
                      "resource" => %{
-                       "session_id" => "coop-closed-placement-capacity",
-                       "state" => "closed"
+                       "status" => 200,
+                       "body" => %{
+                         "session" => %{
+                           "id" => "coop-closed-placement-capacity",
+                           "state" => "closed"
+                         }
+                       }
                      },
                      "state" => "succeeded"
                    }
@@ -339,7 +429,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              ControlPlane.place_session(
                next.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: "ryker",
                  workspace_ref: "workspace-main"
                },
@@ -349,17 +439,17 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert next_placement.worker_id == "worker-a"
   end
 
-  test "authority drift revokes placement renewal before another command is delivered" do
+  test "sandbox drift revokes placement renewal before another command is delivered" do
     authorize_and_poll!("worker-a")
     placement = place!("authority-drift")
 
+    session = Repo.get!(Session, placement.session_id)
+
     assert placement.requirements == %{
-             "capability_names" => ["responder-state"],
+             "capability_names" => ["controller-tools"],
              "capability_versions" => %{},
-             "authority_digest" => @authority_digest,
-             "policy" => "work-read-only",
-             "policy_digest" => @policy_digest,
-             "repository_ref" => "ryker",
+             "job_ref" => session.external_ref,
+             "job_digest" => session.worker_job_digest,
              "sandbox_digest" => @sandbox_digest,
              "workspace_ref" => "workspace-main"
            }
@@ -375,7 +465,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     changed =
       poll("worker-a", "workspace-main", "poll:worker-a:authority-drift")
       |> put_in(
-        ["worker", "policy_authority_digests", "work-read-only"],
+        ["worker", "sandbox_digest"],
         String.duplicate("e", 64)
       )
 
@@ -406,27 +496,25 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              :failed
   end
 
-  test "a matching policy digest cannot place work on wider execution authority" do
-    authorize_and_poll!("worker-wide",
-      authority_digest: String.duplicate("e", 64),
-      capacity: capacity(4, 4)
+  test "a corrupt frozen job is refused before placement even when a worker is ready" do
+    authorize_and_poll!("worker-ready")
+    session = session!("corrupt-job")
+
+    Repo.update_all(from(s in Session, where: s.id == ^session.id),
+      set: [worker_job_digest: String.duplicate("f", 64)]
     )
 
-    authorize_and_poll!("worker-exact", capacity: capacity(1, 4))
-    session = session!("authority-equivalence")
-
-    assert {:ok, placement} =
+    assert {:error, {:coop_fleet_authority_mismatch, :worker_job}} =
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
-                 repository_ref: "ryker",
+                 capability_names: ["controller-tools"],
                  workspace_ref: "workspace-main"
                },
                60
              )
 
-    assert placement.worker_id == "worker-exact"
+    refute Repo.exists?(from(p in Placement, where: p.session_id == ^session.id))
   end
 
   test "an expired placement is terminalized and requires a new immutable Work session" do
@@ -447,7 +535,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     )
 
     requirements = %{
-      capability_names: ["responder-state"],
+      capability_names: ["controller-tools"],
       repository_ref: "ryker",
       workspace_ref: "workspace-main"
     }
@@ -478,7 +566,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     session = session!("cancel-placement-recovery")
 
     requirements = %{
-      capability_names: ["responder-state"],
+      capability_names: ["controller-tools"],
       repository_ref: "ryker",
       workspace_ref: "workspace-main"
     }
@@ -528,12 +616,12 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   # because the session IS what it reviews. Publication e11291b3 deferred once a minute for 1500
   # attempts on exactly this. Re-placement stays on the SAME worker, and the new generation fences
   # every command the old placement had.
-  test "a bound session reacquires its worker after its placement is replaced" do
+  test "a bound session reacquires its busy worker without reserving another slot" do
     authorize_and_poll!("worker-a")
     session = session!("bound-placement-recovery")
 
     requirements = %{
-      capability_names: ["responder-state"],
+      capability_names: ["controller-tools"],
       repository_ref: "ryker",
       workspace_ref: "workspace-main"
     }
@@ -559,10 +647,14 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
     )
 
-    # The first call after the lease ends retires the placement and says so; the next one re-places.
-    assert {:error, {:coop_session_replacement_required, _, 1}} =
-             ControlPlane.place_session(session.id, requirements, 60)
+    busy =
+      poll("worker-a", "workspace-main", "poll:worker-a:busy")
+      |> put_in(["worker", "state"], "busy")
+      |> put_in(["worker", "capacity"], %{capacity(0, 4) | "state" => "busy"})
 
+    assert {:ok, _} = ControlPlane.handle_poll("worker-a", busy)
+
+    # Recovery addresses an existing runtime; a busy holder needs no new slot.
     assert {:ok, recovered} = ControlPlane.place_session(session.id, requirements, 60)
     assert recovered.generation == placement.generation + 1
     assert recovered.worker_id == placement.worker_id
@@ -573,6 +665,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert Repo.get!(Command, stranded.id).status == :failed
 
     # An UNBOUND session still fails closed: nothing proves a worker holds its material.
+    authorize_and_poll!("worker-a")
     unbound = place!("unbound-placement-recovery")
 
     Repo.update_all(
@@ -596,7 +689,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     |> Repo.update!()
 
     requirements = %{
-      capability_names: ["responder-state"],
+      capability_names: ["controller-tools"],
       repository_ref: "ryker",
       workspace_ref: "workspace-main"
     }
@@ -620,7 +713,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: "ryker",
                  workspace_ref: "workspace-main"
                },
@@ -666,7 +759,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: "ryker",
                  workspace_ref: "workspace-main"
                },
@@ -740,7 +833,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              ControlPlane.enqueue_command(
                placement.id,
                "submit_turn",
-               %{"submission_sha256" => String.duplicate("c", 64), "turn_ref" => "turn-2"},
+               turn_payload("turn-2"),
                "ryker:work:turn:turn-2:g1"
              )
 
@@ -779,7 +872,10 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert acknowledged_redelivery["command_id"] == command.id
     assert Repo.get!(Command, command.id).status == :acknowledged
 
-    resource = %{"session_id" => "coop-session-1", "turn_id" => "coop-turn-1"}
+    resource = %{
+      "status" => 200,
+      "body" => %{"session_id" => "coop-session-1", "turn_id" => "coop-turn-1"}
+    }
 
     completed =
       poll("worker-a", "workspace-main", "poll:worker-a:command:4",
@@ -804,7 +900,9 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert settled.status == :succeeded
     assert settled.result == resource
 
-    changed = put_in(completed, ["command_results", Access.at(0), "resource", "turn_id"], "wrong")
+    changed =
+      put_in(completed, ["command_results", Access.at(0), "resource", "body", "turn_id"], "wrong")
+
     command_id = command.id
 
     assert {:error, {:coop_worker_command_result_conflict, ^command_id}} =
@@ -819,7 +917,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              ControlPlane.enqueue_command(
                placement.id,
                "submit_turn",
-               %{"submission_sha256" => String.duplicate("c", 64), "turn_ref" => "turn-expired"},
+               turn_payload("turn-expired"),
                "ryker:work:turn:expired:g1"
              )
 
@@ -840,7 +938,10 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       "command_id" => command.id,
       "error" => nil,
       "operation_key" => command.idempotency_key,
-      "resource" => %{"session_id" => "coop-session-expired", "turn_id" => "coop-turn-expired"},
+      "resource" => %{
+        "status" => 200,
+        "body" => %{"session_id" => "coop-session-expired", "turn_id" => "coop-turn-expired"}
+      },
       "state" => "succeeded"
     }
 
@@ -889,7 +990,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: "ryker",
                  workspace_ref: "workspace-main"
                },
@@ -925,12 +1026,12 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              ControlPlane.enqueue_command(
                placement.id,
                "submit_turn",
-               %{"responder_binding" => descriptor, "turn_ref" => claim.turn.turn_ref},
+               Map.put(turn_payload(claim.turn.turn_ref), "controller_tools", descriptor),
                "ryker:work:turn:state-binding:g1"
              )
 
     persisted = Repo.get!(Command, command.id)
-    assert persisted.payload["responder_binding"] == descriptor
+    assert persisted.payload["controller_tools"] == descriptor
     refute inspect(persisted.payload) =~ binding.token
 
     assert {:ok, %{"commands" => [delivered]}} =
@@ -940,8 +1041,8 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
                state_tools_secret: secret
              )
 
-    assert delivered["payload"]["responder_binding"] == StateBinding.document(binding)
-    refute Repo.get!(Command, command.id).payload["responder_binding"]["token"]
+    assert delivered["payload"]["body"]["controller_tools"] == StateBinding.document(binding)
+    refute Repo.get!(Command, command.id).payload["controller_tools"]["token"]
   end
 
   test "a Coop-sized frozen submission is durably enqueued without widening the command surface" do
@@ -1373,7 +1474,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
                      "command_id" => command.id,
                      "error" => nil,
                      "operation_key" => command.idempotency_key,
-                     "resource" => %{"session" => remote},
+                     "resource" => %{"status" => 200, "body" => %{"session" => remote}},
                      "state" => "succeeded"
                    }
                  ]
@@ -1580,7 +1681,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     session = session!("resume-capability")
 
     requirements = %{
-      capability_names: ["responder-state"],
+      capability_names: ["controller-tools"],
       capability_versions: %{},
       repository_ref: "ryker",
       workspace_ref: "workspace-main"
@@ -1592,11 +1693,11 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert ControlPlane.worker_available?(session, requirements)
 
     # Each half of eligibility withdraws the offer on its own.
-    refute ControlPlane.worker_available?(session, %{requirements | repository_ref: "other"})
+    assert ControlPlane.worker_available?(session, %{requirements | repository_ref: "other"})
 
     refute ControlPlane.worker_available?(session, %{
              requirements
-             | capability_names: ["responder-state", "unbuilt"]
+             | capability_names: ["controller-tools", "unbuilt"]
            })
 
     refute ControlPlane.worker_available?(session, %{requirements | workspace_ref: "workspace-b"})
@@ -1607,9 +1708,8 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     authorize_and_poll!("worker-resume")
     assert ControlPlane.worker_available?(session, requirements)
 
-    # The policy the session runs under is the one the worker must advertise.
     Repo.update_all(from(worker in Worker, where: worker.id == "worker-resume"),
-      set: [policy_digests: %{"work-read-only" => String.duplicate("f", 64)}]
+      set: [capabilities: []]
     )
 
     refute ControlPlane.worker_available?(session, requirements)
@@ -1621,7 +1721,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     # anything. It now asks first, and must hear the answer placement gives.
     {:ok, client} =
       Client.new(
-        capability_names: ["responder-state"],
+        capability_names: ["controller-tools"],
         workspace_ref: "workspace-main"
       )
 
@@ -1636,7 +1736,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     authorize_and_poll!("worker-learning")
     assert Client.accepts_session?(client, learning)
 
-    refute Client.accepts_session?(client, %{
+    assert Client.accepts_session?(client, %{
              learning
              | policy_digest: String.duplicate("e", 64)
            })
@@ -1654,7 +1754,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     authorize_and_poll!("worker-portable")
 
     requirements = %{
-      capability_names: ["responder-state"],
+      capability_names: ["controller-tools"],
       capability_versions: %{},
       repository_ref: "ryker",
       workspace_ref: "workspace-main"
@@ -1663,7 +1763,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert ControlPlane.portable_workspace(session, requirements) == nil
 
     command = checkpoint_command!(session)
-    transfer!(command, session, "checkpoint:portable")
+    transfer = transfer!(command, session, "checkpoint:portable")
 
     assert ControlPlane.portable_workspace(session, requirements) == %{
              byte_size: 4_096,
@@ -1692,6 +1792,17 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       )
 
     assert ControlPlane.portable_workspace(moved, requirements) == nil
+
+    # A newer historical snapshot must not quietly roll work back to an older
+    # v2 checkpoint just because the new worker cannot restore its format.
+    %{transfer | id: Ecto.UUID.generate(), checkpoint_ref: "checkpoint:newer-v1"}
+    |> Ecto.Changeset.change(
+      descriptor: %{"version" => 1},
+      inserted_at: DateTime.add(transfer.inserted_at, 1, :second)
+    )
+    |> Repo.insert!()
+
+    assert ControlPlane.portable_workspace(session, requirements) == nil
   end
 
   test "repository-free chat work has no portable workspace" do
@@ -1708,7 +1819,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     authorize_and_poll!("worker-portable-conversation")
 
     requirements = %{
-      capability_names: ["responder-state"],
+      capability_names: ["controller-tools"],
       capability_versions: %{},
       repository_ref: nil,
       workspace_ref: "workspace-main"
@@ -1743,7 +1854,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: "ryker",
                  workspace_ref: "workspace-main"
                },
@@ -1764,7 +1875,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     session = session!("storage-refused")
 
     requirements = %{
-      capability_names: ["responder-state"],
+      capability_names: ["controller-tools"],
       repository_ref: "ryker",
       workspace_ref: "workspace-main"
     }
@@ -1778,12 +1889,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert worker.storage["measured_at"] == "2026-09-11T09:30:00Z"
 
     # Control, cleanup and existing work keep running on the refused worker.
-    workspace_free = session!("storage-refused-workspace-free")
-
-    # A session without a repository carries no repository source either.
-    Repo.update_all(from(s in Session, where: s.id == ^workspace_free.id),
-      set: [repository_ref: nil, repository_source: nil]
-    )
+    workspace_free = session!("storage-refused-workspace-free", nil)
 
     assert {:ok, placement} =
              ControlPlane.place_session(
@@ -1845,7 +1951,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert unknown.storage_reclaimed_bytes == 8_589_934_592
   end
 
-  defp session!(suffix) do
+  defp session!(suffix, repository_ref \\ "ryker") do
     command =
       EpisodeFixtures.admit_input(%{
         episode_id: Ecto.UUID.generate(),
@@ -1863,39 +1969,29 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
                "work-read-only",
                @policy_digest,
                @authority_digest,
-               "ryker"
+               repository_ref
              )
 
-    session
+    WorkerJob.pin!(session)
   end
 
   defp poll(worker_id, workspace_ref, poll_ref, options \\ []) do
-    repositories =
-      options
-      |> Keyword.get(:repositories, ["ryker"])
-      |> Enum.map(&%{"ref" => &1, "revision" => "commit:abc123"})
-
     %{
       "acknowledged_command_ids" => Keyword.get(options, :acknowledged_command_ids, []),
       "command_results" => Keyword.get(options, :command_results, []),
       "event_batches" => Keyword.get(options, :event_batches, []),
       "poll_ref" => poll_ref,
-      "version" => 1,
+      "version" => 2,
       "worker" => %{
         "build_version" => "coop-abc123",
         "capabilities" =>
           Keyword.get(options, :capabilities, [
-            %{"name" => "responder-state", "version" => "1"}
+            %{"name" => "controller-tools", "version" => "1"}
           ]),
         "capacity" => Keyword.get(options, :capacity, capacity(2, 4)),
         "clock_at" => DateTime.to_iso8601(Repo.now!()),
         "id" => worker_id,
-        "policy_authority_digests" => %{
-          "work-read-only" => Keyword.get(options, :authority_digest, @authority_digest)
-        },
-        "policy_digests" => %{"work-read-only" => @policy_digest},
-        "protocol_version" => "1",
-        "repositories" => repositories,
+        "protocol_version" => "2",
         "sandbox_digest" => @sandbox_digest,
         "state" => "eligible",
         "storage" => Keyword.get(options, :storage),
@@ -1934,12 +2030,26 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     }
   end
 
+  defp turn_payload(ref) do
+    %{
+      "coop_session_id" => "s",
+      "expected_revision" => 1,
+      "turn_ref" => ref,
+      "submission_sha256" => String.duplicate("c", 64),
+      "submission" => %{
+        "prompt" => "Continue",
+        "input_artifact_refs" => [],
+        "output_schema" => %{"type" => "object"}
+      }
+    }
+  end
+
   defp checkpoint_command!(session) do
     assert {:ok, placement} =
              ControlPlane.place_session(
                session.id,
                %{
-                 capability_names: ["responder-state"],
+                 capability_names: ["controller-tools"],
                  repository_ref: session.repository_ref,
                  workspace_ref: "workspace-main"
                },
@@ -1963,7 +2073,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       Ecto.Changeset.change(command,
         completed_at: Repo.now!(),
         operation_key: command.idempotency_key,
-        result: %{"state" => "stored"},
+        result: %{"status" => 200, "body" => %{"state" => "stored"}},
         result_fingerprint: String.duplicate("d", 64),
         status: :succeeded
       )
@@ -1978,7 +2088,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       checkpoint_ref: checkpoint_ref,
       ciphertext: :binary.copy(<<3>>, 4_096),
       command_id: command.id,
-      descriptor: %{"checkpoint_ref" => checkpoint_ref},
+      descriptor: %{"version" => 2, "checkpoint_ref" => checkpoint_ref},
       encryption_key_sha256: String.duplicate("a", 64),
       encryption_nonce: :binary.copy(<<1>>, 12),
       encryption_tag: :binary.copy(<<2>>, 16),

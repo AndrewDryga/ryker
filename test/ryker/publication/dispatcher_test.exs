@@ -8,6 +8,7 @@ defmodule Ryker.Publication.DispatcherTest do
   alias Ryker.Delivery.Adapters
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Dispatcher, Publication}
   alias Ryker.Records
@@ -18,7 +19,7 @@ defmodule Ryker.Publication.DispatcherTest do
   defmodule Coop do
     # Every read of the session is a worker command in production; the count
     # is what a publication that can never succeed used to spend forever.
-    def get_session(agent, _session_id) do
+    def get_session({agent, _effects}, _session_id) do
       Agent.get_and_update(agent, fn state ->
         state = Map.update(state, :session_calls, 1, &(&1 + 1))
 
@@ -29,7 +30,7 @@ defmodule Ryker.Publication.DispatcherTest do
       end)
     end
 
-    def run_review(agent, _session_id, key, expected_revision) do
+    def run_review({agent, _effects}, _session_id, key, expected_revision) do
       Agent.get_and_update(agent, fn state ->
         response = %{
           "operation" => %{
@@ -55,11 +56,38 @@ defmodule Ryker.Publication.DispatcherTest do
       end)
     end
 
-    def get_review_patch(agent, artifact_id, digest, bytes) do
+    def publish_review({_coop, agent}, session_id, review_key, review_id, key, body) do
       Agent.get_and_update(agent, fn state ->
-        call = {artifact_id, digest, bytes}
-        {{:ok, state.patch}, %{state | patch_calls: state.patch_calls ++ [call]}}
+        receipt = %{
+          "branch_ref" => "refs/heads/" <> body["branch"],
+          "candidate_tree" => body["candidate_tree"],
+          "commit_sha" => body["candidate_head"],
+          "pull_request_number" => 91,
+          "pull_request_url" => "https://github.com/acme/ryker/pull/91",
+          "repository" => "ryker"
+        }
+
+        call = {session_id, review_key, review_id, key, body}
+        next = %{state | publication_requests: state.publication_requests ++ [call]}
+
+        case Map.get(state, :publication_errors, []) do
+          [reason | remaining] ->
+            {{:error, reason}, Map.put(next, :publication_errors, remaining)}
+
+          [] ->
+            {publication_result(state, receipt), next}
+        end
       end)
+    end
+
+    defp publication_result(state, receipt) do
+      case Map.get(state, :publication_conflict) do
+        nil ->
+          {:ok, receipt}
+
+        conflict ->
+          {:error, {:publication_conflict, :publication_branch_already_exists, conflict}}
+      end
     end
   end
 
@@ -106,55 +134,24 @@ defmodule Ryker.Publication.DispatcherTest do
     def publish_reaction(_request, _binding), do: {:error, :not_used}
   end
 
-  defmodule DraftPublisher do
-    @behaviour Ryker.Publication.Publisher
-
-    def publish(request, agent) do
-      Agent.get_and_update(agent, fn state ->
-        receipt = %{
-          "branch_ref" => "refs/heads/ryker/#{state.publication_id}",
-          "candidate_tree" => request.review["candidate_tree"],
-          "commit_sha" => String.duplicate("9", 40),
-          "pull_request_number" => 91,
-          "pull_request_url" => "https://github.com/acme/ryker/pull/91",
-          "repository" => request.repository
-        }
-
-        result =
-          case Map.get(state, :publication_conflict) do
-            nil ->
-              {:ok, receipt}
-
-            conflict ->
-              {:error, {:publication_conflict, :publication_branch_already_exists, conflict}}
-          end
-
-        {result, %{state | publication_requests: state.publication_requests ++ [request]}}
-      end)
-    end
-  end
-
   test "one delivered offer is reviewed, approved, and published as the exact draft" do
     %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} = delivered_offer!("runtime")
 
     assert {:ok, %{publication: publication}} =
              PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
 
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-    review = review_document(work_claim, patch)
+    review = review_document(work_claim)
 
     {:ok, coop} =
       Agent.start_link(fn ->
         %{
-          patch: patch,
-          patch_calls: [],
           review: review,
           review_calls: [],
           session: %{
             "external_ref" => work_claim.session.external_ref,
             "id" => work_claim.session.coop_session_id,
-            "policy" => work_claim.session.policy,
-            "policy_digest" => work_claim.session.policy_digest,
+            "job_ref" => work_claim.session.external_ref,
+            "job_digest" => work_claim.session.worker_job_digest,
             "revision" => 7,
             "state" => "exhausted"
           }
@@ -201,11 +198,6 @@ defmodule Ryker.Publication.DispatcherTest do
     assert [{key, 7}] = state.review_calls
     assert key == "ryker:publication:review:#{publication.id}:g1"
 
-    artifact_id = review["patch_artifact_id"]
-    patch_digest = review["patch_digest"]
-    patch_bytes = byte_size(patch)
-    assert [{^artifact_id, ^patch_digest, ^patch_bytes}] = state.patch_calls
-
     effects = Agent.get(effects, & &1)
     assert [review_delivery, published_delivery] = effects.delivery_requests
 
@@ -215,10 +207,16 @@ defmodule Ryker.Publication.DispatcherTest do
     assert published_delivery.document["records"] |> hd() |> Map.fetch!("kind") ==
              "publication_result"
 
-    assert [request] = effects.publication_requests
-    assert request.patch == patch
-    assert request.review == review
-    assert request.approval_ref == "interaction:publish:runtime"
+    assert [{session_id, ^key, review_id, publish_key, body}] = effects.publication_requests
+    assert session_id == work_claim.session.coop_session_id
+    assert review_id == review["operation_id"]
+    assert publish_key == "ryker:publication:publish:#{publication.id}:g1"
+    assert body["candidate_head"] == review["candidate_head"]
+    assert body["candidate_tree"] == review["candidate_tree"]
+    assert body["authorization_ref"] == "interaction:publish:runtime"
+    assert body["expected_head"] == ""
+    assert body["pull_request_number"] == 0
+    refute Map.has_key?(body, "patch")
   end
 
   # The result card is painted after the draft exists, so a Slack failure there
@@ -235,22 +233,19 @@ defmodule Ryker.Publication.DispatcherTest do
     assert {:ok, %{publication: publication}} =
              PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
 
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-    review = review_document(work_claim, patch)
+    review = review_document(work_claim)
     result_ref = "publication-result:#{publication.id}:g1"
 
     {:ok, coop} =
       Agent.start_link(fn ->
         %{
-          patch: patch,
-          patch_calls: [],
           review: review,
           review_calls: [],
           session: %{
             "external_ref" => work_claim.session.external_ref,
             "id" => work_claim.session.coop_session_id,
-            "policy" => work_claim.session.policy,
-            "policy_digest" => work_claim.session.policy_digest,
+            "job_ref" => work_claim.session.external_ref,
+            "job_digest" => work_claim.session.worker_job_digest,
             "revision" => 7,
             "state" => "exhausted"
           }
@@ -336,20 +331,16 @@ defmodule Ryker.Publication.DispatcherTest do
     assert {:ok, %{publication: publication}} =
              PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
 
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-
     {:ok, coop} =
       Agent.start_link(fn ->
         %{
-          patch: patch,
-          patch_calls: [],
-          review: review_document(work_claim, patch),
+          review: review_document(work_claim),
           review_calls: [],
           session: %{
             "external_ref" => work_claim.session.external_ref,
             "id" => work_claim.session.coop_session_id,
-            "policy" => work_claim.session.policy,
-            "policy_digest" => work_claim.session.policy_digest,
+            "job_ref" => work_claim.session.external_ref,
+            "job_digest" => work_claim.session.worker_job_digest,
             "revision" => 7,
             "state" => "exhausted"
           }
@@ -361,21 +352,14 @@ defmodule Ryker.Publication.DispatcherTest do
     options =
       dispatcher_options(coop, effects)
       |> Keyword.update!(:executor_options, fn options ->
-        options
-        |> Keyword.put(:publisher, Ryker.Publication.GitHubPublisher)
-        |> Keyword.put(:publisher_binding, %{
-          api: Ryker.Publication.GitHubPublisher,
-          client: %{repositories: %{}},
-          git: Ryker.Publication.Git,
-          repositories: %{}
-        })
+        Keyword.put(options, :repositories, %{})
       end)
 
     assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
     assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)
     reviewed = Repo.get!(Publication, publication.id)
     assert reviewed.status == :reviewed
-    assert reviewed.review_patch == patch
+    assert reviewed.review_document["candidate_retained"]
     assert length(Agent.get(coop, & &1.review_calls)) == 1
     assert length(Agent.get(effects, & &1.delivery_requests)) == 1
 
@@ -398,7 +382,7 @@ defmodule Ryker.Publication.DispatcherTest do
 
     deferred = Repo.get!(Publication, publication.id)
     assert deferred.status == :publish_pending
-    assert deferred.review_patch == patch
+    assert deferred.review_document["candidate_retained"]
     assert deferred.publication_receipt == nil
     assert deferred.last_error_code == "publication_repository_not_configured"
   end
@@ -409,21 +393,18 @@ defmodule Ryker.Publication.DispatcherTest do
     assert {:ok, %{publication: publication}} =
              PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
 
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-    review = %{review_document(work_claim, patch) | "session_id" => "someone-else"}
+    review = %{review_document(work_claim) | "session_id" => "someone-else"}
 
     {:ok, coop} =
       Agent.start_link(fn ->
         %{
-          patch: patch,
-          patch_calls: [],
           review: review,
           review_calls: [],
           session: %{
             "external_ref" => work_claim.session.external_ref,
             "id" => work_claim.session.coop_session_id,
-            "policy" => work_claim.session.policy,
-            "policy_digest" => work_claim.session.policy_digest,
+            "job_ref" => work_claim.session.external_ref,
+            "job_digest" => work_claim.session.worker_job_digest,
             "revision" => 7,
             "state" => "open"
           }
@@ -452,9 +433,8 @@ defmodule Ryker.Publication.DispatcherTest do
     assert {:ok, %{publication: publication}} =
              PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
 
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-    review = review_document(work_claim, patch)
-    candidate_sha = String.duplicate("9", 40)
+    review = review_document(work_claim)
+    candidate_sha = review["candidate_head"]
     observed_sha = String.duplicate("8", 40)
     branch_ref = "refs/heads/ryker/#{publication.id}"
 
@@ -471,15 +451,13 @@ defmodule Ryker.Publication.DispatcherTest do
     {:ok, coop} =
       Agent.start_link(fn ->
         %{
-          patch: patch,
-          patch_calls: [],
           review: review,
           review_calls: [],
           session: %{
             "external_ref" => work_claim.session.external_ref,
             "id" => work_claim.session.coop_session_id,
-            "policy" => work_claim.session.policy,
-            "policy_digest" => work_claim.session.policy_digest,
+            "job_ref" => work_claim.session.external_ref,
+            "job_digest" => work_claim.session.worker_job_digest,
             "revision" => 7,
             "state" => "exhausted"
           }
@@ -548,22 +526,19 @@ defmodule Ryker.Publication.DispatcherTest do
     assert {:ok, %{publication: publication}} =
              PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
 
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-    review = review_document(work_claim, patch)
+    review = review_document(work_claim)
 
     {:ok, coop} =
       Agent.start_link(fn ->
         %{
-          patch: patch,
-          patch_calls: [],
           review: %{review | "session_revision" => 8},
           review_calls: [],
           review_errors: [{:coop_error, 409, "revision_conflict", "expected 7, current 8"}],
           session: %{
             "external_ref" => work_claim.session.external_ref,
             "id" => work_claim.session.coop_session_id,
-            "policy" => work_claim.session.policy,
-            "policy_digest" => work_claim.session.policy_digest,
+            "job_ref" => work_claim.session.external_ref,
+            "job_digest" => work_claim.session.worker_job_digest,
             "revision" => 7,
             "state" => "open"
           }
@@ -698,20 +673,16 @@ defmodule Ryker.Publication.DispatcherTest do
   end
 
   defp review_coop!(work_claim, state, options \\ []) do
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-
     {:ok, coop} =
       Agent.start_link(fn ->
         %{
-          patch: patch,
-          patch_calls: [],
-          review: review_document(work_claim, patch),
+          review: review_document(work_claim),
           review_calls: [],
           session: %{
             "external_ref" => work_claim.session.external_ref,
             "id" => work_claim.session.coop_session_id,
-            "policy" => work_claim.session.policy,
-            "policy_digest" => work_claim.session.policy_digest,
+            "job_ref" => work_claim.session.external_ref,
+            "job_digest" => work_claim.session.worker_job_digest,
             "revision" => 7,
             "state" => state
           },
@@ -746,9 +717,8 @@ defmodule Ryker.Publication.DispatcherTest do
       executor_options: [
         adapters: adapters,
         api: Coop,
-        client: coop,
-        publisher: DraftPublisher,
-        publisher_binding: effects
+        client: {coop, effects},
+        repositories: %{"ryker" => %{base_branch: "main", branch_prefix: "ryker"}}
       ],
       lease_seconds: 60,
       retry_base_seconds: 1,
@@ -884,6 +854,8 @@ defmodule Ryker.Publication.DispatcherTest do
   end
 
   defp bind_remote!(claim) do
+    WorkerJob.pin!(claim.session)
+
     assert {:ok, submission} =
              Submission.new(
                %{"input" => claim.episode.key},
@@ -938,7 +910,7 @@ defmodule Ryker.Publication.DispatcherTest do
     }
   end
 
-  defp review_document(claim, patch) do
+  defp review_document(claim) do
     operation_id = "op-review-#{claim.episode.id}"
 
     %{
@@ -950,11 +922,9 @@ defmodule Ryker.Publication.DispatcherTest do
       "operation_id" => operation_id,
       "parent_head" => String.duplicate("4", 40),
       "parent_tree" => String.duplicate("5", 40),
-      "patch_artifact_id" => operation_id,
-      "patch_bytes" => byte_size(patch),
-      "patch_digest" => digest(patch),
+      "candidate_retained" => true,
       "patch_truncated" => false,
-      "policy_digest" => String.duplicate("a", 64),
+      "job_digest" => claim.session.worker_job_digest,
       "policy_findings" => [],
       "publishable" => true,
       "rebase" => "clean",

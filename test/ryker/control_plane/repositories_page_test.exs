@@ -52,15 +52,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     publications: 1,
     ref: "acme-checkout-api",
     schedules: 1,
-    sessions: 14,
-    workers: [
-      %{
-        last_seen_at: ~U[2026-08-28 13:59:00Z],
-        revision: "commit:abc123",
-        state: :eligible,
-        worker_ref: "coop-worker-one"
-      }
-    ]
+    sessions: 14
   }
 
   test "repositories are a search over Kit rows, never a comparison table" do
@@ -76,6 +68,8 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
     assert Enum.count(LazyHTML.query(document, "article.entity-row[role=listitem]")) == 2
     assert Enum.empty?(LazyHTML.query(document, "table, h1, h2, .result-count"))
+    refute LazyHTML.text(document) =~ "Work policies"
+    refute LazyHTML.text(document) =~ "ryker-write"
   end
 
   test "the page leads with how many repositories it lists, like every list page" do
@@ -224,11 +218,9 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert text =~ "Everything Ryker needs"
     assert text =~ "merge pull request"
     assert text =~ "Up to date"
-    assert text =~ "tasks use ryker-write"
+    refute text =~ "tasks use ryker-write"
     assert text =~ "from refs/heads/main"
     assert text =~ "not a live check"
-    assert text =~ "coop-worker-one: ready"
-    assert text =~ "commit:abc123"
     assert text =~ "1 pull request opened by Ryker"
 
     assert LazyHTML.query(details, "a[href='/activity?repository=acme-checkout-api']")
@@ -236,14 +228,14 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   end
 
   test "a repository Ryker only saw in past work is not ready, and invents no receipt or worker" do
-    observed = %{@repository | configured: nil, freshness: nil, workers: [], sessions: 0}
+    observed = %{@repository | configured: nil, freshness: nil, sessions: 0}
     row = render([observed]) |> LazyHTML.query("article.entity-row")
 
     assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~ "acme-checkout-api"
     assert state(row) == {"Not added", ["off"]}
     text = row |> LazyHTML.query("details") |> LazyHTML.text() |> squeeze()
     assert text =~ "None yet. It appears after Ryker's first task in this repository."
-    assert text =~ "No worker reports this repository right now."
+    refute text =~ "No worker reports this repository"
   end
 
   test "an empty list says how to add one, and a search miss says so" do

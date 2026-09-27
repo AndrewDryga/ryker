@@ -8,6 +8,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTransfer do
 
   schema "coop_worker_workspace_checkpoints" do
     belongs_to(:command, Ryker.CoopFleet.Command)
+    belongs_to(:body_command, Ryker.CoopFleet.Command)
     field(:worker_id, :string)
     field(:checkpoint_ref, :string)
     field(:session_ref, :string)

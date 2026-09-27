@@ -45,8 +45,7 @@ defmodule Ryker.Bootstrap do
         public_url!(env, "RYKER_GITHUB_PUBLIC_URL", "http://127.0.0.1:4319/v1/github"),
       webhook_listener: listener!(env, "RYKER_WEBHOOK", 4320, :network),
       webhook_public_url: public_url!(env, "RYKER_WEBHOOK_PUBLIC_URL", "http://127.0.0.1:4320"),
-      storage_root:
-        env |> value!("RYKER_STATE_DIR", "/var/lib/ryker") |> path!("RYKER_STATE_DIR"),
+      storage_root: storage_root!(env),
       credential_key: credential_key!(env),
       log_level: log_level!(env)
     }
@@ -54,6 +53,9 @@ defmodule Ryker.Bootstrap do
 
   def secret!(kind, env \\ &System.fetch_env/1),
     do: required_secret!(env, Keyword.fetch!(@machine_secrets, kind))
+
+  def storage_root!(env \\ &System.fetch_env/1),
+    do: env |> value!("RYKER_STATE_DIR", "/var/lib/ryker") |> path!("RYKER_STATE_DIR")
 
   def checkpoint_key!(env \\ &System.fetch_env/1), do: key!(env, "RYKER_CHECKPOINT_KEY")
 

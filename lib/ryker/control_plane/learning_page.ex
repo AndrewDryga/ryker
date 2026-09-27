@@ -346,7 +346,7 @@ defmodule Ryker.ControlPlane.LearningPage do
 
   defp state_note(:paused),
     do:
-      "The worker gives learning sessions the project environment, MCP servers, write access or Ryker tools, so Ryker sends them nothing. Set project_env: false and project_mcp: false on the learning policy. Learning resumes by itself when the policy changes; new messages wait."
+      "The worker reported broader access than the learning job allows, so Ryker sends it nothing. Check the job and worker version; new messages wait until the configuration is repaired."
 
   defp state_note(_state), do: nil
 

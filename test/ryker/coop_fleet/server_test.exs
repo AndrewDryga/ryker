@@ -19,6 +19,7 @@ defmodule Ryker.CoopFleet.ServerTest do
 
     child =
       Server.child_spec(%{
+        body_root: Path.join(directory, "bodies"),
         cacertfile: paths["ca.pem"],
         ca_keyfile: paths["ca-key.pem"],
         certfile: paths["server.pem"],
@@ -34,6 +35,7 @@ defmodule Ryker.CoopFleet.ServerTest do
     assert {Ryker.CoopFleet.Router, router_options} = options[:plug]
     assert router_options[:enrollment_authority].cacertfile == paths["ca.pem"]
     assert router_options[:enrollment_authority].ca_keyfile == paths["ca-key.pem"]
+    assert router_options[:body_root] == Path.join(directory, "bodies")
 
     transport = options[:thousand_island_options][:transport_options]
     assert transport[:verify] == :verify_peer
@@ -57,6 +59,7 @@ defmodule Ryker.CoopFleet.ServerTest do
       end
 
     valid = [
+      body_root: Path.join(directory, "bodies"),
       cacertfile: paths["ca.pem"],
       ca_keyfile: paths["ca-key.pem"],
       certfile: paths["server.pem"],
@@ -80,6 +83,7 @@ defmodule Ryker.CoopFleet.ServerTest do
           {Keyword.put(valid, :certificate_ttl_seconds, 1), ~r/lifetime/},
           {Keyword.put(valid, :public_url, "http://worker.example"), ~r/HTTPS origin/},
           {Keyword.put(valid, :state_tools, %{}), ~r/state-tools/},
+          {Keyword.put(valid, :body_root, "relative"), ~r/body root/},
           {Keyword.put(valid, :certfile, "relative.pem"), ~r/certfile/}
         ] do
       assert_raise ArgumentError, message, fn -> Server.options!(configuration) end

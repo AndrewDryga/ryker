@@ -9,6 +9,7 @@ defmodule Ryker.GitHub.EndToEndTest do
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.Delivery.{Adapters, RoutingResponse}
   alias Ryker.Fixtures.Publication, as: PublicationFixture
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.GitHub.{Auth, Binding, Client, Publisher, Router}
   alias Ryker.Ingress.Inbox
   alias Ryker.Publication.{FollowupDispatcher, LifecycleEvent}
@@ -152,7 +153,7 @@ defmodule Ryker.GitHub.EndToEndTest do
         thread_ref: "1787832001.000200"
       )
 
-    session = Repo.get_by!(Session, episode_id: episode.id, generation: 1)
+    session = Repo.get_by!(Session, episode_id: episode.id, generation: 1) |> WorkerJob.pin!()
     payload = review_comment_payload(9_003, "Please handle the nil case before merge.")
     response = post(payload, "github-delivery-review-feedback", "pull_request_review_comment")
 
@@ -220,11 +221,10 @@ defmodule Ryker.GitHub.EndToEndTest do
 
     FakeWorkCoopAPI.update(work_fake, fn state ->
       remote_session =
-        Map.merge(state.session, %{
-          "external_ref" => session.external_ref,
+        state.session
+        |> Map.merge(WorkerJob.receipt(session))
+        |> Map.merge(%{
           "id" => session.coop_session_id,
-          "policy" => session.policy,
-          "policy_digest" => session.policy_digest,
           "revision" => 2,
           "state" => "open"
         })

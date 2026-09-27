@@ -6,7 +6,6 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
   alias Ryker.Runtime.Assembly
 
   @actor "control-plane:local"
-  @digest String.duplicate("a", 64)
   @lab_conversation "control-plane:lab:6f1a0f38-0b74-4f77-9f20-7a0c1e2d3b44"
   @alert_secret "alertmanager-signing-secret-long-enough"
   @deploy_secret "deployment-bearer-token-long-enough"
@@ -123,31 +122,26 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
     {:ok, _} = Settings.initialize(@actor)
     {:ok, _} = Credentials.put(:webhook, "alerts", @alert_secret, @actor)
     {:ok, _} = Credentials.put(:webhook, "deploys", @deploy_secret, @actor)
-    {:ok, _} = Settings.put_repository(%{ref: "ryker"}, 1, @actor)
 
     {:ok, saved} =
-      Settings.put_policy_binding(
+      Settings.put_repository(
         %{
-          purpose: :conversational,
-          scope_kind: :repository,
-          scope_ref: "ryker",
-          policy_name: "ryker-conversation-v1",
-          policy_digest: @digest,
-          verified_by: :import
+          ref: "ryker",
+          github_repository: "acme/ryker",
+          source_commit: String.duplicate("a", 40)
         },
-        2,
+        1,
         @actor
       )
 
     {:ok, saved} =
-      Settings.put_policy_binding(
+      Settings.put_github_binding(
         %{
-          purpose: :contributor,
-          scope_kind: :repository,
-          scope_ref: "ryker",
-          policy_name: "ryker-contributor-v1",
-          policy_digest: String.duplicate("b", 64),
-          verified_by: :import
+          name: "ryker",
+          repository_ref: "ryker",
+          installation_id: 1001,
+          repository_id: 2001,
+          ryker_actor_id: 3001
         },
         saved.installation.revision,
         @actor
