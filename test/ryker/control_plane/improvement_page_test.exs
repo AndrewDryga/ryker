@@ -234,9 +234,9 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     assert confirmation("/actions/improvement/#{github.id}/accept").status == 404
   end
 
-  # There is no weekly report to carry what the loop did (the Weekly report
-  # setting posts nothing yet), so the page itself says it, in words, for
-  # the last seven days: what was found and what people decided.
+  # The page says what the loop did in the last seven days, in words: what
+  # was found and what people decided. The weekly report says the same for
+  # its own week, from the same read (`Ryker.Improvement.week/2`).
   test "the page says what the last seven days brought and what was decided",
        %{staging: staging, access: access} do
     old = unhappy!("COLDWEEK", 1_790_000_000, "Old question", "Old answer", diagnosis: nil)

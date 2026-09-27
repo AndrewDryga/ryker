@@ -1420,6 +1420,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp delivery_kind(%{source: "reaction delivery"}), do: :reaction
   defp delivery_kind(%{source: "quick_reply delivery"}), do: :quick_reply
   defp delivery_kind(%{source: "platform_action delivery"}), do: :platform_action
+  defp delivery_kind(%{source: "weekly_report delivery"}), do: :weekly_report
   defp delivery_kind(_row), do: :message
 
   defp delivery_parts(:reaction),
@@ -1468,6 +1469,22 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       question: "Do this step again?",
       effect:
         "Ryker performs the same saved step, a message or a reaction, once more at the same place. The model does not run again."
+    }
+
+  defp delivery_parts(:weekly_report),
+    do: %{
+      title: "Posting the weekly report stopped",
+      affected: "The channel has not received this week's report.",
+      happened: "Ryker wrote this week's report and posting it stopped",
+      affects: [
+        "The channel chosen under Settings › Weekly report has not received this week's report. Nothing else is waiting on it."
+      ],
+      left:
+        "This week's report is never posted. Next week's report is written and posted as usual.",
+      label: "Post the report again",
+      question: "Post this weekly report again?",
+      effect:
+        "Ryker posts the same saved report to the same channel. It checks the channel first, so the report never appears twice."
     }
 
   defp delivery_parts(_message),

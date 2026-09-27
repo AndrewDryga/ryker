@@ -37,9 +37,9 @@ defmodule Ryker.ControlPlane.FailuresPage do
   The topics an open Failures list or failure page listens to, as the context
   functions that subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): every
   kind of work that can stop (messages and routing, requests and their
-  sessions, replies and reactions, Emisar approvals, code changes, incident
-  rooms, Slack controls, cards and statuses, learning), the workers and
-  credentials a retry needs, the channels, and who retried what.
+  sessions, replies, reactions and the weekly report, Emisar approvals, code
+  changes, incident rooms, Slack controls, cards and statuses, learning), the
+  workers and credentials a retry needs, the channels, and who retried what.
   """
   def subscriptions do
     [
@@ -48,6 +48,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
       {Ryker.Work.Custody, :subscribe_sessions, []},
       {Ryker.Delivery.PlatformActionCustody, :subscribe_platform_actions, []},
       {Ryker.Delivery.RoutingResponseCustody, :subscribe_routing_responses, []},
+      {Ryker.WeeklyReport.Custody, :subscribe_reports, []},
       {Ryker.Emisar.Approvals, :subscribe_approvals, []},
       {Ryker.Publication.Custody, :subscribe_publications, []},
       {Ryker.Slack.IncidentRooms, :subscribe_rooms, []},

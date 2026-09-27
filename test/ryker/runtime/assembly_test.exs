@@ -444,6 +444,41 @@ defmodule Ryker.Runtime.AssemblyTest do
 
   # Consent: the copy runs only while a person keeps routing examples on, and
   # every stored credential is among what it removes from a copy.
+  # A weekly report that is off must cost nothing: no process, no poll, no
+  # log line. It runs only where it could post.
+  test "the weekly report has a schedule only while it is on, names a channel and Slack can post it" do
+    settings = connected!()
+    assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
+    refute Map.has_key?(configuration, :weekly_report)
+
+    assert {:ok, on} =
+             Settings.save_report(
+               %{weekly_self_report_enabled: true, channel_ref: "C0123456789"},
+               settings.installation.revision,
+               @actor
+             )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), on)
+    assert configuration.weekly_report == %{}
+
+    # Its day and time are read when it checks, so moving them restarts nothing.
+    assert {:ok, moved} =
+             Settings.save_report(
+               %{weekday: 5, local_time: ~T[16:30:00]},
+               on.installation.revision,
+               @actor
+             )
+
+    assert {:ok, %{weekly_report: %{}}} = Assembly.build(bootstrap(), moved)
+
+    # With Slack off nothing could post it.
+    assert {:ok, disconnected} =
+             Settings.save_slack(%{enabled: false}, moved.installation.revision, @actor)
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), disconnected)
+    refute Map.has_key?(configuration, :weekly_report)
+  end
+
   test "routing examples are copied only while kept, with every stored credential redacted" do
     settings = connected!()
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)

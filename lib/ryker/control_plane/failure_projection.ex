@@ -432,11 +432,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   # A routing response (a reaction or quick reply) belongs to an input rather
   # than an episode; its input id is what finds the conversation and source it
-  # answered.
+  # answered. A weekly report belongs to neither and names its channel.
   defp delivery_item(item) do
     %{
       action: :rearm,
       attempt_count: item.attempt_count,
+      destination: Map.get(item, :destination),
       detail: FailureDetail.project(item.error_detail),
       diagnosis: FailureDetail.facts(item.error_detail),
       episode_id: Map.get(item, :episode_id),

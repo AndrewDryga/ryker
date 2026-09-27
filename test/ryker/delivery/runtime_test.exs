@@ -18,7 +18,7 @@ defmodule Ryker.Delivery.RuntimeTest do
     def publish_reaction(_request, _binding), do: {:error, :not_started}
   end
 
-  test "builds independent bounded message, routing, and action worker pools" do
+  test "builds independent bounded message, routing, action and weekly report worker pools" do
     configuration = [
       action_concurrency: 1,
       adapters: registrations(),
@@ -37,13 +37,16 @@ defmodule Ryker.Delivery.RuntimeTest do
     assert {Runtime, :start_link, [^configuration]} = child.start
 
     assert {:ok, {_flags, workers}} = Runtime.init(configuration)
-    assert length(workers) == 4
+    assert length(workers) == 5
 
+    # The weekly report posts through a lane of its own, so a report Slack is
+    # slow to take never holds back a reply someone is waiting for.
     assert Enum.map(workers, & &1.id) == [
              {Ryker.Delivery.Worker, :message, 1},
              {Ryker.Delivery.Worker, :message, 2},
              {Ryker.Delivery.Worker, :routing, 1},
-             {Ryker.Delivery.Worker, :action, 1}
+             {Ryker.Delivery.Worker, :action, 1},
+             {Ryker.Delivery.Worker, :report, 1}
            ]
 
     Enum.each(workers, fn worker ->
@@ -57,11 +60,12 @@ defmodule Ryker.Delivery.RuntimeTest do
       assert is_map(dispatcher[:adapters])
     end)
 
-    [message_1, message_2, routing_1, action_1] = workers
+    [message_1, message_2, routing_1, action_1, report_1] = workers
     assert worker_ref(message_1) == "ryker-delivery:vm-1:message:slot-1"
     assert worker_ref(message_2) == "ryker-delivery:vm-1:message:slot-2"
     assert worker_ref(routing_1) == "ryker-delivery:vm-1:routing:slot-1"
     assert worker_ref(action_1) == "ryker-delivery:vm-1:action:slot-1"
+    assert worker_ref(report_1) == "ryker-delivery:vm-1:report:slot-1"
   end
 
   test "rejects unknown, untrusted, and unbounded runtime configuration" do
@@ -73,6 +77,7 @@ defmodule Ryker.Delivery.RuntimeTest do
       %{adapters: registrations(), message_concurrency: 0, worker_ref: "delivery:vm"},
       %{adapters: registrations(), routing_concurrency: 33, worker_ref: "delivery:vm"},
       %{adapters: registrations(), action_concurrency: 33, worker_ref: "delivery:vm"},
+      %{adapters: registrations(), report_concurrency: 0, worker_ref: "delivery:vm"},
       %{adapters: registrations(), max_attempts: 0, worker_ref: "delivery:vm"},
       %{adapters: registrations(), poll_interval_ms: 0, worker_ref: "delivery:vm"},
       %{

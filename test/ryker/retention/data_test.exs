@@ -25,6 +25,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, ThreadStatusReceipts}
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.StateTools.{CallLog, CallRecord}
+  alias Ryker.WeeklyReport.Report, as: WeeklyReport
 
   alias Ryker.Behaviors
   alias Ryker.Behaviors.BehaviorChangeset
@@ -929,6 +930,24 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get(Ryker.GitHub.Event, quiet)
   end
 
+  # A week's row is how the scheduler knows the week was sent, and the latest
+  # send time it checks is up to a week old. With the operational horizon at
+  # its minimum of a minute, pruning at the horizon alone would let a restart
+  # post the same week again; one still being posted is delivery custody.
+  test "a week's report stays two weeks past its send time whatever the horizon, and one still posting never goes" do
+    now = DateTime.utc_now()
+
+    weekly_report!(~D[2020-03-02], DateTime.add(now, -3, :day), :delivered)
+    weekly_report!(~D[2020-02-24], DateTime.add(now, -20, :day), :delivered)
+    weekly_report!(~D[2020-02-17], DateTime.add(now, -27, :day), :blocked)
+    weekly_report!(~D[2020-02-10], DateTime.add(now, -34, :day), :pending)
+
+    assert {:ok, _result} = Data.prune(settings())
+
+    assert Repo.all(from(r in WeeklyReport, order_by: r.week, select: r.week)) ==
+             [~D[2020-02-10], ~D[2020-03-02]]
+  end
+
   test "each maintenance transaction mutates only one bounded row batch" do
     for index <- 1..101, do: insert_setting_audit!("batch-#{index}")
 
@@ -1762,6 +1781,30 @@ defmodule Ryker.Retention.DataTest do
     })
 
     id
+  end
+
+  defp weekly_report!(week, due_at, status) do
+    receipt = %{"delivery_ref" => "weekly-report:#{week}", "message_ref" => "1790000000.000100"}
+
+    Repo.insert!(%WeeklyReport{
+      id: Ecto.UUID.generate(),
+      week: week,
+      due_at: due_at,
+      period_start: DateTime.add(due_at, -7, :day),
+      timezone: "Etc/UTC",
+      delivery_ref: "weekly-report:#{week}",
+      transport: "slack",
+      conversation_ref: "slack:T123:C456",
+      document: %{"message" => "The week."},
+      status: status,
+      last_error_code: if(status == :blocked, do: "slack_api_error"),
+      last_error_detail: if(status == :blocked, do: "not_in_channel"),
+      external_receipt: if(status == :delivered, do: receipt),
+      external_receipt_fingerprint: if(status == :delivered, do: CanonicalJSON.digest(receipt)),
+      delivered_at: if(status == :delivered, do: due_at),
+      inserted_at: @old,
+      updated_at: @old
+    })
   end
 
   defp settings(overrides \\ []) do

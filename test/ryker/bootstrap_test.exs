@@ -10,6 +10,7 @@ defmodule Ryker.BootstrapTest do
 
     assert settings.repo == [url: @database, pool_size: 10]
     assert settings.control_plane == %{access: :loopback, ip: {127, 0, 0, 1}, port: 4321}
+    assert settings.control_public_url == "http://127.0.0.1:4321"
     assert settings.state_tools == %{ip: {127, 0, 0, 1}, port: 4318}
     assert settings.storage_root == "/var/lib/ryker"
     assert settings.worker_gateway == nil
@@ -51,6 +52,13 @@ defmodule Ryker.BootstrapTest do
            }
 
     assert settings.storage_root == "/srv/ryker"
+    # The links Ryker posts open the console where it listens, unless told
+    # where people reach it.
+    assert settings.control_public_url == "http://127.0.0.1:54321"
+
+    assert Bootstrap.load!(environment(%{"RYKER_CONTROL_PUBLIC_URL" => "https://ryker.example/"})).control_public_url ==
+             "https://ryker.example"
+
     assert settings.github_public_url == "https://ryker.example/hooks/github"
     assert settings.webhook_public_url == "https://ryker.example/hooks"
     assert settings.log_level == :warning
@@ -82,6 +90,7 @@ defmodule Ryker.BootstrapTest do
       {"RYKER_STATE_DIR", "relative/private-secret"},
       {"RYKER_GITHUB_PUBLIC_URL", "https://private-secret@example.com/hooks"},
       {"RYKER_WEBHOOK_PUBLIC_URL", "http://example.com/private-secret"},
+      {"RYKER_CONTROL_PUBLIC_URL", "http://example.com/private-secret"},
       {"RYKER_CREDENTIAL_KEY", "private-secret"},
       {"LOG_LEVEL", "private-secret"}
     ]

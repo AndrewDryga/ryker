@@ -16,14 +16,16 @@ defmodule Ryker.Operator.Delivery do
   }
 
   alias Ryker.Repo
+  alias Ryker.WeeklyReport.Custody, as: ReportCustody
+  alias Ryker.WeeklyReport.Report
   alias Ryker.Work.{Custody, Turn}
 
   # The Failures page reads as deep as the page it shows (a hundred a page).
   @maximum_list 10_001
 
   @doc """
-  Blocked messages, routing responses and model-requested actions, newest first,
-  `limit` in all.
+  Blocked messages, routing responses, model-requested actions and weekly
+  reports, newest first, `limit` in all.
 
   Each kind was read oldest first, so past `limit` the newest blocked replies,
   the ones people were still waiting on, were the ones never listed.
@@ -58,9 +60,12 @@ defmodule Ryker.Operator.Delivery do
           )
         )
 
+      reports = ReportCustody.blocked(limit)
+
       items =
         (Enum.map(messages, &message_item/1) ++
-           Enum.map(responses, &response_item/1) ++ Enum.map(actions, &action_item/1))
+           Enum.map(responses, &response_item/1) ++
+           Enum.map(actions, &action_item/1) ++ Enum.map(reports, &report_item/1))
         |> Enum.sort_by(&{DateTime.to_unix(&1.updated_at, :microsecond), &1.delivery_ref}, :desc)
         |> Enum.take(limit)
 
@@ -91,12 +96,14 @@ defmodule Ryker.Operator.Delivery do
     message = Repo.get_by(Turn, delivery_ref: delivery_ref)
     response = Repo.get_by(RoutingResponse, delivery_ref: delivery_ref)
     action = Repo.get_by(PlatformAction, action_ref: delivery_ref)
+    report = ReportCustody.fetch(delivery_ref)
 
-    case {message, response, action} do
-      {%Turn{} = turn, nil, nil} -> {:ok, {:message, turn}}
-      {nil, %RoutingResponse{} = response, nil} -> {:ok, {:routing, response}}
-      {nil, nil, %PlatformAction{} = action} -> {:ok, {:action, action}}
-      {nil, nil, nil} -> {:error, :delivery_not_found}
+    case {message, response, action, report} do
+      {%Turn{} = turn, nil, nil, nil} -> {:ok, {:message, turn}}
+      {nil, %RoutingResponse{} = response, nil, nil} -> {:ok, {:routing, response}}
+      {nil, nil, %PlatformAction{} = action, nil} -> {:ok, {:action, action}}
+      {nil, nil, nil, %Report{} = report} -> {:ok, {:report, report}}
+      {nil, nil, nil, nil} -> {:error, :delivery_not_found}
       _ambiguous -> {:error, :delivery_ref_ambiguous}
     end
   end
@@ -107,10 +114,12 @@ defmodule Ryker.Operator.Delivery do
 
   defp rearm_target({:routing, response}), do: RoutingResponseCustody.retry(response.delivery_ref)
   defp rearm_target({:action, action}), do: PlatformActionCustody.retry(action.action_ref)
+  defp rearm_target({:report, report}), do: ReportCustody.retry(report.delivery_ref)
 
   defp item(%Turn{} = turn), do: message_item(turn)
   defp item(%RoutingResponse{} = response), do: response_item(response)
   defp item(%PlatformAction{} = action), do: action_item(action)
+  defp item(%Report{} = report), do: report_item(report)
 
   defp message_item(turn) do
     %{
@@ -154,6 +163,21 @@ defmodule Ryker.Operator.Delivery do
       tool: action.tool,
       turn_id: action.turn_id,
       updated_at: action.updated_at
+    }
+  end
+
+  # A weekly report belongs to no request: it names the channel it was for.
+  defp report_item(report) do
+    %{
+      attempt_count: report.attempt_count,
+      delivery_ref: report.delivery_ref,
+      destination: report.conversation_ref,
+      error_code: report.last_error_code,
+      error_detail: report.last_error_detail,
+      kind: :weekly_report,
+      retry_generation: report.retry_generation,
+      status: report.status,
+      updated_at: report.updated_at
     }
   end
 

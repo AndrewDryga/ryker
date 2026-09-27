@@ -1,5 +1,9 @@
 defmodule Ryker.Settings.Report do
-  @moduledoc "Weekly self report on the existing schedule boundary; opt-in."
+  @moduledoc """
+  Whether the weekly report posts, in which Slack channel, and on which day
+  of the week at which local time in which zone (`Ryker.WeeklyReport`). Off
+  until a person turns it on.
+  """
   use Ecto.Schema
   import Ecto.Changeset
   alias Ryker.Settings.Validation
