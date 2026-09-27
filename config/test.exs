@@ -35,5 +35,8 @@ config :ryker, :credential_key, :binary.copy(<<73>>, 32)
 # speech model.
 config :ryker, :transcriber, Ryker.TestTranscriber
 
-# Emisar is answered by its recorded double: no test reaches Emisar.
+# Emisar is answered by its recorded double: no test reaches Emisar. A
+# catalog read gives up sooner than in production, so the test of an Emisar
+# that does not answer in time takes a moment rather than four seconds.
 config :ryker, :emisar_requester, Ryker.TestSupport.EmisarMCP
+config :ryker, :emisar_catalog_budget_ms, 300

@@ -53,6 +53,23 @@ defmodule Ryker.Emisar.ToolsTest do
              {:error, :not_configured}
   end
 
+  # The model's client starts Ryker's tool server with a deadline of its own
+  # (Codex allows ten seconds). A catalog read that waited on a hanging Emisar
+  # would cost the session every Ryker tool, validate_final included.
+  test "an Emisar that does not answer in time lists nothing and holds up nothing" do
+    pin = pin!(key!("emk-"), "https://hanging.example/api/mcp/rpc")
+
+    {microseconds, answer} = :timer.tc(fn -> Tools.catalog(pin) end)
+
+    assert answer == {:error, :unavailable}
+    assert microseconds < 900_000
+
+    # Remembered briefly, so the next read does not wait again.
+    {microseconds, answer} = :timer.tc(fn -> Tools.catalog(pin) end)
+    assert answer == {:error, :unavailable}
+    assert microseconds < 100_000
+  end
+
   test "a call reaches Emisar with the environment's key and returns Emisar's answer unchanged" do
     key = key!("emk-")
     pin = pin!(key)

@@ -41,7 +41,12 @@ defmodule Ryker.Emisar.Tools do
 
   # Emisar's wait_for_run blocks for up to 60 seconds before it answers.
   @call_timeout_ms 60_000
-  @catalog_timeout_ms 10_000
+
+  # The catalog is read while the model's client starts Ryker's tool server,
+  # which it gives up on after ten seconds (Codex). An Emisar that has not
+  # answered both reads within this budget, however its connection hangs, is
+  # unavailable for now: the session keeps every Ryker tool.
+  @catalog_budget_ms 4_000
 
   @maximum_tools 64
   @maximum_instruction_bytes 16_384
@@ -58,7 +63,7 @@ defmodule Ryker.Emisar.Tools do
   @spec catalog(pin()) :: {:ok, catalog()} | {:error, failure()}
   def catalog(%{connection_ref: ref, rpc_url: url}) when is_binary(ref) and is_binary(url) do
     with {:ok, key} <- key(ref),
-         {:ok, client} <- client(url, key, @catalog_timeout_ms),
+         {:ok, client} <- client(url, key, catalog_budget_ms()),
          do: cached_catalog({ref, url, fingerprint(key)}, client)
   end
 
@@ -67,9 +72,29 @@ defmodule Ryker.Emisar.Tools do
   defp cached_catalog(cache_key, client) do
     case ToolCache.get(cache_key) do
       {:ok, answer} -> answer
-      :miss -> remember(cache_key, read_catalog(client))
+      :miss -> remember(cache_key, bounded_read(client))
     end
   end
+
+  defp bounded_read(client) do
+    task = Task.async(fn -> safe_read(client) end)
+
+    case Task.yield(task, catalog_budget_ms()) || Task.shutdown(task, :brutal_kill) do
+      {:ok, answer} -> answer
+      _late -> {:error, :unavailable}
+    end
+  end
+
+  # The read runs linked to the tool server's request: a raise in it must be
+  # an unavailable Emisar, not a failed request.
+  defp safe_read(client) do
+    read_catalog(client)
+  rescue
+    _error -> {:error, :unavailable}
+  end
+
+  defp catalog_budget_ms,
+    do: Application.get_env(:ryker, :emisar_catalog_budget_ms, @catalog_budget_ms)
 
   defp remember(cache_key, answer) do
     ttl = if match?({:ok, _catalog}, answer), do: @catalog_ttl_ms, else: @failure_ttl_ms
