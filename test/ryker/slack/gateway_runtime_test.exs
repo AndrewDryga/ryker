@@ -327,6 +327,30 @@ defmodule Ryker.Slack.GatewayRuntimeTest do
     refute_receive {:socket_sent, _frame}, 20
   end
 
+  # Found live 2026-09-27 22:23 UTC: after a deploy the first connect failed,
+  # the retry failed too, and the gateway never tried again. The retry was
+  # still marked as scheduled, so the second failure scheduled nothing and
+  # Slack stayed "Connecting" until someone restarted Ryker.
+  test "a connection that keeps failing keeps being retried until it connects" do
+    connect_results =
+      start_supervised!(
+        {Agent, fn -> [{:error, :offline}, {:error, :still_offline}, {:error, :again}, :ok] end}
+      )
+
+    gateway =
+      start_gateway(settings(),
+        name: :slack_gateway_retry_test,
+        reconnect_ms: 5,
+        transport_options: %{connect_results: connect_results, observer: self()}
+      )
+
+    assert_receive {:socket_connect_failed, ^gateway, :offline}
+    assert_receive {:socket_connect_failed, ^gateway, :still_offline}, 1_000
+    assert_receive {:socket_connect_failed, ^gateway, :again}, 1_000
+    assert_receive {:socket_connected, ^gateway}, 1_000
+    assert Gateway.connected?(:slack_gateway_retry_test)
+  end
+
   test "duplicate failed reconnects are coalesced and termination closes only live sockets" do
     connect_results =
       start_supervised!({Agent, fn -> [{:error, :offline}, {:error, :still_offline}] end})
