@@ -15,6 +15,7 @@ defmodule Ryker.Slack.ThreadStatuses do
 
   alias Ryker.Repo
   alias Ryker.Slack.{ThreadStatus, ThreadStatusChangeset}
+  alias Ryker.UTCDateTime
 
   @maximum_error_detail_bytes 4_096
   @phases ~w(queued admitting admission_retry working delivery waiting_for_input waiting_for_event blocked clear)a
@@ -74,6 +75,44 @@ defmodule Ryker.Slack.ThreadStatuses do
       origin_kind: status.origin_kind,
       origin_id: status.origin_id
     })
+  end
+
+  @doc """
+  The earliest moment after `since` at which a status of `workspace_ref` is
+  due by the clock alone: a write paced behind the last one or retried after
+  a refusal, the lease of a write nobody renewed running out, or a shown
+  status due its periodic refresh before Slack lets it lapse. Nil when
+  nothing waits on the clock.
+  """
+  @spec next_due_at(String.t(), DateTime.t(), pos_integer()) :: DateTime.t() | nil
+  def next_due_at(workspace_ref, %DateTime{} = since, refresh_interval_ms)
+      when is_binary(workspace_ref) and is_integer(refresh_interval_ms) do
+    refresh_since = DateTime.add(since, -refresh_interval_ms, :millisecond)
+
+    [next_attempt, lease, delivered] =
+      Repo.one(
+        from(status in ThreadStatus,
+          where: status.workspace_ref == ^workspace_ref,
+          select: [
+            filter(
+              min(status.next_attempt_at),
+              status.status == :pending and status.next_attempt_at > ^since
+            ),
+            filter(
+              min(status.lease_expires_at),
+              status.status == :pending and status.lease_expires_at > ^since
+            ),
+            filter(
+              min(status.delivered_at),
+              status.status == :delivered and status.desired_text != "" and
+                status.delivered_at > ^refresh_since
+            )
+          ]
+        )
+      )
+
+    refresh = delivered && DateTime.add(delivered, refresh_interval_ms, :millisecond)
+    UTCDateTime.earliest([next_attempt, lease, refresh])
   end
 
   @spec claim_next(String.t(), String.t(), pos_integer()) ::
