@@ -2023,6 +2023,21 @@
   .settings-ladder-part, .settings-ladder-actions { grid-column:2; }
   .settings-ladder-part > label { position:static; width:auto; height:auto; margin:0; overflow:visible; clip:auto; white-space:normal; }
 }
+/* Model accounts in the same box: a numbered row per account with its text
+   box and its remove button, and Add account as the last row. A row that
+   says what is wrong with it keeps its number and button level with its box. */
+.settings-accounts { --ladder-columns:20px minmax(0, 1fr) 32px; }
+.settings-accounts .settings-ladder-entry { align-items:start; }
+.settings-accounts .settings-ladder-order { margin-top:8px; }
+.settings-accounts .settings-ladder-actions { grid-template-columns:32px; margin-top:2px; }
+.settings-accounts .settings-ladder-remove { grid-column:1; }
+.settings-field .settings-ladder-part input[type=text] { max-width:none; min-height:36px; padding:6px 10px; font-size:13px; line-height:20px; }
+.settings-field .settings-ladder-part .form-feedback { max-width:none; margin:0; padding:6px 10px; }
+@media (max-width:800px) {
+  .settings-accounts .settings-ladder-entry { grid-template-columns:var(--ladder-columns); }
+  .settings-accounts .settings-ladder-part, .settings-accounts .settings-ladder-actions { grid-column:auto; }
+  .settings-accounts .settings-ladder-part > label { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+}
 .settings-evidence { font:12px/18px var(--ryker-font-mono); color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
 .settings-optional-field > summary { width:fit-content; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); cursor:pointer; }
 .settings-optional-field > summary span { margin-left:6px; font-size:13px; font-weight:400; color:var(--ryker-text-secondary); }

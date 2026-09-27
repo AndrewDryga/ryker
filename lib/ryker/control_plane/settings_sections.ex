@@ -47,8 +47,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
   # One model and its fallbacks as the form holds them: each part of a model.
   @ladder_parts ~w(model effort account)
   # How many entries a submitted list may carry before the rest are ignored;
-  # more than Coop takes is refused with a reason, not cut short.
-  @ladder_bound 16
+  # more than a list takes, four models or sixteen accounts, is refused with a
+  # reason, not cut short.
+  @list_bound 32
+  @account_placeholder "provider@name, such as claude@work"
   # The words a person picks between, each with what Ryker will then do.
   @participation [
     {"mentions", "Only when mentioned", "Ryker replies when someone writes @Ryker."},
@@ -566,6 +568,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
     # Ryker cannot see which accounts the worker has signed in, so they are
     # listed here and every model above names one of them. Each job freezes
     # this selection; later settings changes apply to new jobs only.
+    #
+    # An account is a row of its own, in the box the lists of models use
+    # (Andrew, 2026-09-27: "I need a way to add more accounts than one!"). One
+    # text box of comma-separated accounts never showed how to add a second.
     %{
       key: :model_accounts,
       domain: :work,
@@ -578,22 +584,18 @@ defmodule Ryker.ControlPlane.SettingsSections do
       fields: [
         %{
           name: :model_accounts,
-          kind: :list,
+          kind: :accounts,
           label: "Accounts",
           help:
-            "Each as provider@name, such as codex@default or claude@work. Sign an account in " <>
-              "first with scripts/compose.sh model-login claude@work. If a model uses an " <>
-              "account the worker has not signed in, the worker keeps running the models saved " <>
-              "before, and this page says so.",
+            "One account per row, as provider@name. Sign an account in on the worker first " <>
+              "with scripts/compose.sh model-login claude@work, then add it here. If a model " <>
+              "uses an account the worker has not signed in, the worker keeps running the " <>
+              "models saved before, and this page says so.",
           errors: %{
             length: "List at least one account, such as codex@default.",
-            format:
-              "Write each account as its provider and name, such as codex@default or " <>
-                "claude@work. Ryker runs Codex and Claude models.",
+            format: "Fix the account marked above, then save again.",
             list: "List each account once.",
-            in_use:
-              "A model above still uses an account you removed. Choose another account for " <>
-                "it first, then remove the account."
+            in_use: {__MODULE__, :accounts_in_use}
           }
         }
       ]
@@ -915,6 +917,145 @@ defmodule Ryker.ControlPlane.SettingsSections do
     first ++ [b, a | rest]
   end
 
+  @doc "What an empty account row shows: how an account is written."
+  @spec account_placeholder() :: String.t()
+  def account_placeholder, do: @account_placeholder
+
+  @doc """
+  One step on the list of model accounts in a draft: add an empty row, or
+  remove one. An account a saved model still runs on stays, and the refusal
+  names those models; a second row with the same account keeps it listed, so
+  that one goes. A step the list cannot take leaves it as it is.
+  """
+  @spec account_step([String.t()], String.t(), integer() | nil, map()) ::
+          {:ok, [String.t()]} | {:refused, String.t()}
+  def account_step(entries, "add", _index, _view) do
+    if length(entries) < Work.most_accounts(),
+      do: {:ok, entries ++ [""]},
+      else: {:ok, entries}
+  end
+
+  def account_step(entries, "remove", index, view)
+      when length(entries) > 1 and is_integer(index) and index in 0..(length(entries) - 1)//1 do
+    kept = List.delete_at(entries, index)
+    account = entries |> Enum.at(index) |> String.trim()
+
+    cond do
+      account in Enum.map(kept, &String.trim/1) -> {:ok, kept}
+      sentence = in_use(view, [account]) -> {:refused, sentence}
+      true -> {:ok, kept}
+    end
+  end
+
+  def account_step(entries, _action, _index, _view), do: {:ok, entries}
+
+  @doc """
+  What removing `accounts` would strand, as one sentence: each of them a
+  saved model still runs on, those models and the kinds of work they are for,
+  and what to do first. Nil when no saved model runs on any of them.
+  """
+  @spec in_use(map(), [String.t()]) :: String.t() | nil
+  def in_use(view, accounts) do
+    uses =
+      for field <- ladder_fields(),
+          model <- Map.get(view.snapshot.work, field.name) || [],
+          account <- [Work.account(model)],
+          account in accounts,
+          do: {account, (ExecutionTarget.parts(model) || %{model: model}).model, field.label}
+
+    if uses != [], do: stranded(uses)
+  end
+
+  defp stranded(uses) do
+    accounts = uses |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    models = uses |> Enum.map(fn {account, model, _label} -> {account, model} end) |> Enum.uniq()
+
+    clauses =
+      for account <- accounts do
+        runs =
+          for {^account, model} <- models,
+              do: {model, for({^account, ^model, label} <- uses, uniq: true, do: label)}
+
+        "#{account} still runs #{runs(runs)}"
+      end
+
+    Enum.join(clauses, ", and ") <>
+      ". Choose another account for " <>
+      if(length(models) == 1, do: "that model", else: "those models") <>
+      " above first, then remove " <>
+      if(length(accounts) == 1, do: hd(accounts), else: "those accounts") <> "."
+  end
+
+  # Each model with the kinds of work it is for. After a model for several,
+  # the last is set off by a comma as well, or its "and" would read as one of
+  # that model's.
+  defp runs(runs) do
+    {earlier, [last]} = Enum.split(Enum.map(runs, &run/1), -1)
+    several? = runs |> Enum.drop(-1) |> Enum.any?(fn {_model, labels} -> length(labels) > 1 end)
+
+    case earlier do
+      [] -> last
+      _earlier -> Enum.join(earlier, ", ") <> if(several?, do: ", and ", else: " and ") <> last
+    end
+  end
+
+  defp run({model, labels}), do: "#{model} for #{Environments.sentence(labels)}"
+
+  @doc """
+  What a refused list of accounts says when a saved model still runs on an
+  account it leaves out: those models, and the account they run on.
+  """
+  @spec accounts_in_use(map(), map()) :: String.t()
+  def accounts_in_use(draft, view) do
+    kept = draft |> Map.get("model_accounts") |> account_entries() |> Enum.map(&String.trim/1)
+
+    in_use(view, view.snapshot.work.model_accounts -- kept) ||
+      "A model above still runs on an account you removed. Choose another account for it " <>
+        "first, then remove the account."
+  end
+
+  @doc """
+  What is wrong with one row of a draft list of accounts, said as it is typed:
+  nothing while it is empty or could still become an account. Once a save was
+  refused (`finished?`), an unfinished one is marked too.
+  """
+  @spec account_problem([String.t()], non_neg_integer(), boolean()) :: String.t() | nil
+  def account_problem(entries, index, finished?) do
+    {earlier, [value | _later]} = Enum.split(entries, index)
+    value = String.trim(value)
+
+    cond do
+      value == "" ->
+        nil
+
+      value in Enum.map(earlier, &String.trim/1) ->
+        "#{value} is listed above already. Remove one."
+
+      Work.account?(value) ->
+        nil
+
+      finished? or not Work.account_start?(value) ->
+        account_shape(value)
+
+      true ->
+        nil
+    end
+  end
+
+  defp account_shape(value) do
+    known? =
+      case String.split(value, "@", parts: 2) do
+        [start] -> Enum.any?(Work.providers(), &String.starts_with?(&1, start))
+        [provider, _name] -> provider in Work.providers()
+      end
+
+    if known?,
+      do:
+        "Write it as provider@name, such as claude@work, in lowercase letters, numbers, " <>
+          "dashes and underscores.",
+      else: "Ryker runs Codex and Claude models, so an account starts with codex@ or claude@."
+  end
+
   defp provider(model) when is_binary(model), do: model |> String.split(":", parts: 2) |> hd()
   defp provider(_model), do: ""
 
@@ -942,10 +1083,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   # The entries of a submitted list, in the order the form numbered them. A
   # draft already holds them as a list.
-  defp ladder_entries(entries) when is_list(entries),
-    do: entries |> Enum.take(@ladder_bound) |> Enum.map(&ladder_fields/1)
+  defp numbered(entries) when is_list(entries), do: Enum.take(entries, @list_bound)
 
-  defp ladder_entries(%{} = numbered) do
+  defp numbered(%{} = numbered) do
     numbered
     |> Enum.flat_map(fn {index, entry} ->
       case Integer.parse(to_string(index)) do
@@ -954,11 +1094,14 @@ defmodule Ryker.ControlPlane.SettingsSections do
       end
     end)
     |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.take(@ladder_bound)
-    |> Enum.map(fn {_position, entry} -> ladder_fields(entry) end)
+    |> Enum.take(@list_bound)
+    |> Enum.map(&elem(&1, 1))
   end
 
-  defp ladder_entries(_mismatched), do: []
+  defp numbered(_mismatched), do: []
+
+  defp ladder_entries(value), do: value |> numbered() |> Enum.map(&ladder_fields/1)
+  defp account_entries(value), do: value |> numbered() |> Enum.map(&text/1)
 
   defp ladder_fields(%{} = entry), do: Map.new(@ladder_parts, &{&1, text(Map.get(entry, &1))})
   defp ladder_fields(_mismatched), do: Map.new(@ladder_parts, &{&1, ""})
@@ -973,8 +1116,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
   What a second price for the same model and day says: which price is
   already there, and the two ways out.
   """
-  @spec price_taken(%{String.t() => String.t()}) :: String.t()
-  def price_taken(draft) do
+  @spec price_taken(%{String.t() => String.t()}, map()) :: String.t()
+  def price_taken(draft, _view) do
     target = Map.get(draft, "execution_target", "")
     model = (ExecutionTarget.parts(target) || %{model: target}).model
 
@@ -1073,6 +1216,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   end
 
   defp submitted_value(%{kind: :ladder}, value), do: ladder_entries(value)
+  defp submitted_value(%{kind: :accounts}, value), do: account_entries(value)
   defp submitted_value(_field, value) when is_binary(value), do: value
   defp submitted_value(field, _mismatched), do: empty_value(field)
 
@@ -1137,6 +1281,12 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   defp cast_field(%{kind: :ladder}, value),
     do: {:ok, value |> ladder_entries() |> Enum.map(&ladder_target/1)}
+
+  # A row added and left empty is not an account.
+  defp cast_field(%{kind: :accounts}, ""), do: :skip
+
+  defp cast_field(%{kind: :accounts}, value),
+    do: {:ok, value |> account_entries() |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))}
 
   defp cast_field(%{kind: :boolean}, value), do: {:ok, value in ["true", "on", true]}
 
@@ -1233,6 +1383,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   end
 
   def row_value(%{kind: :ladder}, models), do: ExecutionTarget.present(models || []).compact
+  def row_value(%{kind: :accounts}, accounts), do: Enum.join(accounts || [], ", ")
   def row_value(field, value), do: form_value(field, value)
 
   @doc "A saved value rendered for its control."
@@ -1244,6 +1395,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
     do: Enum.map(models, &ladder_entry/1)
 
   def form_value(%{kind: :ladder}, _absent), do: []
+  def form_value(%{kind: :accounts}, accounts) when is_list(accounts), do: accounts
+  def form_value(%{kind: :accounts}, _absent), do: []
 
   def form_value(%{kind: :lifecycle} = field, value),
     do: Map.new(subfields(field), &{&1, Enum.join(Map.get(value || %{}, &1, []), ", ")})

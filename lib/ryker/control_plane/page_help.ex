@@ -815,7 +815,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Models and accounts",
        [
          "The models offered are those with a price under Model prices, so a Claude model appears once its price is saved there, written like claude:claude-opus-4-6.",
-         "Ryker cannot see which accounts the worker has signed in, so Model accounts lists them. Sign one in first with scripts/compose.sh model-login claude@work. If a model uses an account that is not signed in, the worker keeps the models saved before, and this page says why."
+         "Ryker cannot see which accounts the worker has signed in, so Model accounts lists them, one per row. Sign one in first with scripts/compose.sh model-login claude@work, then add it there with Add account. An account a model still runs on cannot be removed until that model uses another. If a model uses an account that is not signed in, the worker keeps the models saved before, and this page says why."
        ]},
       {"Choosing",
        [
