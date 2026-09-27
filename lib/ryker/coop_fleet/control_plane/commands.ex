@@ -39,10 +39,19 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     fence_operation
     checkpoint_workspace
     close_session
+    prepare_session
     reconcile_operation
   )
 
   @terminal_command_states [:succeeded, :failed, :uncertain]
+
+  # A prepare holds the worker's one command slot until Coop has the agent
+  # running, and Coop allows it the job's hour-long turn timeout. Redelivery
+  # is what renews a running command's lease on the worker, so a prepare is
+  # redelivered for a minute at most: past that its lease runs out and the
+  # worker cancels it, rather than hold every other command behind an agent
+  # that is not starting. A healthy one answers in seconds.
+  @prepare_redelivery_seconds 60
 
   # Session -> key -> placement is the shared lock order for enqueue and fence.
   # Source preparation and waiting on the remote worker never hold these locks.
@@ -444,6 +453,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
   @doc false
   def deliver_commands(worker_id, now, state_tools_secret, body_root, checkpoint_key) do
+    prepare_cutoff = DateTime.add(now, -@prepare_redelivery_seconds, :second)
+
     commands =
       Repo.all(
         from(command in Command,
@@ -453,6 +464,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
             command.worker_id == ^worker_id and
               command.status in [:queued, :delivered, :acknowledged] and
               placement.state == :active and placement.lease_expires_at > ^now,
+          where:
+            command.kind != "prepare_session" or is_nil(command.delivered_at) or
+              command.delivered_at > ^prepare_cutoff,
           order_by: [asc: command.inserted_at, asc: command.id],
           limit: 100,
           lock: "FOR UPDATE SKIP LOCKED",

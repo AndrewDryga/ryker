@@ -38,6 +38,7 @@ defmodule Ryker.CoopFleet.RequestsTest do
           {"plan_discard", "POST", "/v1/sessions/session-1/discard-plan"},
           {"discard_session", "POST", "/v1/sessions/session-1/discard"},
           {"close_session", "POST", "/v1/sessions/session-1/close"},
+          {"prepare_session", "POST", "/v1/sessions/session-1/prepare"},
           {"cancel_turn", "POST", "/v1/sessions/session-1/turns/turn-1/cancel"},
           {"validate_candidate", "POST", "/v1/sessions/session-1/turns/turn-1/validation"}
         ] do
@@ -55,6 +56,12 @@ defmodule Ryker.CoopFleet.RequestsTest do
              Requests.encode("ensure_workspace", intent, %{generation: 2})
 
     assert task == intent["task"]
+
+    # Coop prepares only the revision the caller saw, and reads nothing else.
+    assert {:ok, %{"body" => %{"expected_revision" => 3} = prepare}} =
+             Requests.encode("prepare_session", intent, %{generation: 2})
+
+    assert map_size(prepare) == 1
   end
 
   test "create requires one frozen job and does not revive local policy selection" do

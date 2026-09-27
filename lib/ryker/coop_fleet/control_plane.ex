@@ -54,6 +54,13 @@ defmodule Ryker.CoopFleet.ControlPlane do
   defdelegate worker_available?(session, requirements), to: Placements
 
   @doc """
+  Whether the worker holding this session has nothing else to do, so a
+  prepare sent to it holds up no other work.
+  """
+  @spec worker_idle?(Ecto.UUID.t()) :: boolean()
+  defdelegate worker_idle?(session_id), to: Placements
+
+  @doc """
   The snapshot this session's work could continue from on another worker.
 
   Both halves must hold: a checkpoint the host still has for the exact source

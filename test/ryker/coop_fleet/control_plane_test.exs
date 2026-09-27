@@ -439,6 +439,93 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert next_placement.worker_id == "worker-a"
   end
 
+  # Coop answers a prepare only once the agent is running, after waiting for
+  # a free runtime slot, and the worker runs one command at a time: a prepare
+  # sent to a worker with anything else to do would hold every other command
+  # on it, a routing turn's included, for as long as that takes.
+  test "a worker is idle only with every slot free, no session starting and no command waiting" do
+    authorize_and_poll!("worker-idle", capacity: capacity(4, 4))
+    placement = place!("idle-prepare")
+    session = Repo.get!(Session, placement.session_id)
+
+    # Its own create still outstanding reserves a slot.
+    refute ControlPlane.worker_idle?(session.id)
+    bind!(session, "coop-idle-prepare")
+    assert ControlPlane.worker_idle?(session.id)
+
+    idle_poll!("worker-idle", "one-slot-used", capacity(3, 4))
+    refute ControlPlane.worker_idle?(session.id)
+    idle_poll!("worker-idle", "every-slot-free", capacity(4, 4))
+    assert ControlPlane.worker_idle?(session.id)
+
+    starting = place!("idle-another-starting")
+    refute ControlPlane.worker_idle?(session.id)
+    bind!(Repo.get!(Session, starting.session_id), "coop-idle-another")
+    assert ControlPlane.worker_idle?(session.id)
+
+    # A placement whose create never finished, left over from long ago, is
+    # not a session being created, and must not stop every prepare for good.
+    leftover = place!("idle-leftover")
+    refute ControlPlane.worker_idle?(session.id)
+
+    {1, nil} =
+      Repo.update_all(from(placement in Placement, where: placement.id == ^leftover.id),
+        set: [inserted_at: DateTime.add(Repo.now!(), -301, :second)]
+      )
+
+    assert ControlPlane.worker_idle?(session.id)
+
+    assert {:ok, _command} =
+             ControlPlane.enqueue_command(
+               starting.id,
+               "get_session",
+               %{"coop_session_id" => "coop-idle-another"},
+               "ryker:test:idle-waiting-command"
+             )
+
+    refute ControlPlane.worker_idle?(session.id)
+
+    # A session no worker holds has none to ask.
+    refute ControlPlane.worker_idle?(session!("idle-unplaced").id)
+  end
+
+  # A prepare holds the worker's one command slot until Coop has the agent
+  # running, and Coop allows it the job's hour-long turn timeout. Each
+  # redelivery renews a running command's lease on the worker, so without a
+  # bound an agent that never starts would hold every other command on that
+  # worker for an hour. Redelivered for a minute at most, its lease runs out
+  # and the worker cancels it.
+  test "a prepare is redelivered for a minute at most, so a stuck one cannot hold its worker" do
+    authorize_and_poll!("worker-stuck-prepare", capacity: capacity(4, 4))
+    placement = place!("stuck-prepare")
+
+    assert {:ok, prepare} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "prepare_session",
+               %{"coop_session_id" => "coop-stuck-prepare", "expected_revision" => 1},
+               "ryker:test:stuck-prepare"
+             )
+
+    assert [prepare.id] == delivered!("worker-stuck-prepare", "first")
+    assert [prepare.id] == delivered!("worker-stuck-prepare", "renewed")
+
+    {1, nil} =
+      Repo.update_all(from(command in Command, where: command.id == ^prepare.id),
+        set: [delivered_at: DateTime.add(Repo.now!(), -61, :second)]
+      )
+
+    assert {:ok, read} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "get_session",
+               %{"coop_session_id" => "coop-stuck-prepare"},
+               "ryker:test:stuck-prepare:read"
+             )
+
+    assert [read.id] == delivered!("worker-stuck-prepare", "past-a-minute")
+  end
+
   test "sandbox drift revokes placement renewal before another command is delivered" do
     authorize_and_poll!("worker-a")
     placement = place!("authority-drift")
@@ -1846,6 +1933,31 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
   defp certificate_digest(value),
     do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+
+  defp idle_poll!(worker_id, suffix, capacity) do
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               worker_id,
+               poll(worker_id, "workspace-main", "poll:#{worker_id}:#{suffix}",
+                 capacity: capacity
+               )
+             )
+  end
+
+  defp bind!(session, coop_session_id),
+    do: session |> Ecto.Changeset.change(coop_session_id: coop_session_id) |> Repo.update!()
+
+  defp delivered!(worker_id, suffix) do
+    assert {:ok, %{"commands" => commands}} =
+             ControlPlane.handle_poll(
+               worker_id,
+               poll(worker_id, "workspace-main", "poll:#{worker_id}:#{suffix}",
+                 capacity: capacity(4, 4)
+               )
+             )
+
+    Enum.map(commands, & &1["command_id"])
+  end
 
   defp place!(suffix) do
     session = session!(suffix)

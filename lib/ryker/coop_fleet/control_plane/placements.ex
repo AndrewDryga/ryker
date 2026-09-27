@@ -29,6 +29,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   alias Ryker.Work.{RepositorySource, Session, Turn}
 
   @heartbeat_stale_seconds 60
+  @creating_seconds 300
   @cleanup_phases [:close_pending, :plan_pending, :discard_pending]
   @holder_purpose "stop_or_cleanup"
 
@@ -83,6 +84,77 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   end
 
   def worker_available?(_session, _requirements), do: false
+
+  @doc """
+  Whether the worker holding this session's placement has nothing else to do:
+  the placement is current, the worker reported every runtime slot free, no
+  session placed on it is being created, and no command waits for it.
+
+  A prepare asks for exactly this. Coop answers it only once the agent is
+  running, after waiting for a free runtime slot, and a worker runs one
+  command at a time, so a prepare sent to a busy worker would hold every other
+  command on it until then.
+  """
+  @spec worker_idle?(Ecto.UUID.t()) :: boolean()
+  def worker_idle?(session_id) do
+    now = Repo.now!()
+
+    with %Placement{} = placement <- active_placement(session_id),
+         true <- current?(placement, now),
+         %Worker{} = worker <- Repo.get(Worker, placement.worker_id),
+         true <- worker_current?(worker, placement.requirements["workspace_ref"], now),
+         true <- every_slot_free?(worker),
+         false <- session_being_created?(worker.id, now) do
+      not commands_waiting?(worker.id)
+    else
+      _busy_or_unplaced -> false
+    end
+  end
+
+  defp active_placement(session_id) do
+    Repo.one(
+      from(placement in Placement,
+        where: placement.session_id == ^session_id and placement.state == :active
+      )
+    )
+  end
+
+  defp every_slot_free?(worker) do
+    worker.capacity["state"] == "eligible" and
+      Enum.all?(~w(session turn workspace), fn kind ->
+        total = capacity_slot(worker, "#{kind}_slots_total")
+        is_integer(total) and total > 0 and capacity_slot(worker, "#{kind}_slots_free") == total
+      end)
+  end
+
+  # Its creator is about to submit a turn a prepare would hold up. A create
+  # takes seconds, a repository's at most a few minutes; an unbound placement
+  # older than that is left over, not a session being created, and must not
+  # stop every prepare on its worker.
+  defp session_being_created?(worker_id, now) do
+    since = DateTime.add(now, -@creating_seconds, :second)
+
+    Repo.exists?(
+      from(placement in Placement,
+        join: session in Session,
+        on: session.id == placement.session_id,
+        where:
+          placement.worker_id == ^worker_id and
+            placement.state in ^Placement.current_states() and
+            placement.inserted_at > ^since and is_nil(session.coop_session_id)
+      )
+    )
+  end
+
+  defp commands_waiting?(worker_id) do
+    Repo.exists?(
+      from(command in Command,
+        where:
+          command.worker_id == ^worker_id and
+            command.status in [:queued, :delivered, :acknowledged]
+      )
+    )
+  end
 
   @doc """
   The snapshot this session's work could continue from on another worker.
