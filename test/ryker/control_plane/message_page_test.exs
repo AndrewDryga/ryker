@@ -21,12 +21,13 @@ defmodule Ryker.ControlPlane.MessagePageTest do
 
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
+  alias Ryker.ControlPlane.{Actions, ConversationLab, Endpoint, Projection}
   alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.WorkProfile
   alias Ryker.Settings
   alias Ryker.Slack.{Input, Names}
 
@@ -103,7 +104,11 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     band = LazyHTML.query(page, ".case-timeline .conversation-chapter")
     assert text(band, ".chapter-heading h3") == "Message"
     assert text(band, ".phase-ready .case-message .ui-message-body") == "Hi @Ryker"
-    assert text(band, ".phase-routing .episode-request h3") == "Answered right away"
+
+    decision =
+      band |> LazyHTML.query(".phase-routing article.case-entry") |> Enum.to_list() |> List.last()
+
+    assert text(decision, ".episode-request > .case-card-heading h3") == "Answered right away"
 
     assert text(band, ".phase-answer .ui-message[data-author=ryker] .ui-message-body") ==
              "Hi! How can I help?"
@@ -146,7 +151,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     {:ok, view, _html} = open(greeting)
 
     thread = "section#in-this-thread"
-    assert has_element?(view, "#{thread} h2", "In this thread")
+    assert has_element?(view, "#{thread} .chapter-heading h3", "In this thread")
 
     rows =
       view
@@ -175,6 +180,66 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     assert started =~ "Started a request"
     assert joined =~ "Added to a request"
     assert thanks_page == "/timeline/" <> URI.encode_www_form("ingress-input:#{thanks.id}")
+  end
+
+  # Andrew, 2026-09-27, of these pages for Slack messages: "the slack
+  # conversations look super broken and not properly ordered unlike
+  # conversations from /conversations. They have some previous messages
+  # mid-text, timeline is broken apart and not following the logic". The
+  # thread's other messages sat between the answer and a "Routing details"
+  # section that held the queue, the briefing and why Ryker read the message,
+  # away from the decision they led to. A request's page reads Intake,
+  # Routing, Work, Answer; a message's page reads the same, and its thread
+  # closes the page, whether the message came from Slack or from Chat.
+  test "a message's page reads in the request page's order, with its thread last, from Slack and Chat alike" do
+    greeting = message!(@root, nil, "Hi <@#{@ryker}>", @sent)
+    answered!(greeting, "Hi! How can I help?", at(27))
+
+    question = message!("1788562400.000200", @root, "Why is checkout returning 502s?", at(96))
+    starts_request!(question)
+
+    {:ok, view, _html} = open(greeting)
+    page = view |> render() |> LazyHTML.from_document()
+
+    story = [
+      {:chapter, "Message"},
+      {:stage, "Intake"},
+      {:card, "Incoming message"},
+      {:card, "Participation"},
+      {:stage, "Routing"},
+      {:card, "Queue"},
+      {:card, "Routing briefing"},
+      {:card, "Answered right away"},
+      {:stage, "Answer"},
+      {:card, "Quick reply"}
+    ]
+
+    assert reading_order(page) == story ++ [{:chapter, "In this thread"}]
+
+    # The same message sent in Chat reads the same; only the name of the
+    # place it was said in differs.
+    conversation = Ecto.UUID.generate()
+    chat_greeting = chat!(conversation, "hi", @sent)
+    answered!(chat_greeting, "Hi! How can I help?", at(27))
+    chat_question = chat!(conversation, "Why is checkout returning 502s?", at(96))
+    decide!(chat_question, :ignore, %{"action" => "ignore", "reason" => "Not for Ryker."}, nil)
+
+    {:ok, chat_view, _html} = open(chat_greeting)
+    chat_page = chat_view |> render() |> LazyHTML.from_document()
+
+    assert reading_order(chat_page) == story ++ [{:chapter, "In this conversation"}]
+
+    # Nothing of the message's own story is left below its thread, and Jump
+    # to lists the chapters in the order they are read.
+    assert page |> LazyHTML.query("#routing-details") |> Enum.empty?()
+
+    assert page |> LazyHTML.query(".timeline-index a") |> Enum.map(&LazyHTML.text/1) == [
+             "Message",
+             "In this thread"
+           ]
+
+    # The routing card's earlier-work links lead up, to the briefing above it.
+    refute text(page, ".phase-routing .episode-request") =~ "↓"
   end
 
   # The old page ended at the routing card for a message routing left alone,
@@ -303,6 +368,42 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     assert text(page, ".episode-metrics .metric-response") =~ "27s"
   end
 
+  # Chapters, their stages and each card's title, in the order a reader
+  # meets them on the page.
+  defp reading_order(page) do
+    page
+    |> LazyHTML.query("#execution-timeline > section.trace-chapter")
+    |> Enum.flat_map(fn chapter ->
+      [
+        {:chapter, text(chapter, ".chapter-heading h3")}
+        | chapter
+          |> LazyHTML.query("section.conversation-phase")
+          |> Enum.flat_map(&stage_order/1)
+      ]
+    end)
+  end
+
+  defp stage_order(stage) do
+    cards =
+      stage
+      |> LazyHTML.query("article.case-entry")
+      |> Enum.map(fn card ->
+        title =
+          card
+          |> LazyHTML.query(".case-card-heading h3, .ui-message-title")
+          |> Enum.at(0)
+          |> LazyHTML.text()
+          |> squish()
+
+        {:card, title}
+      end)
+
+    case text(stage, ".conversation-phase-heading h4") do
+      "" -> cards
+      heading -> [{:stage, heading} | cards]
+    end
+  end
+
   defp open(entry) do
     live(
       build_conn() |> Map.put(:host, "localhost"),
@@ -310,7 +411,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     )
   end
 
-  defp at(seconds), do: DateTime.add(@sent, seconds, :second)
+  defp at(seconds), do: DateTime.add(@sent, round(seconds * 1_000), :millisecond)
 
   defp decision_facts(page) do
     page
@@ -344,7 +445,33 @@ defmodule Ryker.ControlPlane.MessagePageTest do
       })
 
     {:ok, %{entry: entry}} = Inbox.record(input)
-    entry
+    saved!(entry)
+  end
+
+  # One message sent in a Chat conversation, as the Chat page sends it.
+  defp chat!(conversation, text, occurred_at) do
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "conversation-read",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    {:ok, %{entry: entry}} =
+      ConversationLab.send_message(conversation, text, profile, now: fn -> occurred_at end)
+
+    saved!(entry)
+  end
+
+  # Saved a moment after it was sent, as the live install saves it.
+  defp saved!(entry) do
+    saved_at = DateTime.add(entry.occurred_at, 200, :millisecond)
+
+    Repo.update_all(from(saved in Entry, where: saved.id == ^entry.id),
+      set: [inserted_at: saved_at]
+    )
+
+    %{entry | inserted_at: saved_at}
   end
 
   # Routing answered the message itself: the committed routing call, the
@@ -368,8 +495,11 @@ defmodule Ryker.ControlPlane.MessagePageTest do
 
   # The committed routing call and its decision, and the responses it froze
   # for delivery, in the order they are sent.
+  # Routing picks the message up a second after it was sent, as the live
+  # install does, so its briefing is read before the decision it led to.
   defp routed!(entry, decision, committed_at) do
     committed = DateTime.to_iso8601(committed_at)
+    picked_up = DateTime.add(entry.occurred_at, 1, :second)
 
     Repo.insert!(%Attempt{
       input_id: entry.id,
@@ -378,11 +508,12 @@ defmodule Ryker.ControlPlane.MessagePageTest do
       policy_digest: String.duplicate("b", 64),
       phase: "committed",
       milestones: %{
-        "context_prepared" => DateTime.to_iso8601(entry.inserted_at),
+        "context_prepared" => DateTime.to_iso8601(picked_up),
         "response_received" => committed,
         "committed" => committed
       },
-      response: %{"state" => "completed", "validation_attempt" => 1}
+      response: %{"state" => "completed", "validation_attempt" => 1},
+      inserted_at: picked_up
     })
 
     decide!(entry, String.to_existing_atom(decision["action"]), decision, nil)
