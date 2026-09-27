@@ -88,6 +88,45 @@ defmodule Ryker.Retention.WorkerChangeTest do
     assert current_placement!(session) == retired
   end
 
+  # Found live 2026-09-27 09:14 UTC, twelve minutes after the retirement above
+  # shipped: a worker reported one more event for a session whose cleanup had
+  # just retired its placement, the fleet refused it, and because a refused
+  # batch refuses the whole poll and the worker re-sends it, every poll after
+  # was refused and no Coop command reached the worker until the fix.
+  test "a worker's late event for a retired placement is kept and acknowledged, never refusing the poll" do
+    worker = enroll!("late-event")
+    session = terminal_session!("late-event", worker)
+    fleet = fleet_client(worker, @started, remote_session(session))
+
+    assert {:ok, {:executed, %{phase: :grace}}} = run(fleet, "cleanup:late-event:grace")
+    assert {:ok, {:executed, %{phase: :closed}}} = run(fleet, "cleanup:late-event:close")
+    assert {:ok, {:executed, %{phase: :planned}}} = run(fleet, "cleanup:late-event:plan")
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(fleet, "cleanup:late-event:discard")
+    assert %Placement{state: :retired} = retired = current_placement!(session)
+
+    batch = %{
+      "after_sequence" => retired.last_acked_event_sequence,
+      "events" => [
+        %{
+          "kind" => "session",
+          "payload" => %{"state" => "discarded"},
+          "sequence" => retired.last_acked_event_sequence + 1
+        }
+      ],
+      "placement_generation" => retired.generation,
+      "session_ref" => session.id
+    }
+
+    assert {:ok, %{"event_acknowledgements" => [acknowledged]}} =
+             ControlPlane.handle_poll(worker, poll(worker, @started, event_batches: [batch]))
+
+    assert acknowledged["sequence"] == retired.last_acked_event_sequence + 1
+
+    # The same batch again, as a worker that lost the answer re-sends it.
+    assert {:ok, %{"event_acknowledgements" => [_again]}} =
+             ControlPlane.handle_poll(worker, poll(worker, @started, event_batches: [batch]))
+  end
+
   # The same trap, one step later: the worker removed from Ryker can never
   # answer again, so waiting on it is waiting forever.
   test "a cleanup whose worker was removed from Ryker ends with a receipt instead of waiting" do
@@ -355,7 +394,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
     %{
       "acknowledged_command_ids" => [],
       "command_results" => Keyword.get(options, :command_results, []),
-      "event_batches" => [],
+      "event_batches" => Keyword.get(options, :event_batches, []),
       "poll_ref" => "poll:#{worker}:#{System.unique_integer([:positive])}",
       "version" => 2,
       "worker" => %{
