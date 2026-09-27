@@ -54,8 +54,8 @@ tools own durable records. The generic Delivery module owns external message cus
   backoff, a running turn's polling window, an unrenewed lease, a timer, a schedule's occurrence or
   a follow-up's next check, each read from its own queue's index. A ten-second safety net catches
   anything nobody announced, and a stream of announcements never makes a worker poll more than four
-  times a second. An idle install measured on 2026-09-27 went from about 107 commits a second to
-  about 10.
+  times a second. Measured on 2026-09-27 with every worker running against an empty database, an
+  idle install went from about 107 commits a second to about 8.
 - A worker cannot choose episode policy. Admission chooses only the abstract conversational,
   standard, or deep class and maps it through a host-owned profile. Existing episodes retain their
   pinned policy across deploys and later classifications.
