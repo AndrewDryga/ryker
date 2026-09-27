@@ -671,6 +671,23 @@ defmodule Ryker.Improvement.Analyses do
   end
 
   @doc """
+  An ended run whose session was never asked for stops on that proof: its
+  session is not bound, and Coop has no create for its key (the caller
+  asked).
+  """
+  def record_uncreated_stop(claim, run_id) do
+    run_transaction(claim, run_id, fn run ->
+      session = FleetSession.for_run(run)
+
+      unless run.status in [:stale, :rejected] and is_nil(run.coop_turn_id) and
+               is_nil(session && session.coop_session_id),
+             do: Repo.rollback(:improvement_absence_unconfirmed)
+
+      store_stop(run, %{"kind" => "never_created"})
+    end)
+  end
+
+  @doc """
   A create or submit that Coop reports failed started nothing: no session
   or no turn exists for that key, so the run stops on that proof.
   """
