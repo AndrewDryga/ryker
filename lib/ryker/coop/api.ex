@@ -69,6 +69,20 @@ defmodule Ryker.Coop.API do
   """
   @callback accepts_session?(client :: term(), session :: term()) :: boolean()
   @optional_callbacks accepts_session?: 2
+
+  @doc """
+  Has Coop start an open, idle session's agent ahead of its first turn, so
+  that turn starts on a running agent. Coop keeps it running for the job's
+  `warm_idle_timeout_ms`.
+
+  `{:error, :coop_worker_busy}` means the worker has other work that a
+  prepare would hold up, and nothing was sent; ask again later. A key already
+  sent is answered from its record. Optional: a transport without it leaves
+  every session to start its agent on its first turn.
+  """
+  @callback prepare_session(client :: term(), session_id :: String.t(), key :: String.t()) ::
+              {:ok, map()} | {:error, term()}
+  @optional_callbacks prepare_session: 3
   @callback get_session(client :: term(), session_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
   # Optional: a worker whose daemon predates the inspection export does not serve

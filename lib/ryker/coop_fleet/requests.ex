@@ -144,11 +144,16 @@ defmodule Ryker.CoopFleet.Requests do
   end
 
   defp request_for(kind, payload, _)
-       when kind in ~w(run_review plan_discard discard_session close_session cancel_turn validate_candidate) do
+       when kind in ~w(run_review plan_discard discard_session close_session prepare_session cancel_turn validate_candidate) do
     {path, fields} =
       case kind do
         "run_review" ->
           {session_path(payload) <> "/review", ~w(expected_revision)}
+
+        # Coop starts the session's agent before it answers, and keeps it
+        # running for the job's warm idle timeout.
+        "prepare_session" ->
+          {session_path(payload) <> "/prepare", ~w(expected_revision)}
 
         "plan_discard" ->
           {session_path(payload) <> "/discard-plan",

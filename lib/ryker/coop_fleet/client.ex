@@ -243,6 +243,54 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   @impl true
+  def prepare_session(client, coop_session_id, key) do
+    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+      case Repo.get_by(Command, idempotency_key: key) do
+        nil ->
+          prepare_on_idle_worker(client, session, coop_session_id, key)
+
+        %Command{kind: "prepare_session", session_id: id, payload: payload}
+        when id == session.id ->
+          execute(client, session, "prepare_session", payload, key)
+
+        _other ->
+          {:error, {:coop_worker_command_conflict, key}}
+      end
+    end
+  end
+
+  # Coop starts the agent before it answers a prepare, after waiting for a
+  # free runtime slot, and the worker runs one command at a time: sent to a
+  # worker with anything else to do, a prepare would hold all of it until the
+  # agent runs. Nothing is sent to a busy worker; the caller asks again.
+  defp prepare_on_idle_worker(client, session, coop_session_id, key) do
+    if ControlPlane.worker_idle?(session.id) do
+      with {:ok, remote} <-
+             execute_read(client, session, "get_session", %{"coop_session_id" => coop_session_id}),
+           {:ok, revision} <- open_revision(remote) do
+        execute(
+          client,
+          session,
+          "prepare_session",
+          %{"coop_session_id" => coop_session_id, "expected_revision" => revision},
+          key
+        )
+      end
+    else
+      {:error, :coop_worker_busy}
+    end
+  end
+
+  defp open_revision(%{"state" => "open", "revision" => revision})
+       when is_integer(revision) and revision > 0,
+       do: {:ok, revision}
+
+  defp open_revision(%{"state" => state}) when is_binary(state) and state != "open",
+    do: {:error, {:coop_session_not_open, state}}
+
+  defp open_revision(_remote), do: {:error, {:coop_protocol_error, :session_revision}}
+
+  @impl true
   def get_session_evidence(client, coop_session_id) do
     with {:ok, session} <- session_by_coop_id(coop_session_id) do
       execute_read(client, session, "get_session_evidence", %{
