@@ -89,7 +89,7 @@ defmodule Ryker.Publication.Followups do
   # --- what records its outcome ---------------------------------------------
 
   @doc "Stores what a leased poll found and records the lifecycle event it means."
-  defdelegate store_poll(publication_ref, lease_ref, status, interval_seconds), to: Polls
+  defdelegate store_poll(publication_ref, lease_ref, status), to: Polls
 
   @doc "Settles a pending verification, or checks it again after `interval_seconds`."
   defdelegate reconcile_verification(publication_ref, lease_ref, interval_seconds), to: Polls

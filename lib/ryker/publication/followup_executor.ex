@@ -58,13 +58,7 @@ defmodule Ryker.Publication.FollowupExecutor do
                publication.pull_request_number
              )
            end),
-         {:ok, updated} <-
-           settings.custody.store_poll(
-             publication.ref,
-             lease_ref,
-             status,
-             settings.interval_seconds
-           ) do
+         {:ok, updated} <- settings.custody.store_poll(publication.ref, lease_ref, status) do
       {:ok, %{phase: :poll, followup: updated}}
     end
   end
@@ -134,7 +128,7 @@ defmodule Ryker.Publication.FollowupExecutor do
         reconcile_verification: 3,
         renew_delivery: 3,
         renew_poll: 3,
-        store_poll: 4
+        store_poll: 3
       ],
       fn {function, arity} -> callback?(module, function, arity) end
     )

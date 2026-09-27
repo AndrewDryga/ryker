@@ -22,14 +22,11 @@ defmodule Ryker.Publication.Followups.Polls do
 
   @far_future ~U[9999-01-01 00:00:00.000000Z]
 
-  def store_poll(publication_ref, lease_ref, status, interval_seconds) do
+  def store_poll(publication_ref, lease_ref, status) do
     with :ok <- Store.reference(publication_ref, :publication_ref),
          :ok <- Store.reference(lease_ref, :lease_ref),
-         :ok <- Store.positive(interval_seconds, :interval_seconds),
          {:ok, status} <- LifecycleStatus.prepare(status) do
-      Store.transaction(fn ->
-        store_poll_locked(publication_ref, lease_ref, status, interval_seconds)
-      end)
+      Store.transaction(fn -> store_poll_locked(publication_ref, lease_ref, status) end)
     end
   end
 
@@ -45,7 +42,7 @@ defmodule Ryker.Publication.Followups.Polls do
 
   # --- what the poll found --------------------------------------------------
 
-  defp store_poll_locked(publication_ref, lease_ref, status, interval_seconds) do
+  defp store_poll_locked(publication_ref, lease_ref, status) do
     with {:ok, followup, publication, now} <- Leases.lock_poll(publication_ref, lease_ref),
          :ok <- exact_status(publication, status) do
       cond do
@@ -82,7 +79,7 @@ defmodule Ryker.Publication.Followups.Polls do
           )
 
         true ->
-          poll_transition(followup, publication, status, interval_seconds, now)
+          poll_transition(followup, publication, status, now)
       end
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -108,7 +105,7 @@ defmodule Ryker.Publication.Followups.Polls do
     |> tap(&Custody.broadcast_publication_updated/1)
   end
 
-  defp poll_transition(followup, publication, status, _interval_seconds, now) do
+  defp poll_transition(followup, publication, status, now) do
     pr_state =
       cond do
         status["merged"] -> "merged"
