@@ -361,8 +361,10 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     end
   end
 
-  # Every start of this write is spent. A repository whose RYKER.md a model
-  # wrote keeps it; one that has none gets the outline, which says what it is.
+  # Every start of this write is spent. The outline stands in only where
+  # there is nothing better: no RYKER.md, or only the old file-list summary
+  # or an earlier outline. A document a model or a person wrote stays, and
+  # the entry says why it was not updated.
   defp exhausted(claim, {repository, binding}, settings) do
     entry = claim.entry
     reason = last_failure(entry.repository_ref)
@@ -370,22 +372,28 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     if entry.document_by == :model do
       Custody.give_up_write(claim, reason)
     else
-      remote = settings.remote
-
-      result =
-        with {:ok, head} <- remote.head(binding, repository),
-             {:ok, entries} <- remote.tree(binding, repository, head),
-             tree = Document.tree(entries),
-             {:ok, readme} <- readme(remote, binding, repository, tree, head) do
-          document = Document.outline(tree, readme, head, Date.utc_today())
-          Custody.store_outline(claim, document, head, reason)
-        end
-
-      case result do
-        {:ok, _entry} = stored -> stored
-        {:error, reason} -> failed(claim, reason, settings, &Custody.give_up_write/2)
+      case outline(settings.remote, binding, repository) do
+        {:ok, {document, head}} -> Custody.store_outline(claim, document, head, reason)
+        {:ok, :kept} -> Custody.give_up_write(claim, reason)
+        {:error, failure} -> failed(claim, failure, settings, &Custody.give_up_write/2)
       end
     end
+  end
+
+  defp outline(remote, binding, repository) do
+    with {:ok, head} <- remote.head(binding, repository),
+         {:ok, current} <- remote.read(binding, repository, @file_name, head) do
+      if Document.origin(text(current)) in [:none, :old_scan, :outline],
+        do: written_outline(remote, binding, repository, head),
+        else: {:ok, :kept}
+    end
+  end
+
+  defp written_outline(remote, binding, repository, head) do
+    with {:ok, entries} <- remote.tree(binding, repository, head),
+         tree = Document.tree(entries),
+         {:ok, readme} <- readme(remote, binding, repository, tree, head),
+         do: {:ok, {Document.outline(tree, readme, head, Date.utc_today()), head}}
   end
 
   defp last_failure(ref) do
@@ -415,10 +423,21 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
            body: pull_request_body(entry)
          }) do
       {:ok, result} ->
-        Custody.published(claim, result, &save_published(repository.ref, &1, result))
+        recorded(claim, result, repository, settings)
 
       {:error, reason} ->
         failed(claim, reason, settings, &Custody.publication_failed/2)
+    end
+  end
+
+  # GitHub has the proposal; Work's copy of it is saved with the record. A
+  # save the settings refused (another saved them a moment before) gives the
+  # lease back and proposes again shortly, which finds the same proposal.
+  defp recorded(claim, result, repository, settings) do
+    case Custody.published(claim, result, &save_published(repository.ref, &1, result)) do
+      {:ok, _entry} = recorded -> recorded
+      {:error, :repository_knowledge_lease_lost} = error -> error
+      {:error, _reason} -> Custody.yield(claim, settings.retry_delay_seconds)
     end
   end
 

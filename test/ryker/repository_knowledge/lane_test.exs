@@ -4,6 +4,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   import Ecto.Query
 
   alias Ryker.Accounting.Execution
+  alias Ryker.ControlPlane.Projection
   alias Ryker.GitHub.Onboarding
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.RepositoryKnowledge.{Dispatcher, Document, Entry, Prompt, Run}
@@ -424,6 +425,30 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
                "repository. Ryker tries again with the next daily check, or refresh knowledge."
   end
 
+  # The outline stands in only where there is nothing better: asking for a
+  # refresh of a RYKER.md a person wrote, and a model that cannot finish,
+  # must not propose the file list over their document.
+  test "a person's RYKER.md is never replaced by the outline when a refresh fails" do
+    person = "# How we work\n\nRun `./run gate all` before pushing.\n"
+    github!(document: person)
+    ready!()
+    invented = Jason.encode!(invented_answer())
+    coop = coop!([invented, invented])
+    drain(settings(coop))
+
+    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
+    drain(settings(coop), 60)
+
+    assert length(FakeCoopAPI.state(coop).submissions) == 2
+    refute Enum.any?(FakeGitHubRepository.calls(), &match?({:publish, _document}, &1))
+    assert FakeGitHubRepository.state().document == person
+
+    entry = RepositoryKnowledge.entry("emisar")
+    assert {entry.phase, entry.document} == {:idle, nil}
+    assert entry.error =~ "the model named nothing Ryker could find"
+    assert repository().knowledge_content == person
+  end
+
   test "a model's RYKER.md is kept when a rewrite names nothing real" do
     github!()
     invented = Jason.encode!(invented_answer())
@@ -452,7 +477,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     written!(coop)
 
     assert Repo.exists?(from(session in Session, where: session.execution_kind == :knowledge))
-    assert [%{ref: "emisar", sessions: 0}] = Ryker.ControlPlane.Projection.repositories(%{})
+    assert [%{ref: "emisar", sessions: 0}] = Projection.repositories(%{})
   end
 
   # The worker sleeps until the next check falls due, as a UTC DateTime,
