@@ -4,8 +4,9 @@ defmodule Ryker.Publication.Followups.Start do
   stale head or a conflict rearms it, and a person's check request or a GitHub
   webhook about its pull request makes the next poll due now.
 
-  Idle repositories are never scanned on a timer. A webhook only nudges the
-  one authoritative refresh the worker makes, for an open pull request this
+  Ryker only checks the pull requests it opened, each on its own ten-minute
+  timer while it is open (`Followups.Polls`), and never scans a repository. A
+  webhook only makes that one check due now, for an open pull request this
   publication recorded, and never for a head other than the one it recorded.
   """
 

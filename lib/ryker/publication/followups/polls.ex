@@ -9,6 +9,11 @@ defmodule Ryker.Publication.Followups.Polls do
   checks on the reviewed head wake the source task, because only they are its
   own work to finish. After a wakeup other than review feedback, the poll
   instead settles whether the woken task has accepted a result for it.
+
+  An open pull request is checked again every ten minutes until it merges,
+  closes, goes stale or reaches its deadline, so Ryker keeps tracking it when
+  no GitHub webhook reaches it. A webhook or a person's check request makes
+  the next check due at once.
   """
 
   import Ecto.Query
@@ -20,6 +25,9 @@ defmodule Ryker.Publication.Followups.Polls do
   alias Ryker.Publication.LifecycleStatus
   alias Ryker.Repo
 
+  # How often an open pull request is checked when no webhook arrives. Slow on
+  # purpose: each check spends GitHub API calls, for up to 30 days.
+  @recheck_seconds 10 * 60
   @far_future ~U[9999-01-01 00:00:00.000000Z]
 
   def store_poll(publication_ref, lease_ref, status) do
@@ -126,8 +134,21 @@ defmodule Ryker.Publication.Followups.Polls do
 
     transition = transition(followup, publication, status, pr_state)
 
-    transition_poll(followup, publication, status, attributes, transition, @far_future, now)
+    transition_poll(
+      followup,
+      publication,
+      status,
+      attributes,
+      transition,
+      next_check(pr_state, now),
+      now
+    )
   end
+
+  # The deadline is checked first on every poll, so an open pull request past
+  # it is marked expired at its next check and then checked no more.
+  defp next_check("open", now), do: DateTime.add(now, @recheck_seconds, :second)
+  defp next_check(_pr_state, _now), do: @far_future
 
   # --- the lifecycle event it means -----------------------------------------
 
@@ -243,7 +264,7 @@ defmodule Ryker.Publication.Followups.Polls do
 
       Store.update_followup!(
         followup,
-        verification_attributes(verified, now, interval_seconds),
+        verification_attributes(followup, verified, now, interval_seconds),
         now
       )
     else
@@ -271,13 +292,16 @@ defmodule Ryker.Publication.Followups.Polls do
     )
   end
 
-  defp verification_attributes(verified, now, interval_seconds) do
+  defp verification_attributes(followup, verified, now, interval_seconds) do
     %{
       lease_expires_at: nil,
       lease_owner: nil,
       lease_ref: nil,
       next_poll_at:
-        if(verified, do: @far_future, else: DateTime.add(now, interval_seconds, :second)),
+        if(verified,
+          do: next_check(followup.pr_state, now),
+          else: DateTime.add(now, interval_seconds, :second)
+        ),
       verified_at: if(verified, do: now, else: nil)
     }
   end

@@ -679,9 +679,10 @@ host rejects them for nonoperators before any repository or session mutation:
   keeps saying which check never finished instead of reading as an ordinary reviewed pull request.
   Ryker reuses and updates that same authorized publication; an uncertain create reconciles
   against the App-owned pull request it already published rather than issuing another blind create.
-  Ryker checks the pull request once when it is published, then refreshes it when GitHub reports
-  check runs, check suites, statuses, workflow runs or pull-request events for that head, or when
-  someone presses **Check delivery**; there is no timer, and waiting occupies no model turn.
+  Ryker checks the pull request when it is published, then every 10 minutes while it is open, so it
+  keeps tracking it when GitHub webhooks cannot reach Ryker. A check run, check suite, workflow run
+  or pull-request event for that head, or **Check delivery**, makes the next check happen at once.
+  Waiting occupies no model turn.
   Checks that turn to failing on that exact head return the task to in-scope correction, once per
   failing head, without a click and without widening the task; a
   hard deadline, a head that moved outside the publication, a close and a merge stay history for a
