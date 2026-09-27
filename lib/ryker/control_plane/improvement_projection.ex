@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
 
   @page_size 50
   @statuses [:open, :accepted, :dismissed]
+  @week_seconds 7 * 86_400
 
   @doc "The query keys the page reads."
   def query_keys, do: ["status", "category", "page"]
@@ -29,7 +30,8 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
 
   @doc """
   One read of the page for `params`: the counts of each decision and of each
-  category in the view, and one page of candidates.
+  category in the view, what the last seven days brought, and one page of
+  candidates.
   """
   @spec page(map()) :: map()
   def page(params) when is_map(params) do
@@ -50,6 +52,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
       category: category,
       counts: status_counts(visible),
       categories: category_counts(in_status),
+      week: week(visible),
       exportable: exportable(),
       items: present(paged.items),
       listed: paged.total,
@@ -128,6 +131,48 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
     )
     |> Repo.all()
     |> Map.new()
+  end
+
+  # What the last seven days brought, by the database clock that stamps a
+  # candidate and its decision: the candidates found, by what Ryker made of
+  # them (a category, still to analyze, or not analyzed), and the ones
+  # accepted or dismissed. There is no weekly report to say it (the Weekly
+  # report setting posts nothing yet), so the page does.
+  defp week(visible) do
+    since = DateTime.add(Repo.now!(), -@week_seconds, :second)
+    found = from([candidate: candidate] in visible, where: candidate.inserted_at >= ^since)
+
+    counts =
+      Repo.one(
+        from([candidate: candidate] in visible,
+          select: %{
+            found: filter(count(), candidate.inserted_at >= ^since),
+            waiting:
+              filter(
+                count(),
+                candidate.inserted_at >= ^since and candidate.analysis in [:pending, :running] and
+                  candidate.status != :dismissed
+              ),
+            accepted:
+              filter(count(), candidate.status == :accepted and candidate.decided_at >= ^since),
+            dismissed:
+              filter(count(), candidate.status == :dismissed and candidate.decided_at >= ^since)
+          }
+        )
+      )
+
+    categories = category_counts(found)
+    categorized = categories |> Map.values() |> Enum.sum()
+
+    Map.merge(counts, %{
+      categories:
+        for(
+          category <- Candidate.categories(),
+          Map.has_key?(categories, category),
+          do: {category, Map.fetch!(categories, category)}
+        ),
+      not_analyzed: counts.found - categorized - counts.waiting
+    })
   end
 
   defp exportable do

@@ -234,6 +234,36 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     assert confirmation("/actions/improvement/#{github.id}/accept").status == 404
   end
 
+  # There is no weekly report to carry what the loop did (the Weekly report
+  # setting posts nothing yet), so the page itself says it, in words, for
+  # the last seven days: what was found and what people decided.
+  test "the page says what the last seven days brought and what was decided",
+       %{staging: staging, access: access} do
+    old = unhappy!("COLDWEEK", 1_790_000_000, "Old question", "Old answer", diagnosis: nil)
+    assert {:ok, _dismissed} = Improvement.dismiss(old.id, "control-plane:local")
+    eight_days_ago = DateTime.add(DateTime.utc_now(), -8 * 86_400, :second)
+
+    Repo.update_all(from(c in Candidate, where: c.id == ^old.id),
+      set: [inserted_at: eight_days_ago, decided_at: eight_days_ago]
+    )
+
+    assert {:ok, _accepted} = Improvement.accept(access.id, "control-plane:local")
+    assert {:ok, _dismissed} = Improvement.dismiss(staging.id, "control-plane:local")
+
+    assert week(Pages.page(["memory", "feedback", "fix"], %{}, options())) ==
+             "Last 7 days 3 new: 1 host bug, 1 prompt bug and 1 still to analyze. 1 accepted as an eval case and 1 dismissed."
+
+    # A quiet week says so, rather than leaving the line out.
+    Repo.update_all(Candidate, set: [inserted_at: eight_days_ago])
+
+    Repo.update_all(from(c in Candidate, where: c.status != :open),
+      set: [decided_at: eight_days_ago]
+    )
+
+    assert week(Pages.page(["memory", "feedback", "fix"], %{"status" => "accepted"}, options())) ==
+             "Last 7 days Nothing new, and nothing accepted or dismissed."
+  end
+
   test "the Feedback page says how many are to decide, accepted and dismissed, and what went wrong",
        %{access: access} do
     assert {:ok, _accepted} = Improvement.accept(access.id, "control-plane:local")
@@ -292,6 +322,13 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
   end
 
   defp time(unix), do: DateTime.from_unix!(unix * 1_000_000, :microsecond)
+
+  defp week(page) do
+    page.body
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("#improvement-week")
+    |> text()
+  end
 
   defp options, do: %{projection: Projection.callbacks()}
 

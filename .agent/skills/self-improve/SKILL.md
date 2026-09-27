@@ -48,6 +48,7 @@ feedback (frustrated or angry, a thumbs down or similar, asked again, edited or 
 answer, a stopped request reviewed), each with Ryker's own diagnosis: host bug, prompt bug, model
 mistake, not a problem or unclear, the step, what went wrong and what it should have done.
 
+- Start from the Last 7 days line under the counts: what the week brought and what was decided.
 - Read the surest diagnoses first; open the Timeline where one looks wrong.
 - Accept the real problems as eval cases and dismiss the rest (both are two-step confirms).
   A GitHub request cannot be accepted yet; fix what its diagnosis names directly.
