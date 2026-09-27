@@ -60,7 +60,6 @@ defmodule Ryker.Delivery.Worker do
       {:ok, :idle} ->
         PollingWorker.idle_delay(
           &Dispatcher.next_due_at(state.kind, &1),
-          state.poll_interval_ms,
           state.idle_interval_ms
         )
 

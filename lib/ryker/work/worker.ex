@@ -60,7 +60,6 @@ defmodule Ryker.Work.Worker do
       {:ok, :idle} ->
         PollingWorker.idle_delay(
           &Custody.next_due_at(&1, :work),
-          state.poll_interval_ms,
           state.idle_interval_ms
         )
 
