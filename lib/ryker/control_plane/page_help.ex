@@ -369,7 +369,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Change a channel",
        [
-         "Open a channel to choose its environment. To change the rest, type /ryker status in the channel and choose Configure channel."
+         "Open a channel to change how Ryker takes part there, what it does with alerts and which environment its work uses. Each choice saves as soon as you make it.",
+         "In Slack, type /ryker status in the channel and choose Configure channel to change the same settings there."
        ]},
       {"Find a channel",
        [
@@ -385,10 +386,10 @@ defmodule Ryker.ControlPlane.PageHelp do
        [
          "Everything about one Slack channel: how Ryker takes part, the environment its work uses, the channel's own instructions and what applies here. Recent work, schedules and usage follow."
        ]},
-      {"Choose the environment",
+      {"How Ryker takes part",
        [
-         "The environment decides which repositories and Emisar account work in this channel may use. Choose it here and press Save.",
-         "No environment means Ryker works here without code and cannot act on running systems."
+         "Conversations says when Ryker replies here, Alerts what it does when an alert is posted, and Environment which repositories and Emisar account its work may use. No environment means Ryker works here without code and cannot act on running systems.",
+         "Each choice saves as soon as you make it, and a small Saved beside it confirms it. Ryker's welcome message in the channel changes with it."
        ]},
       {"Instructions and what applies",
        [
@@ -399,9 +400,9 @@ defmodule Ryker.ControlPlane.PageHelp do
          "To add a rule, tell Ryker in the channel: “When someone posts a Terraform plan here, review it for risky changes.” To add a schedule: “Every Monday at 09:00 Berlin time, summarize open incidents here.”",
          "Ryker shows what it will save and saves it only after you confirm."
        ]},
-      {"Change the rest",
+      {"Change it from Slack",
        [
-         "To change when Ryker replies or what it does with alerts, type /ryker status in the channel and choose Configure channel. Ryker answers only you."
+         "The same settings can be changed in the channel: type /ryker status and choose Configure channel. Ryker answers only you, and this page shows the change."
        ]}
     ])
   end

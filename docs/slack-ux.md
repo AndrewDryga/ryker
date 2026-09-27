@@ -225,9 +225,10 @@ step, revision and 30-minute expiry, so a stale, copied or replayed button canno
 and re-renders the welcome; cancelling or expiring leaves the saved settings and the welcome
 untouched. Saving affects listening, the channel's environment, Slack-app alert escalation and
 room invitations only. It never authorizes repository changes, Emisar approvals, deployments or
-infrastructure mutations. The channel's page on the web chooses its environment the same way: a new
-revision attributed to whoever chose it (`ChannelConfigurations.select_environment/4`), refused for
-an environment nobody saved.
+infrastructure mutations. The channel's page on the web changes participation, alerts and the environment the same way: a
+new revision attributed to whoever chose it (`ChannelConfigurations.change_participation/1`,
+`change_alert_policy/1` and `select_environment/4`), refused for an environment nobody saved and,
+for participation and alerts, for a page drawn before a newer revision.
 
 A channel either chose its participation or inherits the installation default; there is no third
 store. A channel's environment is its own: **No environment** runs the channel's work outside any

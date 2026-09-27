@@ -45,6 +45,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     :participation,
     :workspace_ref
   ]
+  @alert_policy_change_fields [:alert_policy | @participation_change_fields -- [:participation]]
   @reconfiguration_fields [
     :actor_ref,
     :channel_ref,
@@ -245,8 +246,25 @@ defmodule Ryker.Slack.ChannelConfigurations do
   def change_participation(attributes) do
     with {:ok, attributes} <-
            exact_map(attributes, @participation_change_fields, :participation_change),
-         :ok <- participation_change_attributes(attributes) do
-      Repo.transaction(fn -> change_participation_locked(attributes) end)
+         :ok <- change_attributes(attributes, :participation, @participation) do
+      Repo.transaction(fn -> change_one_locked(attributes, :participation) end)
+      |> transaction_result()
+    end
+  end
+
+  @doc """
+  Changes only what Ryker does with alerts in the channel (`:reply`, `:offer`
+  or `:automatic`, the setup Q&A's choices), preserving everything else, the
+  way `change_participation/1` changes only participation. The control names
+  the exact configuration revision it was drawn from, so a page drawn before
+  a change made in Slack cannot save over it.
+  """
+  @spec change_alert_policy(map() | keyword()) :: {:ok, map()} | {:error, term()}
+  def change_alert_policy(attributes) do
+    with {:ok, attributes} <-
+           exact_map(attributes, @alert_policy_change_fields, :alert_policy_change),
+         :ok <- change_attributes(attributes, :alert_policy, @alerts) do
+      Repo.transaction(fn -> change_one_locked(attributes, :alert_policy) end)
       |> transaction_result()
     end
   end
@@ -1280,7 +1298,10 @@ defmodule Ryker.Slack.ChannelConfigurations do
     end
   end
 
-  defp change_participation_locked(attributes) do
+  # One setting of a joined channel's configuration, at the revision the
+  # control was drawn from; everything else the channel chose stays.
+  defp change_one_locked(attributes, field) do
+    value = Map.fetch!(attributes, field)
     lock_channel!(attributes.workspace_ref, attributes.channel_ref)
     broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
 
@@ -1317,15 +1338,15 @@ defmodule Ryker.Slack.ChannelConfigurations do
       configuration.revision != attributes.expected_revision ->
         Repo.rollback(:configuration_revision_stale)
 
-      configuration.participation == attributes.participation ->
+      Map.fetch!(configuration, field) == value ->
         %{configuration: configuration, status: :unchanged}
 
       true ->
         saved =
           configuration
           |> ChannelConfigurationChangeset.configuration(%{
+            field => value,
             actor_ref: attributes.actor_ref,
-            participation: attributes.participation,
             revision: configuration.revision + 1,
             saved_at: database_now!()
           })
@@ -1483,14 +1504,14 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp action_name(_value), do: {:error, {:invalid_channel_configuration, :action}}
 
-  defp participation_change_attributes(attributes) do
+  defp change_attributes(attributes, field, values) do
     with :ok <- reference(attributes.actor_ref, :actor_ref, 256),
          :ok <- reference(attributes.workspace_ref, :workspace_ref, 256),
          :ok <- reference(attributes.channel_ref, :channel_ref, 256),
          :ok <- reference(attributes.event_ref, :event_ref, 512),
          :ok <- uuid(attributes.configuration_ref, :configuration_ref),
          :ok <- positive(attributes.expected_revision, :expected_revision),
-         :ok <- member(attributes.participation, @participation, :participation) do
+         :ok <- member(Map.fetch!(attributes, field), values, field) do
       utc(attributes.occurred_at, :occurred_at)
     end
   end

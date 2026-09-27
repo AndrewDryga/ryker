@@ -196,14 +196,14 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert fact(html, "Membership") == "Ryker joined 10 Sep"
     assert fact(html, "Membership record") == "Generation 3"
 
-    assert fact(html, "Conversations") ==
-             "Joins relevant conversations · set for this channel"
+    assert chosen(html, "Conversations") == "Joins relevant conversations"
 
     # Work here may use every repository of the environment; a task changes the
     # one it needs, so the page no longer says one is only read.
     assert fact(html, "Code") == "acme/api, acme/docs · a task changes the one it needs"
     assert fact(html, "Emisar") == "Production approvals"
-    assert fact(html, "Alerts") == "Offers to investigate, in the thread or an incident room"
+    assert chosen(html, "Alerts") == "Offers to investigate, in the thread or an incident room"
+    assert chosen(html, "Environment") == "Production"
 
     # Invitees and whoever saved the settings read as people, each linked to
     # their Slack profile, never as raw IDs: "Slack user U0BHTNFCW6S" is not
@@ -1376,57 +1376,88 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert pages(first) == %{"episodes" => "Page 1 of 2", "summaries" => "Page 1 of 2"}
     end
 
-    test "a channel page selects an environment" do
-      # Andrew, 2026-09-25: "channels select environments, not a specific
-      # repo". The page used to name the channel's repository and send people
-      # to Slack to change it; the environment is chosen here now, and what
-      # the channel's work may use changes with it.
+    test "a channel's settings change in place and save as they change, the way Slack saves them" do
+      # Andrew, 2026-09-27: "why all stuff like 'Joins relevant conversations'
+      # cant be all dropdowns so I can edit settings in-place?" and "you can
+      # save on change no need to add button, and edit confirmation can be
+      # way more subtle". Only the environment could be chosen here, behind a
+      # Save button, and a saved choice raised a green banner; conversations
+      # and alerts were "set from Slack".
       environment!("production", "Production", ~w(api docs), emisar: "approvals", default: true)
       environment!("staging", "Staging", ~w(api))
       membership!("T123", "C456", private: false, external_shared: false)
-      configuration!("T123", "C456", environment_ref: "production")
+      configuration!("T123", "C456", environment_ref: "production", alert_policy: :reply)
 
       conn = build_conn() |> Map.put(:host, "localhost")
       {:ok, view, html} = live(conn, "/channels/T123/C456")
 
-      assert has_element?(
-               view,
-               "#channel-environment-choice option[selected][value=production]",
-               "Production"
-             )
-
+      assert chosen(html, "Conversations") == "Replies when mentioned"
+      assert fact(html, "Conversations") =~ "the workspace default"
+      assert chosen(html, "Alerts") == "Investigates in the alert's thread"
+      assert chosen(html, "Environment") == "Production"
       assert has_element?(view, "#channel-environment-choice option[value='']", "No environment")
-      assert lede(html) == "Choose the environment here. The rest is set from Slack."
-      assert fact(html, "Code") == "acme/api, acme/docs · a task changes the one it needs"
-      assert fact(html, "Emisar") == "Production approvals"
+      refute has_element?(view, "#taking-part button[type=submit]")
 
-      view |> form("#channel-environment", environment: "staging") |> render_submit()
+      assert lede(html) ==
+               "Change how Ryker takes part here. Each choice saves at once, and Ryker's welcome message in the channel shows it too."
 
-      assert %{environment_ref: "staging", actor_ref: "control-plane:local", revision: 2} =
-               Repo.get_by!(Ryker.Slack.ChannelConfiguration,
-                 workspace_ref: "T123",
-                 channel_ref: "C456"
-               )
+      view |> form("#channel-participation", participation: "proactive") |> render_change()
+      assert %{participation: :proactive, revision: 2} = saved_configuration()
+      assert chosen(render(view), "Conversations") == "Joins relevant conversations"
+      refute fact(render(view), "Conversations") =~ "the workspace default"
+      assert has_element?(view, "#channel-participation-saved .kit-saved-mark", "Saved")
+      refute has_element?(view, "#taking-part .form-feedback")
 
-      assert has_element?(
-               view,
-               "#channel-environment-notice",
-               "Saved. This channel works in Staging now."
-             )
+      view |> form("#channel-alerts", alert_policy: "automatic") |> render_change()
 
-      assert has_element?(view, "#channel-environment-choice option[selected][value=staging]")
+      assert %{alert_policy: :automatic, participation: :proactive, revision: 3} =
+               saved_configuration()
+
+      assert has_element?(view, "#channel-alerts-saved .kit-saved-mark", "Saved")
+      refute has_element?(view, "#channel-participation-saved .kit-saved-mark")
+
+      view |> form("#channel-environment", environment: "staging") |> render_change()
+
+      assert %{environment_ref: "staging", actor_ref: "control-plane:local", revision: 4} =
+               saved_configuration()
+
+      assert chosen(render(view), "Environment") == "Staging"
       assert fact(render(view), "Code") == "acme/api"
       assert fact(render(view), "Emisar") == "None, so Ryker cannot act on running systems here"
+      refute has_element?(view, "#taking-part .form-feedback")
 
-      view |> form("#channel-environment", environment: "") |> render_submit()
+      # Slack is not running here, so its welcome message cannot show the
+      # change: the save still says Saved, and a quiet note says why the
+      # welcome is behind.
+      assert has_element?(
+               view,
+               "#channel-environment-saved .kit-saved-note",
+               "the welcome message in the channel still shows the old setting"
+             )
 
-      assert %{environment_ref: nil} =
-               Repo.get_by!(Ryker.Slack.ChannelConfiguration,
-                 workspace_ref: "T123",
-                 channel_ref: "C456"
-               )
-
+      view |> form("#channel-environment", environment: "") |> render_change()
+      assert %{environment_ref: nil} = saved_configuration()
       assert fact(render(view), "Code") == "None, so Ryker does not read code here"
+
+      # A page drawn before a change made in Slack never saves over it: the
+      # choice names the revision it was drawn from, and a stale one is refused
+      # at the choice, and stays said.
+      stale = %{
+        "workspace" => "T123",
+        "channel" => "C456",
+        "configuration" => saved_configuration().id,
+        "revision" => "2",
+        "alert_policy" => "offer"
+      }
+
+      render_change(view, "set-channel-alerts", stale)
+      assert %{alert_policy: :automatic, revision: 5} = saved_configuration()
+
+      assert has_element?(
+               view,
+               "#channel-alerts-error.form-feedback-error",
+               "This channel's settings changed in Slack meanwhile."
+             )
     end
 
     test "a percent-encoded channel link opens the same native page as the plain one" do
@@ -1459,6 +1490,9 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       end
     end
   end
+
+  defp saved_configuration,
+    do: Repo.get_by!(Ryker.Slack.ChannelConfiguration, workspace_ref: "T123", channel_ref: "C456")
 
   defp membership!(workspace, channel, attributes) do
     %{
@@ -2106,6 +2140,23 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     |> case do
       nil -> flunk("no #{inspect(label)} fact on the page")
       pair -> pair |> LazyHTML.query("dd") |> LazyHTML.text() |> String.trim() |> squeeze()
+    end
+  end
+
+  # The choice a setting shows, where the channel's settings are chosen in place.
+  defp chosen(html, label) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("#taking-part dl > div")
+    |> Enum.find(fn pair ->
+      pair |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim() == label
+    end)
+    |> case do
+      nil ->
+        flunk("no #{inspect(label)} fact on the page")
+
+      pair ->
+        pair |> LazyHTML.query("select option[selected]") |> LazyHTML.text() |> String.trim()
     end
   end
 

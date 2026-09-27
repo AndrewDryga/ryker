@@ -2117,9 +2117,14 @@
 .environment-repository-order { display:flex; gap:4px; }
 .ryker-app .settings-page .environment-repository-order .ui-button { min-width:32px; min-height:32px; padding:0 7px; }
 /* A channel chooses its environment in place, beside the facts it changes. */
-.channel-page .channel-facts .settings-inline-form { align-items:center; gap:8px; }
-.channel-page .channel-facts .settings-inline-form > .settings-field { flex:0 1 280px; }
-.ryker-app .channel-page .channel-facts .settings-inline-form .ui-button { min-height:36px; padding:6px 14px; font-size:13px; line-height:18px; }
+/* A channel's settings change in place (Andrew, 2026-09-27): a compact
+   select, a quiet note and the saved mark on one line, the label beside it
+   level with the select's words. */
+.channel-page .channel-setting { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; margin:0; }
+.ryker-app .channel-page .channel-setting select { box-sizing:border-box; width:min(100%, 400px); min-height:32px; padding:5px 32px 5px 10px; border:1px solid var(--ryker-control-border); border-radius:8px; background-color:var(--ryker-control-bg); background-position:right 15px center,right 10px center; color:var(--ryker-control-text); font-size:14px; line-height:20px; }
+.ryker-app .channel-page .channel-setting select:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:1px; }
+.channel-page .channel-facts > div:has(.channel-setting) > dt { padding-top:6px; }
+.channel-page .channel-facts dd > .form-feedback { margin:6px 0 0; }
 .channel-page #channel-environment-notice { max-width:560px; margin:8px 0 0; }
 
 /* Automations › Schedules and Follow-ups (2026-09-24 redesign): Kit rows on
@@ -2664,3 +2669,15 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
   .incident-room-now { padding:16px; }
   .ryker-app .incident-room-now-text { font-size:16px; line-height:24px; }
 }
+/* Kit: a setting that saves as it changes says so beside itself, small and
+   quiet, and the check fades by itself (Andrew, 2026-09-27: "edit
+   confirmation can be way more subtle"). It keeps its place as it fades, so
+   nothing beside it moves; a note about the save stays. */
+.ryker-app .kit-saved { display:inline-flex; align-items:center; min-height:20px; font-size:13px; line-height:18px; vertical-align:middle; }
+.ryker-app .kit-saved:has(.kit-saved-note) { flex-basis:100%; }
+.ryker-app .kit-saved-mark { display:inline-flex; align-items:center; gap:4px; color:var(--ryker-text-secondary); animation:kit-saved-fade 2.6s ease-in forwards; }
+.ryker-app .kit-saved-mark .ui-icon { flex:none; width:14px; height:14px; color:var(--ryker-accent); }
+.ryker-app .kit-saved-noted { display:inline; animation:none; }
+.ryker-app .kit-saved-noted .ui-icon { margin-right:4px; vertical-align:-2px; }
+.ryker-app .kit-saved-note { color:var(--ryker-warning); }
+@keyframes kit-saved-fade { 0%, 65% { opacity:1; } 100% { opacity:0; visibility:hidden; } }

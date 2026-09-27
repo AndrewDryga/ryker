@@ -62,7 +62,9 @@ defmodule Ryker.ControlPlane.ChannelPage do
 
   attr(:notice, :any,
     default: nil,
-    doc: "{tone, message} from the last environment choice on this page, or nil"
+    doc:
+      "What the last choice on this page did: {:saved, setting, key, note} or " <>
+        "{:error, setting, message}, where setting is the choice's field name; or nil"
   )
 
   @doc """
@@ -206,19 +208,59 @@ defmodule Ryker.ControlPlane.ChannelPage do
     >
       <dl class="channel-facts">
         <.fact label="Conversations">
-          <%= if @view.participation do %>
-            {ChannelsPage.participation(@view.participation.value)}
-            <span class="channel-fact-note">· {decided(@view.participation.source)}</span>
-          <% else %>
-            Could not be read right now
+          <%= cond do %>
+            <% @configuration && @view.participation -> %>
+              <.choice
+                id="channel-participation"
+                event="set-channel-participation"
+                name="participation"
+                label="Conversations"
+                options={participation_options()}
+                value={Atom.to_string(@view.participation.value)}
+                view={@view}
+                notice={@notice}
+              >
+                <span :if={@view.participation.source != :channel} class="channel-fact-note">
+                  the workspace default
+                </span>
+              </.choice>
+            <% @view.participation -> %>
+              {ChannelsPage.participation(@view.participation.value)}
+              <span class="channel-fact-note">· {decided(@view.participation.source)}</span>
+            <% true -> %>
+              Could not be read right now
           <% end %>
         </.fact>
-        <.fact label="Alerts">{alerts(@configuration, @view.participation)}</.fact>
-        <.fact :if={@environment.source != :incident_room} label="Environment">
-          <.environment_choice
+        <.fact label="Alerts">
+          <.choice
             :if={@configuration}
+            id="channel-alerts"
+            event="set-channel-alerts"
+            name="alert_policy"
+            label="Alerts"
+            options={alert_options()}
+            value={Atom.to_string(@configuration.alert_policy)}
             view={@view}
-            environment={@environment}
+            notice={@notice}
+          >
+            <span :if={match?(%{value: :shadow}, @view.participation)} class="channel-fact-note">
+              while Ryker watches quietly, it waits to be asked
+            </span>
+          </.choice>
+          <%= if !@configuration do %>
+            {alerts(@configuration, @view.participation)}
+          <% end %>
+        </.fact>
+        <.fact :if={@environment.source != :incident_room} label="Environment">
+          <.choice
+            :if={@configuration}
+            id="channel-environment"
+            event="select-channel-environment"
+            name="environment"
+            label="Environment"
+            options={environment_options(@view.environments)}
+            value={@environment.ref || ""}
+            view={@view}
             notice={@notice}
           />
           <%= if !@configuration do %>
@@ -301,7 +343,9 @@ defmodule Ryker.ControlPlane.ChannelPage do
   # without its control: the QA re-test (2026-09-26) found "Choose the
   # environment here." above an incident room that has none to choose.
   defp taking_part_lede(configuration, _environment) when is_map(configuration),
-    do: "Choose the environment here. The rest is set from Slack."
+    do:
+      "Change how Ryker takes part here. Each choice saves at once, and Ryker's welcome " <>
+        "message in the channel shows it too."
 
   defp taking_part_lede(nil, %{source: :incident_room}),
     do:
@@ -311,44 +355,78 @@ defmodule Ryker.ControlPlane.ChannelPage do
     do:
       "Ryker keeps settings only for channels it is in. Once it joins this one, choose its environment here."
 
+  attr(:id, :string, required: true, doc: "The form's id; its select is id <> \"-choice\"")
+  attr(:event, :string, required: true, doc: "What the LiveView saves the choice with")
+  attr(:name, :string, required: true, doc: "The setting, as the notice names it")
+  attr(:label, :string, required: true)
+  attr(:options, :list, required: true, doc: "[{value, words}] in the order shown")
+  attr(:value, :string, required: true)
   attr(:view, :map, required: true)
-  attr(:environment, :map, required: true)
   attr(:notice, :any, default: nil)
+  slot(:inner_block, doc: "A quiet note after the choice, such as where the value comes from")
 
-  # The one choice made on this page: which environment the channel's work
-  # runs in, or none. The LiveView saves it through the channel's own setting.
-  defp environment_choice(assigns) do
+  # One of the channel's settings, changed in place and saved as it changes,
+  # through the same save the channel's setup in Slack uses (Andrew,
+  # 2026-09-27: "why all stuff like 'Joins relevant conversations' cant be
+  # all dropdowns so I can edit settings in-place?"). The form names the
+  # revision it was drawn from, so a change made in Slack since is never saved
+  # over; the page redraws with it instead.
+  defp choice(assigns) do
+    assigns = assign(assigns, :configuration, assigns.view.channel.configuration)
+
     ~H"""
-    <form
-      id="channel-environment"
-      class="settings-inline-form"
-      phx-submit="select-channel-environment"
-    >
+    <form id={@id} class="channel-setting" phx-change={@event} phx-submit={@event}>
       <input type="hidden" name="workspace" value={@view.scope.workspace_ref} />
       <input type="hidden" name="channel" value={@view.scope.channel_ref} />
-      <div class="settings-field">
-        <label class="sr-only" for="channel-environment-choice">Environment</label>
-        <select id="channel-environment-choice" name="environment">
-          <option
-            :for={choice <- @view.environments}
-            value={choice.ref}
-            selected={choice.ref == @environment.ref}
-          >
-            {choice.name}
-          </option>
-          <option value="" selected={is_nil(@environment.ref)}>No environment</option>
-        </select>
-      </div>
-      <button type="submit" class="ui-button secondary">Save</button>
+      <input type="hidden" name="configuration" value={@configuration.id} />
+      <input type="hidden" name="revision" value={@configuration.revision} />
+      <label class="sr-only" for={@id <> "-choice"}>{@label}</label>
+      <select id={@id <> "-choice"} name={@name}>
+        <option :for={{value, words} <- @options} value={value} selected={value == @value}>
+          {words}
+        </option>
+      </select>
+      {render_slot(@inner_block)}
+      <Kit.saved
+        id={@id <> "-saved"}
+        key={saved_key(@notice, @name)}
+        note={saved_note(@notice, @name)}
+      />
     </form>
     <Components.form_feedback
-      :if={@notice}
-      id="channel-environment-notice"
-      message={elem(@notice, 1)}
-      tone={elem(@notice, 0)}
+      :if={refusal(@notice, @name)}
+      id={@id <> "-error"}
+      message={refusal(@notice, @name)}
+      tone={:error}
     />
     """
   end
+
+  defp saved_key({:saved, name, key, _note}, name), do: key
+  defp saved_key(_notice, _name), do: nil
+
+  defp saved_note({:saved, name, _key, note}, name), do: note
+  defp saved_note(_notice, _name), do: nil
+
+  defp refusal({:error, name, message}, name), do: message
+  defp refusal(_notice, _name), do: nil
+
+  defp participation_options,
+    do:
+      for(
+        value <- [:mentions, :proactive, :shadow],
+        do: {Atom.to_string(value), ChannelsPage.participation(value)}
+      )
+
+  defp alert_options,
+    do:
+      for(
+        value <- [:reply, :offer, :automatic],
+        do: {Atom.to_string(value), alerts(%{alert_policy: value}, nil)}
+      )
+
+  defp environment_options(environments),
+    do: Enum.map(environments, &{&1.ref, &1.name}) ++ [{"", "No environment"}]
 
   attr(:label, :string, required: true)
   slot(:inner_block, required: true)

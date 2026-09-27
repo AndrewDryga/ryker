@@ -466,6 +466,48 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
            ) == {:error, :configuration_membership_not_joined}
   end
 
+  # Andrew, 2026-09-27: "why all stuff like 'Joins relevant conversations'
+  # cant be all dropdowns so I can edit settings in-place?" Alerts could only
+  # be saved by the whole setup Q&A in Slack; the channel's page changes them
+  # alone now, fenced the way the welcome's participation buttons are.
+  test "alerts change alone, and only at the revision the control was drawn from" do
+    joined!()
+    configuration = Repo.get_by!(ChannelConfiguration, channel_ref: "C456")
+    assert configuration.alert_policy == :reply
+
+    assert {:ok, saved} =
+             ChannelConfigurations.change_alert_policy(
+               alert_change(configuration, :automatic, "event:automatic")
+             )
+
+    assert saved.status == :saved
+    assert saved.configuration.alert_policy == :automatic
+    assert saved.configuration.environment_ref == configuration.environment_ref
+    assert saved.configuration.participation == configuration.participation
+    assert saved.configuration.revision == configuration.revision + 1
+    assert saved.configuration.actor_ref == "U123"
+
+    assert ChannelConfigurations.change_alert_policy(
+             alert_change(configuration, :offer, "event:stale")
+           ) == {:error, :configuration_revision_stale}
+
+    assert {:ok, %{status: :unchanged}} =
+             ChannelConfigurations.change_alert_policy(
+               alert_change(saved.configuration, :automatic, "event:same")
+             )
+
+    assert ChannelConfigurations.change_alert_policy(
+             alert_change(saved.configuration, :loud, "event:bad")
+           ) == {:error, {:invalid_channel_configuration, :alert_policy}}
+
+    assert {:ok, _left} =
+             ChannelConfigurations.observe_membership(membership(:left, "event:left"), @catalog)
+
+    assert ChannelConfigurations.change_alert_policy(
+             alert_change(saved.configuration, :offer, "event:after-leave")
+           ) == {:error, :configuration_membership_not_joined}
+  end
+
   test "controls are fenced by actor channel current card revision and expiry" do
     joined!()
     session = reconfiguration!() |> bind!("3000.000001", nil)
@@ -981,6 +1023,13 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
       value: value,
       workspace_ref: "TCE3E523134AD"
     }
+  end
+
+  defp alert_change(configuration, alert_policy, event_ref) do
+    configuration
+    |> participation_change(nil, event_ref)
+    |> Map.delete(:participation)
+    |> Map.put(:alert_policy, alert_policy)
   end
 
   defp participation_change(configuration, participation, event_ref) do
