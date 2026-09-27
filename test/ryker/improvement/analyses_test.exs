@@ -228,6 +228,46 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert candidate.analysis == :pending
   end
 
+  # "A person forgetting wins": a message deleted while its analysis is out
+  # at Coop erases the prompt, and the run stops without ever sending it.
+  test "an analysis whose prompt a person forgot while it was out stops without sending it" do
+    ts = "1790100700.000100"
+    request = unhappy_request!(ts)
+    coop = coop!([Jason.encode!(@diagnosis)])
+
+    # The first step asks Coop for the session, which is still being made.
+    assert {:ok, _yielded} = Dispatcher.run_once(settings(coop))
+    candidate = Improvement.for_request(request)
+
+    assert [%AnalysisRun{started_at: %DateTime{}, remote_stopped_at: nil} = run] =
+             Repo.all(from(run in AnalysisRun, where: run.candidate_id == ^candidate.id))
+
+    Answers.slack_message!(
+      workspace: @workspace,
+      channel: "CSTAGING",
+      actor: "UBOB",
+      text: "",
+      ts: ts,
+      kind: :delete,
+      revision: 2,
+      at: DateTime.add(@now, 900, :second)
+    )
+
+    assert %DateTime{} = Improvement.for_request(request).forgotten_at
+    drain(settings(coop))
+
+    assert Map.get(FakeCoopAPI.state(coop), :submissions, []) == []
+    stopped = Repo.get!(AnalysisRun, run.id)
+    assert stopped.error_code == "improvement_forgotten"
+    assert stopped.stop_receipt["kind"] == "never_submitted"
+    assert stopped.prompt == nil
+
+    forgotten = Improvement.for_request(request)
+    assert forgotten.analysis == :failed
+    assert forgotten.error_code == "improvement_forgotten"
+    assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
+  end
+
   defp settings(coop) do
     %{
       api: API,

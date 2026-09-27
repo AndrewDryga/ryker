@@ -203,7 +203,7 @@ defmodule Ryker.ControlPlane.ImprovementPage do
        "Ryker analyzes it once the request is done and a few minutes pass without new feedback, while learning is on."}
 
   defp failure("improvement_evidence_unavailable"),
-    do: "Its messages had expired, so there was nothing to analyze."
+    do: "The person's messages were deleted or have expired, so there was nothing to analyze."
 
   defp failure("improvement_retry_exhausted"),
     do: "Ryker tried three times and got no usable answer from the learning models."

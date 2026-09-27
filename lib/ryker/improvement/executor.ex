@@ -39,7 +39,7 @@ defmodule Ryker.Improvement.Executor do
   error for a step to try again.
   """
   def step(claim, run, settings) do
-    run = Analyses.current(run.id)
+    run = run.id |> Analyses.current() |> forgotten(claim)
 
     cond do
       not is_nil(run.remote_stopped_at) ->
@@ -58,6 +58,18 @@ defmodule Ryker.Improvement.Executor do
         execute(claim, run, settings)
     end
   end
+
+  # A person forgot something the run's prompt quotes while it was out: its
+  # words are erased, so it only ever stops from here, never sends.
+  defp forgotten(%{prompt: nil, status: status} = run, claim)
+       when status in [:prepared, :responded] do
+    case Analyses.end_attempt(claim, run.id, :improvement_forgotten) do
+      {:ok, ended} -> ended
+      {:error, _reason} -> run
+    end
+  end
+
+  defp forgotten(run, _claim), do: run
 
   defp execute(claim, run, settings) do
     case remote_session(claim, run, settings) do
@@ -87,6 +99,11 @@ defmodule Ryker.Improvement.Executor do
 
     result =
       case call(claim, settings, :operation_by_key, [key]) do
+        :not_found when run.status in [:rejected, :stale] ->
+          # Ended before its session was asked for: nothing exists to stop.
+          with {:ok, _run} <- Analyses.record_uncreated_stop(claim, run.id),
+               do: {:ok, :stopped}
+
         :not_found ->
           with :ok <-
                  API.prepare_create_session(

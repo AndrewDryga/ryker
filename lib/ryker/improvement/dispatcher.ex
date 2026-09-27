@@ -19,6 +19,7 @@ defmodule Ryker.Improvement.Dispatcher do
     "improvement_execution_timeout" => :improvement_execution_timeout,
     "improvement_session_not_isolated" => :improvement_session_not_isolated,
     "improvement_attempt_expired" => :improvement_attempt_expired,
+    "improvement_forgotten" => :improvement_forgotten,
     "improvement_validation_unconfirmed" => :improvement_validation_unconfirmed
   }
 
