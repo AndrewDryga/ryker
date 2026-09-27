@@ -10,7 +10,14 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
   alias Ryker.Repo
   alias Ryker.Slack.AppHomeProjection
 
-  @now ~U[2026-08-28 12:00:00.000000Z]
+  # An hour before this file compiles, which is every test run: in the past, as
+  # a confirmation is, but never a fixed date. Records confirmed at a fixed
+  # 2026-08-28 12:00 expired 30 days later, at 2026-09-27 12:00 UTC, and these
+  # tests failed from that minute on.
+  @now DateTime.utc_now()
+       |> DateTime.add(-3_600, :second)
+       |> DateTime.truncate(:second)
+       |> Map.put(:microsecond, {0, 6})
 
   test "projects bounded operator state from the exact Slack workspace" do
     local = waiting_episode!("T123", "local")

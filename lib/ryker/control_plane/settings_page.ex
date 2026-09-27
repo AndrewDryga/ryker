@@ -118,7 +118,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
     ~H"""
     <div class="settings-page" id="settings-page" phx-hook="SettingsDraft">
-      <Components.page_header title={@page.title} description={@page.description} back={@page[:back]}>
+      <Components.page_header
+        title={@page.title}
+        description={@page.description}
+        back={@page[:back]}
+        navigate
+      >
         <:action :if={@section == :environments and is_nil(@form)}>
           <EnvironmentsPage.add />
         </:action>
@@ -1354,14 +1359,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
       title: "Add an environment",
       description:
         "Name it, choose the repositories work in it may use and how, and its Emisar account.",
-      back: {"Environments", "/environments"}
+      back: {"All environments", "/environments"}
     }
 
   defp heading(_section, {:environment, ref}, view),
     do: %{
       title: edit_title(Environments.find(view.snapshot, ref), "environment"),
       description: "What work in this environment may use: its repositories and Emisar account.",
-      back: {"Environments", "/environments"}
+      back: {"All environments", "/environments"}
     }
 
   defp heading(_section, {:emisar, nil}, _view),
@@ -1412,7 +1417,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     %{
       title: title,
       description: form_description(key),
-      back: {page(section).title, paths(key).list}
+      back: {"All " <> String.downcase(page(section).title), paths(key).list}
     }
   end
 

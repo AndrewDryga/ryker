@@ -16,7 +16,15 @@ defmodule Ryker.Fixtures.SavedEntities do
   alias Ryker.Schedules.Schedule
   alias Ryker.Work.Custody
 
-  @now ~U[2026-08-28 12:00:00.000000Z]
+  # Saved an hour before the test runs, never on a fixed date: a fixture expires
+  # 30 days after it was saved, and pinned to 2026-08-28 12:00 every one of them
+  # expired at 2026-09-27 12:00 UTC, failing thirty tests across the suite at once.
+  defp saved_at do
+    DateTime.utc_now()
+    |> DateTime.add(-3_600, :second)
+    |> DateTime.truncate(:second)
+    |> Map.put(:microsecond, {0, 6})
+  end
 
   @doc "An admitted episode and its claimed turn, so offers have real provenance."
   @spec source!(String.t()) :: map()
@@ -58,7 +66,8 @@ defmodule Ryker.Fixtures.SavedEntities do
 
     record = offer!(source, "schedule_offer", payload)
     id = Ecto.UUID.generate()
-    at = DateTime.add(@now, index, :hour)
+    now = saved_at()
+    at = DateTime.add(now, index, :hour)
 
     Repo.insert!(%Schedule{
       id: id,
@@ -77,7 +86,7 @@ defmodule Ryker.Fixtures.SavedEntities do
       destination_thread_ref: "1.000001",
       confirmed_by_actor_ref: "slack:user:U123",
       confirmation_ref: "interaction:#{id}",
-      confirmed_at: @now,
+      confirmed_at: now,
       next_occurrence_at: at,
       inserted_at: at,
       updated_at: at
@@ -88,6 +97,7 @@ defmodule Ryker.Fixtures.SavedEntities do
   def behavior!(source, kind, payload, overrides) do
     record = offer!(source, "#{kind}_offer", payload)
     id = Ecto.UUID.generate()
+    now = saved_at()
     source_conversation_ref = Keyword.get(overrides, :source, source.conversation_ref)
 
     Repo.insert!(%Behavior{
@@ -105,14 +115,14 @@ defmodule Ryker.Fixtures.SavedEntities do
       payload: payload,
       confirmed_by_actor_ref: "slack:user:U123",
       confirmation_ref: "interaction:#{id}",
-      confirmed_at: @now,
+      confirmed_at: now,
       source_transport: "slack",
       source_conversation_ref: source_conversation_ref,
       source_thread_ref: "1.000001",
       source_message_ref: "1.000002",
-      expires_at: Keyword.get(overrides, :expires_at, DateTime.add(@now, 30, :day)),
-      inserted_at: @now,
-      updated_at: @now
+      expires_at: Keyword.get(overrides, :expires_at, DateTime.add(now, 30, :day)),
+      inserted_at: now,
+      updated_at: now
     })
   end
 
@@ -140,6 +150,7 @@ defmodule Ryker.Fixtures.SavedEntities do
 
     record = offer!(source, "memory_offer", payload)
     id = Ecto.UUID.generate()
+    now = saved_at()
 
     Repo.insert!(%MemoryEntry{
       id: id,
@@ -156,14 +167,14 @@ defmodule Ryker.Fixtures.SavedEntities do
       payload_fingerprint: Ryker.CanonicalJSON.digest(payload),
       confirmed_by_actor_ref: "slack:user:U123",
       confirmation_ref: "interaction:#{id}",
-      confirmed_at: @now,
+      confirmed_at: now,
       source_transport: "slack",
       source_conversation_ref: Keyword.get(overrides, :source, source.conversation_ref),
       source_thread_ref: "1.000001",
       source_message_ref: "1.000002",
-      expires_at: DateTime.add(@now, 30, :day),
-      inserted_at: @now,
-      updated_at: @now
+      expires_at: DateTime.add(now, 30, :day),
+      inserted_at: now,
+      updated_at: now
     })
   end
 

@@ -6,7 +6,7 @@ defmodule Ryker.Settings.EnvironmentRepositoryAccessMigrationTest do
   alias Ecto.Adapters.SQL
   alias Ryker.Settings
 
-  @version 20_260_927_131_500
+  @version 20_260_927_151_500
   @migration Ryker.Repo.Migrations.AddEnvironmentRepositoryAccess
   @file_name "20260927151500_add_environment_repository_access.exs"
   # The migrator's own lock holds the one sandboxed connection while its task

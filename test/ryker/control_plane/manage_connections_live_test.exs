@@ -83,7 +83,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert_patch(view, "/repositories/new")
 
     assert has_element?(view, "main h1", "Add repositories")
-    assert has_element?(view, ".page-back[href='/repositories']", "Repositories")
+    assert has_element?(view, "nav.kit-back a[href='/repositories']", "All repositories")
 
     assert has_element?(
              view,
@@ -109,8 +109,10 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
            )
 
     # The outcome belongs to the page it happened on.
-    view |> element(".page-back") |> render_click()
-    assert_patch(view, "/repositories")
+    assert {:error, {:live_redirect, %{to: "/repositories"}}} =
+             view |> element("nav.kit-back a") |> render_click()
+
+    {:ok, view, _html} = open("/repositories")
     refute has_element?(view, "#repository-import-notice")
     refute has_element?(view, "#repository-imported-notice")
   end

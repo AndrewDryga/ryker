@@ -13,7 +13,7 @@ defmodule Ryker.Learning.DroppedBatchesMigrationTest do
 
   alias Ryker.Learning.Batch
 
-  @version 20_260_927_130_000
+  @version 20_260_927_150_000
   @migration Ryker.Repo.Migrations.AllowDroppedLearningBatches
   @file_name "20260927150000_allow_dropped_learning_batches.exs"
   # The migrator's own lock holds the one sandboxed connection while its task

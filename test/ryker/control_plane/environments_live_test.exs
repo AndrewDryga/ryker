@@ -277,7 +277,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert_patch(view, "/environments/new")
 
     assert has_element?(view, "main h1", "Add an environment")
-    assert has_element?(view, ".page-back[href='/environments']", "Environments")
+    assert has_element?(view, "nav.kit-back a[href='/environments']", "All environments")
     assert has_element?(view, ".kit-form-card #environment-editor-new form")
 
     for part <- [".entity-list", ".kit-counts", ".kit-toolbar", ".page-action"],
