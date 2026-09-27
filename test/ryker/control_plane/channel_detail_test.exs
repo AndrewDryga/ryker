@@ -48,7 +48,16 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   alias Ryker.Work.Turn
 
   @endpoint Endpoint
-  @now ~U[2026-09-10 12:00:00.000000Z]
+  # An hour before this file compiles, which is every test run: in the past, as
+  # a confirmation is, but never a fixed date. Rules, preferences and memories
+  # confirmed at a fixed 2026-09-10 12:00 expire 30 days later against the
+  # database clock, so six of these tests would have failed from 2026-10-10
+  # 12:00 UTC, and "Ryker joined 10 Sep" would have read "10 Sep 2026" from
+  # 2027-01-01, when the page starts naming the year.
+  @now DateTime.utc_now()
+       |> DateTime.add(-3_600, :second)
+       |> DateTime.truncate(:second)
+       |> Map.put(:microsecond, {0, 6})
   @page_size 25
 
   test "a canonical summary appears only on the channel page it belongs to" do
@@ -193,7 +202,8 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert view.participation == %{source: :channel, value: :proactive}
 
     html = page("/channels/T123/C456")
-    assert fact(html, "Membership") == "Ryker joined 10 Sep"
+    # The page reads the join against the present, and it was an hour ago.
+    assert fact(html, "Membership") == "Ryker joined 1 h ago"
     assert fact(html, "Membership record") == "Generation 3"
 
     assert chosen(html, "Conversations") == "Joins relevant conversations"
@@ -215,7 +225,9 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
              "https://slack.com/app_redirect?team=T123&channel=U2"
            ]
 
-    assert fact(html, "Channel settings") == "Revision 4, saved 10 Sep, 12:00 UTC by Slack user"
+    # A saved revision prints its day and clock time, never a relative time.
+    saved = Calendar.strftime(@now, "%d %b, %H:%M UTC")
+    assert fact(html, "Channel settings") == "Revision 4, saved #{saved} by Slack user"
 
     assert fact_links(html, "Channel settings") == [
              "https://slack.com/app_redirect?team=T123&channel=U123"
@@ -232,7 +244,8 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     configuration!("T123", "C456", actor_ref: "control-plane:local", revision: 2)
 
     html = page("/channels/T123/C456")
-    assert fact(html, "Channel settings") == "Revision 2, saved 10 Sep, 12:00 UTC in Ryker"
+    saved = Calendar.strftime(@now, "%d %b, %H:%M UTC")
+    assert fact(html, "Channel settings") == "Revision 2, saved #{saved} in Ryker"
     assert fact_links(html, "Channel settings") == []
   end
 
@@ -1989,11 +2002,13 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   end
 
   # Expiry is a read-time rule: the stored status still says active. The
-  # fixture clock sits in the past, so an hour after confirmation is already
-  # expired today while still satisfying "expires after confirmed".
+  # fixture clock sits an hour in the past, so a minute after confirmation has
+  # already expired while still satisfying "expires after confirmed". An hour
+  # after it would be the moment this file compiled, which a database clock
+  # running a little behind the host could still read as the future.
   defp expire!(%Behavior{id: id} = behavior) do
     Repo.update_all(from(row in Behavior, where: row.id == ^id),
-      set: [expires_at: DateTime.add(@now, 1, :hour)]
+      set: [expires_at: DateTime.add(@now, 1, :minute)]
     )
 
     behavior
@@ -2001,7 +2016,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
   defp expire!(%MemoryEntry{id: id} = entry) do
     Repo.update_all(from(row in MemoryEntry, where: row.id == ^id),
-      set: [expires_at: DateTime.add(@now, 1, :hour)]
+      set: [expires_at: DateTime.add(@now, 1, :minute)]
     )
 
     entry
