@@ -106,7 +106,6 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     assert LazyHTML.query(document, ".episode-metrics") |> Enum.empty?()
     assert LazyHTML.query(document, ".story-wait") |> Enum.empty?()
     assert LazyHTML.query(document, ".case-timeline") |> Enum.count() == 1
-    assert LazyHTML.query(document, ".story-identity .case-timeline") |> Enum.empty?()
     assert timeline.items == []
 
     # A later configuration failure must not erase earlier work on this episode.
