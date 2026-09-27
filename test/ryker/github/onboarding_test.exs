@@ -50,6 +50,12 @@ defmodule Ryker.GitHub.OnboardingTest do
     def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
   end
 
+  defmodule CrashingScanAPI do
+    def pin(_binding, _repository), do: {:ok, String.duplicate("a", 40)}
+    def scan(_binding, _repository, _commit), do: raise(ArgumentError, "unexpected tree entry")
+    def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
+  end
+
   defmodule UnknownFailureAPI do
     def pin(_binding, _repository), do: {:error, {:github_status, 502}}
     def scan(_binding, _repository, _commit), do: flunk("must not scan")
@@ -119,6 +125,7 @@ defmodule Ryker.GitHub.OnboardingTest do
 
   # Found live 2026-09-27: five repositories stopped in setup on a sentence
   # that named nothing, and the log said nothing either.
+
   test "a setup failure Ryker has no sentence for is logged with its reason" do
     log =
       capture_log(fn ->

@@ -35,6 +35,18 @@ defmodule Ryker.GitHub.Onboarding do
         _ = block(repository_ref, reason)
         error
     end
+  rescue
+    # One repository's setup that raises stops that repository, never the
+    # worker: a raising scan crash-looped every repository in "scanning" about
+    # twice a second on 2026-09-27, with nothing in the log.
+    error ->
+      Logger.error(
+        "repository #{repository_ref} setup raised: " <>
+          Exception.format(:error, error, __STACKTRACE__)
+      )
+
+      _ = block(repository_ref, {:setup_crashed, error.__struct__})
+      {:error, {:setup_crashed, error.__struct__}}
   end
 
   defp repository(ref) do
@@ -171,6 +183,9 @@ defmodule Ryker.GitHub.Onboarding do
 
   defp failure({:github_onboarding, :not_found}),
     do: "The repository or base branch is no longer accessible."
+
+  defp failure({:setup_crashed, _kind}),
+    do: "Setup stopped on an unexpected error; Ryker logged it. Retry once it is fixed."
 
   defp failure(_reason), do: "Repository setup could not finish. Check GitHub access and retry."
 end
