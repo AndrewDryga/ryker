@@ -296,6 +296,18 @@ defmodule Ryker.Work.Custody do
           {:ok, claim() | nil} | {:error, term()}
   defdelegate claim_next(worker_ref, lease_seconds, phase), to: Claims
 
+  @doc """
+  The earliest moment after `since` at which a turn of `phase` becomes
+  claimable by the clock alone: a retry's backoff or polling window ends, an
+  unrenewed lease runs out, or, for Work, a publication review holding its
+  episode lets go. Nil when nothing of that phase waits on the clock.
+
+  The pools sleep until then; everything else that makes a turn claimable is
+  announced on its request's topics (`Ryker.Episodes.subscribe_episodes/0`).
+  """
+  @spec next_due_at(DateTime.t(), :work | :delivery) :: DateTime.t() | nil
+  defdelegate next_due_at(since, phase), to: Claims
+
   @spec freeze_submission(Ecto.UUID.t(), String.t(), String.t(), Submission.t(), keyword()) ::
           {:ok, Turn.t()} | {:error, term()}
   defdelegate freeze_submission(episode_id, turn_ref, lease_ref, submission, options \\ []),

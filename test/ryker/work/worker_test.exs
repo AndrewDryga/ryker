@@ -115,6 +115,36 @@ defmodule Ryker.Work.WorkerTest do
     assert :ok = stop_supervised(:work_pool_short_slot)
   end
 
+  # On 2026-09-27 an idle install committed about 125 transactions a second,
+  # the four Work slots among the pollers reading episodes every 250 ms. A slot
+  # now sleeps until a request announces a change, so a newly admitted request
+  # has to wake it rather than wait for a timer a minute away.
+  test "a request admitted while the pool is idle is taken at once, not at the next timer" do
+    worker = start_supervised!({Worker, recording_options("work-worker:woken")})
+    # Its first poll found nothing, and its next timer is a minute away.
+    _state = :sys.get_state(worker)
+
+    episode_id = create_episode!("worker-woken")
+    assert_receive {:claimed, ^episode_id}, 500
+  end
+
+  # A turn whose Coop turn is still running yields at the end of each polling
+  # window and is due again a second later; nothing announces that second.
+  # A slot sleeping its whole safety-net interval would check a running turn
+  # every ten seconds instead of every one.
+  test "a turn whose retry falls due is taken then, not at the safety-net interval" do
+    episode_id = create_episode!("worker-due")
+    {:ok, claim} = Custody.claim_next("work-worker:earlier", 60, :work)
+
+    {:ok, _turn} =
+      Custody.defer(episode_id, claim.turn.turn_ref, claim.lease_ref, 1, "test", "retry soon")
+
+    start_supervised!({Worker, recording_options("work-worker:due")})
+
+    refute_receive {:claimed, ^episode_id}, 500
+    assert_receive {:claimed, ^episode_id}, 1_500
+  end
+
   test "an invalid dispatcher configuration is logged without crashing the worker" do
     log =
       capture_log(fn ->
@@ -133,6 +163,20 @@ defmodule Ryker.Work.WorkerTest do
       end)
 
     assert log =~ "episode work dispatcher failed"
+  end
+
+  defmodule RecordingExecutor do
+    @moduledoc false
+    alias Ryker.Work.Custody
+
+    def run(claim, options) do
+      send(Keyword.fetch!(options, :test_pid), {:claimed, claim.episode.id})
+
+      {:ok, _turn} =
+        Custody.defer(claim.episode.id, claim.turn.turn_ref, claim.lease_ref, 60, "test", "seen")
+
+      {:ok, %{episode_id: claim.episode.id}}
+    end
   end
 
   defmodule BlockedExecutor do
@@ -205,6 +249,19 @@ defmodule Ryker.Work.WorkerTest do
              Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
 
     id
+  end
+
+  defp recording_options(worker_ref) do
+    [
+      dispatcher_options: [
+        executor: __MODULE__.RecordingExecutor,
+        executor_options: [test_pid: self()],
+        lease_seconds: 60,
+        worker_ref: worker_ref
+      ],
+      idle_interval_ms: 60_000,
+      poll_interval_ms: 60_000
+    ]
   end
 
   defp worker_options(fake, worker_ref) do
