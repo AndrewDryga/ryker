@@ -77,7 +77,8 @@ defmodule Ryker.ControlPlane.ActivityPage do
           Kit.list_total(assigns.activity.total, {"request", "requests"}, filtered)
           | counts(assigns.activity, assigns.overview, assigns.path, assigns.params)
         ],
-        filtered: filtered
+        filtered: filtered,
+        back: usage_back(assigns.params)
       )
 
     ~H"""
@@ -85,6 +86,8 @@ defmodule Ryker.ControlPlane.ActivityPage do
       <.page_header
         title="Activity"
         description="Inspect incoming messages, running work, and delivered answers."
+        back={@back}
+        navigate
       >
         <:action :if={@activity.searchable}>
           <a class="ui-button secondary" href="/conversations"><.icon name={:plus} />New conversation</a>
@@ -406,6 +409,18 @@ defmodule Ryker.ControlPlane.ActivityPage do
         &(params[&1] not in [nil, ""])
       ) or
         params["filter"] not in [nil, "all"] or UsageProjection.filtered?(params)
+
+  # The requests behind a Usage figure lead back to Usage, at the same window
+  # and work, from the place every sub-page leads back from (`Kit.back/1`).
+  # It was a "Back to Usage" link at the end of the filter row, hidden
+  # whenever nothing matched.
+  defp usage_back(params) do
+    if UsageProjection.filtered?(params) do
+      mode = if params["mode"] in ~w(all shadow), do: params["mode"], else: "live"
+      window = UsageProjection.window(params["usage_window"])
+      {"Usage & cost", "/usage?" <> URI.encode_query(%{"window" => window, "mode" => mode})}
+    end
+  end
 
   defp title(%{source: "Slack"} = item) do
     workspace = Names.workspace_from_destination(item[:conversation])

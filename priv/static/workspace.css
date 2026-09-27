@@ -145,7 +145,6 @@
 .ryker-app .filter-add:hover, .ryker-app .filter-add[aria-expanded=true] { border-style:solid; border-color:var(--ryker-stroke-strong); }
 .ryker-app .filter-add .ui-icon { width:15px; height:15px; }
 .filter-clear { margin-left:4px; font-size:14px; }
-.filter-usage { margin-left:auto; font-size:14px; }
 .filter-popover { position:absolute; top:calc(100% + 6px); left:0; z-index:30; box-sizing:border-box; width:260px; max-height:360px; overflow:auto; padding:6px; border:1px solid var(--ryker-stroke); border-radius:10px; background:var(--ryker-surface-raised); box-shadow:0 12px 32px var(--ryker-shadow-medium); }
 .filter-popover h3 { margin:6px 8px 4px; font-size:11px; line-height:16px; font-weight:650; letter-spacing:.08em; text-transform:uppercase; color:var(--ryker-text-secondary); }
 .ryker-app .filter-popover button:not(.ui-button) { display:block; width:100%; min-height:36px; padding:7px 8px; border:0; border-radius:6px; background:none; text-align:left; font-size:14px; line-height:20px; color:var(--ink); }
@@ -172,7 +171,6 @@
 .filter-back .ui-icon { width:14px; height:14px; transform:rotate(180deg); }
 @media (max-width:800px) {
   .search-field { flex:1; width:auto; }
-  .filter-usage { margin-left:0; }
 }
 .ui-status { display:inline-flex; align-items:center; gap:6px; border-radius:4px; padding:3px 6px; font-size:14px; white-space:nowrap; }
 .ui-status i { width:4px; height:4px; border-radius:50%; background:currentColor; }
@@ -252,7 +250,6 @@
   .mobile-manage a { display:block; font-size:14px; padding:9px 6px; color:var(--ryker-text-secondary); }
 }
 .episode-workbench { padding:32px 36px; max-width:1800px; margin:auto; }
-.back-to-activity { display:inline-block; font-size:14px; color:var(--ryker-text-secondary); margin-bottom:23px; }
 .episode-title-row { display:flex; align-items:start; justify-content:space-between; gap:30px; }
 .episode-title-copy { min-width:0; }
 .episode-initial-label { margin:0 0 4px; color:var(--ryker-text-secondary); font-size:12px; line-height:16px; font-weight:600; }
@@ -501,7 +498,6 @@
 .episode-metrics dt { min-height:18px; font-size:13px; line-height:18px; color:var(--secondary); margin:0 0 6px; }
 .episode-metrics dd { font-size:26px; font-weight:600; line-height:1.2; font-variant-numeric:tabular-nums; margin:0; color:var(--ink); }
 .episode-metrics .metric-note { min-height:17px; margin:6px 0 0; color:var(--secondary); font-size:12px; line-height:1.4; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
-.back-to-activity { margin-bottom:12px; }
 .episode-title-row h1 { font-size:30px; line-height:1.25; letter-spacing:-.5px; margin-bottom:8px; }
 .case-timeline { background:transparent; border:0; padding:0; }
 .timeline-index { display:flex; align-items:baseline; gap:16px; margin:12px 0 20px; color:var(--ryker-text-secondary); font-size:13px; }
@@ -1682,6 +1678,11 @@
 .state-word[data-tone=warn]::before { background:var(--ryker-warning); }
 .state-word[data-tone=bad] { color:var(--ryker-error); }
 .state-word[data-tone=bad]::before { background:var(--ryker-error); }
+/* The way back from a sub-page (Kit.back, 2026-09-27): the first thing on every sub-page, above its title. The parent page's name in secondary text with an arrow, on a 32px target whose hover ground shows it is a control; the arrow lines up with the title's left edge. */
+.ryker-app .kit-back { display:block; margin:0 0 12px; }
+.ryker-app .kit-back a { display:inline-flex; align-items:center; gap:6px; min-height:32px; margin-left:-8px; padding:4px 10px 4px 6px; border-radius:6px; font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text-secondary); text-decoration:none; }
+.ryker-app .kit-back a:hover { background:var(--ryker-hover-bg); color:var(--ryker-text); text-decoration:none; }
+.kit-back .ui-icon { width:16px; height:16px; }
 /* A word that sets one row apart, such as Recommended: mint on a faint mint ground, never a status. */
 .entity-tag { display:inline-flex; align-items:center; padding:1px 8px; border-radius:999px; background:color-mix(in srgb, var(--ryker-accent) 14%, transparent); font-size:12px; line-height:18px; font-weight:600; color:var(--ryker-accent); white-space:nowrap; }
 /* A section head is a <header>; the global sticky header style must not reach it. */

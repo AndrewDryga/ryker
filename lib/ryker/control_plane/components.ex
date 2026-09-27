@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.Components do
     code: "M16 18l6-6-6-6 M8 6l-6 6 6 6",
     bell: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9 M10.3 21a2 2 0 0 0 3.4 0",
     arrow: "M5 12h14 M13 6l6 6-6 6",
+    arrow_left: "M19 12H5 M11 6l-6 6 6 6",
     plus: "M12 5v14 M5 12h14",
     close: "M6 6l12 12 M18 6 6 18",
     check: "m5 12 4 4L19 6",
@@ -455,26 +456,47 @@ defmodule Ryker.ControlPlane.Components do
 
   attr(:title, :string, required: true)
   attr(:description, :string, default: nil)
+
+  attr(:back, :any,
+    default: nil,
+    doc: "{label, href} of the page a sub-page belongs to, such as {\"All topics\", path}"
+  )
+
+  attr(:navigate, :boolean,
+    default: false,
+    doc: "Inside the live shell, the way back opens without reloading"
+  )
+
   slot(:action, doc: "A real page-level action that already exists; never a placeholder")
 
   @doc """
   The one heading of a secondary page.
 
-  The title renders once, an existing primary action may sit opposite it,
-  and the page's short description sits 8px underneath. Everything the page
-  owns follows in one column: optional help, one toolbar, a quiet count, the
-  content, then related history. A body never renders a competing heading or
-  a second description; the shell that mounts it is the only place a title
-  comes from, so outer and inner titles cannot duplicate each other.
+  A sub-page's way back to the page it belongs to (`Kit.back/1`) comes
+  first, above the title. The title renders once, an existing primary action
+  may sit opposite it, and the page's short description sits 8px underneath.
+  Everything the page owns follows in one column: optional help, one
+  toolbar, a quiet count, the content, then related history. A body never
+  renders a competing heading or a second description; the shell that mounts
+  it is the only place a title comes from, so outer and inner titles cannot
+  duplicate each other.
   """
   def page_header(assigns) do
     assigns =
       assigns
       |> assign_new(:description, fn -> nil end)
+      |> assign_new(:back, fn -> nil end)
+      |> assign_new(:navigate, fn -> false end)
       |> assign_new(:action, fn -> [] end)
 
     ~H"""
     <header class="page-header">
+      <Kit.back
+        :if={@back}
+        label={elem(@back, 0)}
+        href={elem(@back, 1)}
+        navigate={@navigate}
+      />
       <div class="page-heading">
         <h1>{@title}</h1>
         <div :if={@action != []} class="page-action">{render_slot(@action)}</div>

@@ -514,7 +514,14 @@ defmodule Ryker.ControlPlane.LiveTest do
              "Last 30 days"
            )
 
-    assert has_element?(view, ".filter-toolbar-controls a", "Back to Usage")
+    # The way back to Usage is the one every sub-page has, above the title.
+    assert has_element?(
+             view,
+             ".page-header > nav.kit-back:first-child a[href='/usage?mode=all&window=30d']",
+             "Usage & cost"
+           )
+
+    refute has_element?(view, ".filter-toolbar-controls a", "Back to Usage")
 
     view |> element("#filter-add") |> render_click()
     assert has_element?(view, "#filter-popover .filter-field[data-field=state]", "State")

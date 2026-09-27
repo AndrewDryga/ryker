@@ -102,6 +102,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        page_title: "Activity",
        page_description: nil,
        page_action: nil,
+       page_back: nil,
        connected: connected?(socket),
        unavailable: false,
        reload_scheduled?: false,
@@ -176,6 +177,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        body: "",
        page_title: "Workspace",
        page_description: nil,
+       page_back: nil,
        observed_at: nil,
        webhook_credential_editing: false,
        # An outcome or an open question belongs to the page it happened on.
@@ -1139,6 +1141,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       native: :instructions,
       page_title: "Instructions",
       page_description: ConfigurationGuide.description(:instructions),
+      page_back: nil,
       body_lead: "",
       body:
         BehaviorPage.instructions(%{__changed__: nil, channels: view.channels, saved: saved})
@@ -1162,6 +1165,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         native: :instructions,
         page_title: ChannelPage.title(snapshot),
         page_description: ChannelPage.description(snapshot),
+        page_back: {"All channels", "/channels"},
         body_lead:
           ChannelPage.lead(%{
             __changed__: nil,
@@ -1575,6 +1579,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       page_title: page.title,
       page_description: page.description,
       page_action: Map.get(page, :action),
+      page_back: Map.get(page, :back),
       settings: options.projection.settings.(),
       settings_commands: settings_commands(options)
     )
@@ -1970,7 +1975,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             params={@params}
           />
           <div :if={@native == :instructions} class="secondary-page instructions-page">
-            <Components.page_header title={@page_title} description={@page_description} />
+            <Components.page_header
+              title={@page_title}
+              description={@page_description}
+              back={@page_back}
+              navigate
+            />
             {Phoenix.HTML.raw(@body_lead)}
             <.live_component
               module={Ryker.ControlPlane.InstructionsEditor}
@@ -1988,7 +1998,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             </p><.link navigate="/" class="ui-button secondary">Back to activity</.link>
           </section>
           <div :if={!@native} class="secondary-page">
-            <Components.page_header title={@page_title} description={@page_description}>
+            <Components.page_header
+              title={@page_title}
+              description={@page_description}
+              back={@page_back}
+              navigate
+            >
               <:action :if={@page_action}>{Phoenix.HTML.raw(@page_action)}</:action>
               <:action :if={@path == "/memory/learning" && match?({:ok, _view}, @settings)}>
                 <.live_component

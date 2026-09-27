@@ -43,7 +43,8 @@ defmodule Ryker.ControlPlane.Pages do
           required(:title) => String.t(),
           required(:description) => String.t() | nil,
           required(:body) => binary(),
-          optional(:action) => binary()
+          optional(:action) => binary(),
+          optional(:back) => {String.t(), String.t()}
         }
 
   # Every kind the failures page can list, because it links each row it lists
@@ -70,11 +71,9 @@ defmodule Ryker.ControlPlane.Pages do
   def page(["incident-rooms", incident_ref], _params, options) do
     with {:ok, incident_ref} <- PathRef.decode(incident_ref),
          {:ok, snapshot} <- options.projection.incident.(incident_ref) do
-      ok(
-        snapshot.room.title,
-        IncidentRoomsPage.summary(snapshot.room),
-        IncidentRoomsPage.detail(snapshot)
-      )
+      snapshot.room.title
+      |> ok(IncidentRoomsPage.summary(snapshot.room), IncidentRoomsPage.detail(snapshot))
+      |> Map.put(:back, {"All incident rooms", "/incident-rooms"})
     else
       {:error, :path_ref} -> not_found("Incident room")
       :not_found -> not_found("Incident room")
@@ -92,7 +91,10 @@ defmodule Ryker.ControlPlane.Pages do
   def page(["schedules", schedule_ref], _params, options) do
     with {:ok, schedule_ref} <- PathRef.decode(schedule_ref),
          {:ok, snapshot} <- options.projection.schedule.(schedule_ref) do
-      page = ok(snapshot.schedule.title, SchedulesPage.detail(snapshot))
+      page =
+        snapshot.schedule.title
+        |> ok(SchedulesPage.detail(snapshot))
+        |> Map.put(:back, {"All schedules", "/schedules"})
 
       case SchedulesPage.actions(snapshot.schedule) do
         nil -> page
@@ -131,16 +133,15 @@ defmodule Ryker.ControlPlane.Pages do
              channel_ref,
              Map.take(params, ChannelDetail.query_keys())
            ) do
-      ok(
-        ChannelPage.title(snapshot),
-        ChannelPage.description(snapshot),
-        [
-          Safe.to_iodata(
-            ChannelPage.lead(%{__changed__: nil, view: snapshot, now: nil, editor: false})
-          ),
-          Safe.to_iodata(ChannelPage.render(%{__changed__: nil, view: snapshot, now: nil}))
-        ]
-      )
+      snapshot
+      |> ChannelPage.title()
+      |> ok(ChannelPage.description(snapshot), [
+        Safe.to_iodata(
+          ChannelPage.lead(%{__changed__: nil, view: snapshot, now: nil, editor: false})
+        ),
+        Safe.to_iodata(ChannelPage.render(%{__changed__: nil, view: snapshot, now: nil}))
+      ])
+      |> Map.put(:back, {"All channels", "/channels"})
     else
       {:error, :path_ref} -> not_found("Channel")
       :not_found -> not_found("Channel")
@@ -250,7 +251,10 @@ defmodule Ryker.ControlPlane.Pages do
          {:ok, resource_ref} <- PathRef.decode(resource_ref),
          {:ok, row} <- options.projection.failure.(kind, resource_ref) do
       explanation = FailureExplanation.explain(row)
-      ok(explanation.title, explanation.lede, FailuresPage.detail(row))
+
+      explanation.title
+      |> ok(explanation.lede, FailuresPage.detail(row))
+      |> Map.put(:back, {"All failures", "/failures"})
     else
       {:error, :path_ref} -> not_found("Failure")
       {:error, _reason} -> unavailable("Failure")

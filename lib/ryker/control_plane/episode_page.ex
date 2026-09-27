@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ~H"""
     <div class="episode-workbench execution-document">
       <div class="episode-page-intro">
-        <.link navigate="/" class="back-to-activity">← Activity</.link>
+        <Kit.back href="/" label="Activity" navigate />
         <div class="episode-title-row">
           <div class="episode-title-copy">
             <p class="episode-initial-label">{title_label(@snapshot.trace.case_file)}</p>
@@ -340,7 +340,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ~H"""
     <div class="episode-workbench execution-document">
       <div class="episode-page-intro">
-        <.link navigate="/" class="back-to-activity">← Activity</.link>
+        <Kit.back href="/" label="Activity" navigate />
         <div class="episode-title-row">
           <div class="episode-title-copy">
             <p class="episode-initial-label">Message</p>

@@ -193,10 +193,8 @@ defmodule Ryker.ControlPlane.Router do
         conn,
         200,
         snapshot.title,
-        HTML.lab_task_record(
-          snapshot,
-          "/conversations/#{conversation_id}"
-        )
+        HTML.lab_task_record(snapshot),
+        {"Conversation", "/conversations/#{conversation_id}"}
       )
     else
       {:error, :path_ref} -> text(conn, 404, "Conversation or record not found")
@@ -1229,11 +1227,12 @@ defmodule Ryker.ControlPlane.Router do
   end
 
   # A confirmed action or record view is a title and a body in the static
-  # shell; the title is the page's only heading and the body owns the rest.
-  defp html(conn, status, title, body) do
+  # shell; the title is the page's only heading, led by the way back when the
+  # page belongs to another, and the body owns the rest.
+  defp html(conn, status, title, body, back \\ nil) do
     conn
     |> put_resp_content_type("text/html")
-    |> send_resp(status, HTML.page(title, nil, body))
+    |> send_resp(status, HTML.page(title, nil, body, back))
     |> halt()
   end
 
