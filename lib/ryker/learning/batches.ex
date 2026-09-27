@@ -2,6 +2,10 @@ defmodule Ryker.Learning.Batches do
   @moduledoc """
   Durable, exclusively assigned learning inputs and leased execution budgets.
 
+  A routed message that started Work is learned from once that Work has come
+  to rest, and its quiet time and maximum delay count from then; one that
+  started none counts them from when it was routed.
+
   Every batch or pass this module writes is announced after the outermost
   commit (`Ryker.Learning.subscribe_learning/0`), except a lease renewal.
   """
@@ -9,6 +13,7 @@ defmodule Ryker.Learning.Batches do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, InputMembership, Rebuilds, Runtime}
   alias Ryker.Repo
+  alias Ryker.Work.Custody
 
   alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
@@ -30,11 +35,12 @@ defmodule Ryker.Learning.Batches do
   The earliest moment after `since` at which learning has something to claim
   by the clock alone: a batch's retry or hold ends, the lease of a batch
   nobody renewed runs out, or a conversation's unlearned messages have been
-  quiet for `quiet_seconds`, or waited `maximum_delay_seconds`. Nil when
-  nothing waits on the clock.
+  quiet for `quiet_seconds`, or waited `maximum_delay_seconds`, counted from
+  when each was routed or its Work came to rest. Nil when nothing waits on
+  the clock.
 
-  Everything else that gives learning work (a message routed, a batch
-  finished or retried) is announced.
+  Everything else that gives learning work (a message routed, Work coming to
+  rest, a batch finished or retried) is announced.
   """
   @spec next_due_at(DateTime.t(), map()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, settings) do
@@ -65,28 +71,48 @@ defmodule Ryker.Learning.Batches do
 
   # When each conversation's unlearned messages become a batch by the clock:
   # the `coalesced_scopes/3` condition, solved for the time. Only messages
-  # routed within the longest wait can make a conversation fall due after
-  # `since`; one that also holds older messages fell due already, so leaving
-  # those out can add a wake but never delays one, and the read stays small
-  # however long the history.
+  # ready within the longest wait can make a conversation fall due after
+  # `since`; one that also holds messages ready earlier fell due already, so
+  # leaving those out can add a wake but never delays one, and the read stays
+  # small however long the history.
   defp scope_due_times(since, settings) do
     recent = DateTime.add(since, -settings.maximum_delay_seconds, :second)
 
-    from(e in pending_query(),
-      where: e.updated_at > ^recent,
+    from(input in subquery(ready_inputs(pending_query())),
+      where: input.ready_at > ^recent,
       group_by: [
-        e.destination_transport,
-        e.destination_conversation_ref,
-        e.repository_ref,
-        e.execution_mode
+        input.transport,
+        input.conversation_ref,
+        input.repository_ref,
+        input.execution_mode
       ],
       select: %{
         due_at:
           fragment(
             "LEAST(?, ?)",
-            datetime_add(max(e.updated_at), ^settings.quiet_seconds, "second"),
-            datetime_add(min(e.updated_at), ^settings.maximum_delay_seconds, "second")
+            datetime_add(max(input.ready_at), ^settings.quiet_seconds, "second"),
+            datetime_add(min(input.ready_at), ^settings.maximum_delay_seconds, "second")
           )
+      }
+    )
+  end
+
+  # Each message learning may take, with when it became ready: when routing
+  # decided it or, for one whose Work came to rest after that, when it did.
+  # Counted from the question, the quiet time ran out while Work was still
+  # answering it.
+  defp ready_inputs(pending) do
+    from(e in pending,
+      left_join: work in subquery(Custody.work_rest_query()),
+      on: work.episode_id == e.episode_id,
+      select: %{
+        id: e.id,
+        transport: e.destination_transport,
+        conversation_ref: e.destination_conversation_ref,
+        repository_ref: e.repository_ref,
+        execution_mode: e.execution_mode,
+        inserted_at: e.inserted_at,
+        ready_at: fragment("GREATEST(?, ?)", e.updated_at, work.rested_at)
       }
     )
   end
@@ -639,23 +665,23 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp coalesced_scopes(pending, settings, now) do
-    from(e in pending,
+    from(input in subquery(ready_inputs(pending)),
       group_by: [
-        e.destination_transport,
-        e.destination_conversation_ref,
-        e.repository_ref,
-        e.execution_mode
+        input.transport,
+        input.conversation_ref,
+        input.repository_ref,
+        input.execution_mode
       ],
       having:
-        max(e.updated_at) <= ^DateTime.add(now, -settings.quiet_seconds) or
-          min(e.updated_at) <= ^DateTime.add(now, -settings.maximum_delay_seconds) or
-          count(e.id) >= ^settings.batch_size,
-      order_by: [asc: min(e.inserted_at), asc: e.destination_conversation_ref],
+        max(input.ready_at) <= ^DateTime.add(now, -settings.quiet_seconds) or
+          min(input.ready_at) <= ^DateTime.add(now, -settings.maximum_delay_seconds) or
+          count(input.id) >= ^settings.batch_size,
+      order_by: [asc: min(input.inserted_at), asc: input.conversation_ref],
       select: %{
-        transport: e.destination_transport,
-        conversation_ref: e.destination_conversation_ref,
-        repository_ref: e.repository_ref,
-        execution_mode: e.execution_mode
+        transport: input.transport,
+        conversation_ref: input.conversation_ref,
+        repository_ref: input.repository_ref,
+        execution_mode: input.execution_mode
       }
     )
   end
@@ -745,11 +771,19 @@ defmodule Ryker.Learning.Batches do
     batch
   end
 
+  # Routed messages no batch holds yet, except one whose Work is still running:
+  # learned then, a request is learned from before Ryker has answered it.
   defp pending_query do
     from(e in Entry,
       as: :input,
       where: e.status in [:decided, :superseded],
-      where: not exists(from(m in InputMembership, where: m.input_id == parent_as(:input).id))
+      where: not exists(from(m in InputMembership, where: m.input_id == parent_as(:input).id)),
+      where:
+        not exists(
+          from(work in subquery(Custody.work_rest_query()),
+            where: work.episode_id == parent_as(:input).episode_id and work.running
+          )
+        )
     )
   end
 

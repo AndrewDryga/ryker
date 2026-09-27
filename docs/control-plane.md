@@ -249,8 +249,9 @@ or duplicated. Model-request history follows the same progressive pattern with
 page exists, the corresponding affordance is absent.
 
 Two background sections follow the answer in reading order while keeping their
-own recorded times, because learning routinely overlaps the work and reading it
-later must not make it look like it happened later. **Learning** shows every
+own recorded times. Learning waits for the request's Work to come to rest, but a
+request can work again while it learns, and reading it later must not make it
+look like it happened later. **Learning** shows every
 learning attempt whose frozen selection names one of this request's own inputs,
 reached through the batch that holds them (`conversation_learning_inputs`), a
 relearning batch that chose them, or an attempt's own selection; sharing a

@@ -157,7 +157,10 @@ The memory pipeline has separate read, learn, and act decisions:
    records a bounded original-message excerpt and its exact source receipt, including for silence.
 2. The optional `Ryker.Learning.Runtime` coalesces decided input revisions in the same writable
    scope and execution mode. A revision belongs to one durable batch. Quiet/max-delay clocks start
-   when admission made it eligible, not when the historical source message happened.
+   when admission made it eligible, not when the historical source message happened. A revision
+   that started Work becomes eligible only once that Work has come to rest (answered, waiting for
+   a person or an event, blocked, cancelled or closed), and its clocks start then; however long the
+   Work runs, neither clock forces it earlier.
 3. `State.Learning` freezes the selected original inputs, eligible existing subjects, prompt,
    schema, policy digest, and remote operation identities. It is the sole model writer of topic
    knowledge. The learner can return no change without replying or creating an episode.

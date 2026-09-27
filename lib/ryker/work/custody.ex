@@ -801,6 +801,9 @@ defmodule Ryker.Work.Custody do
   @doc false
   defdelegate claimable_episode_ids_query(now, phase), to: Claims
 
+  @doc false
+  defdelegate work_rest_query(), to: Claims
+
   @doc "Read-only recovery eligibility; retry rechecks this under custody locks."
   defdelegate completed_workspace_recoverable(turn), to: Cancellation
 

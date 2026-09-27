@@ -2,13 +2,15 @@ defmodule Ryker.Learning.Worker do
   @moduledoc """
   One slot of the learning pool.
 
-  A routed message and a batch that changes are announced, and each wakes the
+  A routed message, a request whose Work changes (so its messages may have
+  come to rest) and a batch that changes are announced, and each wakes the
   slot at once. With nothing to learn it sleeps until a conversation has been
   quiet long enough or a batch's retry or lease falls due
   (`Ryker.Learning.Batches.next_due_at/2`), or for its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :learning, interval: :poll_interval_ms
   require Logger
+  alias Ryker.Episodes
   alias Ryker.Ingress.Inbox
   alias Ryker.Learning
   alias Ryker.Learning.{Batches, Dispatcher}
@@ -18,7 +20,12 @@ defmodule Ryker.Learning.Worker do
   def start_link(settings), do: GenServer.start_link(__MODULE__, settings)
 
   @impl PollingWorker
-  def wake_on(_settings), do: [&Inbox.subscribe_inputs/0, &Learning.subscribe_learning/0]
+  def wake_on(_settings),
+    do: [
+      &Inbox.subscribe_inputs/0,
+      &Episodes.subscribe_episodes/0,
+      &Learning.subscribe_learning/0
+    ]
 
   @impl PollingWorker
   def poll(settings) do
