@@ -121,10 +121,9 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     assert has_element?(view, ".kit-empty-title", "Nothing needs you")
 
     assert {:ok, %{action: action}} =
-             PlatformActionCustody.enqueue(claim, %{
+             PlatformActionCustody.enqueue_in_turn(claim, %{
                conversation_ref: "slack:T123:C123",
                document: %{"action" => "add", "emoji_name" => "eyes"},
-               host_slot: "reaction",
                kind: :reaction,
                source_item_ref: "1787832000.000100",
                thread_ref: "1787832000.000100",

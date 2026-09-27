@@ -19,7 +19,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
     :ok = Episodes.subscribe_episode(episode_id)
 
     assert {:ok, %{action: %{id: id}, status: :created}} =
-             PlatformActionCustody.enqueue(claim, reaction_attributes())
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes())
 
     assert_received {:platform_action_updated, ^id}
     assert_received {:episode_updated, ^episode_id}

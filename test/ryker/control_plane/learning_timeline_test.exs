@@ -17,7 +17,6 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
   """
   use Ryker.DataCase, async: false
 
-
   import Ecto.Query
   import Phoenix.LiveViewTest
 
