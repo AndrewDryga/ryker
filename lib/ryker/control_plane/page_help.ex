@@ -58,6 +58,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/memory/learned", :learned},
     {"/memory/findings", :findings},
     {"/memory/learning", :learning},
+    {"/memory/feedback", :feedback},
     {"/integrations", :integrations},
     {"/integrations/slack", :slack},
     {"/integrations/github", :github},
@@ -662,6 +663,29 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Check the evidence",
        [
          "Open a finding's evidence to see what supports it, and Open investigation for the work behind it. Evidence that has expired says so."
+       ]}
+    ])
+  end
+
+  defp help(:feedback) do
+    page("How feedback works", [
+      {"What feedback is",
+       [
+         "What people told Ryker about its answers in Slack and Chat, kept with the request each answer belongs to. Nobody has to fill anything in: Ryker notices it.",
+         "It is a reaction on one of Ryker's messages, or asking the same thing again soon after an answer. It is changing or deleting a message after Ryker answered it, or how the person felt about the answer judging by their next message. Your reviews of how requests ended are here too."
+       ]},
+      {"The kinds, frustrated first",
+       [
+         "Frustrated covers anyone frustrated or angry with an answer, and a thumbs down or a similar reaction. Asked again and Edited or deleted come next, then Neutral, Satisfied and your reviews. Point at a state to see what it means."
+       ]},
+      {"Find what went wrong",
+       [
+         "Open a row to see the request's timeline: the message, what Ryker understood, what it did and what it answered. The request's own page lists its feedback in a chapter of its own.",
+         "The table by day shows whether something got worse. Open a kind to see all of it, newest first, and search for words in a reason or a request."
+       ]},
+      {"How long it is kept",
+       [
+         "Feedback is kept as long as prompts and replies are, set on the Data retention page."
        ]}
     ])
   end

@@ -6,7 +6,15 @@ defmodule Ryker.ControlPlane.EpisodePage do
   use Phoenix.Component
   import Ryker.ControlPlane.Components
 
-  alias Ryker.ControlPlane.{EpisodeRequest, EpisodeTrace, Kit, RequestContextHTML, RequestPage}
+  alias Ryker.ControlPlane.{
+    EpisodeRequest,
+    EpisodeTrace,
+    FeedbackPage,
+    Kit,
+    RequestContextHTML,
+    RequestPage
+  }
+
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
 
@@ -36,7 +44,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
       assign(
         assigns,
         :timeline_groups,
-        timeline_groups(chapters) ++ review_groups(assigns.snapshot.trace.review)
+        timeline_groups(chapters) ++
+          feedback_groups(assigns.snapshot[:feedback] || []) ++
+          review_groups(assigns.snapshot.trace.review)
       )
 
     assigns = assign(assigns, :source_link, source_link(assigns.snapshot))
@@ -273,6 +283,39 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp review_groups(_review), do: []
 
+  # Andrew, 2026-09-27: every answer records the feedback it gets. What people
+  # said about this request's answers is a chapter of its own, after the
+  # background chapters and before the reviews, which keep theirs: one card
+  # per signal, oldest first, each saying how they felt and why. A request
+  # nobody said anything about has no chapter.
+  defp feedback_groups([]), do: []
+
+  defp feedback_groups(feedback) do
+    [
+      %{
+        anchor: "feedback",
+        band: :feedback,
+        conversation_turn: nil,
+        description:
+          "What people said about Ryker's answers here: reactions, asking again, changing their message, and how they felt.",
+        kind: :feedback,
+        marker: "F",
+        phases: [
+          %{
+            band: :feedback,
+            turn: nil,
+            steps:
+              Enum.map(
+                feedback,
+                &%{id: "feedback-#{&1.id}", kind: :feedback, at: &1.at, feedback: &1}
+              )
+          }
+        ],
+        title: "Feedback"
+      }
+    ]
+  end
+
   @doc """
   The page of a message that has no request of its own: a greeting routing
   answered itself, a message it reacted to or left alone, or one still waiting
@@ -320,7 +363,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
       title: "Message"
     }
 
-    groups = [band] ++ learning_groups(view[:learning] || []) ++ thread_groups(view.thread)
+    groups =
+      [band] ++
+        learning_groups(view[:learning] || []) ++
+        feedback_groups(view[:feedback] || []) ++ thread_groups(view.thread)
+
     source = view.heading.source
 
     assigns =
@@ -984,10 +1031,46 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <.event :if={@entry.kind == :event && !card_stage?(@entry.step.stage)} step={@entry.step} />
         <EpisodeRequest.render :if={@entry.kind == :request} request={@entry} />
         <.review :if={@entry.kind == :review} review={@entry.review} />
+        <.feedback :if={@entry.kind == :feedback} feedback={@entry.feedback} />
       </div>
     </article>
     """
   end
+
+  attr(:feedback, :map, required: true)
+
+  # One thing someone said about an answer, in the words the Feedback page
+  # uses (`FeedbackPage`): how they felt as a dot and a word, who, what they
+  # did or why, and the message it came from.
+  defp feedback(assigns) do
+    assigns = assign(assigns, :state, FeedbackPage.state(assigns.feedback))
+
+    ~H"""
+    <div class="case-event-content feedback-card">
+      <.card_heading title={FeedbackPage.title(@feedback)}>
+        <:meta>
+          <Kit.state tone={elem(@state, 0)} word={elem(@state, 1)} hint={elem(@state, 2)} />
+        </:meta>
+      </.card_heading>
+      <p :if={feedback_reason(@feedback)} class="case-event-summary">
+        {feedback_reason(@feedback)}
+      </p>
+      <p class="case-event-summary">
+        <Kit.person person={@feedback.who} />
+        <span :if={@feedback.request.where}> · {@feedback.request.where}</span>
+        <a :if={@feedback.message_href} href={@feedback.message_href}> · Their message →</a>
+      </p>
+    </div>
+    """
+  end
+
+  # The heading says what kind of feedback it is; a reason or a note reads
+  # under it.
+  defp feedback_reason(%{kind: kind, note: note})
+       when kind in [:sentiment, :reviewed] and is_binary(note),
+       do: "“#{note}”"
+
+  defp feedback_reason(_feedback), do: nil
 
   attr(:review, :map, required: true)
 

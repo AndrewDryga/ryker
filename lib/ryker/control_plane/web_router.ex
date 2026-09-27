@@ -30,7 +30,7 @@ defmodule Ryker.ControlPlane.WebRouter do
       live("/#{path}", Ryker.ControlPlane.WorkbenchLive)
     end
 
-    for page <- ~w(learned findings learning) do
+    for page <- ~w(learned findings learning feedback) do
       live("/memory/#{page}", Ryker.ControlPlane.WorkbenchLive)
     end
 

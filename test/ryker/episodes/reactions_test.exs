@@ -112,7 +112,8 @@ defmodule Ryker.Episodes.ReactionsTest do
              Reactions.record(%{
                reaction
                | action: :remove,
-                 event_ref: "Ev-reaction-work-removed"
+                 event_ref: "Ev-reaction-work-removed",
+                 occurred_at: ~U[2026-09-27 12:00:05.000000Z]
              })
 
     assert Enum.map(Feedback.for_request({:episode, reply.episode.id}), &{&1.kind, &1.category}) ==

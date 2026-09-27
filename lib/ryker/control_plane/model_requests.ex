@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     ContextSelection,
     CurrentInputs,
     EpisodeTrace,
+    FeedbackProjection,
     LearningRequests,
     PagedRelation,
     RoutingReason,
@@ -648,6 +649,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
            if(entry.episode_id,
              do: Repo.one(from(e in Episode, where: e.id == ^entry.episode_id, select: e.key))
            ),
+         # What people said about the answer routing sent by itself.
+         feedback: FeedbackProjection.for_request({:input, id}),
          input_id: id,
          # The request page's header, for a message: what it says as people
          # read it, what happened to it in the words Activity uses, and where

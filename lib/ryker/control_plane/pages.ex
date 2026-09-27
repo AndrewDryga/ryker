@@ -24,6 +24,8 @@ defmodule Ryker.ControlPlane.Pages do
     FailureExplanation,
     FailureProjection,
     FailuresPage,
+    FeedbackPage,
+    FeedbackProjection,
     FindingsPage,
     HTML,
     IncidentProjection,
@@ -296,6 +298,18 @@ defmodule Ryker.ControlPlane.Pages do
     )
   end
 
+  # What people said about Ryker's answers; one category is a sub-page with
+  # its own heading and the way back to all feedback.
+  def page(["memory", "feedback"], params, options) do
+    view = options.projection.feedback.(Map.take(params, FeedbackProjection.query_keys()))
+    body = FeedbackPage.html(view)
+
+    case FeedbackPage.heading(view) do
+      nil -> ok("Feedback", FeedbackPage.description(), body)
+      heading -> sub_page(heading, body)
+    end
+  end
+
   def page(["memory", "findings"], params, options) do
     ok(
       "Findings",
@@ -349,6 +363,7 @@ defmodule Ryker.ControlPlane.Pages do
   def subscriptions(["memory", "learned"], _params), do: LearnedPage.subscriptions()
   def subscriptions(["memory", "learning"], _params), do: LearningPage.subscriptions()
   def subscriptions(["memory", "findings"], _params), do: FindingsPage.subscriptions()
+  def subscriptions(["memory", "feedback"], _params), do: FeedbackPage.subscriptions()
   def subscriptions(["rules"], _params), do: BehaviorPage.subscriptions(:rules)
   def subscriptions(["usage"], _params), do: UsagePage.subscriptions()
   def subscriptions(["failures" | _failure], _params), do: FailuresPage.subscriptions()

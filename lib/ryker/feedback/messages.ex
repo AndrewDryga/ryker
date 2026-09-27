@@ -177,13 +177,14 @@ defmodule Ryker.Feedback.Messages do
     from(question in Entry,
       where:
         question.source_kind == ^entry.source_kind and question.source_ref == ^entry.source_ref and
-          question.occurred_at >= ^since and question.occurred_at < ^entry.occurred_at and
-          question.actor_kind == :user and question.actor_ref == ^entry.actor_ref and
-          question.destination_transport == ^entry.destination_transport and
+          question.occurred_at >= ^since and question.occurred_at < ^entry.occurred_at,
+      where: question.actor_kind == :user and question.actor_ref == ^entry.actor_ref,
+      where:
+        question.destination_transport == ^entry.destination_transport and
           question.destination_conversation_ref == ^entry.destination_conversation_ref and
-          question.execution_mode == ^entry.execution_mode and
-          question.event_kind in [:message, :edit] and question.id != ^entry.id and
-          is_nil(question.operational_pruned_at),
+          question.execution_mode == ^entry.execution_mode,
+      where: question.event_kind in [:message, :edit] and question.id != ^entry.id,
+      where: is_nil(question.operational_pruned_at),
       order_by: [desc: question.occurred_at, desc: question.id],
       limit: @question_limit,
       select:

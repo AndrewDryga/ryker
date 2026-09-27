@@ -24,7 +24,8 @@ defmodule Ryker.ControlPlane.NavigationTest do
             {"/memory", "Facts"},
             {"/memory/learned", "Learned"},
             {"/memory/findings", "Findings"},
-            {"/memory/learning", "Learning"}
+            {"/memory/learning", "Learning"},
+            {"/memory/feedback", "Feedback"}
           ] do
         assert document |> LazyHTML.query("a[href='#{path}']") |> LazyHTML.text() =~ title
       end

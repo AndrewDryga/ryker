@@ -125,8 +125,13 @@ defmodule Ryker.Feedback do
 
   def for_request(_request, _limit), do: []
 
+  # Two signals the source says happened at the same moment read in the order
+  # Ryker recorded them.
   defp newest(query, limit) do
-    from(signal in query, order_by: [desc: signal.occurred_at, desc: signal.id], limit: ^limit)
+    from(signal in query,
+      order_by: [desc: signal.occurred_at, desc: signal.inserted_at, desc: signal.id],
+      limit: ^limit
+    )
     |> Repo.all()
     |> Enum.reverse()
   end

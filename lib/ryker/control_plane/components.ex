@@ -12,6 +12,8 @@ defmodule Ryker.ControlPlane.Components do
   @icons %{
     activity: "M3 12h4l3-8 4 16 3-8h4",
     chat: "M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z",
+    smile:
+      "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z M8.5 14a4.5 4.5 0 0 0 7 0 M9 9.5h.01 M15 9.5h.01",
     cards: "M4 7h13v14H4z M8 3h13v14 M4 12h13",
     incident: "M12 3 2 21h20L12 3Z M12 9v5 M12 17v1",
     clock: "M12 8v5l3 2 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0",

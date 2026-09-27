@@ -10,7 +10,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
   `parent`, so a test can assert that a refused request never reached them.
   """
 
-  alias Ryker.ControlPlane.EpisodeCausality
+  alias Ryker.ControlPlane.{EpisodeCausality, FeedbackProjection}
 
   @secret String.duplicate("s", 32)
 
@@ -424,6 +424,20 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         failure: &failure_row/2,
         failures: fn _params -> {:ok, failure_rows()} end,
         findings: fn _params -> %{items: [], total: 0, page: 1, pages: 1} end,
+        feedback: fn params ->
+          %{
+            category: FeedbackProjection.category(params["category"]),
+            counts: %{},
+            days: [],
+            groups: [],
+            items: [],
+            listed: 0,
+            page: 1,
+            pages: 1,
+            q: params["q"] || "",
+            total: 0
+          }
+        end,
         incidents: fn _params ->
           [
             %{
