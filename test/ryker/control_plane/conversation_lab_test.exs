@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Artifact
   alias Ryker.Behaviors.Behavior
-  alias Ryker.ControlPlane.{Actions, ConversationLab, Projection}
+  alias Ryker.ControlPlane.{Actions, ConversationLab, HTML, Projection}
   alias Ryker.ControlPlane.WorkChanges
   alias Ryker.Episodes
   alias Ryker.Fixtures.ChannelEnvironments
@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
   alias Ryker.TestSupport.FakeWorkCoopAPI
+  alias Ryker.TestTranscriber
 
   alias Ryker.Work.{
     Cancellation,
@@ -682,6 +683,55 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                  %{data: "file #{index}", media_type: "text/plain", name: "#{index}.txt"}
                end)
            ) == {:error, {:invalid_conversation_lab, :attachments}}
+  end
+
+  # Andrew, 2026-09-27: a voice message sent to Ryker was ignored as a file
+  # it could not read. Chat refused the same recording outright ("Ryker can't
+  # read ..."). A voice message is words: Chat keeps the recording and records
+  # what it said, so routing and the conversation read it like typed text.
+  test "a Chat voice message is transcribed and shown with its transcript" do
+    audio = TestTranscriber.recording("Check the error rate on checkout", :webm)
+
+    assert {:ok, %{status: :recorded, entry: entry}} =
+             ConversationLab.send_message(@conversation_id, "", profile(),
+               attachments: [%{data: audio, media_type: "audio/webm", name: "voice-note.webm"}],
+               id_generator: fn -> @event_id end,
+               now: fn -> @now end
+             )
+
+    assert_received {:transcribed, ^audio}
+
+    assert [
+             %{
+               "media_type" => "audio/webm",
+               "name" => "voice-note.webm",
+               "status" => "available",
+               "transcript" => "Check the error rate on checkout"
+             } = file
+           ] = entry.content["files"]
+
+    assert {:ok, [%{data: ^audio}]} = Artifacts.fetch_many([file["artifact_ref"]])
+
+    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert [message] = conversation.messages
+    shown = message |> HTML.lab_message_extras() |> IO.iodata_to_binary()
+    assert shown =~ ~r{<dt>Transcript</dt>\s*<dd>Check the error rate on checkout</dd>}
+  end
+
+  # Past the limits Ryker transcribes, Chat says why at once, while the person
+  # is still there to send something shorter, and records nothing.
+  test "a Chat recording too long to transcribe is refused with a plain reason" do
+    audio = TestTranscriber.recording("TOO LONG")
+
+    assert ConversationLab.send_message(@conversation_id, "", profile(),
+             attachments: [%{data: audio, media_type: "audio/mp4", name: "standup.m4a"}]
+           ) ==
+             {:error,
+              {:recording_refused, "standup.m4a",
+               "a voice message longer than 5 minutes, the most Ryker transcribes"}}
+
+    assert Repo.aggregate(Artifact, :count) == 0
+    assert Repo.aggregate(Entry, :count) == 0
   end
 
   test "attachment validation and ingress conflicts roll back as one durable submission" do

@@ -40,7 +40,7 @@ defmodule Ryker.ControlPlane.Router do
   @maximum_memory_form_bytes 16 * 1_024
   @maximum_lab_form_bytes 65_536
   @maximum_lab_multipart_bytes 8 * 1_024 * 1_024 + @maximum_lab_form_bytes
-  @readable_files "It reads text files, PDFs and PNG, JPEG, WebP or GIF images."
+  @readable_files "It reads text files, PDFs and PNG, JPEG, WebP or GIF images, and transcribes voice messages and videos."
   # Every failure kind with a confirmed recovery; publications have none.
   @recoverable_failures ~w(admission delivery emisar retention slack_incident slack_interaction slack_task_card slack_thread_status work)
   @lab_multipart_parser Plug.Parsers.init(
@@ -157,6 +157,9 @@ defmodule Ryker.ControlPlane.Router do
 
       {:error, {:invalid_conversation_lab, :attachments}} ->
         text(conn, 422, "Ryker can't read one of the attached files. #{@readable_files}")
+
+      {:error, {:recording_refused, name, reason}} ->
+        text(conn, 422, "#{name} is #{reason}.")
 
       {:error, {:invalid_conversation_lab, :message}} ->
         text(conn, 422, "Write a message of at most 20,000 bytes, or attach a file.")

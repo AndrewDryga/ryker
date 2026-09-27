@@ -30,3 +30,7 @@ config :ryker, Ryker.Repo,
 config :logger, level: :warning
 
 config :ryker, :credential_key, :binary.copy(<<73>>, 32)
+
+# Voice messages are transcribed by a deterministic stand-in: no test runs a
+# speech model.
+config :ryker, :transcriber, Ryker.TestTranscriber

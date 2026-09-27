@@ -57,6 +57,7 @@ defmodule Ryker.Slack.Runtime do
   }
 
   alias Ryker.Slack.Supervisor, as: SlackSupervisor
+  alias Ryker.Transcription
 
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Automations
@@ -347,7 +348,8 @@ defmodule Ryker.Slack.Runtime do
       attachment_options: %{
         client: file_client,
         downloader: FileClient,
-        store: Artifacts
+        store: Artifacts,
+        transcriber: Transcription.transcriber()
       },
       client: bot_client,
       command_handler: CommandHandler,

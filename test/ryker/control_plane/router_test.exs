@@ -568,6 +568,54 @@ defmodule Ryker.ControlPlane.RouterTest do
     refute_received {:lab_message, ^id, "Read this core dump.", _files}
   end
 
+  # Andrew, 2026-09-27: a voice message was ignored as a file Ryker could not
+  # read, and Chat refused a recording outright. A browser labels an .m4a
+  # audio/x-m4a; its bytes are the recording Ryker keeps, and one Ryker will
+  # not transcribe is refused with the reason, in words.
+  test "a voice message is sent as a recording, and one too long to transcribe is refused by name" do
+    id = Ecto.UUID.generate()
+    token = CSRF.token(@secret, "conversation_lab:send", id)
+    audio = Ryker.TestTranscriber.recording("Please audit the checkout service")
+
+    sent =
+      multipart_request(
+        "/conversations/#{id}/messages",
+        token,
+        "",
+        "voice.m4a",
+        "audio/x-m4a",
+        audio
+      )
+
+    assert sent.status == 303
+
+    assert_received {:lab_message, ^id, "",
+                     [%{data: ^audio, media_type: "audio/mp4", name: "voice.m4a"}]}
+
+    refusing =
+      put_in(options(), [:actions, :send_lab_message], fn _id, _message, [%{name: name}] ->
+        {:error,
+         {:recording_refused, name,
+          "a voice message longer than 5 minutes, the most Ryker transcribes"}}
+      end)
+
+    refused =
+      multipart_request_with_options(
+        "/conversations/#{id}/messages",
+        token,
+        "",
+        "standup.m4a",
+        "audio/mp4",
+        audio,
+        refusing
+      )
+
+    assert refused.status == 422
+
+    assert refused.resp_body ==
+             "standup.m4a is a voice message longer than 5 minutes, the most Ryker transcribes."
+  end
+
   # Manual testing, 2026-09-26: the Chat message sent after a refused upload
   # failed with a bare 400 and a connection reset. The refusal went out
   # through the conn from before the upload was read, so Bandit drained the
@@ -1984,7 +2032,11 @@ defmodule Ryker.ControlPlane.RouterTest do
     )
   end
 
-  defp multipart_request(path, token, message, filename, media_type, data) do
+  defp multipart_request(path, token, message, filename, media_type, data),
+    do:
+      multipart_request_with_options(path, token, message, filename, media_type, data, options())
+
+  defp multipart_request_with_options(path, token, message, filename, media_type, data, options) do
     boundary = "ryker-lab-boundary"
 
     body =
@@ -2003,7 +2055,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     |> put_req_header("content-type", "multipart/form-data; boundary=#{boundary}")
     |> Map.put(:host, "localhost")
     |> Map.put(:remote_ip, {127, 0, 0, 1})
-    |> Router.call(Router.init(options()))
+    |> Router.call(Router.init(options))
   end
 
   defp socket_upload(socket, conversation_id, token, message, filename, data) do

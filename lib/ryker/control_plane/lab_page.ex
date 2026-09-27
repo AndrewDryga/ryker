@@ -290,7 +290,7 @@ defmodule Ryker.ControlPlane.LabPage do
                   name="attachments[]"
                   type="file"
                   multiple
-                  accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/*,application/json,application/yaml,application/x-yaml,.log,.yml,.yaml,.toml,.conf,.ini,.sh,.sql,.diff,.patch"
+                  accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/*,application/json,application/yaml,application/x-yaml,audio/*,video/mp4,video/quicktime,video/webm,.log,.yml,.yaml,.toml,.conf,.ini,.sh,.sql,.diff,.patch,.m4a,.opus"
                   aria-describedby="lab-attachments-error"
                 /><label class="lab-attach" for="lab-attachments">Attach files</label><span
                   class="lab-attached"

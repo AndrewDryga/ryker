@@ -852,6 +852,43 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     refute submission["prompt"] =~ queued_artifact.ref
   end
 
+  # Coop's input contract carries no audio or video: had the voice message's
+  # recording gone into the turn's artifacts, Coop would refuse the turn and
+  # the request Andrew spoke (2026-09-27) would never run. Work reads what
+  # was said from the transcript beside the recording.
+  test "a voice message reaches Work as its transcript and never as a file" do
+    audio = Ryker.TestTranscriber.recording("Please audit the checkout service")
+
+    assert {:ok, recording} =
+             Artifacts.put(%{
+               data: audio,
+               media_type: "audio/mp4",
+               name: "audio_message.m4a",
+               source_kind: "slack",
+               source_ref: "TD0983425B9D3:F0C5LM60REC"
+             })
+
+    claim =
+      claim_episode_payload!("voice-message", %{
+        "files" => [
+          %{
+            "artifact_ref" => recording.ref,
+            "bytes" => recording.byte_size,
+            "media_type" => "audio/mp4",
+            "name" => "audio_message.m4a",
+            "sha256" => recording.sha256,
+            "status" => "available",
+            "transcript" => "Please audit the checkout service"
+          }
+        ],
+        "text" => ""
+      })
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert submission["input_artifact_refs"] == []
+    assert submission["prompt"] =~ "Please audit the checkout service"
+  end
+
   test "a continuation in the same Coop session sends a delta instead of the briefing again" do
     alias Ryker.Instructions
 

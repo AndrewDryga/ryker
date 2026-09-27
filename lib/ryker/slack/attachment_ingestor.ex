@@ -4,10 +4,18 @@ defmodule Ryker.Slack.AttachmentIngestor do
 
   Raw private URLs exist only during this adapter call. The returned generic
   input contains safe metadata and an opaque artifact ref for the Work runtime.
+
+  A voice message or video is kept too, and its descriptor carries what was
+  said (`Ryker.Transcription`): Slack's own transcript when Slack finished
+  one, otherwise the configured transcriber's, taken here, before the input is
+  recorded, so routing reads a voice message as words. The transcriber's
+  result is kept beside the recording, so Slack's redelivery of the same file
+  does not transcribe it again.
   """
 
   alias Ryker.Artifacts
   alias Ryker.Ingress.Input
+  alias Ryker.Transcription
 
   # The kernel activates at most two input events at once and Coop accepts five
   # artifacts per turn. Two per source event keeps every active attachment
@@ -48,13 +56,30 @@ defmodule Ryker.Slack.AttachmentIngestor do
 
   defp ingest_files(_input, _options), do: {:error, {:invalid_slack_attachment_ingestor, :files}}
 
-  defp ingest_file(_input, _file, index, total, _options) when index >= @maximum_files,
-    do: {:ok, unavailable("file_limit_exceeded"), total}
+  defp ingest_file(_input, file, index, total, _options) when index >= @maximum_files,
+    do: {:ok, unavailable("file_limit_exceeded", file), total}
 
   defp ingest_file(input, %{} = file, _index, total, options) do
+    case stored(input, file, total, options) do
+      {:ok, artifact} ->
+        {:ok, available(artifact, file, options), total + artifact.byte_size}
+
+      {:unavailable, reason} ->
+        {:ok, unavailable(reason, file), total}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp ingest_file(_input, file, _index, total, _options),
+    do: {:ok, unavailable("invalid_metadata", file), total}
+
+  defp stored(input, file, total, options) do
     with {:ok, source_ref} <- source_ref(input, file),
          {:miss, source_ref} <- existing(options.store, source_ref),
          :ok <- supported(file),
+         :ok <- transcribable(file),
          :ok <- available_capacity(file, total),
          {:ok, resolved, data} <-
            options.downloader.download(options.client, file, @maximum_bytes - total),
@@ -67,32 +92,32 @@ defmodule Ryker.Slack.AttachmentIngestor do
              source_kind: "slack",
              source_ref: source_ref
            }) do
-      {:ok, available(artifact), total + artifact.byte_size}
+      {:ok, artifact}
     else
       {:ok, artifact} ->
-        {:ok, available(artifact), total + artifact.byte_size}
+        {:ok, artifact}
 
       {:error, {:invalid_input_artifact, field}}
       when field in [:data, :media_type, :name] ->
-        {:ok, unavailable(reason(field)), total}
+        {:unavailable, reason(field)}
 
       {:error, {:slack_file_rejected, field}}
       when field in [:metadata, :url, :maximum_bytes] ->
-        {:ok, unavailable(reason(field)), total}
+        {:unavailable, reason(field)}
 
       {:error, :unsupported_media_type} ->
-        {:ok, unavailable("unsupported_media_type"), total}
+        {:unavailable, "unsupported_media_type"}
 
       {:error, :attachment_capacity_exceeded} ->
-        {:ok, unavailable("attachment_bytes_exceeded"), total}
+        {:unavailable, "attachment_bytes_exceeded"}
+
+      {:error, {:recording_refused, failure}} ->
+        {:unavailable, reason(failure)}
 
       {:error, _reason} = error ->
         error
     end
   end
-
-  defp ingest_file(_input, _file, _index, total, _options),
-    do: {:ok, unavailable("invalid_metadata"), total}
 
   defp existing(store, source_ref) do
     case store.fetch_source("slack", source_ref) do
@@ -116,12 +141,32 @@ defmodule Ryker.Slack.AttachmentIngestor do
   # model. A label that may hide text is downloaded and its bytes decide, as in
   # Chat; one that plainly is not text is refused without the download.
   defp supported(%{"mimetype" => media_type}) when is_binary(media_type) do
-    if Artifacts.supported_media_type?(media_type) or text_label?(media_type),
-      do: :ok,
-      else: {:error, :unsupported_media_type}
+    if Artifacts.supported_media_type?(media_type) or text_label?(media_type) or
+         Artifacts.recording_media_type(media_type),
+       do: :ok,
+       else: {:error, :unsupported_media_type}
   end
 
   defp supported(_file), do: {:error, {:slack_file_rejected, :metadata}}
+
+  # A voice message or video Slack says is too long or too large to transcribe
+  # is refused before it is downloaded, and routing hears why.
+  defp transcribable(%{"mimetype" => label} = file) do
+    cond do
+      is_nil(Artifacts.recording_media_type(label)) ->
+        :ok
+
+      is_integer(file["duration_ms"]) and
+          file["duration_ms"] > Transcription.maximum_seconds() * 1_000 ->
+        {:error, {:recording_refused, :too_long}}
+
+      is_integer(file["size"]) and file["size"] > Transcription.maximum_bytes() ->
+        {:error, {:recording_refused, :too_large}}
+
+      true ->
+        :ok
+    end
+  end
 
   defp text_label?("text/" <> _kind), do: true
 
@@ -153,8 +198,8 @@ defmodule Ryker.Slack.AttachmentIngestor do
 
   defp available_capacity(_file, _total), do: {:error, {:slack_file_rejected, :metadata}}
 
-  defp available(artifact) do
-    %{
+  defp available(artifact, file, options) do
+    descriptor = %{
       "artifact_ref" => artifact.ref,
       "bytes" => artifact.byte_size,
       "media_type" => artifact.media_type,
@@ -162,9 +207,80 @@ defmodule Ryker.Slack.AttachmentIngestor do
       "sha256" => artifact.sha256,
       "status" => "available"
     }
+
+    if Artifacts.recording?(artifact.media_type),
+      do: Map.merge(descriptor, transcript(artifact, file, options)),
+      else: descriptor
   end
 
-  defp unavailable(reason), do: %{"reason" => reason, "status" => "unavailable"}
+  # A recording Ryker could not keep still tells routing a voice message was
+  # sent, and why it has no words.
+  defp unavailable(reason, file) do
+    descriptor = %{"reason" => reason, "status" => "unavailable"}
+
+    case file |> label() |> Artifacts.recording_media_type() do
+      nil ->
+        descriptor
+
+      media_type ->
+        Map.merge(descriptor, Transcription.outcome(media_type, {:error, failure(reason)}))
+    end
+  end
+
+  defp label(%{"mimetype" => label}), do: label
+  defp label(_file), do: nil
+
+  defp transcript(artifact, file, options) do
+    words =
+      case slack_words(file) do
+        {:ok, words} -> {:ok, words}
+        :none -> transcribed(artifact, options)
+      end
+
+    Transcription.outcome(artifact.media_type, words)
+  end
+
+  # Slack's finished transcript is the whole of what was said unless Slack
+  # says there is more than its preview.
+  defp slack_words(%{
+         "transcription" => %{
+           "status" => "complete",
+           "preview" => %{"content" => words} = preview
+         }
+       })
+       when is_binary(words) do
+    if preview["has_more"] == true, do: :none, else: {:ok, words}
+  end
+
+  defp slack_words(_file), do: :none
+
+  defp transcribed(artifact, options) do
+    kept = artifact.source_ref <> ":transcript"
+
+    case options.store.fetch_source("slack", kept) do
+      {:ok, %{data: words}} ->
+        {:ok, words}
+
+      {:error, :input_artifact_not_found} ->
+        result = options.transcriber.transcribe(artifact.data, [])
+        _kept = keep(options.store, kept, result)
+        result
+    end
+  end
+
+  defp keep(store, source_ref, {:ok, text}) do
+    with {:ok, words} <- Transcription.words(text) do
+      store.put(%{
+        data: words,
+        media_type: "text/plain",
+        name: "transcript.txt",
+        source_kind: "slack",
+        source_ref: source_ref
+      })
+    end
+  end
+
+  defp keep(_store, _source_ref, {:error, _failure}), do: :ok
 
   defp reason(:data), do: "content_mismatch"
   defp reason(:media_type), do: "unsupported_media_type"
@@ -172,17 +288,29 @@ defmodule Ryker.Slack.AttachmentIngestor do
   defp reason(:metadata), do: "invalid_metadata"
   defp reason(:url), do: "invalid_url"
   defp reason(:maximum_bytes), do: "attachment_bytes_exceeded"
+  defp reason(:too_long), do: "recording_too_long"
+  defp reason(:too_large), do: "recording_too_large"
 
-  defp options(%{client: client, downloader: downloader, store: store})
-       when is_atom(downloader) and is_atom(store) do
-    if Code.ensure_loaded?(downloader) and Code.ensure_loaded?(store) and
-         function_exported?(downloader, :download, 3) and
-         function_exported?(store, :fetch_source, 2) and function_exported?(store, :put, 1),
-       do: {:ok, %{client: client, downloader: downloader, store: store}},
+  defp failure("recording_too_long"), do: :too_long
+  defp failure("recording_too_large"), do: :too_large
+  defp failure(_reason), do: :failed
+
+  defp options(
+         %{client: _client, downloader: downloader, store: store, transcriber: transcriber} =
+           settings
+       ) do
+    if implements?(downloader, download: 3) and implements?(store, fetch_source: 2, put: 1) and
+         implements?(transcriber, transcribe: 2),
+       do: {:ok, Map.take(settings, [:client, :downloader, :store, :transcriber])},
        else: {:error, {:invalid_slack_attachment_ingestor, :settings}}
   end
 
   defp options(_settings), do: {:error, {:invalid_slack_attachment_ingestor, :settings}}
+
+  defp implements?(module, functions) do
+    is_atom(module) and Code.ensure_loaded?(module) and
+      Enum.all?(functions, fn {name, arity} -> function_exported?(module, name, arity) end)
+  end
 
   defp bounded(value, maximum),
     do: is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum

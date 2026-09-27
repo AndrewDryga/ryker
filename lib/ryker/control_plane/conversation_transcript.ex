@@ -776,6 +776,8 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp item_id(_source_item_ref), do: nil
 
+  # A voice message or video shows with its transcript, or with why it has
+  # none.
   defp input_attachments(%{"files" => files}) when is_list(files) do
     files
     |> Enum.take(2)
@@ -786,7 +788,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
         "media_type" => media_type,
         "name" => name,
         "status" => "available"
-      }
+      } = file
       when is_binary(ref) and is_integer(bytes) and bytes > 0 and is_binary(media_type) and
              is_binary(name) ->
         [
@@ -797,10 +799,14 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
             ref: ref,
             status: "available"
           }
+          |> put_transcript(file)
         ]
 
-      %{"reason" => reason, "status" => "unavailable"} when is_binary(reason) ->
-        [%{bytes: nil, media_type: nil, name: "Attachment", ref: nil, status: reason}]
+      %{"reason" => reason, "status" => "unavailable"} = file when is_binary(reason) ->
+        [
+          %{bytes: nil, media_type: nil, name: "Attachment", ref: nil, status: reason}
+          |> put_transcript(file)
+        ]
 
       _invalid ->
         []
@@ -808,6 +814,14 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp input_attachments(_content), do: []
+
+  defp put_transcript(attachment, %{"transcript" => words}) when is_binary(words),
+    do: Map.put(attachment, :transcript, words)
+
+  defp put_transcript(attachment, %{"transcript_unavailable" => note}) when is_binary(note),
+    do: Map.put(attachment, :transcript_unavailable, note)
+
+  defp put_transcript(attachment, _file), do: attachment
 
   defp reply_outcome(%{"outcome" => %{} = outcome}), do: outcome
   defp reply_outcome(_document), do: %{}

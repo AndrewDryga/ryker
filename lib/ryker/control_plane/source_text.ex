@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.SourceText do
 
     [text | Enum.flat_map(list(content["attachments"]), &attachment/1)]
     |> Kernel.++(Enum.flat_map(blocks, &block/1))
+    |> Kernel.++(Enum.flat_map(list(content["files"]), &transcript/1))
     |> Enum.filter(&present?/1)
     |> Enum.uniq()
     |> case do
@@ -35,6 +36,22 @@ defmodule Ryker.ControlPlane.SourceText do
   end
 
   defp attachment(_), do: []
+
+  # A voice message or video reads as what it said, labelled as a transcript,
+  # or says that Ryker could not transcribe it.
+  defp transcript(%{"transcript" => words} = file) when is_binary(words),
+    do: ["#{recording(file["media_type"])} transcript: #{words}"]
+
+  defp transcript(%{"transcript_unavailable" => note}) when is_binary(note),
+    do: [sentence(note)]
+
+  defp transcript(_), do: []
+
+  defp recording("video/" <> _format), do: "Video"
+  defp recording(_media_type), do: "Voice message"
+
+  defp sentence(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest <> "."
+  defp sentence(note), do: note
   defp block(%{"text" => %{"text" => text}}), do: [text]
   defp block(%{"text" => text}) when is_binary(text), do: [text]
 

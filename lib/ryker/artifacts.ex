@@ -8,6 +8,7 @@ defmodule Ryker.Artifacts do
   loads them by opaque artifact reference.
   """
 
+  import Bitwise
   import Ecto.Query
 
   alias Ryker.Artifacts.{Artifact, ArtifactChangeset}
@@ -15,11 +16,39 @@ defmodule Ryker.Artifacts do
   alias Ryker.Repo
 
   @maximum_bytes 8 * 1_024 * 1_024
-  @media_types ~w(
+  # What Coop's input-artifact contract carries to a model.
+  @model_media_types ~w(
     image/png image/jpeg image/webp image/gif
     text/plain text/markdown text/csv application/json
     application/yaml application/x-yaml application/pdf
   )
+  # Voice messages and videos are kept for the record and reach models as
+  # their transcript (`Ryker.Transcription`): Coop takes no audio or video.
+  @recording_media_types ~w(
+    audio/aac audio/mp4 audio/mpeg audio/ogg audio/wav audio/webm
+    video/mp4 video/quicktime video/webm
+  )
+  @media_types @model_media_types ++ @recording_media_types
+  # How Slack and browsers label the recordings Ryker keeps.
+  @recording_labels %{
+    "audio/aac" => "audio/aac",
+    "audio/x-aac" => "audio/aac",
+    "audio/mp4" => "audio/mp4",
+    "audio/m4a" => "audio/mp4",
+    "audio/x-m4a" => "audio/mp4",
+    "audio/mpeg" => "audio/mpeg",
+    "audio/mp3" => "audio/mpeg",
+    "audio/ogg" => "audio/ogg",
+    "audio/opus" => "audio/ogg",
+    "audio/wav" => "audio/wav",
+    "audio/wave" => "audio/wav",
+    "audio/x-wav" => "audio/wav",
+    "audio/vnd.wave" => "audio/wav",
+    "audio/webm" => "audio/webm",
+    "video/mp4" => "video/mp4",
+    "video/quicktime" => "video/quicktime",
+    "video/webm" => "video/webm"
+  }
   @text_media_types ~w(text/plain text/markdown text/csv application/json application/yaml application/x-yaml)
 
   @spec put(map()) :: {:ok, Artifact.t()} | {:error, term()}
@@ -103,17 +132,36 @@ defmodule Ryker.Artifacts do
   @spec supported_media_type?(term()) :: boolean()
   def supported_media_type?(media_type), do: media_type in @media_types
 
+  @doc "Whether a model can receive an artifact of this type as a file."
+  @spec model_media_type?(term()) :: boolean()
+  def model_media_type?(media_type), do: media_type in @model_media_types
+
+  @doc "Whether this type is a voice message or a video, which reaches models as its transcript."
+  @spec recording?(term()) :: boolean()
+  def recording?(media_type), do: media_type in @recording_media_types
+
+  @doc "The media type Ryker keeps a recording under, from its sender's label."
+  @spec recording_media_type(term()) :: String.t() | nil
+  def recording_media_type(label) when is_binary(label),
+    do: Map.get(@recording_labels, String.downcase(label))
+
+  def recording_media_type(_label), do: nil
+
   @doc """
   The media type to store for an uploaded file its sender labelled `declared`:
-  the label when the bytes are that kind, otherwise text/plain for any UTF-8
-  text, because a browser labels a .log file or a script
+  the label when the bytes are that kind, a recording's own type when its
+  label names one and the bytes are that container, otherwise text/plain for
+  any UTF-8 text, because a browser labels a .log file or a script
   application/octet-stream. Anything else, and an empty file, is unreadable.
   """
   @spec readable_media_type(String.t(), binary()) :: {:ok, String.t()} | :error
   def readable_media_type(declared, data)
       when is_binary(declared) and is_binary(data) and data != "" do
+    recording = recording_media_type(declared)
+
     cond do
       supported_media_type?(declared) and media_matches?(declared, data) -> {:ok, declared}
+      recording && media_matches?(recording, data) -> {:ok, recording}
       media_matches?("text/plain", data) -> {:ok, "text/plain"}
       true -> :error
     end
@@ -167,7 +215,7 @@ defmodule Ryker.Artifacts do
 
   defp stored_artifact_valid?(artifact) do
     byte_size(artifact.data) == artifact.byte_size and digest(artifact.data) == artifact.sha256 and
-      valid_name?(artifact.name) and supported_media_type?(artifact.media_type) and
+      valid_name?(artifact.name) and model_media_type?(artifact.media_type) and
       media_matches?(artifact.media_type, artifact.data)
   end
 
@@ -221,6 +269,36 @@ defmodule Ryker.Artifacts do
     do: true
 
   defp media_matches?("application/pdf", <<"%PDF-", _rest::binary>>), do: true
+
+  # A recording is checked by its container, which ffmpeg then decodes.
+  defp media_matches?(media_type, <<_size::binary-size(4), "ftyp", _rest::binary>>)
+       when media_type in ~w(audio/mp4 video/mp4 video/quicktime),
+       do: true
+
+  defp media_matches?(
+         "video/quicktime",
+         <<_size::binary-size(4), atom::binary-size(4), _::binary>>
+       )
+       when atom in ~w(moov mdat wide free skip),
+       do: true
+
+  defp media_matches?(media_type, <<0x1A, 0x45, 0xDF, 0xA3, _rest::binary>>)
+       when media_type in ~w(audio/webm video/webm),
+       do: true
+
+  defp media_matches?("audio/ogg", <<"OggS", _rest::binary>>), do: true
+  defp media_matches?("audio/wav", <<"RIFF", _size::binary-size(4), "WAVE", _::binary>>), do: true
+  defp media_matches?("audio/mpeg", <<"ID3", _rest::binary>>), do: true
+
+  # An MPEG audio frame: eleven sync bits and a layer other than reserved.
+  defp media_matches?("audio/mpeg", <<0xFF, flags, _rest::binary>>)
+       when band(flags, 0xE0) == 0xE0 and band(flags, 0x06) != 0,
+       do: true
+
+  # An ADTS frame: twelve sync bits and layer zero.
+  defp media_matches?("audio/aac", <<0xFF, flags, _rest::binary>>)
+       when band(flags, 0xF6) == 0xF0,
+       do: true
 
   defp media_matches?(media_type, data) when media_type in @text_media_types,
     do: String.valid?(data) and :binary.match(data, <<0>>) == :nomatch

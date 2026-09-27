@@ -40,10 +40,11 @@ defmodule Ryker.ControlPlane.ConversationLab do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Settings.Environment
+  alias Ryker.Transcription
 
   @maximum_message_bytes 20_000
   @maximum_attachments 2
-  @option_keys [:attachments, :id_generator, :now]
+  @option_keys [:attachments, :id_generator, :now, :transcriber]
   @operator_actor_ref "control-plane:user:local-operator"
 
   @typedoc """
@@ -129,6 +130,13 @@ defmodule Ryker.ControlPlane.ConversationLab do
     end
   end
 
+  @doc """
+  Records one operator message with up to two attached files. A voice
+  message or video is transcribed first, outside the transaction that records
+  it, so routing reads what it said; one too long or too large to transcribe
+  is refused with the reason, and one Ryker could not transcribe is sent
+  saying so.
+  """
   @spec send_message(String.t(), String.t(), WorkProfile.t(), keyword()) ::
           {:ok, Inbox.receipt()} | {:error, term()}
   def send_message(conversation_id, message, work_profile, options \\ [])
@@ -137,8 +145,10 @@ defmodule Ryker.ControlPlane.ConversationLab do
     with {:ok, conversation_id} <- conversation_id(conversation_id),
          {:ok, settings} <- options(options),
          :ok <- message(message, settings.attachments),
+         {:ok, attachments} <- transcribed(settings.attachments, settings.transcriber),
          {:ok, event_id} <- generated_id(settings.id_generator),
          {:ok, occurred_at} <- occurred_at(settings.now) do
+      settings = %{settings | attachments: attachments}
       persist_message(conversation_id, event_id, occurred_at, message, work_profile, settings)
     end
   end
@@ -500,11 +510,13 @@ defmodule Ryker.ControlPlane.ConversationLab do
       settings = %{
         attachments: Keyword.get(options, :attachments, []),
         id_generator: Keyword.get(options, :id_generator, &Ecto.UUID.generate/0),
-        now: Keyword.get(options, :now, &DateTime.utc_now/0)
+        now: Keyword.get(options, :now, &DateTime.utc_now/0),
+        transcriber: Keyword.get_lazy(options, :transcriber, &Transcription.transcriber/0)
       }
 
       cond do
-        not is_function(settings.id_generator, 0) or not is_function(settings.now, 0) ->
+        not is_function(settings.id_generator, 0) or not is_function(settings.now, 0) or
+            not transcriber?(settings.transcriber) ->
           {:error, {:invalid_conversation_lab, :options}}
 
         not attachments?(settings.attachments) ->
@@ -519,6 +531,11 @@ defmodule Ryker.ControlPlane.ConversationLab do
   end
 
   defp options(_options), do: {:error, {:invalid_conversation_lab, :options}}
+
+  defp transcriber?(module),
+    do:
+      is_atom(module) and Code.ensure_loaded?(module) and
+        function_exported?(module, :transcribe, 2)
 
   defp generated_id(id_generator) do
     case Ecto.UUID.cast(id_generator.()) do
@@ -568,6 +585,27 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
   defp attachments?(_attachments), do: false
 
+  defp transcribed(attachments, transcriber) do
+    Enum.reduce_while(attachments, {:ok, []}, fn attachment, {:ok, done} ->
+      case transcription(attachment, transcriber) do
+        {:error, failure} when failure in [:too_long, :too_large] ->
+          reason = Transcription.unavailable(attachment.media_type, failure)
+          {:halt, {:error, {:recording_refused, attachment.name, reason}}}
+
+        result ->
+          {:cont, {:ok, [Map.put(attachment, :transcription, result) | done]}}
+      end
+    end)
+    |> case do
+      {:ok, done} -> {:ok, Enum.reverse(done)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp transcription(%{data: data, media_type: media_type}, transcriber) do
+    if Artifacts.recording?(media_type), do: transcriber.transcribe(data, []), else: nil
+  end
+
   defp store_attachments(conversation_id, event_id, attachments) do
     attachments
     |> Enum.with_index()
@@ -575,11 +613,16 @@ defmodule Ryker.ControlPlane.ConversationLab do
       source_ref = "#{conversation_id}:#{event_id}:#{index}"
 
       case Artifacts.put(
-             Map.put(attachment, :source_kind, "control_plane")
+             attachment
+             |> Map.take([:data, :media_type, :name])
+             |> Map.put(:source_kind, "control_plane")
              |> Map.put(:source_ref, source_ref)
            ) do
-        {:ok, artifact} -> {:cont, {:ok, [artifact_descriptor(artifact) | files]}}
-        {:error, _reason} -> {:halt, {:error, {:invalid_conversation_lab, :attachments}}}
+        {:ok, artifact} ->
+          {:cont, {:ok, [artifact_descriptor(artifact, attachment[:transcription]) | files]}}
+
+        {:error, _reason} ->
+          {:halt, {:error, {:invalid_conversation_lab, :attachments}}}
       end
     end)
     |> case do
@@ -588,8 +631,8 @@ defmodule Ryker.ControlPlane.ConversationLab do
     end
   end
 
-  defp artifact_descriptor(artifact) do
-    %{
+  defp artifact_descriptor(artifact, transcription) do
+    descriptor = %{
       "artifact_ref" => artifact.ref,
       "bytes" => artifact.byte_size,
       "media_type" => artifact.media_type,
@@ -597,6 +640,10 @@ defmodule Ryker.ControlPlane.ConversationLab do
       "sha256" => artifact.sha256,
       "status" => "available"
     }
+
+    if transcription,
+      do: Map.merge(descriptor, Transcription.outcome(artifact.media_type, transcription)),
+      else: descriptor
   end
 
   defp content(message, []), do: %{"text" => message}

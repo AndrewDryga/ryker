@@ -61,6 +61,16 @@ Slack metadata under normal operational-data retention; Coop removes the binary 
 turn becomes terminal. Unsupported or misleading content fails closed with a user-visible retry
 message and does not start repository work.
 
+Voice messages and videos (m4a/mp4/aac, webm/ogg/opus, mp3, wav, mov) are kept too and reach the
+models as words. Ryker uses Slack's own transcript when Slack finished one; otherwise the Ryker
+container transcribes the recording itself, with ffmpeg and whisper.cpp's multilingual base model
+shipped in the image, before routing reads the message, so a voice message is handled like typed
+text. A recording is bounded at 5 minutes and 8 MiB, and a transcription gives up after 60
+seconds. One past those bounds, or one Ryker could not transcribe, reaches routing saying so in
+plain words, so Ryker can ask for text instead of ignoring it. The recording's bytes never go to
+Coop; its transcript does, inside the message. `RYKER_WHISPER_MODEL` points the transcriber at
+another whisper.cpp model file.
+
 When a user explicitly asks for an image or chart, the agent may create up to four PNG, JPEG, WebP,
 or GIF outputs in Coop's per-turn output directory or return typed ACP image content. Coop stores
 the bytes outside the text transcript and exposes content-addressed metadata only after the turn is

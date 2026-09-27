@@ -1220,6 +1220,65 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
              "probe.log, a file Ryker could not read"
   end
 
+  # Andrew, 2026-09-27: a voice message reached Ryker as "an unavailable file
+  # with no text", and its card said "This source event has no text body."
+  # The card reads as what the message said, labelled as a transcript, and a
+  # voice message Ryker could not transcribe says so in words.
+  test "a voice message's card shows what it said, labelled as a transcript" do
+    context = %{
+      "inputs" => %{
+        "items" => [
+          %{
+            "current" => true,
+            "source" => %{"kind" => "control_plane", "ref" => "local"},
+            "actor" => %{"kind" => "user", "ref" => "local-operator"},
+            "content" => %{
+              "text" => "",
+              "files" => [
+                %{
+                  "status" => "available",
+                  "name" => "audio_message.m4a",
+                  "media_type" => "audio/mp4",
+                  "bytes" => 109_145,
+                  "transcript" => "Please audit the checkout service"
+                },
+                %{
+                  "status" => "unavailable",
+                  "reason" => "recording_too_long",
+                  "transcript_unavailable" =>
+                    "a voice message longer than 5 minutes, the most Ryker transcribes"
+                }
+              ]
+            },
+            "occurred_at" => "2026-09-27T09:00:00Z"
+          }
+        ]
+      }
+    }
+
+    document =
+      context
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "messages", %{
+        "inputs" => %{label: "1 message", known?: true}
+      })
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    body = document |> LazyHTML.query(".ui-message-body") |> LazyHTML.text()
+    assert body =~ "Voice message transcript: Please audit the checkout service"
+    assert body =~ "A voice message longer than 5 minutes, the most Ryker transcribes."
+    refute LazyHTML.text(document) =~ "no text body"
+
+    [attachments] =
+      document
+      |> LazyHTML.query(".context-message-details div")
+      |> Enum.filter(&(LazyHTML.text(LazyHTML.query(&1, "dt")) == "Attachments"))
+
+    assert LazyHTML.text(LazyHTML.query(attachments, "dd")) ==
+             "audio_message.m4a, transcribed, a voice message longer than 5 minutes, the most Ryker transcribes"
+  end
+
   test "related history separates continuation and context matches with compact counts" do
     candidate = %{
       "episode_ref" => "candidate:opaque",
