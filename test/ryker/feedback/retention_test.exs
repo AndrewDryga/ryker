@@ -20,9 +20,9 @@ defmodule Ryker.Feedback.RetentionTest do
   @now ~U[2026-09-27 12:00:00.000000Z]
   @old ~U[2020-01-01 00:00:00.000000Z]
 
-  @version 20_260_927_170_000
+  @version 20_260_927_190_000
   @migration Ryker.Repo.Migrations.AddAnswerFeedback
-  @file_name "20260927170000_add_answer_feedback.exs"
+  @file_name "20260927190000_add_answer_feedback.exs"
   @options [log: false, migration_lock: false]
 
   test "feedback expires at the operational horizon, and with its request" do
