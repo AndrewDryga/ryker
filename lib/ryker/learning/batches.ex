@@ -54,7 +54,7 @@ defmodule Ryker.Learning.Batches do
 
     scopes =
       Repo.one(
-        from(scope in subquery(scope_due_times(settings)),
+        from(scope in subquery(scope_due_times(since, settings)),
           where: scope.due_at > ^since,
           select: min(scope.due_at)
         )
@@ -64,9 +64,16 @@ defmodule Ryker.Learning.Batches do
   end
 
   # When each conversation's unlearned messages become a batch by the clock:
-  # the `coalesced_scopes/3` condition, solved for the time.
-  defp scope_due_times(settings) do
+  # the `coalesced_scopes/3` condition, solved for the time. Only messages
+  # routed within the longest wait can make a conversation fall due after
+  # `since`; one that also holds older messages fell due already, so leaving
+  # those out can add a wake but never delays one, and the read stays small
+  # however long the history.
+  defp scope_due_times(since, settings) do
+    recent = DateTime.add(since, -settings.maximum_delay_seconds, :second)
+
     from(e in pending_query(),
+      where: e.updated_at > ^recent,
       group_by: [
         e.destination_transport,
         e.destination_conversation_ref,
