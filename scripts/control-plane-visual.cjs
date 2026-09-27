@@ -260,7 +260,9 @@ async function discover(page) {
               const titles = await page.locator('.activity-title').allTextContents();
               assert(titles.every(title => !/<@[UW][A-Z0-9]+>/.test(title)), 'Slack mentions must be readable in activity titles');
             }
-            assert.equal(errors.length, 0, 'Browser or CSP errors');
+            // The browser reports a page's own 404 as a failed load; that is the answer, not an error.
+            const pageErrors = name === 'missing-episode' ? errors.filter(error => !/status of 404/.test(error)) : errors;
+            assert.equal(pageErrors.length, 0, 'Browser or CSP errors');
           }
         } catch (error) { result.failure = error.message; }
         await page.screenshot({path: path.join(output, file), animations: 'disabled'});
