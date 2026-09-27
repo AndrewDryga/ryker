@@ -3,9 +3,9 @@ defmodule Ryker.PollingWorker do
   The one loop every timer-driven poller runs.
 
   A polling worker polls once as soon as it starts, then again after the delay
-  its last cycle returned: nothing when more work is waiting, its configured
-  interval when it went idle. A database outage inside a cycle waits for the
-  next poll instead of restarting the process.
+  its last cycle returned: nothing when more work is waiting, and when it went
+  idle, until its next row falls due. A database outage inside a cycle waits
+  for the next poll instead of restarting the process.
 
       use Ryker.PollingWorker, lane: :work, interval: :poll_interval_ms
 
