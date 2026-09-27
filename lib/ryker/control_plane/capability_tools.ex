@@ -237,10 +237,9 @@ defmodule Ryker.ControlPlane.CapabilityTools do
          {:ok, input} <- active_input(context, arguments["message_ref"]),
          :ok <- removal_authorized(action, context, input, emoji),
          {:ok, %{action: frozen}} <-
-           PlatformActionCustody.enqueue(context.binding, %{
+           PlatformActionCustody.enqueue_in_turn(context.binding, %{
              conversation_ref: context.conversation_ref,
              document: %{"action" => action, "emoji_name" => emoji},
-             host_slot: "reaction",
              kind: :reaction,
              source_item_ref: input["source_item_ref"],
              thread_ref: context.conversation_ref,
@@ -249,7 +248,8 @@ defmodule Ryker.ControlPlane.CapabilityTools do
            }) do
       {:ok, %{"action_ref" => frozen.action_ref, "status" => Atom.to_string(frozen.status)}}
     else
-      {:error, reason} -> {:error, error_code(reason)}
+      {:error, reason} ->
+        {:error, SlackCapabilityTools.refusal_code(reason) || error_code(reason)}
     end
   end
 
@@ -283,7 +283,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
     with {:ok, message} <- SlackArguments.update_message(arguments),
          :ok <- SlackCapabilityTools.update_mentions(message, nil),
          {:ok, %{action: frozen}} <-
-           PlatformActionCustody.enqueue_update(context.binding, %{
+           PlatformActionCustody.enqueue_in_turn(context.binding, %{
              conversation_ref: context.conversation_ref,
              document: %{"message" => message},
              kind: :message,
@@ -295,7 +295,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
       {:ok, %{"action_ref" => frozen.action_ref, "status" => Atom.to_string(frozen.status)}}
     else
       {:error, reason} ->
-        {:error, SlackCapabilityTools.update_error_code(reason) || error_code(reason)}
+        {:error, SlackCapabilityTools.refusal_code(reason) || error_code(reason)}
     end
   end
 

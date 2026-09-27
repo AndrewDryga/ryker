@@ -1772,10 +1772,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              })
 
     assert {:ok, %{action: slack_reaction}} =
-             PlatformActionCustody.enqueue(claim, %{
+             PlatformActionCustody.enqueue_in_turn(claim, %{
                conversation_ref: "slack:T123:C456",
                document: %{"action" => "add", "emoji_name" => "eyes"},
-               host_slot: "slack-reaction",
                kind: :reaction,
                source_item_ref: "1787832000.000100",
                thread_ref: "1787832000.000100",

@@ -587,19 +587,9 @@ implementation of the exact Slack chat capability schemas: `list_slack_channels`
 `read_slack_source`, `set_slack_reaction`, `post_slack_message`, and `post_slack_update`. In a Chat
 turn those tools expose one virtual workspace scoped to the current Chat conversation. Reads return
 only its durable messages; reactions, Work updates and confirmed additional posts use the ordinary
-platform-action outbox but settle back into the local timeline.
-
-`post_slack_update` lets live Slack and Chat work post a short message into its own conversation
-before the answer: an early acknowledgement, a partial finding, or what it is doing next. It goes at
-once, through the platform-action outbox, to the thread the turn's answer goes to (the input it
-answers, over the episode's home). A turn posts at most three, in slots `update:1` to `update:3`;
-the same words again are the same update, and a fourth is refused as `update_limit_reached`. Each is
-sent only after every earlier update of its turn is delivered, may name only the Slack entities the
-answer may (the same mention authority, rendering and validation as the final reply), and the
-final is accepted only once every update of its turn is delivered, so updates always read before
-the answer in Slack, in Chat and on the timeline. Observe-only runs and GitHub threads never see it. Human feedback reactions on delivered replies are passive ordered episode events:
-they do not wake work, but both the bounded add/remove history and current counts are frozen into the
-next logical turn. Chat message edits and deletes use the same stable-item revision contract as provider
+platform-action outbox but settle back into the local timeline. Human feedback reactions on
+delivered replies are passive ordered episode events: they do not wake work, but both the bounded
+add/remove history and current counts are frozen into the next logical turn. Chat message edits and deletes use the same stable-item revision contract as provider
 adapters. Every result identifies the adapter as emulated with external effects disabled.
 This lets the model make the same chat/tool/card choices without generating Slack test traffic or
 receiving a Slack credential. Configured repository and Emisar tools remain real and retain the exact
@@ -607,6 +597,21 @@ Work policy authority. Incident offers start a real linked Work episode in the c
 authority; the virtual incident stays in the conversation instead of fabricating a Slack channel.
 Slack workspace audience rules, real workspace data, and Slack API provisioning still require the
 authenticated Slack adapter and its disposable live qualification.
+
+`post_slack_update` lets live Slack and Chat work post a short message into its own conversation
+before the answer: an early acknowledgement, a partial finding, or what it is doing next. It goes at
+once, through the platform-action outbox, to the thread the turn's answer goes to (the input it
+answers, over the episode's home). A turn posts at most three, in slots `update:1` to `update:3`;
+the same words again are the same update, and a fourth is refused as `update_limit_reached`. An
+update may name only the Slack entities the answer may (the same mention authority, rendering and
+validation as the final reply). Observe-only runs and GitHub threads never see it.
+
+`set_slack_reaction` is numbered the same way: at most three reactions a turn, in `reaction:1` to
+`reaction:3`; the same emoji on the same message asked again is the same reaction (one taken back and
+put on again is a new one), and a fourth is refused as `reaction_limit_reached`. Each update and each
+reaction is sent only after every earlier one of its kind in the turn is delivered, and the final is
+accepted only once all of them are, so they always read before the answer in Slack, in Chat and on
+the timeline.
 
 All slots share that one adapter. The fleet client places each session on an enrolled worker and
 records the placement durably, so no slot addresses a Coop daemon of its own.

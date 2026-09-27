@@ -436,7 +436,8 @@ so the person's next message there reaches Ryker without a mention. Ryker may us
 any standard Slack emoji or a workspace custom emoji visible in the supplied message context. The
 host validates the emoji name, adds or removes one reaction per call on an exact current human
 message (removing only reactions Ryker added), and lets Slack reject names that are not available
-in that workspace. A reaction acknowledges or signals; it never claims verification,
+in that workspace. A Work turn makes at most three reactions, delivered in the order asked; the same
+call again is the same reaction, and a fourth is refused as `reaction_limit_reached`. A reaction acknowledges or signals; it never claims verification,
 approval, remediation, or future work.
 
 Ryker also observes reaction additions and removals on messages it posted. These events enter the

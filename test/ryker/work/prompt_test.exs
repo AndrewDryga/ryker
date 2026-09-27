@@ -326,6 +326,20 @@ defmodule Ryker.Work.PromptTest do
     refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?)\b/i
   end
 
+  # Andrew, 2026-09-26: the Work model should be able to add some emoji, not
+  # only one. A reaction for every point the answer makes is noise on the
+  # person's message, so the prompt asks for restraint; a count would be a
+  # quota to fill (2026-08-16: the reply word limit and its checker went).
+  test "a few reactions are allowed when they help, and one is usually enough" do
+    instructions = normalized_instructions()
+
+    assert instructions =~
+             "When set_slack_reaction is available, each call adds one emoji to a person's message"
+
+    assert instructions =~ "a turn may add a few when that helps, but one is usually enough"
+    refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?|emoji|reactions?)\b/i
+  end
+
   test "universal instructions explain the typed Slack entity boundary" do
     instructions = Prompt.build(%{}) |> Jason.decode!() |> Map.fetch!("instructions")
 

@@ -10,11 +10,11 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   the outermost commit (`subscribe_platform_actions/0`), on its request's and
   its conversation's topics too.
 
-  A Work update (`post_slack_update`) is a short message the Work model posts
-  into its own conversation while it works. A turn posts at most three, in
-  slots `update:1` to `update:3`, and each is sent only after every earlier
-  update of its turn is delivered, so they arrive in the order they were
-  written.
+  A turn may make a few Slack or Chat reactions (`set_slack_reaction`) and post
+  a few updates into its own conversation (`post_slack_update`): at most three
+  of each, numbered in the turn (`reaction:1` to `reaction:3`, `update:1` to
+  `update:3`). Each is sent only after every earlier one of its kind in the
+  turn is delivered, so they arrive in the order the model asked for them.
   """
 
   import Ecto.Query
@@ -38,8 +38,11 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   ]
   @tools [:set_slack_reaction, :post_slack_message, :post_slack_update, :set_github_reaction]
   @kinds [:message, :reaction]
-  # Single digits: the slots `update:1` to `update:N` order by their text.
-  @maximum_updates 3
+  # The actions a turn may take a few of, each in the next numbered slot of
+  # its kind. Single digits: the slots order by their text.
+  @numbered %{set_slack_reaction: "reaction", post_slack_update: "update"}
+  @numbered_tools Map.keys(@numbered)
+  @maximum_per_turn 3
 
   @type claim :: %{action: PlatformAction.t(), lease_ref: Ecto.UUID.t()}
 
@@ -47,26 +50,38 @@ defmodule Ryker.Delivery.PlatformActionCustody do
           {:ok, %{action: PlatformAction.t(), status: :created | :duplicate}} | {:error, term()}
   def enqueue(binding, attributes) do
     with {:ok, attributes} <- exact_attributes(attributes),
+         :ok <- natural_slot(attributes),
          {:ok, request} <- request_attributes(attributes),
          :ok <- live_binding_shape(binding) do
       Repo.transaction(fn -> enqueue_locked(binding, attributes, request) end)
     end
   end
 
+  # A reaction or an update takes the turn's next numbered place, never a
+  # slot the caller names.
+  defp natural_slot(%{tool: tool}) when tool in @numbered_tools,
+    do: {:error, {:invalid_platform_action, :host_slot}}
+
+  defp natural_slot(_attributes), do: :ok
+
   @doc """
-  Freezes one Work update: a message into the turn's own conversation, in the
-  next free update slot of the turn. The same words asked for again return the
-  update already frozen, and a turn that has posted its
-  #{@maximum_updates} updates is refused with `:update_limit_reached`.
+  Freezes one of the few reactions or updates a live Work turn may make, in
+  the turn's next numbered slot of its kind.
+
+  The same call again returns the action already frozen: the latest one on the
+  same emoji and message, or with the same words, when it asked for the same
+  thing. A reaction taken back and put on again is a new one. Past the turn's
+  #{@maximum_per_turn} of a kind the call is refused with
+  `:reaction_limit_reached` or `:update_limit_reached`.
   """
-  @spec enqueue_update(map(), map() | keyword()) ::
+  @spec enqueue_in_turn(map(), map() | keyword()) ::
           {:ok, %{action: PlatformAction.t(), status: :created | :duplicate}} | {:error, term()}
-  def enqueue_update(binding, attributes) do
-    with {:ok, attributes} <- attributes |> with_update_slot() |> exact_attributes(),
-         :ok <- update_kind(attributes),
+  def enqueue_in_turn(binding, attributes) do
+    with {:ok, attributes} <- attributes |> with_numbered_slot() |> exact_attributes(),
+         :ok <- numbered_kind(attributes),
          {:ok, _request} <- request_attributes(attributes),
          :ok <- live_binding_shape(binding) do
-      refused_as_error(Repo.transaction(fn -> enqueue_update_locked(binding, attributes) end))
+      refused_as_error(Repo.transaction(fn -> enqueue_in_turn_locked(binding, attributes) end))
     end
   end
 
@@ -75,18 +90,20 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp refused_as_error({:ok, {:refused, reason}}), do: {:error, reason}
   defp refused_as_error(result), do: result
 
-  @doc "How many updates one Work turn may post before its answer."
-  @spec maximum_updates() :: pos_integer()
-  def maximum_updates, do: @maximum_updates
+  @doc "How many reactions, and how many updates, one Work turn may make."
+  @spec maximum_per_turn() :: pos_integer()
+  def maximum_per_turn, do: @maximum_per_turn
 
-  defp update_kind(%{tool: :post_slack_update, kind: :message}), do: :ok
-  defp update_kind(_attributes), do: {:error, {:invalid_platform_action, :kind}}
+  defp numbered_kind(%{tool: :set_slack_reaction, kind: :reaction}), do: :ok
+  defp numbered_kind(%{tool: :post_slack_update, kind: :message}), do: :ok
+  defp numbered_kind(_attributes), do: {:error, {:invalid_platform_action, :kind}}
 
-  defp with_update_slot(attributes) when is_list(attributes),
-    do: attributes |> Map.new() |> with_update_slot()
+  # A placeholder until the turn's next place is known under its lock.
+  defp with_numbered_slot(attributes) when is_list(attributes),
+    do: attributes |> Map.new() |> with_numbered_slot()
 
-  defp with_update_slot(%{} = attributes), do: Map.put(attributes, :host_slot, "update:1")
-  defp with_update_slot(attributes), do: attributes
+  defp with_numbered_slot(%{} = attributes), do: Map.put(attributes, :host_slot, "numbered")
+  defp with_numbered_slot(attributes), do: attributes
 
   @doc false
   @spec enqueue_confirmed_record_in_transaction(Record.t(), map() | keyword()) ::
@@ -362,37 +379,61 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     end
   end
 
-  defp enqueue_update_locked(binding, attributes) do
+  defp enqueue_in_turn_locked(binding, attributes) do
     {episode, turn} = lock_binding(binding)
 
     case live_binding(episode, turn, binding, Repo.now!()) do
-      :ok -> next_update(episode, turn, attributes)
+      :ok -> next_in_turn(episode, turn, attributes)
       {:error, reason} -> {:refused, reason}
     end
   end
 
-  defp next_update(episode, turn, attributes) do
-    updates =
+  defp next_in_turn(episode, turn, attributes) do
+    earlier =
       Repo.all(
         from(action in PlatformAction,
-          where: action.turn_id == ^turn.id and action.tool == :post_slack_update,
+          where: action.turn_id == ^turn.id and action.tool == ^attributes.tool,
           order_by: [asc: action.host_slot]
         )
       )
 
-    case Enum.find(updates, &(&1.document == attributes.document)) do
+    case repeated(earlier, attributes) do
       %PlatformAction{} = same ->
         %{action: same, status: :duplicate}
 
-      nil when length(updates) >= @maximum_updates ->
-        {:refused, :update_limit_reached}
+      nil when length(earlier) >= @maximum_per_turn ->
+        {:refused, limit_reached(attributes.tool)}
 
       nil ->
-        attributes = %{attributes | host_slot: "update:#{length(updates) + 1}"}
+        slot = "#{Map.fetch!(@numbered, attributes.tool)}:#{length(earlier) + 1}"
+        attributes = %{attributes | host_slot: slot}
         {:ok, request} = request_attributes(attributes)
         enqueue_for_ids(episode.id, turn.id, attributes, request)
     end
   end
+
+  # The same call again: the latest action on the same subject, the same emoji
+  # on the same message or the same words, asked for exactly the same way.
+  defp repeated(earlier, attributes) do
+    subject = subject(attributes)
+
+    case earlier |> Enum.filter(&(subject(&1) == subject)) |> List.last() do
+      %PlatformAction{} = latest -> if intent(latest) == intent(attributes), do: latest
+      nil -> nil
+    end
+  end
+
+  defp subject(%{kind: :reaction, source_item_ref: item, document: %{"emoji_name" => emoji}}),
+    do: {item, emoji}
+
+  defp subject(%{document: document}), do: document
+
+  defp intent(action),
+    do:
+      Map.take(action, [:conversation_ref, :document, :source_item_ref, :thread_ref, :transport])
+
+  defp limit_reached(:set_slack_reaction), do: :reaction_limit_reached
+  defp limit_reached(:post_slack_update), do: :update_limit_reached
 
   defp lock_binding(binding) do
     episode =
@@ -488,9 +529,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     end
   end
 
-  # The oldest action a worker may send now. An update waits until every
-  # earlier update of its turn is delivered, so they arrive in the order the
-  # model posted them.
+  # The oldest action a worker may send now. A reaction or an update waits
+  # until every earlier one of its kind in its turn is delivered, so they
+  # arrive in the order the model asked for them.
   defp claimable(now) do
     from(action in PlatformAction,
       as: :action,
@@ -498,18 +539,18 @@ defmodule Ryker.Delivery.PlatformActionCustody do
         action.status == :pending and
           (is_nil(action.next_attempt_at) or action.next_attempt_at <= ^now) and
           (is_nil(action.lease_expires_at) or action.lease_expires_at <= ^now),
-      where: action.tool != :post_slack_update or not exists(earlier_update_undelivered()),
+      where: action.tool not in ^@numbered_tools or not exists(earlier_undelivered()),
       order_by: [asc: action.inserted_at, asc: action.id],
       limit: 1,
       lock: "FOR UPDATE SKIP LOCKED"
     )
   end
 
-  defp earlier_update_undelivered do
+  defp earlier_undelivered do
     from(earlier in PlatformAction,
       where:
         earlier.turn_id == parent_as(:action).turn_id and
-          earlier.tool == :post_slack_update and
+          earlier.tool == parent_as(:action).tool and
           earlier.host_slot < parent_as(:action).host_slot and
           earlier.status != :delivered,
       select: 1
