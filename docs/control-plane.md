@@ -26,8 +26,42 @@ There are no compatibility aliases for earlier paths.
 | **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. It leads with how many requests it lists, then how many are in progress and how many need you, each counted from the rows its view lists and opening that view. One toolbar row holds search, the work included, the All · Needs you · In progress · Finished views, then a chip per filter and "+ Filter", which picks a field, then a value, which applies at once. Search matches message text, the repository the request's work used and a scheduled run's schedule, and applies as you type, as every list's search does. Each request is one row that opens its timeline; a message that started no work says what routing did with it (Answered right away, Reaction selected, No response needed), Routing while a routing worker holds it, and Queued only while it waits to be picked up. A worker problem and the scheduled runs coming up follow the list as sections. `/` is the application root and renders the same list. |
 | **Timeline** | `/timeline/:ref` | One request's chronological case file, titled by its subject. It includes each model request's retained briefing, response checks and technical identity in place. `:ref` is a durable episode key or `ingress-input:<id>` for a message with no request of its own, which opens that message's page. |
 
-Live invalidation domains follow the first path segment, so `activity` and
-`timeline` are also the PubSub domain names in `ControlPlane.Updates`.
+### Live updates
+
+An open page redraws when something it shows changes, and only then. Each
+context announces its own changes once they commit (`Ryker.PubSub`,
+`Ryker.Repo.after_commit/1`) on topics it owns and documents beside its
+`subscribe_*` functions: a message on `Ryker.Ingress.Inbox`'s, a request and
+anything any context keeps for it on `Ryker.Episodes`', a Slack channel on
+`Ryker.Slack.ChannelConfigurations`', the settings on `Ryker.Settings`', and so
+on. An announcement carries the ids of what changed and never a body; a page
+reads the change back through its projection. A broadcast inside a
+transaction waits for the outermost commit and is dropped if it rolls back,
+and the same announcement made twice in one transaction is sent once.
+
+Each page declares the topics it listens to beside what it shows, in its page
+or projection module (`ActivityPage.subscriptions/0`,
+`EpisodeProjection.subscriptions/1`, `SettingsView.subscriptions/0`, ...);
+`Pages.subscriptions/2` dispatches the secondary pages. Detail pages listen to
+their own record (one request, one conversation, one channel, one room, one
+schedule), lists to their feed. The live shell subscribes when the socket
+connects and before every read of a page, drops the topics of the page it
+left, adds what every page can show (Slack names, retention passes, and the
+setup steps while setup is unfinished), and turns a burst of announcements
+into one reload a tenth of a second later. A page that could not be read is
+tried again with backoff until it can.
+
+Nothing re-reads a page on a timer. Two things change with time alone and keep
+a clock of their own: Chat's "Routing 12s" counter ticks in the browser
+(`elapsed-time.mjs`), and `ControlPlane.WorkerLiveness`, which runs beside the
+console, asks the fleet every ten seconds which Coop workers stopped
+reporting, because a worker that stops polling writes nothing. Relative times
+such as "2 min ago" are read when the page last redrew.
+
+Until 2026-09-26 a PostgreSQL trigger on 93 tables sent each table's name to
+one listener, which mapped it to the pages it might reach, and every open page
+also re-read everything every five seconds. A migration dropped the triggers;
+rolling it back restores them.
 
 A detail page whose record does not exist (a timeline, schedule, incident room,
 conversation, failure or channel) answers 404 on its first, server-rendered
@@ -1037,7 +1071,9 @@ Episode/Work/Delivery record agree.
 The following describes the current implementation.
 
 - **Phoenix LiveView on Bandit**, server-rendered, with live updates over a
-  same-origin socket. No frontend build step, bundler, or node_modules. Read models are bounded Ecto projections over the same durable
+  same-origin socket, driven by what the contexts announce after they commit
+  (see [Live updates](#live-updates)). No frontend build step, bundler, or
+  node_modules. Read models are bounded Ecto projections over the same durable
   stores that own runtime custody.
 - **Filters and time windows are links**, not controls. A filtered list is a
   URL, which makes it bookmarkable and pasteable into an incident thread, and

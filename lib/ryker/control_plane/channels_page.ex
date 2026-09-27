@@ -4,13 +4,31 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   each one, as Kit rows under one search box and an In use / All choice.
 
   The words for participation and for a channel's state live here once, so
-  the list, the channel page and anything else that names them agree.
+  the list, the channel page and anything else that names them agree. An
+  open list redraws when a channel, its last activity or Slack's state
+  changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Integrations, Kit, ShortTime}
-  alias Ryker.Slack.Names
+  alias Ryker.ControlPlane.{Components, Integrations, Kit, SettingsView, ShortTime}
+  alias Ryker.Episodes
+  alias Ryker.Slack.{IncidentRooms, Names}
+
+  @doc """
+  The topics an open Channels list listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): what the Slack line
+  above it reads (`SettingsView.subscriptions/0`, which includes the
+  channels), the incident rooms it leaves out, and the Slack conversations
+  whose last activity each row shows.
+  """
+  def subscriptions do
+    SettingsView.subscriptions() ++
+      [
+        {IncidentRooms, :subscribe_rooms, []},
+        {Episodes, :subscribe_conversations, ["slack"]}
+      ]
+  end
 
   @doc """
   A channel's name: Slack's, or, until Slack has named an incident room's

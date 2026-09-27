@@ -7,18 +7,23 @@ defmodule Ryker.ControlPlane.SettingsView do
   a database that cannot be read is reported as unavailable rather than as an
   installation without settings. The two are different problems and only one of
   them is fixed by filling in a form.
+
+  A page that shows this view redraws when anything it reads changes
+  (`subscriptions/0`).
   """
 
   import Ecto.Query
 
   alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, ProductReadiness}
+  alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.CoopFleet.Worker
   alias Ryker.Credentials
+  alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.AppJWT
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Slack.Names
+  alias Ryker.Slack.{ChannelConfigurations, Gateway, Names}
   alias Ryker.Work.Turn
 
   @type t :: %{
@@ -68,6 +73,32 @@ defmodule Ryker.ControlPlane.SettingsView do
   # There is no step for creating an environment: adding the first repository
   # creates the Default one, and channels Ryker joins start in it.
   @setup_steps [:slack, :github, :repositories, :invited, :channel_environment, :request]
+
+  @doc """
+  The topics a page that shows this view listens to, as the context functions
+  that subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the saved
+  settings and whether the running system has applied them, the credentials,
+  the Slack channels Ryker is in and its connection to Slack, and the Coop
+  workers.
+  """
+  def subscriptions do
+    [
+      {Settings, :subscribe, []},
+      {Settings, :subscribe_application, []},
+      {Credentials, :subscribe, []},
+      {ChannelConfigurations, :subscribe_channels, []},
+      {Gateway, :subscribe_connection, []},
+      {Workers, :subscribe_workers, []}
+    ]
+  end
+
+  @doc """
+  What the setup steps listen to (Setup, and the sidebar's count until setup
+  is done): this view's topics, and the Slack conversations whose first
+  answered request is the last step.
+  """
+  def setup_subscriptions,
+    do: subscriptions() ++ [{Episodes, :subscribe_conversations, ["slack"]}]
 
   @spec fetch() :: {:ok, t()} | {:error, :settings_not_initialized | :settings_unavailable}
   def fetch do

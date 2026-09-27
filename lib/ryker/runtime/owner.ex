@@ -278,9 +278,10 @@ defmodule Ryker.Runtime.Owner do
     end
   end
 
-  # The console's companion starts before it.
+  # The console's companion starts before it: the clock that tells open pages
+  # a Coop worker stopped reporting, which no commit says.
   defp child_specs(:control_plane, module, configuration),
-    do: [{Ryker.ControlPlane.Updates, []}, {module, configuration}]
+    do: [{Ryker.ControlPlane.WorkerLiveness, []}, {module, configuration}]
 
   # The name cache is handed its workspace and lookup rather than reading them
   # back out of the application environment in `init`. A child that reads

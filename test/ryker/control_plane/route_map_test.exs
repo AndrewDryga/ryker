@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.RouteMapTest do
   import Phoenix.LiveViewTest
   import Plug.Conn, only: [get_resp_header: 2]
 
-  alias Ryker.ControlPlane.{Activity, Endpoint, ModelRequests, Navigation, Updates}
+  alias Ryker.ControlPlane.{Activity, Endpoint, ModelRequests, Navigation}
   alias Ryker.ControlPlane.{ConversationLab, Projection}
   alias Ryker.Ingress.WorkProfile
 
@@ -117,30 +117,6 @@ defmodule Ryker.ControlPlane.RouteMapTest do
     assert has_element?(view, ".input-queue")
     refute has_element?(view, ".episode-request", "Routing briefing")
     refute has_element?(view, ".model-inspector")
-  end
-
-  test "live invalidation reaches the renamed surfaces a reader is actually on" do
-    assert Updates.domain("/") == "activity"
-    assert Updates.domain("/activity") == "activity"
-    assert Updates.domain("/timeline/episode%3Aone") == "timeline"
-
-    # A renamed route with a stale invalidation table leaves an open Timeline
-    # frozen while execution continues, which reads exactly like a stuck run.
-    for domain <- ["activity", "timeline"] do
-      Ryker.PubSub.subscribe("control-plane:#{domain}")
-    end
-
-    state = %{connection: self(), reference: make_ref(), pending: MapSet.new(), timer: nil}
-
-    {:noreply, pending} =
-      Updates.handle_info(
-        {:notification, self(), state.reference, "ryker_control_plane", "ingress_inbox_entries"},
-        state
-      )
-
-    assert MapSet.member?(pending.pending, "timeline")
-    assert MapSet.member?(pending.pending, "activity")
-    Process.cancel_timer(pending.timer)
   end
 
   defp lab_entry do

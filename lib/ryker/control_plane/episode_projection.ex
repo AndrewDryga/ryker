@@ -3,13 +3,17 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   One episode's page: durable lifecycle metadata, its bounded event and record
   windows, the trace `EpisodeTrace` builds from them, its accounting and the
   episodes it is linked to. Raw ingress bodies, prompts and payloads never
-  cross this boundary.
+  cross this boundary. An open page redraws when the request or its
+  conversation changes (`subscriptions/1`).
   """
 
   import Ecto.Query
 
   alias Ryker.ControlPlane.{Activity, EpisodeTrace, ModelRequests, UsageProjection}
+  alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records.Record
   alias Ryker.Repo
 
@@ -22,6 +26,64 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   def key(id) do
     Repo.one(from(episode in Episode, where: episode.id == ^id, select: episode.key, limit: 1))
   end
+
+  @doc """
+  The topics a request's page listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the request, which
+  every context that keeps something for it announces, and the conversation
+  it answers, whose messages its thread shows. A message no request has taken
+  yet (`ingress-input:<id>`) listens to the message and its conversation; the
+  message is announced when a request takes it, and the page listens to the
+  request from then on.
+  """
+  @spec subscriptions(String.t() | nil) :: [{module(), atom(), list()}]
+  def subscriptions("ingress-input:" <> id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> input_subscriptions(id)
+      :error -> []
+    end
+  end
+
+  def subscriptions(key) when is_binary(key) and byte_size(key) <= 1_024 do
+    case Repo.one(
+           from(episode in Episode,
+             where: episode.key == ^key,
+             select:
+               {episode.id, episode.destination_transport, episode.destination_conversation_ref}
+           )
+         ) do
+      {id, transport, conversation_ref} ->
+        [{Episodes, :subscribe_conversation, [transport, conversation_ref]}] ++
+          episode_subscriptions(id)
+
+      nil ->
+        []
+    end
+  end
+
+  def subscriptions(_ref), do: []
+
+  defp input_subscriptions(id) do
+    case Repo.one(
+           from(entry in Entry,
+             where: entry.id == ^id,
+             select:
+               {entry.episode_id, entry.destination_transport, entry.destination_conversation_ref}
+           )
+         ) do
+      {episode_id, transport, conversation_ref} ->
+        [
+          {Inbox, :subscribe_input, [id]},
+          {Episodes, :subscribe_conversation, [transport, conversation_ref]}
+        ] ++ episode_subscriptions(episode_id)
+
+      nil ->
+        [{Inbox, :subscribe_input, [id]}]
+    end
+  end
+
+  defp episode_subscriptions(nil), do: []
+  defp episode_subscriptions(id), do: [{Episodes, :subscribe_episode, [id]}]
 
   @doc "One episode page: lifecycle metadata, bounded events and records, trace, accounting and links."
   def fetch(ref, params \\ %{})

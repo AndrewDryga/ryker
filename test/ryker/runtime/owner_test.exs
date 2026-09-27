@@ -253,7 +253,7 @@ defmodule Ryker.Runtime.OwnerTest do
       DynamicSupervisor.which_children(context.supervisor)
       |> Enum.flat_map(fn {_id, _pid, _type, modules} -> List.wrap(modules) end)
 
-    assert Ryker.ControlPlane.Updates in companions
+    assert Ryker.ControlPlane.WorkerLiveness in companions
     refute Ryker.ControlPlane.CardLabWorker in companions
     refute Enum.any?(companions, &(&1 |> inspect() |> String.contains?("CardLab")))
   end

@@ -189,7 +189,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
   test "the filters are shareable addresses: views keep the search and paging keeps both" do
     # The address is the only filter state, so Back, a pasted link and a
-    # reconcile all show the same rows. Changing a view starts at page one.
+    # reload all show the same rows. Changing a view starts at page one.
     snapshot = %{
       view(:standing_assignment, [item(:standing_assignment)])
       | params: %{"q" => "terraform", "view" => "past", "show" => "all"},
@@ -400,7 +400,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
   test "every disclosure in an entry carries a stable id so an open one survives a live refresh" do
     # PreserveReadingState keys a <details> by its id and falls back to its
     # position plus summary text. Two rules with the same "Show all" summary
-    # would swap open states whenever the list reorders after a reconcile, so
+    # would swap open states whenever the list reorders after a reload, so
     # each disclosure is named by the entry it belongs to.
     long = String.duplicate("Watch the queue and say what changed. ", 20)
 

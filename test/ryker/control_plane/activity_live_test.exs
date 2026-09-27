@@ -101,10 +101,9 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
     assert_patch(view, "/?filter=attention")
   end
 
-  # A reconcile queues one projection refresh a moment later.
+  # The reload an announcement schedules, run now.
   defp refresh(view) do
-    send(view.pid, :reconcile)
-    Process.sleep(80)
+    send(view.pid, :reload_page)
     render(view)
   end
 

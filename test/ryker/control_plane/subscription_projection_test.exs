@@ -270,7 +270,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
     # Drain initial static and connected projection notifications before refresh.
     assert_receive {:subscriptions_projected, [_]}
     assert_receive {:subscriptions_projected, [_]}
-    send(view.pid, :reconcile)
+    send(view.pid, :reload_page)
     assert_receive {:subscriptions_projected, [_]}
     assert has_element?(view, "details[id='follow-up-details-#{context.subscription.ref}']")
     assert has_element?(view, "input[name=q][value=run-k9]")
@@ -283,7 +283,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
       ]
     )
 
-    send(view.pid, :control_plane_changed)
+    send(view.pid, :reload_page)
     assert_receive {:subscriptions_projected, [_]}
     assert has_element?(view, ".entity-meta", "next check overdue by 3 minutes")
     assert has_element?(view, ".entity-side .state-word", "Waiting")

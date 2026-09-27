@@ -1,0 +1,323 @@
+defmodule Ryker.ControlPlane.RealtimePagesTest do
+  @moduledoc """
+  A change shows on a page that is already open, without a reload, because
+  the context that made it announced it; and a page that hears nothing reads
+  nothing.
+
+  Until 2026-09-26 an open page learned of changes from a PostgreSQL trigger
+  whose table-to-page map drifted from the pages, and hid the drift behind a
+  five-second poll of every open page: Working copies, Settings, Setup and
+  Chat each sat on stale data until the poll came round, and every open tab
+  re-read everything it showed five times a minute whether or not anything
+  had changed. Each test here makes a change the way production does, through
+  the owning context, while the page is open, and waits well under that five
+  seconds for the page to show it.
+  """
+  use Ryker.DataCase, async: false
+
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+  import Ryker.TestHelpers, only: [eventually: 1]
+
+  alias Ryker.ControlPlane.{Actions, ConversationLab, Endpoint, Projection}
+  alias Ryker.Delivery.PlatformActionCustody
+  alias Ryker.Episodes
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.SavedEntities
+  alias Ryker.Ingress.WorkProfile
+  alias Ryker.{Memories, Records, Settings}
+  alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRoomChangeset, IncidentRooms}
+  alias Ryker.Work.Custody
+
+  @endpoint Endpoint
+  @actor "control-plane:local"
+
+  setup do
+    observer = self()
+    profile = profile!()
+
+    # Activity reports each read, so a test can tell a page that listens from
+    # a page that polls.
+    projection =
+      Map.update!(Projection.callbacks(), :activity, fn read ->
+        fn params ->
+          send(observer, :activity_read)
+          read.(params)
+        end
+      end)
+
+    start_supervised!(
+      {Endpoint,
+       server: false,
+       secret_key_base: String.duplicate("s", 64),
+       pubsub_server: Ryker.PubSub.Server,
+       live_view: [signing_salt: "realtime-pages-test"],
+       check_origin: ["//localhost:4321"],
+       url: [host: "localhost", port: 4321],
+       control_plane: %{
+         actions: Actions.callbacks(%{environments: %{}, fallback_work_profile: profile}),
+         csrf_secret: String.duplicate("s", 32),
+         observability: %{},
+         projection: projection
+       }}
+    )
+
+    %{profile: profile}
+  end
+
+  test "a message that arrives shows on an open Activity page, which reads nothing meanwhile",
+       %{profile: profile} do
+    {:ok, view, _html} = open("/")
+    drain(:activity_read)
+
+    # Nothing changed, so nothing is read again: there is no poll to wait for.
+    Process.sleep(300)
+    refute_received :activity_read
+
+    assert {:ok, _receipt} =
+             ConversationLab.send_message(
+               Ecto.UUID.generate(),
+               "Why did checkout fail?",
+               profile
+             )
+
+    # A new row waits behind one button rather than moving the rows being read.
+    assert eventually(fn -> has_element?(view, "button.new-activity", "1 new") end)
+    view |> element("button.new-activity") |> render_click()
+    assert render(view) =~ "Why did checkout fail?"
+  end
+
+  test "a running request's Timeline shows what the run records while it is open" do
+    source = SavedEntities.source!("slack:T123:C456")
+    {:ok, view, _html} = open("/timeline/" <> URI.encode_www_form(source.episode.key))
+    refute render(view) =~ "Readiness probes fail after each deploy"
+
+    assert {:ok, _record} =
+             Records.create(Records.token(source.turn), "progress-realtime", "progress", %{
+               "next_due_at" => nil,
+               "phase" => "investigating",
+               "summary" => "Readiness probes fail after each deploy."
+             })
+
+    assert eventually(fn -> render(view) =~ "Readiness probes fail after each deploy" end)
+  end
+
+  test "a message sent to a conversation from another tab shows in the open conversation",
+       %{profile: profile} do
+    id = Ecto.UUID.generate()
+    {:ok, view, _html} = open("/conversations/#{id}")
+    refute has_element?(view, "#lab-messages .chat-message-text")
+
+    assert {:ok, _receipt} = ConversationLab.send_message(id, "Is checkout healthy?", profile)
+
+    assert eventually(fn ->
+             has_element?(view, "#lab-messages .chat-message-text", "Is checkout healthy?")
+           end)
+  end
+
+  test "a reply Slack refuses for good shows on an open Failures page" do
+    claim = work_claim!("failures")
+    {:ok, view, _html} = open("/failures")
+    assert has_element?(view, ".kit-empty-title", "Nothing needs you")
+
+    assert {:ok, %{action: action}} =
+             PlatformActionCustody.enqueue(claim, %{
+               conversation_ref: "slack:T123:C123",
+               document: %{"action" => "add", "emoji_name" => "eyes"},
+               host_slot: "reaction",
+               kind: :reaction,
+               source_item_ref: "1787832000.000100",
+               thread_ref: "1787832000.000100",
+               tool: :set_slack_reaction,
+               transport: "slack"
+             })
+
+    assert {:ok, %{lease_ref: lease_ref}} =
+             PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+    assert {:ok, _blocked} =
+             PlatformActionCustody.block(
+               action.action_ref,
+               lease_ref,
+               "slack_api_error",
+               ~s|{:slack_api_error, "channel_not_found"}|
+             )
+
+    assert eventually(fn ->
+             not has_element?(view, ".kit-empty-title", "Nothing needs you") and
+               has_element?(view, ".failures-page .entity-row")
+           end)
+  end
+
+  test "a working copy a task starts shows on an open Working copies page" do
+    {:ok, view, _html} = open("/working-copies")
+    assert has_element?(view, ".kit-empty-title", "No working copies right now")
+
+    episode = episode!("working-copy")
+    assert {:ok, _session} = Custody.pin_episode(episode.id, "policy:realtime", digest(), "ryker")
+
+    assert eventually(fn ->
+             not has_element?(view, ".kit-empty-title", "No working copies right now")
+           end)
+  end
+
+  test "a room a person rearms goes back to setting up on the open Incident rooms list" do
+    room = blocked_room!()
+    {:ok, view, _html} = open("/incident-rooms")
+    assert has_element?(view, ".entity-side .state-word", "Needs attention")
+
+    assert {:ok, _rearmed} = IncidentRooms.rearm(room.ref)
+
+    assert eventually(fn ->
+             has_element?(view, ".entity-side .state-word", "Setting up") and
+               not has_element?(view, ".entity-side .state-word", "Needs attention")
+           end)
+  end
+
+  test "a channel Ryker joins shows on the open Channels list" do
+    {:ok, view, _html} = open("/channels?show=all")
+    refute has_element?(view, "#channel-T123-C987")
+
+    assert {:ok, %{status: :joined}} =
+             ChannelConfigurations.observe_membership(
+               %{
+                 actor_ref: "U123",
+                 channel_ref: "C987",
+                 event_ref: "event:join-realtime",
+                 kind: :joined,
+                 occurred_at: DateTime.utc_now(),
+                 workspace_ref: "T123"
+               },
+               %{default_environment: nil, environments: []}
+             )
+
+    assert eventually(fn -> has_element?(view, "#channel-T123-C987") end)
+  end
+
+  test "a repository added in another tab shows on the open Repositories page" do
+    assert {:ok, snapshot} = Settings.initialize(@actor)
+    {:ok, view, _html} = open("/repositories")
+    refute has_element?(view, "#repository-billing")
+
+    assert {:ok, _saved} =
+             Settings.put_repository(%{ref: "billing"}, snapshot.installation.revision, @actor)
+
+    assert eventually(fn -> has_element?(view, "#repository-billing") end)
+  end
+
+  test "a fact forgotten from Slack leaves the open Facts page" do
+    source = SavedEntities.source!("slack:T123:C456")
+    fact = SavedEntities.memory!(source, "checkout owner", "The payments team owns checkout.")
+    {:ok, view, _html} = open("/memory")
+    assert render(view) =~ "The payments team owns checkout."
+
+    assert {:ok, _forgotten} = Memories.forget(fact.ref)
+
+    assert eventually(fn -> not (render(view) =~ "The payments team owns checkout.") end)
+  end
+
+  test "settings the running system applies stop reading as pending on the open Advanced page" do
+    assert {:ok, snapshot} = Settings.initialize(@actor)
+    {:ok, view, _html} = open("/settings/advanced")
+    assert has_element?(view, ".page-feedback", "Applying the saved settings")
+
+    assert :ok = Settings.record_application(snapshot.installation.revision, :ok)
+
+    assert eventually(fn ->
+             not has_element?(view, ".page-feedback", "Applying the saved settings")
+           end)
+  end
+
+  defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+
+  defp drain(message) do
+    receive do
+      ^message -> drain(message)
+    after
+      100 -> :ok
+    end
+  end
+
+  defp profile! do
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "realtime-pages-test",
+        policy_digest: digest(),
+        repository_ref: nil
+      })
+
+    profile
+  end
+
+  defp episode!(suffix) do
+    id = Ecto.UUID.generate()
+
+    assert {:ok, %{episode: episode}} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: id,
+                 episode_key: "realtime:#{suffix}:#{id}",
+                 native_input_id: "source:realtime:#{suffix}:#{id}",
+                 turn_ref: "turn:realtime:#{suffix}:#{id}"
+               })
+             )
+
+    episode
+  end
+
+  defp work_claim!(suffix) do
+    episode = episode!(suffix)
+    assert {:ok, _session} = Custody.pin_episode(episode.id, "policy:realtime", digest())
+    assert {:ok, claim} = Custody.claim_next("worker:realtime:#{suffix}", 60)
+    claim
+  end
+
+  # A room whose setup stopped before its channel existed, as the worker leaves
+  # it after its attempts.
+  defp blocked_room! do
+    source = SavedEntities.source!("slack:T123:C456")
+
+    assert {:ok, offer} =
+             Records.create(Records.token(source.turn), "incident-offer", "task_offer", %{
+               "kind" => "incident",
+               "prompt" => "Investigate checkout errors.",
+               "repository" => nil,
+               "title" => "Checkout errors"
+             })
+
+    room =
+      %{
+        attempt_count: 3,
+        bot_user_ref: "U0RYKERBOT",
+        channel_name: "inc-checkout-errors",
+        confirmation_ref: "incident-confirmation:realtime",
+        id: Ecto.UUID.generate(),
+        invite_user_group_refs: [],
+        invite_user_refs: ["U123"],
+        last_error_code: "slack_api_error",
+        last_error_detail: ~s|{:slack_api_error, "name_taken"}|,
+        policy: "ryker-incident",
+        policy_digest: digest(),
+        private: false,
+        prompt: "Investigate checkout errors.",
+        record_id: offer.id,
+        ref: "incident-room:realtime",
+        repository_ref: "acme/checkout-api",
+        requested_at: DateTime.utc_now(),
+        requested_by_actor_ref: "U123",
+        source_channel_ref: "C456",
+        source_episode_id: source.episode.id,
+        source_message_ref: "1790001200.000100",
+        status: :blocked,
+        title: "Checkout errors",
+        topic: "Checkout errors · investigating",
+        workspace_ref: "T123"
+      }
+      |> IncidentRoomChangeset.insert()
+      |> Repo.insert!()
+
+    Repo.get!(IncidentRoom, room.id)
+  end
+
+  defp digest, do: String.duplicate("a", 64)
+end

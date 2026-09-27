@@ -1,5 +1,10 @@
 defmodule Ryker.ControlPlane.UsagePage do
-  @moduledoc "Usage as an operator's ledger: totals, subscriptions, and the work behind them."
+  @moduledoc """
+  Usage as an operator's ledger: totals, subscriptions, and the work behind
+  them. An open page redraws when usage is recorded or a price changes
+  (`subscriptions/0`).
+  """
+  alias Ryker.{Accounting, Settings}
   alias Ryker.ControlPlane.{Kit, SettingsRows, UsageChart}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
@@ -9,6 +14,13 @@ defmodule Ryker.ControlPlane.UsagePage do
   @work_kinds ~w(admission learning conversational standard deep continuation resumed task event_wait schedule publication approval)
 
   def work_kinds, do: @work_kinds
+
+  @doc """
+  The topics an open Usage page listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): every execution's
+  usage, and the prices in the settings.
+  """
+  def subscriptions, do: [{Accounting, :subscribe_usage, []}, {Settings, :subscribe, []}]
 
   def render(snapshot) do
     totals = snapshot.totals

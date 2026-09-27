@@ -3,7 +3,8 @@ defmodule Ryker.ControlPlane.FindingsPage do
   Findings (`/memory/findings`): the conclusions Ryker saved in its
   investigations, newest first, each with why it holds, the evidence behind
   it, and the way into the investigation that reached it. Ryker writes these
-  itself; the page only reads them.
+  itself; the page only reads them, and redraws when one is written or
+  changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
@@ -11,6 +12,14 @@ defmodule Ryker.ControlPlane.FindingsPage do
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, MemoryFormat}
+  alias Ryker.Records
+
+  @doc """
+  The topics an open Findings page listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the records
+  investigations write, findings among them.
+  """
+  def subscriptions, do: [{Records, :subscribe_records, []}]
 
   @doc "The query keys the Findings page reads."
   def query_keys, do: ["page", "q"]

@@ -8,12 +8,31 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   proposes, so the pages offer no create button; how to ask is in each
   page's help panel (`PageHelp`).
   A row names the entry, says what it does, then one line of facts; nothing
-  in a list is a raw enum, reference or JSON.
+  in a list is a raw enum, reference or JSON. An open page redraws when what
+  it lists changes (`subscriptions/1`).
   """
   use Phoenix.Component
+  alias Ryker.{Behaviors, Instructions}
   alias Ryker.ControlPlane.{Components, Kit}
   alias Ryker.Episodes.Words
-  alias Ryker.Slack.Names
+  alias Ryker.Slack.{ChannelConfigurations, IncidentRooms, Names}
+
+  @doc """
+  The topics an open Rules or Instructions page listens to, as the context
+  functions that subscribe to them (`Ryker.ControlPlane.WorkbenchLive`):
+  rules, preferences and guidance and their use; for Instructions also the
+  saved instructions and the channels that add their own.
+  """
+  def subscriptions(:rules), do: [{Behaviors, :subscribe_behaviors, []}]
+
+  def subscriptions(:instructions) do
+    [
+      {Instructions, :subscribe_instructions, []},
+      {Behaviors, :subscribe_behaviors, []},
+      {ChannelConfigurations, :subscribe_channels, []},
+      {IncidentRooms, :subscribe_rooms, []}
+    ]
+  end
 
   attr(:view, :map, required: true, doc: "BehaviorLibrary.list(:standing_assignment, params)")
   attr(:now, :any, default: nil)

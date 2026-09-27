@@ -6,15 +6,33 @@ defmodule Ryker.ControlPlane.FactsPage do
 
   Every action is the existing two-step one: its button opens a confirmation
   page that says what will happen, and only that page's protected POST acts.
+  An open page redraws when a fact, or anything it lists beside one, changes
+  (`subscriptions/0`).
   """
   use Phoenix.Component
 
   import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1]
 
   alias Phoenix.HTML.Safe
+  alias Ryker.{Behaviors, Memories, Records, Schedules}
   alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection}
   alias Ryker.InspectionRedactor
   alias Ryker.Slack.Names
+
+  @doc """
+  The topics an open Facts page listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the facts and their
+  reviews and use, the guidance and schedules listed beside them, and the
+  offers to remember something that a request made.
+  """
+  def subscriptions do
+    [
+      {Memories, :subscribe_memories, []},
+      {Behaviors, :subscribe_behaviors, []},
+      {Schedules, :subscribe_schedules, []},
+      {Records, :subscribe_records, []}
+    ]
+  end
 
   @doc "The query keys the Facts page reads."
   def query_keys, do: MemoryProjection.query_keys()

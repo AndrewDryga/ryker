@@ -6,15 +6,30 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   Each row follows the Kit: what the follow-up waits for and its state, the
   request it continues, then when and where in words. Ryker creates and ends
   these itself, so the page is read-only; the identifiers support needs stay
-  in one closed Details disclosure per row.
+  in one closed Details disclosure per row. An open list redraws when a
+  follow-up or what it waits on changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, ShortTime}
   alias Ryker.ControlPlane.SubscriptionPresentation, as: Presentation
+  alias Ryker.Records
+  alias Ryker.Waits.EventSubscriptions
 
   @list_limit 100
+
+  @doc """
+  The topics an open Follow-ups list listens to, as the context functions
+  that subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the follow-ups,
+  and the waits and questions they belong to.
+  """
+  def subscriptions do
+    [
+      {EventSubscriptions, :subscribe_follow_ups, []},
+      {Records, :subscribe_records, []}
+    ]
+  end
 
   @doc "The one sentence under the page title."
   @spec description() :: String.t()

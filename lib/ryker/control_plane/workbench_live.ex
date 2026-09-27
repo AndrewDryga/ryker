@@ -1,5 +1,18 @@
 defmodule Ryker.ControlPlane.WorkbenchLive do
-  @moduledoc "Live operator workspace. Browser state never owns execution custody."
+  @moduledoc """
+  Live operator workspace. Browser state never owns execution custody.
+
+  One LiveView serves every page. An open page redraws when something it
+  shows changes, and only then: each page declares the topics it listens to
+  (`page_subscriptions/3`, which dispatches to the page modules and to
+  `Pages.subscriptions/2`), and the shell adds what every page can show (Slack
+  names, history a retention pass removed) and, until setup is done, what the
+  sidebar's setup count reads. The page subscribes when the socket connects
+  and before every read, drops the topics of the page it left, and turns any
+  burst of announcements into one reload a moment later
+  (`schedule_reload/2`, `reload_drained/1`). Nothing re-reads a page on a
+  timer; a read that failed is retried with backoff until it succeeds.
+  """
   use Phoenix.LiveView, layout: false
   require Logger
 
@@ -18,6 +31,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     Endpoint,
     Environments,
     EpisodePage,
+    EpisodeProjection,
     IntegrationErrors,
     Integrations,
     LabControls,
@@ -30,12 +44,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     RunningSystem,
     SettingsPage,
     SettingsView,
-    Updates,
     UsageProjection
   }
 
   alias Ryker.{IntegrationSetup, Settings}
-  alias Ryker.Slack.ChannelConfigurations
+  alias Ryker.Retention.Data, as: RetentionData
+  alias Ryker.Slack.{ChannelConfigurations, Names}
 
   # Who a choice made on these pages is recorded as, like every other
   # control-plane write.
@@ -56,13 +70,29 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     ["settings", "advanced"] => :system
   }
 
+  # A burst of announcements (a turn finishing writes a dozen rows) redraws a
+  # page once, this long after the first of them.
+  @reload_debounce_ms 100
+
+  # What the topics pages listen to announce; each context documents its own
+  # (`Ryker.Episodes.subscribe_episode/1`, ...). The page hears only the topics
+  # it declared, so any of these redraws it.
+  @page_events ~w(
+    behavior_updated conversation_updated continuity_updated coop_worker_updated
+    credentials_changed emisar_approval_updated episode_updated follow_up_updated
+    github_delivery_updated history_pruned incident_room_updated input_updated instructions_saved
+    knowledge_updated learning_updated memory_updated operator_action_recorded
+    platform_action_updated publication_updated record_updated routing_response_updated
+    schedule_updated settings_applied settings_saved slack_channel_updated
+    slack_connection_changed slack_interaction_updated slack_names_updated
+    task_card_updated thread_status_updated usage_recorded work_session_updated
+  )a
+
+  @doc false
+  def page_events, do: @page_events
+
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket) do
-      Ryker.PubSub.subscribe("control-plane")
-      Process.send_after(self(), :reconcile, 5_000)
-    end
-
     {:ok,
      socket
      |> assign(
@@ -74,10 +104,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        page_action: nil,
        connected: connected?(socket),
        unavailable: false,
-       refresh_token: nil,
+       reload_scheduled?: false,
        refresh_failures: 0,
+       subscriptions: [],
        observed_at: nil,
-       domain: nil,
        native: nil,
        page_status: 200,
        instructions: nil,
@@ -132,14 +162,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   @impl true
   def handle_params(params, uri, socket) do
     location = URI.parse(uri)
-    domain = Updates.domain(location.path)
-    subscribe(socket, domain)
 
     {:noreply,
      socket
      |> assign(
        path: location.path,
-       domain: domain,
        params: params,
        filter_menu: nil,
        disclosed: navigation_disclosures(socket, location.path),
@@ -163,8 +190,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   # A conversation view is opened once per navigation: the index gets a fresh
-  # identity nothing is written behind. Refreshes come through refresh/2, not
-  # here, so a five-second reconcile cannot hand the draft a new identity.
+  # identity nothing is written behind. Reloads come through refresh/2, not
+  # here, so an announcement cannot hand the draft a new identity.
   defp assign_conversation_draft(socket, "/conversations"),
     do: assign(socket, lab_draft_id: Ecto.UUID.generate())
 
@@ -177,24 +204,97 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     if socket.assigns.path == path, do: socket.assigns.disclosed, else: MapSet.new()
   end
 
-  defp subscribe(socket, domain) do
-    if connected?(socket) and domain != socket.assigns.domain do
-      if socket.assigns.domain,
-        do: Ryker.PubSub.unsubscribe("control-plane:#{socket.assigns.domain}")
+  # -- Live updates -------------------------------------------------------------
 
-      Ryker.PubSub.subscribe("control-plane:#{domain}")
+  # Subscribes to what the page at the socket's path listens to and drops what
+  # the page it replaced listened to. It runs before every read of a page, so
+  # an announcement made while the page reads is heard and reloads it again.
+  defp listen(socket) do
+    if connected?(socket) do
+      wanted = Enum.uniq(page_subscriptions(socket) ++ shell_subscriptions(socket))
+      held = socket.assigns.subscriptions
+      Enum.each(held -- wanted, &unsubscribe/1)
+      Enum.each(wanted -- held, &subscribe/1)
+      assign(socket, :subscriptions, wanted)
+    else
+      socket
     end
   end
 
-  @impl true
-  def handle_info(:control_plane_changed, socket) do
-    {:noreply, queue_refresh(socket)}
+  defp page_subscriptions(%{assigns: %{path: path, params: params} = assigns}),
+    do: page_subscriptions(path, params, assigns.lab_draft_id)
+
+  # Each page declares its topics beside what it shows; the native pages are
+  # dispatched here as `load_page/3` loads them, every other page by `Pages`.
+  # `draft_id` is the identity an empty Chat draft will start.
+  @doc false
+  def page_subscriptions(path, params, draft_id),
+    do: path |> String.split("/", trim: true) |> page_subscriptions_at(params, draft_id)
+
+  defp page_subscriptions_at(segments, _params, _draft_id) when segments in [[], ["activity"]],
+    do: ActivityPage.subscriptions()
+
+  defp page_subscriptions_at(["timeline", _ref], params, _draft_id),
+    do: EpisodeProjection.subscriptions(params["ref"])
+
+  defp page_subscriptions_at(["setup"], _params, _draft_id),
+    do: SettingsView.setup_subscriptions()
+
+  defp page_subscriptions_at(segments, _params, _draft_id)
+       when is_map_key(@settings_pages, segments),
+       do: SettingsView.subscriptions()
+
+  defp page_subscriptions_at(["instructions"], _params, _draft_id),
+    do: BehaviorPage.subscriptions(:instructions)
+
+  defp page_subscriptions_at(["channels", _workspace, _channel], params, _draft_id),
+    do: ChannelPage.subscriptions(params["workspace"], params["channel"])
+
+  defp page_subscriptions_at(["conversations"], _params, draft_id),
+    do: LabPage.subscriptions(draft_id)
+
+  defp page_subscriptions_at(["conversations", _id], params, _draft_id),
+    do: LabPage.subscriptions(params["id"])
+
+  defp page_subscriptions_at(segments, params, _draft_id),
+    do: Pages.subscriptions(segments, params)
+
+  # Every page can show Slack names (`Kit`, `Components`) and history a
+  # retention pass removes in bulk, and until setup is done the sidebar counts
+  # its steps on every page.
+  @shell_subscriptions [{Names, :subscribe_names, []}, {RetentionData, :subscribe_pruning, []}]
+
+  defp shell_subscriptions(%{assigns: %{setup_progress: nil}}), do: @shell_subscriptions
+
+  defp shell_subscriptions(_socket),
+    do: @shell_subscriptions ++ SettingsView.setup_subscriptions()
+
+  defp subscribe({module, function, arguments}), do: apply(module, function, arguments)
+
+  defp unsubscribe({module, "subscribe" <> _rest = function, arguments}),
+    do: apply(module, String.to_existing_atom("un" <> function), arguments)
+
+  defp unsubscribe({module, function, arguments}),
+    do: unsubscribe({module, Atom.to_string(function), arguments})
+
+  defp schedule_reload(socket, delay \\ @reload_debounce_ms) do
+    if socket.assigns.reload_scheduled? do
+      socket
+    else
+      Process.send_after(self(), :reload_page, delay)
+      assign(socket, :reload_scheduled?, true)
+    end
   end
 
-  def handle_info(:reconcile, socket) do
-    Process.send_after(self(), :reconcile, 5_000)
-    {:noreply, queue_refresh(socket)}
-  end
+  defp reload_drained(socket), do: assign(socket, :reload_scheduled?, false)
+
+  @impl true
+  def handle_info(event, socket)
+      when is_tuple(event) and tuple_size(event) > 1 and elem(event, 0) in @page_events,
+      do: {:noreply, schedule_reload(socket)}
+
+  def handle_info(:reload_page, socket),
+    do: {:noreply, socket |> reload_drained() |> refresh()}
 
   def handle_info({:settings_editor_saved, view}, socket) do
     {:noreply, assign(socket, settings: {:ok, view}, settings_error: nil)}
@@ -238,29 +338,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      |> push_patch(to: "/environments")}
   end
 
-  def handle_info({:refresh_projection, token}, socket) do
-    if token == socket.assigns.refresh_token do
-      socket = assign(socket, :refresh_token, nil)
-      {:noreply, refresh(socket)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  defp queue_refresh(%{assigns: %{refresh_token: token}} = socket) when not is_nil(token),
-    do: socket
-
-  defp queue_refresh(socket) do
-    token = make_ref()
-
-    delay =
-      if socket.assigns.refresh_failures == 0,
-        do: 25,
-        else: min(250 * Integer.pow(2, min(socket.assigns.refresh_failures, 6)), 15_000)
-
-    Process.send_after(self(), {:refresh_projection, token}, delay)
-    assign(socket, :refresh_token, token)
-  end
+  # Anything else, such as a reply to a request this page no longer waits
+  # for, changes nothing it shows.
+  def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event(event, _params, socket) when event in ["refresh", "show-new"],
@@ -938,12 +1018,27 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     {:noreply, socket |> assign(:filter_menu, nil) |> push_patch(to: path)}
   end
 
+  # The setup count is read first because what the shell listens to depends on
+  # it, and the page listens before it reads. Working out what to listen to
+  # changes nothing until it has all been worked out, so a failure there leaves
+  # the page listening to what it did.
   defp refresh(socket, reset \\ false) do
-    socket = assign(socket, :refresh_token, nil)
-    options = Endpoint.config(:control_plane)
-    socket = load_page(socket, options, reset)
-    socket = assign(socket, :setup_progress, SettingsView.setup_progress())
-    assign(socket, unavailable: false, refresh_failures: 0, observed_at: DateTime.utc_now())
+    socket
+    |> assign(:setup_progress, SettingsView.setup_progress())
+    |> listen()
+    |> read_page(reset)
+  rescue
+    error -> projection_failed(socket, error.__struct__, __STACKTRACE__)
+  catch
+    :throw, {:projection_unavailable, source} -> projection_failed(socket, source, [])
+  end
+
+  # A failed read keeps what the page now listens to, so the page still hears
+  # the change that lets the read succeed.
+  defp read_page(socket, reset) do
+    socket
+    |> load_page(Endpoint.config(:control_plane), reset)
+    |> assign(unavailable: false, refresh_failures: 0, observed_at: DateTime.utc_now())
   rescue
     error -> projection_failed(socket, error.__struct__, __STACKTRACE__)
   catch
@@ -965,11 +1060,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       "Control-plane projection unavailable category=#{inspect(category)} page=#{socket.assigns.native || :secondary} location=#{location}"
     )
 
-    assign(socket,
-      unavailable: true,
-      refresh_token: nil,
-      refresh_failures: min(socket.assigns.refresh_failures + 1, 6)
-    )
+    failures = min(socket.assigns.refresh_failures + 1, 6)
+
+    # The one reload that is not an announcement: a page that could not be
+    # read is tried again, backing off, until it can.
+    socket
+    |> assign(unavailable: true, refresh_failures: failures)
+    |> schedule_reload(min(250 * Integer.pow(2, failures), 15_000))
   end
 
   defp load_page(%{assigns: %{path: path}} = socket, options, reset)

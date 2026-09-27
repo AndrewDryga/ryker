@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
 
   Until 2026-09-13 every refresh replaced the transcript with the latest
   snapshot and deleted any loaded row the snapshot did not repeat, so history
-  the reader had scrolled up to vanished under them on the next reconcile.
+  the reader had scrolled up to vanished under them on the next refresh.
   These tests pin the window: pages prepend, refreshes merge, and only a
   change of conversation resets anything.
   """
@@ -82,7 +82,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
     assert length(transcript(view)) == 100
     assert hd(transcript(view)) == "Message 21"
 
-    # A reconcile only repeats the latest page. The fifty older rows the
+    # A reload only repeats the latest page. The fifty older rows the
     # reader scrolled up to are not in it and must not be taken away.
     render_hook(view, "refresh", %{})
     assert length(transcript(view)) == 100
