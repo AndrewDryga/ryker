@@ -1,6 +1,10 @@
 defmodule Ryker.Slack.TaskCardWorker do
   @moduledoc """
   Repairs and refreshes one Slack engineering-task card at a time.
+
+  A task that is confirmed and a card that is rearmed are announced, and each
+  wakes the worker at once. Otherwise it sleeps until the next card's check,
+  retry or unrenewed lease falls due, or for its safety-net interval.
   """
 
   use Ryker.PollingWorker, lane: :slack_task_cards, interval: :interval_ms
@@ -9,6 +13,8 @@ defmodule Ryker.Slack.TaskCardWorker do
 
   alias Ryker.Observability.Progress
   alias Ryker.Options
+  alias Ryker.PollingWorker
+  alias Ryker.Records
 
   alias Ryker.Slack.{TaskCardProjection, TaskCards}
 
@@ -20,12 +26,18 @@ defmodule Ryker.Slack.TaskCardWorker do
     GenServer.start_link(__MODULE__, options, name: options.name)
   end
 
-  @impl Ryker.PollingWorker
+  @impl PollingWorker
+  def wake_on(_options), do: [&Records.subscribe_records/0, &TaskCards.subscribe_task_cards/0]
+
+  @impl PollingWorker
   def poll(options) do
     delay =
       case run_once(options) do
         {:ok, :idle} ->
-          options.interval_ms
+          PollingWorker.idle_delay(
+            &TaskCards.next_due_at(&1, options.check_interval_seconds),
+            Map.get(options, :idle_interval_ms, PollingWorker.idle_interval_ms())
+          )
 
         {:ok, _result} ->
           0
@@ -138,7 +150,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   @doc false
   def options!(options) do
     required = [:api, :client, :lease_seconds, :retry_base_seconds, :worker_ref]
-    optional = [:check_interval_seconds, :interval_ms, :max_attempts, :name]
+    optional = [:check_interval_seconds, :idle_interval_ms, :interval_ms, :max_attempts, :name]
 
     options =
       Options.normalize!(options, required ++ optional, required,
@@ -167,6 +179,7 @@ defmodule Ryker.Slack.TaskCardWorker do
       Map.get(options, :retry_base_seconds) in 1..3_600,
       Map.get(options, :check_interval_seconds) in 1..86_400,
       Map.get(options, :interval_ms) in 50..3_600_000,
+      Map.get(options, :idle_interval_ms, 50) in 50..3_600_000,
       Map.get(options, :max_attempts) in 1..100,
       is_binary(Map.get(options, :worker_ref)),
       Map.get(options, :worker_ref) != ""
