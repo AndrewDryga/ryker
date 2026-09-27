@@ -903,7 +903,8 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   # Repository knowledge is copied into the frozen submission, not looked up by
   # the model at run time. A prepared turn therefore keeps the exact accepted or
-  # proposed RYKER.md revision it was briefed with even if onboarding advances.
+  # proposed RYKER.md revision it was briefed with even if the knowledge lane
+  # writes a newer one meanwhile (`Ryker.RepositoryKnowledge`).
   defp maybe_put_repository_knowledge(context, repository_ref) when is_binary(repository_ref) do
     case Settings.fetch() do
       {:ok, snapshot} ->
