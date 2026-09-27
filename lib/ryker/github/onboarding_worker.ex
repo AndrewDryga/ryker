@@ -53,8 +53,7 @@ defmodule Ryker.GitHub.OnboardingWorker do
         &(&1.github_access == :available and
             &1.onboarding_state in [:pending, :cloning, :scanning, :publishing])
       )
-      |> Enum.sort_by(&{&1.updated_at, &1.ref})
-      |> List.first()
+      |> Enum.min_by(&{DateTime.to_unix(&1.updated_at, :microsecond), &1.ref}, fn -> nil end)
 
     if onboarding, do: {:onboard, onboarding.ref}
   end
