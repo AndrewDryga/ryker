@@ -53,6 +53,15 @@ defmodule Ryker.Publication.Followups do
   @doc "Claims the next published pull request due for a poll, under a lease."
   defdelegate claim_poll(worker_ref, lease_seconds), to: Leases
 
+  @doc """
+  The earliest moment after `since` at which a follow-up poll or a lifecycle
+  notice becomes claimable by the clock alone: a poll's interval or a retry's
+  backoff ends, or the lease of a claim nobody renewed runs out. Nil when
+  nothing waits on the clock.
+  """
+  @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
+  defdelegate next_due_at(since), to: Leases
+
   @doc "Claims the next lifecycle event waiting for delivery, under a lease."
   defdelegate claim_delivery(worker_ref, lease_seconds), to: Leases
 
