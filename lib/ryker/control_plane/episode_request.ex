@@ -100,7 +100,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
               <li :for={outcome <- fact.outcomes} data-selected={to_string(outcome.selected)}>
                 <span class="considered-verdict">{outcome.status}</span>
                 <a href={outcome.href} title="Where the briefing offered it">
-                  {outcome.title} <span aria-hidden="true">{briefing_arrow(@request)}</span>
+                  {outcome.title} <span aria-hidden="true">↑</span>
                 </a>
               </li>
             </ul>
@@ -605,11 +605,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     do: facts
 
   defp decision_facts(_request), do: []
-
-  # Where the briefing that offered earlier work sits: above the decision on a
-  # request's page, below it on a message's own page.
-  defp briefing_arrow(%{briefing_below: true}), do: "↓"
-  defp briefing_arrow(_request), do: "↑"
 
   # The earlier work the briefing offered, each with what the decision did
   # with it. With nothing offered, how the message relates to earlier work.
