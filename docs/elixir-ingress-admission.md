@@ -305,12 +305,25 @@ The model chooses one of:
 - `start_episode`: begin new work, optionally linked to older history;
 - `continue_episode`: add this input to one offered episode;
 - `reply`: answer directly without a longer investigation;
-- `react`: acknowledge with one emoji when the source supports reactions; or
+- `quick_reply`: for a person writing in Slack or Chat, answer by itself without starting work, in
+  `messages` (one to three short messages sent in order), optionally with `reactions` (up to three
+  emoji added to the person's message);
+- `react`: acknowledge with one to three emoji in `reactions` when the source supports reactions; or
 - `ignore`: take no visible action and preserve a short factual reason.
 
+`messages` is `null` on every action but `quick_reply`, and `reactions` on every action but
+`quick_reply` and `react` (`invalid_decision: messages` / `reactions`). Every emoji must be one the
+source takes: one of the adapter's names when it issues them (`admission_rejected:
+reaction_not_allowed`), and none at all where it cannot react (`admission_rejected:
+reactions_not_available`). Each message and emoji becomes its own routing response, the messages
+first in order and then the emoji, and each is sent only after every earlier one of its message is
+delivered. Decisions stored before 2026-09-27 with one `message` or `reaction` were rewritten into
+this shape by the migration that introduced it, their fingerprints taken again.
+
 It also chooses one abstract `work_class` for work-producing actions. `reply` requires
-`conversational`; `start_episode` and `continue_episode` require `standard` or `deep`; `react` and
-`ignore` require `null`. The host maps that bounded class through the adapter-owned Work profile:
+`conversational`; `start_episode` and `continue_episode` require `standard` or `deep`;
+`quick_reply`, `react` and `ignore` require `null`. The host maps that bounded class through the
+adapter-owned Work profile:
 
 | Work class | Recommended Coop target | Intended use |
 | --- | --- | --- |
@@ -328,7 +341,7 @@ for another action, `admission_rejected: repository_not_available` for a route w
 missing or unlisted choice is rejected in the same Coop turn (`admission_rejected:
 repository_required` / `repository_not_allowed`). The chosen repository selects the frozen Work
 profile's policy for the class and the session's working copy. Decisions recorded before
-2026-09-25 carry no `repository` key, which reads as `null`.
+2026-09-25 had no `repository` key; the 2026-09-27 migration wrote it as `null`.
 
 When the route already selected a repository, the context carries `repository_source_kinds` and a
 `start_episode` decision may also set `repository_source` to one of `{"kind":"default"}`,

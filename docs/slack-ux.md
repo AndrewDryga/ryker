@@ -425,7 +425,9 @@ There are no attention scores or thresholds. The admission decision is one of ig
 quick reply, reply, start work or continue existing work, with its reason, the work it relates to,
 and the kind of work (conversational, standard or deep); Ryker validates it before acting on it.
 A quick reply is a short answer routing writes itself for a person in Slack or Chat — "hi",
-"thanks", "are you there?" — sent in the thread without starting work; the thread stays engaged,
+"thanks", "are you there?" — sent in the thread without starting work: one to three short messages
+in the order routing wrote them, and up to three emoji on the person's message when it asked for
+one or an emoji says it better. A reaction alone is up to three emoji. The thread stays engaged,
 so the person's next message there reaches Ryker without a mention. Ryker may use
 any standard Slack emoji or a workspace custom emoji visible in the supplied message context. The
 host validates the emoji name, adds or removes one reaction per call on an exact current human

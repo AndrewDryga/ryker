@@ -465,6 +465,39 @@ defmodule Ryker.Admission.PromptTest do
       refute Map.has_key?(bare["context"], "custom_instructions")
     end
 
+    # Andrew, 2026-09-26: routing may answer by itself with a few messages
+    # and emoji, where one message or one emoji sent "Now both reply and add
+    # a reaction" into a 1 min 22 s work run. The prompt has to say when a
+    # second message or emoji helps and still ask for brevity; a number of
+    # words would be a limit the model counts toward rather than an answer
+    # kept short (2026-08-16: the alert-reply word limit and its checker went).
+    test "offers a quick answer of a few messages and emoji, asked for briefly and never by count" do
+      assert {:ok, person} =
+               SlackInput.new(%{
+                 actor: %{kind: :user, ref: "UALICE"},
+                 channel_ref: "C456",
+                 content: %{"text" => "Now both reply and add a reaction"},
+                 event_kind: :message,
+                 event_ref: "Ev-both",
+                 message_ref: "1787832000.000100",
+                 occurred_at: ~U[2026-08-27 12:00:00.000000Z],
+                 revision: 1,
+                 thread_ref: nil,
+                 workspace_ref: "T123"
+               })
+
+      request = Prompt.build(%{lean_context!() | input: person})
+      instructions = request["instructions"]
+
+      assert "quick_reply" in request["context"]["allowed_actions"]
+      assert "react" in request["context"]["allowed_actions"]
+      assert instructions =~ "each message is sent in order exactly as written"
+      assert instructions =~ "One short\nmessage is usually enough"
+      assert instructions =~ "A\nquick_reply may carry reactions beside its messages"
+      assert instructions =~ "keep every one brief"
+      refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?)\b/i
+    end
+
     test "reads who said what and when, and keeps the provenance only in the snapshot" do
       context = lean_context!()
       document = Context.for_model(context)

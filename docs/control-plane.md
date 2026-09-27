@@ -132,10 +132,11 @@ it reacted to or left alone, or one still waiting for routing) opens a message
 page at `/timeline/ingress-input:<id>`, drawn with the request page's parts: the
 header says what the message says, its Slack mentions named from the names
 cache, what happened to it in Activity's words, when, and where it was sent; the
-summary strip carries its response time and routing cost when they are known
-and leaves out what a single message never has; and one Message band holds the
-message as it was sent, routing's decision, and what Ryker sent (the reply, the
-reaction, or that it stayed quiet and why). The thread or Chat conversation
+summary strip carries its response time (to the first thing Ryker sent) and
+routing cost when they are known and leaves out what a single message never has;
+and one Message band holds the message as it was sent, routing's decision, and
+what Ryker sent (each message and each reaction in the order they went out, or
+that it stayed quiet and why). The thread or Chat conversation
 around it follows: the 20 messages nearest it, oldest first, each once however
 many times it was edited or delivered, with what came of it and a link to its
 own page or to the request it started or joined. Last come its Routing details,

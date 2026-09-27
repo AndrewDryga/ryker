@@ -20,7 +20,7 @@ bytes needed to safely execute that episode through Coop:
 
 There is no mirrored provider transcript, progress-event stream, attempt table, alert profile, or old
 typed-operation union. Coop owns provider execution. The episode kernel owns lifecycle. Later state
-tools own durable records. The generic Delivery module owns external message custody and the routing responses (a reaction or quick reply) that routing sends without Work.
+tools own durable records. The generic Delivery module owns external message custody and the routing responses (a quick reply's messages and the reactions on the person's message, each sent once and in order) that routing sends without Work.
 
 ## End-to-end flow
 
@@ -142,8 +142,9 @@ tools own durable records. The generic Delivery module owns external message cus
 PostgreSQL owns memory; a warm Coop session is an execution optimization, not the durable owner.
 The memory pipeline has separate read, learn, and act decisions:
 
-1. Admission returns only `action`, `episode_ref`, `message`, `reaction`, `relation`, `reason`,
-   `repository`, `repository_source` and `work_class`; `message` is the words of a quick reply. Its schema has no `observation` or `knowledge` output. Committing a retained input
+1. Admission returns only `action`, `episode_ref`, `messages`, `reactions`, `relation`, `reason`,
+   `repository`, `repository_source` and `work_class`; `messages` are the words of a quick reply and
+   `reactions` the emoji routing adds. Its schema has no `observation` or `knowledge` output. Committing a retained input
    records a bounded original-message excerpt and its exact source receipt, including for silence.
 2. The optional `Ryker.Learning.Runtime` coalesces decided input revisions in the same writable
    scope and execution mode. A revision belongs to one durable batch. Quiet/max-delay clocks start
