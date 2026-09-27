@@ -30,7 +30,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
     def store_review(_, _, _, _), do: {:error, :not_used}
     def admit_wakeup(_, _), do: {:error, :not_used}
     def reconcile_verification(_, _, _), do: {:error, :not_used}
-    def store_poll(_, _, _, _), do: {:error, :not_used}
+    def store_poll(_, _, _), do: {:error, :not_used}
 
     defp unavailable, do: raise(DBConnection.ConnectionError, "held lease renewal unavailable")
   end
@@ -59,7 +59,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
     defdelegate store_review(ref, lease, generation, dossier), to: RaisingCustody
     defdelegate admit_wakeup(ref, lease), to: RaisingCustody
     defdelegate reconcile_verification(ref, lease, interval), to: RaisingCustody
-    defdelegate store_poll(ref, lease, status, interval), to: RaisingCustody
+    defdelegate store_poll(ref, lease, status), to: RaisingCustody
 
     defp raise_after_result do
       callback = receive do: ({:held_callback, pid} -> pid)

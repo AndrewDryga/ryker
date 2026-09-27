@@ -37,7 +37,7 @@ defmodule Ryker.Publication.FollowupExecutorTest do
 
     def renew_delivery(_event_ref, _lease_ref, _lease_seconds), do: {:ok, %{}}
     def renew_poll(_publication_ref, _lease_ref, _lease_seconds), do: {:ok, %{}}
-    def store_poll(_publication_ref, _lease_ref, status, _interval_seconds), do: {:ok, status}
+    def store_poll(_publication_ref, _lease_ref, status), do: {:ok, status}
   end
 
   defmodule FailingCustody do
@@ -54,8 +54,7 @@ defmodule Ryker.Publication.FollowupExecutorTest do
     def renew_poll(_publication_ref, _lease_ref, _lease_seconds),
       do: {:error, :poll_lease_lost}
 
-    def store_poll(_publication_ref, _lease_ref, _status, _interval_seconds),
-      do: {:error, :not_used}
+    def store_poll(_publication_ref, _lease_ref, _status), do: {:error, :not_used}
   end
 
   test "polling and verification keep the exact claim and lease settings" do
