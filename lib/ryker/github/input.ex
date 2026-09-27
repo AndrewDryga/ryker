@@ -106,6 +106,21 @@ defmodule Ryker.GitHub.Input do
 
   def normalize(_event, _binding), do: {:error, {:invalid_github_input, :binding}}
 
+  @doc """
+  The words a person wrote in one GitHub input, as `normalize/2` keeps its
+  webhook: the body of the comment, review, issue or pull request it
+  carries, the first there is. Nil when it carries none, such as a review
+  submitted without a word.
+  """
+  @spec body(term()) :: String.t() | nil
+  def body(%{"payload" => %{} = payload}),
+    do: Enum.find_value(~w(comment review issue pull_request), &item_body(payload[&1]))
+
+  def body(_content), do: nil
+
+  defp item_body(%{"body" => body}) when is_binary(body), do: body
+  defp item_body(_item), do: nil
+
   defp build_input(event, binding, details, actor, occurred_at) do
     Input.new(%{
       actor: actor,

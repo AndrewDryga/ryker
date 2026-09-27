@@ -354,6 +354,46 @@ defmodule Ryker.Improvement.AnalysesTest do
              Repo.all(from(run in AnalysisRun, where: run.candidate_id == ^candidate.id))
   end
 
+  # A GitHub request's words are the body of the comment or review its
+  # webhook carried, not a text field. Read as Slack messages are, every
+  # GitHub request an operator stopped failed its analysis, and the page
+  # said the person's messages were deleted or had expired.
+  test "a GitHub request is analyzed from the words of its comment" do
+    comment = "@ryker the payments export failed again on PR 42, why?"
+    request = github_request!(body: comment)
+    coop = coop!([Jason.encode!(@diagnosis)])
+
+    drain(settings(coop))
+
+    candidate = Improvement.for_request(request)
+    assert {candidate.analysis, candidate.error_code} == {:done, nil}
+    assert candidate.reasons == ["stopped"]
+    assert [submission] = FakeCoopAPI.state(coop).submissions
+    assert submission["prompt"] =~ "the payments export failed again on PR 42, why?"
+    assert submission["prompt"] =~ ~s("channel":"github")
+  end
+
+  # "Deleted or expired" is only one way to have nothing to read. A review
+  # submitted without a word, or a request an alert started with no person
+  # in it, says what is really missing, and no model is asked.
+  test "a request with none of a person's words says why it was not analyzed" do
+    wordless = github_request!(body: nil, review: true)
+    automated = automated_request!("1790101300.000100")
+    coop = coop!([Jason.encode!(@diagnosis)])
+
+    drain(settings(coop))
+
+    assert {Improvement.for_request(wordless).analysis,
+            Improvement.for_request(wordless).error_code} ==
+             {:failed, "improvement_evidence_wordless"}
+
+    assert {Improvement.for_request(automated).analysis,
+            Improvement.for_request(automated).error_code} ==
+             {:failed, "improvement_evidence_automated"}
+
+    assert FakeCoopAPI.state(coop).create_keys == []
+  end
+
   # "A person forgetting wins": a message deleted while its analysis is out
   # at Coop erases the prompt, and the run stops without ever sending it.
   test "an analysis whose prompt a person forgot while it was out stops without sending it" do
@@ -534,6 +574,62 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     assert {:ok, _session} = Custody.pin_episode(id, "answers", String.duplicate("a", 64))
     {:episode, id}
+  end
+
+  # A person's comment or review on a pull request, answered by Work and
+  # then stopped by an operator's review.
+  defp github_request!(options) do
+    entry = Answers.github_message!(options)
+
+    reply =
+      Answers.work_reply!(
+        entry,
+        "The export retried three times and succeeded.",
+        "github:issue_comment:#{System.unique_integer([:positive])}",
+        DateTime.add(@now, 60, :second)
+      )
+
+    request = {:episode, reply.episode.id}
+
+    assert {:ok, _recorded} =
+             Feedback.record(%{
+               kind: :reviewed,
+               value: "cancelled",
+               note: "It answered about the wrong run.",
+               actor_ref: "control-plane:local",
+               source: "control_plane",
+               source_ref: "episode-review:#{Ecto.UUID.generate()}",
+               occurred_at: DateTime.add(@now, 120, :second),
+               request: request
+             })
+
+    request
+  end
+
+  # A request an alerting app's message started, with a thumbs down on
+  # Ryker's answer and no person's message in it.
+  defp automated_request!(ts) do
+    alert =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: "CALERTS",
+        actor: "B0ALERTS",
+        actor_kind: :app,
+        text: "CPU above 90% on db-1",
+        ts: ts
+      )
+
+    reply =
+      Answers.work_reply!(
+        alert,
+        "db-1 is busy with the nightly vacuum; nothing to do.",
+        String.replace(ts, ".000100", ".000200"),
+        DateTime.add(@now, 60, :second)
+      )
+
+    request = {:episode, reply.episode.id}
+    record!(request, :reaction_added, "-1", nil, "alert-#{ts}", DateTime.add(@now, 120, :second))
+    request
   end
 
   defp record!(request, kind, value, note, event, at) do

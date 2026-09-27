@@ -25,6 +25,7 @@ defmodule Ryker.Improvement.Evidence do
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback
+  alias Ryker.GitHub.Input, as: GitHubInput
   alias Ryker.Improvement.Candidate
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
@@ -38,8 +39,14 @@ defmodule Ryker.Improvement.Evidence do
   @tool_limit 40
   @routing_limit 8
 
+  @type missing ::
+          :improvement_evidence_unavailable
+          | :improvement_evidence_wordless
+          | :improvement_evidence_automated
+
   @type t :: %{
           available?: boolean(),
+          missing: missing() | nil,
           request: map(),
           conversation: [map()],
           routing: [map()],
@@ -53,7 +60,12 @@ defmodule Ryker.Improvement.Evidence do
   @doc """
   Gathers the evidence about `candidate`'s request. `available?` is false
   when none of the person's words is left to read: then there is nothing for
-  an analysis or a case to rest on.
+  an analysis or a case to rest on, and `missing` says why. The person's
+  messages were deleted or have expired (`improvement_evidence_unavailable`),
+  they never had words, such as a file, an image or a GitHub review sent
+  alone (`improvement_evidence_wordless`), or no person's message is in the
+  request at all: an alert, a schedule or an app started it
+  (`improvement_evidence_automated`).
   """
   @spec gather(Candidate.t(), [String.t()] | nil) :: t()
   def gather(%Candidate{} = candidate, secrets \\ nil) do
@@ -68,7 +80,7 @@ defmodule Ryker.Improvement.Evidence do
     {routing, routing_keys} = routing(entries, deleted, secrets)
     work = work(episode, secrets)
     feedback = feedback(request, entries, deleted, secrets)
-    person_words? = Enum.any?(messages, &(&1["from"] == "person" and words?(&1["text"])))
+    missing = missing(messages)
 
     keys =
       (Enum.map(entries, &entry_key/1) ++ routing_keys.keys ++ feedback_keys(feedback))
@@ -82,7 +94,8 @@ defmodule Ryker.Improvement.Evidence do
       |> Enum.sort()
 
     %{
-      available?: person_words?,
+      available?: is_nil(missing),
+      missing: missing,
       request: request_document(candidate, episode, entries),
       conversation: conversation(messages, answers),
       routing: routing,
@@ -99,10 +112,11 @@ defmodule Ryker.Improvement.Evidence do
   sent them and where (so the case can be replayed as a world scenario), the
   answers Ryker gave, each routing decision's exact prompt and answer, and
   the feedback, with the keys forgetting reaches them by. `snapshot` is nil
-  when none of the person's words is left.
+  when none of the person's words is left, and `missing` says why.
   """
   @spec case_snapshot(Candidate.t()) :: %{
           snapshot: map() | nil,
+          missing: missing() | nil,
           message_keys: [String.t()],
           conversation_refs: [String.t()]
         }
@@ -133,6 +147,7 @@ defmodule Ryker.Improvement.Evidence do
 
     %{
       snapshot: snapshot,
+      missing: evidence.missing,
       message_keys: evidence.message_keys,
       conversation_refs: evidence.conversation_refs
     }
@@ -220,7 +235,26 @@ defmodule Ryker.Improvement.Evidence do
         Map.merge(base, %{"text" => nil, "note" => "expired"})
 
       true ->
-        Map.put(base, "text", redact(words(entry.content), secrets))
+        Map.put(base, "text", redact(words(entry), secrets))
+    end
+  end
+
+  # Why none of the person's words is left to read, or nil while some are.
+  defp missing(messages) do
+    people = Enum.filter(messages, &(&1["from"] == "person"))
+
+    cond do
+      Enum.any?(people, &words?(&1["text"])) ->
+        nil
+
+      people == [] ->
+        :improvement_evidence_automated
+
+      Enum.any?(people, &(&1["note"] in ["deleted by the person", "expired"])) ->
+        :improvement_evidence_unavailable
+
+      true ->
+        :improvement_evidence_wordless
     end
   end
 
@@ -230,9 +264,13 @@ defmodule Ryker.Improvement.Evidence do
   defp sender(:user), do: "person"
   defp sender(kind), do: Atom.to_string(kind)
 
-  # A message's words: its text, then what was said in each voice message or
-  # video it carried.
-  defp words(%{} = content) do
+  # A message's words: a GitHub comment's or review's body, as Ryker reads it
+  # everywhere (`Ryker.GitHub.Input.body/1`); anything else's text, then what
+  # was said in each voice message or video it carried.
+  defp words(%Entry{source_kind: "github", content: content}),
+    do: GitHubInput.body(content) || ""
+
+  defp words(%Entry{content: %{} = content}) do
     text = if is_binary(content["text"]), do: content["text"], else: ""
 
     transcripts =
@@ -242,7 +280,7 @@ defmodule Ryker.Improvement.Evidence do
     [text | transcripts] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
   end
 
-  defp words(_content), do: ""
+  defp words(_entry), do: ""
 
   # One person's message, with the message it is a revision of: every edit
   # names the message it edits.

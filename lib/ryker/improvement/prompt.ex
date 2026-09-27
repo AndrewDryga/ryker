@@ -27,7 +27,8 @@ defmodule Ryker.Improvement.Prompt do
 
   How Ryker handles a message: routing reads it with its conversation and decides what to do: answer
   briefly by itself, react, ignore it, or start or continue Work. Work is a longer turn of a model
-  with tools, and it writes the answer. Delivery posts what Work or routing decided to Slack or Chat.
+  with tools, and it writes the answer. Delivery posts what Work or routing decided to Slack, Chat or
+  GitHub.
 
   The context holds the evidence exactly as Ryker kept it:
   - request: what kind of request it was, where, how it ended, and the negative feedback that

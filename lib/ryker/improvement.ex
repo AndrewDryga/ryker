@@ -205,13 +205,22 @@ defmodule Ryker.Improvement do
   @doc """
   Accepts a candidate as an eval case, by `actor_ref`. The evidence it rests
   on is read now and kept with it, so the case can be exported after the
-  request's own messages expire; with none of the person's words left there
-  is no case (`{:error, :improvement_evidence_unavailable}`). A candidate
-  that was dismissed can still be accepted; one already accepted stays as it
-  is.
+  request's own messages expire. With none of the person's words left there
+  is no case, and the error says why (`Ryker.Improvement.Evidence.gather/2`);
+  a GitHub request is not kept either, since a world scenario replays Slack
+  and Chat messages only (`{:error, :improvement_case_unsupported}`). A
+  candidate that was dismissed can still be accepted; one already accepted
+  stays as it is.
   """
   @spec accept(term(), String.t()) :: {:ok, Candidate.t()} | {:error, term()}
   def accept(id, actor_ref), do: decide(id, actor_ref, :accepted)
+
+  @doc """
+  Whether a candidate's request can become an eval case: a world scenario
+  replays Slack and Chat messages, not GitHub comments.
+  """
+  @spec replayable?(Candidate.t() | map()) :: boolean()
+  def replayable?(%{transport: transport}), do: transport in ~w(slack control_plane)
 
   @doc """
   Dismisses a candidate, by `actor_ref`: it stays on record, listed as
@@ -240,11 +249,14 @@ defmodule Ryker.Improvement do
     end
   end
 
-  # A case needs the person's words: once every one of them was deleted or
-  # has expired there is nothing to replay, and accepting one says so.
+  # A case needs the person's words, from a place a world scenario can
+  # replay: without them there is nothing to replay, and accepting one says
+  # what is missing instead of keeping a case the download would leave out
+  # or the world runner would refuse.
   defp save_decision(candidate, actor_ref, :accepted) do
+    unless replayable?(candidate), do: Repo.rollback(:improvement_case_unsupported)
     evidence = Evidence.case_snapshot(candidate)
-    if is_nil(evidence.snapshot), do: Repo.rollback(:improvement_evidence_unavailable)
+    if is_nil(evidence.snapshot), do: Repo.rollback(evidence.missing)
 
     candidate
     |> Ecto.Changeset.change(

@@ -700,11 +700,12 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"What the kinds mean",
        [
-         "Host bug: Ryker's own code let the model down, such as a missing tool or a good answer that was mishandled. Prompt bug: the model did what its instructions said, and they led it wrong. Model mistake: the instructions were enough and the model still got it wrong. Not a problem: the answer was reasonable. Unclear: the evidence does not say."
+         "Host bug: Ryker's own code let the model down, such as a missing tool or a good answer that was mishandled. Prompt bug: the model did what its instructions said, and they led it wrong. Model mistake: the instructions were enough and the model still got it wrong. Not a problem: the answer was reasonable. Unclear: the evidence does not say.",
+         "Ryker needs the person's words to read. When there are none, such as when an alert started the request or the person deleted their messages, the row says why and it is not analyzed."
        ]},
       {"Decide",
        [
-         "Accept one to keep it as an eval case: Ryker keeps the messages it rests on, so the case outlives them. Dismiss one that is not worth it. Both ask first, and you can change your mind from the Accepted and Dismissed views.",
+         "Accept one to keep it as an eval case: Ryker keeps the messages it rests on, so the case outlives them. Dismiss one that is not worth it. Both ask first, and you can change your mind from the Accepted and Dismissed views. A GitHub request is analyzed too, but cannot be kept as an eval case yet: an eval case replays Slack and Chat messages.",
          "Download eval cases gives every accepted case as a world scenario for testdata/scenarios, with what went wrong and what is still to fill in. mix ryker.eval_cases --output DIR writes the same files."
        ]},
       {"How long it is kept",

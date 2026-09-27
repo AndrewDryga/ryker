@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.SourceText do
   @moduledoc "Plain source-message content shared by the timeline and request inspector."
 
+  alias Ryker.GitHub.Input, as: GitHubInput
+
   def from_content(%{} = content) do
     text = content["text"]
     blocks = if present?(text), do: [], else: list(content["blocks"])
@@ -11,7 +13,7 @@ defmodule Ryker.ControlPlane.SourceText do
     |> Enum.filter(&present?/1)
     |> Enum.uniq()
     |> case do
-      [] -> payload(content["payload"])
+      [] -> GitHubInput.body(content)
       parts -> Enum.join(parts, "\n\n")
     end
   end
@@ -20,11 +22,6 @@ defmodule Ryker.ControlPlane.SourceText do
   defp list(value) when is_list(value), do: value
   defp list(_), do: []
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
-
-  defp payload(%{} = value),
-    do: Enum.find_value(~w(comment review issue pull_request), &body(value[&1]))
-
-  defp payload(_), do: nil
 
   defp attachment(%{} = value) do
     parts =
@@ -59,6 +56,4 @@ defmodule Ryker.ControlPlane.SourceText do
     do: Enum.flat_map(elements, &block/1)
 
   defp block(_), do: []
-  defp body(%{"body" => body}) when is_binary(body), do: body
-  defp body(_), do: nil
 end

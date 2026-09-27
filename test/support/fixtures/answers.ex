@@ -1,9 +1,10 @@
 defmodule Ryker.Fixtures.Answers do
   @moduledoc """
   Ryker's answers as the host records them once delivered, for the tests of
-  what people say about them: a person's Slack message, the Work reply its
-  request delivered (through the same custody steps Work takes), the quick
-  reply routing sent for it, and an update the Work model posted.
+  what people say about them: a person's Slack message or GitHub comment,
+  the Work reply its request delivered (through the same custody steps Work
+  takes), the quick reply routing sent for it, and an update the Work model
+  posted.
   """
 
   import Ecto.Query
@@ -14,6 +15,8 @@ defmodule Ryker.Fixtures.Answers do
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.GitHub.Binding
+  alias Ryker.GitHub.Input, as: GitHubInput
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
   alias Ryker.Repo
@@ -49,6 +52,86 @@ defmodule Ryker.Fixtures.Answers do
                thread_ref: Keyword.get(options, :thread),
                workspace_ref: Keyword.fetch!(options, :workspace)
              })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+    entry
+  end
+
+  @doc """
+  A person's comment on pull request 42, received from GitHub's webhook and
+  recorded the way Ryker records it: `:body` is its words. With `review:
+  true` it is their review of the pull request instead, and a nil `:body` is
+  a review submitted without a word.
+  """
+  def github_message!(options) do
+    assert {:ok, binding} =
+             Binding.new(%{
+               installation_id: 41,
+               name: Keyword.get(options, :binding, "github-answers"),
+               repository_full_name: "octo/example",
+               repository_id: 99,
+               ryker_actor_id: 99,
+               secret: String.duplicate("s", 32)
+             })
+
+    id = System.unique_integer([:positive])
+    body = Keyword.fetch!(options, :body)
+    person = %{"id" => 7, "login" => "octocat", "type" => "User"}
+
+    {event, payload} =
+      if Keyword.get(options, :review, false) do
+        {"pull_request_review",
+         %{
+           "action" => "submitted",
+           "pull_request" => %{"number" => 42, "title" => "Retry the payments export"},
+           "review" => %{
+             "body" => body,
+             "id" => id,
+             "node_id" => "PRR_#{id}",
+             "state" => "approved",
+             "submitted_at" => "2026-09-27T11:00:00Z",
+             "user" => person
+           }
+         }}
+      else
+        {"issue_comment",
+         %{
+           "action" => "created",
+           "comment" => %{
+             "body" => body,
+             "created_at" => "2026-09-27T11:00:00Z",
+             "id" => id,
+             "node_id" => "IC_#{id}",
+             "updated_at" => "2026-09-27T11:00:00Z",
+             "user" => person
+           },
+           "issue" => %{
+             "number" => 42,
+             "pull_request" => %{"url" => "https://api.github.test/repos/octo/example/pulls/42"},
+             "title" => "Retry the payments export"
+           }
+         }}
+      end
+
+    payload =
+      Map.merge(payload, %{
+        "installation" => %{"id" => 41},
+        "repository" => %{"full_name" => "octo/example", "id" => 99},
+        "sender" => person
+      })
+
+    delivery = "delivery-#{id}"
+
+    assert {:ok, input} =
+             GitHubInput.normalize(
+               %{
+                 delivery_ref: delivery,
+                 event_name: event,
+                 event_ref: "github-body:" <> CanonicalJSON.digest(%{"delivery" => delivery}),
+                 payload: payload
+               },
+               binding
+             )
 
     assert {:ok, %{entry: entry}} = Inbox.record(input)
     entry
