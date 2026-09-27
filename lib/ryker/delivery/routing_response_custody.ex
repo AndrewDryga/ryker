@@ -22,6 +22,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Work.DeliveryReceipt
 
   @type claim :: %{lease_ref: String.t(), response: RoutingResponse.t()}
@@ -102,6 +103,28 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
           )
         )
     )
+  end
+
+  @doc """
+  The earliest moment after `since` at which a pending response becomes
+  claimable by the clock alone: its retry's backoff ends, or the lease of a
+  claim nobody renewed runs out. Nil when no pending response waits on the
+  clock; a response waiting its turn waits on a delivery, which is announced.
+  """
+  @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(%DateTime{} = since) do
+    from(response in RoutingResponse,
+      where: response.status == :pending,
+      select: [
+        filter(min(response.next_attempt_at), response.next_attempt_at > ^since),
+        filter(
+          min(response.lease_expires_at),
+          not is_nil(response.lease_ref) and response.lease_expires_at > ^since
+        )
+      ]
+    )
+    |> Repo.one()
+    |> UTCDateTime.earliest()
   end
 
   @spec claim_next(String.t(), pos_integer()) :: {:ok, claim() | nil} | {:error, term()}

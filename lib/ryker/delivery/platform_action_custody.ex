@@ -24,6 +24,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Records.Record
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Work.{DeliveryReceipt, Turn}
 
   @fields [
@@ -122,6 +123,25 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   def enqueue_confirmed_record_in_transaction(_record, _attributes),
     do: {:error, :platform_action_not_authorized}
+
+  @doc """
+  The earliest moment after `since` at which a pending action becomes
+  claimable by the clock alone: its retry's backoff ends, or the lease of a
+  claim nobody renewed runs out. Nil when no pending action waits on the
+  clock; an action waiting its turn waits on a delivery, which is announced.
+  """
+  @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(%DateTime{} = since) do
+    from(action in PlatformAction,
+      where: action.status == :pending,
+      select: [
+        filter(min(action.next_attempt_at), action.next_attempt_at > ^since),
+        filter(min(action.lease_expires_at), action.lease_expires_at > ^since)
+      ]
+    )
+    |> Repo.one()
+    |> UTCDateTime.earliest()
+  end
 
   @spec claim_next(String.t(), pos_integer()) :: {:ok, claim() | nil} | {:error, term()}
   def claim_next(worker_ref, lease_seconds) do
