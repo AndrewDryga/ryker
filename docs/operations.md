@@ -16,9 +16,12 @@ worker policy files, generated worker JSON, or Ryker-side repository checkouts. 
 `ryker-coop-config` volume carries only enrollment state and the controller CA; model workspaces
 remain in the worker's private state volume.
 
-Upgrading this configuration leaves an existing `ryker-workspaces` Docker volume untouched but
-unused. Keep it with any pre-upgrade backup until the old installation no longer needs it. Current
-backups retain Ryker state, worker state, enrollment state and keys, not that retired checkout volume.
+New jobs do not use the historical `ryker-workspaces` Docker volume, but existing sessions may
+still refer to workspaces in it. Do not treat a protocol upgrade as proof that those workspaces
+are disposable. Preserve the volume and its mount while those sessions need recovery, and back it
+up separately before a v1-to-v2 worker cutover: `scripts/compose.sh backup` includes Ryker state,
+worker state, enrollment state and keys, but **not** `ryker-workspaces`. Keep the pre-cutover worker
+state backup too; its database schema may advance when the new worker starts.
 
 ## Install
 
@@ -108,6 +111,12 @@ Upgrade pulls the pinned third-party images (such as PostgreSQL and the worker's
 the Ryker and bundled-worker images from the checkout, starts the replacements, runs migrations
 through the container entrypoint, and verifies health, readiness and the exact version header.
 Enrolled remote workers are not restarted or modified.
+
+For a worker-protocol change, first verify that the bundled-worker build pin or supplied image
+actually speaks the new protocol, and plan the worker and controller cutover together. The normal
+Ryker-only deploy does not upgrade Coop. Do not run a broad Compose upgrade against a controller
+that cannot speak to the worker it would start; preserve waiting conversations through an explicit
+transition or close them through the audited lifecycle before removing their old execution path.
 
 ## The schema baseline
 

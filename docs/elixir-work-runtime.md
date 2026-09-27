@@ -523,8 +523,8 @@ without production environment, credentials, network mutation tools, or project 
   Coop socket option, and a configuration without an adapter does not start;
 - `worker_ref`: stable identity prefix for this worker pool;
 - `concurrency`: optional slot count, from 1 through 32 (default 4);
-- `platform_tools`: optional exact names from the MCP catalog exposed by the pinned Coop
-  policy; these names make the frozen model context truthful but confer no authority; and
+- `platform_tools`: optional exact names from the MCP catalog offered to the worker;
+  these names make the frozen model context truthful but confer no authority; and
 - optional bounded polling and receive timeouts.
 
 The Work profile an adapter freezes at ingress comes from an **environment** and describes all of
