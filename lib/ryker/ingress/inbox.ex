@@ -15,6 +15,7 @@ defmodule Ryker.Ingress.Inbox do
   alias Ryker.Artifacts.References, as: ArtifactReferences
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
+  alias Ryker.Feedback.Messages, as: FeedbackMessages
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
   alias Ryker.Ingress.Input
   alias Ryker.Ingress.InputCustodyTransition
@@ -55,8 +56,20 @@ defmodule Ryker.Ingress.Inbox do
          :ok <- slack_addressing_sources(inputs, settings.slack_addressing) do
       Repo.transaction(fn -> record_batch_locked(inputs, settings) end)
       |> record_rule_inventories(inputs)
+      |> observe_feedback()
     end
   end
+
+  # What a person's new message, edit or deletion says about an answer Ryker
+  # already gave (`Ryker.Feedback.Messages`), read after the custody commit
+  # like the rule inventories: it is evidence about the message, never a
+  # reason to refuse it. A duplicate delivery was read the first time.
+  defp observe_feedback({:ok, receipts} = result) do
+    for %{status: :recorded, entry: entry} <- receipts, do: FeedbackMessages.observe(entry)
+    result
+  end
+
+  defp observe_feedback(result), do: result
 
   # Written after the custody transaction commits, deliberately outside it.
   # This is evidence about a decision that has already been made: a failed

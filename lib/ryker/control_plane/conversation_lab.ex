@@ -205,7 +205,8 @@ defmodule Ryker.ControlPlane.ConversationLab do
   does not create a model turn or grant authority.
   """
   @spec react_to_message(String.t(), String.t(), :add | :remove, String.t(), keyword()) ::
-          {:ok, Ryker.Episodes.Transition.t()} | {:error, term()}
+          {:ok, Ryker.Episodes.Transition.t() | %{status: :applied | :duplicate}}
+          | {:error, term()}
   def react_to_message(conversation_id, message_ref, action, emoji_name, options \\ []) do
     with {:ok, conversation_id} <- conversation_id(conversation_id),
          {:ok, settings} <- options(options),
