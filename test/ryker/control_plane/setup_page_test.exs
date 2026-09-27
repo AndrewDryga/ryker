@@ -353,6 +353,7 @@ defmodule Ryker.ControlPlane.SetupPageTest do
 
     %{
       application: :applied,
+      applying: false,
       credentials:
         if(:slack in done,
           do:
