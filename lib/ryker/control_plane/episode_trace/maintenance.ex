@@ -106,7 +106,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
         stage: "Maintenance",
         state: String.downcase(title),
         title: title,
-        summary: summary <> plan_sentence(receipt["kind"], session.discard_plan),
+        summary: plan_sentence(receipt["kind"], session.discard_plan) <> summary,
         tone: nil,
         details:
           session_details(session, receipt["worker_id"] || worker) ++
@@ -116,7 +116,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
               {"Worker reported", remote_words(receipt["remote_state"])},
               {"Removal request", receipt["operation_key"], identifier: true},
               {"Receipt fingerprint", session.cleanup_receipt_fingerprint, identifier: true},
-              {"Settled", readable(session.discarded_at)}
+              {"Cleanup finished", readable(session.discarded_at)}
             ])
       })
     ]
@@ -253,7 +253,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
   defp closed_summary(%Session{repository_ref: nil}),
     do:
-      "After the request ended, Ryker closed its worker session. No repository working copy was bound to it."
+      "After the request ended, Ryker closed its worker session, which worked without a repository. Closing it does not remove its working copy."
 
   defp closed_summary(%Session{repository_ref: repository}),
     do:
@@ -292,11 +292,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   # What Ryker checked before it removed a working copy it removed itself.
   defp plan_sentence("discarded", %{"workspace" => %{"unmerged" => true}}),
     do:
-      " Before removing it, Ryker checked that it held no uncommitted changes; its unmerged commits went because the work was published."
+      "Ryker checked that the working copy held no uncommitted changes; its unmerged commits could go because the work was published. "
 
   defp plan_sentence("discarded", %{"workspace" => %{}}),
     do:
-      " Before removing it, Ryker checked that it held no uncommitted changes and no unpublished commits."
+      "Ryker checked that the working copy held no uncommitted changes and no unpublished commits. "
 
   defp plan_sentence(_kind, _plan), do: ""
 

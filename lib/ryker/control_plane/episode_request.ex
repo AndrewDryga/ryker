@@ -190,9 +190,16 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         <a :if={@request.identity[:link]} href={@request.identity.link.href}>
           {@request.identity.link.label} →
         </a>
-        <Components.copy_block :if={@request.identity[:record]} label="Copy JSON">
-          <pre class="model-document-text" tabindex="0">{@request.identity.record}</pre>
-        </Components.copy_block>
+        <Components.disclosure
+          :if={@request.identity[:record]}
+          id={"#{@request.id}-receipts"}
+          label={@request.identity.record_label}
+          kind={:source}
+        >
+          <Components.copy_block label="Copy JSON">
+            <pre class="model-document-text" tabindex="0">{@request.identity.record}</pre>
+          </Components.copy_block>
+        </Components.disclosure>
       </Components.disclosure>
     </div>
     """

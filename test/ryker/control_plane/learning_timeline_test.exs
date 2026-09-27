@@ -259,6 +259,10 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
 
     # The card the links name is on that page.
     assert timeline(first) |> LazyHTML.query("#learning-#{run.id}-result") |> Enum.count() == 1
+
+    # Nothing Ryker serves still points at the retired receipt.
+    for path <- Path.wildcard("lib/**/*.{ex,heex}") ++ Path.wildcard("priv/static/*.{css,js}"),
+        do: refute(File.read!(path) =~ "learning-receipt", "#{path} links the retired receipt")
   end
 
   # Learning reads messages routing left alone, which have no request and so
