@@ -169,17 +169,26 @@ defmodule Ryker.Slack.InteractionRepaint do
 
   defp checked_turn_document(turn, audit) do
     with {:ok, document, delivery_ref} = result <- rebuild_turn_document(turn) do
-      if public_turn_sources?(turn, audit, document) do
-        result
-      else
-        {:ok,
-         %{"message" => "This response is unavailable until its source context can be checked."},
-         delivery_ref}
+      case public_turn_sources(turn, audit, document) do
+        :public ->
+          result
+
+        # The session is in use, usually by the turn the typed answer being
+        # repainted for has just started. The worker checks again shortly;
+        # until 2026-09-27 this replaced the reply as though it were withdrawn.
+        {:error, :work_derived_context_busy} = busy ->
+          busy
+
+        :withdrawn ->
+          {:ok,
+           %{
+             "message" => "This response is unavailable until its source context can be checked."
+           }, delivery_ref}
       end
     end
   end
 
-  defp public_turn_sources?(turn, audit, document) do
+  defp public_turn_sources(turn, audit, document) do
     with %Episode{} = episode <- Repo.get(Episode, turn.episode_id),
          true <- episode.destination_transport == "slack",
          true <-
@@ -193,9 +202,10 @@ defmodule Ryker.Slack.InteractionRepaint do
              episode,
              session.repository_ref
            ) do
-      true
+      :public
     else
-      _ -> false
+      {:error, :work_derived_context_busy} = busy -> busy
+      _refused -> :withdrawn
     end
   end
 
