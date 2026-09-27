@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   alias Ryker.Work.ExecutionTarget
 
   # Every work type the projection can name; anything else is a missing identity.
-  @work_kinds ~w(admission learning conversational standard deep continuation resumed task event_wait schedule publication approval)
+  @work_kinds ~w(admission learning self_analysis conversational standard deep continuation resumed task event_wait schedule publication approval)
 
   def work_kinds, do: @work_kinds
 
@@ -358,6 +358,11 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp kind_link("learning", label, _params, _snapshot),
     do: ["<a title=\"Learning\" href=\"/memory/learning\">", e(label), "</a>"]
 
+  # Self-analysis spends on requests people were unhappy with, one model call
+  # each, and belongs to no request of its own.
+  defp kind_link("self_analysis", label, _params, _snapshot),
+    do: ["<a title=\"What to fix\" href=\"/memory/feedback/fix\">", e(label), "</a>"]
+
   defp kind_link(_kind, label, params, snapshot), do: entity_link(label, params, snapshot)
 
   defp entity_link(label, params, snapshot) do
@@ -390,6 +395,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   # its compute tiers and told an operator reading a cost page nothing.
   def kind_name("admission"), do: "Routing"
   def kind_name("learning"), do: "Learning"
+  def kind_name("self_analysis"), do: "Self-analysis"
   def kind_name("conversational"), do: "Conversation"
   def kind_name("standard"), do: "Investigation"
   def kind_name("deep"), do: "Deep investigation"

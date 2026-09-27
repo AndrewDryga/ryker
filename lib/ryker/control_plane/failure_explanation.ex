@@ -101,6 +101,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   @spec request(map()) :: %{text: String.t(), href: String.t()} | %{text: String.t()} | nil
   def request(%{execution_kind: :learning}), do: %{text: "Background learning"}
 
+  def request(%{execution_kind: :improvement}),
+    do: %{text: "Self-analysis", href: "/memory/feedback/fix"}
+
   def request(%{episode_ref: ref} = row) when is_binary(ref),
     do: %{text: Map.get(row, :request_title) || "Open the request", href: timeline(ref)}
 
@@ -403,6 +406,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp retention_title(%{execution_kind: :learning}),
     do: "Cleanup after background learning stopped"
 
+  defp retention_title(%{execution_kind: :improvement}),
+    do: "Cleanup after a self-analysis stopped"
+
   defp retention_title(%{source: repository})
        when is_binary(repository) and repository != "no repository",
        do: "Removing a working copy of #{repository} stopped"
@@ -410,6 +416,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp retention_title(_row), do: "Removing a worker session’s files stopped"
 
   defp retained_thing(%{execution_kind: :learning}), do: "learning session"
+  defp retained_thing(%{execution_kind: :improvement}), do: "self-analysis session"
 
   defp retained_thing(%{source: repository})
        when is_binary(repository) and repository != "no repository",
@@ -419,6 +426,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp retention_owner(%{execution_kind: :learning}),
     do: "Nobody is waiting on it: background learning runs on its own."
+
+  defp retention_owner(%{execution_kind: :improvement}),
+    do: "Nobody is waiting on it: self-analysis runs on its own."
 
   # A routing session started ahead of time and retired unused served no
   # message, so there is no message or request to name.
@@ -443,6 +453,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     do:
       "Nobody. Background learning runs without a requester, and this cleanup came after its work."
 
+  defp retention_affects(%{execution_kind: :improvement}),
+    do: "Nobody. Self-analysis runs without a requester, and this cleanup came after its work."
+
   defp retention_affects(%{request_state: :complete}),
     do: "Nobody. The request is complete; this is Ryker tidying up after it."
 
@@ -458,6 +471,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       case row do
         %{ready_state: :retired} -> "When Ryker stopped keeping it ready"
         %{execution_kind: :learning} -> "After background learning finished with it"
+        %{execution_kind: :improvement} -> "After self-analysis finished with it"
         %{request_state: :complete} -> "After the request finished"
         %{request_state: :cancelled} -> "After the request was stopped"
         _row -> "When the request no longer needed it"

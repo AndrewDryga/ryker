@@ -575,6 +575,22 @@ defmodule Ryker.ControlPlane.UsagePageTest do
              ["/memory/learning"]
   end
 
+  # Self-analysis asks the learning models once per request people were
+  # unhappy with; its spend reads as a work type of its own, never as
+  # unclassified work, and opens the page that lists what it analyzed.
+  test "self-analysis spend reads as its own work type and opens What to fix" do
+    execution!("improvement", [])
+
+    snapshot = Projection.usage(%{})
+    assert [%{work_kind: "self_analysis", attempts: 1}] = snapshot.kinds
+
+    document = snapshot |> UsagePage.render() |> IO.iodata_to_binary() |> LazyHTML.from_document()
+    assert document |> LazyHTML.query("#usage-work-types") |> LazyHTML.text() =~ "Self-analysis"
+
+    assert LazyHTML.query(document, "#usage-work-types a") |> LazyHTML.attribute("href") ==
+             ["/memory/feedback/fix"]
+  end
+
   test "every request count on Usage opens an Activity list of exactly that many requests" do
     # QA, 2026-09-25: "Routing 21 episodes" opened Activity at "25 items".
     # Usage counted the episodes its executions belonged to, while Activity
