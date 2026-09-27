@@ -140,6 +140,13 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
     # carry the shell's one help panel, headed by that page's own help, and
     # the one button that shows or hides it (2026-09-26: "they should not be
     # collapsible like that").
+    off_center =
+      for {href, buttons} <- button_labels_seen(%{}), button <- buttons, do: "#{href}: #{button}"
+
+    assert off_center == [],
+           "button labels pushed off centre by a line break after their screen-reader words:\n" <>
+             Enum.join(off_center, "\n")
+
     panels = help_panels_seen(%{})
     assert map_size(panels) >= length(@seeds)
 
@@ -153,6 +160,26 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
       # beside the page. A page drawn as two siblings of it would start its
       # second part under the column and pin the column to the first part.
       assert beside == 1, "#{href} lays out #{beside} elements beside its help"
+    end
+  end
+
+  # Words for screen readers sit outside the layout, so a line break after
+  # them is laid out as one more item, and the button's gap moves its label
+  # 9px off centre. Andrew, 2026-09-27, of Environments: "why text in edit
+  # button is not centered?"; Emisar accounts and Prices had the same Edit.
+  defp off_center_buttons(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(".ui-button")
+    |> Enum.map(&LazyHTML.to_html/1)
+    |> Enum.filter(&Regex.match?(~r{class="sr-only"[^>]*>[^<]*</span>\s}, &1))
+  end
+
+  defp button_labels_seen(seen) do
+    receive do
+      {:button_labels, href, buttons} -> button_labels_seen(Map.put(seen, href, buttons))
+    after
+      0 -> seen
     end
   end
 
@@ -194,7 +221,14 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   end
 
   defp open_live(href) do
-    case live(build_conn() |> Map.put(:host, "localhost"), href) do
+    conn = get(build_conn() |> Map.put(:host, "localhost"), href)
+
+    # The page as it is sent: the test client's rendering drops whitespace a
+    # browser lays out.
+    if conn.status == 200,
+      do: send(self(), {:button_labels, href, off_center_buttons(conn.resp_body)})
+
+    case live(conn) do
       {:ok, _view, html} ->
         document = LazyHTML.from_document(html)
         panels = LazyHTML.query(document, "main > aside.page-help")
