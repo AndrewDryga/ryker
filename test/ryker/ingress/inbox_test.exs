@@ -673,6 +673,38 @@ defmodule Ryker.Ingress.InboxTest do
     assert Inbox.queue_predecessor(third, DateTime.add(@occurred_at, 61, :second)).id == second.id
   end
 
+  # Harvested on the live install, 2026-09-27: a Slack file share nobody could
+  # read arrives with empty text, and waits for routing like any message. The
+  # next message in that conversation was refused while it waited: the note
+  # naming what it waits behind was the file's empty text, and the custody
+  # transition's check refuses an empty note. Chat shows that as a failed send.
+  test "a message that waits behind one with no text is still saved" do
+    file_share = %{
+      "attachments" => [],
+      "blocks" => [],
+      "files" => [%{"reason" => "unsupported_media_type", "status" => "unavailable"}],
+      "slack_event_kind" => "message",
+      "subtype" => "file_share",
+      "text" => ""
+    }
+
+    {:ok, %{entry: first}} =
+      Inbox.record(input!(event_ref: "Ev-empty-first", content: file_share))
+
+    assert {:ok, %{entry: second, status: :recorded}} =
+             Inbox.record(input!(event_ref: "Ev-empty-second", message_ref: "1787832001.000100"))
+
+    assert Inbox.queue_predecessor(second, @occurred_at).id == first.id
+
+    assert [%{kind: :saved}, %{kind: :waiting_predecessor, detail: nil}] =
+             Repo.all(
+               from(transition in Ryker.Ingress.InputCustodyTransition,
+                 where: transition.input_id == ^second.id,
+                 order_by: transition.sequence
+               )
+             )
+  end
+
   test "an expired claim becomes eligible without spending or losing the input" do
     assert {:ok, %{entry: entry}} = Inbox.record(input!(event_ref: "Ev-expired"))
     assert {:ok, %{lease_ref: first_lease}} = Inbox.claim_next("executor:old", @occurred_at, 1)

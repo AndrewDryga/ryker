@@ -872,8 +872,15 @@ defmodule Ryker.Ingress.Inbox do
     end
   end
 
-  defp predecessor_summary(%Entry{content: %{"text" => text}}) when is_binary(text),
-    do: InspectionRedactor.artifact(text, max_bytes: 120).text
+  # A message with no words of its own, such as a file share, names nothing:
+  # the transition refuses an empty note, and refusing it refused the message
+  # waiting behind it.
+  defp predecessor_summary(%Entry{content: %{"text" => text}}) when is_binary(text) do
+    case InspectionRedactor.artifact(text, max_bytes: 120).text do
+      summary when is_binary(summary) -> if String.trim(summary) == "", do: nil, else: summary
+      _none -> nil
+    end
+  end
 
   defp predecessor_summary(%Entry{}), do: nil
 
