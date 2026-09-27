@@ -28,6 +28,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning.{Batch, InputMembership}
   alias Ryker.Learning.LearningRun
   alias Ryker.Retention.Dispatcher, as: Cleanup
@@ -118,6 +119,24 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     assert decision =~ "Checkout outage"
     refute text(result, ".request-decision dt") =~ "learning_match_required"
     assert text(result, ".request-identity") =~ "learning_match_required"
+  end
+
+  # The Learned page now opens how a topic was learned on the Timeline. A
+  # relearning pass reads messages a person chose, outside the batch that
+  # first read them, and an attempt prepared before batches has none: finding
+  # learning only through batch membership left both links with no card.
+  test "a relearning attempt and one from before batches show beside the messages they read" do
+    %{episode: episode, entry: entry} = admitted!("relearned")
+    relearned = learning!(entry, batch: :rebuild, updates: [created(entry, "Relearned topic")])
+    older = learning!(entry, batch: :none, updates: [created(entry, "Older topic")])
+
+    page = timeline(episode)
+
+    for run <- [relearned, older],
+        do: assert(page |> LazyHTML.query("#learning-#{run.id}-result") |> Enum.count() == 1)
+
+    assert text(page, "#learning-#{relearned.id}-result .request-decision") =~ "Relearned topic"
+    assert text(page, "#learning-#{older.id}-result .request-decision") =~ "Older topic"
   end
 
   test "closing a session is not removing its working copy" do
@@ -390,26 +409,12 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
   # A structural learning attempt over the request's message: the frozen
   # manifest names it, and the response is the host-contract shape.
   defp learning!(entry, options) do
-    batch_id = Ecto.UUID.generate()
     updates = Keyword.get(options, :updates, [])
     others = Keyword.get(options, :others, [])
+    batch_id = batch!(entry, Keyword.get(options, :batch, :member), 1 + length(others))
 
     result =
       Jason.encode!(%{"reason" => "Keep what the request settled.", "updates" => updates})
-
-    Repo.insert!(%Batch{
-      id: batch_id,
-      scope_key: "slack:TC9F5B40D364C:C456:live",
-      transport: "slack",
-      conversation_ref: "slack:TC9F5B40D364C:C456",
-      execution_mode: :live,
-      policy: "learning",
-      policy_digest: String.duplicate("a", 64),
-      status: :applied,
-      input_count: 1 + length(others)
-    })
-
-    Repo.insert!(%InputMembership{input_id: entry.id, batch_id: batch_id})
 
     prompt =
       CanonicalJSON.encode!(%{
@@ -422,7 +427,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
 
     Repo.insert!(%LearningRun{
       id: Ecto.UUID.generate(),
-      batch_key: "batch:#{batch_id}",
+      batch_key: "batch:#{batch_id || Ecto.UUID.generate()}",
       batch_id: batch_id,
       generation: 1,
       status: Keyword.get(options, :status, :applied),
@@ -441,6 +446,69 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
       error_code: Keyword.get(options, :error_code),
       applied_at: DateTime.add(@now, 120, :second)
     })
+  end
+
+  # The batch an attempt ran in: the one holding the message, a relearning
+  # batch whose chosen messages name it, or none for an attempt from before
+  # learning batches.
+  defp batch!(_entry, :none, _count), do: nil
+
+  defp batch!(entry, kind, count) do
+    id = Ecto.UUID.generate()
+
+    rebuild =
+      if kind == :rebuild,
+        do: %{
+          rebuild_target_id: topic!(entry),
+          rebuild_target_version: 1,
+          rebuild_target_generation: 1,
+          rebuild_selection: [
+            %{"source_input_id" => entry.id, "revision" => 1, "fingerprint" => "relearn"}
+          ]
+        },
+        else: %{}
+
+    Repo.insert!(
+      struct!(
+        Batch,
+        Map.merge(
+          %{
+            id: id,
+            scope_key: "slack:TC9F5B40D364C:C456:live:#{kind}:#{id}",
+            transport: "slack",
+            conversation_ref: "slack:TC9F5B40D364C:C456",
+            execution_mode: :live,
+            policy: "learning",
+            policy_digest: String.duplicate("a", 64),
+            status: :applied,
+            input_count: count
+          },
+          rebuild
+        )
+      )
+    )
+
+    if kind == :member, do: Repo.insert!(%InputMembership{input_id: entry.id, batch_id: id})
+    id
+  end
+
+  # Structural fixture: the learned topic a person asked Ryker to relearn.
+  defp topic!(entry) do
+    Repo.insert!(%ConversationKnowledge{
+      id: Ecto.UUID.generate(),
+      scope_key: "relearn:#{entry.id}",
+      topic_key: "relearned-topic",
+      transport: "slack",
+      workspace_ref: "TC9F5B40D364C",
+      conversation_ref: "slack:TC9F5B40D364C:C456",
+      visibility: :public,
+      state: %{"title" => "Relearned topic", "summary" => "Kept from the request."},
+      version: 1,
+      source_generation: 1,
+      source_dependencies: [],
+      source_input_id: entry.id,
+      latest_source_at: @now
+    }).id
   end
 
   defp admitted!(suffix) do

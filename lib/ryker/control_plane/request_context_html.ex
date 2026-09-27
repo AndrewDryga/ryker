@@ -372,18 +372,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp learning_part(key, value, metadata, prefix),
     do: source(key, "$." <> key, value, metadata, learning_part_body(key, value), prefix)
 
-  defp learning_part_body("previous_attempt_error", %{"instruction" => instruction} = value)
-       when is_binary(instruction) do
-    [
-      "<pre class=\"model-document-text\">",
-      escape(instruction),
-      "</pre>",
-      if(is_binary(value["code"]),
-        do: ["<p class=\"context-note\">Code <code>", escape(value["code"]), "</code></p>"],
-        else: []
-      )
-    ]
-  end
+  defp learning_part_body("previous_attempt_error", %{"instruction" => instruction})
+       when is_binary(instruction),
+       do: ["<pre class=\"model-document-text\">", escape(instruction), "</pre>"]
 
   defp learning_part_body("rebuild_target", %{"topic_id" => id} = value) when is_binary(id) do
     [

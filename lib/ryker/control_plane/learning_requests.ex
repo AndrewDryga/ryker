@@ -13,8 +13,8 @@ defmodule Ryker.ControlPlane.LearningRequests do
 
   An attempt belongs to the messages its frozen selection names. `paths/1`
   says where each attempt's card is drawn, so the Learning and Learned pages
-  open the same card instead of a copy of their own (retired 2026-09-26: the
-  Learning page's `#learning-receipt`).
+  open the same card instead of a copy of their own (Andrew, 2026-09-26: the
+  Timeline should make the Learning page's own receipt obsolete; it is gone).
   """
   import Ecto.Query
 
@@ -236,6 +236,8 @@ defmodule Ryker.ControlPlane.LearningRequests do
       phase: :submission,
       at: run.inserted_at,
       sort_at: run.inserted_at,
+      # An attempt still waiting on its model has no result card to carry them.
+      identity: if(not result_card?(run), do: identity(run, context)),
       retention_note:
         if(run.pruned_at,
           do:
@@ -534,7 +536,8 @@ defmodule Ryker.ControlPlane.LearningRequests do
             label: "All attempts for these messages"
           }
         ),
-      record: if(record != %{}, do: record_text(record, context.secrets))
+      record: if(record != %{}, do: record_text(record, context.secrets)),
+      record_label: "Validation and stop receipts (JSON)"
     }
   end
 
