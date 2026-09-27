@@ -97,6 +97,62 @@ defmodule Ryker.BundledCoopIdentityTest do
     assert File.read!(target) == document
   end
 
+  test "the trusted box uses this worker binary's base, reuses it, and stops on a failed build",
+       context do
+    # A bare coop-box image from an older worker masked the missing-base path:
+    # Coop now builds definition-tagged bases, so a clean worker could not boot.
+    bin = Path.join(context.root, "bin")
+    File.mkdir_p!(bin)
+    coop = Path.join(bin, "coop")
+    docker = Path.join(bin, "docker")
+
+    File.write!(coop, """
+    #!/bin/sh
+    [ "$*" = 'build --egress open' ] || exit 91
+    printf '%s\\n' "$COOP_BASE_IMAGE" >> "$state/builds"
+    touch "$state/$COOP_BASE_IMAGE"
+    """)
+
+    File.write!(docker, """
+    #!/bin/sh
+    case "$1 $2 $3" in
+      'image inspect ryker-coop-base:'*)
+        [ -f "$state/$3" ] || exit 1
+        printf '%s\\n' "$3" ;;
+      'image inspect ryker-coop-box') : ;;
+      'build --build-arg COOP_BASE_IMAGE=ryker-coop-base:'*)
+        printf '%s\\n' "$3" >> "$state/overlays" ;;
+      *) exit 92 ;;
+    esac
+    """)
+
+    File.chmod!(coop, 0o700)
+    File.chmod!(docker, 0o700)
+    File.write!(Path.join(context.root, "Box.Dockerfile"), "FROM ${COOP_BASE_IMAGE}\n")
+
+    tag =
+      "ryker-coop-base:" <> Base.encode16(:crypto.hash(:sha256, File.read!(coop)), case: :lower)
+
+    assert {"", 0} = run(context, "set -e\nprepare_ryker_box\nprepare_ryker_box")
+    assert File.read!(Path.join(context.root, "builds")) == tag <> "\n"
+
+    assert File.read!(Path.join(context.root, "overlays")) ==
+             String.duplicate("COOP_BASE_IMAGE=#{tag}\n", 2)
+
+    File.write!(coop, File.read!(coop) <> "# a different worker binary\n")
+    assert {"", 0} = run(context, "set -e\nprepare_ryker_box")
+
+    assert [_first, second] =
+             String.split(File.read!(Path.join(context.root, "builds")), "\n", trim: true)
+
+    refute second == tag
+
+    overlay_receipt = File.read!(Path.join(context.root, "overlays"))
+    File.write!(coop, "#!/bin/sh\nexit 7\n")
+    assert {"", 7} = run(context, "set -e\nprepare_ryker_box")
+    assert File.read!(Path.join(context.root, "overlays")) == overlay_receipt
+  end
+
   defp write_identity!(context, now) do
     {:ok, issued} =
       CertificateAuthority.issue(
@@ -127,7 +183,7 @@ defmodule Ryker.BundledCoopIdentityTest do
     source = File.read!("deploy/compose/coop/entrypoint.sh")
 
     functions =
-      for name <- ~w(identity_state recover_identity) do
+      for name <- ~w(identity_state recover_identity prepare_ryker_box) do
         [function] = Regex.run(~r/^#{name}\(\) \{.*?^\}/ms, source)
         function
       end
@@ -135,6 +191,10 @@ defmodule Ryker.BundledCoopIdentityTest do
     System.cmd("sh", ["-c", Enum.join(functions, "\n") <> "\n" <> command],
       stderr_to_stdout: true,
       env: [
+        {"PATH", Path.join(context.root, "bin") <> ":" <> System.fetch_env!("PATH")},
+        {"state", context.root},
+        {"trusted_box", "ryker-coop-box"},
+        {"trusted_box_dockerfile", Path.join(context.root, "Box.Dockerfile")},
         {"identity", context.identity},
         {"marker", context.marker},
         {"ca", Path.join(context.root, "ca.pem")},

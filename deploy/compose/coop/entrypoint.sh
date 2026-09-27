@@ -85,24 +85,27 @@ recover_identity() {
 until [ -r "$ca" ]; do sleep 1; done
 recover_identity
 
-if ! docker image inspect coop-box >/dev/null 2>&1 &&
-   ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q '^coop-box:'; then
-  coop build
-fi
-
 prepare_ryker_box() {
+  # A base from another worker version must not satisfy this binary's build.
+  base_binary=$(command -v coop)
+  base_digest=$(sha256sum "$base_binary")
+  base_image=ryker-coop-base:${base_digest%% *}
+  if ! docker image inspect "$base_image" >/dev/null 2>&1; then
+    COOP_BASE_IMAGE="$base_image" coop build --egress open
+  fi
+
   context=$state/tmp/ryker-box
   mkdir -p "$context"
   cp "$ca" "$context/ryker-ca.pem"
 
-  base_id=$(docker image inspect coop-box --format '{{.Id}}')
+  base_id=$(docker image inspect "$base_image" --format '{{.Id}}')
   inputs=$(sha256sum "$context/ryker-ca.pem" "$trusted_box_dockerfile" | sha256sum | awk '{print $1}')
   fingerprint=$(printf '%s\n%s\n' "$base_id" "$inputs" | sha256sum | awk '{print $1}')
   current=$(docker image inspect "$trusted_box" --format '{{index .Config.Labels "dev.ryker.box-inputs"}}' 2>/dev/null || true)
 
   if [ "$current" != "$fingerprint" ]; then
     docker build \
-      --build-arg COOP_BASE_IMAGE=coop-box \
+      --build-arg "COOP_BASE_IMAGE=$base_image" \
       --label "dev.ryker.box-inputs=$fingerprint" \
       --tag "$trusted_box" \
       --file "$trusted_box_dockerfile" \
