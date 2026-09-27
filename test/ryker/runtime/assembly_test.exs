@@ -136,6 +136,7 @@ defmodule Ryker.Runtime.AssemblyTest do
                :event_waits,
                :execution_mode,
                :github,
+               :improvement,
                :learning,
                :publication,
                :retention,
@@ -155,6 +156,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert configuration[:work].worker_ref == "#{host}:work"
     assert configuration[:admission].worker_ref == "#{host}:admission"
     assert configuration[:learning].worker_ref == "#{host}:learning"
+    assert configuration[:improvement].worker_ref == "#{host}:improvement"
     assert configuration[:delivery].worker_ref == "#{host}:delivery"
     assert configuration[:publication].worker_ref == "#{host}:publication"
     assert configuration[:retention].worker_ref == "#{host}:retention"
@@ -172,6 +174,12 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     assert configuration[:admission_ready].target == 1
     assert configuration[:learning].policy == "ryker-learning"
+
+    # Self-analysis asks the learning models, on learning's own policy and
+    # adapter, in a lane of its own.
+    assert Map.take(configuration[:improvement], [:api, :client, :policy, :policy_digest]) ==
+             Map.take(configuration[:learning], [:api, :client, :policy, :policy_digest])
+
     assert configuration[:schedules].read_only_policy.name == "ryker-schedule-read-only"
     assert configuration[:schedules].governed_operation_policy.name == "ryker-schedule-governed"
     assert configuration[:schedules].repositories["ryker"].name == "ryker-repo-ryker-schedule"
@@ -324,7 +332,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), disconnect_webhooks(settings))
 
-    for absent <- [:slack, :github, :emisar, :learning, :webhooks] do
+    for absent <- [:slack, :github, :emisar, :learning, :improvement, :webhooks] do
       assert configuration[absent] == nil, "#{absent} started from a credential, not a setting"
     end
 
@@ -1210,7 +1218,15 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), unplaced)
 
-    for absent <- [:work, :admission, :admission_ready, :learning, :retention, :publication] do
+    for absent <- [
+          :work,
+          :admission,
+          :admission_ready,
+          :learning,
+          :improvement,
+          :retention,
+          :publication
+        ] do
       assert configuration[absent] == nil, "#{absent} assembled without a Work placement"
     end
 

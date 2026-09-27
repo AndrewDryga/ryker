@@ -1,0 +1,100 @@
+defmodule Ryker.Improvement.FleetSession do
+  @moduledoc """
+  The worker session one analysis run executes in: workspace-free and
+  read-only, like a learning session, and owned by exactly that run
+  (execution kind `improvement`). Cleanup closes it once the run has stopped
+  (`Ryker.Retention.Custody`).
+  """
+
+  import Ecto.Query
+
+  alias Ryker.Improvement.AnalysisRun
+  alias Ryker.Repo
+  alias Ryker.Work.{Custody, Session}
+
+  @doc "The task reference Coop knows the run's session by."
+  @spec external_ref(AnalysisRun.t()) :: String.t()
+  def external_ref(%AnalysisRun{id: id}), do: "ryker-improvement:#{id}"
+
+  @doc """
+  Whether a worker would take a new analysis session of this policy now,
+  asked without taking a slot. A transport that cannot say is not asked.
+  """
+  @spec placeable?(map()) :: boolean()
+  def placeable?(%{api: api, client: client, policy: policy, policy_digest: digest}) do
+    session = %Session{execution_kind: :improvement, policy: policy, policy_digest: digest}
+
+    if Code.ensure_loaded?(api) and function_exported?(api, :accepts_session?, 2),
+      do: api.accepts_session?(client, session),
+      else: true
+  end
+
+  def placeable?(_settings), do: true
+
+  @doc "The run's session, created once with the run's exact policy."
+  @spec ensure(AnalysisRun.t()) :: {:ok, Session.t()} | {:error, term()}
+  def ensure(%AnalysisRun{} = run) do
+    Repo.transaction(fn ->
+      Repo.insert!(
+        %Session{
+          id: Ecto.UUID.generate(),
+          execution_kind: :improvement,
+          improvement_run_id: run.id,
+          policy: run.policy,
+          policy_digest: run.policy_digest,
+          external_ref: external_ref(run)
+        },
+        on_conflict: :nothing
+      )
+
+      session = locked(run)
+
+      unless session.policy == run.policy and session.policy_digest == run.policy_digest,
+        do: Repo.rollback(:improvement_session_authority_conflict)
+
+      Custody.broadcast_session_updated(session)
+      session
+    end)
+  end
+
+  @doc "Binds the run's session to the Coop session created for it, once."
+  @spec bind(AnalysisRun.t(), String.t()) :: {:ok, Session.t()} | {:error, term()}
+  def bind(%AnalysisRun{} = run, remote_id)
+      when is_binary(remote_id) and byte_size(remote_id) in 1..1024 do
+    Repo.transaction(fn ->
+      session = locked(run)
+
+      case session.coop_session_id do
+        nil ->
+          session
+          |> Ecto.Changeset.change(coop_session_id: remote_id)
+          |> Repo.update!()
+          |> tap(&Custody.broadcast_session_updated/1)
+
+        ^remote_id ->
+          session
+
+        _other ->
+          Repo.rollback(:improvement_session_identity_conflict)
+      end
+    end)
+  end
+
+  def bind(_run, _remote_id), do: {:error, :improvement_session_identity_conflict}
+
+  @doc "The run's session, or nil before `ensure/1`."
+  @spec for_run(AnalysisRun.t() | Ecto.UUID.t()) :: Session.t() | nil
+  def for_run(%AnalysisRun{id: id}), do: for_run(id)
+
+  def for_run(id) when is_binary(id),
+    do: Repo.get_by(Session, execution_kind: :improvement, improvement_run_id: id)
+
+  defp locked(run),
+    do:
+      Repo.one!(
+        from(session in Session,
+          where: session.execution_kind == :improvement and session.improvement_run_id == ^run.id,
+          lock: "FOR UPDATE"
+        )
+      )
+end

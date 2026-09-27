@@ -22,6 +22,16 @@ defmodule Ryker.Defaults do
     poll_interval_ms: 1_000,
     quiet_seconds: 10
   }
+  # Self-analysis of requests people were unhappy with (`Ryker.Improvement`):
+  # one slot, and a request is read once no new negative feedback has come
+  # for five minutes, so a thumbs-down, a question asked again and an angry
+  # reply are one analysis, not three.
+  @improvement %{
+    concurrency: 1,
+    execution_timeout_seconds: 600,
+    poll_interval_ms: 1_000,
+    quiet_seconds: 300
+  }
   @delivery %{
     action_concurrency: 2,
     lease_seconds: 60,
@@ -113,6 +123,7 @@ defmodule Ryker.Defaults do
     emisar: @emisar,
     event_waits: @event_waits,
     github: @github,
+    improvement: @improvement,
     learning: @learning,
     local_routing: @local_routing,
     publication: @publication,

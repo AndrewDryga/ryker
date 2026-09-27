@@ -165,7 +165,8 @@ defmodule Ryker.Retention.Dispatcher do
     outage?(reason) or (transient?(reason) and attempt_count < settings.max_attempts)
   end
 
-  defp execution_adapter(:learning, settings),
+  # A self-analysis session runs on learning's adapter, like learning's own.
+  defp execution_adapter(kind, settings) when kind in [:learning, :improvement],
     do: {settings.learning_api, settings.learning_client}
 
   defp execution_adapter(_execution_kind, settings), do: {settings.api, settings.client}
