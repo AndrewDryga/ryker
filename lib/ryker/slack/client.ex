@@ -68,6 +68,9 @@ defmodule Ryker.Slack.Client do
   defdelegate find_message(client, channel, thread, delivery_ref), to: Messages
 
   @impl true
+  defdelegate find_message(client, channel, thread, delivery_ref, oldest), to: Messages
+
+  @impl true
   defdelegate post_message(client, channel, thread, body, delivery_ref), to: Messages
 
   @impl true

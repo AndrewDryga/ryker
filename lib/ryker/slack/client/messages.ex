@@ -16,11 +16,27 @@ defmodule Ryker.Slack.Client.Messages do
 
   @page_size 100
 
-  def find_message(client, channel, thread, delivery_ref) do
+  def find_message(client, channel, thread, delivery_ref),
+    do: find_message(client, channel, thread, delivery_ref, nil)
+
+  @doc """
+  Like `find_message/4`, walking only the messages posted after `oldest`, a
+  Slack timestamp: a delivery that cannot have been posted before then need
+  not walk a whole channel, which for a busy channel runs past the walk's
+  bound before it reaches the start. A nil `oldest` walks it all.
+  """
+  def find_message(client, channel, thread, delivery_ref, oldest) do
     with :ok <- Fields.text(channel),
          :ok <- Fields.optional_text(thread),
-         :ok <- Fields.text(delivery_ref) do
-      find_in_history(client, channel, thread, &find_delivery(&1, delivery_ref))
+         :ok <- Fields.text(delivery_ref),
+         :ok <- Fields.optional_message_timestamp(oldest) do
+      Pagination.find(
+        client,
+        &(channel |> history_path(thread, &1) |> since(oldest)),
+        &history/1,
+        &find_delivery(&1, delivery_ref),
+        @page_size
+      )
     end
   end
 
@@ -183,6 +199,9 @@ defmodule Ryker.Slack.Client.Messages do
       cursor
     )
   end
+
+  defp since(path, nil), do: path
+  defp since(path, oldest), do: path <> "&" <> URI.encode_query([{"oldest", oldest}])
 
   defp history(%{"messages" => messages} = body) when is_list(messages) do
     case Pagination.next_cursor(body) do

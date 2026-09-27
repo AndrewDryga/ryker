@@ -15,7 +15,9 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
   alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Settings
   alias Ryker.Settings.Edit
+  alias Ryker.Slack.Publisher, as: SlackPublisher
   alias Ryker.Slack.Renderer
+  alias Ryker.TestSupport.FakeSlackAPI
   alias Ryker.TestSupport.TimeZones
   alias Ryker.WeeklyReport
   alias Ryker.WeeklyReport.{Report, Worker}
@@ -223,6 +225,42 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
 
     assert {:ok, {:delivered, :report, "weekly-report:2026-10-12"}} = deliver(agent)
     assert List.last(Agent.get(agent, & &1.calls)).document == refused.document
+  end
+
+  # The report is a top-level post, and the publisher looks for a copy an
+  # earlier attempt may already have posted before it posts. A channel's
+  # whole history is too long a walk: past 10,000 messages it ran out of
+  # pages and the post stopped for good. A copy can only be newer than the
+  # week's row, so the search starts there.
+  test "the report's search for an earlier copy starts when the week's report was frozen" do
+    connect!(%{weekday: 1, local_time: ~T[09:00:00]})
+    last_saved!(~U[2026-09-01 00:00:00.000000Z])
+    assert {:ok, {:queued, report, _next}} = run_once(~U[2026-10-05 09:00:01Z])
+
+    slack = start_supervised!({FakeSlackAPI, render: true})
+
+    {:ok, adapters} =
+      Adapters.new(%{
+        "slack" => %{
+          binding: %{workspaces: %{@workspace => %{api: FakeSlackAPI, client: slack}}},
+          message_publisher: SlackPublisher,
+          reaction_publisher: SlackPublisher
+        }
+      })
+
+    assert {:ok, {:delivered, :report, "weekly-report:2026-10-05"}} =
+             Dispatcher.run_once(
+               adapters: adapters,
+               kind: :report,
+               worker_ref: "delivery:weekly-report-test"
+             )
+
+    oldest = report.inserted_at |> DateTime.add(-3_600) |> DateTime.to_unix()
+    state = FakeSlackAPI.state(slack)
+    assert state.searched_since == ["#{oldest}.000000"]
+
+    assert [%{channel: @channel, thread: nil, delivery_ref: "weekly-report:2026-10-05"}] =
+             state.posts
   end
 
   # -- The worker --------------------------------------------------------------------

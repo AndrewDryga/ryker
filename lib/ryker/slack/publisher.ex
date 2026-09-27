@@ -115,7 +115,7 @@ defmodule Ryker.Slack.Publisher do
   end
 
   defp reconcile_plain_message(api, client, request, target) do
-    case api.find_message(client, target.channel_ref, target.thread_ref, request.ref) do
+    case find_message(api, client, request, target) do
       {:ok, message_ref} ->
         {:ok, message_ref}
 
@@ -126,6 +126,28 @@ defmodule Ryker.Slack.Publisher do
         {:error, {:delivery_reconciliation_failed, reason}}
     end
   end
+
+  # A request its custody froze at a known moment cannot have been posted
+  # before then, so the walk for an earlier copy starts an hour before it,
+  # a margin for Slack's clock, instead of at the channel's first message.
+  defp find_message(api, client, %Request{frozen_at: %DateTime{} = frozen_at} = request, target) do
+    if function_exported?(api, :find_message, 5) do
+      oldest = frozen_at |> DateTime.add(-3_600) |> DateTime.to_unix()
+
+      api.find_message(
+        client,
+        target.channel_ref,
+        target.thread_ref,
+        request.ref,
+        "#{oldest}.000000"
+      )
+    else
+      api.find_message(client, target.channel_ref, target.thread_ref, request.ref)
+    end
+  end
+
+  defp find_message(api, client, request, target),
+    do: api.find_message(client, target.channel_ref, target.thread_ref, request.ref)
 
   defp reconcile_file_message(api, client, request, target) do
     files = prepare_files(request)

@@ -43,6 +43,17 @@ defmodule Ryker.Delivery.RequestTest do
 
     assert {:ok, keyword_message} = Request.new(Map.to_list(message_attributes()))
     assert keyword_message == message
+
+    # When its custody knows when it froze the intent, a request carries it,
+    # so a publisher searches for an earlier copy only from then.
+    assert message.frozen_at == nil
+    frozen_at = ~U[2026-10-05 09:00:00.000000Z]
+
+    assert {:ok, %Request{frozen_at: ^frozen_at}} =
+             Request.new(Map.put(message_attributes(), :frozen_at, frozen_at))
+
+    assert Request.new(Map.put(message_attributes(), :frozen_at, "2026-10-05")) ==
+             {:error, {:invalid_delivery_request, :frozen_at}}
   end
 
   test "rejects malformed destinations and delivery shapes before an adapter runs" do

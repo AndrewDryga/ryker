@@ -110,10 +110,14 @@ defmodule Ryker.WeeklyReport.Custody do
 
   def request(_report), do: {:error, {:invalid_weekly_report, :request}}
 
+  # The report was frozen when its row was written: no copy of it can be in
+  # the channel from before then, so the publisher's search for one starts
+  # there rather than at the channel's first message.
   defp request_for(report) do
     Request.new(%{
       conversation_ref: report.conversation_ref,
       document: report.document,
+      frozen_at: Map.get(report, :inserted_at),
       kind: :message,
       ref: report.delivery_ref,
       source_item_ref: nil,

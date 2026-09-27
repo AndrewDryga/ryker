@@ -5,6 +5,10 @@ defmodule Ryker.Delivery.Request do
   A request contains no credentials and cannot choose a destination after it
   enters custody. Platform adapters may only translate this exact intent into
   their own API shape.
+
+  `frozen_at`, when the custody knows it, is when the intent was frozen: no
+  copy of it can have been posted before then, so a publisher searching for
+  an earlier copy need not look further back.
   """
 
   alias Ryker.CanonicalJSON
@@ -18,20 +22,20 @@ defmodule Ryker.Delivery.Request do
     :thread_ref,
     :transport
   ]
-  @fields @enforce_keys ++ [:artifacts]
-  @required_fields Enum.sort(@enforce_keys)
-  @all_fields Enum.sort(@fields)
+  @optional [artifacts: [], frozen_at: nil]
+  @fields @enforce_keys ++ Keyword.keys(@optional)
   @maximum_document_bytes 512 * 1_024
   @maximum_message_characters 20_000
   @maximum_records 64
   @maximum_artifacts 5
   @maximum_artifact_bytes 8 * 1_024 * 1_024
-  defstruct @enforce_keys ++ [artifacts: []]
+  defstruct @enforce_keys ++ @optional
 
   @type t :: %__MODULE__{
           conversation_ref: String.t(),
           artifacts: [map()],
           document: map(),
+          frozen_at: DateTime.t() | nil,
           kind: :message | :reaction,
           ref: String.t(),
           source_item_ref: String.t() | nil,
@@ -57,12 +61,14 @@ defmodule Ryker.Delivery.Request do
     end
   end
 
+  # Every required field and nothing unknown; an optional field left out
+  # takes its default.
   defp normalize_attributes(%{} = attributes) do
-    case Map.keys(attributes) |> Enum.sort() do
-      @required_fields -> {:ok, Map.put(attributes, :artifacts, [])}
-      @all_fields -> {:ok, attributes}
-      _invalid -> {:error, {:invalid_delivery_request, :fields}}
-    end
+    keys = Map.keys(attributes)
+
+    if Enum.all?(@enforce_keys, &(&1 in keys)) and keys -- @fields == [],
+      do: {:ok, Map.merge(Map.new(@optional), attributes)},
+      else: {:error, {:invalid_delivery_request, :fields}}
   end
 
   defp normalize_attributes(_attributes), do: {:error, {:invalid_delivery_request, :fields}}
@@ -72,6 +78,7 @@ defmodule Ryker.Delivery.Request do
          :ok <- transport(request.transport),
          :ok <- reference(request.conversation_ref, :conversation_ref),
          :ok <- optional_reference(request.thread_ref, :thread_ref),
+         :ok <- frozen_at(request.frozen_at),
          :ok <- artifacts(request.artifacts),
          :ok <- CanonicalJSON.validate(request.document, max_bytes: @maximum_document_bytes) do
       validate_kind(request)
@@ -158,6 +165,10 @@ defmodule Ryker.Delivery.Request do
   end
 
   defp valid_record?(_record), do: false
+
+  defp frozen_at(nil), do: :ok
+  defp frozen_at(%DateTime{}), do: :ok
+  defp frozen_at(_value), do: {:error, {:invalid_delivery_request, :frozen_at}}
 
   defp artifacts(values) when is_list(values) and length(values) <= @maximum_artifacts do
     if Enum.sum(Enum.map(values, &artifact_bytes/1)) <= @maximum_artifact_bytes and

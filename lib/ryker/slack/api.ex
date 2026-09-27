@@ -10,6 +10,13 @@ defmodule Ryker.Slack.API do
 
   @callback find_message(term(), String.t(), String.t() | nil, String.t()) ::
               {:ok, String.t()} | :not_found | {:error, term()}
+  @doc """
+  Like `find_message/4`, looking only at messages posted after `oldest`, a
+  Slack timestamp, or at every message when it is nil. Optional: without it
+  the publisher walks the whole channel or thread.
+  """
+  @callback find_message(term(), String.t(), String.t() | nil, String.t(), String.t() | nil) ::
+              {:ok, String.t()} | :not_found | {:error, term()}
   @callback post_message(term(), String.t(), String.t() | nil, String.t() | map(), String.t()) ::
               {:ok, String.t()} | {:error, term()}
   @doc """
@@ -86,7 +93,8 @@ defmodule Ryker.Slack.API do
   @callback publish_home(term(), String.t(), map()) :: :ok | {:error, term()}
   @callback open_view(term(), String.t(), map()) :: :ok | {:error, term()}
 
-  @optional_callbacks post_ephemeral: 5,
+  @optional_callbacks find_message: 5,
+                      post_ephemeral: 5,
                       update_message: 5,
                       read_messages: 4,
                       file_info: 2,
