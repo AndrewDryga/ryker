@@ -29,6 +29,25 @@ defmodule Ryker.Publication.CustodyTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  # A code change Ryker offered shows on its request's Timeline and, while it
+  # is stuck, on Failures. Until 2026-09-26 those pages heard of it from a
+  # trigger's NOTIFY and a five-second poll; custody now announces each step.
+  test "a requested and claimed review reaches its request and the publication list" do
+    %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!("announced")
+    episode_id = claim.episode.id
+    :ok = PublicationCustody.subscribe_publications()
+    :ok = Episodes.subscribe_episode(episode_id)
+
+    assert {:ok, %{publication: %{id: id}}} =
+             PublicationCustody.request_review(review_request(offer, receipt))
+
+    assert_received {:publication_updated, ^id}
+    assert_received {:episode_updated, ^episode_id}
+
+    assert {:ok, _review} = PublicationCustody.claim_next("publication:announced", 60)
+    assert_received {:publication_updated, ^id}
+  end
+
   test "follow-up work waits for its active readiness review without spending an attempt" do
     # Automatically starting checks must not race the next Slack reply against
     # Coop's single active operation and burn the task's retry budget.

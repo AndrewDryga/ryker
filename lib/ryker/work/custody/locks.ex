@@ -7,13 +7,18 @@ defmodule Ryker.Work.Custody.Locks do
   still holds its opaque lease before a seam writes. The validators map each
   malformed argument to `{:error, {:invalid_work_custody, field}}` so the seams
   share one error vocabulary. Nothing here starts a transaction.
+
+  The seams persist turns and sessions through `unwrap_or_rollback/2` and
+  `persistence_result/2`, so each row they write is announced there, after the
+  outermost commit (`Ryker.Work.Custody.subscribe_sessions/0`, and the request's
+  own topics for a turn).
   """
 
   import Ecto.Query
 
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work.{Custody, Session, Turn}
 
   @maximum_candidate_bytes 256 * 1_024
 
@@ -179,18 +184,31 @@ defmodule Ryker.Work.Custody.Locks do
   end
 
   @doc false
-  def unwrap_or_rollback({:ok, record}, _kind), do: record
+  def unwrap_or_rollback({:ok, record}, kind) do
+    announce(record, kind)
+    record
+  end
 
   def unwrap_or_rollback({:error, changeset}, kind) do
     Repo.rollback({:persistence_failed, kind, changeset.errors})
   end
 
   @doc false
-  def persistence_result({:ok, record}, _kind), do: {:ok, record}
+  def persistence_result({:ok, record}, kind) do
+    announce(record, kind)
+    {:ok, record}
+  end
 
   def persistence_result({:error, changeset}, kind) do
     {:error, {:persistence_failed, kind, changeset.errors}}
   end
+
+  # A renewal only moves its lease's expiry, which no page shows; a running
+  # turn renews every few seconds.
+  defp announce(_record, :work_lease_renewal), do: :ok
+  defp announce(%Turn{} = turn, _kind), do: Custody.broadcast_turn_updated(turn)
+  defp announce(%Session{} = session, _kind), do: Custody.broadcast_session_updated(session)
+  defp announce(_record, _kind), do: :ok
 
   @doc false
   def reference(value, field) do

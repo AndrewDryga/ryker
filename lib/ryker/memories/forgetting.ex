@@ -23,9 +23,11 @@ defmodule Ryker.Memories.Forgetting do
   alias Ryker.Repo
   alias Ryker.Work.Turn
 
+  alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Knowledge.KnowledgeSource
+  alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.Observations
   alias Ryker.Memories.MemoryEntry
@@ -121,6 +123,8 @@ defmodule Ryker.Memories.Forgetting do
     Repo.update_all(from(o in ConversationObservation, where: o.id == ^observation.id),
       set: [forgotten_at: now, note: nil]
     )
+
+    Learning.broadcast_learning_updated(observation.id)
   end
 
   # Which topics citing these messages go with them (every message of their
@@ -175,7 +179,7 @@ defmodule Ryker.Memories.Forgetting do
       set: [state: @erased, forgotten_at: now]
     )
 
-    :ok
+    Enum.each(ids, &Knowledge.broadcast_knowledge_updated/1)
   end
 
   defp topic_observations(id) do

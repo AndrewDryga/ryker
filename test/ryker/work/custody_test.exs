@@ -35,6 +35,34 @@ defmodule Ryker.Work.CustodyTest do
     assert {:ok, nil} = Custody.claim_next("worker:b", 60)
   end
 
+  # Working copies lists every Coop session and a request's page shows its
+  # work. Until 2026-09-26 both heard of a change from a trigger's NOTIFY and a
+  # five-second poll; custody now announces each session and turn it writes
+  # once the write commits.
+  test "a session created, claimed and bound reaches the working copies list and its request" do
+    :ok = Custody.subscribe_sessions()
+    command = create_episode!("announced")
+    episode_id = command.episode_id
+    assert_received {:work_session_updated, session_id}
+
+    :ok = Episodes.subscribe_episode(episode_id)
+    assert {:ok, claim} = Custody.claim_next("worker:announced", 60)
+    assert_received {:episode_updated, ^episode_id}
+
+    assert {:ok, _bound} =
+             Custody.bind_session(
+               episode_id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "remote-announced-session"
+             )
+
+    assert_received {:work_session_updated, ^session_id}
+    assert_received {:episode_updated, ^episode_id}
+  end
+
   test "an unpinned episode cannot starve later authorized work" do
     unpinned = create_kernel_episode!("unpinned-oldest")
 

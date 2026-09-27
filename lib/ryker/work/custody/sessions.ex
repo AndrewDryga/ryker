@@ -15,6 +15,7 @@ defmodule Ryker.Work.Custody.Sessions do
   alias Ryker.Emisar.Connections, as: EmisarConnections
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
+  alias Ryker.Work.Custody
   alias Ryker.Work.Custody.Turns
 
   alias Ryker.Work.{
@@ -658,6 +659,7 @@ defmodule Ryker.Work.Custody.Sessions do
       discard_after: nil
     })
     |> Repo.update!()
+    |> tap(&Custody.broadcast_session_updated/1)
   end
 
   @doc false

@@ -15,6 +15,7 @@ defmodule Ryker.Publication.Followups.Polls do
 
   alias Ryker.Episodes.Event
   alias Ryker.Publication.Changeset, as: PublicationChangeset
+  alias Ryker.Publication.Custody
   alias Ryker.Publication.Followups.{Leases, Store}
   alias Ryker.Publication.LifecycleStatus
   alias Ryker.Repo
@@ -104,6 +105,7 @@ defmodule Ryker.Publication.Followups.Polls do
       updated_at: now
     })
     |> Repo.update!()
+    |> tap(&Custody.broadcast_publication_updated/1)
   end
 
   defp poll_transition(followup, publication, status, _interval_seconds, now) do

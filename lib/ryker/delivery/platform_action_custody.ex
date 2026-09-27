@@ -5,6 +5,10 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   A live Work binding may freeze one immutable action per natural host slot.
   Provider workers see only the already-bound route and document. Exact retries
   return the same action; conflicting reuse of a slot is rejected.
+
+  Each action queued, claimed, retried, blocked or delivered is announced after
+  the outermost commit (`subscribe_platform_actions/0`), on its request's and
+  its conversation's topics too.
   """
 
   import Ecto.Query
@@ -607,7 +611,13 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     if DateTime.compare(current, requested) == :lt, do: requested, else: current
   end
 
-  defp unwrap_or_rollback({:ok, value}, _operation), do: value
+  # A renewal only moves the lease's expiry, which no page shows.
+  defp unwrap_or_rollback({:ok, value}, :renew), do: value
+
+  defp unwrap_or_rollback({:ok, value}, _operation) do
+    broadcast_platform_action_updated(value)
+    value
+  end
 
   defp unwrap_or_rollback({:error, changeset}, operation),
     do: Repo.rollback({:platform_action_persistence_failed, operation, changeset.errors})
@@ -630,4 +640,27 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp positive(value, _field) when is_integer(value) and value > 0, do: :ok
   defp positive(_value, field), do: {:error, {:invalid_platform_action, field}}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to platform action changes: `{:platform_action_updated,
+  action_id}` once a Slack message, reaction or GitHub reaction a request asked
+  for is queued, claimed, retried, blocked or delivered, and that change has
+  committed.
+  """
+  def subscribe_platform_actions, do: Ryker.PubSub.subscribe(platform_actions_topic())
+
+  def unsubscribe_platform_actions, do: Ryker.PubSub.unsubscribe(platform_actions_topic())
+
+  defp platform_actions_topic, do: "delivery:platform_actions"
+
+  defp broadcast_platform_action_updated(%PlatformAction{id: id} = action) do
+    Ryker.Episodes.broadcast_episode_updated(action.episode_id)
+    Ryker.Episodes.broadcast_conversation_updated(action.transport, action.conversation_ref)
+
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(platform_actions_topic(), {:platform_action_updated, id})
+    end)
+  end
 end

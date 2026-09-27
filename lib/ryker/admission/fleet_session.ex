@@ -17,7 +17,7 @@ defmodule Ryker.Admission.FleetSession do
 
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Custody, Session}
 
   @spec ensure(Entry.t(), %{name: String.t(), digest: String.t()}) ::
           {:ok, Session.t()} | {:error, term()}
@@ -116,6 +116,7 @@ defmodule Ryker.Admission.FleetSession do
     entry
     |> lock_session()
     |> exact_authority(policy, digest)
+    |> tap(&Custody.broadcast_session_updated/1)
   end
 
   defp exact_authority(
@@ -141,6 +142,7 @@ defmodule Ryker.Admission.FleetSession do
         |> Ecto.Changeset.change(%{coop_session_id: coop_session_id})
         |> Ecto.Changeset.unique_constraint(:coop_session_id)
         |> Repo.update!()
+        |> tap(&Custody.broadcast_session_updated/1)
 
       %Session{execution_kind: :admission, coop_session_id: ^coop_session_id} = session ->
         session
@@ -173,6 +175,7 @@ defmodule Ryker.Admission.FleetSession do
           closed_at: now
         })
         |> Repo.update!()
+        |> tap(&Custody.broadcast_session_updated/1)
 
       _other ->
         Repo.rollback(:admission_fleet_session_conflict)

@@ -35,6 +35,34 @@ defmodule Ryker.Records.RecordsTest do
     assert Records.retained_records(claim.episode.id) == []
   end
 
+  # A request's Timeline, Chat and incident rooms show what a request
+  # recorded. Until 2026-09-26 they heard of a new record from a trigger's
+  # NOTIFY and a five-second poll; the context now announces it.
+  test "a record a request creates reaches its request's pages and the record list" do
+    claim = claim!("announced-record")
+    episode_id = claim.episode.id
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+    :ok = Records.subscribe_records()
+    :ok = Episodes.subscribe_episode(episode_id)
+
+    payload = %{
+      "deadline_at" => now |> DateTime.add(900, :second) |> DateTime.to_iso8601(),
+      "event_matcher" => %{
+        "delay" => "10m",
+        "on_timeout" => "Report the verification gap.",
+        "type" => "after"
+      },
+      "kind" => "after",
+      "verification" => "Verify the deploy after the observation window."
+    }
+
+    assert {:ok, %{id: id}} =
+             Records.create(Records.token(claim.turn), "timer", "event_wait", payload)
+
+    assert_received {:record_updated, ^id}
+    assert_received {:episode_updated, ^episode_id}
+  end
+
   test "retrying a timer creation retains its original record and timing anchor" do
     claim = claim!("timer-idempotence")
     %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")

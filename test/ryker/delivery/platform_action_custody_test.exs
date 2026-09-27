@@ -8,6 +8,28 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
 
   @now ~U[2026-08-29 12:00:00.000000Z]
 
+  # A reaction or message a request asked for shows on its Timeline, on the
+  # conversation it lands in, and on Failures while it is blocked. Until
+  # 2026-09-26 those pages heard of it from a trigger's NOTIFY and a
+  # five-second poll; custody now announces each change once it commits.
+  test "a queued, claimed and delivered action reaches the pages that show it" do
+    claim = claim!()
+    episode_id = claim.episode.id
+    :ok = PlatformActionCustody.subscribe_platform_actions()
+    :ok = Episodes.subscribe_episode(episode_id)
+
+    assert {:ok, %{action: %{id: id}, status: :created}} =
+             PlatformActionCustody.enqueue(claim, reaction_attributes())
+
+    assert_received {:platform_action_updated, ^id}
+    assert_received {:episode_updated, ^episode_id}
+
+    assert {:ok, %{action: %{id: ^id}}} =
+             PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+    assert_received {:platform_action_updated, ^id}
+  end
+
   test "one live Work turn freezes an exact platform action and exact retries reuse it" do
     claim = claim!()
     attributes = reaction_attributes()

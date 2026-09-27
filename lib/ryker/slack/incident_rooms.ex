@@ -6,6 +6,10 @@ defmodule Ryker.Slack.IncidentRooms do
   trusted automatic-alert policy records one request here. Slack provisioning
   is reconciled step by step; only a usable room can create and pin the linked
   episode that owns the actual investigation.
+
+  A room requested, set up, blocked, rearmed, observed or closed is announced
+  after the outermost commit (`subscribe_rooms/0`, `subscribe_room/1`), on
+  the topics of the request it came from and the one investigating it too.
   """
 
   import Ecto.Query
@@ -24,6 +28,7 @@ defmodule Ryker.Slack.IncidentRooms do
     MembershipTransition
   }
 
+  alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
@@ -680,6 +685,7 @@ defmodule Ryker.Slack.IncidentRooms do
     }
     |> IncidentRoomLifecycleEventChangeset.insert()
     |> Repo.insert!()
+    |> tap(fn _event -> broadcast_room_updated(room) end)
   end
 
   defp apply_lifecycle_event(%IncidentRoom{channel_state: :deleted} = room, _transition),
@@ -918,7 +924,7 @@ defmodule Ryker.Slack.IncidentRooms do
     }
 
     case Repo.insert(IncidentRoomChangeset.insert(attributes)) do
-      {:ok, room} -> room
+      {:ok, room} -> tap(room, &broadcast_room_updated/1)
       {:error, changeset} -> Repo.rollback({:incident_room_persistence_failed, changeset.errors})
     end
   end
@@ -1183,6 +1189,7 @@ defmodule Ryker.Slack.IncidentRooms do
     }
     |> IncidentRoomLifecycleEventChangeset.insert()
     |> Repo.insert!()
+    |> tap(fn _event -> broadcast_room_updated(room) end)
   end
 
   defp observation_kind(:active), do: :observed_active
@@ -1328,6 +1335,7 @@ defmodule Ryker.Slack.IncidentRooms do
              status: :ready
            })
            |> Repo.update() do
+      broadcast_room_updated(room)
       room
     else
       nil ->
@@ -1358,13 +1366,28 @@ defmodule Ryker.Slack.IncidentRooms do
       status: :confirmed
     })
     |> Repo.update()
+    |> tap(fn
+      {:ok, confirmed} -> Records.broadcast_record_updated(confirmed)
+      {:error, _changeset} -> :ok
+    end)
+  end
+
+  # A renewal only moves the lease's expiry, which no page shows.
+  defp update!(room, %{lease_expires_at: _expiry} = attributes, now)
+       when map_size(attributes) == 1 do
+    case room
+         |> IncidentRoomChangeset.update(Map.put(attributes, :updated_at, now))
+         |> Repo.update() do
+      {:ok, room} -> room
+      {:error, changeset} -> Repo.rollback({:incident_room_persistence_failed, changeset.errors})
+    end
   end
 
   defp update!(room, attributes, now) do
     attributes = Map.put(attributes, :updated_at, now)
 
     case room |> IncidentRoomChangeset.update(attributes) |> Repo.update() do
-      {:ok, room} -> room
+      {:ok, room} -> tap(room, &broadcast_room_updated/1)
       {:error, changeset} -> Repo.rollback({:incident_room_persistence_failed, changeset.errors})
     end
   end
@@ -1600,4 +1623,37 @@ defmodule Ryker.Slack.IncidentRooms do
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to every incident room's changes:
+  `{:incident_room_updated, room_id}` once a room is requested, set up in
+  Slack, blocked, rearmed, observed archived or deleted, or closed, and that
+  change has committed.
+  """
+  def subscribe_rooms, do: Ryker.PubSub.subscribe(rooms_topic())
+
+  def unsubscribe_rooms, do: Ryker.PubSub.unsubscribe(rooms_topic())
+
+  @doc """
+  Subscribes the caller to one room's changes (`{:incident_room_updated,
+  room_id}`), by the room's ref, for the page that shows it.
+  """
+  def subscribe_room(room_ref), do: Ryker.PubSub.subscribe(room_topic(room_ref))
+
+  def unsubscribe_room(room_ref), do: Ryker.PubSub.unsubscribe(room_topic(room_ref))
+
+  defp rooms_topic, do: "incident_rooms"
+  defp room_topic(room_ref), do: "incident_room:#{room_ref}"
+
+  defp broadcast_room_updated(%IncidentRoom{id: id, ref: ref} = room) do
+    Episodes.broadcast_episode_updated(room.source_episode_id)
+    Episodes.broadcast_episode_updated(room.episode_id)
+
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(room_topic(ref), {:incident_room_updated, id})
+      Ryker.PubSub.broadcast(rooms_topic(), {:incident_room_updated, id})
+    end)
+  end
 end

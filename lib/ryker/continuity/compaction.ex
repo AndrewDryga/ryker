@@ -16,11 +16,14 @@ defmodule Ryker.Continuity.Compaction do
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
 
+  alias Ryker.Continuity
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Continuity.ConversationSummaryDraft
   alias Ryker.Continuity.ConversationSummaryState
+  alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
 
@@ -93,6 +96,8 @@ defmodule Ryker.Continuity.Compaction do
 
   defp compact_groups(groups, rollup_retention_seconds) do
     Enum.reduce_while(groups, {:ok, 0}, fn {_identity, sources}, {:ok, count} ->
+      Enum.each(sources, &Continuity.broadcast_continuity_updated(&1.conversation_ref))
+
       case compact_group(sources, rollup_retention_seconds) do
         :ok -> {:cont, {:ok, count + length(sources)}}
         :skipped -> {:cont, {:ok, count}}
@@ -175,24 +180,30 @@ defmodule Ryker.Continuity.Compaction do
     delete_channel_summaries(scoped_workspace_ref, conversation_ref)
     delete_channel_drafts(conversation_ref)
     delete_channel_rollups(scoped_workspace_ref, conversation_ref, workspace_ref, channel_ref)
+    Continuity.broadcast_continuity_updated(conversation_ref)
 
-    Repo.delete_all(
-      from(item in ConversationKnowledge,
-        where:
-          item.workspace_ref == ^scoped_workspace_ref and
-            item.conversation_ref == ^conversation_ref
+    {_count, topics} =
+      Repo.delete_all(
+        from(item in ConversationKnowledge,
+          where:
+            item.workspace_ref == ^scoped_workspace_ref and
+              item.conversation_ref == ^conversation_ref,
+          select: item.id
+        )
       )
-    )
 
-    Repo.delete_all(
-      from(note in ConversationObservation,
-        where:
-          note.workspace_ref == ^scoped_workspace_ref and
-            note.conversation_ref == ^conversation_ref
+    {_count, notes} =
+      Repo.delete_all(
+        from(note in ConversationObservation,
+          where:
+            note.workspace_ref == ^scoped_workspace_ref and
+              note.conversation_ref == ^conversation_ref,
+          select: note.id
+        )
       )
-    )
 
-    :ok
+    Enum.each(topics, &Knowledge.broadcast_knowledge_updated/1)
+    Enum.each(notes, &Learning.broadcast_learning_updated/1)
   end
 
   defp delete_channel_summaries(workspace_ref, conversation_ref) do

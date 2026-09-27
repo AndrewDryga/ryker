@@ -58,7 +58,9 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       record_inherited_knowledge(inherited, session, turn)
       record_sources(LearningSources.expand(sources), session)
       attest_exposure_counts(current)
-      :ok
+      # What a run was shown is part of its request's record.
+      Ryker.Episodes.broadcast_episode_updated(session.episode_id)
+      Enum.each(references, &Ryker.Knowledge.broadcast_knowledge_updated(&1["knowledge_id"]))
     else
       _ -> Repo.rollback(:work_knowledge_context_stale)
     end

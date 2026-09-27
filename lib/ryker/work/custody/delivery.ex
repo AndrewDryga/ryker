@@ -18,6 +18,7 @@ defmodule Ryker.Work.Custody.Delivery do
   alias Ryker.Repo
   alias Ryker.Waits.EventSubscriptions
   alias Ryker.Work.Cancellation, as: WorkCancellation
+  alias Ryker.Work.Custody
   alias Ryker.Work.Custody.{Cancellation, Sessions}
   alias Ryker.Work.{DeliveryReceipt, Turn, TurnChangeset}
 
@@ -401,6 +402,7 @@ defmodule Ryker.Work.Custody.Delivery do
        } = turn} ->
         case turn |> TurnChangeset.retry_delivery() |> Repo.update() do
           {:ok, turn} ->
+            Custody.broadcast_turn_updated(turn)
             %{episode: episode, status: :settled, turn: turn}
 
           {:error, changeset} ->

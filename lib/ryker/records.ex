@@ -5,6 +5,10 @@ defmodule Ryker.Records do
   The opaque turn token is a narrow capability for inert record creation. It
   remains valid only while that exact Work turn owns the episode and has not
   entered cancellation or delivery custody.
+
+  A record created, answered, confirmed, superseded or dismissed is announced
+  after the outermost commit (`subscribe_records/0`), on its request's topics
+  too, whichever context changed it (`broadcast_record_updated/1`).
   """
 
   import Ecto.Query
@@ -335,10 +339,12 @@ defmodule Ryker.Records do
           where:
             record.ref == ^wait_ref and record.kind in ["input_request", "event_wait"] and
               record.status == :open,
-          update: [set: [status: ^status, updated_at: fragment("clock_timestamp()")]]
+          update: [set: [status: ^status, updated_at: fragment("clock_timestamp()")]],
+          select: record
         )
 
-      _resolved = Repo.update_all(query, [])
+      {_count, resolved} = Repo.update_all(query, [])
+      Enum.each(resolved, &broadcast_record_updated/1)
       EventSubscriptions.resolve_wait_in_transaction(wait_ref, :input)
     else
       {:error, :state_record_transaction_required}
@@ -362,11 +368,12 @@ defmodule Ryker.Records do
           where:
             record.episode_id == ^episode_id and record.kind == "input_request" and
               record.status == :open,
-          update: [set: [status: :dismissed, updated_at: fragment("clock_timestamp()")]]
+          update: [set: [status: :dismissed, updated_at: fragment("clock_timestamp()")]],
+          select: record
         )
 
-      _dismissed = Repo.update_all(query, [])
-      :ok
+      {_count, dismissed} = Repo.update_all(query, [])
+      Enum.each(dismissed, &broadcast_record_updated/1)
     else
       {:error, :state_record_transaction_required}
     end
@@ -665,11 +672,15 @@ defmodule Ryker.Records do
       end)
 
     if ids != [] do
-      from(record in Record,
-        where: record.id in ^ids,
-        update: [set: [status: :superseded, updated_at: fragment("clock_timestamp()")]]
-      )
-      |> Repo.update_all([])
+      {_count, superseded} =
+        from(record in Record,
+          where: record.id in ^ids,
+          update: [set: [status: :superseded, updated_at: fragment("clock_timestamp()")]],
+          select: record
+        )
+        |> Repo.update_all([])
+
+      Enum.each(superseded, &broadcast_record_updated/1)
     end
 
     :ok
@@ -1054,8 +1065,36 @@ defmodule Ryker.Records do
 
   defp create_options(_options), do: {:error, {:invalid_state_record, :options}}
 
-  defp persistence_result({:ok, record}), do: {:ok, record}
+  defp persistence_result({:ok, record}) do
+    broadcast_record_updated(record)
+    {:ok, record}
+  end
 
   defp persistence_result({:error, %Ecto.Changeset{} = changeset}),
     do: {:error, {:state_record_persistence_failed, changeset.errors}}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to record changes: `{:record_updated, record_id}` once
+  something a request recorded (a finding, a question, an offer, a wait) is
+  created, answered, confirmed, superseded or dismissed, and that change has
+  committed.
+  """
+  def subscribe_records, do: Ryker.PubSub.subscribe(records_topic())
+
+  def unsubscribe_records, do: Ryker.PubSub.unsubscribe(records_topic())
+
+  @doc """
+  Internal — announces, after the outermost commit, that `record` changed.
+  Every context that writes a record calls this, so the record's request
+  hears it on its own topics too.
+  """
+  @spec broadcast_record_updated(Record.t()) :: :ok
+  def broadcast_record_updated(%Record{id: id, episode_id: episode_id}) do
+    Ryker.Episodes.broadcast_episode_updated(episode_id)
+    Repo.after_commit(fn -> Ryker.PubSub.broadcast(records_topic(), {:record_updated, id}) end)
+  end
+
+  defp records_topic, do: "records"
 end

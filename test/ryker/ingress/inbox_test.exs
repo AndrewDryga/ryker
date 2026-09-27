@@ -860,6 +860,31 @@ defmodule Ryker.Ingress.InboxTest do
              Inbox.record(input!(event_ref: "Ev-list"), source_envelope: ["not", "a", "map"])
   end
 
+  # Open pages learn about a message from this context once it commits. Until
+  # 2026-09-26 a trigger's NOTIFY named the table and a central map guessed
+  # which pages cared; a page for one message, or for one conversation, could
+  # not listen for it alone.
+  test "a recorded message and each custody step it takes reach the pages that show it" do
+    :ok = Inbox.subscribe_inputs()
+    assert {:ok, %{entry: entry}} = Inbox.record(input!())
+    id = entry.id
+    assert_received {:input_updated, ^id}
+
+    :ok = Inbox.subscribe_input(id)
+
+    :ok =
+      Ryker.Episodes.subscribe_conversation(
+        entry.destination_transport,
+        entry.destination_conversation_ref
+      )
+
+    assert {:ok, %{entry: %{id: ^id}}} = Inbox.claim_next("executor:test", @occurred_at, 60)
+    assert_received {:input_updated, ^id}
+    assert_received {:input_updated, ^id}
+    conversation = entry.destination_conversation_ref
+    assert_received {:conversation_updated, ^conversation}
+  end
+
   defp input!(overrides \\ []) do
     attributes =
       Keyword.merge(

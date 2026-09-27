@@ -15,13 +15,16 @@ defmodule Ryker.Behaviors.Automations do
   alias Ryker.Reference
   alias Ryker.Repo
 
+  alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.Episodes.Scope
+  alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
+  alias Ryker.Schedules
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Schedules.ScheduleOccurrence
@@ -586,6 +589,7 @@ defmodule Ryker.Behaviors.Automations do
       status: :confirmed
     })
     |> Repo.update()
+    |> tap(&announce/1)
   end
 
   defp lock_visible_automation(episode, automation_id) do
@@ -781,8 +785,18 @@ defmodule Ryker.Behaviors.Automations do
       else: {:error, :invalid_arguments}
   end
 
-  defp persistence_result({:ok, resource}, _kind), do: {:ok, resource}
+  defp persistence_result({:ok, resource}, _kind) do
+    announce({:ok, resource})
+    {:ok, resource}
+  end
 
   defp persistence_result({:error, %Ecto.Changeset{} = changeset}, kind),
     do: {:error, {:automation_persistence_failed, kind, changeset.errors}}
+
+  # The owning context announces each automation changed here, and the record
+  # that confirmed the change.
+  defp announce({:ok, %Schedule{} = schedule}), do: Schedules.broadcast_schedule_updated(schedule)
+  defp announce({:ok, %Behavior{id: id}}), do: Behaviors.broadcast_behavior_updated(id)
+  defp announce({:ok, %Record{} = record}), do: Records.broadcast_record_updated(record)
+  defp announce(_not_written), do: :ok
 end

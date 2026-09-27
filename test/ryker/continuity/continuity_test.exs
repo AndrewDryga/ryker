@@ -41,6 +41,25 @@ defmodule Ryker.Continuity.ContinuityTest do
     end
   end
 
+  # Memory › Learned shows each conversation's saved summary, and a request's
+  # page shows the summary its run staged. Until 2026-09-26 they heard of it
+  # from a trigger's NOTIFY and a five-second poll; the context now announces
+  # the staged draft on its request and the published summary on its own
+  # topic.
+  test "a staged and published summary reaches its request and the learned pages" do
+    {_entry, work, submission} = raw_work!()
+    episode_id = work.episode.id
+    conversation = work.episode.destination_conversation_ref
+    :ok = Continuity.subscribe_continuity()
+    :ok = Episodes.subscribe_episode(episode_id)
+
+    assert {:ok, _staged} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
+    assert_received {:episode_updated, ^episode_id}
+
+    accept!(work, submission)
+    assert_received {:continuity_updated, ^conversation}
+  end
+
   defp assert_searchable_clock_continuity!(kind, existing?) do
     # Database-cutoff search must see a just-saved summary/rollup, even when
     # the application host runs ahead. Old snapshots still exclude new writes.

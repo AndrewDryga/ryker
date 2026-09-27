@@ -24,7 +24,7 @@ defmodule Ryker.Admission.ReadySessions do
   alias Ryker.Admission.FleetSession
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Custody, Session}
 
   @external_ref_prefix "ryker-admission-ready:"
 
@@ -112,8 +112,12 @@ defmodule Ryker.Admission.ReadySessions do
         )
         |> Repo.update()
         |> case do
-          {:ok, claimed} -> {claimed, :claimed}
-          {:error, _changeset} -> Repo.rollback(:admission_fleet_session_conflict)
+          {:ok, claimed} ->
+            Custody.broadcast_session_updated(claimed)
+            {claimed, :claimed}
+
+          {:error, _changeset} ->
+            Repo.rollback(:admission_fleet_session_conflict)
         end
     end
   end
@@ -169,7 +173,8 @@ defmodule Ryker.Admission.ReadySessions do
        |> Ecto.Changeset.check_constraint(:ready_state,
          name: :episode_work_session_ready_state_valid
        )
-       |> Repo.insert!()}
+       |> Repo.insert!()
+       |> tap(&Custody.broadcast_session_updated/1)}
     end
   end
 
@@ -239,8 +244,12 @@ defmodule Ryker.Admission.ReadySessions do
       )
       |> Repo.update()
       |> case do
-        {:ok, session} -> session
-        {:error, _changeset} -> Repo.rollback(:ready_routing_session_conflict)
+        {:ok, session} ->
+          Custody.broadcast_session_updated(session)
+          session
+
+        {:error, _changeset} ->
+          Repo.rollback(:ready_routing_session_conflict)
       end
     end)
   end

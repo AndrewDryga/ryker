@@ -23,6 +23,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Work.Cancellation, as: WorkCancellation
+  alias Ryker.Work.Custody
   alias Ryker.Work.Custody.{Sessions, Turns}
   alias Ryker.Work.{Session, Turn, TurnChangeset}
 
@@ -289,7 +290,8 @@ defmodule Ryker.Work.Custody.Cancellation do
     with true <-
            is_nil(turn.operational_pruned_at) and
              Turns.completion_matches?(turn, turn.completion_receipt),
-         {:ok, _turn} <- turn |> TurnChangeset.retry_completion() |> Repo.update() do
+         {:ok, turn} <- turn |> TurnChangeset.retry_completion() |> Repo.update() do
+      Custody.broadcast_turn_updated(turn)
       episode
     else
       _invalid -> Repo.rollback(:work_completion_not_retryable)

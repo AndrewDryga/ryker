@@ -155,13 +155,14 @@ defmodule Ryker.Episodes.RoutingDigests do
   the current one, and an answer recorded before titles existed has none.
   """
   @spec accept_title_in_transaction(Episode.t(), Turn.t()) :: :ok
-  def accept_title_in_transaction(%Episode{id: episode_id}, %Turn{} = turn) do
+  def accept_title_in_transaction(%Episode{id: episode_id} = episode, %Turn{} = turn) do
     case accepted_title(turn) do
       nil ->
         :ok
 
       title ->
         now = Repo.now!()
+        Ryker.Episodes.broadcast_episode_updated(episode)
 
         Repo.update_all(
           from(digest in RoutingDigest,

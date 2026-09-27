@@ -85,7 +85,8 @@ defmodule Ryker.Slack.SourceAudits do
            |> Ecto.Changeset.foreign_key_constraint(:episode_id)
            |> Ecto.Changeset.foreign_key_constraint(:turn_id)
            |> Repo.insert() do
-      :ok
+      # What a run read from Slack is part of its request's record.
+      Ryker.Episodes.broadcast_episode_updated(attributes.episode_id)
     else
       {:error, %Ecto.Changeset{} = changeset} ->
         {:error, {:slack_source_audit_persistence_failed, changeset.errors}}

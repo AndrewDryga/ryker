@@ -11,7 +11,7 @@ defmodule Ryker.Publication.Followups.Start do
 
   import Ecto.Query
 
-  alias Ryker.Publication.{Followup, FollowupChangeset, Publication}
+  alias Ryker.Publication.{Custody, Followup, FollowupChangeset, Publication}
   alias Ryker.Publication.Followups.Store
   alias Ryker.Repo
 
@@ -37,6 +37,7 @@ defmodule Ryker.Publication.Followups.Start do
       nil ->
         case Repo.insert(FollowupChangeset.insert(attributes)) do
           {:ok, %Followup{} = followup} ->
+            Custody.broadcast_publication_updated(publication)
             followup
 
           {:error, changeset} ->

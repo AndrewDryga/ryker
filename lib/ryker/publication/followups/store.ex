@@ -6,7 +6,8 @@ defmodule Ryker.Publication.Followups.Store do
   A lifecycle event's ref, id and delivery ref all derive from one key, so the
   same observation recorded twice is one row: the second insert finds the
   first and reports a duplicate. The argument checks and the transaction
-  wrapper here are the ones every stage's entry uses.
+  wrapper here are the ones every stage's entry uses. Every row written here
+  is announced as a change to its publication (`Ryker.Publication.Custody`).
   """
 
   import Ecto.Query
@@ -20,6 +21,7 @@ defmodule Ryker.Publication.Followups.Store do
     LifecycleEventChangeset
   }
 
+  alias Ryker.Publication.Custody
   alias Ryker.Repo
 
   # --- entries --------------------------------------------------------------
@@ -63,6 +65,7 @@ defmodule Ryker.Publication.Followups.Store do
     followup
     |> FollowupChangeset.update(Map.put(attributes, :updated_at, now))
     |> Repo.update!()
+    |> tap(&Custody.broadcast_publication_updated(&1.publication_id))
   end
 
   # --- lifecycle events -----------------------------------------------------
@@ -77,6 +80,7 @@ defmodule Ryker.Publication.Followups.Store do
     event
     |> LifecycleEventChangeset.update(Map.put(attributes, :updated_at, now))
     |> Repo.update!()
+    |> tap(&Custody.broadcast_publication_updated(&1.publication_id))
   end
 
   @doc "The key a lifecycle event is known by: a digest of what makes it the same event."
@@ -140,7 +144,13 @@ defmodule Ryker.Publication.Followups.Store do
         )
 
       event = Repo.one!(from(event in LifecycleEvent, where: event.ref == ^attributes.ref))
-      if count == 1, do: {:ok, event}, else: {:duplicate, event}
+
+      if count == 1 do
+        Custody.broadcast_publication_updated(event.publication_id)
+        {:ok, event}
+      else
+        {:duplicate, event}
+      end
     else
       Repo.rollback({:publication_lifecycle_persistence_failed, changeset.errors})
     end

@@ -10,6 +10,7 @@ defmodule Ryker.Learning.Rebuilds do
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeSource
+  alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
@@ -253,6 +254,7 @@ defmodule Ryker.Learning.Rebuilds do
           )
         )
 
+      Learning.broadcast_learning_updated(batch.id)
       {:ok, %{previous: %{}, outcome: outcome(batch)}}
     end
   end
@@ -297,6 +299,7 @@ defmodule Ryker.Learning.Rebuilds do
       )
       |> Repo.update!()
 
+    Learning.broadcast_learning_updated(changed.id)
     {:ok, %{previous: outcome(batch), outcome: outcome(changed)}}
   end
 

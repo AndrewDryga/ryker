@@ -3,7 +3,7 @@ defmodule Ryker.Learning.FleetSession do
   import Ecto.Query
   alias Ryker.Learning.LearningRun
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Custody, Session}
 
   def external_ref(%LearningRun{id: id}), do: "ryker-learning:#{id}"
 
@@ -45,6 +45,7 @@ defmodule Ryker.Learning.FleetSession do
       unless session.policy == run.policy and session.policy_digest == run.policy_digest,
         do: Repo.rollback(:learning_session_authority_conflict)
 
+      Custody.broadcast_session_updated(session)
       session
     end)
   end
@@ -55,9 +56,17 @@ defmodule Ryker.Learning.FleetSession do
       session = locked(run)
 
       case session.coop_session_id do
-        nil -> session |> Ecto.Changeset.change(coop_session_id: remote_id) |> Repo.update!()
-        ^remote_id -> session
-        _ -> Repo.rollback(:learning_session_identity_conflict)
+        nil ->
+          session
+          |> Ecto.Changeset.change(coop_session_id: remote_id)
+          |> Repo.update!()
+          |> tap(&Custody.broadcast_session_updated/1)
+
+        ^remote_id ->
+          session
+
+        _ ->
+          Repo.rollback(:learning_session_identity_conflict)
       end
     end)
   end

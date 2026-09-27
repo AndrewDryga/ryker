@@ -11,6 +11,7 @@ defmodule Ryker.Records.TaskOffers do
 
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
+  alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
@@ -202,8 +203,12 @@ defmodule Ryker.Records.TaskOffers do
     })
     |> Repo.update()
     |> case do
-      {:ok, confirmed} -> {:ok, confirmed}
-      {:error, changeset} -> {:error, {:task_offer_persistence_failed, changeset.errors}}
+      {:ok, confirmed} ->
+        Records.broadcast_record_updated(confirmed)
+        {:ok, confirmed}
+
+      {:error, changeset} ->
+        {:error, {:task_offer_persistence_failed, changeset.errors}}
     end
   end
 

@@ -6,10 +6,10 @@ defmodule Ryker.Slack.Names do
 
   A page asks while it is drawn and gets what is known now, or a kind word
   when nothing is ("Slack user", "Slack channel C123"). Slack is then asked in
-  the background, one name a tick, and every open page is told when a name it
-  may show arrives or changes, so it draws again without a reload. Names Ryker
-  already has in hand, such as the members Choose people lists, are kept at
-  once (`remember/1`).
+  the background, one name a tick, and a page that shows Slack names is told
+  when one arrives or changes (`subscribe_names/0`), so it draws again without
+  a reload. Names Ryker already has in hand, such as the members Choose people
+  lists, are kept at once (`remember/1`).
 
   The owner runs it whenever Slack's tokens are verified, switched on or not,
   apart from every other Slack setting, so choosing who can manage Ryker (and
@@ -23,7 +23,6 @@ defmodule Ryker.Slack.Names do
   @ttl 900_000
   @interval 1600
   @maximum_names 2000
-  @topic "control-plane"
   @workspace_url ~r/\Ahttps:\/\/[a-z0-9-]{1,64}\.slack\.com\z/
 
   def start_link(options), do: GenServer.start_link(__MODULE__, options, name: __MODULE__)
@@ -296,8 +295,8 @@ defmodule Ryker.Slack.Names do
   end
 
   defp announce do
-    :ets.update_counter(@table, :revision, 1, {:revision, 0})
-    Ryker.PubSub.broadcast(@topic, :control_plane_changed)
+    revision = :ets.update_counter(@table, :revision, 1, {:revision, 0})
+    Ryker.PubSub.broadcast(names_topic(), {:slack_names_updated, revision})
   end
 
   defp clean(label), do: InspectionRedactor.artifact(label, max_bytes: 160).text
@@ -401,4 +400,18 @@ defmodule Ryker.Slack.Names do
   defp fallback("A" <> _), do: "Slack app"
   defp fallback(_), do: "Slack reference"
   defp now, do: System.monotonic_time(:millisecond)
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to the names cache: `{:slack_names_updated, revision}`
+  once a name a page may show arrives from Slack or changes. `revision`
+  counts the changes since the cache started; the names are read through
+  `name/2`, `person/2` and `destination/1`.
+  """
+  def subscribe_names, do: Ryker.PubSub.subscribe(names_topic())
+
+  def unsubscribe_names, do: Ryker.PubSub.unsubscribe(names_topic())
+
+  defp names_topic, do: "slack:names"
 end

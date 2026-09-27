@@ -5,6 +5,9 @@ defmodule Ryker.Slack.TaskCards do
   The confirmed task record and episode remain canonical. This module repairs
   a missing projection after a crash, then leases in-place card refreshes. It
   never grants repository, publication, or Coop authority.
+
+  Each card created, refreshed, blocked or rearmed is announced after the
+  outermost commit (`subscribe_task_cards/0`), on its request's topics too.
   """
 
   import Ecto.Query
@@ -249,7 +252,7 @@ defmodule Ryker.Slack.TaskCards do
       }
 
       case attributes |> TaskCardChangeset.insert() |> Repo.insert() do
-        {:ok, card} -> card
+        {:ok, card} -> tap(card, &broadcast_task_card_updated/1)
         {:error, changeset} -> Repo.rollback({:task_card_persistence_failed, changeset.errors})
       end
     else
@@ -283,7 +286,7 @@ defmodule Ryker.Slack.TaskCards do
     case card
          |> TaskCardChangeset.update(Map.put(attributes, :updated_at, now))
          |> Repo.update() do
-      {:ok, card} -> card
+      {:ok, card} -> tap(card, &broadcast_task_card_updated/1)
       {:error, changeset} -> Repo.rollback({:task_card_persistence_failed, changeset.errors})
     end
   end
@@ -372,4 +375,25 @@ defmodule Ryker.Slack.TaskCards do
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to task card changes: `{:task_card_updated, card_id}`
+  once a task's Slack card is created, refreshed, deferred, blocked or
+  rearmed, and that change has committed.
+  """
+  def subscribe_task_cards, do: Ryker.PubSub.subscribe(task_cards_topic())
+
+  def unsubscribe_task_cards, do: Ryker.PubSub.unsubscribe(task_cards_topic())
+
+  defp task_cards_topic, do: "slack:task_cards"
+
+  defp broadcast_task_card_updated(%TaskCard{id: id, episode_id: episode_id}) do
+    Ryker.Episodes.broadcast_episode_updated(episode_id)
+
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(task_cards_topic(), {:task_card_updated, id})
+    end)
+  end
 end

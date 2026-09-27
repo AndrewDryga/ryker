@@ -12,6 +12,8 @@ defmodule Ryker.Continuity.Handover do
 
   alias Ecto.Changeset
   alias Ryker.CanonicalJSON
+  alias Ryker.Continuity
+  alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.Slack.ChannelFence
@@ -114,6 +116,8 @@ defmodule Ryker.Continuity.Handover do
             Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
               set: [summary_error_code: reason]
             )
+
+            Episodes.broadcast_episode_updated(turn.episode_id)
 
             Repo.delete!(draft)
             :ok
@@ -262,8 +266,12 @@ defmodule Ryker.Continuity.Handover do
     |> Changeset.check_constraint(:revision, name: :conversation_summary_draft_valid)
     |> Repo.insert()
     |> case do
-      {:ok, draft} -> draft_result(draft)
-      {:error, changeset} -> Repo.rollback({:conversation_summary_persistence, changeset.errors})
+      {:ok, draft} ->
+        Episodes.broadcast_episode_updated(draft.episode_id)
+        draft_result(draft)
+
+      {:error, changeset} ->
+        Repo.rollback({:conversation_summary_persistence, changeset.errors})
     end
   end
 
@@ -279,8 +287,12 @@ defmodule Ryker.Continuity.Handover do
     |> Changeset.check_constraint(:revision, name: :conversation_summary_draft_valid)
     |> Repo.update()
     |> case do
-      {:ok, updated} -> draft_result(updated)
-      {:error, changeset} -> Repo.rollback({:conversation_summary_persistence, changeset.errors})
+      {:ok, updated} ->
+        Episodes.broadcast_episode_updated(updated.episode_id)
+        draft_result(updated)
+
+      {:error, changeset} ->
+        Repo.rollback({:conversation_summary_persistence, changeset.errors})
     end
   end
 
@@ -393,6 +405,10 @@ defmodule Ryker.Continuity.Handover do
       conflict_target: :identity_key,
       on_conflict: {:replace_all_except, [:id, :ref, :inserted_at]}
     )
+    |> tap(fn _result ->
+      Episodes.broadcast_episode_updated(attributes.source_episode_id)
+      Continuity.broadcast_continuity_updated(attributes.conversation_ref)
+    end)
     |> persistence_result()
   end
 

@@ -6,6 +6,9 @@ defmodule Ryker.Behaviors do
   control, derives scope from host-owned identity and destination, supersedes
   one exact logical entry, and exposes bounded retrieval. None of these records
   can widen Work, publication, or delivery authority.
+
+  A behavior confirmed, switched, superseded, used or run is announced after
+  its commit (`subscribe_behaviors/0`).
   """
 
   import Ecto.Query
@@ -26,6 +29,7 @@ defmodule Ryker.Behaviors do
   alias Ryker.Episodes.Scope
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
+  alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
@@ -353,6 +357,7 @@ defmodule Ryker.Behaviors do
         set: [last_used_at: now]
       )
 
+    Enum.each(ids, &broadcast_behavior_updated/1)
     retained = MapSet.new(ids)
     behaviors |> Enum.filter(&MapSet.member?(retained, &1.id)) |> Enum.map(&guidance_document/1)
   end
@@ -849,7 +854,7 @@ defmodule Ryker.Behaviors do
          :ok <- capacity(prepared),
          :ok <- supersede_existing(prepared),
          {:ok, behavior} <- insert_behavior(record, episode, attributes, prepared),
-         {:ok, _record} <-
+         {:ok, confirmed} <-
            record
            |> RecordChangeset.confirm_resource(%{
              confirmed_at: attributes.occurred_at,
@@ -858,6 +863,7 @@ defmodule Ryker.Behaviors do
              status: :confirmed
            })
            |> Repo.update() do
+      Records.broadcast_record_updated(confirmed)
       %{behavior: behavior, status: :confirmed}
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -985,20 +991,21 @@ defmodule Ryker.Behaviors do
   end
 
   defp supersede_existing(prepared) do
-    _updated =
+    {_count, superseded} =
       Repo.update_all(
         from(behavior in Behavior,
           where:
             behavior.kind == ^prepared.kind and behavior.workspace_ref == ^prepared.workspace_ref and
               behavior.scope_kind == ^prepared.scope_kind and
               behavior.scope_ref == ^prepared.scope_ref and
-              behavior.identity_key == ^prepared.identity_key and behavior.status == :active
+              behavior.identity_key == ^prepared.identity_key and behavior.status == :active,
+          select: behavior.id
         ),
         set: [status: :superseded, updated_at: Repo.now!()],
         inc: [revision: 1]
       )
 
-    :ok
+    Enum.each(superseded, &broadcast_behavior_updated/1)
   end
 
   defp insert_behavior(record, episode, attributes, prepared) do
@@ -1024,8 +1031,12 @@ defmodule Ryker.Behaviors do
     |> Ecto.Changeset.put_change(:updated_at, now)
     |> Repo.insert()
     |> case do
-      {:ok, behavior} -> {:ok, behavior}
-      {:error, changeset} -> {:error, {:behavior_persistence_failed, changeset.errors}}
+      {:ok, behavior} ->
+        broadcast_behavior_updated(behavior.id)
+        {:ok, behavior}
+
+      {:error, changeset} ->
+        {:error, {:behavior_persistence_failed, changeset.errors}}
     end
   end
 
@@ -1046,6 +1057,7 @@ defmodule Ryker.Behaviors do
 
       %Behavior{} = behavior ->
         if status == :active, do: supersede_existing(Map.from_struct(behavior))
+        broadcast_behavior_updated(behavior.id)
 
         behavior
         |> BehaviorChangeset.update(%{revision: behavior.revision + 1, status: status})
@@ -1207,7 +1219,7 @@ defmodule Ryker.Behaviors do
                })
              ) do
           {:ok, _run} ->
-            :ok
+            broadcast_behavior_updated(assignment.id)
 
           {:error, changeset} ->
             Repo.rollback({:standing_assignment_run_failed, changeset.errors})
@@ -1261,7 +1273,7 @@ defmodule Ryker.Behaviors do
         set: [last_used_at: now, updated_at: now]
       )
 
-    :ok
+    broadcast_behavior_updated(assignment_id)
   end
 
   defp valid_final_episode(action, %Episode{})
@@ -1487,4 +1499,30 @@ defmodule Ryker.Behaviors do
   defp reference(value, field) do
     if Reference.valid?(value), do: :ok, else: {:error, {:invalid_behavior_confirmation, field}}
   end
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to behavior changes: `{:behavior_updated,
+  behavior_id}` once a rule, preference or piece of guidance is confirmed,
+  switched on or off, superseded, deleted, used, or a standing rule runs, and
+  that change has committed.
+  """
+  def subscribe_behaviors, do: Ryker.PubSub.subscribe(behaviors_topic())
+
+  def unsubscribe_behaviors, do: Ryker.PubSub.unsubscribe(behaviors_topic())
+
+  defp behaviors_topic, do: "behaviors"
+
+  @doc """
+  Internal — announces, after the outermost commit, that behavior
+  `behavior_id` changed. Memory review, which edits and retires guidance
+  beside facts, calls it too.
+  """
+  @spec broadcast_behavior_updated(Ecto.UUID.t()) :: :ok
+  def broadcast_behavior_updated(behavior_id),
+    do:
+      Repo.after_commit(fn ->
+        Ryker.PubSub.broadcast(behaviors_topic(), {:behavior_updated, behavior_id})
+      end)
 end

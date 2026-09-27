@@ -4,12 +4,17 @@ defmodule Ryker.Ingress.Inbox do
 
   Recording does not classify content and does not create an episode. It only
   proves which exact source occurrence a later model decision is about.
+
+  Every custody step a message takes (recorded, claimed for routing, retried,
+  blocked, rearmed, routed or superseded) is announced after its commit on the
+  topics this module owns (`subscribe_inputs/0`, `subscribe_input/1`).
   """
 
   import Ecto.Query
 
   alias Ryker.Artifacts.References, as: ArtifactReferences
   alias Ryker.CanonicalJSON
+  alias Ryker.Episodes
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
   alias Ryker.Ingress.Input
   alias Ryker.Ingress.InputCustodyTransition
@@ -59,6 +64,8 @@ defmodule Ryker.Ingress.Inbox do
     Enum.zip(inputs, receipts)
     |> Enum.each(fn {input, receipt} ->
       _evidence = Projections.observe_rules(input, ref(receipt.entry))
+      # The Standing rules card of the message's page reads it.
+      broadcast_input_updated(receipt.entry)
     end)
 
     result
@@ -445,6 +452,7 @@ defmodule Ryker.Ingress.Inbox do
       %Entry{status: :pending, lease_ref: ^lease_ref, admission_context: nil} = entry ->
         case entry |> EntryChangeset.bind_context(context, fingerprint) |> Repo.update() do
           {:ok, bound} ->
+            broadcast_input_updated(bound)
             bound
 
           {:error, changeset} ->
@@ -809,6 +817,7 @@ defmodule Ryker.Ingress.Inbox do
     |> Repo.insert()
     |> case do
       {:ok, transition} ->
+        broadcast_input_updated(entry)
         transition
 
       {:error, changeset} ->
@@ -946,4 +955,71 @@ defmodule Ryker.Ingress.Inbox do
 
   defp non_negative_integer(_value, field),
     do: {:error, {:invalid_ingress_execution, field}}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to every message Ryker receives: `{:input_updated,
+  input_id}` once a message is recorded, claimed for routing, retried,
+  blocked, rearmed, routed or superseded, or its routing makes progress, and
+  that change has committed.
+  """
+  def subscribe_inputs, do: Ryker.PubSub.subscribe(inputs_topic())
+
+  def unsubscribe_inputs, do: Ryker.PubSub.unsubscribe(inputs_topic())
+
+  @doc """
+  Subscribes the caller to one message's changes (`{:input_updated,
+  input_id}`), for the page that shows that message alone.
+  """
+  def subscribe_input(input_id), do: Ryker.PubSub.subscribe(input_topic(input_id))
+
+  def unsubscribe_input(input_id), do: Ryker.PubSub.unsubscribe(input_topic(input_id))
+
+  @doc """
+  Internal — announces, after the outermost commit, that a message or its
+  routing changed, together with the conversation it arrived in and the
+  request that took it, if one has. Takes the entry, or its id when the caller
+  holds only that: what the announcement names is then read after the commit.
+  The same message announced several times in one transaction is announced
+  once.
+  """
+  @spec broadcast_input_updated(Entry.t() | Ecto.UUID.t()) :: :ok
+  def broadcast_input_updated(%Entry{id: id} = entry) when is_binary(id) do
+    Episodes.broadcast_conversation_updated(
+      entry.destination_transport,
+      entry.destination_conversation_ref
+    )
+
+    Episodes.broadcast_episode_updated(entry.episode_id)
+    Repo.after_commit(fn -> announce_input(id) end)
+  end
+
+  def broadcast_input_updated(input_id) when is_binary(input_id) do
+    Repo.after_commit(fn ->
+      case Repo.one(
+             from(entry in Entry,
+               where: entry.id == ^input_id,
+               select:
+                 struct(entry, [
+                   :id,
+                   :episode_id,
+                   :destination_transport,
+                   :destination_conversation_ref
+                 ])
+             )
+           ) do
+        %Entry{} = entry -> broadcast_input_updated(entry)
+        nil -> announce_input(input_id)
+      end
+    end)
+  end
+
+  defp announce_input(input_id) do
+    Ryker.PubSub.broadcast(input_topic(input_id), {:input_updated, input_id})
+    Ryker.PubSub.broadcast(inputs_topic(), {:input_updated, input_id})
+  end
+
+  defp inputs_topic, do: "inputs"
+  defp input_topic(input_id), do: "input:#{input_id}"
 end

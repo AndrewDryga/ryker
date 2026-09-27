@@ -208,6 +208,7 @@ defmodule Ryker.Memories.Recall do
             set: [last_recalled_at: now, updated_at: now]
           )
 
+    Enum.each(ids, &Ryker.Memories.broadcast_memory_updated/1)
     retained = MapSet.new(ids)
     entries |> Enum.filter(&MapSet.member?(retained, &1.id)) |> Enum.map(&document/1)
   end

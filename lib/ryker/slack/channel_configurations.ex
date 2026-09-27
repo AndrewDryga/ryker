@@ -10,6 +10,9 @@ defmodule Ryker.Slack.ChannelConfigurations do
   deliberately outside this module. A card or message is only an
   authenticated input to this state machine; it cannot grant authority,
   select an environment the catalog did not offer, or partially save a draft.
+
+  A channel joined, left, deleted, set up or changed is announced after the
+  outermost commit (`subscribe_channels/0`, `subscribe_channel/2`).
   """
 
   import Ecto.Query
@@ -166,6 +169,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     Enum.each(memberships, fn membership ->
       cancel_active_sessions!(membership, :cancelled)
       leave_membership!(membership, now)
+      broadcast_channel_updated(membership.workspace_ref, membership.channel_ref)
     end)
 
     length(memberships)
@@ -295,6 +299,8 @@ defmodule Ryker.Slack.ChannelConfigurations do
         %{configuration: configuration, status: :unchanged}
 
       true ->
+        broadcast_channel_updated(workspace_ref, channel_ref)
+
         configuration
         |> ChannelConfigurationChangeset.configuration(%{
           actor_ref: actor_ref,
@@ -454,6 +460,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp reserve_managed_locked(workspace_ref, channel_ref) do
     lock_channel!(workspace_ref, channel_ref)
+    broadcast_channel_updated(workspace_ref, channel_ref)
 
     Repo.delete_all(
       from(configuration in ChannelConfiguration,
@@ -493,6 +500,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp start_reconfiguration_locked(attributes, catalog) do
     lock_channel!(attributes.workspace_ref, attributes.channel_ref)
+    broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
     fingerprint = reconfiguration_fingerprint(attributes)
 
     case Repo.one(
@@ -561,6 +569,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp observe_membership_locked(attributes, catalog) do
     lock_channel!(attributes.workspace_ref, attributes.channel_ref)
+    broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
     fingerprint = membership_fingerprint(attributes)
 
     case Repo.one(
@@ -632,6 +641,8 @@ defmodule Ryker.Slack.ChannelConfigurations do
       if membership.private == private and membership.external_shared == external_shared do
         membership
       else
+        broadcast_channel_updated(membership.workspace_ref, membership.channel_ref)
+
         membership
         |> ChannelConfigurationChangeset.membership(%{
           external_shared: external_shared,
@@ -721,6 +732,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       end
 
     insert_membership_event!(membership, attributes, fingerprint)
+    broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
     %{configuration: configuration, membership: membership, status: status}
   end
 
@@ -770,6 +782,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         }
         |> ChannelConfigurationChangeset.configuration()
         |> Repo.insert!()
+        |> tap(&broadcast_channel_updated(&1.workspace_ref, &1.channel_ref))
     end
   end
 
@@ -886,16 +899,17 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   defp expire_active_sessions!(workspace_ref, channel_ref, now) do
-    Repo.update_all(
-      from(session in ConfigurationSession,
-        where:
-          session.workspace_ref == ^workspace_ref and session.channel_ref == ^channel_ref and
-            session.status in [:asking, :confirming] and session.expires_at <= ^now
-      ),
-      set: [status: :expired, updated_at: now]
-    )
+    {expired, _rows} =
+      Repo.update_all(
+        from(session in ConfigurationSession,
+          where:
+            session.workspace_ref == ^workspace_ref and session.channel_ref == ^channel_ref and
+              session.status in [:asking, :confirming] and session.expires_at <= ^now
+        ),
+        set: [status: :expired, updated_at: now]
+      )
 
-    :ok
+    if expired > 0, do: broadcast_channel_updated(workspace_ref, channel_ref), else: :ok
   end
 
   defp delete_channel_state!(membership) do
@@ -950,6 +964,8 @@ defmodule Ryker.Slack.ChannelConfigurations do
       %ConfigurationSession{} = session ->
         root_message_ref = session.root_message_ref || message_ref
 
+        broadcast_channel_updated(session.workspace_ref, session.channel_ref)
+
         session
         |> ChannelConfigurationChangeset.session(%{
           current_message_ref: message_ref,
@@ -982,6 +998,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp apply_new_action(attributes, fingerprint) do
     lock_channel!(attributes.workspace_ref, attributes.channel_ref)
+    broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
 
     session =
       Repo.one(
@@ -1265,6 +1282,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp change_participation_locked(attributes) do
     lock_channel!(attributes.workspace_ref, attributes.channel_ref)
+    broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
 
     membership =
       Repo.one(
@@ -1333,6 +1351,8 @@ defmodule Ryker.Slack.ChannelConfigurations do
         configuration
 
       %ChannelConfiguration{welcome_message_ref: nil} = configuration ->
+        broadcast_channel_updated(workspace_ref, channel_ref)
+
         configuration
         |> ChannelConfigurationChangeset.configuration(%{welcome_message_ref: message_ref})
         |> Repo.update!()
@@ -1679,4 +1699,49 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp transaction_result({:ok, {:configuration_error, reason}}), do: {:error, reason}
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to every Slack channel's changes:
+  `{:slack_channel_updated, conversation_ref}` once Ryker joins, leaves or
+  loses a channel, or its setup, environment, participation or welcome
+  changes, and that change has committed. `conversation_ref` is the channel's
+  `slack:<workspace>:<channel>`.
+  """
+  def subscribe_channels, do: Ryker.PubSub.subscribe(channels_topic())
+
+  def unsubscribe_channels, do: Ryker.PubSub.unsubscribe(channels_topic())
+
+  @doc """
+  Subscribes the caller to one channel's changes (`{:slack_channel_updated,
+  conversation_ref}`), for the page that shows that channel.
+  """
+  def subscribe_channel(workspace_ref, channel_ref),
+    do: Ryker.PubSub.subscribe(channel_topic(conversation_ref(workspace_ref, channel_ref)))
+
+  def unsubscribe_channel(workspace_ref, channel_ref),
+    do: Ryker.PubSub.unsubscribe(channel_topic(conversation_ref(workspace_ref, channel_ref)))
+
+  @doc """
+  Internal — announces, after the outermost commit, that a channel's settings
+  changed. `Ryker.Slack.ChannelSettings`, which records participation changes
+  made from Slack, calls it too.
+  """
+  @spec broadcast_channel_updated(String.t(), String.t()) :: :ok
+  def broadcast_channel_updated(workspace_ref, channel_ref) do
+    conversation_ref = conversation_ref(workspace_ref, channel_ref)
+
+    Repo.after_commit(fn ->
+      message = {:slack_channel_updated, conversation_ref}
+      Ryker.PubSub.broadcast(channel_topic(conversation_ref), message)
+      Ryker.PubSub.broadcast(channels_topic(), message)
+    end)
+  end
+
+  defp channels_topic, do: "slack:channels"
+  defp channel_topic(conversation_ref), do: "slack:channel:#{conversation_ref}"
+
+  defp conversation_ref(workspace_ref, channel_ref),
+    do: "slack:#{workspace_ref}:#{channel_ref}"
 end

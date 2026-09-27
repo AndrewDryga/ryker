@@ -40,6 +40,28 @@ defmodule Ryker.AccountingTest do
     assert Repo.one!(Execution).status == "failed"
   end
 
+  # The Usage page and a request's page show what each execution cost. Until
+  # 2026-09-26 they learned of it from a trigger's NOTIFY and a five-second
+  # poll; the ledger now says so itself once the snapshot commits.
+  test "a recorded execution's usage reaches the usage page and its request's page" do
+    claim = claim!()
+    episode_id = claim.episode.id
+    :ok = Accounting.subscribe_usage()
+    :ok = Episodes.subscribe_episode(episode_id)
+
+    remote = %{
+      "id" => "remote-usage-turn",
+      "state" => "running",
+      "usage" => %{"input_tokens" => 10}
+    }
+
+    assert :ok = Accounting.observe_work(claim, remote, %{"target" => "claude:opus/high@work"})
+
+    execution_id = Repo.one!(from(execution in Execution, select: execution.id))
+    assert_received {:usage_recorded, ^execution_id}
+    assert_received {:episode_updated, ^episode_id}
+  end
+
   test "a retry generation preserves its predecessor and fences the expired claimant" do
     claim = claim!()
 

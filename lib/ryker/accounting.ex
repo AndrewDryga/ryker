@@ -1,5 +1,10 @@
 defmodule Ryker.Accounting do
-  @moduledoc "Durable execution-level usage snapshots, independent of acceptance and prompt retention."
+  @moduledoc """
+  Durable execution-level usage snapshots, independent of acceptance and prompt retention.
+
+  Each snapshot recorded or revised is announced after the outermost commit
+  (`subscribe_usage/0`), on its request's and its conversation's topics too.
+  """
   import Ecto.Query
   alias Ecto.Changeset
   alias Ryker.Accounting.Execution
@@ -114,14 +119,16 @@ defmodule Ryker.Accounting do
   end
 
   def attach_admission_in_transaction(entry) do
-    Repo.update_all(
-      from(e in Execution,
-        where: e.kind == "admission" and e.source_id == ^entry.id and is_nil(e.episode_id)
-      ),
-      set: [episode_id: entry.episode_id]
-    )
+    {_count, attached} =
+      Repo.update_all(
+        from(e in Execution,
+          where: e.kind == "admission" and e.source_id == ^entry.id and is_nil(e.episode_id),
+          select: e
+        ),
+        set: [episode_id: entry.episode_id]
+      )
 
-    :ok
+    Enum.each(attached, &broadcast_usage_recorded/1)
   end
 
   defp work_identity(claim) do
@@ -170,9 +177,11 @@ defmodule Ryker.Accounting do
   defp observed_status(_current, observed) when observed in @states, do: observed
   defp observed_status(nil, _observed), do: "requested"
   defp observed_status(current, _observed), do: current
-  defp save(nil, changeset), do: Repo.insert!(changeset)
+  defp save(nil, changeset), do: changeset |> Repo.insert!() |> tap(&broadcast_usage_recorded/1)
   defp save(current, %{changes: changes}) when map_size(changes) == 0, do: current
-  defp save(_current, changeset), do: Repo.update!(changeset)
+
+  defp save(_current, changeset),
+    do: changeset |> Repo.update!() |> tap(&broadcast_usage_recorded/1)
 
   # Coop reports cumulative turn counters, including its repair turns. Replays
   # and stale/partial observations never add that same cumulative amount again.
@@ -229,4 +238,23 @@ defmodule Ryker.Accounting do
 
   defp result({:ok, _}), do: :ok
   defp result({:error, _} = error), do: error
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to usage changes: `{:usage_recorded, execution_id}`
+  once a routing, work or learning execution's tokens, cost or timing are
+  first recorded or revised, and that change has committed.
+  """
+  def subscribe_usage, do: Ryker.PubSub.subscribe(usage_topic())
+
+  def unsubscribe_usage, do: Ryker.PubSub.unsubscribe(usage_topic())
+
+  defp usage_topic, do: "usage"
+
+  defp broadcast_usage_recorded(%Execution{id: id} = execution) do
+    Ryker.Episodes.broadcast_episode_updated(execution.episode_id)
+    Ryker.Episodes.broadcast_conversation_updated(execution.transport, execution.conversation_ref)
+    Repo.after_commit(fn -> Ryker.PubSub.broadcast(usage_topic(), {:usage_recorded, id}) end)
+  end
 end

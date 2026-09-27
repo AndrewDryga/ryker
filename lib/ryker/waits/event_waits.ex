@@ -12,6 +12,7 @@ defmodule Ryker.Waits.EventWaits do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Ingress.Input
+  alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
   alias Ryker.Repo
@@ -122,6 +123,7 @@ defmodule Ryker.Waits.EventWaits do
            Repo.one(from(value in Record, where: value.id == ^record.id, lock: "FOR UPDATE")),
          {:ok, record} <- locked_record |> RecordChangeset.answer() |> Repo.update(),
          :ok <- EventSubscriptions.resolve_wait_in_transaction(record.ref, resolution_kind) do
+      Records.broadcast_record_updated(record)
       %{episode: resumed.episode, record: record}
     else
       nil -> Repo.rollback(:event_wait_not_found)

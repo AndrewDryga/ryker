@@ -56,6 +56,37 @@ defmodule Ryker.Waits.EventWaitsTest do
     assert EventWaits.resume_due() == {:ok, :idle}
   end
 
+  # Follow-ups lists what Ryker waits for and a request's page shows its wait.
+  # Until 2026-09-26 both heard of a change from a trigger's NOTIFY and a
+  # five-second poll; the context now announces each wait it starts or ends.
+  test "a follow-up Ryker starts waiting on reaches the follow-ups list and its request" do
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    fixture =
+      active_wait!(
+        "announced",
+        now,
+        %{
+          "type" => "source_event",
+          "source_kind" => "slack",
+          "match" => %{"bot_id" => "B0ANNOUNCED"},
+          "poll_after" => nil,
+          "on_timeout" => nil
+        },
+        nil
+      )
+
+    episode_id = fixture.waiting.episode.id
+    Repo.delete!(fixture.subscription)
+    :ok = EventSubscriptions.subscribe_follow_ups()
+    :ok = Episodes.subscribe_episode(episode_id)
+
+    assert {:ok, 1} = EventSubscriptions.reconcile()
+    %{id: id} = Repo.get_by!(EventSubscription, record_id: fixture.record.id)
+    assert_received {:follow_up_updated, ^id}
+    assert_received {:episode_updated, ^episode_id}
+  end
+
   test "source waits at the canonical byte limits persist without a database check failure" do
     %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
     cursor = %{"value" => String.duplicate("é", 8_186)}

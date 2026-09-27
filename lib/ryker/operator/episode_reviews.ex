@@ -4,6 +4,9 @@ defmodule Ryker.Operator.EpisodeReviews do
 
   A later semantic ending is reviewable again. Replays of the same local act
   return the existing receipt instead of rewriting who reviewed it.
+
+  A review recorded is announced after the outermost commit
+  (`subscribe_reviews/0`), on the reviewed request's topics too.
   """
 
   import Ecto.Changeset
@@ -74,8 +77,12 @@ defmodule Ryker.Operator.EpisodeReviews do
              |> foreign_key_constraint(:episode_id)
              |> check_constraint(:semantic_version, name: :episode_operator_review_valid)
              |> Repo.insert() do
-          {:ok, review} -> %{review: review, status: :recorded}
-          {:error, changeset} -> Repo.rollback({:episode_review_store, changeset.errors})
+          {:ok, review} ->
+            broadcast_review_recorded(review)
+            %{review: review, status: :recorded}
+
+          {:error, changeset} ->
+            Repo.rollback({:episode_review_store, changeset.errors})
         end
     end
   end
@@ -97,4 +104,22 @@ defmodule Ryker.Operator.EpisodeReviews do
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to request reviews: `{:episode_reviewed, review_id}`
+  once an operator marks a finished request reviewed, and that change has
+  committed.
+  """
+  def subscribe_reviews, do: Ryker.PubSub.subscribe(reviews_topic())
+
+  def unsubscribe_reviews, do: Ryker.PubSub.unsubscribe(reviews_topic())
+
+  defp reviews_topic, do: "operator:reviews"
+
+  defp broadcast_review_recorded(%EpisodeReview{id: id, episode_id: episode_id}) do
+    Ryker.Episodes.broadcast_episode_updated(episode_id)
+    Repo.after_commit(fn -> Ryker.PubSub.broadcast(reviews_topic(), {:episode_reviewed, id}) end)
+  end
 end

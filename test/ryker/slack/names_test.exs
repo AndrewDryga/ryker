@@ -181,24 +181,25 @@ defmodule Ryker.Slack.NamesTest do
   # The page that asked for a name was drawn before Slack answered, and
   # nothing drew it again: the name only appeared after a reload.
   test "a name found in the background redraws the pages showing it, once per change" do
-    :ok = Ryker.PubSub.subscribe("control-plane")
+    :ok = Names.subscribe_names()
     start_supervised!({Names, workspace: "T123", fetch: fn _ref -> {:ok, "Andrew"} end})
 
     Names.name("T123", "U456")
     assert :ok = GenServer.call(Names, :refresh)
-    assert_receive :control_plane_changed
+    assert_receive {:slack_names_updated, first}
 
     # The same name again changes nothing any page shows.
     assert :ok = Names.remember([{"T123", "U456", "Andrew"}])
-    refute_receive :control_plane_changed, 50
+    refute_receive {:slack_names_updated, _revision}, 50
 
     assert :ok = Names.remember([{"T123", "U456", "Andy"}])
-    assert_receive :control_plane_changed
+    assert_receive {:slack_names_updated, second}
+    assert second > first
     assert Names.name("T123", "U456") == "@Andy"
 
     # Another workspace's people are not this cache's to keep.
     assert :ok = Names.remember([{"T999", "U777", "Eve"}])
-    refute_receive :control_plane_changed, 50
+    refute_receive {:slack_names_updated, _revision}, 50
     assert Names.name("T999", "U777") == "Slack user"
   end
 

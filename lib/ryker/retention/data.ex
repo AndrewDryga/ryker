@@ -6,6 +6,9 @@ defmodule Ryker.Retention.Data do
   episode is proven discarded. Episode history is removed as one coherent
   unit, never event-by-event, and compact custody receipts survive until the
   audit horizon. Every age comparison uses PostgreSQL time.
+
+  A pass that removed or redacted anything is announced once it has committed
+  (`subscribe_pruning/0`).
   """
 
   alias Ryker.Continuity.Compaction
@@ -69,6 +72,7 @@ defmodule Ryker.Retention.Data do
            Repo.transaction(fn -> prune_closed_work(operational, settings) end),
          {:ok, history} <- Repo.transaction(fn -> prune_history(closed_work, settings) end) do
       Repo.transaction(fn -> prune_audit(history, settings) end)
+      |> tap(&broadcast_history_pruned/1)
     end
   end
 
@@ -1089,4 +1093,33 @@ defmodule Ryker.Retention.Data do
   end
 
   defp settings(_settings), do: {:error, {:invalid_retention_data, :settings}}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to retention passes: `{:history_pruned, kinds}` once a
+  pass removed or redacted retained history and committed. `kinds` names what
+  it touched (the keys of `t:result/0` with a count above zero), never a row.
+  """
+  def subscribe_pruning, do: Ryker.PubSub.subscribe(pruning_topic())
+
+  def unsubscribe_pruning, do: Ryker.PubSub.unsubscribe(pruning_topic())
+
+  defp pruning_topic, do: "retention:pruning"
+
+  defp broadcast_history_pruned({:ok, %{} = result}) do
+    case for({kind, count} <- result, is_integer(count) and count > 0, do: kind) do
+      [] ->
+        :ok
+
+      kinds ->
+        kinds = Enum.sort(kinds)
+
+        Repo.after_commit(fn ->
+          Ryker.PubSub.broadcast(pruning_topic(), {:history_pruned, kinds})
+        end)
+    end
+  end
+
+  defp broadcast_history_pruned(_not_pruned), do: :ok
 end

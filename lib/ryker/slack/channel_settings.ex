@@ -20,6 +20,7 @@ defmodule Ryker.Slack.ChannelSettings do
   alias Ryker.Slack.{
     ChannelConfiguration,
     ChannelConfigurationChangeset,
+    ChannelConfigurations,
     ChannelSettingAudit,
     ChannelSettingChangeset
   }
@@ -106,6 +107,12 @@ defmodule Ryker.Slack.ChannelSettings do
       nil ->
         default = apply_change!(attributes, default)
         insert_audit!(attributes, fingerprint)
+
+        ChannelConfigurations.broadcast_channel_updated(
+          attributes.workspace_ref,
+          channel_ref(attributes.conversation_ref)
+        )
+
         %{effective: effective!(attributes, default), status: :updated}
     end
   end

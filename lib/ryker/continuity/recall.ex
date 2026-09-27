@@ -13,6 +13,7 @@ defmodule Ryker.Continuity.Recall do
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
 
+  alias Ryker.Continuity
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Knowledge
@@ -411,7 +412,7 @@ defmodule Ryker.Continuity.Recall do
       set: [last_recalled_at: now]
     )
 
-    :ok
+    Enum.each(summaries, &Continuity.broadcast_continuity_updated(&1.conversation_ref))
   end
 
   defp mark_rollups_recalled([], _now), do: :ok
@@ -424,7 +425,7 @@ defmodule Ryker.Continuity.Recall do
       set: [last_recalled_at: now]
     )
 
-    :ok
+    Enum.each(rollups, &Continuity.broadcast_continuity_updated(&1.scope_ref))
   end
 
   defp empty_context, do: %{"current" => nil, "related" => [], "rollups" => []}

@@ -1,5 +1,11 @@
 defmodule Ryker.Learning do
-  @moduledoc "Resumable, learning-only judgments over retained inputs; never reroutes or delivers."
+  @moduledoc """
+  Resumable, learning-only judgments over retained inputs; never reroutes or delivers.
+
+  A learning pass prepared, answered, applied, stopped or failed, and the
+  batches, notes and relearning around it, are announced after the outermost
+  commit (`subscribe_learning/0`).
+  """
   import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry
@@ -174,7 +180,7 @@ defmodule Ryker.Learning do
     do: Ryker.Instructions.prompt_instructions(@rebuild_instructions)
 
   def authorize(id, claim \\ nil) do
-    owned_transaction(id, claim, fn run ->
+    owned_read(id, claim, fn run ->
       case authorize_run(run) do
         {:ok, _entries} -> run
         {:error, reason} -> Repo.rollback(reason)
@@ -228,7 +234,7 @@ defmodule Ryker.Learning do
 
   @doc "Validate the saved judgment without applying any proposed knowledge."
   def check_candidate(id, claim \\ nil) do
-    case owned_transaction(id, claim, &check_candidate!/1) do
+    case owned_read(id, claim, &check_candidate!/1) do
       {:ok, run} ->
         {:ok, run}
 
@@ -760,6 +766,7 @@ defmodule Ryker.Learning do
       prompt_sha256: CanonicalJSON.digest(prompt),
       output_schema: request_schema(Enum.map(entries, & &1.id), settings.rebuild)
     })
+    |> tap(&broadcast_learning_updated(&1.id))
   end
 
   defp select_knowledge!(_entries, %{rebuild: rebuild}) when is_map(rebuild),
@@ -976,6 +983,8 @@ defmodule Ryker.Learning do
           Repo.rollback(:learning_attempt_finished)
 
         true ->
+          broadcast_learning_updated(run.id)
+
           Repo.update!(
             Ecto.Changeset.change(run,
               result: result,
@@ -1165,7 +1174,17 @@ defmodule Ryker.Learning do
     end)
   end
 
+  # A write to a pass under its batch's lease; the pass is announced once the
+  # write commits.
   defp owned_transaction(id, claim, callback) do
+    owned_read(id, claim, fn run ->
+      result = callback.(run)
+      broadcast_learning_updated(run.id)
+      result
+    end)
+  end
+
+  defp owned_read(id, claim, callback) do
     transaction(fn ->
       batch = if claim, do: Batches.lock_owned_in_transaction!(claim)
       run = fetch_run!(id)
@@ -1329,4 +1348,29 @@ defmodule Ryker.Learning do
         "expected_version" => %{"minimum" => 1}
       }
     }
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to learning changes: `{:learning_updated, id}` once a
+  learning pass, a batch waiting to be learned, a message's learning note or
+  a relearning changes, and that change has committed. `id` is the changed
+  row's.
+  """
+  def subscribe_learning, do: Ryker.PubSub.subscribe(learning_topic())
+
+  def unsubscribe_learning, do: Ryker.PubSub.unsubscribe(learning_topic())
+
+  @doc """
+  Internal — announces, after the outermost commit, that the learning pass,
+  batch or note `id` changed. The learning modules that write one call this.
+  """
+  @spec broadcast_learning_updated(Ecto.UUID.t()) :: :ok
+  def broadcast_learning_updated(id),
+    do:
+      Repo.after_commit(fn ->
+        Ryker.PubSub.broadcast(learning_topic(), {:learning_updated, id})
+      end)
+
+  defp learning_topic, do: "learning"
 end

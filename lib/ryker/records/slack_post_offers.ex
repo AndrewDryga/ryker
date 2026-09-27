@@ -12,6 +12,7 @@ defmodule Ryker.Records.SlackPostOffers do
 
   alias Ryker.Delivery.{PlatformAction, PlatformActionCustody}
   alias Ryker.Episodes.Episode
+  alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
@@ -66,6 +67,7 @@ defmodule Ryker.Records.SlackPostOffers do
              status: :confirmed
            })
            |> Repo.update() do
+      Records.broadcast_record_updated(record)
       %{action: action, record: record, status: :confirmed}
     else
       {:error, reason} -> Repo.rollback(reason)
