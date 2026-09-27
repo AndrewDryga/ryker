@@ -108,6 +108,26 @@ defmodule Ryker.Delivery.JSONClientTest do
       [],
       ~s({"updated":true})
     }
+
+    # GitHub review updates require PUT; the fake GitHub requester cannot catch a transport
+    # method refusal, so exercise the real loopback transport and its authorization here.
+    assert {:ok, %{status: 201}} =
+             JSONClient.request(
+               client,
+               :put,
+               "/repos/octo/example/pulls/42/reviews/9100",
+               %{"body" => "Updated summary"},
+               []
+             )
+
+    assert_receive {
+      :request,
+      "PUT",
+      "/repos/octo/example/pulls/42/reviews/9100",
+      ["Bearer trusted-token"],
+      [],
+      ~s({"body":"Updated summary"})
+    }
   end
 
   test "rejects unsafe endpoints, malformed paths, and unavailable credentials" do
