@@ -155,6 +155,29 @@ defmodule Ryker.ComposeDistributionTest do
     refute dockerfile =~ "npm install"
   end
 
+  # Voice messages are transcribed inside the container (2026-09-27), by the
+  # programs Ryker.Transcription.Local runs from fixed paths. The gate never
+  # builds the image, so this holds the Dockerfile to those paths and to
+  # sources it checks before it builds anything from them.
+  test "the production image carries the transcriber where Ryker runs it, from checked sources" do
+    dockerfile = read("Dockerfile")
+    transcriber = read("lib/ryker/transcription/local.ex")
+
+    for path <- ["/opt/whisper/bin/whisper-cli", "/opt/whisper/ggml-base.bin"] do
+      assert transcriber =~ ~s("#{path}")
+      assert dockerfile =~ path
+    end
+
+    assert dockerfile =~ "COPY --from=whisper /opt/whisper /opt/whisper"
+    assert dockerfile =~ "COPY --from=ffmpeg /opt/ffmpeg/bin/ffmpeg /usr/local/bin/ffmpeg"
+    assert dockerfile =~ ~S[test "$(git -C /src rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"]
+
+    assert dockerfile =~
+             ~S[echo "$WHISPER_MODEL_SHA256  /opt/whisper/ggml-base.bin" | sha256sum -c -]
+
+    assert dockerfile =~ ~S[echo "$FFMPEG_SHA256  /ffmpeg.tar.xz" | sha256sum -c -]
+  end
+
   # mix.exs reads release-assets.txt when it loads, and the image ran its
   # first mix command with only mix.exs and mix.lock copied in, so the
   # 2026-09-26 deploy failed at `mix deps.get` and replaced nothing. The gate

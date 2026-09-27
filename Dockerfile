@@ -32,11 +32,43 @@ COPY scripts scripts
 RUN mix compile --warnings-as-errors \
  && mix release ryker
 
-# Voice messages are transcribed inside the container: whisper.cpp's CLI and
-# its multilingual base model (Ryker.Transcription.Local). The release tag is
-# checked against its commit and the model against its checksum, so a moved
-# tag or a changed file fails the build instead of shipping. GGML_NATIVE=OFF
-# keeps the binary portable to any CPU of the image's architecture.
+# Voice messages are transcribed inside the container (Ryker.Transcription.Local):
+# ffmpeg turns a recording into 16 kHz mono WAV and whisper.cpp's CLI reads it
+# with its multilingual base model. Every source is pinned by checksum or commit,
+# so a moved tag or a changed file fails the build instead of shipping.
+#
+# ffmpeg is built with only the audio demuxers and decoders a voice message or
+# video needs: 3 MB, where Debian's package added 386 MB of video codecs and X11
+# libraries, and far fewer parsers facing an untrusted upload. The release
+# tarball is FFmpeg's signed 9.0.2 (key FCF986EA15E6E293A5644F10B4322F04D67658D8).
+FROM debian:bookworm-slim AS ffmpeg
+
+ARG FFMPEG_VERSION=9.0.2
+ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential ca-certificates curl xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL --retry 3 -o /ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" \
+ && echo "$FFMPEG_SHA256  /ffmpeg.tar.xz" | sha256sum -c - \
+ && mkdir /src \
+ && tar -xJf /ffmpeg.tar.xz -C /src --strip-components=1 \
+ && cd /src \
+ && ./configure --prefix=/opt/ffmpeg \
+      --disable-everything --disable-autodetect --disable-doc --disable-debug \
+      --disable-ffplay --disable-ffprobe --disable-network --disable-x86asm \
+      --enable-static --disable-shared --enable-protocol=file \
+      --enable-demuxer=aac,flac,matroska,mov,mp3,ogg,wav \
+      --enable-decoder=aac,aac_latm,flac,mp3,mp3float,opus,vorbis,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_u8,pcm_alaw,pcm_mulaw \
+      --enable-parser=aac,aac_latm,flac,mpegaudio,opus,vorbis \
+      --enable-muxer=wav --enable-encoder=pcm_s16le \
+      --enable-filter=abuffer,abuffersink,aformat,anull,aresample,atrim \
+      --enable-swresample \
+ && make -j"$(nproc)" \
+ && make install
+
+# GGML_NATIVE=OFF keeps whisper-cli portable to any CPU of the image's architecture.
 FROM debian:bookworm-slim AS whisper
 
 ARG WHISPER_CPP_VERSION=v1.9.4
@@ -66,13 +98,14 @@ LABEL org.opencontainers.image.title="Ryker" \
       org.opencontainers.image.source="https://github.com/AndrewDryga/ryker"
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg git openssh-client openssl libstdc++6 libncurses6 \
+ && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client openssl libstdc++6 libncurses6 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --gid 1000 ryker \
  && useradd --uid 1000 --gid ryker --home-dir /var/lib/ryker --create-home --shell /usr/sbin/nologin ryker
 
 WORKDIR /opt/ryker
 COPY --from=build --chown=ryker:ryker /build/_build/prod/rel/ryker ./
+COPY --from=ffmpeg /opt/ffmpeg/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=whisper /opt/whisper /opt/whisper
 COPY --chown=ryker:ryker deploy/compose/entrypoint.sh /usr/local/bin/ryker-entrypoint
 
