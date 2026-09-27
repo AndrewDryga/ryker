@@ -1,8 +1,8 @@
 defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   @moduledoc """
   The live shell around the Channels and Repositories lists: the one line
-  that says whether Slack or GitHub is connected, the Add repositories panel
-  and the outcome of what was done in it. Channel defaults and publishing
+  that says whether Slack or GitHub is connected, the Add repositories page
+  and the outcome of what was done on it. Channel defaults and publishing
   settings live on the Slack and GitHub integration pages now, not in a
   disclosure under these lists.
   """
@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, RepositoryImport}
-  alias Ryker.Settings
+  alias Ryker.{Credentials, Settings}
 
   @endpoint Endpoint
   @actor "control-plane:local"
@@ -58,12 +58,64 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
     # Adding repositories needs the App: until it works, the status line is
     # the one way forward, with no second prompt beside it.
-    refute has_element?(view, ".page-action a[href='#add-repositories']")
-    refute has_element?(view, "details#add-repositories")
+    refute has_element?(view, ".page-action a[href='/repositories/new']")
+    refute has_element?(view, "#add-repositories")
     refute has_element?(view, "details.area-settings")
+
+    # The page of the form says the same, rather than an empty form.
+    {:ok, view, _html} = open("/repositories/new")
+    assert has_element?(view, "#github-status a[href='/integrations/github']", "Connect GitHub")
+    refute has_element?(view, "#add-repositories")
   end
 
-  test "an import's outcome is said inside the Add repositories panel" do
+  # Andrew, 2026-09-27, of every add form opened in place over a list: "it
+  # blends into the content ... we need a much better way to do forms like
+  # this, properly designed". Adding repositories was a disclosure under the
+  # list; it is a page of its own now, its form in one card under a title that
+  # says what it adds and a way back, and an import that adds nothing stays
+  # there and says why.
+  test "adding repositories happens on a page of its own, apart from the list" do
+    connect_github!()
+    {:ok, view, _html} = open("/repositories")
+
+    refute has_element?(view, "#add-repositories")
+    view |> element(".page-action a", "Add repositories") |> render_click()
+    assert_patch(view, "/repositories/new")
+
+    assert has_element?(view, "main h1", "Add repositories")
+    assert has_element?(view, ".page-back[href='/repositories']", "Repositories")
+
+    assert has_element?(
+             view,
+             "main .page-description",
+             "Each one joins the default environment, where new channels work."
+           )
+
+    assert has_element?(
+             view,
+             ".kit-form-card #add-repositories button[phx-click=discover-github-repositories]",
+             "Find repositories"
+           )
+
+    refute has_element?(view, ".entity-list")
+    refute has_element?(view, "#operator-search")
+
+    render_hook(view, "import-github-repositories", %{"import_mode" => "selected"})
+
+    assert has_element?(
+             view,
+             ".kit-form-card #repository-import-notice[role=status]",
+             "No repositories were selected."
+           )
+
+    # The outcome belongs to the page it happened on.
+    view |> element(".page-back") |> render_click()
+    assert_patch(view, "/repositories")
+    refute has_element?(view, "#repository-import-notice")
+    refute has_element?(view, "#repository-imported-notice")
+  end
+
+  test "an import's outcome is said inside the Add repositories form" do
     # Until 2026-09-24 the result of an import ("2 added · 0 already present
     # · 0 failed") was assigned and never rendered on this page: people
     # pressed Add and saw nothing happen, whether it had worked or not.
@@ -86,7 +138,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
       assert document
              |> LazyHTML.query(
-               "details#add-repositories #repository-import-notice.form-feedback-#{tone}[role=#{role}]"
+               "#add-repositories #repository-import-notice.form-feedback-#{tone}[role=#{role}]"
              )
              |> LazyHTML.text() =~ message
     end
@@ -132,28 +184,6 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert LazyHTML.query(picker, "button[value=all]") |> LazyHTML.text() =~ "Add all 2"
   end
 
-  test "adding repositories says they join the default environment" do
-    # Channels choose environments, not repositories, since 2026-09-25. An
-    # imported repository joins the default environment (Ryker creates
-    # "Default" when there is none), which is what makes it usable at once;
-    # the panel says so rather than leaving people to look for a channel
-    # setting that no longer exists.
-    view = %{
-      github_connection: :ready,
-      snapshot: %{repositories: [], github: %{auto_add_repositories: false}}
-    }
-
-    lede =
-      render_component(&RepositoryImport.repository_import/1, view: view, repositories: [])
-      |> LazyHTML.from_fragment()
-      |> LazyHTML.query(".repository-import-lede")
-      |> LazyHTML.text()
-      |> String.split()
-      |> Enum.join(" ")
-
-    assert lede =~ "Each one joins the default environment, where new channels work."
-  end
-
   test "a retry that cannot run says why at the top of the list" do
     {:ok, view, _html} = open("/repositories")
     render_hook(view, "retry-github-onboarding", %{"repository" => "no-such-repository"})
@@ -168,4 +198,27 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   end
 
   defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+
+  # A verified GitHub App as Connect leaves it before any repository is added.
+  defp connect_github! do
+    key = :public_key.generate_key({:rsa, 2_048, 65_537})
+    pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
+    snapshot = Settings.fetch!()
+
+    {:ok, _snapshot} =
+      Settings.save_github(
+        %{app_id: 1_234, app_slug: "ryker-acme", bot_actor_id: 99, bot_login: "ryker-acme[bot]"},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, _} = Credentials.put(:github_private_key, "primary", pem, @actor)
+    {:ok, _} = Credentials.verify(:github_private_key, "primary", :verified, @actor)
+
+    {:ok, _} =
+      Credentials.put(:github_webhook, "primary", "test-webhook-secret-long-enough", @actor)
+
+    {:ok, _} = Credentials.verify(:github_webhook, "primary", :verified, @actor)
+    :ok
+  end
 end

@@ -419,7 +419,7 @@ defmodule Ryker.ControlPlane.SetupPage do
         "Each one joins the Default environment, which Ryker creates for you. Channels choose an environment, so there is nothing else to set up.",
       needs: "The GitHub App installed on the repositories Ryker should work in",
       minutes: 2,
-      action: %{label: "Add repositories", href: "/repositories"},
+      action: %{label: "Add repositories", href: "/repositories/new"},
       done_title: "Repositories",
       summary: repositories(view.snapshot.repositories),
       manage: %{label: "Manage", href: "/repositories"}

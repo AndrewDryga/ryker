@@ -2,14 +2,14 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
   @moduledoc """
   Environments at /environments: where Ryker works.
 
-  One Kit row per environment says what it holds, how many repositories and
-  the default one (a task picks the one it changes) and its Emisar account,
-  and who chooses it. The default comes first and says so. A row's name and
-  Edit open its editor in place, under the row (`EnvironmentEditor`); Add an
-  environment opens one above the list and, pressed again, closes it. Use as
-  default moves the default in one save; Remove asks first, and a removal the
-  settings refuse names who still uses the environment. The LiveView runs
-  every write; this only renders.
+  One Kit row per environment says what it holds, how many repositories, the
+  default one (the one a task changes unless it picks another) and how many
+  work only reads, its Emisar account, and who chooses it. The default
+  environment comes first and says so. Add an environment and a row's name or
+  Edit open its form on a page of its own (`form/1`, `EnvironmentEditor`).
+  Use as default moves the default in one save; Remove asks first in a modal,
+  and a removal the settings refuse names who still uses the environment.
+  The LiveView runs every write; this only renders.
   """
 
   use Phoenix.Component
@@ -19,39 +19,34 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
     EnvironmentEditor,
     Environments,
     Integrations,
-    Kit,
-    SettingsPage
+    Kit
   }
 
+  alias Ryker.Settings.Environment
+
   attr(:view, :map, required: true, doc: "The settings view")
-  attr(:params, :map, default: %{}, doc: "The page's query: q searches, edit opens an editor")
+  attr(:params, :map, default: %{}, doc: "The page's query: q searches")
   attr(:confirm, :any, default: nil, doc: "{action, ref} of the question now open, if any")
 
   def render(assigns) do
     snapshot = assigns.view.snapshot
     environments = Environments.ordered(snapshot.environments)
     query = query(assigns.params)
-    edit = edit(assigns.params, environments)
 
     assigns =
       assign(assigns,
         environments: environments,
-        edit: edit,
-        # A link to an environment that is gone says so, instead of quietly
-        # showing the list as if it had opened.
-        missing: is_binary(assigns.params["edit"]) and is_nil(edit),
         query: query,
-        rows: Enum.filter(environments, &matches?(&1, query, snapshot))
+        rows: Enum.filter(environments, &matches?(&1, query, snapshot)),
+        removing:
+          case assigns.confirm do
+            {"delete-environment", ref} -> Environments.find(snapshot, ref)
+            _other -> nil
+          end
       )
 
     ~H"""
     <div class="environments-page">
-      <Components.form_feedback
-        :if={@missing}
-        id="environment-not-found"
-        tone={:warning}
-        message="That environment was not found. It may have been removed."
-      />
       <Kit.counts label="Environments" items={counts(@rows, @query, @view)} />
       <Kit.toolbar>
         <Components.filter_toolbar
@@ -64,30 +59,22 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
           disabled={@environments == []}
         />
       </Kit.toolbar>
-      <.live_component
-        :if={@edit == "new"}
-        module={EnvironmentEditor}
-        id="environment-editor-new"
-        ref="new"
-        view={@view}
-      />
       <Kit.entity_list :if={@rows != []} label="Environments">
         <Kit.entity_row
           :for={environment <- @rows}
           id={"environment-" <> environment.ref}
           icon={:grid}
           name={environment.display_name}
-          href={"/environments?" <> URI.encode_query(%{"edit" => environment.ref})}
+          href={edit_path(environment.ref)}
           navigate={true}
           tag={if environment.is_default, do: "Default"}
           text={environment.description}
           meta={meta(environment, @view)}
         >
-          <:actions :if={@edit != environment.ref}>
-            <.link
-              patch={"/environments?" <> URI.encode_query(%{"edit" => environment.ref})}
-              class="ui-button secondary"
-            >Edit<span class="sr-only">{" " <> environment.display_name}</span></.link>
+          <:actions>
+            <.link patch={edit_path(environment.ref)} class="ui-button secondary">
+              Edit<span class="sr-only">{" " <> environment.display_name}</span>
+            </.link>
             <button
               :if={!environment.is_default}
               type="button"
@@ -96,61 +83,83 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
               phx-value-ref={environment.ref}
             >Use as default</button>
             <button
-              :if={@confirm != {"delete-environment", environment.ref}}
               type="button"
               class="ui-button quiet"
               phx-click="confirm-settings-action"
               phx-value-action="delete-environment"
               phx-value-ref={environment.ref}
-            >Remove</button>
+            >Remove<span class="sr-only">{" " <> environment.display_name}</span></button>
           </:actions>
-          <:details>
-            <SettingsPage.confirmation
-              :if={@confirm == {"delete-environment", environment.ref}}
-              title={"Remove #{environment.display_name}?"}
-              text={removal(environment)}
-              label="Remove environment"
-              phx-click="delete-environment"
-              phx-value-ref={environment.ref}
-            />
-            <.live_component
-              :if={@edit == environment.ref}
-              module={EnvironmentEditor}
-              id={"environment-editor-" <> environment.ref}
-              ref={environment.ref}
-              view={@view}
-            />
-          </:details>
         </Kit.entity_row>
       </Kit.entity_list>
-      <.first_environment :if={@environments == [] and @edit != "new"} view={@view} />
+      <.first_environment :if={@environments == []} view={@view} />
       <Kit.empty
         :if={@environments != [] and @rows == []}
         icon={:search}
         title={"No environments match “#{@query}”"}
         text="Try another name or clear the search."
       />
+      <Kit.confirm_modal
+        :if={@removing}
+        id="confirm-delete-environment"
+        title={"Remove #{@removing.display_name}?"}
+        text={removal(@removing)}
+        label="Remove environment"
+        cancel="cancel-settings-action"
+        phx-click="delete-environment"
+        phx-value-ref={@removing.ref}
+      />
     </div>
     """
   end
 
-  attr(:open, :boolean, default: false, doc: "Whether the editor for a new environment is open")
-
-  @doc """
-  The page's own action: adding an environment opens its editor above the
-  list, and pressed again closes it.
-  """
+  @doc "The page's own action: Add an environment opens its form on its own page."
   def add(assigns) do
     ~H"""
-    <.link
-      patch={if @open, do: "/environments", else: "/environments?edit=new"}
-      class="ui-button secondary"
-      aria-expanded={to_string(@open)}
-    >
+    <.link patch="/environments/new" class="ui-button secondary">
       <Components.icon name={:plus} />Add an environment
     </.link>
     """
   end
+
+  attr(:view, :map, required: true)
+  attr(:ref, :string, default: nil, doc: "The environment it edits; nil adds one")
+
+  @doc """
+  The page of one environment's form, adding one (`ref` nil) or editing one.
+  An address for an environment that is gone says so instead of an empty form.
+  """
+  def form(assigns) do
+    assigns =
+      assign(assigns,
+        found:
+          is_nil(assigns.ref) or not is_nil(Environments.find(assigns.view.snapshot, assigns.ref))
+      )
+
+    ~H"""
+    <Kit.form_card :if={@found} label={if @ref, do: "Edit environment", else: "Add an environment"}>
+      <.live_component
+        module={EnvironmentEditor}
+        id={"environment-editor-" <> (@ref || "new")}
+        ref={@ref}
+        view={@view}
+      />
+    </Kit.form_card>
+    <Kit.empty
+      :if={!@found}
+      id="environment-not-found"
+      icon={:search}
+      title="That environment was not found"
+      text="It may have been removed. Go back to Environments to see what is there now."
+    >
+      <.link patch="/environments" class="ui-button secondary">Back to Environments</.link>
+    </Kit.empty>
+    """
+  end
+
+  @doc "Where one environment is edited, on its own page."
+  @spec edit_path(String.t()) :: String.t()
+  def edit_path(ref), do: "/environments/" <> URI.encode(ref, &URI.char_unreserved?/1) <> "/edit"
 
   # The page leads with how many environments it lists and, once any channel
   # chose none, how many channels work without code or Emisar.
@@ -178,6 +187,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
 
     Environments.repository_facts(snapshot, environment) ++
       [
+        read_only(environment),
         Environments.emisar_fact(snapshot, environment),
         Environments.used_by(
           Map.get(view.environment_channels, environment.ref, 0),
@@ -219,7 +229,15 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
   defp first_action(%{status: status, action: action}) when status in [:not_set_up, :broken],
     do: action
 
-  defp first_action(_app_works), do: %{label: "Add repositories", href: "/repositories"}
+  defp first_action(_app_works), do: %{label: "Add repositories", href: "/repositories/new"}
+
+  # How many of its repositories work only reads, when any.
+  defp read_only(environment) do
+    case length(Environment.read_only_refs(environment)) do
+      0 -> nil
+      count -> "#{count} read only"
+    end
+  end
 
   defp removal(%{is_default: true}),
     do:
@@ -230,14 +248,6 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
 
   defp query(%{"q" => q}) when is_binary(q), do: q |> String.trim() |> String.slice(0, 200)
   defp query(_params), do: ""
-
-  # Only an environment that is listed, or a new one, opens an editor.
-  defp edit(%{"edit" => "new"}, _environments), do: "new"
-
-  defp edit(%{"edit" => ref}, environments) when is_binary(ref),
-    do: if(Enum.any?(environments, &(&1.ref == ref)), do: ref)
-
-  defp edit(_params, _environments), do: nil
 
   defp matches?(_environment, "", _snapshot), do: true
 

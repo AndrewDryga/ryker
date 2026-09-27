@@ -15,16 +15,17 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   component's root must be a plain tag, so its root section carries the
   card and its first child is the card's head. A page whose only part is the
   section, such as Data retention or Model prices, shows the card without a
-  title, under the page's own. A section that is part of another card draws
-  no card (`frame: :none`). A list section's rows sit in its card; a row is
-  edited in place, under that row. Add opens the form for a new row right
-  under the button, above the list, and pressed again closes it, as Cancel
-  does.
+  title, under the page's own. A section that is part of another card, or a
+  row's form on a page of its own, draws no card (`frame: :none`).
+
+  A list section (`kind: :collection`) is a list: each row's Edit opens that
+  row's form on a page of its own, and Add opens the form for a new row the
+  same way (`paths`). Removing asks first in `Kit.confirm_modal/1`. On its own
+  page the editor is the form alone (`form: {:form, key}`, key nil for a new
+  row); a save returns to the list and says what it did there.
   """
 
   use Phoenix.LiveComponent
-
-  alias Phoenix.LiveView.JS
 
   alias Ryker.ControlPlane.{
     Components,
@@ -53,16 +54,32 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   @impl true
   def update(assigns, socket) do
+    # The list and a row's form are one component on two pages: moving from
+    # one to the other starts again from what is saved.
+    shown = Map.get(socket.assigns, :form, :none)
+
     socket =
-      assign(socket, assigns |> Map.put_new(:show_header, true) |> Map.put_new(:frame, :card))
+      assign(
+        socket,
+        assigns
+        |> Map.put_new(:show_header, true)
+        |> Map.put_new(:frame, :card)
+        |> Map.put_new(:form, nil)
+        |> Map.put_new(:paths, nil)
+      )
 
     cond do
-      not Map.has_key?(socket.assigns, :draft) -> {:ok, reset(socket)}
+      not Map.has_key?(socket.assigns, :draft) -> {:ok, reset(socket, form_key(socket))}
+      shown != socket.assigns.form -> {:ok, reset(socket, form_key(socket))}
       socket.assigns.saved_revision == assigns.view.revision -> {:ok, socket}
       socket.assigns.dirty -> {:ok, follow(socket)}
       true -> {:ok, reset(socket)}
     end
   end
+
+  # The row a form on its own page edits, nil for a new one; a list edits none.
+  defp form_key(%{assigns: %{form: {:form, key}}}), do: key
+  defp form_key(_socket), do: nil
 
   # The installation has one revision, so saving any section moves it. A draft
   # here is only stale if what *this* section holds changed underneath it;
@@ -88,21 +105,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     {:noreply, socket |> draft(params) |> assign(message: "")}
   end
 
-  def handle_event("cancel", _params, %{assigns: %{section: %{kind: :collection}}} = socket),
-    do: {:noreply, reset(socket, nil)}
-
   def handle_event("cancel", _params, socket), do: {:noreply, reset(socket)}
-
-  def handle_event("select-item", %{"item" => key}, socket),
-    do: {:noreply, reset(socket, key)}
-
-  # Add toggles the form for a new row: pressed while that form is open, it
-  # closes it the way Cancel does.
-  def handle_event("new-item", _params, socket) do
-    if adding?(socket.assigns),
-      do: {:noreply, reset(socket, nil)},
-      else: {:noreply, socket |> reset(nil) |> assign(:editor_visible, true)}
-  end
 
   def handle_event("review-current", _params, socket),
     do: {:noreply, assign(socket, conflict: nil, expected_revision: socket.assigns.view.revision)}
@@ -181,9 +184,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   # that question removes. A remove that arrives without the question having
   # been asked is treated as the asking, so one stray click never deletes.
   def handle_event("delete-item", %{"item" => key}, %{assigns: %{removing: key}} = socket) do
-    %{commands: commands, section: section} = socket.assigns
+    %{commands: commands, section: section, view: view} = socket.assigns
+    name = row_name(section, view, key)
     result = attempt(fn -> commands.delete_item.(section.key, key, expected(socket)) end)
-    {:noreply, removed(socket, result)}
+    {:noreply, removed(socket, result, name)}
   end
 
   def handle_event("delete-item", %{"item" => key}, socket) when is_binary(key),
@@ -232,11 +236,16 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp position(_absent), do: nil
 
-  defp removed(socket, {:ok, _snapshot} = result), do: write(socket, result, :new)
+  # The page says what was removed, above the list, as it says every outcome.
+  defp removed(socket, {:ok, snapshot}, name) do
+    view = SettingsView.view(snapshot)
+    send(self(), {:settings_notice, view, "#{name} was removed."})
+    socket |> assign(:view, view) |> reset(nil)
+  end
 
   # The list moved while the question was open. The row may read differently
   # now, so the question stays open against what is saved now.
-  defp removed(socket, {:error, {:settings_conflict, current}}) do
+  defp removed(socket, {:error, {:settings_conflict, current}}, _name) do
     view = SettingsView.view(current)
 
     assign(socket,
@@ -247,7 +256,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     )
   end
 
-  defp removed(socket, {:error, {:invalid_settings, errors}}) do
+  defp removed(socket, {:error, {:invalid_settings, errors}}, _name) do
     message =
       if Enum.any?(errors, fn {_field, reason} -> reason == :referenced end),
         do: "Another setting still uses it. Change that setting first.",
@@ -256,27 +265,43 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     assign(socket, :remove_error, message)
   end
 
-  defp removed(socket, {:error, reason}), do: assign(socket, :remove_error, error(reason))
+  defp removed(socket, {:error, reason}, _name), do: assign(socket, :remove_error, error(reason))
 
   # Every write lands here so that one place decides what a rejected save does
   # to the draft: it keeps it. Losing typed work to a validation error is the
   # reason operators keep settings in a file.
-  defp write(socket, result, next \\ :saved)
-
-  defp write(socket, {:ok, snapshot}, next) do
+  #
+  # A row's form on its own page returns to the list, which says what was
+  # saved; a section that is one form stays where it is and says Saved.
+  defp write(socket, {:ok, snapshot}) do
     view = SettingsView.view(snapshot)
-    send(self(), {:settings_editor_saved, view})
 
-    socket
-    |> assign(:view, view)
-    |> reset(if(next == :new, do: nil, else: saved_item_key(socket)))
-    |> assign(
-      message: if(next == :new, do: "Removed.", else: "Saved."),
-      saved_key: System.unique_integer([:positive])
-    )
+    case socket.assigns.form do
+      {:form, key} ->
+        %{section: section, paths: paths} = socket.assigns
+        saved = row_name(section, view, key || saved_item_key(socket))
+
+        message =
+          cond do
+            saved -> "#{saved} was saved."
+            key -> "The #{noun(section)} was saved."
+            true -> "The #{noun(section)} was added."
+          end
+
+        send(self(), {:settings_item_saved, view, paths.list, message})
+        assign(socket, view: view, dirty: false)
+
+      nil ->
+        send(self(), {:settings_editor_saved, view})
+
+        socket
+        |> assign(:view, view)
+        |> reset()
+        |> assign(message: "Saved.", saved_key: System.unique_integer([:positive]))
+    end
   end
 
-  defp write(socket, {:error, {:settings_conflict, current}}, _next) do
+  defp write(socket, {:error, {:settings_conflict, current}}) do
     current = SettingsView.view(current)
 
     assign(socket,
@@ -293,7 +318,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   # A refusal that names one of this form's fields is shown at that field; one
   # about the section as a whole, such as limits kept in the wrong order, is
   # shown above the Save button. Neither may be dropped.
-  defp write(socket, {:error, {:invalid_settings, errors}}, _next) do
+  defp write(socket, {:error, {:invalid_settings, errors}}) do
     names = Enum.map(socket.assigns.section.fields, & &1.name)
     {field_errors, section_errors} = Enum.split_with(errors, fn {name, _} -> name in names end)
 
@@ -305,7 +330,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     )
   end
 
-  defp write(socket, {:error, :retention_impact_confirmation_required}, _next) do
+  defp write(socket, {:error, :retention_impact_confirmation_required}) do
     preview =
       attempt(fn ->
         socket.assigns.commands.preview_retention.(socket.assigns.draft, expected(socket))
@@ -325,7 +350,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     end
   end
 
-  defp write(socket, {:error, reason}, _next),
+  defp write(socket, {:error, reason}),
     do: assign(socket, errors: [], impact: nil, error: error(reason))
 
   defp section_error([]), do: nil
@@ -382,22 +407,19 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       refusal: nil,
       removing: nil,
       remove_error: nil,
-      saved_revision: view.revision,
-      editor_visible: section.kind != :collection or not is_nil(item_key)
+      saved_revision: view.revision
     )
   end
 
-  # After a save the editor follows the row it just wrote rather than jumping
-  # back to a blank form. A generated identifier is not in the form, so adding
-  # such a row returns to a blank one.
-  defp saved_item_key(%{assigns: %{section: %{kind: :collection} = section}} = socket) do
-    case Map.get(socket.assigns.draft, Atom.to_string(section.item_key)) do
+  # The row a form just saved: the one it edited, or a new one by the key its
+  # form names. A generated identifier is not in the form, so a new row with
+  # one is not found and the page says what kind of row was added instead.
+  defp saved_item_key(%{assigns: %{section: section, draft: draft, item_key: item_key}}) do
+    case Map.get(draft, Atom.to_string(section.item_key)) do
       value when is_binary(value) and value != "" -> value
-      _generated -> socket.assigns.item_key
+      _generated -> item_key
     end
   end
-
-  defp saved_item_key(_socket), do: :keep
 
   # A section that is one choice saves as it changes; every other section
   # keeps its draft until Save changes.
@@ -413,18 +435,54 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   end
 
   @impl true
+  def render(%{form: {:form, _key}} = assigns) do
+    assigns =
+      assign(assigns,
+        collection?: true,
+        notices: notices(assigns.section, assigns.view),
+        noun: noun(assigns.section)
+      )
+
+    ~H"""
+    <div id={@id} class="settings-block settings-form-block">
+      <p :for={notice <- @notices} class="settings-notice">
+        {notice.text}
+        <.link :if={notice[:href]} navigate={notice.href}>{notice.link}</.link>
+      </p>
+      <.editor
+        id={@id}
+        section={@section}
+        view={@view}
+        draft={@draft}
+        dirty={@dirty}
+        errors={@errors}
+        error={@error}
+        impact={@impact}
+        conflict={@conflict}
+        item_key={@item_key}
+        message={@message}
+        saved_key={nil}
+        autosave={false}
+        myself={@myself}
+        collection?={true}
+        refusal={@refusal}
+        noun={@noun}
+        cancel={@paths.list}
+      />
+    </div>
+    """
+  end
+
   def render(assigns) do
     %{section: section, view: view} = assigns
     collection? = section.kind == :collection
     rows = if collection?, do: rows(section, view), else: []
-    open? = editor_open?(assigns)
 
     assigns =
       assign(assigns,
         collection?: collection?,
         rows: rows,
-        open?: open?,
-        placement: placement(collection?, open?, assigns.item_key, rows),
+        removing_row: assigns.removing && List.keyfind(rows, assigns.removing, 0),
         notices: notices(section, view),
         noun: noun(section),
         autosave: autosave?(section),
@@ -448,22 +506,19 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         lede={@section.description}
       >
         <:actions :if={@collection?}>
-          <.add_button noun={@noun} myself={@myself} expanded={@placement == :above} />
+          <.add_link noun={@noun} paths={@paths} />
         </:actions>
       </Kit.section_head>
-      <div
-        :if={!@show_header and @collection? and (@rows != [] or @open?)}
-        class="settings-collection-bar"
-      >
+      <div :if={!@show_header and @collection? and @rows != []} class="settings-collection-bar">
         <p>{count(@rows, @noun)}</p>
-        <.add_button noun={@noun} myself={@myself} expanded={@placement == :above} />
+        <.add_link noun={@noun} paths={@paths} />
       </div>
       <p :for={notice <- @notices} class="settings-notice">
         {notice.text}
         <.link :if={notice[:href]} navigate={notice.href}>{notice.link}</.link>
       </p>
       <.editor
-        :if={@placement == :above}
+        :if={!@collection?}
         id={@id}
         section={@section}
         view={@view}
@@ -478,34 +533,31 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         saved_key={@saved_key}
         autosave={@autosave}
         myself={@myself}
-        collection?={@collection?}
+        collection?={false}
         refusal={@refusal}
         noun={@noun}
+        cancel={nil}
       />
       <Kit.entity_list :if={@rows != []} label={@section.title}>
         <Kit.entity_row
           :for={{key, row} <- @rows}
+          id={"#{@id}-row-#{row_id(key)}"}
           name={row.name}
           state={row.state}
           text={row.text}
           meta={row.meta}
-          class={[@item_key == key && "is-editing"]}
         >
-          <:actions :if={@item_key != key}>
-            <button
-              type="button"
-              class="ui-button secondary"
-              phx-click="select-item"
-              phx-value-item={key}
-              phx-target={@myself}
-            >Edit</button>
+          <:actions>
+            <.link patch={edit_path(@paths, key)} class="ui-button secondary">
+              Edit<span class="sr-only">{" " <> row.name}</span>
+            </.link>
             <button
               type="button"
               class="ui-button quiet"
               phx-click="ask-remove"
               phx-value-item={key}
               phx-target={@myself}
-            >Remove</button>
+            >Remove<span class="sr-only">{" " <> row.name}</span></button>
           </:actions>
           <:details>
             <p :if={row.address} class="settings-address">
@@ -533,121 +585,64 @@ defmodule Ryker.ControlPlane.SettingsEditor do
                 </div>
               </dl>
             </details>
-            <div
-              :if={@removing == key}
-              class="settings-confirm"
-              role="group"
-              aria-label={"Remove #{row.name}?"}
-              tabindex="-1"
-              phx-mounted={JS.focus()}
-            >
-              <p>
-                <strong>Remove {row.name}?</strong> {SettingsRows.removal(@section)}
-              </p>
-              <Components.form_feedback :if={@remove_error} message={@remove_error} tone={:error} />
-              <div class="settings-confirm-actions">
-                <button
-                  type="button"
-                  class="ui-button danger"
-                  phx-click="delete-item"
-                  phx-value-item={key}
-                  phx-target={@myself}
-                >Remove</button>
-                <button
-                  type="button"
-                  class="ui-button secondary"
-                  phx-click="cancel-remove"
-                  phx-target={@myself}
-                >Cancel</button>
-              </div>
-            </div>
-            <.editor
-              :if={@placement == {:row, key}}
-              id={@id}
-              section={@section}
-              view={@view}
-              draft={@draft}
-              dirty={@dirty}
-              errors={@errors}
-              error={@error}
-              impact={@impact}
-              conflict={@conflict}
-              item_key={@item_key}
-              message={@message}
-              saved_key={@saved_key}
-              autosave={@autosave}
-              myself={@myself}
-              collection?={@collection?}
-              refusal={@refusal}
-              noun={@noun}
-            />
           </:details>
         </Kit.entity_row>
       </Kit.entity_list>
       <Kit.empty
-        :if={@collection? and @rows == [] and !@open? and @section[:empty]}
+        :if={@collection? and @rows == [] and @section[:empty]}
         variant={if @frame == :card, do: :hint, else: :boxed}
         icon={elem(@section.empty, 0)}
         title={elem(@section.empty, 1)}
         text={elem(@section.empty, 2)}
       >
-        <.add_button
-          :if={!@show_header}
-          noun={@noun}
-          myself={@myself}
-          expanded={false}
-          primary={true}
-        />
+        <.add_link :if={!@show_header} noun={@noun} paths={@paths} primary={true} />
       </Kit.empty>
-      <.editor
-        :if={@placement == :below}
-        id={@id}
-        section={@section}
-        view={@view}
-        draft={@draft}
-        dirty={@dirty}
-        errors={@errors}
-        error={@error}
-        impact={@impact}
-        conflict={@conflict}
-        item_key={@item_key}
-        message={@message}
-        saved_key={@saved_key}
-        autosave={@autosave}
-        myself={@myself}
-        collection?={@collection?}
-        refusal={@refusal}
-        noun={@noun}
+      <Kit.confirm_modal
+        :if={@removing_row}
+        id={"#{@id}-remove"}
+        title={"Remove #{elem(@removing_row, 1).name}?"}
+        text={SettingsRows.removal(@section)}
+        label={"Remove #{@noun}"}
+        error={@remove_error}
+        cancel="cancel-remove"
+        target={@myself}
+        phx-click="delete-item"
+        phx-value-item={elem(@removing_row, 0)}
+        phx-target={@myself}
       />
     </section>
     """
   end
 
   attr(:noun, :string, required: true)
-  attr(:myself, :any, required: true)
-  attr(:expanded, :boolean, required: true, doc: "Whether the form for a new row is open")
+  attr(:paths, :map, required: true, doc: "Where the list and its rows' forms are")
   attr(:primary, :boolean, default: false, doc: "The one action of an empty list")
 
-  defp add_button(assigns) do
+  # Add opens the form for a new row on its own page.
+  defp add_link(assigns) do
     ~H"""
-    <button
-      type="button"
+    <.link
+      patch={@paths.items <> "/new"}
       class={["ui-button settings-editor-add", if(@primary, do: "primary", else: "secondary")]}
-      phx-click="new-item"
-      phx-target={@myself}
-      aria-expanded={to_string(@expanded)}
-    ><Components.icon name={:plus} />Add {@noun}</button>
+    ><Components.icon name={:plus} />Add {@noun}</.link>
     """
   end
 
+  @doc "Where a list section's row is edited, on its own page."
+  @spec edit_path(%{items: String.t()}, String.t()) :: String.t()
+  def edit_path(%{items: items}, key),
+    do: items <> "/" <> URI.encode(key, &URI.char_unreserved?/1) <> "/edit"
+
+  # A row's element id from its key, which may hold characters an id cannot.
+  defp row_id(key), do: Base.url_encode64(key, padding: false)
+
+  # `cancel` is the list a row's form returns to on Cancel, nil for a section
+  # that is one form, whose Cancel puts the saved values back.
   defp editor(assigns) do
     assigns = assign(assigns, :groups, groups(assigns.section, assigns.draft, assigns.view))
 
     ~H"""
     <div class={["settings-editor", @collection? && "settings-editor-collection"]}>
-      <h3 :if={@collection?} class="settings-editor-heading">
-        {if @item_key, do: "Edit #{@noun}", else: "Add #{@noun}"}
-      </h3>
       <p :if={@section[:help]} class="settings-form-help">{@section.help}</p>
       <form
         id={"#{@id}-form"}
@@ -718,13 +713,16 @@ defmodule Ryker.ControlPlane.SettingsEditor do
             type="submit"
             class="ui-button primary"
             disabled={!@dirty or not is_nil(@conflict)}
+            phx-disable-with="Saving…"
           >{if @collection? and is_nil(@item_key), do: "Add #{@noun}", else: "Save changes"}</button>
+          <.link :if={@cancel} patch={@cancel} class="ui-button secondary">Cancel</.link>
           <button
+            :if={!@cancel}
             type="button"
             class="ui-button secondary"
             phx-click="cancel"
             phx-target={@myself}
-            disabled={!@dirty and !@collection?}
+            disabled={!@dirty}
           >Cancel</button>
           <span role="status" class="settings-saved">{@message}</span>
         </div>
@@ -1226,24 +1224,16 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp help_id(id, %{help: _help}), do: "#{id}-help"
   defp help_id(_id, _field), do: nil
 
-  defp editor_open?(assigns) do
-    assigns.editor_visible or not is_nil(assigns.item_key) or assigns.dirty or
-      assigns.errors != [] or
-      not is_nil(assigns.error) or not is_nil(assigns.conflict) or not is_nil(assigns.impact)
+  # The name a row reads as in its list, for what the page says about it;
+  # nil for a row that is not saved.
+  defp row_name(section, view, key) when is_binary(key) do
+    case Enum.find(SettingsSections.items(section, view), &(item_key(section, &1) == key)) do
+      nil -> nil
+      item -> SettingsRows.present(section, item, view).name
+    end
   end
 
-  defp adding?(assigns), do: is_nil(assigns.item_key) and editor_open?(assigns)
-
-  # A row is edited where it is listed. A new row, or one that disappeared
-  # while it was open, is edited above the list, under the Add that opened
-  # it: a form under the whole list is one nobody sees open. A section that
-  # is one form has no list, so its form simply follows its heading.
-  defp placement(false, _open?, _item_key, _rows), do: :below
-  defp placement(true, false, _item_key, _rows), do: nil
-
-  defp placement(true, true, item_key, rows) do
-    if item_key && List.keymember?(rows, item_key, 0), do: {:row, item_key}, else: :above
-  end
+  defp row_name(_section, _view, _key), do: nil
 
   defp rows(section, view) do
     for item <- SettingsSections.items(section, view),
@@ -1365,7 +1355,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         %{
           text: "Work from a webhook runs in an environment, and there is none yet.",
           link: "Add an environment",
-          href: "/environments?edit=new"
+          href: "/environments/new"
         },
       slack_notice(Integrations.slack(view))
     ]

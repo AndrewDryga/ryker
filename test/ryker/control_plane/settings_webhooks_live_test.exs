@@ -135,7 +135,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
 
     assert has_element?(
              view,
-             "#settings-webhooks .settings-notice a[href='/environments?edit=new']",
+             "#settings-webhooks .settings-notice a[href='/environments/new']",
              "Add an environment"
            )
 
@@ -161,13 +161,13 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
 
     assert has_element?(
              view,
-             "#settings-webhooks button.settings-editor-add",
+             "#settings-webhooks a.settings-editor-add[href='/integrations/webhooks/sources/new']",
              "Add webhook source"
            )
 
     assert has_element?(
              view,
-             "button[phx-click=show-webhook-credential-form]",
+             "section[aria-label='Signing credentials'] .section-head a[href='/integrations/webhooks/credentials/new']",
              "Add signing credential"
            )
 
@@ -371,6 +371,15 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     {:ok, view, _html} = open()
     open_source_editor(view)
     view |> form("#settings-webhooks-form", source_params()) |> render_submit()
+    assert_patch(view, "/integrations/webhooks")
+
+    view |> element("#settings-webhooks a", "Edit") |> render_click()
+    assert_patch(view, "/integrations/webhooks/sources/alerts/edit")
+
+    # Someone saves the source while this person is typing into its form.
+    view
+    |> form("#settings-webhooks-form", %{"destination_thread_ref" => "1788000000.000100"})
+    |> render_change()
 
     assert {:ok, _} =
              Settings.put_webhook_source(
@@ -379,9 +388,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
                @actor
              )
 
-    view
-    |> form("#settings-webhooks-form", %{"destination_thread_ref" => "1788000000.000100"})
-    |> render_submit()
+    view |> form("#settings-webhooks-form") |> render_submit()
 
     assert has_element?(view, "[role=alert]", "changed since you started editing")
     assert has_element?(view, ".settings-conflict dd", "C9999999999")
@@ -453,53 +460,70 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     |> element("button[phx-value-action=delete-webhook-credential]", "Delete")
     |> render_click()
 
-    assert has_element?(view, ".settings-confirm", "Delete #{@registered}?")
-    assert has_element?(view, ".settings-confirm", "can no longer deliver events")
+    assert has_element?(view, "#confirm-delete-webhook-credential", "Delete #{@registered}?")
+
+    assert has_element?(
+             view,
+             "#confirm-delete-webhook-credential",
+             "can no longer deliver events"
+           )
+
     assert {:ok, _secret} = Credentials.fetch(:webhook, @registered)
 
-    view |> element(".settings-confirm button", "Delete credential") |> render_click()
+    view
+    |> element("#confirm-delete-webhook-credential button", "Delete credential")
+    |> render_click()
 
     assert {:error, :credential_missing} = Credentials.fetch(:webhook, @registered)
     assert has_element?(view, ".form-feedback-success", "#{@registered} was deleted.")
   end
 
-  test "Add opens its form above the list it adds to, and pressed again closes it" do
-    # Andrew, 2026-09-25, of Model prices, and every list with an Add button
-    # like it: a button at the top that opens its form under the whole list
-    # reads as a button that does nothing.
+  # Andrew, 2026-09-27: an add form opened above its list "blends into the
+  # content"; every form that adds to a list has a page of its own. A new
+  # signing credential's secret is shown once, on the list it was added to.
+  test "a signing credential and a webhook source are each added on a page of their own" do
     installation!()
     {:ok, view, _html} = open()
-
-    section = "section[aria-label='Signing credentials']"
-    add = "#{section} .section-head button"
-    assert has_element?(view, "#{add}[aria-expanded=false]", "Add signing credential")
-
-    view |> element(add) |> render_click()
-
-    assert has_element?(view, "#{section} > .settings-editor ~ .entity-list")
-
-    assert has_element?(
-             view,
-             "#{section} > .settings-editor form[phx-submit=create-webhook-credential]"
-           )
-
-    refute has_element?(view, "#{section} > .entity-list ~ .settings-editor")
-
-    view |> element(add) |> render_click()
     refute has_element?(view, "form[phx-submit=create-webhook-credential]")
+
+    view
+    |> element(
+      "section[aria-label='Signing credentials'] .section-head a",
+      "Add signing credential"
+    )
+    |> render_click()
+
+    assert_patch(view, "/integrations/webhooks/credentials/new")
+    assert has_element?(view, "main h1", "Add a signing credential")
+    assert has_element?(view, ".page-back[href='/integrations/webhooks']", "Webhooks")
+    assert has_element?(view, ".kit-form-card form[phx-submit=create-webhook-credential]")
+    refute has_element?(view, ".entity-list")
+
+    view
+    |> form("form[phx-submit=create-webhook-credential]", %{
+      "credential" => %{"name" => "grafana", "secret" => ""}
+    })
+    |> render_submit()
+
+    assert_patch(view, "/integrations/webhooks")
+    assert has_element?(view, ".form-feedback-success", "Signing credential grafana is ready.")
+    assert has_element?(view, ".secret-reveal", "Signing secret")
+    assert has_element?(view, "#webhook-credential-grafana")
 
     # Sources follow the same rule, through the settings editor.
     open_source_editor(view)
-    assert has_element?(view, "#settings-webhooks-form")
-    refute has_element?(view, "#settings-webhooks > .entity-list ~ .settings-editor")
-    assert has_element?(view, "#settings-webhooks button.settings-editor-add[aria-expanded=true]")
+    assert_patch(view, "/integrations/webhooks/sources/new")
+    assert has_element?(view, "main h1", "Add a webhook source")
+    assert has_element?(view, ".kit-form-card #settings-webhooks-form")
+    refute has_element?(view, "section[aria-label='Signing credentials']")
   end
 
   test "a refused signing credential is said in the error tone, not as a success" do
     # Every refusal on the connection pages rendered with the success tone.
     installation!()
-    {:ok, view, _html} = open()
-    view |> element("button[phx-click=show-webhook-credential-form]") |> render_click()
+
+    {:ok, view, _html} =
+      live(build_conn() |> Map.put(:host, "localhost"), "/integrations/webhooks/credentials/new")
 
     view
     |> form("form[phx-submit=create-webhook-credential]", %{
@@ -507,7 +531,9 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     })
     |> render_submit()
 
+    # The form stays, with what to fix.
     assert has_element?(view, ".form-feedback-error[role=alert]", "That name cannot be used.")
+    assert has_element?(view, "form[phx-submit=create-webhook-credential]")
     refute has_element?(view, ".form-feedback-success")
   end
 
@@ -572,7 +598,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/integrations/webhooks")
 
   defp open_source_editor(view) do
-    view |> element("#settings-webhooks button.settings-editor-add") |> render_click()
+    view |> element("#settings-webhooks a.settings-editor-add") |> render_click()
   end
 
   defp choose_custom_json(view) do

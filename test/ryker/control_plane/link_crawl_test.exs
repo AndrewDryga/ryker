@@ -43,6 +43,11 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
     ~r{^/memory/(learned|findings|learning)$},
     ~r{^/integrations/(slack|github|emisar|webhooks)$},
     ~r{^/settings/(models|retention|prices|advanced)$},
+    ~r{^/(environments|repositories)/new$},
+    ~r{^/environments/[^/]+/edit$},
+    ~r{^/settings/prices/(new|[^/]+/edit)$},
+    ~r{^/integrations/emisar/(new|[^/]+/edit)$},
+    ~r{^/integrations/webhooks/(credentials/new|sources/new|sources/[^/]+/edit)$},
     ~r{^/conversations/[^/]+$},
     ~r{^/timeline/[^/]+$},
     ~r{^/incident-rooms/[^/]+$},
@@ -123,7 +128,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
           "/channels/",
           "/failures/",
           "/actions/",
-          "/environments?edit="
+          "/environments/"
         ] do
       assert Enum.any?(visited, &String.starts_with?(&1, prefix)),
              "nothing crawled under #{prefix}"

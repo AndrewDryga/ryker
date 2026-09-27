@@ -68,7 +68,18 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/settings/retention", :retention},
     {"/settings/prices", :prices},
     {"/settings/advanced", :advanced},
-    {"/setup", :setup}
+    {"/setup", :setup},
+    # A page of one form shares the help of the list it adds to or edits.
+    {"/repositories/new", :repositories},
+    {"/environments/new", :environments},
+    {"/environments/:ref/edit", :environments},
+    {"/settings/prices/new", :prices},
+    {"/settings/prices/:item/edit", :prices},
+    {"/integrations/emisar/new", :emisar},
+    {"/integrations/emisar/:ref/edit", :emisar},
+    {"/integrations/webhooks/credentials/new", :webhooks},
+    {"/integrations/webhooks/sources/new", :webhooks},
+    {"/integrations/webhooks/sources/:item/edit", :webhooks}
   ]
 
   @patterns Enum.map(@routes, fn {route, page} -> {String.split(route, "/", trim: true), page} end)
@@ -335,8 +346,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Repositories",
        [
-         "Work can read every repository in its environment. A task that changes code picks the one repository it changes from that list.",
-         "Adding a repository puts it in the default environment, and creates Default when there is none."
+         "Work can read every repository in its environment. Each one is read only or read and write: a task that changes code changes one that is read and write, the default repository unless it picks another. The default repository is always read and write.",
+         "Adding a repository puts it in the default environment, read and write, and creates Default when there is none."
        ]},
       {"Emisar",
        [
@@ -348,7 +359,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Add, change or remove",
        [
-         "Add an environment and Edit open an editor for its name, description, repositories and Emisar account. Remove asks first, and is refused while channels or webhook sources still use the environment."
+         "Add an environment and Edit open its form on a page of its own: its name, description, repositories and what work may do in each, and its Emisar account. Save returns to the list. Remove asks first, and is refused while channels or webhook sources still use the environment."
        ]}
     ])
   end
@@ -416,7 +427,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Add repositories",
        [
-         "Connect GitHub first. Then Add repositories lists what the Ryker GitHub App can reach. Each one you add joins the default environment, so work there can use it at once.",
+         "Connect GitHub first. Then Add repositories opens a page of its own that lists what the Ryker GitHub App can reach. Each one you add joins the default environment, so work there can use it at once, and the list says what was added.",
          "You can also add new repositories automatically when the App gets access to them."
        ]},
       {"Setting up",
@@ -764,7 +775,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"What the states mean", [Integrations.meanings(:emisar)]},
       {"When something looks wrong",
        [
-         "If approval monitoring is off, tasks waiting on an approval stop and show on Failures. Turn it back on under Manage, where you can also replace a token that changed.",
+         "If approval monitoring is off, tasks waiting on an approval stop and show on Failures. Turn it back on from the account's Edit page, where you can also replace a token that changed.",
          "An account that tasks still use cannot be removed; pause it instead."
        ]}
     ])
@@ -869,7 +880,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Add or remove a price",
        [
-         "Add a row for a model, or change its rates, and save. Removing a price asks first: that model's cost then shows as not priced."
+         "Add price and a row's Edit open its form on a page of its own; Save returns to the list. Removing a price asks first: that model's cost then shows as not priced."
        ]}
     ])
   end

@@ -67,7 +67,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     production = LazyHTML.query(document, "#environment-production")
 
     assert LazyHTML.query(production, ".entity-name a") |> LazyHTML.attribute("href") ==
-             ["/environments?edit=production"]
+             ["/environments/production/edit"]
 
     assert LazyHTML.query(production, ".entity-tag") |> LazyHTML.text() == "Default"
     assert LazyHTML.query(production, ".entity-icon") |> Enum.count() == 1
@@ -114,11 +114,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert has_element?(view, ".environments-page > .kit-counts .kit-count", "3 environments")
     refute has_element?(view, ".kit-toolbar-count")
 
-    assert has_element?(
-             view,
-             ".page-action a[href='/environments?edit=new']",
-             "Add an environment"
-           )
+    assert has_element?(view, ".page-action a[href='/environments/new']", "Add an environment")
 
     view |> element("#environment-staging button", "Use as default") |> render_click()
 
@@ -195,37 +191,30 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
              "Repair GitHub"
            )
 
-    assert has_element?(
-             view,
-             ".page-action a[href='/environments?edit=new']",
-             "Add an environment"
-           )
+    assert has_element?(view, ".page-action a[href='/environments/new']", "Add an environment")
 
-    # Adding the first one opens its form where the empty list was.
+    # Adding the first one opens its form on a page of its own.
     view |> element(".page-action a", "Add an environment") |> render_click()
+    assert_patch(view, "/environments/new")
     assert has_element?(view, "#environment-editor-new")
     refute has_element?(view, ".kit-empty")
   end
 
-  test "an address for an environment that is gone says so above the list" do
-    # QA, 2026-09-25: /environments?edit=<a ref nobody has> quietly showed the
+  test "an address for an environment that is gone says so and leads back to the list" do
+    # QA, 2026-09-25: an edit address for a ref nobody has quietly showed the
     # list, as if the link had worked.
     installation!()
     environment!("production", "Production", ~w(api), default: true)
 
-    {:ok, view, _html} = open("/environments?edit=staging")
+    {:ok, view, _html} = open("/environments/staging/edit")
 
-    assert has_element?(
-             view,
-             "#environment-not-found",
-             "That environment was not found. It may have been removed."
-           )
-
-    assert has_element?(view, "#environment-production")
+    assert has_element?(view, "#environment-not-found", "That environment was not found")
+    assert has_element?(view, "#environment-not-found a[href='/environments']")
     refute has_element?(view, "[id^=environment-editor]")
 
-    {:ok, view, _html} = open("/environments?edit=production")
+    {:ok, view, _html} = open("/environments/production/edit")
     refute has_element?(view, "#environment-not-found")
+    assert has_element?(view, "#environment-editor-production")
   end
 
   test "removing an environment channels use is refused and says who uses it" do
@@ -244,11 +233,13 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     {:ok, view, _html} = open("/environments")
 
     view |> element("#environment-staging button", "Remove") |> render_click()
-    assert has_element?(view, "#environment-staging .settings-confirm", "Remove Staging?")
+    assert has_element?(view, "#confirm-delete-environment[role=alertdialog]", "Remove Staging?")
+    # The question is over the page; the row that asked is as it was.
+    refute has_element?(view, "#environment-staging #confirm-delete-environment")
     assert Enum.any?(Settings.fetch!().environments, &(&1.ref == "staging"))
 
     view
-    |> element("#environment-staging .settings-confirm button", "Remove environment")
+    |> element("#confirm-delete-environment button", "Remove environment")
     |> render_click()
 
     assert has_element?(
@@ -262,7 +253,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     view |> element("#environment-scratch button", "Remove") |> render_click()
 
     view
-    |> element("#environment-scratch .settings-confirm button", "Remove environment")
+    |> element("#confirm-delete-environment button", "Remove environment")
     |> render_click()
 
     assert has_element?(view, ".form-feedback-success", "Scratch was removed.")
@@ -270,55 +261,73 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     refute has_element?(view, "#environment-scratch")
   end
 
-  test "Add an environment opens its form above the list, and Edit opens under its row" do
-    # Andrew, 2026-09-25, of Model prices and every list like it: an Add
-    # button at the top that opens its form under the whole list reads as a
-    # button that does nothing.
+  # Andrew, 2026-09-27, of Add an environment opening above the list: "this is
+  # stupid to show add state like this, it blends into the content, has
+  # counters and search in top looking like part of create form and list
+  # below breaking up entire design". Adding and editing each happen on a page
+  # of their own: a title that says what it does, a way back to the list, and
+  # the form in one card with nothing of the list around it.
+  test "adding and editing an environment each happen on a page of their own" do
     installation!()
     environment!("production", "Production", ~w(api), default: true)
     environment!("staging", "Staging", ~w(api))
     {:ok, view, _html} = open("/environments")
 
-    add = ".page-action a"
-    assert has_element?(view, "#{add}[href='/environments?edit=new'][aria-expanded=false]")
+    view |> element(".page-action a", "Add an environment") |> render_click()
+    assert_patch(view, "/environments/new")
 
-    view |> element(add, "Add an environment") |> render_click()
-    assert_patch(view, "/environments?edit=new")
+    assert has_element?(view, "main h1", "Add an environment")
+    assert has_element?(view, ".page-back[href='/environments']", "Environments")
+    assert has_element?(view, ".kit-form-card #environment-editor-new form")
 
-    assert has_element?(view, ".environments-page > #environment-editor-new ~ .entity-list")
-    refute has_element?(view, ".environments-page > .entity-list ~ #environment-editor-new")
+    for part <- [".entity-list", ".kit-counts", ".kit-toolbar", ".page-action"],
+        do: refute(has_element?(view, part))
 
-    # The same button closes it again.
-    assert has_element?(view, "#{add}[href='/environments'][aria-expanded=true]")
-    view |> element(add, "Add an environment") |> render_click()
+    view |> element("#environment-editor-new a", "Cancel") |> render_click()
     assert_patch(view, "/environments")
     refute has_element?(view, "#environment-editor-new")
 
     view |> element("#environment-staging .entity-actions a", "Edit") |> render_click()
-    assert has_element?(view, "#environment-staging .entity-meta ~ #environment-editor-staging")
-    refute has_element?(view, ".environments-page > [id^=environment-editor]")
+    assert_patch(view, "/environments/staging/edit")
+    assert has_element?(view, "main h1", "Edit Staging")
+    assert has_element?(view, ".kit-form-card #environment-editor-staging form")
+    refute has_element?(view, ".entity-list")
+
+    view
+    |> form("#environment-editor-staging form", environment: %{description: "Pre-release checks"})
+    |> render_submit()
+
+    # A save returns to the list, which says what was saved.
+    assert_patch(view, "/environments")
+    assert has_element?(view, ".form-feedback-success", "Staging was saved.")
+    assert has_element?(view, "#environment-staging .entity-text", "Pre-release checks")
   end
 
-  test "an environment's repositories are saved in the order shown, and the first is the default" do
-    # Every repository in an environment is there to work in, and a task
-    # picks the one it changes; the first is only the default. Until
-    # 2026-09-25 the editor said changes went to the first and the others
-    # were read only, which stopped being true when tasks began choosing.
+  # Andrew, 2026-09-27: "can we here limit read or read/write access per
+  # repo?", and of the arrows that ordered the repositories to pick the
+  # default: "whats the point of ordering them? default can be just a
+  # checkbox button or smth like that." Each chosen repository says what work
+  # may do in it, one radio marks the default, and the default is always read
+  # and write, since it is the repository a task changes unless it picks
+  # another.
+  test "each repository says what work may do in it, and a radio marks the default" do
     installation!()
     environment!("production", "Production", ~w(api), default: true)
 
-    {:ok, view, _html} = open("/environments?edit=new")
-    assert has_element?(view, "#environment-editor-new h3", "Add an environment")
+    {:ok, view, _html} = open("/environments/new")
+    editor = "#environment-editor-new"
 
     assert has_element?(
              view,
-             "#environment-editor-new .settings-help",
-             "Every repository here is available to work in this environment. " <>
-               "The first one is the default; a task picks the one it changes."
+             "#{editor} .settings-help",
+             "Work here can read every repository you choose. A task changes one that is read " <>
+               "and write: the default, unless it picks another. The default is always read and write."
            )
 
+    refute has_element?(view, "#{editor} button[phx-click=move]")
+
     view
-    |> form("#environment-editor-new form",
+    |> form("#{editor} form",
       environment: %{
         display_name: "Staging",
         description: "",
@@ -329,36 +338,58 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     )
     |> render_change()
 
-    assert has_element?(view, "#environment-editor-new li[data-repository=api] small", "Default")
-    refute has_element?(view, "#environment-editor-new li[data-repository=docs] small")
-
-    for words <- ["Changes go", "Read only"],
-        do: refute(has_element?(view, "#environment-editor-new", words))
+    # The first chosen is the default and read and write; the next starts
+    # read and write too, and can be limited.
+    assert has_element?(view, "#{editor}-default-api[type=radio][checked]")
+    refute has_element?(view, "#{editor}-default-docs[checked]")
+    assert has_element?(view, "#{editor}-access-api[disabled] option[selected]", "Read and write")
+    assert has_element?(view, "#{editor}-access-docs option[selected]", "Read and write")
 
     view
-    |> element("#environment-editor-new li[data-repository=docs] button[phx-value-direction=up]")
-    |> render_click()
+    |> form("#{editor} form",
+      environment: %{access: %{"docs" => "read_only"}, default_repository: "api"}
+    )
+    |> render_change()
 
-    assert has_element?(view, "#environment-editor-new li[data-repository=docs] small", "Default")
-    refute has_element?(view, "#environment-editor-new li[data-repository=api] small")
+    assert has_element?(view, "#{editor}-access-docs option[selected]", "Read only")
 
-    view |> form("#environment-editor-new form") |> render_submit()
+    # Making docs the default makes it read and write, and api can be limited.
+    view
+    |> form("#{editor} form", environment: %{default_repository: "docs"})
+    |> render_change()
+
+    assert has_element?(view, "#{editor}-default-docs[checked]")
+
+    assert has_element?(
+             view,
+             "#{editor}-access-docs[disabled] option[selected]",
+             "Read and write"
+           )
+
+    refute has_element?(view, "#{editor}-access-api[disabled]")
+
+    view
+    |> form("#{editor} form", environment: %{access: %{"api" => "read_only"}})
+    |> render_submit()
 
     assert has_element?(view, ".form-feedback-success", "Staging was saved.")
-    refute has_element?(view, "#environment-editor-new")
 
     staging = Enum.find(Settings.fetch!().environments, &(&1.display_name == "Staging"))
     assert staging.ref == "staging"
     assert Settings.Environment.repository_refs(staging) == ["docs", "api"]
+    assert Settings.Environment.read_only_refs(staging) == ["api"]
     assert staging.emisar_connection_ref == "approvals"
     refute staging.is_default
+
+    # The list says how many repositories work there only reads.
+    assert has_element?(view, "#environment-staging .entity-meta", "1 read only")
   end
 
   test "a refused environment keeps the draft and says what to fix in words" do
     installation!()
     environment!("production", "Production", ~w(api), default: true)
 
-    {:ok, view, _html} = open("/environments?edit=production")
+    {:ok, view, _html} = open("/environments/production/edit")
 
     view
     |> form("#environment-editor-production form",
@@ -378,16 +409,8 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
              "#environment-editor-production input[value=''][name='environment[display_name]']"
            )
 
-    assert has_element?(
-             view,
-             "#environment-editor-production li[data-repository=api] + li[data-repository=docs]"
-           )
-
-    assert has_element?(
-             view,
-             "#environment-editor-production li[data-repository=api] small",
-             "Default"
-           )
+    assert has_element?(view, "#environment-editor-production-repository-docs[checked]")
+    assert has_element?(view, "#environment-editor-production-default-api[checked]")
 
     assert %{display_name: "Production"} =
              production = Settings.Environment.default(Settings.fetch!())
@@ -395,7 +418,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert Settings.Environment.repository_refs(production) == ["api"]
 
     # Manual testing, 2026-09-26: a second "Production" was saved beside the first.
-    {:ok, view, _html} = open("/environments?edit=new")
+    {:ok, view, _html} = open("/environments/new")
 
     view
     |> form("#environment-editor-new form",
@@ -424,7 +447,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
         @actor
       )
 
-    {:ok, view, _html} = open("/environments?edit=new")
+    {:ok, view, _html} = open("/environments/new")
 
     view
     |> form("#environment-editor-new form",

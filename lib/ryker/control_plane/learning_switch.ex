@@ -11,11 +11,12 @@ defmodule Ryker.ControlPlane.LearningSwitch do
   starts nothing that cannot be stopped again, so it does not ask.
 
   After a save the page is drawn again at once, so the line that says
-  whether learning is on never lags behind the button.
+  whether learning is on never lags behind the button. The question is a
+  `Kit.confirm_modal/1` over the page, so the page head never grows.
   """
   use Phoenix.LiveComponent
 
-  alias Ryker.ControlPlane.{SettingsPage, SettingsView}
+  alias Ryker.ControlPlane.{Kit, SettingsView}
 
   # The shell holds the open question, like every other confirmation.
   @question {"turn-off-learning", "learning"}
@@ -79,17 +80,19 @@ defmodule Ryker.ControlPlane.LearningSwitch do
 
     ~H"""
     <div id={@id} class="learning-switch">
-      <SettingsPage.confirmation
+      <Kit.confirm_modal
         :if={@asking}
+        id={@id <> "-question"}
         title="Turn off learning?"
         text="Ryker stops learning from new messages until you turn it on again. What it already learned stays, and passes already running finish."
         label="Turn off learning"
+        cancel="cancel-settings-action"
         phx-click="switch"
         phx-value-enabled="false"
         phx-target={@myself}
       />
       <button
-        :if={@enabled and not @asking}
+        :if={@enabled}
         type="button"
         class="ui-button secondary"
         phx-click="confirm-settings-action"

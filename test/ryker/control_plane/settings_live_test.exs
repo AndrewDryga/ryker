@@ -139,7 +139,13 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              )
     end
 
+    # Emisar with no account leads to the page where one is connected, and
+    # that page asks only for the token and the address.
     {:ok, emisar, _html} = open("/integrations/emisar")
+    assert has_element?(emisar, "a[href='/integrations/emisar/new']", "Connect an account")
+    refute has_element?(emisar, "form[phx-submit=connect-emisar]")
+
+    {:ok, emisar, _html} = open("/integrations/emisar/new")
     assert has_element?(emisar, "form[phx-submit=connect-emisar]", "Connect account")
     refute has_element?(emisar, "details form[phx-submit=connect-emisar]")
     refute has_element?(emisar, "input[name='connection[ref]']")
@@ -453,17 +459,18 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert has_element?(view, ".entity-row .state-word[data-tone=off]", "Paused")
     assert has_element?(view, "button[phx-click=enable-emisar]", "Resume")
-    # The account's address is a support detail, folded away from its row.
-    assert has_element?(view, ".entity-row details.settings-row-details dd", "https://")
     refute has_element?(view, "form[phx-submit=rename-emisar]")
 
     view |> element("button[phx-click=enable-emisar]", "Resume") |> render_click()
     assert [%{enabled_for_new_work: true}] = Settings.fetch!().emisar_connections
 
-    view
-    |> element("button[phx-click=show-emisar-form][phx-value-ref=production]", "Manage")
-    |> render_click()
-
+    # Everything else about an account is changed on its own page, where its
+    # address, a support detail, is one of its facts.
+    view |> element("#emisar-account-production a", "Edit") |> render_click()
+    assert_patch(view, "/integrations/emisar/production/edit")
+    assert has_element?(view, "main h1", "Edit Production approvals")
+    assert has_element?(view, ".page-back[href='/integrations/emisar']", "Emisar")
+    assert has_element?(view, ".kit-facts dd", "https://emisar.example/api/mcp/rpc")
     assert has_element?(view, "form[phx-submit=rename-emisar]", "Save name")
     assert has_element?(view, "form[phx-submit=rotate-emisar]", "Replace token")
 
@@ -474,11 +481,22 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
            )
   end
 
-  test "Add account opens its form above the accounts, and pressed again closes it" do
-    # Andrew, 2026-09-25, of Model prices, and every list with an Add button
-    # like it: a button at the top that opens its form under the whole list
-    # reads as a button that does nothing.
+  test "connecting an Emisar account happens on a page of its own, apart from the accounts" do
+    # Andrew, 2026-09-27, of every add form opened above its list: "it blends
+    # into the content ... we need a much better way to do forms like this,
+    # properly designed". Connecting an account is its own page now, with its
+    # form in one card and a way back, and the list never holds a form.
     snapshot = initialize!()
+    {:ok, view, _html} = open("/integrations/emisar")
+
+    # With no account yet, the list says so and leads to the form.
+    assert has_element?(view, "section[aria-label=Accounts] .kit-empty", "No Emisar account yet")
+
+    assert has_element?(
+             view,
+             "section[aria-label=Accounts] .kit-empty a[href='/integrations/emisar/new']",
+             "Connect an account"
+           )
 
     {:ok, _snapshot} =
       Settings.put_emisar_connection(
@@ -496,23 +514,21 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
       )
 
     {:ok, view, _html} = open("/integrations/emisar")
-
-    section = "section[aria-label=Accounts]"
-    add = "#{section} .section-head button"
-    assert has_element?(view, "#{add}[aria-expanded=false]", "Add account")
-
-    view |> element(add, "Add account") |> render_click()
-
-    assert has_element?(view, "#{section} > .settings-editor ~ .entity-list")
-    assert has_element?(view, "#{section} > .settings-editor form[phx-submit=connect-emisar]")
-    refute has_element?(view, "#{section} > .entity-list ~ .settings-editor")
-
-    assert has_element?(view, "#{add}[aria-expanded=true]")
-    view |> element(add, "Add account") |> render_click()
     refute has_element?(view, "form[phx-submit=connect-emisar]")
 
-    view |> element(add, "Add account") |> render_click()
-    view |> element("#{section} > .settings-editor button", "Cancel") |> render_click()
+    view
+    |> element("section[aria-label=Accounts] .section-head a", "Add account")
+    |> render_click()
+
+    assert_patch(view, "/integrations/emisar/new")
+
+    assert has_element?(view, "main h1", "Connect an Emisar account")
+    assert has_element?(view, ".page-back[href='/integrations/emisar']", "Emisar")
+    assert has_element?(view, ".kit-form-card form[phx-submit=connect-emisar]")
+    refute has_element?(view, ".entity-list")
+
+    view |> element(".kit-form-card a", "Cancel") |> render_click()
+    assert_patch(view, "/integrations/emisar")
     refute has_element?(view, "form[phx-submit=connect-emisar]")
   end
 
@@ -546,30 +562,28 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
         @actor
       )
 
-    {:ok, view, _html} = open("/integrations/emisar")
-
-    view
-    |> element("button[phx-click=show-emisar-form][phx-value-ref=production]")
-    |> render_click()
+    {:ok, view, _html} = open("/integrations/emisar/production/edit")
 
     view |> element("button[phx-value-action=delete-emisar]") |> render_click()
-    assert has_element?(view, ".settings-confirm", "Remove Production approvals?")
+    assert has_element?(view, "#confirm-delete-emisar", "Remove Production approvals?")
 
     assert has_element?(
              view,
-             ".settings-confirm",
+             "#confirm-delete-emisar",
              "the environments that use it are left without an Emisar account"
            )
 
     assert [_account] = Settings.fetch!().emisar_connections
 
-    view |> element(".settings-confirm button", "Cancel") |> render_click()
-    refute has_element?(view, ".settings-confirm")
+    view |> element("#confirm-delete-emisar button", "Cancel") |> render_click()
+    refute has_element?(view, "#confirm-delete-emisar")
     assert [_account] = Settings.fetch!().emisar_connections
 
     view |> element("button[phx-value-action=delete-emisar]") |> render_click()
-    view |> element(".settings-confirm button", "Remove account") |> render_click()
+    view |> element("#confirm-delete-emisar button", "Remove account") |> render_click()
 
+    # The account's page is gone with it, so the list says what happened.
+    assert_patch(view, "/integrations/emisar")
     assert has_element?(view, ".form-feedback-success", "The Emisar account was removed.")
     assert Settings.fetch!().emisar_connections == []
     assert [%{ref: "production", emisar_connection_ref: nil}] = Settings.fetch!().environments
@@ -589,8 +603,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     |> element("button[phx-value-action=disconnect-slack]", "Remove the tokens")
     |> render_click()
 
-    assert has_element?(view, ".settings-confirm", "Remove the Slack tokens?")
-    refute has_element?(view, ".settings-confirm", "stops reading and replying")
+    assert has_element?(view, "#confirm-disconnect-slack", "Remove the Slack tokens?")
+    refute has_element?(view, "#confirm-disconnect-slack", "stops reading and replying")
     render_click(view, "cancel-settings-action", %{})
 
     {:ok, _snapshot} =
@@ -604,17 +618,17 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     view |> element("button[phx-value-action=disconnect-slack]", "Disconnect") |> render_click()
 
-    assert has_element?(view, ".settings-confirm", "Disconnect Slack?")
-    assert has_element?(view, ".settings-confirm", "the saved tokens are deleted")
+    assert has_element?(view, "#confirm-disconnect-slack", "Disconnect Slack?")
+    assert has_element?(view, "#confirm-disconnect-slack", "the saved tokens are deleted")
     assert {:ok, _token} = Credentials.fetch(:slack_bot, "primary")
 
     # A disconnect that was never asked about only asks.
     render_click(view, "cancel-settings-action", %{})
     render_click(view, "disconnect-integration", %{"kind" => "slack"})
-    assert has_element?(view, ".settings-confirm", "Disconnect Slack?")
+    assert has_element?(view, "#confirm-disconnect-slack", "Disconnect Slack?")
     assert {:ok, _token} = Credentials.fetch(:slack_bot, "primary")
 
-    view |> element(".settings-confirm button", "Disconnect Slack") |> render_click()
+    view |> element("#confirm-disconnect-slack button", "Disconnect Slack") |> render_click()
 
     assert {:error, :credential_missing} = Credentials.fetch(:slack_bot, "primary")
     refute Settings.fetch!().slack.enabled
@@ -663,17 +677,17 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "Add a repository to start"
            )
 
-    assert has_element?(view, ".section-head a[href='/repositories']", "Add repositories")
+    assert has_element?(view, ".section-head a[href='/repositories/new']", "Add repositories")
     assert has_element?(view, ".copy-block pre", "http")
     assert has_element?(view, "a[href='https://github.com/apps/ryker-acme/installations/new']")
     assert has_element?(view, "#settings-publication .section-head h2", "Pull requests")
     assert has_element?(view, "#settings-publication-form input[name=branch_prefix]")
 
     view |> element("button[phx-value-action=disconnect-github]", "Disconnect") |> render_click()
-    assert has_element?(view, ".settings-confirm", "Disconnect GitHub?")
+    assert has_element?(view, "#confirm-disconnect-github", "Disconnect GitHub?")
     assert {:ok, _key} = Credentials.fetch(:github_private_key, "primary")
 
-    view |> element(".settings-confirm button", "Disconnect GitHub") |> render_click()
+    view |> element("#confirm-disconnect-github button", "Disconnect GitHub") |> render_click()
 
     assert {:error, :credential_missing} = Credentials.fetch(:github_private_key, "primary")
     assert has_element?(view, ".form-feedback-success", "GitHub is disconnected.")
@@ -1360,7 +1374,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "#settings-pricing .entity-meta a[href='https://developers.openai.com/api/docs/pricing']"
            )
 
-    view |> element("#settings-pricing button.settings-editor-add") |> render_click()
+    view |> element("#settings-pricing a.settings-editor-add") |> render_click()
+    assert_patch(view, "/settings/prices/new")
     refute has_element?(view, "#settings-pricing-provenance[placeholder]")
 
     view
@@ -1393,8 +1408,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   # model joined by a colon.
   test "a price without its provider is refused with how to write it" do
     initialize!()
-    {:ok, view, _html} = open("/settings/prices")
-    view |> element("#settings-pricing button.settings-editor-add") |> render_click()
+    {:ok, view, _html} = open("/settings/prices/new")
 
     assert has_element?(
              view,
@@ -1507,9 +1521,10 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert has_element?(view, "#settings-pricing .entity-row .entity-name", "gpt-5.6-sol")
     assert has_element?(view, "#settings-pricing .entity-meta", "per million tokens")
-    assert has_element?(view, "#settings-pricing button.settings-editor-add", "Add price")
+    assert has_element?(view, "#settings-pricing a.settings-editor-add", "Add price")
 
-    view |> element("#settings-pricing button.settings-editor-add") |> render_click()
+    view |> element("#settings-pricing a.settings-editor-add") |> render_click()
+    assert_patch(view, "/settings/prices/new")
 
     view
     |> form("#settings-pricing-form", %{
@@ -1521,6 +1536,10 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
       "provenance" => "provider price list"
     })
     |> render_submit()
+
+    # A saved price returns to the list, which says so.
+    assert_patch(view, "/settings/prices")
+    assert has_element?(view, ".form-feedback-success", "The price was added.")
 
     rate =
       Enum.find(Settings.fetch!().pricing_rates, &(&1.execution_target == "codex:test-model"))
@@ -1536,38 +1555,42 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
            )
 
     view
-    |> element(~s{button[phx-click=select-item][phx-value-item="#{rate.id}"]})
+    |> element(~s{#settings-pricing a[href="/settings/prices/#{rate.id}/edit"]})
     |> render_click()
 
-    assert has_element?(view, "#settings-pricing .settings-editor-heading", "Edit price")
+    assert_patch(view, "/settings/prices/#{rate.id}/edit")
+    assert has_element?(view, "main h1", "Edit test-model")
 
     view
     |> form("#settings-pricing-form", %{"output_usd_per_million" => "12"})
     |> render_submit()
+
+    assert_patch(view, "/settings/prices")
+    assert has_element?(view, ".form-feedback-success", "test-model was saved.")
 
     corrected = Enum.find(Settings.fetch!().pricing_rates, &(&1.id == rate.id))
     assert Decimal.equal?(corrected.output_usd_per_million, Decimal.new("12"))
     assert corrected.id == rate.id
     assert corrected.revision == 2
 
-    view |> element("#settings-pricing button", "Cancel") |> render_click()
-
     # Remove asks first and says what it does; only its own button removes.
     view
     |> element(~s{button[phx-click=ask-remove][phx-value-item="#{rate.id}"]})
     |> render_click()
 
-    assert has_element?(view, "#settings-pricing .settings-confirm", "Remove test-model?")
-    assert has_element?(view, "#settings-pricing .settings-confirm", "not priced")
+    assert has_element?(view, "#settings-pricing-remove", "Remove test-model?")
+    assert has_element?(view, "#settings-pricing-remove", "not priced")
     assert Enum.any?(Settings.fetch!().pricing_rates, &(&1.id == rate.id))
 
     view
-    |> element(~s{#settings-pricing .settings-confirm button[phx-click=delete-item]})
+    |> element(~s{#settings-pricing-remove button[phx-click=delete-item]})
     |> render_click()
 
     refute Enum.any?(Settings.fetch!().pricing_rates, &(&1.id == rate.id))
     assert length(Settings.fetch!().pricing_rates) == 3
     assert Settings.fetch!().installation.revision == 4
+    assert has_element?(view, ".form-feedback-success", "test-model was removed.")
+    refute has_element?(view, "#settings-pricing-remove")
   end
 
   test "a remove that was never asked about only asks" do
@@ -1579,45 +1602,45 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     |> with_target("#settings-pricing")
     |> render_click("delete-item", %{"item" => rate.id})
 
-    assert has_element?(view, "#settings-pricing .settings-confirm")
+    assert has_element?(view, "#settings-pricing-remove")
     assert Enum.any?(Settings.fetch!().pricing_rates, &(&1.id == rate.id))
   end
 
-  test "Add price opens its form above the prices, and a row's Edit opens under that row" do
-    # Andrew, 2026-09-25: "Add price" sat at the top of the page and opened
-    # its form under the whole list, so clicking it seemed to do nothing.
+  # Andrew, 2026-09-27, of Settings › Model prices: "this is another add form
+  # that is fully broken and looks horrible, it doesn't even have visual
+  # separation from rest of the page". Adding a price and editing one each
+  # open a page of their own, with the form in one card under a title that
+  # says what it does and a way back; the list itself never holds a form.
+  test "Add price and a row's Edit open the form on a page of its own, apart from the list" do
     initialize!()
     [rate | _rates] = Settings.fetch!().pricing_rates
     {:ok, view, _html} = open("/settings/prices")
 
-    add = "#settings-pricing button.settings-editor-add"
-    assert has_element?(view, "#{add}[aria-expanded=false]", "Add price")
-
-    view |> element(add) |> render_click()
-
-    assert has_element?(view, "#settings-pricing .settings-editor-heading", "Add price")
-    assert has_element?(view, "#settings-pricing > .settings-editor ~ .entity-list")
-    refute has_element?(view, "#settings-pricing > .entity-list ~ .settings-editor")
-
-    # The same button closes it again, and so does the form's own Cancel.
-    assert has_element?(view, "#{add}[aria-expanded=true]")
-    view |> element(add) |> render_click()
     refute has_element?(view, "#settings-pricing-form")
+    view |> element("#settings-pricing a.settings-editor-add", "Add price") |> render_click()
+    assert_patch(view, "/settings/prices/new")
 
-    view |> element(add) |> render_click()
-    view |> element("#settings-pricing-form button", "Cancel") |> render_click()
+    assert has_element?(view, "main h1", "Add a price")
+    assert has_element?(view, ".page-back[href='/settings/prices']", "Model prices")
+    assert has_element?(view, ".kit-form-card #settings-pricing-form")
+    refute has_element?(view, ".entity-list")
+    refute has_element?(view, ".settings-collection-bar")
+
+    view |> element("#settings-pricing-form a", "Cancel") |> render_click()
+    assert_patch(view, "/settings/prices")
     refute has_element?(view, "#settings-pricing-form")
 
     view
-    |> element(~s{button[phx-click=select-item][phx-value-item="#{rate.id}"]})
+    |> element(~s{#settings-pricing a[href="/settings/prices/#{rate.id}/edit"]}, "Edit")
     |> render_click()
 
-    assert has_element?(
-             view,
-             "#settings-pricing .entity-row.is-editing .entity-meta ~ .settings-editor #settings-pricing-form"
-           )
+    assert has_element?(view, ".kit-form-card #settings-pricing-form input[name=item_key]")
+    refute has_element?(view, ".entity-list")
 
-    refute has_element?(view, "#settings-pricing > .settings-editor")
+    # An address for a price that is gone says so instead of an empty form.
+    {:ok, view, _html} = open("/settings/prices/#{Ecto.UUID.generate()}/edit")
+    assert has_element?(view, "#form-not-found", "That price was not found")
+    refute has_element?(view, "#settings-pricing-form")
   end
 
   test "the Advanced page explains workers without a policy configuration step" do

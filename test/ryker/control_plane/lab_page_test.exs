@@ -243,7 +243,7 @@ defmodule Ryker.ControlPlane.LabPageTest do
     assert Enum.empty?(LazyHTML.query(bare, "form.lab-environment, select"))
     assert squish(LazyHTML.text(bare)) =~ "Environment None yet"
 
-    assert LazyHTML.query(bare, "a[href='/environments?edit=new']") |> LazyHTML.text() ==
+    assert LazyHTML.query(bare, "a[href='/environments/new']") |> LazyHTML.text() ==
              "Add one"
   end
 

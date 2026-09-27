@@ -1,14 +1,15 @@
 defmodule Ryker.ControlPlane.RepositoryImport do
   @moduledoc """
-  Adding repositories the connected GitHub App can reach, on the
-  Repositories page: find them, pick them, add them. The page shows it only
-  while the GitHub App works; otherwise its status line says how to fix that.
+  Adding repositories the connected GitHub App can reach, on a page of its
+  own (`/repositories/new`, Andrew, 2026-09-27: an add form opened in place
+  "blends into the content"): find them, pick them, add them. The page shows
+  the form only while the GitHub App works; otherwise its status line says
+  how to fix that.
 
-  The panel is a disclosure the page's "Add repositories" action opens. It
-  starts open while nothing is added yet, and the result of the last import
-  is said inside it, where the person who added them is looking. An added
-  repository joins the default environment, which Ryker creates as Default
-  when there is none, and the panel says so.
+  An import that adds everything chosen returns to the list, which says what
+  was added; one that adds nothing, or not everything, stays here and says
+  why. An added repository joins the default environment, which Ryker
+  creates as Default when there is none; the page's description says so.
   """
   use Phoenix.Component
 
@@ -20,18 +21,8 @@ defmodule Ryker.ControlPlane.RepositoryImport do
   attr(:notice, :any, default: nil, doc: "{tone, message} from the last import, or nil")
 
   def repository_import(assigns) do
-    assigns =
-      assign(assigns, open: assigns.view.snapshot.repositories == [])
-
     ~H"""
-    <details id="add-repositories" class="repository-import" open={@open}>
-      <summary>
-        <span class="repository-import-title">Add repositories</span>
-        <span class="repository-import-lede">
-          Import repositories the connected GitHub App can reach. Each one joins the default
-          environment, where new channels work.
-        </span>
-      </summary>
+    <div id="add-repositories" class="repository-import">
       <div class="repository-import-body">
         <Components.form_feedback
           :if={@notice}
@@ -143,7 +134,7 @@ defmodule Ryker.ControlPlane.RepositoryImport do
           </div>
         </form>
       </div>
-    </details>
+    </div>
     """
   end
 end

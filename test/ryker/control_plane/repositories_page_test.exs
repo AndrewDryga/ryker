@@ -295,7 +295,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
     action = LazyHTML.from_fragment(page.action)
 
-    assert LazyHTML.query(action, "a.ui-button.primary[href='#add-repositories']")
+    assert LazyHTML.query(action, "a.ui-button.primary[href='/repositories/new']")
            |> LazyHTML.text() == "Add repositories"
 
     refute page.body =~ "Publishing settings"
@@ -310,7 +310,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
            "/integrations/github"},
           {:ready, false,
            "GitHub Add a repository to start The App is verified. Ryker starts GitHub work once a repository is added.",
-           "Add repositories", "/repositories"},
+           "Add repositories", "/repositories/new"},
           {:invalid, true, "GitHub Needs repair The saved App ID or private key no longer works.",
            "Repair GitHub", "/integrations/github#github-app"},
           {:missing, false,
