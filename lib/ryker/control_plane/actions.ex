@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Behaviors.Automations
   alias Ryker.Memories
   alias Ryker.Memories.Forgetting
+  alias Ryker.Records.Findings
   alias Ryker.Records.InputRequests
   alias Ryker.Records.Record
   alias Ryker.Records.SlackPostOffers
@@ -64,6 +65,8 @@ defmodule Ryker.ControlPlane.Actions do
       drop_learning: &drop_learning/2,
       forget_memory: &Memories.forget/1,
       forget_knowledge: &Forgetting.forget_topic/1,
+      forget_finding: &Findings.forget/1,
+      mark_finding_explained: &Findings.mark_explained/1,
       resolve_episode: &resolve_episode/1,
       resolve_memory_review: &resolve_memory_review/3,
       rearm_admission: &retry_failure("admission", &1),

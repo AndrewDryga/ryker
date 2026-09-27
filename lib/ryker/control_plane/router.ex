@@ -578,6 +578,32 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # Forgetting or settling a finding stops Ryker using it; the question says
+  # so, and that the investigation keeps it.
+  defp confirmation("finding", resource_ref, "forget", options) do
+    case options.projection.finding.(resource_ref) do
+      {:ok, %{status: :open} = finding} ->
+        {:ok, "Forget “#{finding.what}”?",
+         "Ryker stops using this finding: later requests no longer read it, and the investigation that reached it no longer counts on it. It stays in the investigation's history and is listed here as forgotten. You can't undo this.",
+         "finding:forget"}
+
+      _unavailable ->
+        {:error, :not_found}
+    end
+  end
+
+  defp confirmation("finding", resource_ref, "mark-explained", options) do
+    case options.projection.finding.(resource_ref) do
+      {:ok, %{status: :open, classification: "unexplained"} = finding} ->
+        {:ok, "Mark “#{finding.what}” as explained?",
+         "It stops counting as not explained yet, and Ryker stops bringing it up as an open question in later requests. It stays in the investigation's history. You can't undo this.",
+         "finding:mark-explained"}
+
+      _unavailable ->
+        {:error, :not_found}
+    end
+  end
+
   # Dropping a stopped learning batch is bound to the budget version the
   # question was asked at: a batch granted another start since is not the
   # batch the person chose to drop.
@@ -758,6 +784,12 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("knowledge", resource_ref, "forget", actions),
     do: actions.forget_knowledge.(resource_ref)
 
+  defp perform("finding", resource_ref, "forget", actions),
+    do: actions.forget_finding.(resource_ref)
+
+  defp perform("finding", resource_ref, "mark-explained", actions),
+    do: actions.mark_finding_explained.(resource_ref)
+
   defp perform("memory-review", resource_ref, action, actions)
        when action in ["keep", "merge", "forget", "dismiss"],
        do: actions.resolve_memory_review.(resource_ref, memory_review_action(action), nil)
@@ -845,6 +877,7 @@ defmodule Ryker.ControlPlane.Router do
     do: "/failures"
 
   defp action_return_path("knowledge", _resource_ref), do: "/memory/learned"
+  defp action_return_path("finding", _resource_ref), do: "/memory/findings"
   defp action_return_path("learning", resource_ref), do: LearningActivity.path(resource_ref)
 
   defp action_return_path(_kind, _resource_ref), do: "/memory"

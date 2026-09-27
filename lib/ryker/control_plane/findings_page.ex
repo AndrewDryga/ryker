@@ -3,12 +3,14 @@ defmodule Ryker.ControlPlane.FindingsPage do
   Findings (`/memory/findings`): the conclusions Ryker saved in its
   investigations, newest first, each with why it holds, the evidence behind
   it, and the way into the investigation that reached it. Ryker writes these
-  itself; the page only reads them, and redraws when one is written or
+  itself. A person can mark one Ryker could not explain as explained, or
+  forget one that is wrong; either asks first and stops Ryker using it
+  (`Ryker.Records.Findings`). The page redraws when a finding is written or
   changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
-  import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1]
+  import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1, pager: 1]
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, MemoryFormat}
@@ -50,7 +52,8 @@ defmodule Ryker.ControlPlane.FindingsPage do
           id={"finding-" <> item.id}
           icon={:search}
           name={MemoryFormat.inline(item.what)}
-          state={state(item.classification)}
+          state={state(item)}
+          state_by_name
           text={MemoryFormat.inline(item.reason)}
           meta={[
             item.scope,
@@ -71,6 +74,14 @@ defmodule Ryker.ControlPlane.FindingsPage do
               </ul>
             </details>
           </:details>
+          <:actions :if={item[:status] == :open}>
+            <.action_button
+              :if={item.classification == "unexplained"}
+              path={action_path(item.id, "mark-explained")}
+              label="Mark explained"
+            />
+            <.action_button path={action_path(item.id, "forget")} label="Forget" />
+          </:actions>
         </Kit.entity_row>
       </Kit.entity_list>
       <Kit.empty
@@ -112,9 +123,31 @@ defmodule Ryker.ControlPlane.FindingsPage do
   defp page_path(q, page),
     do: "/memory/findings?" <> URI.encode_query(%{"q" => q, "page" => page})
 
-  defp state("unexplained"), do: {:warn, "Not explained yet"}
-  defp state("explained"), do: {:on, "Explained"}
-  defp state("expected"), do: {:off, "Expected"}
-  defp state("out_of_scope"), do: {:off, "Out of scope"}
-  defp state(_classification), do: nil
+  defp action_path(id, action), do: "/actions/finding/#{id}/#{action}"
+
+  # What a person settled comes first; otherwise how Ryker classified it. Each
+  # says what it means on hover and focus.
+  defp state(%{status: :dismissed}),
+    do:
+      {:off, "Forgotten",
+       "Someone forgot this finding, so Ryker no longer uses it. The investigation keeps it in its history."}
+
+  defp state(%{status: :answered}),
+    do:
+      {:on, "Marked explained",
+       "Someone marked this finding explained, so Ryker no longer treats it as an open question."}
+
+  defp state(%{classification: "unexplained"}),
+    do: {:warn, "Not explained yet", "Ryker could not say why this happened yet."}
+
+  defp state(%{classification: "explained"}),
+    do: {:on, "Explained", "The evidence Ryker cites shows why it happened."}
+
+  defp state(%{classification: "expected"}),
+    do: {:off, "Expected", "Ryker's reason says why this is normal."}
+
+  defp state(%{classification: "out_of_scope"}),
+    do: {:off, "Out of scope", "Ryker's reason says why it looked no further."}
+
+  defp state(_item), do: nil
 end
