@@ -679,7 +679,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
          true <- Regex.match?(~r/\A[A-Z0-9]+\z/, channel),
          true <- is_binary(stamp) && Regex.match?(~r/\A[0-9]+\.[0-9]+\z/, stamp) do
       "https://slack.com/app_redirect?" <>
-        URI.encode_query(%{team: team, channel: channel, message_ts: stamp})
+        URI.encode_query(team: team, channel: channel, message_ts: stamp)
     else
       _ -> nil
     end
