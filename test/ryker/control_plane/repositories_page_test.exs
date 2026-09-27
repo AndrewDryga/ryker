@@ -405,7 +405,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
           {%{pull_request_state: :open}, "Knowledge updated 1 h ago · open pull request #84"},
           {%{phase: :write}, "Writing RYKER.md"},
           {%{phase: :publish}, "Writing RYKER.md"},
-          {%{document_by: :outline}, "RYKER.md is an outline · pull request #84"},
+          {%{document_by: :outline}, "Outline written 1 h ago · pull request #84"},
           {%{published_at: nil}, "RYKER.md not proposed yet"}
         ] do
       row =

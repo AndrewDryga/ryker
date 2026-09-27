@@ -390,7 +390,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
             start_count: 0,
             next_attempt_at: now,
             error_code: code(reason),
-            error: RepositoryKnowledge.failure(reason)
+            error: RepositoryKnowledge.outline_failure(reason)
           ]
       )
     end)

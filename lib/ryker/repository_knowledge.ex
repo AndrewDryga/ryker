@@ -103,6 +103,16 @@ defmodule Ryker.RepositoryKnowledge do
       "RYKER.md was not updated: #{cause(reason)} Ryker tries again with the next daily " <>
         "check, or refresh knowledge."
 
+  @doc """
+  Why a repository's RYKER.md is only the outline from its file list: the
+  model could not finish reading it, and Ryker tries again.
+  """
+  @spec outline_failure(term()) :: String.t()
+  def outline_failure(reason),
+    do:
+      "RYKER.md is only an outline: #{cause(reason)} Ryker tries again with the next daily " <>
+        "check, or refresh knowledge."
+
   defp cause(reason) when reason in [:output_contract_failed, :invalid_repository_knowledge],
     do: "the model's answers did not follow the form Ryker asks for."
 

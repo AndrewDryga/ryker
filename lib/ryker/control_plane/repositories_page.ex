@@ -388,22 +388,22 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   defp knowledge_facts(%{phase: phase}, _now) when phase in [:write, :publish],
     do: ["Writing RYKER.md"]
 
-  defp knowledge_facts(%{document_by: :outline} = knowledge, _now),
-    do: ["RYKER.md is an outline", pull_request(knowledge)]
+  defp knowledge_facts(%{document_by: :outline, published_at: %DateTime{}} = knowledge, now),
+    do: [updated(knowledge, now, "Outline written "), pull_request(knowledge)]
 
   defp knowledge_facts(%{published_at: %DateTime{}} = knowledge, now),
-    do: [updated(knowledge, now), pull_request(knowledge)]
+    do: [updated(knowledge, now, "Knowledge updated "), pull_request(knowledge)]
 
   defp knowledge_facts(%{document_at: %DateTime{}}, _now), do: ["RYKER.md not proposed yet"]
   defp knowledge_facts(_knowledge, _now), do: ["RYKER.md not written yet"]
 
-  defp updated(knowledge, now),
+  defp updated(knowledge, now, prefix),
     do:
       ShortTime.time(%{
         __changed__: nil,
         at: knowledge.document_at,
         now: now,
-        prefix: "Knowledge updated "
+        prefix: prefix
       })
 
   defp pull_request(%{pull_request_url: url, pull_request_number: number} = knowledge)
