@@ -1625,7 +1625,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              pages: 1
            }
 
-    assert map_size(Projection.callbacks()) == 39
+    assert map_size(Projection.callbacks()) == 42
+    # The requests to improve and the eval cases accepted from them, for
+    # Memory › Feedback › What to fix and its download.
+    assert is_function(Projection.callbacks().improvement, 1)
+    assert is_function(Projection.callbacks().improvement_candidate, 1)
+    assert is_function(Projection.callbacks().eval_cases, 0)
     # The routing examples kept for training, a line at a time, for the download.
     assert is_function(Projection.callbacks().routing_examples, 2)
     # What people told Ryker about its answers, for the Feedback page.

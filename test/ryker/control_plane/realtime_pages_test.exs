@@ -255,6 +255,49 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
            end)
   end
 
+  # A request people were unhappy with becomes a candidate in the
+  # transaction that records the feedback; the open What to fix page hears
+  # it, and hears a decision too, with no poll.
+  test "a request people were unhappy with, and a decision on it, show on the open What to fix page" do
+    id = Ecto.UUID.generate()
+    conversation = "control-plane:lab:#{Ecto.UUID.generate()}"
+
+    {:ok, %{episode: episode}} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          destination: %{
+            conversation_ref: conversation,
+            thread_ref: conversation,
+            transport: "control_plane"
+          },
+          episode_id: id,
+          episode_key: "realtime-improvement:#{id}",
+          native_input_id: "realtime-improvement:#{id}",
+          turn_ref: "turn:realtime-improvement:#{id}"
+        })
+      )
+
+    {:ok, page, _html} = open("/memory/feedback/fix")
+    assert has_element?(page, ".kit-empty-title", "Nothing to decide")
+
+    assert {:ok, %{status: :recorded}} =
+             Ryker.Feedback.record(%{
+               kind: :reaction_added,
+               value: "-1",
+               actor_ref: "control-plane:user:local-operator",
+               source: "control_plane",
+               source_ref: "realtime-improvement",
+               occurred_at: DateTime.utc_now(),
+               request: {:episode, episode.id}
+             })
+
+    candidate = Ryker.Improvement.for_request({:episode, episode.id})
+    assert shows?(fn -> has_element?(page, "#improvement-#{candidate.id}", "Waiting") end)
+
+    assert {:ok, _dismissed} = Ryker.Improvement.dismiss(candidate.id, @actor)
+    assert shows?(fn -> has_element?(page, ".kit-empty-title", "Nothing to decide") end)
+  end
+
   test "a fact forgotten from Slack leaves the open Facts page" do
     source = SavedEntities.source!("slack:T123:C456")
     fact = SavedEntities.memory!(source, "checkout owner", "The payments team owns checkout.")

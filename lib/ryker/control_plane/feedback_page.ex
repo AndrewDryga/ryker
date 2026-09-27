@@ -23,7 +23,8 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1]
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Emoji, FeedbackProjection, Kit, ShortTime}
+  alias Ryker.ControlPlane.{Emoji, FeedbackProjection, ImprovementPage, Kit, ShortTime}
+  alias Ryker.Improvement.Candidate
 
   @path "/memory/feedback"
 
@@ -31,7 +32,11 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   The topics an open Feedback page listens to, as the context functions that
   subscribe to them (`Ryker.ControlPlane.WorkbenchLive`).
   """
-  def subscriptions, do: [{Ryker.Feedback, :subscribe_feedback, []}]
+  def subscriptions,
+    do: [
+      {Ryker.Feedback, :subscribe_feedback, []},
+      {Ryker.Improvement, :subscribe_improvement, []}
+    ]
 
   @doc "The one sentence under the page title."
   def description,
@@ -109,6 +114,27 @@ defmodule Ryker.ControlPlane.FeedbackPage do
       title="No feedback yet"
       text="When people react to Ryker's answers, ask the same thing again, change their message after an answer or say how an answer landed, it shows here."
     />
+    <section
+      :if={@view.q == "" and fix_total(Map.get(@view, :improvement)) > 0}
+      aria-labelledby="feedback-fix"
+    >
+      <Kit.section_head
+        id="feedback-fix"
+        title="What to fix"
+        lede="Requests people were unhappy with, each with Ryker's own diagnosis of what went wrong."
+      >
+        <:actions>
+          <.link navigate={ImprovementPage.path()}>Review</.link>
+        </:actions>
+      </Kit.section_head>
+      <Kit.counts label="What to fix" items={fix_counts(@view.improvement)} />
+      <Kit.counts
+        :if={@view.improvement.categories != %{}}
+        label="What went wrong, of those to decide"
+        secondary
+        items={fix_categories(@view.improvement)}
+      />
+    </section>
     <section :if={@view.days != []} aria-labelledby="feedback-by-day">
       <Kit.section_head
         id="feedback-by-day"
@@ -343,6 +369,47 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   defp counts(%{category: category} = view) do
     listed = Map.get(view, :listed, Map.get(view.counts, category, 0))
     [Kit.list_total(listed, {"piece of feedback", "pieces of feedback"}, view.q != "")]
+  end
+
+  # What there is to fix: how many are to decide, accepted and dismissed,
+  # each opening its view of What to fix, then what went wrong with those
+  # still to decide.
+  defp fix_total(%{counts: counts}), do: counts |> Map.values() |> Enum.sum()
+  defp fix_total(_none), do: 0
+
+  defp fix_counts(%{counts: counts}) do
+    decided =
+      for {status, label} <- [accepted: "accepted", dismissed: "dismissed"],
+          Map.fetch!(counts, status) > 0 do
+        %{
+          value: Map.fetch!(counts, status),
+          label: label,
+          href: ImprovementPage.view_path(status)
+        }
+      end
+
+    [
+      %{
+        value: counts.open,
+        label: "to decide",
+        tone: if(counts.open > 0, do: :warn),
+        href: ImprovementPage.view_path(:open)
+      }
+      | decided
+    ]
+  end
+
+  defp fix_categories(%{categories: categories}) do
+    for category <- Candidate.categories(),
+        count = Map.get(categories, category, 0),
+        count > 0 do
+      %{
+        value: count,
+        label: String.downcase(ImprovementPage.category_plural(category, count)),
+        tone: if(category == :host_bug, do: :bad),
+        href: ImprovementPage.view_path(:open, category)
+      }
+    end
   end
 
   defp count_tone(:frustrated), do: :bad

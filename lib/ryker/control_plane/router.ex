@@ -175,6 +175,31 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # The requests accepted as eval cases on Memory › Feedback › What to fix, as
+  # one zip of world scenario directories (`Ryker.Improvement.Export`).
+  defp route(
+         %Plug.Conn{
+           method: "GET",
+           path_info: ["memory", "feedback", "fix", "eval-cases.zip"]
+         } = conn,
+         options
+       ) do
+    case options.projection.eval_cases.() do
+      {:ok, archive} ->
+        conn
+        |> put_resp_content_type("application/zip")
+        |> put_resp_header(
+          "content-disposition",
+          ~s(attachment; filename="ryker-eval-cases-#{Date.utc_today()}.zip")
+        )
+        |> send_resp(200, archive)
+        |> halt()
+
+      {:error, _reason} ->
+        text(conn, 503, "Eval cases unavailable\n")
+    end
+  end
+
   defp route(
          %Plug.Conn{
            method: "GET",
@@ -835,7 +860,47 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # Accepting or dismissing a request to improve changes only its decision;
+  # each can be changed back later, so neither is in the danger tone.
+  defp confirmation("improvement", resource_ref, action, options)
+       when action in ["accept", "dismiss"] do
+    case options.projection.improvement_candidate.(resource_ref) do
+      {:ok, %{status: status} = item}
+      when (action == "accept" and status != :accepted) or
+             (action == "dismiss" and status != :dismissed) ->
+        {title, explanation} = improvement_confirmation(action, item)
+        {:ok, title, explanation, "improvement:#{action}"}
+
+      _unavailable ->
+        {:error, :not_found}
+    end
+  end
+
   defp confirmation(_kind, _resource_ref, _action, _snapshot), do: {:error, :not_found}
+
+  defp improvement_confirmation("accept", item) do
+    {"Accept this as an eval case?",
+     "Ryker keeps the person's messages, the answer they were unhappy with and what it should have done, so you can download them as an eval case for testdata. It moves to Accepted." <>
+       if(item.analysis == :done,
+         do: "",
+         else:
+           " Ryker has not analyzed it yet; what it should have done joins the case once it has."
+       )}
+  end
+
+  defp improvement_confirmation("dismiss", %{status: :accepted}) do
+    {"Dismiss this eval case?",
+     "It is no longer downloaded as an eval case, and the messages it kept are let go. It moves to Dismissed and stays on record."}
+  end
+
+  defp improvement_confirmation("dismiss", item) do
+    {"Dismiss this?",
+     "It moves to Dismissed and stays on record, and you can accept it later." <>
+       if(item.analysis in [:pending, :running],
+         do: " Ryker does not analyze it while it is dismissed.",
+         else: ""
+       )}
+  end
 
   defp failure_intent(%{kind: "work", work_recovery: %{fingerprint: fingerprint}})
        when is_binary(fingerprint),
@@ -897,6 +962,12 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("slack_thread_status", resource_ref, "rearm", actions),
     do: actions.rearm_slack_thread_status.(resource_ref)
 
+  defp perform("improvement", resource_ref, "accept", actions),
+    do: actions.accept_improvement.(resource_ref)
+
+  defp perform("improvement", resource_ref, "dismiss", actions),
+    do: actions.dismiss_improvement.(resource_ref)
+
   defp perform("episode", resource_ref, "resolve", actions),
     do: actions.resolve_episode.(resource_ref)
 
@@ -954,6 +1025,7 @@ defmodule Ryker.ControlPlane.Router do
 
   defp action_return_path("knowledge", _resource_ref), do: "/memory/learned"
   defp action_return_path("finding", _resource_ref), do: "/memory/findings"
+  defp action_return_path("improvement", _resource_ref), do: "/memory/feedback/fix"
   defp action_return_path("learning", resource_ref), do: LearningActivity.path(resource_ref)
 
   defp action_return_path(_kind, _resource_ref), do: "/memory"

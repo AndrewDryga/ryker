@@ -34,6 +34,8 @@ defmodule Ryker.ControlPlane.WebRouter do
       live("/memory/#{page}", Ryker.ControlPlane.WorkbenchLive)
     end
 
+    live("/memory/feedback/fix", Ryker.ControlPlane.WorkbenchLive)
+
     for page <- ~w(slack github emisar webhooks) do
       live("/integrations/#{page}", Ryker.ControlPlane.WorkbenchLive)
     end

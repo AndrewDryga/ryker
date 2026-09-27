@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.Projection do
     FailureProjection,
     FeedbackProjection,
     FindingsProjection,
+    ImprovementProjection,
     IncidentProjection,
     InstructionSettings,
     LearningActivity,
@@ -36,6 +37,7 @@ defmodule Ryker.ControlPlane.Projection do
     WorkspaceProjection
   }
 
+  alias Ryker.Improvement.Export, as: EvalCases
   alias Ryker.RoutingExamples.Export
 
   @spec callbacks() :: map()
@@ -50,9 +52,12 @@ defmodule Ryker.ControlPlane.Projection do
       episode: &EpisodeProjection.fetch/2,
       failure: &FailureProjection.fetch/2,
       failures: &FailureProjection.list/1,
+      eval_cases: &EvalCases.zip/0,
       feedback: &FeedbackProjection.page/1,
       findings: &FindingsProjection.list/1,
       finding: &FindingsProjection.fetch/1,
+      improvement: &ImprovementProjection.page/1,
+      improvement_candidate: &ImprovementProjection.fetch/1,
       incident: &IncidentProjection.fetch/1,
       incidents: &IncidentProjection.list/1,
       instructions: &InstructionSettings.fetch/1,

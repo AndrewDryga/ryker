@@ -28,6 +28,8 @@ defmodule Ryker.ControlPlane.Pages do
     FeedbackProjection,
     FindingsPage,
     HTML,
+    ImprovementPage,
+    ImprovementProjection,
     IncidentProjection,
     IncidentRoomsPage,
     LearnedPage,
@@ -310,6 +312,13 @@ defmodule Ryker.ControlPlane.Pages do
     end
   end
 
+  # Requests people were unhappy with, with Ryker's own diagnosis: a
+  # sub-page of Feedback with the way back to it.
+  def page(["memory", "feedback", "fix"], params, options) do
+    view = options.projection.improvement.(Map.take(params, ImprovementProjection.query_keys()))
+    view |> ImprovementPage.heading() |> sub_page(ImprovementPage.html(view))
+  end
+
   def page(["memory", "findings"], params, options) do
     ok(
       "Findings",
@@ -364,6 +373,10 @@ defmodule Ryker.ControlPlane.Pages do
   def subscriptions(["memory", "learning"], _params), do: LearningPage.subscriptions()
   def subscriptions(["memory", "findings"], _params), do: FindingsPage.subscriptions()
   def subscriptions(["memory", "feedback"], _params), do: FeedbackPage.subscriptions()
+
+  def subscriptions(["memory", "feedback", "fix"], _params),
+    do: ImprovementPage.subscriptions()
+
   def subscriptions(["rules"], _params), do: BehaviorPage.subscriptions(:rules)
   def subscriptions(["usage"], _params), do: UsagePage.subscriptions()
   def subscriptions(["failures" | _failure], _params), do: FailuresPage.subscriptions()
