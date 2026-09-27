@@ -785,16 +785,29 @@ defmodule Ryker.Slack.Gateway do
 
   defp process_frames([{:pong, _payload} | frames], state), do: process_frames(frames, state)
 
-  defp process_frames([{:close, _code, _reason} | _frames], state),
-    do: {:reconnect, state}
+  defp process_frames([{:close, code, reason} | _frames], state) do
+    Logger.info("Slack closed Socket Mode: #{inspect({code, reason})}")
+    {:reconnect, state}
+  end
 
-  defp process_frames([{:binary, _payload} | _frames], state), do: {:reconnect, state}
-  defp process_frames([_invalid | _frames], state), do: {:reconnect, state}
+  defp process_frames([{:binary, _payload} | _frames], state) do
+    Logger.warning("Slack sent a binary Socket Mode frame; reconnecting")
+    {:reconnect, state}
+  end
+
+  defp process_frames([invalid | _frames], state) do
+    Logger.warning("Slack sent an unexpected Socket Mode frame: #{inspect(invalid, limit: 5)}")
+    {:reconnect, state}
+  end
 
   defp process_text(payload, state)
        when is_binary(payload) and byte_size(payload) <= @maximum_envelope_bytes do
     case Jason.decode(payload) do
-      {:ok, %{"type" => "disconnect"}} ->
+      {:ok, %{"type" => "disconnect"} = envelope} ->
+        # Slack says why: refresh_requested and warning are routine, while
+        # link_disabled or too_many_websockets mean it will not stay up.
+        Logger.info("Slack asked Socket Mode to disconnect: #{inspect(envelope["reason"])}")
+
         {:reconnect, state}
 
       {:ok, %{} = envelope} ->
@@ -808,7 +821,13 @@ defmodule Ryker.Slack.Gateway do
     end
   end
 
-  defp process_text(_payload, state), do: {:reconnect, state}
+  defp process_text(_payload, state) do
+    Logger.warning(
+      "Slack sent a Socket Mode envelope over #{@maximum_envelope_bytes} bytes; reconnecting"
+    )
+
+    {:reconnect, state}
+  end
 
   defp acknowledge(%{"envelope_id" => _envelope_ref} = envelope, outcome, state)
        when elem(outcome, 0) == :ack do
