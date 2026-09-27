@@ -244,9 +244,12 @@ defmodule Ryker.Improvement.Evidence do
 
   defp words(_content), do: ""
 
+  # One person's message, with the message it is a revision of: every edit
+  # names the message it edits.
   defp event(entry, text) do
     %{
       "at" => iso(entry.occurred_at),
+      "message_ref" => entry.source_item_ref || entry.native_input_id,
       "actor" => %{"kind" => Atom.to_string(entry.actor_kind), "ref" => entry.actor_ref},
       "source" => %{"kind" => entry.source_kind, "ref" => entry.source_ref},
       "destination" => %{

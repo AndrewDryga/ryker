@@ -243,6 +243,123 @@ defmodule Ryker.Improvement.ExportTest do
     assert {:ok, _dismissed} = Improvement.dismiss(candidate.id, "control-plane:local")
   end
 
+  # Routing answers an edited message with a turn of its own, so a quick
+  # reply to an edit is a request whose only message is that edit. Its case
+  # exported no events, which the world runner refuses, and one refused
+  # directory stops every world scenario from loading (found in review,
+  # 2026-09-27).
+  test "a request whose only message is an edit exports as that message, and loads" do
+    question =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: "CEXPORTOPS",
+        actor: "UEXPORTPERSON",
+        text: "Count to 10",
+        ts: "1790200960.000100"
+      )
+
+    Answers.quick_reply!(
+      question,
+      "1, 2, 3, 4, 5, 6, 7, 8, 9, 10.",
+      "1790200960.000200",
+      DateTime.add(question.occurred_at, 5, :second)
+    )
+
+    edit =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: "CEXPORTOPS",
+        actor: "UEXPORTPERSON",
+        text: "Count to 20",
+        ts: "1790200960.000100",
+        kind: :edit,
+        revision: 2,
+        at: DateTime.add(question.occurred_at, 30, :second)
+      )
+
+    Answers.quick_reply!(
+      edit,
+      "1, 2, 3, 4, 5, 6, 7, 8, 9, 10.",
+      "1790200960.000300",
+      DateTime.add(question.occurred_at, 35, :second)
+    )
+
+    assert {:ok, _recorded} =
+             Feedback.record(%{
+               kind: :reaction_added,
+               value: "-1",
+               actor_ref: "UEXPORTPERSON",
+               source: "slack",
+               source_ref: "slack-event:export-edit-thumbs-down",
+               occurred_at: DateTime.add(question.occurred_at, 60, :second),
+               request: {:input, edit.id}
+             })
+
+    candidate = Improvement.for_request({:input, edit.id})
+    assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
+
+    assert {:ok, scenario} = exported!(accepted)
+    assert [event] = scenario.events
+    assert event["payload"]["text"] == "Count to 20"
+    assert event["occurred_at"] == DateTime.to_iso8601(edit.occurred_at)
+  end
+
+  # A person who fixes their question before Ryker answers sent one message,
+  # not two: the case replays it once, as it read when Ryker answered, at
+  # the time it was first sent.
+  test "a message edited before the feedback exports once, as it then read" do
+    question =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: "CEXPORTOPS",
+        actor: "UEXPORTPERSON",
+        text: "Is the staging databse healthy?",
+        ts: "1790200970.000100"
+      )
+
+    edit =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: "CEXPORTOPS",
+        actor: "UEXPORTPERSON",
+        text: "Is the staging database healthy?",
+        ts: "1790200970.000100",
+        kind: :edit,
+        revision: 2,
+        at: DateTime.add(question.occurred_at, 10, :second)
+      )
+
+    reply =
+      Answers.work_reply!(
+        question,
+        "The production database is healthy.",
+        "1790200970.000200",
+        DateTime.add(question.occurred_at, 60, :second)
+      )
+
+    Answers.join!(edit, reply.episode.id)
+
+    assert {:ok, _recorded} =
+             Feedback.record(%{
+               kind: :sentiment,
+               value: "angry",
+               note: "They are upset that Ryker checked production.",
+               actor_ref: "UEXPORTPERSON",
+               source: "slack",
+               source_ref: "slack-event:export-edit-angry",
+               occurred_at: DateTime.add(question.occurred_at, 180, :second),
+               request: {:episode, reply.episode.id}
+             })
+
+    candidate = Improvement.for_request({:episode, reply.episode.id})
+    assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
+
+    assert {:ok, scenario} = exported!(accepted)
+    assert [event] = scenario.events
+    assert event["payload"]["text"] == "Is the staging database healthy?"
+    assert event["occurred_at"] == DateTime.to_iso8601(question.occurred_at)
+  end
+
   # The harvested correction: a person asks Ryker to check their
   # infrastructure, Ryker asks for access it already has, and the person
   # says so. Their first message's routing example is kept.
@@ -330,6 +447,24 @@ defmodule Ryker.Improvement.ExportTest do
     )
 
     {Repo.get!(Candidate, candidate.id), first}
+  end
+
+  # Every accepted case written where the world runner reads them, beside the
+  # catalog they refer to, and `accepted`'s loaded as the runner loads it.
+  defp exported!(accepted) do
+    root = tmp_dir!()
+    assert {:ok, _count} = Export.write(Path.join(root, "cases"))
+    File.mkdir_p!(Path.join([root, "cases", "va1-health-review-repairs-and-finishes"]))
+
+    File.cp!(
+      @catalog,
+      Path.join([root, "cases", "va1-health-review-repairs-and-finishes", "tool-catalog.json"])
+    )
+
+    for directory <- Path.wildcard(Path.join([root, "cases", "feedback-*"])),
+        do: assert({:ok, _scenario} = WorldCase.load(directory), directory)
+
+    WorldCase.load(Path.join([root, "cases", Export.case_id(accepted)]))
   end
 
   defp tmp_dir! do
