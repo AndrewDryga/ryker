@@ -134,7 +134,7 @@ defmodule Ryker.Emisar.Approvals do
 
     with {:ok, approval} <- live_lease(connection_ref, request_id, lease_ref, now),
          :ok <- exact_run(approval, state) do
-      update!(approval, %{lease_expires_at: DateTime.add(now, lease_seconds, :second)})
+      update!(approval, %{lease_expires_at: DateTime.add(now, lease_seconds, :second)}, :quiet)
     else
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -450,13 +450,19 @@ defmodule Ryker.Emisar.Approvals do
       %Approval{} = approval ->
         lease_ref = "emisar-approval-lease:#{Ecto.UUID.generate()}"
 
+        # A claim only takes the lease, which no page shows. A watch is
+        # claimed every few seconds for as long as its approval waits.
         approval =
-          update!(approval, %{
-            lease_expires_at: DateTime.add(now, lease_seconds, :second),
-            lease_owner: worker_ref,
-            lease_ref: lease_ref,
-            next_attempt_at: nil
-          })
+          update!(
+            approval,
+            %{
+              lease_expires_at: DateTime.add(now, lease_seconds, :second),
+              lease_owner: worker_ref,
+              lease_ref: lease_ref,
+              next_attempt_at: nil
+            },
+            :quiet
+          )
 
         %{approval: approval, lease_ref: lease_ref}
     end
@@ -496,20 +502,27 @@ defmodule Ryker.Emisar.Approvals do
 
     with {:ok, approval} <- live_lease(connection_ref, request_id, lease_ref, now),
          :ok <- exact_run(approval, state) do
+      observed = %{
+        failure_count: 0,
+        last_error: nil,
+        remote_error: state.error_message,
+        remote_status: state.status,
+        review_digest: Review.digest(state.review),
+        run_url: state.run_url
+      }
+
       approval =
-        update!(approval, %{
-          failure_count: 0,
-          last_error: nil,
-          last_observed_at: now,
-          lease_expires_at: nil,
-          lease_owner: nil,
-          lease_ref: nil,
-          next_attempt_at: DateTime.add(now, poll_seconds, :second),
-          remote_error: state.error_message,
-          remote_status: state.status,
-          review_digest: Review.digest(state.review),
-          run_url: state.run_url
-        })
+        update!(
+          approval,
+          Map.merge(observed, %{
+            last_observed_at: now,
+            lease_expires_at: nil,
+            lease_owner: nil,
+            lease_ref: nil,
+            next_attempt_at: DateTime.add(now, poll_seconds, :second)
+          }),
+          if(Map.take(approval, Map.keys(observed)) == observed, do: :quiet, else: :announce)
+        )
 
       %{approval: approval, status: :monitoring}
     else
@@ -739,8 +752,14 @@ defmodule Ryker.Emisar.Approvals do
   defp lock_approval(id),
     do: Repo.one(from(approval in Approval, where: approval.id == ^id, lock: "FOR UPDATE"))
 
-  defp update!(approval, attributes) do
+  # A look that found the run as Emisar last described it, a claim and a
+  # lease extension change nothing anyone sees, and a watch is looked at
+  # every few seconds for as long as its approval waits: those write quietly.
+  defp update!(approval, attributes, announce \\ :announce) do
     case approval |> ApprovalChangeset.update(attributes) |> Repo.update() do
+      {:ok, approval} when announce == :quiet ->
+        approval
+
       {:ok, approval} ->
         broadcast_approval_updated(approval)
         approval

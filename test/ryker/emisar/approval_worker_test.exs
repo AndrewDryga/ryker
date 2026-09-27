@@ -1,7 +1,9 @@
 defmodule Ryker.Emisar.ApprovalWorkerTest do
   use Ryker.DataCase, async: false
 
-  alias Ryker.Emisar.{Approvals, ApprovalWorker, RunState}
+  import Ecto.Query, only: [from: 2]
+
+  alias Ryker.Emisar.{Approval, ApprovalDispatcher, Approvals, ApprovalWorker, RunState}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
@@ -120,6 +122,35 @@ defmodule Ryker.Emisar.ApprovalWorkerTest do
 
     refute_receive {:worker_wait_for_run, "run-due"}, 500
     assert_receive {:worker_wait_for_run, "run-due"}, 1_500
+  end
+
+  # A watched run is looked at every few seconds for as long as its approval
+  # waits, often hours, and each look announced its claim, its lease and its
+  # result on the request's topics even when Emisar said what it said before.
+  # Once a dozen workers woke on those topics, every look woke all of them.
+  test "a look at Emisar that finds the run as it was is not announced" do
+    {:ok, %{episode: %{id: episode_id}}} = waiting_approval!("unchanged")
+    running = {:ok, run_state("unchanged", "pending_approval")}
+
+    options =
+      Keyword.merge(dispatcher_options(running, "approval-worker:unchanged"), poll_seconds: 1)
+
+    assert {:ok, {:monitoring, "apr-unchanged", _status}} = ApprovalDispatcher.run_once(options)
+    make_approval_due!("apr-unchanged")
+
+    :ok = Approvals.subscribe_approvals()
+    :ok = Episodes.subscribe_episode(episode_id)
+    assert {:ok, {:monitoring, "apr-unchanged", _status}} = ApprovalDispatcher.run_once(options)
+
+    refute_received {:emisar_approval_updated, _approval_id}
+    refute_received {:episode_updated, ^episode_id}
+  end
+
+  defp make_approval_due!(request_id) do
+    Repo.update_all(
+      from(approval in Approval, where: approval.request_id == ^request_id),
+      set: [next_attempt_at: DateTime.add(Repo.now!(), -1, :second)]
+    )
   end
 
   defp sleeping_options do
