@@ -92,6 +92,26 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     assert Agent.get(client, & &1.updates) == 3
   end
 
+  # A blocked card is listed on Failures and on its task's Timeline, and a
+  # rearm takes it off. Until 2026-09-26 those pages heard of either from a
+  # trigger's NOTIFY and a five-second poll; the context now announces the
+  # card, and its task, once the change commits.
+  test "a blocked and rearmed task card reaches Failures and its task's Timeline" do
+    card = card!("announced")
+    card_id = card.id
+    episode_id = card.episode.id
+    client = client!({:error, {:slack_api_error, "message_not_found"}})
+    :ok = TaskCards.subscribe_task_cards()
+    :ok = Episodes.subscribe_episode(episode_id)
+
+    assert {:ok, {:blocked, _ref}} = TaskCardWorker.run_once(options(client))
+    assert_received {:task_card_updated, ^card_id}
+    assert_received {:episode_updated, ^episode_id}
+
+    assert {:ok, _rearmed} = TaskCards.rearm(card.ref)
+    assert_received {:task_card_updated, ^card_id}
+  end
+
   # Every claim counted as an attempt, successful refreshes included, so a
   # card that had been refreshed a hundred times waited the full hour after
   # its first transient failure, and with a cap would have been blocked by

@@ -21,6 +21,22 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
     end
   end
 
+  # Failures lists a thread status Slack keeps refusing, and a request's
+  # Timeline shows what its thread says. Until 2026-09-26 they heard of a
+  # written or confirmed status from a trigger's NOTIFY and a five-second
+  # poll; the context now announces it once the write commits.
+  test "a status written and confirmed in a thread reaches the pages that show it" do
+    {:ok, client} = Agent.start_link(fn -> %{writes: []} end)
+    {:ok, projection} = Agent.start_link(fn -> [target(:queued, "is queued...")] end)
+    :ok = ThreadStatuses.subscribe_thread_statuses()
+
+    assert {:ok, %{failed: 0, written: 1}} =
+             ThreadStatusWorker.run_once(options(client, projection))
+
+    %ThreadStatus{id: id} = status!()
+    assert_received {:thread_status_updated, ^id}
+  end
+
   test "durable generations pace semantic changes and make a terminal clear win" do
     {:ok, client} = Agent.start_link(fn -> %{writes: []} end)
     {:ok, projection} = Agent.start_link(fn -> [target(:queued, "is queued...")] end)

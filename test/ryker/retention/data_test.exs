@@ -87,6 +87,40 @@ defmodule Ryker.Retention.DataTest do
     assert Activity.list_for_episode(work.episode.id) == []
   end
 
+  # Every page that lists history drops what a pass removed. Until 2026-09-26
+  # they heard of a pass from a trigger's NOTIFY on each pruned table and a
+  # five-second poll; a pass now says once, after it commits, which kinds of
+  # history it touched, and a pass that removed nothing stays quiet.
+  test "a pass that removed history reaches the pages that listed it, and an empty pass does not" do
+    :ok = Data.subscribe_pruning()
+    assert {:ok, _result} = Data.prune(settings())
+    refute_received {:history_pruned, _kinds}
+
+    work = settled_work!("pruning-announced") |> discard_session!()
+
+    CallLog.record(
+      work,
+      "propose_automation",
+      %{"proposals" => [%{"title" => "pruning-announced proposal"}]},
+      {:error, "invalid_arguments"},
+      @old
+    )
+
+    backdate_operational!(work)
+    assert {:ok, _result} = Data.prune(settings())
+    assert_received {:history_pruned, [_kind | _kinds]}
+  end
+
+  # Failures and Activity show who retried, rearmed or discarded what. Until
+  # 2026-09-26 they heard of an operator action from a trigger's NOTIFY and a
+  # five-second poll; the action is now announced once it commits.
+  test "an operator action reaches the pages that show who acted" do
+    :ok = Actions.subscribe_actions()
+    insert_operator_action!("announced")
+    assert {:ok, %{id: id}} = Actions.fetch("operator-action:announced")
+    assert_received {:operator_action_recorded, ^id}
+  end
+
   test "a recorded state-tool call expires with its turn's bodies" do
     # Ryker keeps the arguments and error of each state-tool call because Coop
     # never sends them. They copy what the model wrote, so they must leave with

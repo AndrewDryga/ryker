@@ -168,6 +168,22 @@ defmodule Ryker.Slack.GatewayRuntimeTest do
     assert_receive {:socket_closed, ^gateway}
   end
 
+  # Setup, Integrations and Chat say whether Slack is connected. The
+  # connection is the gateway's own state, not a row, so no trigger ever saw
+  # it change and an open page caught up only on its five-second poll. The
+  # gateway now announces it connecting and dropping the connection.
+  test "the connection coming up and going down reaches the pages that say whether Slack works" do
+    :ok = Gateway.subscribe_connection()
+    gateway = start_gateway(settings(), reconnect_ms: 10)
+    assert_receive {:socket_connected, ^gateway}
+    assert_receive {:slack_connection_changed, true}
+
+    send(gateway, :socket_stream_error)
+    assert_receive {:socket_closed, ^gateway}
+    assert_receive {:slack_connection_changed, false}
+    assert_receive {:slack_connection_changed, true}, 1_000
+  end
+
   test "recovers a failed connection and ignores stale runtime messages" do
     connect_results = start_supervised!({Agent, fn -> [{:error, :offline}, :ok] end})
 

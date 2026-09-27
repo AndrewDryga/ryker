@@ -20,6 +20,30 @@ defmodule Ryker.Settings.EnvironmentsTest do
     %{snapshot: snapshot}
   end
 
+  # Environments, Repositories, Channels and Chat show the saved environments
+  # and repositories. Until 2026-09-26 an open page in another tab heard of a
+  # save from a trigger's NOTIFY and a five-second poll; the settings now
+  # announce the revision each save committed.
+  test "a saved repository and environment reach the pages that show them", %{snapshot: snapshot} do
+    :ok = Settings.subscribe()
+
+    assert {:ok, repository} =
+             Settings.put_repository(%{ref: "billing"}, snapshot.installation.revision, @actor)
+
+    revision = repository.installation.revision
+    assert_received {:settings_saved, ^revision}
+
+    assert {:ok, environment} =
+             Settings.put_environment(
+               %{ref: "staging", display_name: "Staging", repositories: ["billing"]},
+               revision,
+               @actor
+             )
+
+    revision = environment.installation.revision
+    assert_received {:settings_saved, ^revision}
+  end
+
   # The first repository of an environment is the one work changes when
   # nothing chose another, so the order an operator gives is the authority: a
   # list that came back sorted by name would silently change that default.
