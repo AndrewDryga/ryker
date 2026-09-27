@@ -1,6 +1,6 @@
 defmodule Ryker.Admission.WorkerTest do
   use Ryker.DataCase, async: false
-  import Ryker.TestHelpers, only: [eventually: 1]
+  import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
 
   @moduletag isolation: "REPEATABLE READ"
 
@@ -77,6 +77,47 @@ defmodule Ryker.Admission.WorkerTest do
     assert :ok = stop_supervised(Worker)
   end
 
+  # On 2026-09-27 an idle install committed about 125 transactions a second,
+  # the four routing slots alone polling the inbox every 250 ms. A slot now
+  # sleeps until the inbox announces a message, so that announcement is all
+  # that stands between a person and their answer.
+  test "a message recorded while routing is idle is routed at once, not at the next timer" do
+    {:ok, fake} = FakeCoopAPI.start_link([decision("reply")])
+
+    worker =
+      start_supervised!(
+        {Worker,
+         worker_options(fake, "worker:woken", poll_interval_ms: 60_000, idle_interval_ms: 60_000)}
+      )
+
+    # Its first poll found nothing, and its next timer is a minute away.
+    _state = :sys.get_state(worker)
+    entry = record_input!("Ev-worker-woken")
+
+    assert eventually(fn -> decided?(entry) end, 500)
+  end
+
+  # Only the clock makes a deferred message claimable again, and nothing
+  # announces the clock: an idle slot that slept its whole safety-net interval
+  # would answer a message whose retry fell due ten seconds late.
+  test "a message whose retry falls due is routed then, not at the safety-net interval" do
+    entry = record_input!("Ev-worker-due")
+    input_ref = Inbox.ref(entry)
+    now = DateTime.utc_now()
+    {:ok, %{lease_ref: lease_ref}} = Inbox.claim_next("worker:earlier", now, 300)
+    {:ok, _deferred} = Inbox.defer(input_ref, lease_ref, now, 300, "coop_unavailable", "down")
+    {:ok, fake} = FakeCoopAPI.start_link([decision("reply")])
+
+    options =
+      fake
+      |> worker_options("worker:due", poll_interval_ms: 60_000, idle_interval_ms: 60_000)
+      |> put_in([:dispatcher_options, :now], &DateTime.utc_now/0)
+
+    start_supervised!({Worker, options})
+
+    assert eventually(fn -> decided?(entry) end, 1_500)
+  end
+
   test "rejects a polling loop that would spin continuously" do
     Process.flag(:trap_exit, true)
 
@@ -87,7 +128,14 @@ defmodule Ryker.Admission.WorkerTest do
              )
   end
 
-  defp worker_options(fake, worker_ref) do
+  defp decided?(entry) do
+    case Inbox.fetch(Inbox.ref(entry)) do
+      {:ok, decided} -> decided.status == :decided
+      :error -> false
+    end
+  end
+
+  defp worker_options(fake, worker_ref, intervals \\ [poll_interval_ms: 10]) do
     [
       dispatcher_options: [
         executor_options: [
@@ -105,9 +153,8 @@ defmodule Ryker.Admission.WorkerTest do
         retry_base_ms: 1_000,
         retry_max_ms: 60_000,
         worker_ref: worker_ref
-      ],
-      poll_interval_ms: 10
-    ]
+      ]
+    ] ++ intervals
   end
 
   defp record_input!(event_ref) do

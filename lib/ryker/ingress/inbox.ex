@@ -24,6 +24,7 @@ defmodule Ryker.Ingress.Inbox do
   alias Ryker.Learning.Observations
   alias Ryker.Memories
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
 
   @ref_prefix "ingress-input:"
 
@@ -332,6 +333,30 @@ defmodule Ryker.Ingress.Inbox do
       where: is_nil(entry.lease_ref) or entry.lease_expires_at <= ^now,
       where: not exists(subquery(predecessor))
     )
+  end
+
+  @doc """
+  The earliest moment after `since` at which a pending input becomes claimable
+  by the clock alone: its retry's backoff ends, or the lease of a claim nobody
+  renewed runs out. Nil when no pending input waits on the clock.
+
+  Admission sleeps until then; everything else that makes an input claimable
+  is a change this module announces.
+  """
+  @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(%DateTime{} = since) do
+    from(entry in Entry,
+      where: entry.status == :pending,
+      select: [
+        filter(min(entry.next_attempt_at), entry.next_attempt_at > ^since),
+        filter(
+          min(entry.lease_expires_at),
+          not is_nil(entry.lease_ref) and entry.lease_expires_at > ^since
+        )
+      ]
+    )
+    |> Repo.one()
+    |> UTCDateTime.earliest()
   end
 
   defp conversation_predecessor(now) do
