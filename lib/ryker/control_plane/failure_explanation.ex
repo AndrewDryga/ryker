@@ -1683,7 +1683,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     if Regex.match?(~r/\A[A-Z0-9]+\z/, workspace) and Regex.match?(~r/\A[A-Z0-9]+\z/, channel),
       do:
         "https://slack.com/app_redirect?" <>
-          URI.encode_query(%{team: workspace, channel: channel})
+          URI.encode_query(team: workspace, channel: channel)
   end
 
   # --- Slack message updates -------------------------------------------------

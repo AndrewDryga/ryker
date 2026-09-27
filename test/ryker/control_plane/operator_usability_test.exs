@@ -285,7 +285,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert LazyHTML.query(list, ".failure-next") |> LazyHTML.text() =~ "invite Ryker"
 
     assert LazyHTML.query(list, ".entity-actions a") |> LazyHTML.attribute("href") == [
-             "https://slack.com/app_redirect?channel=C456&team=T123"
+             "https://slack.com/app_redirect?team=T123&channel=C456"
            ]
 
     detail = row |> FailuresPage.detail(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
