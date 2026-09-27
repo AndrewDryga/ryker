@@ -32,6 +32,9 @@ defmodule Ryker.LocalRouting.Schema do
     }
   end
 
+  # A contract without shapes beside its fields is sent as it is, portable.
+  def local(%{} = schema), do: portable(schema)
+
   # A key of `properties` names a field, never a keyword, so only its value
   # is rewritten.
   defp portable(%{} = schema) do
