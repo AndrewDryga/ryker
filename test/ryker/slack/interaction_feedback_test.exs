@@ -348,6 +348,31 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
     end
   end
 
+  # On 2026-09-27 an idle install committed about 125 transactions a second;
+  # every Slack worker polled its table once a second. The repaint worker now
+  # sleeps until a press is recorded, so recording one has to wake it.
+  test "a press recorded while the repaint worker is idle is repainted at once" do
+    worker = start_supervised!({InteractionFeedbackWorker, sleeping_options()})
+    # Its first poll found nothing, and its next timer is five minutes away.
+    _state = :sys.get_state(worker)
+
+    {:ok, _recorded} = InteractionAudits.record(interaction("interaction:woken"), :invalid)
+    assert_receive {:repainted, "interaction:woken"}, 500
+  end
+
+  # A failed repaint is retried after a backoff, and only the clock says
+  # when: a worker sleeping its whole safety-net interval would repaint late.
+  test "a repaint whose retry falls due runs then, not at the safety-net interval" do
+    {:ok, _recorded} = InteractionAudits.record(interaction("interaction:due"), :invalid)
+    {:ok, claimed} = InteractionAudits.claim_next("slack-interaction:earlier", 30)
+    {:ok, _deferred} = InteractionAudits.defer(claimed.id, claimed.lease_ref, 1, :slack_down)
+
+    start_supervised!({InteractionFeedbackWorker, sleeping_options()})
+
+    refute_receive {:repainted, "interaction:due"}, 500
+    assert_receive {:repainted, "interaction:due"}, 1_500
+  end
+
   test "repaint ignores vanished messages and refuses an untrusted API" do
     assert {:ok, %{audit: audit}} =
              interaction("interaction:vanished")
@@ -360,6 +385,19 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
 
     assert InteractionRepaint.repaint(:invalid, %{}) ==
              {:error, :slack_interaction_repaint_invalid}
+  end
+
+  defp sleeping_options do
+    test_pid = self()
+
+    worker_options(
+      idle_interval_ms: 300_000,
+      interval_ms: 300_000,
+      repaint: fn audit, _options ->
+        send(test_pid, {:repainted, audit.event_ref})
+        :ok
+      end
+    )
   end
 
   defp worker_options(overrides) do

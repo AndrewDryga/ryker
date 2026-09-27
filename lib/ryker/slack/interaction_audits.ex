@@ -17,6 +17,7 @@ defmodule Ryker.Slack.InteractionAudits do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records.Record
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
 
   alias Ryker.Slack.{Interaction, InteractionAudit, InteractionAuditChangeset}
@@ -73,6 +74,24 @@ defmodule Ryker.Slack.InteractionAudits do
   end
 
   def record_answer_in_transaction(_entry, _record, _turn, _kind), do: :ok
+
+  @doc """
+  The earliest moment after `since` at which a pending repaint becomes
+  claimable by the clock alone: its retry's backoff ends, or the lease of a
+  claim nobody renewed runs out. Nil when no repaint waits on the clock.
+  """
+  @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(%DateTime{} = since) do
+    from(audit in InteractionAudit,
+      where: audit.repaint_status == :pending,
+      select: [
+        filter(min(audit.next_attempt_at), audit.next_attempt_at > ^since),
+        filter(min(audit.lease_expires_at), audit.lease_expires_at > ^since)
+      ]
+    )
+    |> Repo.one()
+    |> UTCDateTime.earliest()
+  end
 
   @spec claim_next(String.t(), pos_integer()) ::
           {:ok, InteractionAudit.t() | nil} | {:error, term()}
