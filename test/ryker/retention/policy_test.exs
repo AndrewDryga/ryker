@@ -25,7 +25,8 @@ defmodule Ryker.Retention.PolicyTest do
                  :episode_history,
                  :audit,
                  :cascade,
-                 :kept
+                 :kept,
+                 :routing_examples
                ])
            )
 

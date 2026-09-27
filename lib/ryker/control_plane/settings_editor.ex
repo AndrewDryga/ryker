@@ -723,9 +723,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       <Kit.confirm_modal
         :if={@impact}
         id={"#{@id}-impact"}
-        title="Apply shorter limits?"
-        text="Shorter limits delete older data: records older than the new limits become eligible for cleanup. Live waits, approvals, schedules and unpublished work keep their history regardless of age."
-        label="Apply shorter limits"
+        title={impact_question(@impact).title}
+        text={impact_question(@impact).text}
+        label={impact_question(@impact).label}
         cancel="cancel-impact"
         target={@myself}
         phx-click="confirm"
@@ -1407,6 +1407,24 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   end
 
   defp slack_notice(_slack), do: nil
+
+  # Turning off keeping routing examples is not a shorter limit to the person
+  # who unticked it, so it asks in its own words.
+  defp impact_question(%{shortened_fields: [:routing_examples_enabled]}),
+    do: %{
+      title: "Stop keeping routing examples?",
+      text:
+        "Turning this off deletes every routing example kept for training. They cannot be brought back.",
+      label: "Stop keeping them"
+    }
+
+  defp impact_question(_impact),
+    do: %{
+      title: "Apply shorter limits?",
+      text:
+        "Shorter limits delete older data: records older than the new limits become eligible for cleanup. Live waits, approvals, schedules and unpublished work keep their history regardless of age.",
+      label: "Apply shorter limits"
+    }
 
   defp impact_lines(section, %{impact: impact}) do
     for {field, rows} <- impact,

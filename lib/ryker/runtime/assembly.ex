@@ -59,6 +59,9 @@ defmodule Ryker.Runtime.Assembly do
     {:work, Ryker.Work.Runtime},
     {:learning, Ryker.Learning.Runtime},
     {:retention, Ryker.Retention.Runtime},
+    # Its own key, so turning keeping routing examples on or off, or a stored
+    # credential changing, restarts only the copy, never cleanup.
+    {:routing_examples, Ryker.RoutingExamples.Worker},
     {:github, Ryker.GitHub.Runtime},
     {:publication, Ryker.Publication.Runtime},
     {:delivery, Ryker.Delivery.Runtime},
@@ -140,6 +143,7 @@ defmodule Ryker.Runtime.Assembly do
       webhooks(bootstrap, settings, adapters, repositories, environments)
 
     retention = retention(settings, work, learning)
+    routing_examples = routing_examples(settings, admission)
 
     state_tools =
       state_tools(bootstrap, settings, emisar, slack, github, control_plane, %{
@@ -169,6 +173,7 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:learning, learning)
     |> put_optional(:publication, publication)
     |> put_optional(:retention, retention)
+    |> put_optional(:routing_examples, routing_examples)
     |> put_optional(:schedules, schedules)
     |> put_optional(:slack, slack && slack.runtime)
     |> put_optional(:slack_names, slack_names)
@@ -605,7 +610,9 @@ defmodule Ryker.Runtime.Assembly do
         :closed_work_seconds,
         :conversation_memory_seconds,
         :episode_history_seconds,
-        :operational_data_seconds
+        :operational_data_seconds,
+        :routing_examples_enabled,
+        :routing_examples_seconds
       ])
     )
     |> Map.merge(%{
@@ -616,6 +623,20 @@ defmodule Ryker.Runtime.Assembly do
       worker_ref: "#{settings.installation.host_ref}:retention"
     })
   end
+
+  # Routing examples are copied only while a person keeps them on, and only
+  # where routing runs. Every stored credential is redaction material for the
+  # copy, as for worker output.
+  defp routing_examples(%{retention: %{routing_examples_enabled: true} = retention}, admission)
+       when is_map(admission) do
+    Defaults.fetch!(:routing_examples)
+    |> Map.merge(%{
+      redaction_secrets: credential_redaction_values(),
+      window_seconds: retention.routing_examples_seconds
+    })
+  end
+
+  defp routing_examples(_settings, _admission), do: nil
 
   # Transports -----------------------------------------------------------------
 

@@ -1611,6 +1611,43 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(view, "#settings-retention [role=status]", "Saved.")
   end
 
+  # Andrew, 2026-09-27: "Do we have ... data collection to build/fine-tune our
+  # own super-efficient self hosted model later?" Keeping routing examples is
+  # the consent for that, off until someone turns it on, and the page offers
+  # the file while they are kept.
+  test "Data retention keeps routing examples for training only once turned on" do
+    initialize!()
+    {:ok, view, _html} = open("/settings/retention")
+
+    assert has_element?(
+             view,
+             "label[for=settings-retention-routing_examples_enabled]",
+             "Keep routing examples for training"
+           )
+
+    assert has_element?(view, "#settings-retention-routing_examples_enabled:not([checked])")
+    assert has_element?(view, "#settings-retention-routing_examples_seconds[value='365']")
+
+    view
+    |> form("#settings-retention-form", %{"routing_examples_enabled" => "true"})
+    |> render_submit()
+
+    assert Settings.fetch!().retention.routing_examples_enabled
+
+    # Turning it off deletes what was kept, so it asks first, in its own words.
+    view
+    |> form("#settings-retention-form", %{"routing_examples_enabled" => "false"})
+    |> render_submit()
+
+    question = "#settings-retention-impact[role=alertdialog]"
+    assert has_element?(view, question, "Stop keeping routing examples?")
+    assert Settings.fetch!().retention.routing_examples_enabled
+
+    view |> element("#settings-retention-impact button", "Stop keeping them") |> render_click()
+
+    refute Settings.fetch!().retention.routing_examples_enabled
+  end
+
   test "a retention limit out of order or out of range is refused with a reason to act on" do
     # An ordering refusal named no field of the form, so the page showed
     # nothing at all; a limit past ten years said only "was refused."

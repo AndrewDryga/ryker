@@ -460,19 +460,30 @@ defmodule Ryker.ControlPlane.SettingsPage do
     end
   end
 
+  # Routing examples are a copy kept only while someone keeps them on, so
+  # they are said apart from the limits every installation has.
   defp set_now(:retention, view) do
+    retention = view.snapshot.retention
+
     days =
       Settings.retention_defaults()
       |> Map.keys()
-      |> Enum.map(&Map.get(view.snapshot.retention, &1))
+      |> Kernel.--([:routing_examples_enabled, :routing_examples_seconds])
+      |> Enum.map(&Map.get(retention, &1))
       |> Enum.filter(&is_integer/1)
       |> Enum.map(&div(&1, 86_400))
 
-    case Enum.min_max(days, fn -> nil end) do
-      nil -> nil
-      {same, same} -> "Keeps every kind of data #{days(same)}"
-      {shortest, longest} -> "Keeps each kind of data #{shortest} to #{days(longest)}"
-    end
+    kept =
+      case Enum.min_max(days, fn -> nil end) do
+        nil -> nil
+        {same, same} -> "Keeps every kind of data #{days(same)}"
+        {shortest, longest} -> "Keeps each kind of data #{shortest} to #{days(longest)}"
+      end
+
+    if kept && retention.routing_examples_enabled,
+      do:
+        "#{kept}, and routing examples #{days(div(retention.routing_examples_seconds, 86_400))}",
+      else: kept
   end
 
   defp set_now(:pricing, %{snapshot: %{pricing_rates: []}}), do: "No prices yet"

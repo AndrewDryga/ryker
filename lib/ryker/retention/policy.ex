@@ -15,6 +15,7 @@ defmodule Ryker.Retention.Policy do
           | :audit
           | :cascade
           | :kept
+          | :routing_examples
   @type policy :: %{class: class(), table: String.t(), why: String.t()}
 
   @policies [
@@ -450,6 +451,12 @@ defmodule Ryker.Retention.Policy do
       table: "retention_operator_actions",
       class: :audit,
       why: "local operator recovery and unmerged-discard decision ledger"
+    },
+    %{
+      table: "routing_examples",
+      class: :routing_examples,
+      why:
+        "redacted copies of routing decisions kept for training, only while a person keeps them on, for their own window counted from the decision; a forgotten one keeps only its identity until then"
     },
     %{
       table: "schema_migrations",

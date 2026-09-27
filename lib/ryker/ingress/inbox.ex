@@ -24,6 +24,7 @@ defmodule Ryker.Ingress.Inbox do
   alias Ryker.Learning.Observations
   alias Ryker.Memories
   alias Ryker.Repo
+  alias Ryker.RoutingExamples
   alias Ryker.UTCDateTime
 
   @ref_prefix "ingress-input:"
@@ -576,11 +577,19 @@ defmodule Ryker.Ingress.Inbox do
     with {:ok, receipt} <- admit(input, load(dedupe_key), settings),
          :ok <- attach_artifacts(input, receipt),
          :ok <- revoke_answer_memory(receipt),
+         :ok <- forget_routing_examples(receipt),
          :ok <- receive_observation(receipt),
          :ok <- Projections.observe(input, ref(receipt.entry)) do
       {:ok, receipt}
     end
   end
+
+  # Somebody deleting their message is a withdrawal: the routing examples kept
+  # for training that quote it are erased as the deletion is recorded.
+  defp forget_routing_examples(%{status: :recorded, entry: %Entry{event_kind: :delete} = entry}),
+    do: RoutingExamples.forget_deleted_in_transaction(entry)
+
+  defp forget_routing_examples(_receipt), do: :ok
 
   defp revoke_answer_memory(%{status: :recorded, entry: entry}),
     do: Memories.revoke_answer_source_in_transaction(entry)

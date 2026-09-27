@@ -848,7 +848,9 @@ defmodule Ryker.Knowledge.KnowledgeTest do
       closed_work_seconds: 3600,
       episode_history_seconds: 3600,
       audit_data_seconds: 3600,
-      conversation_memory_seconds: 3600
+      conversation_memory_seconds: 3600,
+      routing_examples_enabled: false,
+      routing_examples_seconds: 365 * 86_400
     }
 
     assert {:ok, _} = Data.prune(settings)

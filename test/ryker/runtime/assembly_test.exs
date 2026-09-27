@@ -10,6 +10,7 @@ defmodule Ryker.Runtime.AssemblyTest do
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.RoutingExamples.Worker, as: RoutingExampleWorker
   alias Ryker.Runtime.Assembly
   alias Ryker.Slack.Runtime, as: SlackRuntime
 
@@ -384,6 +385,31 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:error, reason} = call.(lab_tool, %{}, episode("control_plane"))
     assert is_binary(reason)
     assert call.("no_such_tool", %{}, episode("control_plane")) == {:error, "unknown_tool"}
+  end
+
+  # Consent: the copy runs only while a person keeps routing examples on, and
+  # every stored credential is among what it removes from a copy.
+  test "routing examples are copied only while kept, with every stored credential redacted" do
+    settings = connected!()
+    assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
+    assert configuration[:routing_examples] == nil
+    assert configuration[:retention].routing_examples_enabled == false
+
+    {:ok, kept} =
+      Settings.save_retention(
+        %{routing_examples_enabled: true, routing_examples_seconds: 180 * 86_400},
+        settings.installation.revision,
+        @actor
+      )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), kept)
+    copy = configuration[:routing_examples]
+    assert copy.window_seconds == 180 * 86_400
+    assert @alert_secret in copy.redaction_secrets
+    assert @custody_secret in copy.redaction_secrets
+    assert configuration[:retention].routing_examples_enabled == true
+    assert configuration[:retention].routing_examples_seconds == 180 * 86_400
+    assert RoutingExampleWorker.options!(copy) == copy
   end
 
   test "the worker gateway carries the checkpoint custody the deployment registered" do

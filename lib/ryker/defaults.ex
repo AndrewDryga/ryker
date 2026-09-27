@@ -88,6 +88,9 @@ defmodule Ryker.Defaults do
     task_card_reconcile_ms: 2_000,
     thread_status_interval_ms: 1_000
   }
+  # Copying routing examples for training. Whether they are kept and for how
+  # long are product settings in PostgreSQL, never here.
+  @routing_examples %{batch_size: 25, poll_interval_ms: 10_000}
   @github %{max_body_bytes: 40_000, receive_timeout_ms: 30_000}
   @webhooks %{max_body_bytes: 40_000, max_clock_skew_seconds: 300}
   @coop_worker_gateway %{certificate_ttl_seconds: 86_400}
@@ -102,6 +105,7 @@ defmodule Ryker.Defaults do
     learning: @learning,
     publication: @publication,
     retention: @retention,
+    routing_examples: @routing_examples,
     schedules: @schedules,
     slack: @slack,
     webhooks: @webhooks,

@@ -80,6 +80,16 @@ defmodule Ryker.InspectionRedactor do
     end
   end
 
+  @doc """
+  A value with what `artifact/2` withholds removed, returned as the value
+  itself rather than display text: a key that names a credential keeps only
+  the marker, a `secrets` value is replaced wherever it appears, and tokens,
+  private keys and the query of every link are scrubbed from text. A string
+  holding JSON is redacted as the document it holds and encoded again.
+  """
+  @spec redact(term(), [String.t()]) :: term()
+  def redact(value, secrets) when is_list(secrets), do: sanitize(value, secrets, 0)
+
   def configured_secrets do
     Application.get_all_env(:ryker)
     |> secret_values()

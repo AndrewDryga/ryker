@@ -4,7 +4,13 @@ defmodule Ryker.Settings.Validation do
   import Ecto.Changeset
 
   @ten_years 10 * 365 * 86_400
-  @retention_fields ~w(operational_data_seconds conversation_memory_seconds closed_work_seconds episode_history_seconds audit_data_seconds)a
+  # Every retention limit, in seconds, then whether routing examples are kept
+  # at all. The routing example limit is bounded like the others but ordered
+  # against none: an example is a copy and outlives what it was copied from.
+  @retention_limits ~w(operational_data_seconds conversation_memory_seconds closed_work_seconds episode_history_seconds audit_data_seconds routing_examples_seconds)a
+  @retention_types Map.new(@retention_limits, &{&1, :integer})
+                   |> Map.put(:routing_examples_enabled, :boolean)
+  @retention_fields Map.keys(@retention_types)
   @reference ~r/\A[a-z0-9][a-z0-9_-]{0,63}\z/
   @slack_id ~r/\A[A-Z0-9]{1,255}\z/
   @hex64 ~r/\A[0-9a-f]{64}\z/
@@ -60,9 +66,7 @@ defmodule Ryker.Settings.Validation do
   end
 
   def retention(proposed) do
-    types = Map.new(@retention_fields, &{&1, :integer})
-
-    case cast_values(proposed, types) do
+    case cast_values(proposed, @retention_types) do
       {:ok, values} -> bounded_horizons(values)
       {:error, {:invalid_settings, errors}} -> {:error, errors}
     end
@@ -70,7 +74,9 @@ defmodule Ryker.Settings.Validation do
 
   defp bounded_horizons(values) do
     out_of_bounds =
-      Enum.flat_map(values, fn {field, value} ->
+      values
+      |> Map.take(@retention_limits)
+      |> Enum.flat_map(fn {field, value} ->
         if value < 60 or value > @ten_years, do: [{field, :bounds}], else: []
       end)
 

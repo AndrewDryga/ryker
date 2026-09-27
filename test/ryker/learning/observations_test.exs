@@ -246,7 +246,9 @@ defmodule Ryker.Learning.ObservationsTest do
       closed_work_seconds: 86_400,
       episode_history_seconds: 86_400,
       audit_data_seconds: 86_400,
-      conversation_memory_seconds: 90 * 86_400
+      conversation_memory_seconds: 90 * 86_400,
+      routing_examples_enabled: false,
+      routing_examples_seconds: 365 * 86_400
     }
 
     assert {:ok, _} = Data.prune(settings)

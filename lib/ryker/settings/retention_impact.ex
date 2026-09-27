@@ -37,21 +37,39 @@ defmodule Ryker.Settings.RetentionImpact do
        "SELECT count(*) FROM model_instruction_edits WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')"},
       {"channel setting audit",
        "SELECT count(*) FROM slack_channel_setting_audit WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')"}
+    ],
+    routing_examples_seconds: [
+      {"routing examples",
+       "SELECT count(*) FROM routing_examples WHERE forgotten_at IS NULL AND decided_at < clock_timestamp() - ($1 * interval '1 second')"}
     ]
   }
 
+  # Turning off keeping routing examples deletes every one kept.
+  @all_routing_examples "SELECT count(*) FROM routing_examples WHERE forgotten_at IS NULL"
+
   @spec estimate(map(), map()) :: %{atom() => [%{label: String.t(), count: non_neg_integer()}]}
   def estimate(current, proposed) do
-    @queries
-    |> Enum.filter(fn {field, _queries} ->
-      Map.fetch!(proposed, field) < Map.fetch!(current, field)
-    end)
-    |> Map.new(fn {field, queries} ->
-      {field,
-       Enum.map(queries, fn {label, sql} ->
-         %{rows: [[count]]} = Repo.query!(sql, [Map.fetch!(proposed, field)], log: false)
-         %{label: label, count: count}
-       end)}
-    end)
+    shorter =
+      @queries
+      |> Enum.filter(fn {field, _queries} ->
+        Map.fetch!(proposed, field) < Map.fetch!(current, field)
+      end)
+      |> Map.new(fn {field, queries} ->
+        {field,
+         Enum.map(queries, fn {label, sql} ->
+           %{rows: [[count]]} = Repo.query!(sql, [Map.fetch!(proposed, field)], log: false)
+           %{label: label, count: count}
+         end)}
+      end)
+
+    if current.routing_examples_enabled and not proposed.routing_examples_enabled do
+      %{rows: [[count]]} = Repo.query!(@all_routing_examples, [], log: false)
+
+      shorter
+      |> Map.delete(:routing_examples_seconds)
+      |> Map.put(:routing_examples_enabled, [%{label: "routing examples", count: count}])
+    else
+      shorter
+    end
   end
 end
