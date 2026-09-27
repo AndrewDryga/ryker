@@ -486,10 +486,18 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   defp permanent?(_reason), do: false
 
   # Work's copy of RYKER.md lives on the repository's settings row. A
-  # repository removed meanwhile keeps nothing.
+  # repository removed meanwhile keeps nothing: the write names the revision
+  # it found the repository at, so a removal in between refuses it instead
+  # of saving the repository again with nothing but its RYKER.md.
   defp save_work_copy(ref, attributes) do
-    if Enum.any?(Settings.fetch!().repositories, &(&1.ref == ref)) do
-      case Settings.put_repository(Map.put(attributes, :ref, ref), :current, @actor) do
+    snapshot = Settings.fetch!()
+
+    if Enum.any?(snapshot.repositories, &(&1.ref == ref)) do
+      case Settings.put_repository(
+             Map.put(attributes, :ref, ref),
+             snapshot.installation.revision,
+             @actor
+           ) do
         {:ok, _snapshot} -> :ok
         {:error, _reason} = error -> error
       end
