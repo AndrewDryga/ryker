@@ -141,6 +141,7 @@ defmodule Ryker.Observability.Readiness do
       admission: {:named, Ryker.Admission.Runtime},
       admission_ready: {:named, Ryker.Admission.ReadyPool},
       learning: {:named, Ryker.Learning.Runtime},
+      improvement: {:named, Ryker.Improvement.Runtime},
       coop_worker_gateway: {:supervised, Ryker.CoopFleet.Server},
       control_plane: {:supervised, Ryker.ControlPlane.Server},
       delivery: {:named, Ryker.Delivery.Runtime},
