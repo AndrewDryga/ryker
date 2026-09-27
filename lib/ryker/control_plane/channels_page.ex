@@ -140,11 +140,15 @@ defmodule Ryker.ControlPlane.ChannelsPage do
     ~H"""
     <div class="connection-card">
       <Integrations.line id="slack-status" key={:slack} integration={@integration} />
+      <%!-- No space after the hidden words: Chrome lays that space out as a
+      second item of the button and puts the button's icon gap before it, so
+      Change drew 9px wider than Manage above it (Andrew, 2026-09-27). --%>
       <div :if={@default} id="new-channels-default" class="connection-line">
         <p><strong>New channels</strong> <span>{participation(@default)}</span></p>
-        <.link navigate="/integrations/slack#new-channels" class="ui-button secondary">
-          Change<span class="sr-only"> what new channels do</span>
-        </.link>
+        <.link
+          navigate="/integrations/slack#new-channels"
+          class="ui-button secondary"
+        >Change<span class="sr-only"> what new channels do</span></.link>
       </div>
     </div>
     """

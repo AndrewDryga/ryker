@@ -310,19 +310,23 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      |> refresh()}
   end
 
-  # The welcome redraw a channel's environment change asked for, back from
-  # Slack. Only the page that asked hears it, and only a redraw that did not
-  # work changes what it says: the change itself was saved already.
+  # The welcome redraw a channel's setting change asked for, back from Slack.
+  # Only the page that asked hears it, and only a redraw that did not work
+  # changes what it says: the change itself was saved already, so the saved
+  # mark stays and a note says the welcome still shows the old setting.
   def handle_info({:channel_welcome_redrawn, workspace, channel, result}, socket) do
     case {socket.assigns.welcome_pending, result} do
-      {{^workspace, ^channel, _saved}, {:ok, _delivered}} ->
+      {{^workspace, ^channel, _name, _key}, {:ok, _delivered}} ->
         {:noreply, assign(socket, :welcome_pending, nil)}
 
       # The channel page renders its notice when it loads, so it loads again.
-      {{^workspace, ^channel, saved}, {:error, reason}} ->
+      {{^workspace, ^channel, name, key}, {:error, reason}} ->
         {:noreply,
          socket
-         |> assign(channel_notice: welcome_not_redrawn(saved, reason), welcome_pending: nil)
+         |> assign(
+           channel_notice: {:saved, name, key, welcome_not_redrawn(reason)},
+           welcome_pending: nil
+         )
          |> refresh()}
 
       _another_page ->
@@ -695,42 +699,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end)
   end
 
-  # A channel's environment is its own setting, saved on its page the same
-  # way the channel's setup in Slack saves it.
-  def handle_event(
-        "select-channel-environment",
-        %{"workspace" => workspace, "channel" => channel, "environment" => environment},
-        socket
-      )
-      when is_binary(workspace) and is_binary(channel) and is_binary(environment) do
-    choice = if environment == "", do: nil, else: environment
+  # A channel's settings are its own, changed in place on its page as they
+  # change and saved the way the channel's setup in Slack saves them.
+  def handle_event("set-channel-participation", params, socket),
+    do: change_channel_setting(socket, params, "participation")
 
-    {notice, pending} =
-      case ChannelConfigurations.select_environment(workspace, channel, choice, @actor_ref) do
-        # A change redraws the channel's welcome in Slack the way a save made
-        # there does (until 2026-09-26 the card kept naming the old
-        # environment). The redraw runs on Slack's own task and reports back
-        # here, so a slow Slack never holds up the save; until then the page
-        # waited for Slack's answer before it said anything.
-        {:ok, %{status: :saved}} ->
-          saved = channel_environment_saved(choice)
-          %{actions: actions} = Endpoint.config(:control_plane)
+  def handle_event("set-channel-alerts", params, socket),
+    do: change_channel_setting(socket, params, "alert_policy")
 
-          case actions.redraw_channel_welcome.(workspace, channel) do
-            :ok -> {{:success, saved}, {workspace, channel, saved}}
-            {:error, reason} -> {welcome_not_redrawn(saved, reason), nil}
-          end
-
-        {:ok, %{status: :unchanged}} ->
-          {{:success, channel_environment_saved(choice)}, nil}
-
-        {:error, reason} ->
-          {{:error, channel_environment_error(reason)}, nil}
-      end
-
-    {:noreply,
-     socket |> assign(channel_notice: notice, welcome_pending: pending) |> refresh(true)}
-  end
+  def handle_event("select-channel-environment", params, socket),
+    do: change_channel_setting(socket, params, "environment")
 
   # The default moves in one save: whichever environment had it gives it up.
   def handle_event("make-default-environment", %{"ref" => ref}, socket) when is_binary(ref) do
@@ -1400,50 +1378,114 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp refresh_settings(socket), do: assign(socket, :settings, SettingsView.fetch())
 
-  defp channel_environment_saved(nil),
-    do: "Saved. Ryker now works here without code or an Emisar account."
+  # A change redraws the channel's welcome in Slack the way a save made there
+  # does (until 2026-09-26 the card kept naming the old environment). The
+  # redraw runs on Slack's own task and reports back here, so a slow Slack
+  # never holds up the save. What the page says is the small saved mark
+  # beside the choice, never a banner (Andrew, 2026-09-27: "edit confirmation
+  # can be way more subtle"); a refusal is said at the choice, and stays.
+  defp change_channel_setting(
+         socket,
+         %{"workspace" => workspace, "channel" => channel} = params,
+         name
+       )
+       when is_binary(workspace) and is_binary(channel) do
+    key = System.unique_integer([:positive])
 
-  defp channel_environment_saved(ref) do
-    name =
-      with {:ok, view} <- SettingsView.fetch(),
-           %{display_name: name} <- Environments.find(view.snapshot, ref) do
-        name
-      else
-        _unknown -> ref
+    {notice, pending} =
+      case save_channel_setting(workspace, channel, name, params) do
+        {:ok, %{status: :unchanged}} ->
+          {{:saved, name, key, nil}, nil}
+
+        {:ok, %{status: :saved}} ->
+          %{actions: actions} = Endpoint.config(:control_plane)
+
+          case actions.redraw_channel_welcome.(workspace, channel) do
+            :ok -> {{:saved, name, key, nil}, {workspace, channel, name, key}}
+            {:error, reason} -> {{:saved, name, key, welcome_not_redrawn(reason)}, nil}
+          end
+
+        {:error, reason} ->
+          {{:error, name, channel_setting_error(reason)}, nil}
       end
 
-    "Saved. This channel works in #{name} now."
+    {:noreply,
+     socket |> assign(channel_notice: notice, welcome_pending: pending) |> refresh(true)}
   end
 
-  defp welcome_not_redrawn(saved, :slack_not_running),
-    do:
-      {:warning,
-       saved <>
-         " Slack is not connected, so Ryker's welcome message in the channel still shows the " <>
-         "old environment."}
+  defp change_channel_setting(socket, _params, _name), do: {:noreply, socket}
 
-  defp welcome_not_redrawn(saved, :timeout),
-    do:
-      {:warning,
-       saved <>
-         " Slack did not answer in time, so Ryker's welcome message in the channel may still " <>
-         "show the old environment."}
+  defp save_channel_setting(workspace, channel, "environment", %{"environment" => ref})
+       when is_binary(ref) do
+    choice = if ref == "", do: nil, else: ref
+    ChannelConfigurations.select_environment(workspace, channel, choice, @actor_ref)
+  end
 
-  defp welcome_not_redrawn(saved, _refused),
-    do:
-      {:warning,
-       saved <>
-         " Ryker could not update its welcome message in Slack, so it still shows the old " <>
-         "environment."}
+  defp save_channel_setting(workspace, channel, name, params)
+       when name in ["participation", "alert_policy"] do
+    change =
+      if name == "participation",
+        do: &ChannelConfigurations.change_participation/1,
+        else: &ChannelConfigurations.change_alert_policy/1
 
-  defp channel_environment_error(:configuration_not_found),
+    with {:ok, value} <- channel_setting_value(name, params[name]),
+         {revision, ""} <- Integer.parse(to_string(params["revision"])) do
+      change.(%{
+        String.to_existing_atom(name) => value,
+        actor_ref: @actor_ref,
+        channel_ref: channel,
+        configuration_ref: params["configuration"],
+        event_ref: "control-plane:channel:" <> Ecto.UUID.generate(),
+        expected_revision: revision,
+        occurred_at: DateTime.utc_now(),
+        workspace_ref: workspace
+      })
+    else
+      _invalid -> {:error, :invalid_choice}
+    end
+  end
+
+  defp save_channel_setting(_workspace, _channel, _name, _params),
+    do: {:error, :invalid_choice}
+
+  # The values Slack's setup offers, and nothing else.
+  @channel_setting_values %{
+    "participation" => %{"mentions" => :mentions, "proactive" => :proactive, "shadow" => :shadow},
+    "alert_policy" => %{"reply" => :reply, "offer" => :offer, "automatic" => :automatic}
+  }
+
+  defp channel_setting_value(name, value) do
+    case @channel_setting_values |> Map.fetch!(name) |> Map.fetch(value) do
+      {:ok, atom} -> {:ok, atom}
+      :error -> {:error, :invalid_choice}
+    end
+  end
+
+  defp welcome_not_redrawn(:slack_not_running),
+    do:
+      "Slack is not connected, so the welcome message in the channel still shows the old setting."
+
+  defp welcome_not_redrawn(:timeout),
+    do: "Slack did not answer in time, so the welcome message may still show the old setting."
+
+  defp welcome_not_redrawn(_refused),
+    do: "Ryker could not update its welcome message in Slack, so it still shows the old setting."
+
+  defp channel_setting_error(:configuration_revision_stale),
+    do:
+      "This channel's settings changed in Slack meanwhile. The page shows them now; choose again."
+
+  defp channel_setting_error(:configuration_not_found),
     do: "Ryker has no settings for this channel yet. Invite Ryker to the channel first."
 
-  defp channel_environment_error(:environment_not_found),
-    do: "That environment no longer exists. Reload the page and choose again."
+  defp channel_setting_error(:configuration_membership_not_joined),
+    do: "Ryker is not in this channel now. Invite it back to change how it takes part."
 
-  defp channel_environment_error(_reason),
-    do: "The environment could not be saved. Reload the page and try again."
+  defp channel_setting_error(:environment_not_found),
+    do: "That environment no longer exists. Choose another one."
+
+  defp channel_setting_error(_reason),
+    do: "This change could not be saved. Reload the page and try again."
 
   # What an import did, said where the person who asked is looking. A partial
   # failure names the repositories that did not make it.

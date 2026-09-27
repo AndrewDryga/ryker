@@ -168,6 +168,8 @@ defmodule Ryker.ControlPlane.ChannelDetail do
             configuration.channel_ref == ^scope.channel_ref,
         limit: 1,
         select: %{
+          # The page's choices name the revision they were drawn from.
+          id: configuration.id,
           actor_ref: configuration.actor_ref,
           alert_policy: configuration.alert_policy,
           invite_user_group_refs: configuration.invite_user_group_refs,

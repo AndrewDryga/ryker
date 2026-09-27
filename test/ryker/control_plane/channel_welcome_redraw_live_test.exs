@@ -1,10 +1,12 @@
 defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   @moduledoc """
-  A channel's environment can be chosen in Slack (the welcome's Customize)
-  or on the channel's page in Ryker. Until 2026-09-26 only the Slack-side
-  save redrew the welcome message in the channel, so after a change on the
-  web the card still said the channel worked in the old environment, with
-  the old repositories, while the page and the work used the new one.
+  A channel's settings can be chosen in Slack (the welcome's Customize) or
+  on the channel's page in Ryker. Until 2026-09-26 only the Slack-side save
+  redrew the welcome message in the channel, so after a change on the web
+  the card still said the channel worked in the old environment, with the
+  old repositories, while the page and the work used the new one. Since
+  2026-09-27 the page changes how Ryker takes part and what it does with
+  alerts too, and each change redraws the welcome the same way.
 
   Slack here is the shared test workspace; the documents it receives are
   rendered with the real Slack renderer, so the test reads what the channel
@@ -139,7 +141,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     {:ok, view, _html} =
       live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
 
-    view |> form("#channel-environment", environment: "staging") |> render_submit()
+    view |> form("#channel-environment", environment: "staging") |> render_change()
 
     assert eventually(fn -> FakeSlackAPI.state(agent).updates != [] end),
            "the welcome in the channel was not redrawn"
@@ -160,11 +162,36 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     assert shown =~ ~r/\*Settings changed on this channel's page in Ryker at \d\d:\d\d UTC\*/
     assert fallback =~ "Settings changed on this channel's page in Ryker"
 
-    assert has_element?(
-             view,
-             "#channel-environment-notice",
-             "Saved. This channel works in Staging now."
-           )
+    assert has_element?(view, "#channel-environment-saved .kit-saved-mark", "Saved")
+    refute has_element?(view, "#channel-environment-saved .kit-saved-note")
+  end
+
+  # The welcome says how Ryker takes part and what it does with alerts, so a
+  # change to either on the page redraws it as an environment change does.
+  test "how Ryker takes part and what it does with alerts, chosen on the page, reach the welcome",
+       %{agent: agent} do
+    {:ok, view, _html} =
+      live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
+
+    view |> form("#channel-participation", participation: "proactive") |> render_change()
+    assert eventually(fn -> length(FakeSlackAPI.state(agent).updates) == 1 end)
+
+    view |> form("#channel-alerts", alert_policy: "automatic") |> render_change()
+    assert eventually(fn -> length(FakeSlackAPI.state(agent).updates) == 2 end)
+
+    shown =
+      agent
+      |> FakeSlackAPI.state()
+      |> Map.fetch!(:updates)
+      |> List.last()
+      |> Map.fetch!(:document)
+      |> Renderer.render()
+      |> then(fn {:ok, %{"blocks" => blocks}} ->
+        Enum.map_join(blocks, "\n", &get_in(&1, ["text", "text"]))
+      end)
+
+    assert shown =~ "join conversations when I can help"
+    assert shown =~ "I'll automatically create an incident room"
   end
 
   test "a slow Slack never holds up the save, and the page says the card may be stale", context do
@@ -175,7 +202,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
 
     {elapsed, _html} =
       :timer.tc(
-        fn -> view |> form("#channel-environment", environment: "staging") |> render_submit() end,
+        fn -> view |> form("#channel-environment", environment: "staging") |> render_change() end,
         :millisecond
       )
 
@@ -184,19 +211,14 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     assert elapsed < 1_000, "the save waited #{elapsed} ms for Slack"
     assert ChannelConfigurations.configuration(@workspace, "C456").environment_ref == "staging"
 
-    assert has_element?(
-             view,
-             "#channel-environment-notice",
-             "Saved. This channel works in Staging now."
-           )
+    assert has_element?(view, "#channel-environment-saved .kit-saved-mark", "Saved")
 
     # Ryker stops waiting on its own timeout, and the page says what that means.
     assert eventually(fn ->
              has_element?(
                view,
-               "#channel-environment-notice",
-               "Saved. This channel works in Staging now. Slack did not answer in time, so " <>
-                 "Ryker's welcome message in the channel may still show the old environment."
+               "#channel-environment-saved .kit-saved-note",
+               "Slack did not answer in time, so the welcome message may still show the old setting."
              )
            end)
   end
@@ -214,20 +236,19 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     {:ok, view, _html} =
       live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
 
-    view |> form("#channel-environment", environment: "staging") |> render_submit()
+    view |> form("#channel-environment", environment: "staging") |> render_change()
 
     assert ChannelConfigurations.configuration(@workspace, "C456").environment_ref == "staging"
 
     assert has_element?(
              view,
-             "#channel-environment-notice",
-             "Saved. This channel works in Staging now. Slack is not connected, so Ryker's " <>
-               "welcome message in the channel still shows the old environment."
+             "#channel-environment-saved .kit-saved-note",
+             "Slack is not connected, so the welcome message in the channel still shows the old setting."
            )
 
     # Choosing what the channel already uses changes nothing to redraw.
     Agent.update(context.running, fn _running -> true end)
-    view |> form("#channel-environment", environment: "staging") |> render_submit()
+    view |> form("#channel-environment", environment: "staging") |> render_change()
     Process.sleep(100)
     assert FakeSlackAPI.state(context.agent).updates == []
   end

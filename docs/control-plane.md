@@ -340,9 +340,15 @@ Remove asks first, and a removal the settings refuse says who still uses the
 environment: "Staging is used by 3 channels and 1 webhook source. Change them
 first."
 
-A channel's page chooses its environment in place: a select of the environments
-and "No environment", saved as the channel's own setting, beside the code and
-Emisar account that choice gives the channel's work. Rules, guidance and memory
+A channel's page changes how Ryker takes part there in place: Conversations
+(replies when mentioned, joins relevant conversations or watches quietly),
+Alerts (investigates in the thread, offers a room or opens one) and Environment
+(the environments and "No environment"), each a select that saves as it changes
+through the save the channel's setup in Slack uses, and says so with a small
+Saved that fades beside it. The participation and alert choices name the
+revision they were drawn from, so a change made in Slack since is not saved
+over. Each change redraws Ryker's welcome message in the channel. The code and
+Emisar account the environment gives the channel's work sit beside the choice. Rules, guidance and memory
 scoped to a repository reach a channel through its environment's default
 repository. The Repositories page says which environments each repository is in, and
 the Emisar page says which environments use each account and counts, with a link
@@ -751,9 +757,9 @@ episode.
   only, never values
 - Effective assembled configuration, read-only, below the editors
 - Channels: participation mode, proactive, shadow, environment, alert
-  policy — proactive and shadow are the only two a slash command still sets; the
-  environment is also chosen on the channel's page, and the rest are set by the
-  channel setup conversation in that channel
+  policy — proactive and shadow are the only two a slash command still sets;
+  participation, alerts and the environment are also chosen on the channel's
+  page, and the rest are set by the channel setup conversation in that channel
 - Preferences and standing rules with scope and expiry
 - Schedules, with next occurrence and catch-up policy
 - Prompt budget: static instruction size against the Coop turn cap, per prompt

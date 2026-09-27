@@ -525,4 +525,45 @@ defmodule Ryker.ControlPlane.Kit do
     </div>
     """
   end
+
+  attr(:id, :string, required: true, doc: "The status region's id, one per setting")
+
+  attr(:key, :any,
+    default: nil,
+    doc:
+      "Which save it confirms, new for every save, so a second save shows it again; nil says nothing"
+  )
+
+  attr(:note, :string,
+    default: nil,
+    doc: "What else to know about the save, such as a copy in Slack it could not update; it stays"
+  )
+
+  @doc """
+  What a setting that saves as it changes says once it saved: a small check
+  and "Saved" beside it that fades by itself (Andrew, 2026-09-27: "you can
+  save on change no need to add button, and edit confirmation can be way more
+  subtle"). The region stays in the page so a reader hears each save. A save
+  with a note, such as Slack's copy of the setting left behind, says both on
+  one quiet line of its own that stays. A refusal is never this: it is
+  `Components.form_feedback/1` in the error tone, and it stays.
+  """
+  def saved(assigns) do
+    ~H"""
+    <span id={@id} class="kit-saved" role="status"><span
+      :if={@key}
+      id={"#{@id}-#{@key}"}
+      class={["kit-saved-mark", @note && "kit-saved-noted"]}
+    ><Components.icon name={:check} />Saved<span :if={@note} class="kit-saved-note">. {@note}</span></span></span>
+    """
+  end
+
+  @doc "`saved/1` for a page built as an HTML string."
+  @spec saved_html(keyword()) :: iodata()
+  def saved_html(options) do
+    %{__changed__: nil, key: nil, note: nil}
+    |> Map.merge(Map.new(options))
+    |> saved()
+    |> Safe.to_iodata()
+  end
 end
