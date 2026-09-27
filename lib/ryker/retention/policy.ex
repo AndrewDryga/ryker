@@ -210,6 +210,18 @@ defmodule Ryker.Retention.Policy do
         "how people took Ryker's answers (reactions, edits, asking again, routing's read of their next message, reviews) expires at the operational horizon, or with its request when that goes first"
     },
     %{
+      table: "improvement_candidates",
+      class: :operational,
+      why:
+        "requests people were unhappy with, with Ryker's diagnosis and a person's decision, expire at the operational horizon after their last change; an accepted case is training data, kept for the routing examples window while those are kept; forgetting a message, topic or channel it quotes erases its words at once"
+    },
+    %{
+      table: "improvement_analysis_runs",
+      class: :cascade,
+      why:
+        "each self-analysis turn's exact prompt and answer leave with their candidate; their words are erased at the operational horizon once the turn has stopped, and at once when a person forgets what they quote"
+    },
+    %{
       table: "local_routing_comparisons",
       class: :operational,
       why:

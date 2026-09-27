@@ -19,7 +19,8 @@ defmodule Ryker.RoutingExamples do
 
   A person forgetting wins. Forgetting a fact or a learned topic, deleting a
   message in Slack, or deleting a Slack channel erases every example whose
-  prompt quoted that message, topic or conversation, in the same transaction.
+  prompt quoted that message, topic or conversation, in the same transaction,
+  and what improvement candidates hold about it (`Ryker.Improvement`).
   An erased example keeps only its identity, so it is never copied again.
   One whose message was forgotten before its turn to be copied is checked at
   the copy, which then records only that identity. Each copy and each
@@ -41,6 +42,7 @@ defmodule Ryker.RoutingExamples do
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes.Episode
+  alias Ryker.Improvement
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Knowledge.ConversationKnowledge
@@ -274,6 +276,14 @@ defmodule Ryker.RoutingExamples do
   @spec knowledge_key(String.t()) :: String.t()
   def knowledge_key(knowledge_id) when is_binary(knowledge_id),
     do: CanonicalJSON.digest(%{"knowledge" => knowledge_id})
+
+  @doc false
+  # What a routing prompt for `entry` quotes, as its example records it: the
+  # message and topic keys, and the conversations they come from. The
+  # improvement candidates that quote the same prompt record the same keys
+  # (`Ryker.Improvement`).
+  @spec quoted_keys(Entry.t()) :: %{keys: [String.t()], conversations: [String.t()]}
+  def quoted_keys(%Entry{} = entry), do: entry |> quoted() |> Map.take([:keys, :conversations])
 
   # The message itself; the thread root, the earlier messages and the current
   # one of its conversation; learned observations, with the conversation each
@@ -582,6 +592,7 @@ defmodule Ryker.RoutingExamples do
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
     :ok = lock(:exclusive)
+    :ok = Improvement.forget_conversation_in_transaction(conversation_ref)
 
     erase(
       from(example in Example,
@@ -594,6 +605,7 @@ defmodule Ryker.RoutingExamples do
 
   defp erase_in_transaction(identities, keys) do
     :ok = lock(:exclusive)
+    :ok = Improvement.forget_in_transaction(keys)
 
     erase(
       from(example in Example,

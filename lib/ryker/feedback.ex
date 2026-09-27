@@ -21,7 +21,9 @@ defmodule Ryker.Feedback do
     (`Ryker.Operator.EpisodeReviews`).
 
   Recording is idempotent per source event: one event gives at most one
-  signal of a kind. A signal is announced once its transaction commits, on
+  signal of a kind. A negative signal also makes its request a candidate to
+  improve, in the same transaction (`Ryker.Improvement`). A signal is
+  announced once its transaction commits, on
   this module's topic (`subscribe_feedback/0`) and on the request's own
   topics, so the Feedback page and the request's Timeline redraw. Feedback
   is operational data: it expires with the operational horizon
@@ -33,6 +35,7 @@ defmodule Ryker.Feedback do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback.Signal
+  alias Ryker.Improvement
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
@@ -301,6 +304,7 @@ defmodule Ryker.Feedback do
          ) do
       {1, [recorded]} ->
         announce(recorded)
+        :ok = Improvement.note_in_transaction(recorded)
         {:ok, %{signal: recorded, status: :recorded}}
 
       {0, []} ->
