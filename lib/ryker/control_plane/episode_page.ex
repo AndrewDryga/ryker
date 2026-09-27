@@ -1686,7 +1686,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp chapter_description(:learning),
     do:
-      "Background learning from these messages. It runs independently of the answer and sends no reply."
+      "Background learning from these messages, once the work they started has stopped. It sends no reply."
 
   defp chapter_description(:maintenance),
     do: "What happened afterwards to the worker Ryker used and its working copy."
