@@ -56,6 +56,16 @@ defmodule Ryker.GitHub.OnboardingTest do
     def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
   end
 
+  defmodule ArchivedAPI do
+    def pin(_binding, _repository), do: {:ok, String.duplicate("a", 40)}
+
+    def scan(_binding, _repository, _commit),
+      do: {:ok, %{content: "# RYKER.md\n", status: :proposed}}
+
+    def publish(_binding, _repository, _commit, _content),
+      do: {:error, {:github_onboarding, :archived}}
+  end
+
   defmodule UnknownFailureAPI do
     def pin(_binding, _repository), do: {:error, {:github_status, 502}}
     def scan(_binding, _repository, _commit), do: flunk("must not scan")
@@ -140,6 +150,14 @@ defmodule Ryker.GitHub.OnboardingTest do
     assert repository.onboarding_state == :blocked
     assert repository.onboarding_error =~ "stopped on an unexpected error"
     assert log =~ "unexpected tree entry"
+  end
+
+  # AndrewDryga/andrewdryga.github.com, 2026-09-27: archived on GitHub, it read
+  # "The GitHub App is missing contents or pull-request permission."
+  test "an archived repository says it is archived, not that a permission is missing" do
+    assert {:error, {:github_onboarding, :archived}} = Onboarding.run("repo", api: ArchivedAPI)
+    repository = Enum.find(Settings.fetch!().repositories, &(&1.ref == "repo"))
+    assert repository.onboarding_error =~ "archived on GitHub"
   end
 
   test "a setup failure Ryker has no sentence for is logged with its reason" do
