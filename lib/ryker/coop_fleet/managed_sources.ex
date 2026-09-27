@@ -584,9 +584,18 @@ defmodule Ryker.CoopFleet.ManagedSources do
          {"GIT_TERMINAL_PROMPT", "0"},
          {"GIT_CONFIG_COUNT", if(token, do: "1", else: "0")},
          {"GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader"},
-         {"GIT_CONFIG_VALUE_0", if(token, do: "Authorization: Bearer #{token}")}
+         {"GIT_CONFIG_VALUE_0", if(token, do: git_authorization(token))}
        ])
     |> Map.new()
     |> Map.to_list()
   end
+
+  @doc """
+  The header git sends to GitHub with an installation token. GitHub's git
+  endpoint takes the token only as the password of the `x-access-token` user
+  and refuses it as a Bearer token, for public repositories too.
+  """
+  @spec git_authorization(String.t()) :: String.t()
+  def git_authorization(token) when is_binary(token),
+    do: "Authorization: Basic " <> Base.encode64("x-access-token:" <> token)
 end
