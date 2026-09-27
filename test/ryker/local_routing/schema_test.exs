@@ -34,6 +34,29 @@ defmodule Ryker.LocalRouting.SchemaTest do
     refute inspect(local) =~ "$schema"
   end
 
+  # A contract routing may publish later without shapes beside its fields is
+  # still sent, made portable, rather than stopping every comparison.
+  test "a contract of any other shape is sent as it is, without what local grammars misread" do
+    contract = %{
+      "$schema" => "https://json-schema.org/draft/2020-12/schema",
+      "type" => "object",
+      "properties" => %{
+        "pattern" => %{"type" => "string", "pattern" => "^[a-z]+$"},
+        "kind" => %{"oneOf" => [%{"const" => "a"}, %{"const" => "b"}]}
+      },
+      "required" => ["pattern", "kind"]
+    }
+
+    assert Schema.local(contract) == %{
+             "type" => "object",
+             "properties" => %{
+               "pattern" => %{"type" => "string"},
+               "kind" => %{"anyOf" => [%{"const" => "a"}, %{"const" => "b"}]}
+             },
+             "required" => ["pattern", "kind"]
+           }
+  end
+
   test "the local contract takes every real decision routing's contract takes, and refuses its shapes" do
     contract = Decision.json_schema(@actions, :any, false, [])
     routing = JSV.build!(contract)
