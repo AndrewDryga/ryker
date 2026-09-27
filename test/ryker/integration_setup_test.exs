@@ -6,11 +6,11 @@ defmodule Ryker.IntegrationSetupTest do
   alias Ryker.ControlPlane.{IntegrationErrors, Integrations}
   alias Ryker.{Credentials, Episodes, IntegrationSetup, Settings}
   alias Ryker.Emisar.Connections
-  alias Ryker.TestSupport.EmisarMCP
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.GitHub.{Access, Binding}
   alias Ryker.Settings.Environment
   alias Ryker.Slack.Names
+  alias Ryker.TestSupport.EmisarMCP
   alias Ryker.Work.Custody
 
   @actor "control-plane:local"

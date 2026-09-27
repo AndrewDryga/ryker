@@ -2687,9 +2687,9 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
    nothing beside it moves; a note about the save stays. */
 .ryker-app .kit-saved { display:inline-flex; align-items:center; min-height:20px; font-size:13px; line-height:18px; vertical-align:middle; }
 .ryker-app .kit-saved:has(.kit-saved-note) { flex-basis:100%; }
-.ryker-app .kit-saved-mark { display:inline-flex; align-items:center; gap:4px; color:var(--ryker-text-secondary); animation:kit-saved-fade 2.6s ease-in forwards; }
+.ryker-app .kit-saved-mark { display:inline-flex; align-items:center; gap:4px; color:var(--ryker-text-secondary); }
 .ryker-app .kit-saved-mark .ui-icon { flex:none; width:14px; height:14px; color:var(--ryker-accent); }
-.ryker-app .kit-saved-noted { display:inline; animation:none; }
+.ryker-app .kit-saved-noted { display:inline; }
 .ryker-app .kit-saved-noted .ui-icon { margin-right:4px; vertical-align:-2px; }
 .ryker-app .kit-saved-note { color:var(--ryker-warning); }
-@keyframes kit-saved-fade { 0%, 65% { opacity:1; } 100% { opacity:0; visibility:hidden; } }
+@media (prefers-reduced-motion:no-preference) { .ryker-app .kit-saved-mark { animation:kit-saved-fade 2.6s ease-in forwards; } .ryker-app .kit-saved-noted { animation:none; } @keyframes kit-saved-fade { 0%, 65% { opacity:1; } 100% { opacity:0; visibility:hidden; } } }

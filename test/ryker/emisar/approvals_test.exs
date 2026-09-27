@@ -38,9 +38,11 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
   # Emisar as it answers a replacement key (`Ryker.TestSupport.EmisarMCP`).
   defmodule SameAccountRequester do
+    alias Ryker.TestSupport.EmisarMCP
+
     def request(client, :post, "/mcp", body, _headers) do
       {:ok, token} = client.token_provider.()
-      Ryker.TestSupport.EmisarMCP.answer(body, token)
+      EmisarMCP.answer(body, token)
     end
   end
 
