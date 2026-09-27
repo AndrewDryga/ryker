@@ -1198,6 +1198,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # some pages like this have islands while others dont"). A page of several
   # cards titles each one; a page that is one card, such as Data retention or
   # Model prices, leaves it untitled under the page's own title.
+  # Advanced has other parts beside its one editor, so its card keeps a title.
+  defp titled?(:system), do: true
   defp titled?(section), do: length(editors(section)) > 1
 
   # Any model or fallback no price covers. The notice is the page's, above its
