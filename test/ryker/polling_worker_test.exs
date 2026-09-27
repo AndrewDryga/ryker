@@ -42,10 +42,13 @@ defmodule Ryker.PollingWorkerTest do
     def run_pass(kind: :exit), do: exit(:invalid_polling_operation)
   end
 
-  defmodule OnboardingAPI do
-    def pin(_binding, _repository), do: {:error, :not_used}
-    def scan(_binding, _repository, _commit), do: {:error, :not_used}
-    def publish(_binding, _repository, _commit, _content), do: {:error, :not_used}
+  defmodule PlainWorker do
+    use Ryker.PollingWorker, lane: :plain_test, interval: :interval_ms
+
+    def start_link(options), do: GenServer.start_link(__MODULE__, Map.new(options))
+
+    @impl Ryker.PollingWorker
+    def poll(state), do: state.interval_ms
   end
 
   defmodule WokenWorker do
@@ -203,10 +206,7 @@ defmodule Ryker.PollingWorkerTest do
   test "a stray message to a worker that names no announcements is logged, not fatal" do
     log =
       capture_log(fn ->
-        worker =
-          start_supervised!(
-            {Ryker.GitHub.OnboardingWorker, api: OnboardingAPI, interval_ms: 60_000}
-          )
+        worker = start_supervised!({PlainWorker, interval_ms: 60_000})
 
         send(worker, {:changed, 1})
         _state = :sys.get_state(worker)
