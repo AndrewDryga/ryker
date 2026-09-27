@@ -26,6 +26,45 @@ defmodule Ryker.Operator.EpisodeReviewsTest do
              {:error, :episode_not_found}
   end
 
+  # Activity and a request's Timeline say whether a finished request was
+  # reviewed. Until 2026-09-26 they heard of a review from a trigger's NOTIFY
+  # and a five-second poll; the review is now announced, on the request's
+  # topic too, once it commits.
+  test "a recorded review reaches the reviewed request's pages" do
+    episode_id = Ecto.UUID.generate()
+    episode_key = "review-announced:#{episode_id}"
+    turn_ref = "turn:#{episode_id}"
+
+    assert {:ok, _started} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode_id,
+                 episode_key: episode_key,
+                 native_input_id: "input:#{episode_id}",
+                 occurred_at: @now,
+                 turn_ref: turn_ref
+               })
+             )
+
+    assert {:ok, _cancelled} =
+             Episodes.apply(%Command.CancelEpisode{
+               cancel_ref: "cancel:#{episode_id}",
+               episode_key: episode_key,
+               expected_owner: %{kind: :turn, ref: turn_ref},
+               occurred_at: DateTime.add(@now, 1, :second),
+               reason: "No longer needed"
+             })
+
+    :ok = EpisodeReviews.subscribe_reviews()
+    :ok = Episodes.subscribe_episode(episode_id)
+
+    assert {:ok, %{review: %{id: id}, status: :recorded}} =
+             EpisodeReviews.review(episode_key, "control-plane:local")
+
+    assert_received {:episode_reviewed, ^id}
+    assert_received {:episode_updated, ^episode_id}
+  end
+
   test "review acknowledgement belongs to one exact terminal semantic version" do
     episode_id = Ecto.UUID.generate()
     episode_key = "review:#{episode_id}"

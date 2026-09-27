@@ -19,6 +19,22 @@ defmodule Ryker.Learning.BatchesTest do
     batch_size: 16
   }
 
+  # Memory › Learning lists what waits to be learned and what each pass did.
+  # Until 2026-09-26 it heard of a new batch from a trigger's NOTIFY and a
+  # five-second poll; the context now announces a batch it assembles, and a
+  # lease renewal, which no page shows, stays quiet.
+  test "a batch assembled for learning reaches the learning page, and a renewal does not" do
+    inputs!()
+    :ok = Learning.subscribe_learning()
+
+    assert {:ok, claim} = Batches.claim("worker-announced", @settings)
+    batch_id = claim.batch.id
+    assert_received {:learning_updated, ^batch_id}
+
+    assert {:ok, _renewed} = Batches.renew(claim, 300)
+    refute_received {:learning_updated, ^batch_id}
+  end
+
   test "one input revision belongs to one batch even after a worker lease expires" do
     entries = inputs!()
     assert {:ok, first} = Batches.claim("worker-a", @settings)

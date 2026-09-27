@@ -220,6 +220,27 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   # One offer owns both paths. Before 2026-09-11 an incident offer had only
   # "Open incident room"; the in-place path did not exist, and nothing stopped a
   # room request and a thread investigation from both starting on one offer.
+  # Incident rooms, a room's page and the request that offered the room all
+  # show it. Until 2026-09-26 they heard of a requested room from a trigger's
+  # NOTIFY and a five-second poll; the context now announces the room, and the
+  # request it came from, once the request commits.
+  test "a requested room reaches the room pages and the request that offered it" do
+    fixture = delivered_offer!()
+    source_id = fixture.episode.id
+    :ok = IncidentRooms.subscribe_rooms()
+    :ok = Episodes.subscribe_episode(source_id)
+
+    assert {:ok, %{status: :requested, room: %{id: id, ref: ref}}} =
+             IncidentRooms.request(request(fixture))
+
+    assert_received {:incident_room_updated, ^id}
+    assert_received {:episode_updated, ^source_id}
+
+    :ok = IncidentRooms.subscribe_room(ref)
+    assert {:ok, %{status: :duplicate}} = IncidentRooms.request(request(fixture))
+    refute_received {:incident_room_updated, ^id}
+  end
+
   test "one incident offer starts exactly one path: investigate in the thread or create a room" do
     fixture = delivered_offer!()
     other = delivered_offer!()

@@ -10,8 +10,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
   A poll that changes what a page shows about the worker (its state, what it
   can run, its storage, or its return after going quiet) is announced after
-  the poll commits (`subscribe_workers/0`). A heartbeat that only moves
-  `last_seen_at` is not: a worker polls every few seconds.
+  the poll commits (`subscribe_workers/0`), and so is a worker that stops
+  polling (`announce_quiet/1`). A heartbeat that only moves `last_seen_at` is
+  not: a worker polls every few seconds. What a poll reports about a session
+  is announced on the session's request (`Ryker.Episodes`).
   """
 
   import Ecto.Changeset
@@ -19,7 +21,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
   alias Ryker.CoopFleet.{Certificate, Protocol, Worker}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Events, Placements, Shared}
+  alias Ryker.Episodes
   alias Ryker.Repo
+  alias Ryker.Work.Session
 
   # Registers a worker under a certificate digest the operator vouches for
   # directly, without an enrollment token. No operator surface calls this;
@@ -180,7 +184,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
       |> Repo.update()
       |> Shared.unwrap_write()
 
-    if status_changed?(previous, worker, now), do: broadcast_worker_updated(worker)
+    if status_changed?(previous, worker, now), do: broadcast_worker_updated(worker.id)
     Placements.renew_worker_placements(worker, now, lease_seconds)
     Commands.acknowledge_commands(worker_id, poll["acknowledged_command_ids"], now)
 
@@ -188,6 +192,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
       Commands.apply_command_results(worker_id, poll["command_results"], now, body_root)
 
     event_acknowledgements = Events.apply_event_batches(worker_id, poll["event_batches"], now)
+    announce_reported_sessions(poll["event_batches"])
 
     commands =
       Commands.deliver_commands(worker_id, now, state_tools_secret, body_root, checkpoint_key)
@@ -339,22 +344,44 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
   # -- PubSub ------------------------------------------------------------------
 
+  # What pages read from a worker row, and whether it had gone quiet: the
+  # fleet counts a worker silent for a minute as stale.
+  @status_fields ~w(state capacity capabilities storage build_version sandbox_digest protocol_version drain_requested_at)a
+  @quiet_seconds 60
+
   @doc """
   Subscribes the caller to Coop worker status: `{:coop_worker_updated,
   worker_id}` once a poll changes a worker's state, capacity, repositories,
-  policies, storage or build, or brings it back after it stopped reporting,
-  and that poll has committed.
+  storage or build, or brings it back after it stopped reporting, and that
+  poll has committed; or once a worker stops reporting.
   """
   def subscribe_workers, do: Ryker.PubSub.subscribe(workers_topic())
 
   def unsubscribe_workers, do: Ryker.PubSub.unsubscribe(workers_topic())
 
-  defp workers_topic, do: "coop:workers"
+  @doc """
+  Announces each worker in `reporting` whose heartbeat has gone stale since,
+  and returns the workers reporting now.
 
-  # What pages read from a worker row, and whether it had gone quiet: the
-  # fleet counts a worker silent for a minute as stale.
-  @status_fields ~w(state capacity capabilities repositories policy_digests policy_authority_digests storage build_version sandbox_digest protocol_version drain_requested_at)a
-  @quiet_seconds 60
+  A worker that stops polling writes nothing, so no commit says it went quiet;
+  `Ryker.ControlPlane.WorkerLiveness` asks every few seconds while the console
+  runs, starting from an empty set. A worker that comes back is announced by
+  its first poll.
+  """
+  @spec announce_quiet(MapSet.t(String.t())) :: MapSet.t(String.t())
+  def announce_quiet(%MapSet{} = reporting) do
+    cutoff = DateTime.add(Repo.now!(), -@quiet_seconds, :second)
+
+    current =
+      from(worker in Worker, where: worker.last_seen_at >= ^cutoff, select: worker.id)
+      |> Repo.all()
+      |> MapSet.new()
+
+    reporting |> MapSet.difference(current) |> Enum.each(&broadcast_worker_updated/1)
+    current
+  end
+
+  defp workers_topic, do: "coop:workers"
 
   defp status_changed?(previous, current, now) do
     Map.take(previous, @status_fields) != Map.take(current, @status_fields) or
@@ -362,9 +389,22 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
       DateTime.diff(now, previous.last_seen_at, :second) > @quiet_seconds
   end
 
-  defp broadcast_worker_updated(%Worker{id: id}),
+  defp broadcast_worker_updated(worker_id),
     do:
       Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(workers_topic(), {:coop_worker_updated, id})
+        Ryker.PubSub.broadcast(workers_topic(), {:coop_worker_updated, worker_id})
       end)
+
+  # What a worker reported about a session shows on the session's request.
+  defp announce_reported_sessions(batches) do
+    case for(%{"session_ref" => ref, "events" => [_ | _]} <- batches, do: ref) do
+      [] ->
+        :ok
+
+      session_ids ->
+        from(session in Session, where: session.id in ^session_ids, select: session.episode_id)
+        |> Repo.all()
+        |> Enum.each(&Episodes.broadcast_episode_updated/1)
+    end
+  end
 end

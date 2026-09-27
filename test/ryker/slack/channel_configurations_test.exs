@@ -49,6 +49,45 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
     :ok
   end
 
+  # Channels, a channel's page, Setup and Environments show which channels
+  # Ryker is in and how each is set up. Until 2026-09-26 they heard of a join
+  # or a choice from a trigger's NOTIFY and a five-second poll; the context now
+  # announces the channel once the change commits, and a choice that changes
+  # nothing stays quiet. Other tests use the same workspace, so this one takes
+  # a channel of its own.
+  test "a joined channel and its chosen environment reach the pages that show the channel" do
+    channel = "C#{System.unique_integer([:positive])}"
+    conversation = "slack:TCE3E523134AD:#{channel}"
+    :ok = ChannelConfigurations.subscribe_channels()
+    :ok = ChannelConfigurations.subscribe_channel("TCE3E523134AD", channel)
+
+    joined = %{membership(:joined, "event:join-announced:#{channel}") | channel_ref: channel}
+    assert {:ok, %{status: :joined}} = ChannelConfigurations.observe_membership(joined, @catalog)
+    assert_received {:slack_channel_updated, ^conversation}
+    assert_received {:slack_channel_updated, ^conversation}
+
+    assert {:ok, %{status: :saved}} =
+             ChannelConfigurations.select_environment(
+               "TCE3E523134AD",
+               channel,
+               "staging",
+               "control-plane:local"
+             )
+
+    assert_received {:slack_channel_updated, ^conversation}
+    assert_received {:slack_channel_updated, ^conversation}
+
+    assert {:ok, %{status: :unchanged}} =
+             ChannelConfigurations.select_environment(
+               "TCE3E523134AD",
+               channel,
+               "staging",
+               "control-plane:local"
+             )
+
+    refute_received {:slack_channel_updated, ^conversation}
+  end
+
   # A channel selects an environment, not a repository: whatever an operator
   # later adds to the environment reaches every channel that selects it. The
   # default is the one a channel starts with, so a new channel works like the
