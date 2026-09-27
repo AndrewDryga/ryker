@@ -95,6 +95,23 @@ defmodule Ryker.CoopFleet.ManagedSources do
     end
   end
 
+  @doc """
+  Deletes the mirror Ryker keeps of a repository that was removed, under the
+  same lock a job's source is prepared under, so a preparation already running
+  finishes first. Nothing else is Ryker's to delete: each worker fetches its
+  own copy for a job.
+  """
+  @spec remove_mirror(String.t(), String.t()) :: :ok
+  def remove_mirror(storage_root, repository_ref) do
+    if is_binary(storage_root) and Path.type(storage_root) == :absolute and
+         Protocol.reference?(repository_ref) do
+      mirror = Path.join([storage_root, "coop-source-mirrors", repository_ref <> ".git"])
+      with_mirror_lock(storage_root, repository_ref, fn -> File.rm_rf!(mirror) end)
+    end
+
+    :ok
+  end
+
   @doc false
   def with_mirror_lock(storage_root, repository_ref, operation) do
     # :global identifies a lock by {resource, requester}, not {module, key}.

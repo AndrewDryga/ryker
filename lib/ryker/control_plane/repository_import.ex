@@ -2,9 +2,14 @@ defmodule Ryker.ControlPlane.RepositoryImport do
   @moduledoc """
   Adding repositories the connected GitHub App can reach, on a page of its
   own (`/repositories/new`, Andrew, 2026-09-27: an add form opened in place
-  "blends into the content"): find them, pick them, add them. The page shows
-  the form only while the GitHub App works; otherwise its status line says
-  how to fix that.
+  "blends into the content"): pick them, add them. The page shows the form
+  only while the GitHub App works; otherwise its status line says how to fix
+  that.
+
+  The list loads when the page opens, without holding the page while GitHub
+  answers, and the page's Refresh loads it again (Andrew, 2026-09-27: "you
+  can load list of repos on load and have button to refresh the list when
+  needed"); nothing has to be pressed before anything is listed.
 
   An import that adds everything chosen returns to the list, which says what
   was added; one that adds nothing, or not everything, stays here and says
@@ -17,10 +22,21 @@ defmodule Ryker.ControlPlane.RepositoryImport do
 
   attr(:view, :map, required: true)
   attr(:repositories, :list, required: true)
-  attr(:discovery, :any, default: :idle)
+
+  attr(:discovery, :any,
+    default: :idle,
+    doc: ":idle before it starts, :loading, :complete, or {:error, message}"
+  )
+
   attr(:notice, :any, default: nil, doc: "{tone, message} from the last import, or nil")
 
   def repository_import(assigns) do
+    assigns =
+      assign(assigns,
+        loading: assigns.discovery in [:idle, :loading],
+        addable: Enum.count(assigns.repositories, &(!&1.already_present))
+      )
+
     ~H"""
     <div id="add-repositories" class="repository-import">
       <div class="repository-import-body">
@@ -30,48 +46,27 @@ defmodule Ryker.ControlPlane.RepositoryImport do
           message={elem(@notice, 1)}
           tone={elem(@notice, 0)}
         />
-        <button
-          :if={@discovery == :idle}
-          type="button"
-          class="ui-button secondary"
-          phx-click="discover-github-repositories"
-          phx-disable-with="Finding repositories…"
-        >Find repositories</button>
         <Kit.empty
-          :if={@discovery == :complete && @repositories == []}
+          :if={@loading and @repositories == []}
+          id="repository-discovery-loading"
+          variant={:hint}
+          icon={:repository}
+          title="Loading repositories from GitHub…"
+          text="Ryker asks the GitHub App which repositories it can reach."
+        />
+        <Kit.empty
+          :if={@discovery == :complete and @repositories == []}
           id="repository-discovery-empty"
           variant={:hint}
           icon={:repository}
           title="No repositories found"
-          text="Give the GitHub App access to at least one repository, then try again."
-        >
-          <button
-            type="button"
-            class="ui-button secondary"
-            phx-click="discover-github-repositories"
-            phx-disable-with="Checking again…"
-          >Try again</button>
-        </Kit.empty>
-        <div
-          :if={match?({:error, _}, @discovery)}
-          class="repository-discovery-result repository-discovery-error"
-        >
-          <Components.form_feedback
-            message={elem(@discovery, 1)}
-            tone={:error}
-            class="repository-discovery-feedback"
-          />
-          <div class="repository-discovery-actions">
-            <button
-              type="button"
-              class="ui-button secondary"
-              phx-click="discover-github-repositories"
-              phx-disable-with="Trying again…"
-            >Try again</button>
-            <.link navigate="/integrations/github" class="ui-button secondary">
-              Review GitHub connection
-            </.link>
-          </div>
+          text="Give the GitHub App access to at least one repository on GitHub, then refresh."
+        />
+        <div :if={match?({:error, _}, @discovery)} class="repository-discovery-error">
+          <Components.form_feedback message={elem(@discovery, 1)} tone={:error} />
+          <.link navigate="/integrations/github" class="ui-button secondary">
+            Review GitHub connection
+          </.link>
         </div>
         <%!-- Nothing starts ticked, and the add button counts the choice: 37
         ticked rows meant unticking 32 to choose 5 (Andrew, 2026-09-26). --%>
@@ -127,10 +122,14 @@ defmodule Ryker.ControlPlane.RepositoryImport do
             >
               Add 0 selected
             </button>
-            <button class="ui-button secondary" type="submit" name="import_mode" value="all">Add all {Enum.count(
-              @repositories,
-              &(!&1.already_present)
-            )}</button>
+            <button
+              :if={@addable > 0}
+              class="ui-button secondary"
+              type="submit"
+              name="import_mode"
+              value="all"
+            >Add all {@addable}</button>
+            <.link patch="/repositories" class="ui-button secondary">Cancel</.link>
           </div>
         </form>
       </div>

@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
       action_grants: ["merge_pull_request"],
       contributor_policy: "ryker-write",
       github_access: :available,
+      github_bound: true,
       github_health: %{
         duplicate_count: 0,
         failed: 0,
@@ -101,7 +102,17 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
     assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~ "acme/checkout-api"
     assert state(row) == {"Ready", ["on"]}
-    assert Enum.empty?(LazyHTML.query(row, "p.entity-text, .entity-actions"))
+    assert Enum.empty?(LazyHTML.query(row, "p.entity-text"))
+
+    # Removing it is its one action, quiet, and it only asks.
+    assert row |> LazyHTML.query(".entity-actions .ui-button") |> LazyHTML.text() ==
+             "Remove acme/checkout-api"
+
+    assert LazyHTML.query(
+             row,
+             ".entity-actions button.quiet[phx-click=confirm-settings-action][phx-value-action=remove-repository][phx-value-ref=acme-checkout-api]"
+           )
+           |> Enum.count() == 1
 
     assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
              "In Production, Staging · used in 2 channels and 1 schedule · 14 tasks · code from 3f9a1c2e, fetched 2 h ago"
@@ -196,7 +207,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert state(row) == {"Needs attention", ["warn"]}
 
     assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() ==
-             "Setup stopped: Cloning failed: repository is empty. Fix the cause, then retry setup."
+             "Setup stopped. Cloning failed: repository is empty. Fix the cause, then retry setup."
 
     retry =
       LazyHTML.query(
@@ -301,6 +312,87 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     refute page.body =~ "Publishing settings"
   end
 
+  # AndrewDryga/andrewdryga.github.com was saved without its GitHub binding
+  # when an import failed half-way (2026-09-26), and its row read "Setup
+  # stopped: GitHub binding is missing" with a Retry that stopped there again.
+  test "a repository whose adding stopped half-way reads Not fully added, with Add it again" do
+    half =
+      @repository
+      |> put_in([:configured, :github_bound], false)
+      |> put_in([:configured, :github_permissions], nil)
+      |> put_in([:configured, :onboarding_state], :blocked)
+      |> put_in([:configured, :onboarding_error], "GitHub binding is missing.")
+
+    document = render([half])
+    row = LazyHTML.query(document, "article.entity-row")
+
+    assert state(row) == {"Not fully added", ["warn"]}
+
+    assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() ==
+             "Adding it stopped before it finished, so Ryker cannot use it yet. Add it again, or remove it."
+
+    refute LazyHTML.text(row) =~ "binding"
+    assert Enum.empty?(LazyHTML.query(row, "button[phx-click=retry-github-onboarding]"))
+
+    assert LazyHTML.query(
+             row,
+             ".entity-actions button.secondary[phx-click=add-repository-again][phx-value-repository=acme-checkout-api]"
+           )
+           |> LazyHTML.text() == "Add it again"
+
+    assert LazyHTML.query(row, "button[phx-value-action=remove-repository]") |> Enum.count() == 1
+
+    assert document |> LazyHTML.query(".kit-count[data-tone=warn]") |> LazyHTML.text() =~
+             "needs attention"
+  end
+
+  # GitHub refuses every write to an archived repository, and setup says so
+  # in its own words, which already say what to do (2026-09-27).
+  test "an archived repository's stopped setup reads as one instruction, with Retry and Remove" do
+    archived =
+      @repository
+      |> put_in([:configured, :onboarding_state], :blocked)
+      |> put_in(
+        [:configured, :onboarding_error],
+        "This repository is archived on GitHub, so Ryker can read it but cannot open its " <>
+          "knowledge pull request. Unarchive it on GitHub and retry, or remove it."
+      )
+
+    row = render([archived]) |> LazyHTML.query("article.entity-row")
+    assert state(row) == {"Needs attention", ["warn"]}
+
+    assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() ==
+             "Setup stopped. This repository is archived on GitHub, so Ryker can read it but " <>
+               "cannot open its knowledge pull request. Unarchive it on GitHub and retry, or " <>
+               "remove it."
+
+    assert row |> LazyHTML.query(".entity-actions .ui-button") |> Enum.map(&LazyHTML.text/1) ==
+             ["Retry setup", "Remove acme/checkout-api"]
+  end
+
+  # Andrew, 2026-09-27: "how do I remove repositories?!"
+  test "removing a repository asks what it does, and history Ryker only saw cannot be removed" do
+    assert RepositoriesPage.removal(@repository) == %{
+             title: "Remove acme/checkout-api?",
+             text:
+               "Work in Production and Staging can no longer use its code. Schedules that " <>
+                 "work in it stop running. Ryker deletes the copy of its code it keeps. Past " <>
+                 "requests stay, and you can add it again later."
+           }
+
+    setting_up = put_in(@repository, [:configured, :onboarding_state], :cloning)
+
+    assert RepositoriesPage.removal(%{setting_up | environments: [], schedules: 0}).text ==
+             "Its setup stops, and Ryker deletes the copy of its code it keeps. Past requests " <>
+               "stay, and you can add it again later."
+
+    observed = %{@repository | configured: nil}
+
+    assert render([observed])
+           |> LazyHTML.query("button[phx-value-action=remove-repository]")
+           |> Enum.empty?()
+  end
+
   test "the GitHub line says what the GitHub page says and where to change it" do
     # It said "GitHub needs repair. Ryker cannot read repositories…" while the
     # GitHub page said "Needs repair. The saved App ID or private key no
@@ -308,9 +400,11 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     for {github_connection, enabled, words, link, href} <- [
           {:ready, true, "GitHub Connected App ryker-acme · 1 repository", "Manage",
            "/integrations/github"},
+          # Add repositories is the list's own action; the line opens GitHub's
+          # page instead of offering it a second time.
           {:ready, false,
            "GitHub Add a repository to start The App is verified. Ryker starts GitHub work once a repository is added.",
-           "Add repositories", "/repositories/new"},
+           "Manage", "/integrations/github"},
           {:invalid, true, "GitHub Needs repair The saved App ID or private key no longer works.",
            "Repair GitHub", "/integrations/github#github-app"},
           {:missing, false,

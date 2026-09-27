@@ -4,7 +4,7 @@ defmodule Ryker.IntegrationSetupTest do
   import Ecto.Query
 
   alias Ryker.ControlPlane.{IntegrationErrors, Integrations}
-  alias Ryker.{Credentials, Episodes, IntegrationSetup, Settings}
+  alias Ryker.{Credentials, Episodes, IntegrationSetup, Repo, Settings}
   alias Ryker.Emisar.Connections
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.GitHub.{Access, Binding}
@@ -495,6 +495,146 @@ defmodule Ryker.IntegrationSetupTest do
     assert snapshot.github.enabled
   end
 
+  # Its row offered only Retry setup, which stopped again at "GitHub binding
+  # is missing" every time (AndrewDryga/andrewdryga.github.com, 2026-09-26).
+  test "a repository whose adding stopped half-way is added again from what the App reaches" do
+    connect_github!()
+
+    {:ok, _snapshot} =
+      Settings.put_repository(
+        %{
+          ref: "acme-site",
+          display_name: "acme/site",
+          github_repository: "acme/site",
+          onboarding_state: :blocked,
+          onboarding_error: "GitHub binding is missing."
+        },
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    assert {:error, {:github_repository_unreachable, "acme/site"}} =
+             IntegrationSetup.add_github_repository_again("acme-site", [
+               github_repository("acme/other", 601)
+             ])
+
+    assert {:ok, %{added: ["acme/site"], failed: []}} =
+             IntegrationSetup.add_github_repository_again("acme-site", [
+               github_repository("acme/other", 601),
+               github_repository("acme/site", 602)
+             ])
+
+    snapshot = Settings.fetch!()
+    assert [%{repository_ref: "acme-site", repository_id: 602}] = snapshot.github_bindings
+    assert [default] = snapshot.environments
+    assert Environment.repository_refs(default) == ["acme-site"]
+
+    # Its setup, stopped for want of the binding, starts over.
+    assert [%{onboarding_state: :pending, onboarding_error: nil}] = snapshot.repositories
+
+    assert {:error, :repository_not_found} =
+             IntegrationSetup.add_github_repository_again("missing", [])
+  end
+
+  # Andrew, 2026-09-27: "how do I remove repositories?!" Nothing could: a
+  # saved repository is refused deletion while an environment or its GitHub
+  # binding names it, and nothing took those away.
+  test "removing a repository takes it out of everything that names it, and its requests stay" do
+    connect_github!()
+
+    assert {:ok, %{added: ["acme/widget", "acme/gadget", "acme/tool"]}} =
+             IntegrationSetup.import_github_repositories([
+               github_repository("acme/widget", 501),
+               github_repository("acme/gadget", 502),
+               github_repository("acme/tool", 503)
+             ])
+
+    # acme-widget is Default's default; acme-gadget is only read there.
+    {:ok, _snapshot} =
+      Settings.put_environment(
+        %{
+          ref: "default",
+          repositories: ["acme-widget", "acme-gadget", "acme-tool"],
+          access: %{"acme-gadget" => :read_only}
+        },
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    for {name, repositories} <- [
+          {"deploys", ["acme-widget", "acme-gadget"]},
+          {"widget-deploys", ["acme-widget"]}
+        ] do
+      {:ok, _snapshot} =
+        Settings.put_webhook_source(
+          %{
+            name: name,
+            adapter_kind: :universal,
+            auth_kind: :hmac_sha256,
+            secret_name: name,
+            destination_transport: "slack",
+            destination_conversation_ref: "slack:T0123456789:C0123456789",
+            environment_ref: "default",
+            publication_lifecycle: %{
+              "environments" => ["production"],
+              "kinds" => ["deployment"],
+              "repositories" => repositories,
+              "targets" => ["widget"]
+            }
+          },
+          Settings.fetch!().installation.revision,
+          @actor
+        )
+    end
+
+    storage = Path.join(System.tmp_dir!(), "ryker-remove-#{System.unique_integer([:positive])}")
+    mirror = Path.join([storage, "coop-source-mirrors", "acme-widget.git"])
+    other = Path.join([storage, "coop-source-mirrors", "acme-gadget.git"])
+    Enum.each([mirror, other], &File.mkdir_p!/1)
+    on_exit(fn -> File.rm_rf!(storage) end)
+
+    session = pin_repository_work!("widget", "acme-widget")
+
+    assert {:ok, %{repository: %{github_repository: "acme/widget"}}} =
+             IntegrationSetup.remove_repository("acme-widget", storage_root: storage)
+
+    snapshot = Settings.fetch!()
+    assert Enum.map(snapshot.repositories, & &1.ref) == ["acme-gadget", "acme-tool"]
+
+    assert snapshot.github_bindings |> Enum.map(& &1.repository_ref) |> Enum.sort() == [
+             "acme-gadget",
+             "acme-tool"
+           ]
+
+    # The read-only repository does not become the default; the next one
+    # work may change does, and what each may do stays as it was.
+    assert [default] = snapshot.environments
+
+    assert Enum.map(default.repositories, &{&1.repository_ref, &1.access}) == [
+             {"acme-tool", :read_write},
+             {"acme-gadget", :read_only}
+           ]
+
+    sources = Map.new(snapshot.webhook_sources, &{&1.name, &1.publication_lifecycle})
+    assert sources["deploys"]["repositories"] == ["acme-gadget"]
+    assert sources["widget-deploys"] == nil
+
+    # The mirror Ryker kept of it goes; what Ryker did in it stays.
+    refute File.exists?(mirror)
+    assert File.exists?(other)
+    assert %{repository_ref: "acme-widget"} = Repo.reload!(session)
+
+    assert {:error, :repository_not_found} =
+             IntegrationSetup.remove_repository("acme-widget", storage_root: storage)
+
+    # An environment left with nothing work could change is refused, and
+    # nothing is removed.
+    assert {:error, {:environment_left_read_only, "Default"}} =
+             IntegrationSetup.remove_repository("acme-tool", storage_root: storage)
+
+    assert Enum.map(Settings.fetch!().repositories, & &1.ref) == ["acme-gadget", "acme-tool"]
+  end
+
   test "the picker offers a repository that was saved without its GitHub binding" do
     connect_github!()
 
@@ -918,6 +1058,31 @@ defmodule Ryker.IntegrationSetupTest do
       permissions: %{"contents" => "write", "pull_requests" => "write"},
       repository_id: repository_id
     }
+  end
+
+  defp pin_repository_work!(key, repository_ref) do
+    episode_id = Ecto.UUID.generate()
+
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode_id,
+                 episode_key: "integration-setup:#{key}",
+                 native_input_id: "source:integration-setup:#{key}",
+                 payload: %{"text" => "Why is the widget build red?"},
+                 turn_ref: "turn:integration-setup:#{key}"
+               })
+             )
+
+    assert {:ok, session} =
+             Custody.pin_episode(
+               episode_id,
+               "test-policy",
+               String.duplicate("d", 64),
+               repository_ref
+             )
+
+    session
   end
 
   defp pin_work!(key, environment_ref) do

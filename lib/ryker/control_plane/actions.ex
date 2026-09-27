@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.IntegrationSetup
   alias Ryker.Operator.{EpisodeReviews, Failures}
   alias Ryker.Operator.Learning, as: LearningOperator
   alias Ryker.Operator.Publication, as: PublicationOperator
@@ -86,6 +87,8 @@ defmodule Ryker.ControlPlane.Actions do
       save_instructions: &InstructionSettings.save/3,
       # The outcome comes back to the page that asked, as a message.
       redraw_channel_welcome: &SlackRuntime.redraw_welcome(&1, &2, self()),
+      # What the GitHub App reaches, for Add repositories; it asks GitHub.
+      github_repositories: fn -> IntegrationSetup.github_repositories() end,
       initialize_settings: &SettingsCommands.initialize/0,
       save_settings: &SettingsCommands.save/3,
       put_settings_item: &SettingsCommands.put_item/3,
