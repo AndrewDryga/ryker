@@ -1345,6 +1345,38 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert Settings.fetch!().work.model_accounts == ["codex@default"]
   end
 
+  # Andrew, 2026-09-27: a removal that answers inside its row "extends and
+  # design breaks". Removing an account a saved model still runs on is refused
+  # over the page, naming those models, and the row stays as it was.
+  test "removing an account a saved model runs on is refused over the page, naming the models" do
+    initialize!()
+    {:ok, view, _html} = open("/settings/models")
+    accounts = "#settings-model_accounts-model_accounts"
+
+    view |> element("button[phx-click=accounts][phx-value-action=add]") |> render_click()
+
+    view
+    |> element("#{accounts}-0 button[phx-click=accounts][phx-value-action=remove]")
+    |> render_click()
+
+    question = "#{accounts}-refused[role=alertdialog]"
+    assert has_element?(view, question, "codex@default cannot be removed yet")
+
+    assert has_element?(
+             view,
+             question,
+             "codex@default still runs gpt-5.6-sol for Routing"
+           )
+
+    # The row is as it was: still there, and saying nothing.
+    assert has_element?(view, "#{accounts}-0-account[value='codex@default']")
+    refute has_element?(view, "#{accounts}-0 .form-feedback")
+
+    view |> element("#{accounts}-refused button", "OK") |> render_click()
+    refute has_element?(view, question)
+    assert Settings.fetch!().work.model_accounts == ["codex@default"]
+  end
+
   # The value of the option a select shows as chosen; "" for its prompt.
   defp selected(view, selector) do
     view
@@ -1477,10 +1509,22 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     |> form("#settings-retention-form", %{"operational_data_seconds" => "7"})
     |> render_submit()
 
-    assert has_element?(view, ".settings-impact", "Shorter limits delete older data")
+    # It asks over the page, so the form never grows a second step inside it
+    # (Andrew, 2026-09-27: removal confirmations are modals).
+    question = "#settings-retention-impact[role=alertdialog]"
+    assert has_element?(view, question, "Apply shorter limits?")
+    assert has_element?(view, question, "Shorter limits delete older data")
+    refute has_element?(view, "#settings-retention-form #settings-retention-impact")
     assert Settings.fetch!().retention.operational_data_seconds == 30 * @day
 
-    view |> element("#settings-retention button[phx-click=confirm]") |> render_click()
+    # Cancel keeps what was typed, and saves nothing.
+    view |> element("#settings-retention-impact button", "Cancel") |> render_click()
+    refute has_element?(view, question)
+    assert has_element?(view, "#settings-retention-operational_data_seconds[value='7']")
+    assert Settings.fetch!().retention.operational_data_seconds == 30 * @day
+
+    view |> form("#settings-retention-form") |> render_submit()
+    view |> element("#settings-retention-impact button", "Apply shorter limits") |> render_click()
 
     assert Settings.fetch!().retention.operational_data_seconds == 7 * @day
     assert has_element?(view, "#settings-retention [role=status]", "Saved.")

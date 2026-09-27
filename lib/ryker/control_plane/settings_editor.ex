@@ -8,8 +8,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   A live refresh never overwrites an unsaved draft, a rejected save keeps the
   draft and says which field was refused, and a revision that moved under the
   editor shows what is saved now instead of quietly overwriting it. Shortening
-  a retention limit takes a second step that names what would age out, and
-  removing a row takes a second step that says what removing it does.
+  a retention limit asks first, over the page, and names what would age out;
+  removing a row asks first the same way and says what removing it does.
 
   Each section is a Kit section card (see `Kit.section_card/1`): a live
   component's root must be a plain tag, so its root section carries the
@@ -115,6 +115,11 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     {:noreply, write(socket, save_command(socket, payload(socket)))}
   end
 
+  # Cancelling the shorter limits' question keeps the draft, so a limit can
+  # be changed before saving again.
+  def handle_event("cancel-impact", _params, socket),
+    do: {:noreply, assign(socket, impact: nil, confirmation: nil)}
+
   def handle_event("confirm", _params, socket) do
     payload = payload(socket, %{"confirmation" => socket.assigns.confirmation})
     {:noreply, write(socket, save_command(socket, payload))}
@@ -173,6 +178,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       {:noreply, socket}
     end
   end
+
+  def handle_event("dismiss-refusal", _params, socket),
+    do: {:noreply, assign(socket, :refusal, nil)}
 
   def handle_event("ask-remove", %{"item" => key}, socket) when is_binary(key),
     do: {:noreply, assign(socket, removing: key, remove_error: nil, message: "")}
@@ -673,24 +681,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
             refusal={@refusal}
           />
         </div>
-        <div :if={@impact} class="settings-impact" role="alert">
-          <h3>Shorter limits delete older data</h3>
-          <p>
-            Records older than the new limits become eligible for cleanup. Live waits, approvals,
-            schedules and unpublished work keep their history regardless of age.
-          </p>
-          <ul :if={impact_lines(@section, @impact) != []}>
-            <li :for={{label, counts} <- impact_lines(@section, @impact)}>
-              <strong>{label}</strong> <span>{counts}</span>
-            </li>
-          </ul>
-          <p :if={impact_lines(@section, @impact) == []}>
-            Nothing is old enough to be deleted yet.
-          </p>
-          <button type="button" class="ui-button danger" phx-click="confirm" phx-target={@myself}>
-            Apply shorter limits
-          </button>
-        </div>
         <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
         <div :if={@conflict} class="settings-conflict">
           <h3>Saved now</h3>
@@ -727,6 +717,27 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           <span role="status" class="settings-saved">{@message}</span>
         </div>
       </form>
+      <%!-- Shortening a limit deletes older data, so it asks over the page,
+      with how much each shorter limit would delete (Andrew, 2026-09-27:
+      removal confirmations are modals). Cancel keeps the draft. --%>
+      <Kit.confirm_modal
+        :if={@impact}
+        id={"#{@id}-impact"}
+        title="Apply shorter limits?"
+        text="Shorter limits delete older data: records older than the new limits become eligible for cleanup. Live waits, approvals, schedules and unpublished work keep their history regardless of age."
+        label="Apply shorter limits"
+        cancel="cancel-impact"
+        target={@myself}
+        phx-click="confirm"
+        phx-target={@myself}
+      >
+        <ul :if={impact_lines(@section, @impact) != []}>
+          <li :for={{label, counts} <- impact_lines(@section, @impact)}>
+            <strong>{label}</strong> <span>{counts}</span>
+          </li>
+        </ul>
+        <p :if={impact_lines(@section, @impact) == []}>Nothing is old enough to be deleted yet.</p>
+      </Kit.confirm_modal>
     </div>
     """
   end
@@ -920,7 +931,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   # the last row (Andrew, 2026-09-27: "I need a way to add more accounts than
   # one!"). A row says what is wrong with it while it is typed, once it can
   # no longer become an account, and after a refused save also while it is
-  # unfinished. A row whose removal was refused says which models run on it.
+  # unfinished. A removal that is refused says which models run on the
+  # account over the page, so the row that asked never grows (Andrew,
+  # 2026-09-27: a row that "extends and design breaks").
   defp field(%{field: %{kind: :accounts}} = assigns) do
     %{field: field, value: entries, error: error, refusal: refusal} = assigns
     name = SettingsSections.field_name(field)
@@ -936,18 +949,27 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           account: account,
           name: if(String.trim(account) == "", do: "account #{index + 1}", else: account),
           problem: problem,
-          message:
-            case refusal do
-              {^name, ^index, sentence} -> sentence
-              _other -> problem
-            end
+          message: problem
         }
       end)
+
+    refused =
+      case refusal do
+        {^name, index, sentence} ->
+          %{
+            account: rows |> Enum.at(index, %{name: "This account"}) |> Map.fetch!(:name),
+            sentence: sentence
+          }
+
+        _none ->
+          nil
+      end
 
     assigns =
       assign(assigns,
         name: name,
         rows: rows,
+        refused: refused,
         count: length(entries),
         most: Work.most_accounts(),
         placeholder: SettingsSections.account_placeholder()
@@ -1013,6 +1035,14 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         ><Components.icon name={:plus} /><span>Add account</span></button>
       </div>
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
+      <Kit.confirm_modal
+        :if={@refused}
+        id={"#{@id}-refused"}
+        title={"#{@refused.account} cannot be removed yet"}
+        text={@refused.sentence}
+        cancel="dismiss-refusal"
+        target={@myself}
+      />
     </fieldset>
     """
   end

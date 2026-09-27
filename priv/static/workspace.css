@@ -2051,12 +2051,8 @@
 .settings-section > .settings-editor { max-width:720px; margin:20px 0 0; }
 .settings-collection-bar { display:flex; align-items:center; justify-content:space-between; gap:16px; max-width:1040px; margin:8px 0 4px; }
 .settings-collection-bar p { margin:0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.settings-impact, .settings-conflict { padding:14px 16px; border:1px solid color-mix(in srgb, var(--ryker-warning) 45%, transparent); border-radius:8px; background:color-mix(in srgb, var(--ryker-warning) 6%, transparent); }
-.settings-impact h3, .settings-conflict h3 { margin:0 0 6px; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
-.settings-impact p { margin:0 0 10px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.settings-impact ul { display:grid; gap:4px; margin:0 0 12px; padding:0; list-style:none; }
-.settings-impact li { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.settings-impact li strong { margin-right:6px; font-weight:500; color:var(--ryker-text); }
+.settings-conflict { padding:14px 16px; border:1px solid color-mix(in srgb, var(--ryker-warning) 45%, transparent); border-radius:8px; background:color-mix(in srgb, var(--ryker-warning) 6%, transparent); }
+.settings-conflict h3 { margin:0 0 6px; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
 .settings-row-details, .settings-disclosure { max-width:720px; margin:8px 0 0; }
 .settings-row-details > summary, .settings-disclosure > summary, .system-evidence > summary { width:fit-content; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); cursor:pointer; }
 .settings-disclosure > summary, .system-evidence > summary { font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text); }
@@ -2335,11 +2331,17 @@ html:has(.kit-modal) { overflow:hidden; }
 .ryker-app .kit-modal-title { grid-column:2; margin:0; font-size:17px; line-height:24px; font-weight:600; letter-spacing:-.2px; color:var(--ryker-text); overflow-wrap:anywhere; }
 .ryker-app .kit-modal-text { grid-column:2; margin:6px 0 0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
 .kit-modal-error { grid-column:2; margin:12px 0 0; }
+.kit-modal-body { grid-column:2; margin:12px 0 0; font-size:14px; line-height:20px; color:var(--ryker-text); }
+.kit-modal-body > ul { display:grid; gap:6px; margin:0; padding:0; list-style:none; }
+.kit-modal-body > ul > li { display:flex; flex-wrap:wrap; gap:2px 8px; padding:8px 10px; border-radius:8px; background:var(--ryker-surface-sunken); }
+.kit-modal-body > ul > li > strong { font-weight:600; }
+.kit-modal-body > ul > li > span { color:var(--ryker-text-secondary); }
+.kit-modal-body > p { margin:0; color:var(--ryker-text-secondary); }
 .kit-modal-actions { grid-column:1 / -1; display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-top:24px; }
 .kit-modal-form { display:contents; }
 .ryker-app .kit-modal-actions .ui-button { min-height:36px; padding:7px 14px; border-radius:8px; font-size:13px; line-height:20px; }
 @media (prefers-reduced-motion:no-preference) { @keyframes kit-modal-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } } .kit-modal-panel { animation:kit-modal-in 140ms ease-out; } }
-@media (max-width:600px) { .kit-modal-panel { grid-template-columns:minmax(0,1fr); } .kit-modal-icon { grid-row:auto; margin-bottom:12px; } .ryker-app .kit-modal-title, .ryker-app .kit-modal-text, .kit-modal-error { grid-column:1; } }
+@media (max-width:600px) { .kit-modal-panel { grid-template-columns:minmax(0,1fr); } .kit-modal-icon { grid-row:auto; margin-bottom:12px; } .ryker-app .kit-modal-title, .ryker-app .kit-modal-text, .kit-modal-body, .kit-modal-error { grid-column:1; } }
 /* Facts in a card keep the head's rhythm from whatever follows them, such as a setting's form. */
 .ryker-app .kit-card > .kit-facts + * { margin-top:20px; }
 @media (max-width:600px) {
