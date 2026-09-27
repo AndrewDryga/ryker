@@ -5,9 +5,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
   Integrations overview and a page per integration (Slack, GitHub, Emisar,
   Webhooks), and the Settings overview and a page per installation setting
   (Models, Data retention, Model prices, Advanced). The sidebar is the only
-  menu; each page has one title, one sentence and plain sections. A page's Add
-  opens its form under the button, above the list it adds to, and pressed
-  again closes it.
+  menu; each page has one title, one sentence and its parts in Kit section
+  cards, the overviews and one-part pages included. A page's Add opens its
+  form under the button, above the list it adds to, and pressed again closes
+  it.
 
   A connection reads as a dot and a word, why when it is not working, and the
   one action that fits it, in the words every page uses (see
@@ -101,6 +102,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       assigns
       |> assign(:view, view)
       |> assign(:page, page(assigns.section, view))
+      |> assign(:notices, if(assigns.section == :model, do: model_notices(view), else: []))
 
     ~H"""
     <div class="settings-page" id="settings-page" phx-hook="SettingsDraft">
@@ -172,6 +174,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
         confirm={@confirm}
         editing={@webhook_credential_editing}
       />
+      <div :if={@notices != []} id="model-notices">
+        <p :for={notice <- @notices} class="settings-notice">
+          {notice.text}
+          <.link :if={notice[:href]} navigate={notice.href}>{notice.link}</.link>
+        </p>
+      </div>
       <.live_component
         :for={key <- editors(@section)}
         module={SettingsEditor}
@@ -179,8 +187,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         section={section!(key)}
         view={@view}
         commands={@commands}
-        show_header={@section == :system}
-        frame={frame(@section)}
+        show_header={titled?(@section)}
       />
       <div :if={@section == :system} class="settings-running">
         {Phoenix.HTML.raw(@body)}
@@ -195,34 +202,37 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   # Every service Ryker works through, whatever its state: its state, what it
   # gives Ryker, why it is not working or what is connected, and the one
-  # action that fits.
+  # action that fits. The list is the page's one card, as every settings
+  # page shows its parts.
   defp integrations(assigns) do
     assigns = assign(assigns, :rows, Integrations.overview(assigns.view))
 
     ~H"""
-    <Kit.entity_list label="Integrations" class="integrations-list">
-      <Kit.entity_row
-        :for={row <- @rows}
-        id={"integration-#{row.key}"}
-        name={row.name}
-        href={row.href}
-        navigate={true}
-        state={row.state}
-        tag={row.tag}
-        text={row.text}
-        meta={row.meta}
-      >
-        <:actions>
-          <.link
-            navigate={row.action.href}
-            class={["ui-button", if(row.action.primary, do: "primary", else: "secondary")]}
-          >{row.action.label}<span
-            :if={not String.contains?(row.action.label, row.name)}
-            class="sr-only"
-          >{" " <> row.name}</span></.link>
-        </:actions>
-      </Kit.entity_row>
-    </Kit.entity_list>
+    <Kit.section_card label="Integrations">
+      <Kit.entity_list label="Integrations" class="integrations-list">
+        <Kit.entity_row
+          :for={row <- @rows}
+          id={"integration-#{row.key}"}
+          name={row.name}
+          href={row.href}
+          navigate={true}
+          state={row.state}
+          tag={row.tag}
+          text={row.text}
+          meta={row.meta}
+        >
+          <:actions>
+            <.link
+              navigate={row.action.href}
+              class={["ui-button", if(row.action.primary, do: "primary", else: "secondary")]}
+            >{row.action.label}<span
+              :if={not String.contains?(row.action.label, row.name)}
+              class="sr-only"
+            >{" " <> row.name}</span></.link>
+          </:actions>
+        </Kit.entity_row>
+      </Kit.entity_list>
+    </Kit.section_card>
     """
   end
 
@@ -230,25 +240,28 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   attr(:view, :map, required: true)
 
-  # Every installation setting in the rows the Integrations overview uses:
-  # what its page sets and what it is set to now. A setting has no connection
-  # to repair and so no next step of its own; the whole row opens its page.
+  # Every installation setting in the rows the Integrations overview uses,
+  # in its card: what its page sets and what it is set to now. A setting has
+  # no connection to repair and so no next step of its own; the whole row
+  # opens its page.
   defp settings_overview(assigns) do
     assigns = assign(assigns, :rows, settings_rows(assigns.view))
 
     ~H"""
-    <Kit.entity_list label="Settings" class="settings-list">
-      <Kit.entity_row
-        :for={row <- @rows}
-        id={"setting-#{row.key}"}
-        name={row.name}
-        href={row.href}
-        navigate={true}
-        link_row={true}
-        text={row.text}
-        meta={row.meta}
-      />
-    </Kit.entity_list>
+    <Kit.section_card label="Settings">
+      <Kit.entity_list label="Settings" class="settings-list">
+        <Kit.entity_row
+          :for={row <- @rows}
+          id={"setting-#{row.key}"}
+          name={row.name}
+          href={row.href}
+          navigate={true}
+          link_row={true}
+          text={row.text}
+          meta={row.meta}
+        />
+      </Kit.entity_list>
+    </Kit.section_card>
     """
   end
 
@@ -283,7 +296,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   # The first model of each kind of work, then which kinds have fallbacks.
   defp set_now(:model, view) do
-    lists = Enum.map(section!(:model).fields, &{&1.label, Map.get(view.snapshot.work, &1.name)})
+    lists =
+      Enum.map(
+        SettingsSections.ladder_fields(),
+        &{&1.label, Map.get(view.snapshot.work, &1.name)}
+      )
 
     models =
       lists
@@ -1171,16 +1188,51 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # A person as a row's name: the one rendering every page uses for people.
   defp people(people), do: Kit.people(%{people: people, more: [], __changed__: nil})
 
-  defp editors(:model), do: [:model, :model_accounts]
+  defp editors(:model), do: [:request_models, :other_models, :model_accounts]
   defp editors(:retention), do: [:retention]
   defp editors(:pricing), do: [:pricing]
   defp editors(:system), do: [:work]
   defp editors(_section), do: []
 
-  # Model prices is one list, a page of its own like Channels. Models keeps
-  # its own layout until its form is rewritten.
-  defp frame(section) when section in [:model, :pricing], do: :none
-  defp frame(_section), do: :card
+  # Every settings page shows its parts as cards (Andrew, 2026-09-27: "why
+  # some pages like this have islands while others dont"). A page of several
+  # cards titles each one; a page that is one card, such as Data retention or
+  # Model prices, leaves it untitled under the page's own title.
+  defp titled?(section), do: length(editors(section)) > 1
+
+  # Any model or fallback no price covers. The notice is the page's, above its
+  # cards, since it can be about any of them.
+  defp model_notices(view), do: Enum.reject([unpriced_notice(view)], &is_nil/1)
+
+  # A model or fallback no price covers still runs; its cost reads as not
+  # priced, and the page says which one before anyone wonders why.
+  defp unpriced_notice(view) do
+    unpriced =
+      for field <- SettingsSections.ladder_fields(),
+          phrase = unpriced(field, Map.fetch!(view.snapshot.work, field.name), view),
+          do: phrase
+
+    if unpriced != [] do
+      %{
+        text:
+          "No price covers #{Environments.sentence(unpriced)}, so " <>
+            if(length(unpriced) == 1, do: "its", else: "their") <>
+            " cost will show as not priced.",
+        link: "Add a price",
+        href: "/settings/prices"
+      }
+    end
+  end
+
+  defp unpriced(field, [first | _fallbacks] = models, view) do
+    case Enum.reject(models, &SettingsSections.priced?(&1, view)) do
+      [] -> nil
+      [^first | _others] -> "the model for #{field.label}"
+      _fallbacks -> "a fallback for #{field.label}"
+    end
+  end
+
+  defp unpriced(_field, _models, _view), do: nil
 
   defp section!(key) do
     {:ok, section} = SettingsSections.fetch(key)
@@ -1243,12 +1295,15 @@ defmodule Ryker.ControlPlane.SettingsPage do
       description: "Let other systems, like Grafana, send events to Ryker."
     }
 
+  # A list of models no longer names its first choice and fallbacks, so the
+  # sentence says how the list is used.
   defp page(:model),
     do: %{
       title: "Models",
       description:
-        "The model, reasoning effort and account for each kind of work, and the fallbacks it " <>
-          "moves to when one cannot run. A change reaches new work within seconds."
+        "The model, reasoning effort and account for each kind of work. Ryker uses the first " <>
+          "model on each list, and the next only when the one above it hits a usage limit or " <>
+          "its sign-in stops working. A change reaches new work within seconds."
     }
 
   defp page(:retention),

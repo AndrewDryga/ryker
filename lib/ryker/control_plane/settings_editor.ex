@@ -11,8 +11,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   Each section is a Kit section card (see `Kit.section_card/1`): a live
   component's root must be a plain tag, so its root section carries the
   card and its first child is the card's head. A page whose only part is the
-  section shows the card without a title, under the page's own. A section
-  that is part of another card, or a list that is a page of its own, draws
+  section, such as Data retention or Model prices, shows the card without a
+  title, under the page's own. A section that is part of another card draws
   no card (`frame: :none`). A list section's rows sit in its card; a row is
   edited in place, under that row. Add opens the form for a new row right
   under the button, above the list, and pressed again closes it, as Cancel
@@ -25,7 +25,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   alias Ryker.ControlPlane.{
     Components,
-    Environments,
     Integrations,
     Kit,
     SettingsRows,
@@ -429,7 +428,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         item_key={@item_key}
         message={@message}
         myself={@myself}
-        show_header={@show_header}
         collection?={@collection?}
         noun={@noun}
       />
@@ -526,7 +524,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
               item_key={@item_key}
               message={@message}
               myself={@myself}
-              show_header={@show_header}
               collection?={@collection?}
               noun={@noun}
             />
@@ -562,7 +559,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         item_key={@item_key}
         message={@message}
         myself={@myself}
-        show_header={@show_header}
         collection?={@collection?}
         noun={@noun}
       />
@@ -611,18 +607,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
             Enum.all?(group.fields, &(&1.kind == :decimal)) && "settings-group-row"
           ]}
         >
-          <Kit.section_head
-            :if={group.name && page_sections?(@show_header, @collection?)}
-            title={group.name}
-            id={group.id}
-            lede={group.lede}
-          />
-          <h4
-            :if={group.name && !page_sections?(@show_header, @collection?)}
-            class="settings-group-title"
-          >
-            {group.name}
-          </h4>
+          <h4 :if={group.name} class="settings-group-title">{group.name}</h4>
           <.field
             :for={field <- group.fields}
             field={field}
@@ -703,10 +688,14 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   attr(:myself, :any, default: nil, doc: "This editor, for a control's own buttons")
 
-  # A kind of work's models, in the order Coop tries them: the first choice,
-  # then each fallback, each a model, a reasoning effort and an account. The
-  # buttons change only the draft; the account choice lists the accounts of
-  # the chosen model's provider, and says so when there is none yet.
+  # A kind of work's models, in the order Coop tries them. Its help, under its
+  # title, says where Ryker uses them. Each model is one numbered row of a
+  # bordered list under the column names the rows share, with its move and
+  # remove buttons at its end, and Add fallback lands a row under the last
+  # (Andrew, 2026-09-27: "no need to say "First choice" and "Fallback 1" just
+  # design properly so we see where items start and finish"). The buttons
+  # change only the draft; the account choice lists the accounts of the chosen
+  # model's provider, and says so when there is none yet.
   defp field(%{field: %{kind: :ladder}} = assigns) do
     %{field: field, value: entries, view: view} = assigns
     saved = Map.get(view.snapshot.work, field.name) || []
@@ -721,7 +710,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
         %{
           index: index,
-          rung: SettingsSections.ladder_rung(index),
           entry: entry,
           accounts: accounts,
           model_prompt: not offered?(models, entry["model"]),
@@ -741,128 +729,125 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       )
 
     ~H"""
-    <fieldset
-      class="settings-field settings-ladder"
-      id={@id}
-      aria-describedby={described_by(@id, @field)}
-    >
+    <fieldset class="settings-field settings-ladder" id={@id} aria-describedby={help_id(@id, @field)}>
       <legend>{@field.label}</legend>
       <p :if={@field[:help]} class="settings-help" id={"#{@id}-help"}>{@field.help}</p>
-      <ol class="settings-ladder-list">
-        <li :for={row <- @rows} id={"#{@id}-#{row.index}"} class="settings-ladder-entry">
-          <fieldset class="settings-ladder-choice">
-            <legend>{row.rung}</legend>
-            <div class="settings-composite">
-              <div>
-                <label for={"#{@id}-#{row.index}-model"}>Model</label>
-                <select
-                  id={"#{@id}-#{row.index}-model"}
-                  name={"#{@name}[#{row.index}][model]"}
-                  aria-invalid={to_string(not is_nil(@error))}
-                >
-                  <option :if={row.model_prompt} value="" selected>Choose a model</option>
-                  <optgroup :for={{provider, options} <- @models} label={provider}>
-                    <option
-                      :for={{value, label} <- options}
-                      value={value}
-                      selected={row.entry["model"] == value}
-                    >
-                      {label}
-                    </option>
-                  </optgroup>
-                </select>
-              </div>
-              <div>
-                <label for={"#{@id}-#{row.index}-effort"}>Reasoning effort</label>
-                <select
-                  id={"#{@id}-#{row.index}-effort"}
-                  name={"#{@name}[#{row.index}][effort]"}
-                  aria-invalid={to_string(not is_nil(@error))}
-                >
-                  <option :if={row.effort_prompt} value="" selected>Choose an effort</option>
+      <div class="settings-ladder-box">
+        <%!-- The column names, once for every row; each choice also keeps
+        its own label, shown where the row stacks on a narrow screen. --%>
+        <div class="settings-ladder-columns" aria-hidden="true">
+          <span>Model</span><span>Reasoning effort</span><span>Account</span>
+        </div>
+        <ol class="settings-ladder-list">
+          <li :for={row <- @rows} id={"#{@id}-#{row.index}"} class="settings-ladder-entry">
+            <span class="settings-ladder-order" aria-hidden="true">{row.index + 1}</span>
+            <div class="settings-ladder-part">
+              <label for={"#{@id}-#{row.index}-model"}>Model</label>
+              <select
+                id={"#{@id}-#{row.index}-model"}
+                name={"#{@name}[#{row.index}][model]"}
+                aria-invalid={to_string(not is_nil(@error))}
+              >
+                <option :if={row.model_prompt} value="" selected>Choose a model</option>
+                <optgroup :for={{provider, options} <- @models} label={provider}>
                   <option
-                    :for={{value, label} <- @efforts}
+                    :for={{value, label} <- options}
                     value={value}
-                    selected={row.entry["effort"] == value}
+                    selected={row.entry["model"] == value}
                   >
                     {label}
                   </option>
-                </select>
-              </div>
-              <div>
-                <label for={"#{@id}-#{row.index}-account"}>Account</label>
-                <select
-                  id={"#{@id}-#{row.index}-account"}
-                  name={"#{@name}[#{row.index}][account]"}
-                  aria-invalid={to_string(not is_nil(@error))}
-                >
-                  <option :if={row.account_prompt} value="" selected>{row.account_prompt}</option>
-                  <option
-                    :for={account <- row.accounts}
-                    value={account}
-                    selected={row.entry["account"] == account}
-                  >
-                    {account}
-                  </option>
-                </select>
-              </div>
+                </optgroup>
+              </select>
             </div>
-          </fieldset>
-          <%!-- Each button keeps its own slot, so every row's choices line up
-          whichever buttons it has. --%>
-          <div class="settings-ladder-actions">
-            <button
-              :if={row.index > 0}
-              type="button"
-              class="ui-button quiet settings-ladder-up"
-              phx-click="ladder"
-              phx-value-field={@name}
-              phx-value-action="up"
-              phx-value-index={row.index}
-              phx-target={@myself}
-              title="Move up"
-              aria-label={"Move #{String.downcase(row.rung)} up"}
-            ><Components.icon name={:arrow_up} /></button>
-            <button
-              :if={row.index < @count - 1}
-              type="button"
-              class="ui-button quiet settings-ladder-down"
-              phx-click="ladder"
-              phx-value-field={@name}
-              phx-value-action="down"
-              phx-value-index={row.index}
-              phx-target={@myself}
-              title="Move down"
-              aria-label={"Move #{String.downcase(row.rung)} down"}
-            ><Components.icon name={:arrow_down} /></button>
-            <button
-              :if={@count > 1}
-              type="button"
-              class="ui-button quiet settings-ladder-remove"
-              phx-click="ladder"
-              phx-value-field={@name}
-              phx-value-action="remove"
-              phx-value-index={row.index}
-              phx-target={@myself}
-              title="Remove"
-              aria-label={"Remove #{String.downcase(row.rung)}"}
-            ><Components.icon name={:close} /></button>
-          </div>
-        </li>
-      </ol>
-      <button
-        :if={@count < @most}
-        type="button"
-        class="ui-button secondary settings-ladder-add"
-        phx-click="ladder"
-        phx-value-field={@name}
-        phx-value-action="add"
-        phx-target={@myself}
-        aria-label={"Add a fallback for #{@field.label}"}
-      ><Components.icon name={:plus} />Add fallback</button>
-      <p :if={@field[:used]} class="settings-help settings-used" id={"#{@id}-used"}>
-        {@field.used}
-      </p>
+            <div class="settings-ladder-part">
+              <label for={"#{@id}-#{row.index}-effort"}>Reasoning effort</label>
+              <select
+                id={"#{@id}-#{row.index}-effort"}
+                name={"#{@name}[#{row.index}][effort]"}
+                aria-invalid={to_string(not is_nil(@error))}
+              >
+                <option :if={row.effort_prompt} value="" selected>Choose an effort</option>
+                <option
+                  :for={{value, label} <- @efforts}
+                  value={value}
+                  selected={row.entry["effort"] == value}
+                >
+                  {label}
+                </option>
+              </select>
+            </div>
+            <div class="settings-ladder-part">
+              <label for={"#{@id}-#{row.index}-account"}>Account</label>
+              <select
+                id={"#{@id}-#{row.index}-account"}
+                name={"#{@name}[#{row.index}][account]"}
+                aria-invalid={to_string(not is_nil(@error))}
+              >
+                <option :if={row.account_prompt} value="" selected>{row.account_prompt}</option>
+                <option
+                  :for={account <- row.accounts}
+                  value={account}
+                  selected={row.entry["account"] == account}
+                >
+                  {account}
+                </option>
+              </select>
+            </div>
+            <%!-- Each button keeps its own slot, so every row's choices line up
+            whichever buttons it has. --%>
+            <div class="settings-ladder-actions">
+              <button
+                :if={row.index > 0}
+                type="button"
+                class="ui-button quiet settings-ladder-up"
+                phx-click="ladder"
+                phx-value-field={@name}
+                phx-value-action="up"
+                phx-value-index={row.index}
+                phx-target={@myself}
+                title="Move up"
+                aria-label={"Move model #{row.index + 1} for #{@field.label} up"}
+              ><Components.icon name={:arrow_up} /></button>
+              <button
+                :if={row.index < @count - 1}
+                type="button"
+                class="ui-button quiet settings-ladder-down"
+                phx-click="ladder"
+                phx-value-field={@name}
+                phx-value-action="down"
+                phx-value-index={row.index}
+                phx-target={@myself}
+                title="Move down"
+                aria-label={"Move model #{row.index + 1} for #{@field.label} down"}
+              ><Components.icon name={:arrow_down} /></button>
+              <button
+                :if={@count > 1}
+                type="button"
+                class="ui-button quiet settings-ladder-remove"
+                phx-click="ladder"
+                phx-value-field={@name}
+                phx-value-action="remove"
+                phx-value-index={row.index}
+                phx-target={@myself}
+                title="Remove"
+                aria-label={"Remove model #{row.index + 1} for #{@field.label}"}
+              ><Components.icon name={:close} /></button>
+            </div>
+          </li>
+        </ol>
+        <%!-- Add sits where the new row lands, as the list's last row. --%>
+        <button
+          :if={@count < @most}
+          type="button"
+          class="settings-ladder-add"
+          phx-click="ladder"
+          phx-value-field={@name}
+          phx-value-action="add"
+          phx-target={@myself}
+          aria-label={"Add a fallback for #{@field.label}"}
+        ><Components.icon name={:plus} /><span>Add fallback</span></button>
+      </div>
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
     </fieldset>
     """
@@ -938,8 +923,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     """
   end
 
-  # A choice whose reach is not obvious, such as a model, says under the
-  # control where Ryker uses it, and is read out with it.
   defp field(assigns) do
     ~H"""
     <div class="settings-field">
@@ -949,14 +932,11 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         field={@field}
         id={@id}
         value={@value}
-        help={described_by(@id, @field)}
+        help={help_id(@id, @field)}
         options={@options}
         invalid={not is_nil(@error)}
         locked={@locked}
       />
-      <p :if={@field[:used]} class="settings-help settings-used" id={"#{@id}-used"}>
-        {@field.used}
-      </p>
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
     </div>
     """
@@ -1080,18 +1060,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp help_id(id, %{help: _help}), do: "#{id}-help"
   defp help_id(_id, _field), do: nil
 
-  defp described_by(id, field) do
-    case Enum.filter([help_id(id, field), field[:used] && "#{id}-used"], & &1) do
-      [] -> nil
-      ids -> Enum.join(ids, " ")
-    end
-  end
-
-  # A singleton form that stands alone on its page shows its groups as the
-  # page's sections; inside a titled section or a list row they are small
-  # group titles.
-  defp page_sections?(show_header, collection?), do: not show_header and not collection?
-
   defp editor_open?(assigns) do
     assigns.editor_visible or not is_nil(assigns.item_key) or assigns.dirty or
       assigns.errors != [] or
@@ -1120,12 +1088,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     section
     |> SettingsSections.field_groups()
     |> Enum.map(fn {group, fields} ->
-      details = SettingsSections.group_details(section, group)
-
       %{
         name: group,
-        id: details[:id],
-        lede: details[:lede],
         fields:
           for(
             field <- fields,
@@ -1242,8 +1206,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     |> Enum.filter(& &1)
   end
 
-  defp notices(section, view),
-    do: section |> notice(view) |> List.wrap() |> Enum.reject(&is_nil/1)
+  defp notices(_section, _view), do: []
 
   # Why Ryker cannot post these events to Slack yet, in the words and with the
   # next step every page gives for Slack's state.
@@ -1258,39 +1221,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   end
 
   defp slack_notice(_slack), do: nil
-
-  defp notice(%{key: :model} = section, view), do: unpriced_notice(section, view)
-  defp notice(_section, _view), do: nil
-
-  # A model or fallback no price covers still runs; its cost reads as not
-  # priced, and the page says which one before anyone wonders why.
-  defp unpriced_notice(section, view) do
-    unpriced =
-      for field <- section.fields,
-          phrase = unpriced(field, Map.fetch!(view.snapshot.work, field.name), view),
-          do: phrase
-
-    if unpriced != [] do
-      %{
-        text:
-          "No price covers #{Environments.sentence(unpriced)}, so " <>
-            if(length(unpriced) == 1, do: "its", else: "their") <>
-            " cost will show as not priced.",
-        link: "Add a price",
-        href: "/settings/prices"
-      }
-    end
-  end
-
-  defp unpriced(field, [first | _fallbacks] = models, view) do
-    case Enum.reject(models, &SettingsSections.priced?(&1, view)) do
-      [] -> nil
-      [^first | _others] -> "the model for #{field.label}"
-      _fallbacks -> "a fallback for #{field.label}"
-    end
-  end
-
-  defp unpriced(_field, _models, _view), do: nil
 
   defp impact_lines(section, %{impact: impact}) do
     for {field, rows} <- impact,
