@@ -766,7 +766,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Connect an account",
        [
-         "Create an API token in your Emisar account and paste it here. Ryker checks the account and starts watching it for approval decisions. The first account serves every environment that has none."
+         "Create an agent API key in Emisar under AI agents, then connect it with Add account. Ryker checks the key with Emisar, then stores it encrypted and starts watching the account for approval decisions. The first account serves every environment that has none."
        ]},
       {"Accounts and environments",
        [
@@ -775,7 +775,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"What the states mean", [Integrations.meanings(:emisar)]},
       {"When something looks wrong",
        [
-         "If approval monitoring is off, tasks waiting on an approval stop and show on Failures. Turn it back on from the account's Edit page, where you can also replace a token that changed.",
+         "If approval monitoring is off, tasks waiting on an approval stop and show on Failures. Turn it back on from the account's Edit page, where you can also replace a key that changed.",
          "An account that tasks still use cannot be removed; pause it instead."
        ]}
     ])

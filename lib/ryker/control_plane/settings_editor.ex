@@ -1157,7 +1157,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           name={"#{SettingsSections.field_name(@field)}[#{subfield}]"}
           value={Map.get(@value, subfield, "")}
           aria-describedby={@help}
-          placeholder={if @field.kind == :lifecycle, do: "Comma separated"}
+          placeholder={SettingsSections.subfield_placeholder(subfield)}
         />
       </div>
     </div>
@@ -1200,7 +1200,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       value={@value}
       aria-describedby={@help}
       aria-invalid={to_string(@invalid)}
-      placeholder="Comma separated"
+      placeholder={@field[:placeholder] || "Comma separated"}
       readonly={@locked}
     />
     """

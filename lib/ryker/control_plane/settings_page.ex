@@ -816,12 +816,16 @@ defmodule Ryker.ControlPlane.SettingsPage do
             type="number"
             name="connection[app_id]"
             min="1"
+            placeholder="123456"
             required
           />
         </div>
         <div class="settings-field">
           <label for={"github-private-key-file-#{@key}"}>Private key</label>
-          <p class="settings-help">The .pem file GitHub gave you when you created a key.</p>
+          <p class="settings-help">
+            The .pem file GitHub gave you when you created a key. It starts with
+            -----BEGIN RSA PRIVATE KEY-----.
+          </p>
           <input
             id={"github-private-key-file-#{@key}"}
             type="file"
@@ -840,6 +844,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
             type="password"
             name="connection[webhook_secret]"
             minlength="32"
+            placeholder="32 characters or more"
           />
         </div>
       </fieldset>
@@ -853,6 +858,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
             type="url"
             name="connection[api_url]"
             value="https://api.github.com"
+            placeholder="https://github.example.com/api/v3"
           />
         </div>
       </details>
@@ -909,7 +915,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         variant={:hint}
         icon={:plug}
         title="No Emisar account yet"
-        text="Create an API token in your Emisar account and connect it here. The first account serves every environment that has none."
+        text="Create an agent API key in Emisar under AI agents and connect it here. The first account serves every environment that has none."
       >
         <.link patch="/integrations/emisar/new" class="ui-button primary">Connect an account</.link>
       </Kit.empty>
@@ -920,11 +926,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
           name={account.display_name}
           state={@account_states[account.ref].state}
           text={@account_states[account.ref].reason}
-          meta={[
-            account.account_label,
-            used_by(@snapshot, account),
-            watching(account, @account_states[account.ref])
-          ]}
+          meta={
+            [
+              # An account named after its address says the address once.
+              if(account.account_label != account.display_name, do: account.account_label),
+              used_by(@snapshot, account),
+              watching(account, @account_states[account.ref])
+            ]
+          }
         >
           <:actions>
             <button
@@ -984,21 +993,22 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
     <Kit.section_card
       class="settings-section"
-      title="API token"
-      lede="Replace it when you create a new token in Emisar. Ryker checks the new one works before it uses it."
+      title="API key"
+      lede="Replace it when you create a new key in Emisar. Ryker checks the key with Emisar before it uses it."
     >
       <form phx-submit="rotate-emisar" autocomplete="off" class="settings-inline-form">
         <input type="hidden" name="connection[ref]" value={@account.ref} />
         <div class="settings-field">
-          <label for={"emisar-token-#{@account.ref}"}>New API token</label>
+          <label for={"emisar-token-#{@account.ref}"}>New API key</label>
           <input
             id={"emisar-token-#{@account.ref}"}
             type="password"
             name="connection[token]"
+            placeholder="emk-…"
             required
           />
         </div>
-        <button class="ui-button secondary" type="submit">Replace token</button>
+        <button class="ui-button secondary" type="submit">Replace key</button>
       </form>
     </Kit.section_card>
 
@@ -1055,16 +1065,22 @@ defmodule Ryker.ControlPlane.SettingsPage do
     """
   end
 
-  # The form on its own page: the token and where Emisar answers.
+  # The form on its own page: the key and where Emisar answers.
   defp emisar_form(assigns) do
     ~H"""
     <form phx-submit="connect-emisar" autocomplete="off" class="settings-form">
       <div class="settings-field">
-        <label for="emisar-connect-token">API token</label>
+        <label for="emisar-connect-token">API key</label>
         <p class="settings-help">
-          Create one in your Emisar account. Ryker checks the account, then stores the token encrypted.
+          Create one in Emisar under AI agents. Ryker checks the key with Emisar, then stores it encrypted.
         </p>
-        <input id="emisar-connect-token" type="password" name="connection[token]" required />
+        <input
+          id="emisar-connect-token"
+          type="password"
+          name="connection[token]"
+          placeholder="emk-…"
+          required
+        />
       </div>
       <div class="settings-field">
         <label for="emisar-connect-url">Emisar address</label>
@@ -1074,6 +1090,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           type="url"
           name="connection[rpc_url]"
           value="https://emisar.dev/api/mcp/rpc"
+          placeholder="https://emisar.dev/api/mcp/rpc"
           required
         />
       </div>
@@ -1198,6 +1215,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           name="credential[name]"
           pattern="[a-z0-9][a-z0-9_.:\-]{0,127}"
           title="Lowercase letters, numbers, dots, dashes, underscores and colons, starting with a letter or number"
+          placeholder="grafana"
           required
         />
       </div>
@@ -1211,6 +1229,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           type="password"
           name="credential[secret]"
           minlength="32"
+          placeholder="32 characters or more"
         />
       </div>
       <div class="settings-actions">
@@ -1373,7 +1392,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     do: %{
       title: "Connect an Emisar account",
       description:
-        "Paste an API token from your Emisar account. Ryker starts watching it for approval decisions at once.",
+        "Paste an agent API key from Emisar. Ryker starts watching the account for approval decisions at once.",
       back: {"Emisar", "/integrations/emisar"}
     }
 
@@ -1384,8 +1403,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           Enum.find(view.snapshot.emisar_connections, &(&1.ref == ref)),
           "Emisar account"
         ),
-      description:
-        "Its name, its API token, whether Ryker watches it for approvals, or remove it.",
+      description: "Its name, its API key, whether Ryker watches it for approvals, or remove it.",
       back: {"Emisar", "/integrations/emisar"}
     }
 

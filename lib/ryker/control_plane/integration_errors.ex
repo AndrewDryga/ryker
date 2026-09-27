@@ -29,7 +29,7 @@ defmodule Ryker.ControlPlane.IntegrationErrors do
         "Permissions in your Slack app."
 
   def message({:invalid_credential, :token}),
-    do: "Paste the API token from your Emisar account."
+    do: "Paste an agent API key from your Emisar account."
 
   def message({:invalid_credential, :display_name}),
     do: "Give the account a name of up to 120 characters."
