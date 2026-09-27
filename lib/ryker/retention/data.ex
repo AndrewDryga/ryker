@@ -381,6 +381,21 @@ defmodule Ryker.Retention.Data do
   FROM candidates WHERE attempt.id = candidates.id
   """
 
+  # Written out because a comparison holds the local routing model's answer to
+  # its message's prompt and has no horizon of its own: it goes as soon as its
+  # message's bodies are pruned, whether it was ever asked or not.
+  @prune_local_routing_comparisons """
+  WITH candidates AS (
+    SELECT comparison.id FROM local_routing_comparisons AS comparison
+    JOIN ingress_inbox_entries AS input ON input.id = comparison.input_id
+    WHERE input.operational_pruned_at IS NOT NULL
+    ORDER BY comparison.inserted_at, comparison.id LIMIT 100
+    FOR UPDATE OF comparison SKIP LOCKED
+  )
+  DELETE FROM local_routing_comparisons AS comparison
+  USING candidates WHERE comparison.id = candidates.id
+  """
+
   # A receipt is the trace's evidence of what Slack acknowledged for its
   # episode (directly, or through one of the episode's inputs); it stays
   # while that episode is open.
@@ -538,6 +553,7 @@ defmodule Ryker.Retention.Data do
 
     learning_artifacts = Learning.prune_in_transaction(settings.conversation_memory_seconds)
     _admission_artifacts = execute_count(@prune_admission_artifacts)
+    _local_routing_comparisons = execute_count(@prune_local_routing_comparisons)
     _status_receipts = prune_aged(@finished_status_receipts, settings)
     operational_turns = execute_count(@prune_operational_turns, [@terminal_turn_states, cutoff])
     _activity_evidence = ActivityRetention.prune()

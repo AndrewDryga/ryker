@@ -210,6 +210,12 @@ defmodule Ryker.Retention.Policy do
         "how people took Ryker's answers (reactions, edits, asking again, routing's read of their next message, reviews) expires at the operational horizon, or with its request when that goes first"
     },
     %{
+      table: "local_routing_comparisons",
+      class: :operational,
+      why:
+        "the local routing model's answer to one routing prompt and how it compared; it leaves with its message's bodies"
+    },
+    %{
       table: "conversation_rollups",
       class: :conversation_memory,
       why: "bounded derived continuity retained after source-summary compaction"
