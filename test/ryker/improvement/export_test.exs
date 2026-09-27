@@ -3,12 +3,14 @@ defmodule Ryker.Improvement.ExportTest do
 
   import Ecto.Query
 
+  alias Ryker.ControlPlane.ConversationLab
   alias Ryker.Evals.WorldCase
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
   alias Ryker.Improvement
   alias Ryker.Improvement.{Candidate, Export}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.WorkProfile
   alias Ryker.RoutingExamples.Example
 
   @workspace "TIMPROVEEXPORT"
@@ -112,7 +114,7 @@ defmodule Ryker.Improvement.ExportTest do
   # Chat inputs.
   test "a Chat request exports as a world scenario the eval runner loads" do
     {:ok, profile} =
-      Ryker.Ingress.WorkProfile.new(%{
+      WorkProfile.new(%{
         policy: "export-chat",
         policy_digest: String.duplicate("a", 64),
         repository_ref: nil
@@ -121,7 +123,7 @@ defmodule Ryker.Improvement.ExportTest do
     conversation = Ecto.UUID.generate()
 
     {:ok, %{entry: question}} =
-      Ryker.ControlPlane.ConversationLab.send_message(
+      ConversationLab.send_message(
         conversation,
         "Summarize the deploy",
         profile

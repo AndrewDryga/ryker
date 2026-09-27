@@ -363,10 +363,7 @@ defmodule Ryker.Improvement.Evidence do
           {routing_item(entry, nil, nil, nil, "forgotten"), %{keys: [], conversations: []}}
 
         nil ->
-          if MapSet.size(deleted) == 0 and not RoutingExamples.quotes_forgotten?(entry),
-            do: attempt_routing(entry, secrets),
-            else:
-              {routing_item(entry, nil, nil, nil, "forgotten"), %{keys: [], conversations: []}}
+          unkept_routing(entry, deleted, secrets)
       end
     end)
     |> then(fn items ->
@@ -376,6 +373,12 @@ defmodule Ryker.Improvement.Evidence do
          conversations: Enum.flat_map(items, &elem(&1, 1).conversations)
        }}
     end)
+  end
+
+  defp unkept_routing(entry, deleted, secrets) do
+    if MapSet.size(deleted) == 0 and not RoutingExamples.quotes_forgotten?(entry),
+      do: attempt_routing(entry, secrets),
+      else: {routing_item(entry, nil, nil, nil, "forgotten"), %{keys: [], conversations: []}}
   end
 
   defp attempt_routing(entry, secrets) do
