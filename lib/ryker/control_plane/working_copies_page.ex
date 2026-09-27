@@ -6,7 +6,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   A compact storage line per worker comes first, then the copies with their
   confirmed cleanup actions, what is ready for cleanup now, and the removed
   copies behind one closed disclosure. Nothing here estimates a byte no
-  worker measured: a missing report is unknown, never zero.
+  worker measured: a missing report is unknown, never zero. An open page
+  redraws when a copy, its request or a worker changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
@@ -16,6 +17,21 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   alias Ryker.Slack.Names
 
   @gib 1_073_741_824
+
+  @doc """
+  The topics an open Working copies page listens to, as the context functions
+  that subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the worker
+  sessions that hold the copies, the requests and learning they work for, and
+  the workers whose storage leads the page.
+  """
+  def subscriptions do
+    [
+      {Ryker.Work.Custody, :subscribe_sessions, []},
+      {Ryker.Episodes, :subscribe_episodes, []},
+      {Ryker.Learning, :subscribe_learning, []},
+      {Ryker.CoopFleet.ControlPlane.Workers, :subscribe_workers, []}
+    ]
+  end
 
   @doc "The page body as HTML, as the route hands it to the shell."
   @spec html(map()) :: binary()

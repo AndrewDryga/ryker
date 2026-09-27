@@ -5,12 +5,17 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   or needs a person, and what to do about it, and which environments it is
   in; access, permissions, GitHub events, RYKER.md, the last code Ryker used
   wait in one closed Details disclosure per row.
+  An open list redraws when anything a row says changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Environments, Integrations, Kit, ShortTime}
+  alias Ryker.ControlPlane.{Components, Environments, Integrations, Kit, SettingsView, ShortTime}
+  alias Ryker.{Episodes, Schedules}
   alias Ryker.Episodes.Words
+  alias Ryker.GitHub.Events, as: GitHubEvents
+  alias Ryker.Publication.Custody, as: Publications
+  alias Ryker.Work.Custody, as: WorkCustody
 
   # The App permissions a repository cannot be set up or worked in without;
   # anything missing is named on the row and needs a person.
@@ -20,6 +25,24 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   # one that is missing is a detail. Flagging a missing deployments permission
   # put Andrew's repository in Needs attention (2026-09-26).
   @optional_permissions ~w(checks actions deployments issues)
+
+  @doc """
+  The topics an open Repositories list listens to, as the context functions
+  that subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the repositories
+  and GitHub's state, which live in the settings (`SettingsView.subscriptions/0`,
+  which includes the workers holding them); GitHub's deliveries; and the
+  schedules, working copies, code changes and runs each row counts.
+  """
+  def subscriptions do
+    SettingsView.subscriptions() ++
+      [
+        {GitHubEvents, :subscribe_deliveries, []},
+        {Schedules, :subscribe_schedules, []},
+        {WorkCustody, :subscribe_sessions, []},
+        {Publications, :subscribe_publications, []},
+        {Episodes, :subscribe_episodes, []}
+      ]
+  end
 
   @doc "The search phrase from the page's query."
   @spec view(map()) :: %{q: String.t()}

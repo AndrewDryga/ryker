@@ -13,17 +13,33 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   Some Kit attributes receive small rendered fragments rather than plain
   strings — a channel name in bold, a time with its exact UTC value on hover,
   a link inside a fact. HEEx renders a fragment wherever it renders text.
+
+  An open list or schedule page redraws when a schedule or one of its runs
+  changes (`subscriptions/1`).
   """
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, ShortTime}
+  alias Ryker.{Episodes, Schedules}
   alias Ryker.Schedules.ScheduleCadence
   alias Ryker.Slack.Names
 
   @list_limit 100
   @runs_limit 200
   @changeable [:active, :paused]
+
+  @doc """
+  The topics an open Schedules list (`nil`) or one schedule's page (its ref)
+  listens to, as the context functions that subscribe to them
+  (`Ryker.ControlPlane.WorkbenchLive`): the schedules, or that one, and the
+  requests their runs started, whose outcome each run shows.
+  """
+  def subscriptions(nil),
+    do: [{Schedules, :subscribe_schedules, []}, {Episodes, :subscribe_episodes, []}]
+
+  def subscriptions(ref) when is_binary(ref),
+    do: [{Schedules, :subscribe_schedule, [ref]}, {Episodes, :subscribe_episodes, []}]
 
   @doc "The one sentence under the page title."
   @spec description() :: String.t()

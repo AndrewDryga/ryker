@@ -17,6 +17,8 @@ defmodule Ryker.ControlPlane.FailuresPage do
   too, so the page and the confirmation cannot describe one action two ways.
   Rows are Kit rows grouped by impact: failures that leave someone without a
   reply, an update or a result come first, cleanup nobody waits on second.
+  An open list or failure page redraws when anything that can stop, or be
+  retried, changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
@@ -30,6 +32,36 @@ defmodule Ryker.ControlPlane.FailuresPage do
     ShortTime,
     SlackMarkdown
   }
+
+  @doc """
+  The topics an open Failures list or failure page listens to, as the context
+  functions that subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): every
+  kind of work that can stop (messages and routing, requests and their
+  sessions, replies and reactions, Emisar approvals, code changes, incident
+  rooms, Slack controls, cards and statuses, learning), the workers and
+  credentials a retry needs, the channels, and who retried what.
+  """
+  def subscriptions do
+    [
+      {Ryker.Ingress.Inbox, :subscribe_inputs, []},
+      {Ryker.Episodes, :subscribe_episodes, []},
+      {Ryker.Work.Custody, :subscribe_sessions, []},
+      {Ryker.Delivery.PlatformActionCustody, :subscribe_platform_actions, []},
+      {Ryker.Delivery.RoutingResponseCustody, :subscribe_routing_responses, []},
+      {Ryker.Emisar.Approvals, :subscribe_approvals, []},
+      {Ryker.Publication.Custody, :subscribe_publications, []},
+      {Ryker.Slack.IncidentRooms, :subscribe_rooms, []},
+      {Ryker.Slack.InteractionAudits, :subscribe_interactions, []},
+      {Ryker.Slack.TaskCards, :subscribe_task_cards, []},
+      {Ryker.Slack.ThreadStatuses, :subscribe_thread_statuses, []},
+      {Ryker.Slack.ChannelConfigurations, :subscribe_channels, []},
+      {Ryker.Learning, :subscribe_learning, []},
+      {Ryker.CoopFleet.ControlPlane.Workers, :subscribe_workers, []},
+      {Ryker.Credentials, :subscribe, []},
+      {Ryker.Operator.Actions, :subscribe_actions, []},
+      {Ryker.Settings, :subscribe, []}
+    ]
+  end
 
   @doc "The one sentence under the page title."
   @spec description() :: String.t()

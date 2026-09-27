@@ -11,6 +11,8 @@ defmodule Ryker.ControlPlane.ActivityPage do
   reader; newer rows wait behind one button. A worker problem and the
   scheduled runs coming up are sections under the list, and a worker problem
   is also a warning count at the top, so it is seen without scrolling.
+
+  An open page redraws when anything it lists changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
@@ -26,8 +28,11 @@ defmodule Ryker.ControlPlane.ActivityPage do
     UsageProjection
   }
 
+  alias Ryker.{Accounting, Episodes, Schedules, Settings}
+  alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.Episodes.Words
-  alias Ryker.Slack.Names
+  alias Ryker.Ingress.Inbox
+  alias Ryker.Slack.{IncidentRooms, Names, ThreadStatuses}
 
   @views [
     {"all", "All"},
@@ -35,6 +40,26 @@ defmodule Ryker.ControlPlane.ActivityPage do
     {"running", "In progress"},
     {"done", "Finished"}
   ]
+
+  @doc """
+  The topics an open Activity page listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): every request and
+  message, and the routing usage its filters read; the active schedules it
+  lists; and the workers, incident rooms, thread statuses and settings its
+  overview counts.
+  """
+  def subscriptions do
+    [
+      {Episodes, :subscribe_episodes, []},
+      {Inbox, :subscribe_inputs, []},
+      {Accounting, :subscribe_usage, []},
+      {Schedules, :subscribe_schedules, []},
+      {Workers, :subscribe_workers, []},
+      {IncidentRooms, :subscribe_rooms, []},
+      {ThreadStatuses, :subscribe_thread_statuses, []},
+      {Settings, :subscribe, []}
+    ]
+  end
 
   def render(assigns) do
     assigns =

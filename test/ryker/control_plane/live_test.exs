@@ -133,30 +133,29 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     Agent.update(counters, &Map.put(&1, :active, 7))
 
-    Ryker.PubSub.broadcast(
-      "control-plane",
-      :control_plane_changed
-    )
+    # A message committed and announced by the inbox is what redraws the page.
+    assert {:ok, _receipt} =
+             ConversationLab.send_message(Ecto.UUID.generate(), "Status?", profile!())
 
     # Same debounce-plus-projection wait as the Lab stream below; same guard.
     assert_receive {:activity_projected, 7}, 2_000
     assert has_element?(view, @active_count, "7")
   end
 
-  test "rules and saved entries are live navigable and keep their filters after reconciliation" do
+  test "rules and saved entries are live navigable and keep their filters after a reload" do
     for {path, selected} <- [
           {"/rules?q=emisar&view=past", ["Past"]},
           {"/instructions?show=guidance&view=past", ["Guidance", "Past"]}
         ] do
       {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), path)
       assert current_segments(html) == selected, path
-      send(view.pid, :reconcile)
+      send(view.pid, :reload_page)
       assert current_segments(render(view)) == selected, path
     end
 
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/rules?q=emisar")
     assert has_element?(view, ".kit-toolbar form.filter-toolbar input[name=q][value=emisar]")
-    send(view.pid, :reconcile)
+    send(view.pid, :reload_page)
     assert has_element?(view, ".kit-toolbar form.filter-toolbar input[name=q][value=emisar]")
 
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/rules?q[x]=1&page[x]=2")
@@ -186,7 +185,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # search and Current/Past, the rules, then recent matches, down one left
     # edge. How to add a rule moved from a line under the list into the
     # shell's help panel on 2026-09-25, which one button shows or hides since
-    # 2026-09-26. A routine reconcile must not disturb any of it.
+    # 2026-09-26. A reload must not disturb any of it.
     source = SavedEntities.source!("slack:T123:C456")
 
     SavedEntities.behavior!(
@@ -234,14 +233,14 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, "main > aside#page-help.page-help")
     refute has_element?(view, "main details#page-help, main .page-help summary")
 
-    send(view.pid, :reconcile)
+    send(view.pid, :reload_page)
     assert has_element?(view, "main header.page-header h1", "Rules")
     assert has_element?(view, "main > aside.page-help h2", "How rules work")
   end
 
   test "filters live in the URL, so a shared or back-navigated address reproduces the list and changes nothing" do
     # The search is a GET form and Current/Past are links: the address is the
-    # only filter state, so Back, a pasted link and a reconcile all show the
+    # only filter state, so Back, a pasted link and a reload all show the
     # same rows. Changing a view, opening the action menu and opening the
     # Delete confirmation are reads; the row they describe must be
     # byte-for-byte the row that was there before.
@@ -273,7 +272,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     render_patch(view, "/rules?q=Terraform&page=7")
     assert has_element?(view, "input[name=q][value=Terraform]")
     assert has_element?(view, ".kit-toolbar a.filter-clear[href='/rules']")
-    send(view.pid, :reconcile)
+    send(view.pid, :reload_page)
     assert has_element?(view, rows, "Watch Terraform applies")
 
     # Opening the menu is a disclosure; opening Delete is its confirmation page.
@@ -411,7 +410,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # The rule is the stored task. Between the row and the screen sit the
     # projection's sanitizer and the preview; neither may cut the text, and
     # the disclosure that holds it must keep the id PreserveReadingState uses
-    # to reopen it after a reconcile, or every refresh folds the reader's
+    # to reopen it after a reload, or every refresh folds the reader's
     # place shut.
     long =
       1..40
@@ -433,7 +432,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert LazyHTML.query(full, "p.behavior-full-text") |> LazyHTML.text() == long
     assert LazyHTML.query(document, "main article p.entity-text") |> LazyHTML.text() =~ "Step 1:"
 
-    send(view.pid, :reconcile)
+    send(view.pid, :reload_page)
     document = LazyHTML.from_document(render(view))
 
     assert LazyHTML.query(document, "main details.behavior-full") |> LazyHTML.attribute("id") == [
@@ -480,7 +479,7 @@ defmodule Ryker.ControlPlane.LiveTest do
       if status,
         do: assert(has_element?(view, "select[name=status] option[value='#{status}'][selected]"))
 
-      send(view.pid, :reconcile)
+      send(view.pid, :reload_page)
       assert has_element?(view, "form.filter-toolbar input[name=q][value=emisar]")
     end
 
@@ -491,7 +490,7 @@ defmodule Ryker.ControlPlane.LiveTest do
         live(build_conn() |> Map.put(:host, "localhost"), path <> "?q=emisar&view=past")
 
       assert has_element?(view, "nav.segmented a[aria-current=page]", "Past")
-      send(view.pid, :reconcile)
+      send(view.pid, :reload_page)
       assert has_element?(view, "nav.segmented a[aria-current=page]", "Past")
       assert has_element?(view, "form.filter-toolbar input[name=view][value=past]")
       assert has_element?(view, "form.filter-toolbar input[name=q][value=emisar]")
@@ -1139,7 +1138,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # It survives a reload and the routine refresh.
     {:ok, again, _} = live(conn, "/conversations/#{id}")
     assert has_element?(again, "form.lab-environment option[selected][value=staging]")
-    send(again.pid, :reconcile)
+    send(again.pid, :reload_page)
     assert has_element?(again, "form.lab-environment option[selected][value=staging]")
 
     # No environment is a choice: the next messages run without code.
@@ -1343,11 +1342,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert {:ok, %{admission_progress: [%{phase: "Working"}]}} =
              Projection.lab_conversation(id)
 
-    Ryker.PubSub.broadcast(
-      "control-plane:conversations",
-      :control_plane_changed
-    )
-
+    # Routing announces each phase it reaches; nothing else redraws the page.
     assert_receive {:lab_projected, 1}, 2_000
     assert has_element?(view, ".lab-message-progress[data-phase=Working]", "Routing your message")
     refute render(view) =~ "Provider running"
@@ -1839,7 +1834,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert {:ok, _json} = Jason.encode(html)
     assert has_element?(view, "[data-connection-state=connected]")
     refute has_element?(view, "#execution-ledger")
-    send(view.pid, :reconcile)
+    send(view.pid, :reload_page)
     refute render(view) =~ source
   end
 
@@ -1902,11 +1897,6 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert {:ok, _receipt} =
              ConversationLab.send_message(id, "Inspect the request behind this answer", profile)
 
-    Ryker.PubSub.broadcast(
-      "control-plane",
-      :control_plane_changed
-    )
-
     # A fixture guard, not a latency measurement: nothing here is timing the
     # projection, it is waiting for one that must happen. The path is a 25ms
     # refresh debounce plus a full page projection, and ExUnit's 100ms default
@@ -1947,11 +1937,6 @@ defmodule Ryker.ControlPlane.LiveTest do
     conn = build_conn() |> Map.put(:host, "localhost")
     {:ok, view, _html} = live(conn, "/")
     Agent.update(counters, &Map.put(&1, :active, 9))
-
-    Ryker.PubSub.broadcast(
-      "control-plane",
-      :control_plane_changed
-    )
 
     view |> render_hook("refresh", %{})
     assert has_element?(view, @active_count, "9")
@@ -2097,23 +2082,23 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   test "pending invalidations are coalesced before running another projection" do
-    # A slow database used to queue repeated full projections ahead of Pause and navigation.
+    # A slow database used to queue repeated full projections ahead of Pause
+    # and navigation; a turn that finishes announces a dozen rows at once.
     socket = %Phoenix.LiveView.Socket{
-      assigns: %{__changed__: %{}, refresh_token: nil, refresh_failures: 0}
+      assigns: %{__changed__: %{}, reload_scheduled?: false, refresh_failures: 0}
     }
 
     {:noreply, first} =
-      WorkbenchLive.handle_info(:control_plane_changed, socket)
+      WorkbenchLive.handle_info({:episode_updated, Ecto.UUID.generate()}, socket)
 
-    token = first.assigns.refresh_token
-    assert is_reference(token)
+    assert first.assigns.reload_scheduled?
 
     {:noreply, second} =
-      WorkbenchLive.handle_info(:control_plane_changed, first)
+      WorkbenchLive.handle_info({:input_updated, Ecto.UUID.generate()}, first)
 
-    assert second.assigns.refresh_token == token
-    assert_receive {:refresh_projection, ^token}
-    refute_receive {:refresh_projection, _}, 20
+    assert second.assigns.reload_scheduled?
+    assert_receive :reload_page, 1_000
+    refute_receive :reload_page, 150
   end
 
   test "the removed audit route does not mount a live page" do
@@ -2221,7 +2206,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, @active_count, "1")
   end
 
-  test "Lab announces new replies and phase changes without repeating them on reconciliation" do
+  test "Lab announces new replies and phase changes without repeating them on a reload" do
     before = %{messages: [], admission_progress: [%{phase: "Queued"}]}
 
     after_reply = %{
@@ -2516,6 +2501,17 @@ defmodule Ryker.ControlPlane.LiveTest do
       )
 
     {episode, accepted.turn}
+  end
+
+  defp profile! do
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    profile
   end
 
   # "tag.first-class" for each matched element, in document order.

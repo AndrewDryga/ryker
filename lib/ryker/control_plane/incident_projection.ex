@@ -3,23 +3,44 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   The incident-room directory and one room's detail: its lifecycle, the
   records its episode wrote (in their timeline cards' words) and its latest
   publication, with every room field selected explicitly and failure bodies
-  projected through `FailureDetail`.
+  projected through `FailureDetail`. A room's page redraws when the room or
+  its investigation changes (`subscriptions/1`).
   """
 
   import Ecto.Query
 
   alias Ryker.ControlPlane.{Environments, EpisodeProjection, Search}
   alias Ryker.Delivery.ChatCard
+  alias Ryker.{Episodes, Settings}
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.FailureDetail
   alias Ryker.Publication.Publication
   alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent}
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, IncidentRooms}
 
   @list_limit 100
   @detail_limit 200
   @statuses ~w(requested ready blocked closed)a
+
+  @doc """
+  The topics a room's page listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the room, the
+  investigation it runs once it has one (whose records and code change the
+  page shows; the room is announced when it gets one), and the environments
+  it names.
+  """
+  def subscriptions(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
+    investigation =
+      case Repo.one(from(room in IncidentRoom, where: room.ref == ^ref, select: room.episode_id)) do
+        nil -> []
+        episode_id -> [{Episodes, :subscribe_episode, [episode_id]}]
+      end
+
+    [{IncidentRooms, :subscribe_room, [ref]}, {Settings, :subscribe, []}] ++ investigation
+  end
+
+  def subscriptions(_ref), do: []
 
   @doc "The incident-room directory, filtered by status and search."
   def list(params) when is_map(params) do

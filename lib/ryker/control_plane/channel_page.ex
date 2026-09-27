@@ -9,13 +9,52 @@ defmodule Ryker.ControlPlane.ChannelPage do
   card, between `lead/1` and `render/1`, so the page reads in that order. Lists never show raw
   Slack ids or refs; the ones support needs sit in one closed Details
   disclosure under "How Ryker takes part". Every list keeps its own page
-  parameter and anchor, so paging one never resets another.
+  parameter and anchor, so paging one never resets another. An open page
+  redraws when anything it shows changes (`subscriptions/2`).
   """
   use Phoenix.Component
 
+  alias Ryker.{
+    Behaviors,
+    Continuity,
+    Episodes,
+    Instructions,
+    Knowledge,
+    Learning,
+    Memories,
+    Schedules,
+    Settings
+  }
+
   alias Ryker.ControlPlane.{Activity, ChannelScope, ChannelsPage, Components, Kit, ShortTime}
   alias Ryker.Episodes.Words
-  alias Ryker.Slack.Names
+  alias Ryker.Slack.{ChannelConfigurations, IncidentRooms, Names}
+
+  @doc """
+  The topics an open channel page listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the channel's own
+  settings and its conversation (the requests, messages and usage it lists);
+  the schedules and incident rooms from it; what Ryker learned, remembers
+  and was told there; and the environments it can choose.
+  """
+  def subscriptions(workspace_ref, channel_ref)
+      when is_binary(workspace_ref) and is_binary(channel_ref) do
+    [
+      {ChannelConfigurations, :subscribe_channel, [workspace_ref, channel_ref]},
+      {Episodes, :subscribe_conversation, ["slack", "slack:#{workspace_ref}:#{channel_ref}"]},
+      {Schedules, :subscribe_schedules, []},
+      {IncidentRooms, :subscribe_rooms, []},
+      {Continuity, :subscribe_continuity, []},
+      {Knowledge, :subscribe_knowledge, []},
+      {Learning, :subscribe_learning, []},
+      {Memories, :subscribe_memories, []},
+      {Behaviors, :subscribe_behaviors, []},
+      {Instructions, :subscribe_instructions, []},
+      {Settings, :subscribe, []}
+    ]
+  end
+
+  def subscriptions(_workspace_ref, _channel_ref), do: []
 
   attr(:view, :map, required: true)
   attr(:now, :any, default: nil)

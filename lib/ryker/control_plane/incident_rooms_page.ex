@@ -9,13 +9,28 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   A room is created only from Ryker's incident offer in Slack (someone
   chooses "Create incident room", or a channel opens one for every alert), so
   the list says how to ask instead of offering a create button. States are
-  words people use; references wait in one closed Details disclosure.
+  words people use; references wait in one closed Details disclosure. An
+  open list redraws when a room or its code change does (`subscriptions/0`);
+  a room's own page listens to that room (`IncidentProjection.subscriptions/1`).
   """
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, ShortTime, UsageProjection}
-  alias Ryker.Slack.Names
+  alias Ryker.Publication.Custody, as: Publications
+  alias Ryker.Slack.{IncidentRooms, Names}
+
+  @doc """
+  The topics an open list of rooms listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): every room, and the
+  code changes the list shows beside each.
+  """
+  def subscriptions do
+    [
+      {IncidentRooms, :subscribe_rooms, []},
+      {Publications, :subscribe_publications, []}
+    ]
+  end
 
   @statuses ~w(requested ready blocked closed)
 

@@ -1367,7 +1367,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       second = %{"episodes" => "Page 2 of 2", "summaries" => "Page 2 of 2"}
       assert pages(html) == second
 
-      send(view.pid, :reconcile)
+      send(view.pid, :reload_page)
       assert pages(render(view)) == second
       render_click(view, "refresh")
       assert pages(render(view)) == second

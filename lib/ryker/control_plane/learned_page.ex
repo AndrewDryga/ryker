@@ -7,7 +7,8 @@ defmodule Ryker.ControlPlane.LearnedPage do
   One topic opens in place with its full text, its update history, how each
   update was learned and, when its sources are gone, the picker that relearns
   it from messages a person chooses. A record's source messages open the same
-  way, under the record they support.
+  way, under the record they support. An open page redraws when a topic, a
+  summary or what they were learned from changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
@@ -22,6 +23,21 @@ defmodule Ryker.ControlPlane.LearnedPage do
     MemoryFormat,
     RelearnPanel
   }
+
+  @doc """
+  The topics an open Learned page listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the topics, the
+  summaries, the learning notes and relearning behind them, and the facts
+  forgetting a message takes with it.
+  """
+  def subscriptions do
+    [
+      {Ryker.Knowledge, :subscribe_knowledge, []},
+      {Ryker.Continuity, :subscribe_continuity, []},
+      {Ryker.Learning, :subscribe_learning, []},
+      {Ryker.Memories, :subscribe_memories, []}
+    ]
+  end
 
   @unused "Ryker stopped using this in answers because a message it learned from changed, was removed or expired."
 

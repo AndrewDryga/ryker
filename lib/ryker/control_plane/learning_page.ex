@@ -7,7 +7,8 @@ defmodule Ryker.ControlPlane.LearningPage do
   One batch opens in place with its attempts, the way to grant it one more
   model start, and, for a chosen attempt, exactly how it was learned. The
   switch that turns learning on or off is the page's one action, rendered by
-  the shell opposite the title.
+  the shell opposite the title. An open page redraws when learning, the
+  messages waiting for it or its sessions change (`subscriptions/0`).
   """
   use Phoenix.Component
 
@@ -15,6 +16,25 @@ defmodule Ryker.ControlPlane.LearningPage do
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{CSRF, Kit, LearningActivity, LearningReceipt, MemoryFormat}
+  alias Ryker.Ingress.Inbox
+  alias Ryker.{Knowledge, Learning, Settings}
+  alias Ryker.Work.Custody, as: WorkCustody
+
+  @doc """
+  The topics an open Learning page listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): learning's batches,
+  passes and notes, the topics they write, the messages waiting to be read,
+  the worker sessions learning holds, and the switch in the settings.
+  """
+  def subscriptions do
+    [
+      {Learning, :subscribe_learning, []},
+      {Knowledge, :subscribe_knowledge, []},
+      {Inbox, :subscribe_inputs, []},
+      {WorkCustody, :subscribe_sessions, []},
+      {Settings, :subscribe, []}
+    ]
+  end
 
   @doc "The query keys the Learning page reads."
   def query_keys, do: LearningActivity.query_keys()

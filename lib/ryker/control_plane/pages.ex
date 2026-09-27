@@ -7,6 +7,9 @@ defmodule Ryker.ControlPlane.Pages do
   for them. The status tells the shell what it holds: 200 is a page, 404 a
   path or record that does not exist, and 503 a projection that could not
   answer, which the shell reports instead of showing a stale page as current.
+
+  Each page also declares what it listens to (`subscriptions/2`), so the
+  shell redraws an open page when, and only when, something it shows changes.
   """
 
   alias Phoenix.HTML.Safe
@@ -23,6 +26,7 @@ defmodule Ryker.ControlPlane.Pages do
     FailuresPage,
     FindingsPage,
     HTML,
+    IncidentProjection,
     IncidentRoomsPage,
     LearnedPage,
     LearningPage,
@@ -275,6 +279,54 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   def page(_segments, _params, _options), do: not_found("Page")
+
+  @doc """
+  The topics the page at `segments` listens to, as the context functions that
+  subscribe to them: `{module, subscribe_function, arguments}`, each with its
+  `unsubscribe_` twin. Each page declares its own; a page that does not exist
+  listens to nothing.
+  """
+  @spec subscriptions([String.t()], map()) :: [{module(), atom(), list()}]
+  def subscriptions(["incident-rooms"], _params), do: IncidentRoomsPage.subscriptions()
+
+  def subscriptions(["incident-rooms", incident_ref], _params) do
+    case PathRef.decode(incident_ref) do
+      {:ok, incident_ref} -> IncidentProjection.subscriptions(incident_ref)
+      {:error, :path_ref} -> []
+    end
+  end
+
+  def subscriptions(["schedules"], _params), do: SchedulesPage.subscriptions(nil)
+
+  def subscriptions(["schedules", schedule_ref], _params) do
+    case PathRef.decode(schedule_ref) do
+      {:ok, schedule_ref} -> SchedulesPage.subscriptions(schedule_ref)
+      {:error, :path_ref} -> []
+    end
+  end
+
+  def subscriptions(["follow-ups"], _params), do: SubscriptionsPage.subscriptions()
+  def subscriptions(["channels"], _params), do: ChannelsPage.subscriptions()
+
+  def subscriptions(["channels", workspace_ref, channel_ref], _params) do
+    with {:ok, workspace_ref} <- PathRef.decode(workspace_ref),
+         {:ok, channel_ref} <- PathRef.decode(channel_ref) do
+      ChannelPage.subscriptions(workspace_ref, channel_ref)
+    else
+      {:error, :path_ref} -> []
+    end
+  end
+
+  def subscriptions(["repositories"], _params), do: RepositoriesPage.subscriptions()
+  def subscriptions(["memory"], _params), do: FactsPage.subscriptions()
+  def subscriptions(["memory", "learned"], _params), do: LearnedPage.subscriptions()
+  def subscriptions(["memory", "learning"], _params), do: LearningPage.subscriptions()
+  def subscriptions(["memory", "findings"], _params), do: FindingsPage.subscriptions()
+  def subscriptions(["rules"], _params), do: BehaviorPage.subscriptions(:rules)
+  def subscriptions(["usage"], _params), do: UsagePage.subscriptions()
+  def subscriptions(["failures" | _failure], _params), do: FailuresPage.subscriptions()
+  def subscriptions(["working-copies"], _params), do: WorkingCopiesPage.subscriptions()
+  def subscriptions(_segments, _params), do: []
 
   defp settings(%{projection: %{settings: settings}}), do: settings.()
   defp settings(_options), do: {:error, :unavailable}

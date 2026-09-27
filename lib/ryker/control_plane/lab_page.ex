@@ -7,13 +7,41 @@ defmodule Ryker.ControlPlane.LabPage do
   so nothing is written until the first message; an open conversation is the
   same view with its retained transcript. The composer sits at the bottom of
   the column in both, and the draft lists the examples above it. Each message
-  links only its own retained execution.
+  links only its own retained execution. An open conversation redraws when
+  anything in it changes (`subscriptions/1`).
   """
   use Phoenix.Component
   import Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.{Environments, FailureExplanation, HTML, Kit}
+  alias Ryker.ControlPlane.{ConversationLab, Environments, FailureExplanation, HTML, Kit}
+  alias Ryker.CoopFleet.ControlPlane.Workers
+  alias Ryker.{Episodes, Settings}
   alias Ryker.Episodes.Words
   alias Ryker.Settings.Environment
+
+  @doc """
+  The topics an open conversation listens to, as the context functions that
+  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the conversation
+  itself (its messages, their routing, the requests that answer them and its
+  environment), the conversations listed beside it, the environments it can
+  choose, and whether Chat can run (the settings the running system applied,
+  and the workers). A draft listens to the conversation its first message
+  will start.
+  """
+  def subscriptions(conversation_id) do
+    conversation =
+      case ConversationLab.conversation_ref(conversation_id) do
+        {:ok, ref} -> [{Episodes, :subscribe_conversation, ["control_plane", ref]}]
+        {:error, _invalid} -> []
+      end
+
+    conversation ++
+      [
+        {Episodes, :subscribe_conversations, ["control_plane"]},
+        {Settings, :subscribe, []},
+        {Settings, :subscribe_application, []},
+        {Workers, :subscribe_workers, []}
+      ]
+  end
 
   # Authored UI examples approved on 2026-09-09, grouped on 2026-09-19 by what
   # Ryker does. They are hints for what an operator could write, not claims

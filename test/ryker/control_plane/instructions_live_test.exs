@@ -3,8 +3,9 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   import Plug.Conn, only: [get_resp_header: 2]
+  import Ryker.TestHelpers, only: [eventually: 1]
+  alias Ryker.Behaviors
   alias Ryker.ControlPlane.{Actions, Endpoint, InstructionSettings, Projection}
-  alias Ryker.ControlPlane.Updates
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Instructions
@@ -236,22 +237,38 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     end
   end
 
+  # They moved from their own pages to /instructions on 2026-09-24, and an
+  # invalidation still aimed at the removed pages left the list stale until the
+  # next five-second poll. A pause made from Slack now reaches an open page.
   test "a change to a saved preference or guidance refreshes an open Instructions page" do
-    # They moved from their own pages to /instructions; an invalidation still
-    # aimed at the removed pages would leave the list stale until reconcile.
-    assert Updates.domain("/instructions") == "instructions"
-    state = %{connection: self(), reference: make_ref(), pending: MapSet.new(), timer: nil}
+    source = SavedEntities.source!("slack:T123:C456")
 
-    {:noreply, pending} =
-      Updates.handle_info(
-        {:notification, self(), state.reference, "ryker_control_plane", "operator_behaviors"},
-        state
+    preference =
+      SavedEntities.behavior!(
+        source,
+        :preference,
+        %{
+          "expires_in" => "30d",
+          "key" => "response_detail",
+          "repository" => nil,
+          "scope" => "conversation",
+          "value" => "concise"
+        },
+        scope_ref: "slack:T123:C456",
+        expires_at: nil
       )
 
-    assert MapSet.member?(pending.pending, "instructions")
-    refute MapSet.member?(pending.pending, "preferences")
-    refute MapSet.member?(pending.pending, "guidance")
-    Process.cancel_timer(pending.timer)
+    {:ok, view, _html} = open("/instructions")
+    row = "section.instructions-saved article[id='behavior-#{preference.ref}']"
+    resume = "/actions/behavior/#{URI.encode_www_form(preference.ref)}/active"
+    assert has_element?(view, row <> " h3", "Reply length: Concise")
+    refute has_element?(view, row <> " form.action-control[action='#{resume}']")
+
+    assert {:ok, _paused} = Behaviors.set_status(preference.ref, :disabled)
+
+    assert eventually(fn ->
+             has_element?(view, row <> " form.action-control[action='#{resume}']", "Resume")
+           end)
   end
 
   test "channel page has its own editor and inherited preview without leaking text into the roster" do
