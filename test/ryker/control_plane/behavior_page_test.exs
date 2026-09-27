@@ -469,10 +469,21 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
       assert Enum.empty?(LazyHTML.query(document, "details.behavior-menu > summary form"))
 
+      # In the live page a control's submit only asks, in the question over
+      # the page (Andrew, 2026-09-27: removal confirmations are modals); it
+      # asks about the very confirmation its GET opens without the live page.
+      for form <- forms do
+        [action] = LazyHTML.attribute(form, "action")
+        [submit] = LazyHTML.attribute(form, "phx-submit")
+
+        assert [["push", %{"event" => "ask-action", "value" => %{"path" => ^action}}]] =
+                 Jason.decode!(submit)
+      end
+
       assert Enum.empty?(
                LazyHTML.query(
                  document,
-                 "article [phx-click], article [phx-submit], form[method=post]"
+                 "article [phx-click], article [phx-submit]:not(form.action-control), form[method=post]"
                )
              )
 

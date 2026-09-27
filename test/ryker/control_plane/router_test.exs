@@ -1863,6 +1863,7 @@ defmodule Ryker.ControlPlane.RouterTest do
   defp sample_segment(":workspace"), do: "T123"
   defp sample_segment(":channel"), do: "C456"
   defp sample_segment(":kind"), do: "delivery"
+  defp sample_segment(":item"), do: "item-one"
   defp sample_segment(":" <> name), do: flunk("no sample value for :#{name}")
   defp sample_segment(segment), do: segment
 
