@@ -184,7 +184,7 @@ defmodule Ryker.ControlPlane.Pages do
         "environment, where new channels work.",
       ""
     )
-    |> Map.put(:back, %{href: "/repositories", label: "Repositories"})
+    |> Map.put(:back, {"All repositories", "/repositories"})
   end
 
   def page(["memory"], params, options) do

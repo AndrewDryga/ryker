@@ -27,7 +27,14 @@ defmodule Ryker.Behaviors.BehaviorsTest do
 
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
-  @now ~U[2026-08-28 12:00:00.000000Z]
+  # An hour before this file compiles, which is every test run: in the past, as
+  # a confirmation is, but never a fixed date. Records confirmed at a fixed
+  # 2026-08-28 12:00 expired 30 days later, at 2026-09-27 12:00 UTC, and these
+  # tests failed from that minute on.
+  @now DateTime.utc_now()
+       |> DateTime.add(-3_600, :second)
+       |> DateTime.truncate(:second)
+       |> Map.put(:microsecond, {0, 6})
 
   # Rules, Instructions and the memory pages list confirmed behavior, and the
   # offer's record changes on its request's page. Until 2026-09-26 they heard

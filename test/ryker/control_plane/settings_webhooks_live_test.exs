@@ -495,7 +495,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
 
     assert_patch(view, "/integrations/webhooks/credentials/new")
     assert has_element?(view, "main h1", "Add a signing credential")
-    assert has_element?(view, ".page-back[href='/integrations/webhooks']", "Webhooks")
+    assert has_element?(view, "nav.kit-back a[href='/integrations/webhooks']", "Webhooks")
     assert has_element?(view, ".kit-form-card form[phx-submit=create-webhook-credential]")
     refute has_element?(view, ".entity-list")
 

@@ -469,7 +469,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     view |> element("#emisar-account-production a", "Edit") |> render_click()
     assert_patch(view, "/integrations/emisar/production/edit")
     assert has_element?(view, "main h1", "Edit Production approvals")
-    assert has_element?(view, ".page-back[href='/integrations/emisar']", "Emisar")
+    assert has_element?(view, "nav.kit-back a[href='/integrations/emisar']", "Emisar")
     assert has_element?(view, ".kit-facts dd", "https://emisar.example/api/mcp/rpc")
     assert has_element?(view, "form[phx-submit=rename-emisar]", "Save name")
     assert has_element?(view, "form[phx-submit=rotate-emisar]", "Replace token")
@@ -523,7 +523,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert_patch(view, "/integrations/emisar/new")
 
     assert has_element?(view, "main h1", "Connect an Emisar account")
-    assert has_element?(view, ".page-back[href='/integrations/emisar']", "Emisar")
+    assert has_element?(view, "nav.kit-back a[href='/integrations/emisar']", "Emisar")
     assert has_element?(view, ".kit-form-card form[phx-submit=connect-emisar]")
     refute has_element?(view, ".entity-list")
 
@@ -1665,7 +1665,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert_patch(view, "/settings/prices/new")
 
     assert has_element?(view, "main h1", "Add a price")
-    assert has_element?(view, ".page-back[href='/settings/prices']", "Model prices")
+    assert has_element?(view, "nav.kit-back a[href='/settings/prices']", "All model prices")
     assert has_element?(view, ".kit-form-card #settings-pricing-form")
     refute has_element?(view, ".entity-list")
     refute has_element?(view, ".settings-collection-bar")
