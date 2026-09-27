@@ -15,6 +15,7 @@ defmodule Ryker.Learning.Batches do
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.UTCDateTime
 
   def claim(worker, settings) do
     Repo.transaction(fn ->
@@ -23,6 +24,64 @@ defmodule Ryker.Learning.Batches do
       batch = next_batch(now) || create_batch(settings, now)
       if batch, do: lease(batch, worker, settings.lease_seconds, now), else: :idle
     end)
+  end
+
+  @doc """
+  The earliest moment after `since` at which learning has something to claim
+  by the clock alone: a batch's retry or hold ends, the lease of a batch
+  nobody renewed runs out, or a conversation's unlearned messages have been
+  quiet for `quiet_seconds`, or waited `maximum_delay_seconds`. Nil when
+  nothing waits on the clock.
+
+  Everything else that gives learning work (a message routed, a batch
+  finished or retried) is announced.
+  """
+  @spec next_due_at(DateTime.t(), map()) :: DateTime.t() | nil
+  def next_due_at(%DateTime{} = since, settings) do
+    batches =
+      Repo.one(
+        from(b in Batch,
+          where: b.status in [:queued, :running, :deferred],
+          select: [
+            filter(
+              min(b.next_attempt_at),
+              b.status in [:queued, :deferred] and b.next_attempt_at > ^since
+            ),
+            filter(min(b.lease_expires_at), b.status == :running and b.lease_expires_at > ^since)
+          ]
+        )
+      )
+
+    scopes =
+      Repo.one(
+        from(scope in subquery(scope_due_times(settings)),
+          where: scope.due_at > ^since,
+          select: min(scope.due_at)
+        )
+      )
+
+    UTCDateTime.earliest([scopes | batches])
+  end
+
+  # When each conversation's unlearned messages become a batch by the clock:
+  # the `coalesced_scopes/3` condition, solved for the time.
+  defp scope_due_times(settings) do
+    from(e in pending_query(),
+      group_by: [
+        e.destination_transport,
+        e.destination_conversation_ref,
+        e.repository_ref,
+        e.execution_mode
+      ],
+      select: %{
+        due_at:
+          fragment(
+            "LEAST(?, ?)",
+            datetime_add(max(e.updated_at), ^settings.quiet_seconds, "second"),
+            datetime_add(min(e.updated_at), ^settings.maximum_delay_seconds, "second")
+          )
+      }
+    )
   end
 
   def renew(claim, seconds) do
