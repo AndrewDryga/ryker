@@ -119,8 +119,8 @@ defmodule Ryker.ControlPlane.ConfigurationHelp do
     },
     "work.poll_interval_ms" => {
       "Work check interval",
-      "How often Ryker looks for work that is ready and for progress on running work.",
-      "A shorter interval notices ready work sooner but adds database and worker traffic. It does not make the model think faster, and it is not how often this console refreshes.",
+      "How often Ryker checks running work for progress.",
+      "Work that is ready starts as soon as it is recorded, whatever this is. A shorter interval notices a running turn's progress sooner but adds worker traffic. It does not make the model think faster, and it is not how often this console refreshes.",
       "250 milliseconds. Allowed: 1 millisecond to 1 minute."
     },
     "retention.operational_data_seconds" => {
