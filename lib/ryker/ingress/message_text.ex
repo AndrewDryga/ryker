@@ -5,8 +5,9 @@ defmodule Ryker.Ingress.MessageText do
   Routing compares earlier work by what its messages said, including the
   alert, run or deployment identity an automated notification carries in its
   attachments and fields. Slack-shaped content keeps its text, attachment
-  titles, fields as "title: value" and block text; structured payloads with no
-  text become "path: value" lines. Nothing is sent as JSON inside a string.
+  titles, fields as "title: value", block text and the transcript of a voice
+  message; structured payloads with no text become "path: value" lines.
+  Nothing is sent as JSON inside a string.
   """
 
   @maximum_lines 200
@@ -26,8 +27,14 @@ defmodule Ryker.Ingress.MessageText do
     [content["text"]]
     |> Kernel.++(Enum.flat_map(list(content["attachments"]), &attachment/1))
     |> Kernel.++(Enum.flat_map(list(content["blocks"]), &block/1))
+    |> Kernel.++(Enum.flat_map(list(content["files"]), &file/1))
     |> Enum.filter(&text?/1)
   end
+
+  # A voice message says its transcript, or that it has none.
+  defp file(%{"transcript" => words}) when is_binary(words), do: [words]
+  defp file(%{"transcript_unavailable" => note}) when is_binary(note), do: [note]
+  defp file(_file), do: []
 
   defp attachment(%{} = attachment) do
     parts =

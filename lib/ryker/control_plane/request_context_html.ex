@@ -2304,6 +2304,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     if parts != [], do: Enum.join(parts, ", ")
   end
 
+  defp file_label(%{"transcript_unavailable" => note}) when is_binary(note), do: note
+
+  defp file_label(%{"status" => "available", "name" => name, "transcript" => words})
+       when is_binary(name) and is_binary(words),
+       do: "#{name}, transcribed"
+
   defp file_label(%{"status" => "available", "name" => name}) when is_binary(name), do: name
   defp file_label(%{"status" => "unavailable"}), do: "a file Ryker could not read"
   defp file_label(_file), do: "a file"

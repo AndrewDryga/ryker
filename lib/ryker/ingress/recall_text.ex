@@ -1,7 +1,9 @@
 defmodule Ryker.Ingress.RecallText do
   @moduledoc "Meaningful, bounded search text; the submitted source document remains unchanged."
   alias Ryker.CanonicalJSON
-  @fields ~w(title text body description summary fallback)
+  # A voice message's transcript is what it said; one Ryker could not
+  # transcribe says so.
+  @fields ~w(title text transcript transcript_unavailable body description summary fallback)
 
   def from(content) do
     case content |> fragments(0) |> Enum.reject(&(String.trim(&1) == "")) |> Enum.uniq() do

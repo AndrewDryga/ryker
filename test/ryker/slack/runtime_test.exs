@@ -72,6 +72,10 @@ defmodule Ryker.Slack.RuntimeTest do
     assert %FileClient{binary_http: %BinaryClient{}} =
              options.handler_settings.attachment_options.client
 
+    # Voice messages are transcribed before routing by the configured
+    # transcriber, the stand-in here: no test runs a speech model.
+    assert options.handler_settings.attachment_options.transcriber == Ryker.TestTranscriber
+
     assert is_function(options.handler_settings.effective_settings, 2)
     assert options.handler_settings.home_handler == Ryker.Slack.AppHome
     assert options.handler_settings.home_options.api == Client

@@ -9,6 +9,7 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   import Ecto.Query
 
+  alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{CorrelationClaims, Episode, Event, Origins, Reactions, RoutingDigests}
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
@@ -477,9 +478,12 @@ defmodule Ryker.Work.SubmissionBuilder do
     |> Enum.uniq()
   end
 
-  defp collect_artifact_refs(%{"artifact_ref" => ref, "status" => "available"})
-       when is_binary(ref),
-       do: [ref]
+  # A voice message or video reaches the model as the transcript beside it in
+  # the input; Coop takes no audio or video file.
+  defp collect_artifact_refs(%{"artifact_ref" => ref, "status" => "available"} = descriptor)
+       when is_binary(ref) do
+    if Artifacts.recording?(descriptor["media_type"]), do: [], else: [ref]
+  end
 
   defp collect_artifact_refs(%{} = value) do
     value

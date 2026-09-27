@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.HTML do
 
   alias Phoenix.HTML.Safe
 
-  alias Ryker.ControlPlane.{ConversationLab, Emoji, Layouts, SlackMarkdown}
+  alias Ryker.ControlPlane.{ConversationLab, Emoji, Kit, Layouts, SlackMarkdown}
   alias Ryker.Delivery.ChatCard
 
   # The title and description are the shell's header; the body owns the rest.
@@ -393,27 +393,56 @@ defmodule Ryker.ControlPlane.HTML do
       "</span></span>"
     ]
 
-    case Map.get(attachment, :path) do
-      path when is_binary(path) ->
-        preview =
-          if attachment.media_type in ["image/png", "image/jpeg", "image/webp", "image/gif"] do
-            [
-              "<img src=\"",
-              escape(path),
-              "\" alt=\"Generated attachment: ",
-              escape(attachment.name),
-              "\" loading=\"lazy\">"
-            ]
-          else
-            ""
-          end
+    shown =
+      case Map.get(attachment, :path) do
+        path when is_binary(path) ->
+          preview =
+            if attachment.media_type in ["image/png", "image/jpeg", "image/webp", "image/gif"] do
+              [
+                "<img src=\"",
+                escape(path),
+                "\" alt=\"Generated attachment: ",
+                escape(attachment.name),
+                "\" loading=\"lazy\">"
+              ]
+            else
+              ""
+            end
 
-        ["<a class=\"attachment-download\" href=\"", escape(path), "\">", preview, chip, "</a>"]
+          [
+            "<a class=\"attachment-download\" href=\"",
+            escape(path),
+            "\">",
+            preview,
+            chip,
+            "</a>"
+          ]
 
-      _no_path ->
-        chip
-    end
+        _no_path ->
+          chip
+      end
+
+    [shown, lab_transcript(attachment)]
   end
+
+  # A voice message or video shows what it said under its file, labelled as
+  # a transcript, or why it has none.
+  defp lab_transcript(%{transcript: words}) when is_binary(words),
+    do: transcript_facts("Transcript", words)
+
+  defp lab_transcript(%{transcript_unavailable: note}) when is_binary(note),
+    do: transcript_facts("No transcript", sentence(note))
+
+  defp lab_transcript(_attachment), do: ""
+
+  defp transcript_facts(label, value) do
+    %{__changed__: nil, class: "attachment-transcript", facts: [{label, value}], id: nil}
+    |> Kit.facts()
+    |> Safe.to_iodata()
+  end
+
+  defp sentence(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest <> "."
+  defp sentence(note), do: note
 
   # A title with several lines (a question listing what it needs) keeps its
   # paragraphs and numbered lists; one line stays a heading.

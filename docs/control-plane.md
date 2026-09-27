@@ -1037,7 +1037,9 @@ and a bar above the conversation opens the directory as a drawer; there is no ba
 on a wider screen. The attachment limits (two files, 8 MiB in total) are said
 beside the composer only when a choice breaks them. A file is judged by its
 bytes, not the browser's label: any UTF-8 text, such as a log, is read as text,
-and a file Ryker cannot read is refused by name, in the composer. The empty composer says
+and a file Ryker cannot read is refused by name, in the composer. A voice message
+or video is transcribed before it is sent, and the message shows its transcript
+under the file; one longer than 5 minutes is refused with that reason. The empty composer says
 "Write a message to Ryker"; Send stays off until there is text or a file; the
 browser's own file field is hidden and the composer names the chosen files
 beside Attach files. Without a pointer to hover, each example is drawn as a row
