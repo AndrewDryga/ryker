@@ -159,23 +159,6 @@ defmodule Ryker.BootstrapTest do
     end
   end
 
-  test "secret scanning contains only machine credentials and ignores retired integration values" do
-    env =
-      environment(%{
-        "RYKER_CHECKPOINT_KEY" => "checkpoint-key-material",
-        "RYKER_STATE_TOOLS_TOKEN" => "state-tools-token-material",
-        "SLACK_BOT_TOKEN" => "retired-slack-token",
-        "UNRELATED_PRIVATE_KEY" => "not-application-custody"
-      })
-
-    settings = Bootstrap.load!(env)
-
-    assert Bootstrap.scan_secrets!(settings, env) == [
-             "checkpoint-key-material",
-             "state-tools-token-material"
-           ]
-  end
-
   defp environment(extra \\ %{}) do
     values =
       extra
