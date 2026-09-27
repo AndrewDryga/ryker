@@ -22,6 +22,7 @@ defmodule Ryker.Emisar.Approvals do
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Work.{Session, Turn}
 
   @spec ensure_registered_in_transaction(Record.t()) :: :ok | {:error, term()}
@@ -45,6 +46,26 @@ defmodule Ryker.Emisar.Approvals do
       Repo.transaction(fn -> claim_locked(connection_ref, worker_ref, lease_seconds) end)
       |> transaction_result()
     end
+  end
+
+  @doc """
+  The earliest moment after `since` at which a watch of this account becomes
+  claimable by the clock alone: its next look at Emisar or its retry's
+  backoff is due, or the lease of a look nobody renewed runs out. Nil when no
+  watch waits on the clock; a watch waiting for its task to start waiting
+  waits on a change to the task, which is announced.
+  """
+  @spec next_due_at(String.t(), DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(connection_ref, %DateTime{} = since) when is_binary(connection_ref) do
+    from(approval in Approval,
+      where: approval.connection_ref == ^connection_ref and approval.status == :monitoring,
+      select: [
+        filter(min(approval.next_attempt_at), approval.next_attempt_at > ^since),
+        filter(min(approval.lease_expires_at), approval.lease_expires_at > ^since)
+      ]
+    )
+    |> Repo.one()
+    |> UTCDateTime.earliest()
   end
 
   @spec observe(String.t(), String.t(), String.t(), RunState.t(), pos_integer()) ::
