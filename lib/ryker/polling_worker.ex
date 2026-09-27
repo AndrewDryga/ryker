@@ -127,6 +127,11 @@ defmodule Ryker.PollingWorker do
       nil ->
         idle_ms
 
+      # A computed due time (a min, a greatest, an interval sum) comes back
+      # from the database without a zone; Ryker keeps every time in UTC.
+      %NaiveDateTime{} = due_at ->
+        idle_delay(fn _since -> DateTime.from_naive!(due_at, "Etc/UTC") end, idle_ms)
+
       %DateTime{} = due_at ->
         case DateTime.diff(due_at, now, :microsecond) do
           wait when wait > 0 -> min(div(wait + 999, 1_000), idle_ms)

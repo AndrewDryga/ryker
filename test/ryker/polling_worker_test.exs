@@ -243,6 +243,19 @@ defmodule Ryker.PollingWorkerTest do
              250
   end
 
+  # Found live 2026-09-27 14:09 UTC, minutes after this sleep shipped: a
+  # delivery lane's due-time query answered a NaiveDateTime, idle_delay had no
+  # clause for it, and every reply lane crashed on each poll while a reply was
+  # due, so Chat's answer never went out.
+  test "a due time the database gives without a zone still sets the sleep, as UTC" do
+    due_at = NaiveDateTime.add(NaiveDateTime.utc_now(), 3, :second)
+
+    assert PollingWorker.idle_delay(fn _since -> due_at end, 10_000) in 2_900..3_000
+
+    already = NaiveDateTime.add(NaiveDateTime.utc_now(), -1, :second)
+    assert PollingWorker.idle_delay(fn _since -> already end, 10_000) == 250
+  end
+
   test "healthy polling preserves both immediate work and configured idle delays" do
     assert PollingWorker.run(:retention, 60_000, fn -> 0 end) == 0
     assert PollingWorker.run(:retention, 60_000, fn -> 60_000 end) == 60_000
