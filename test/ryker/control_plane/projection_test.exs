@@ -1625,7 +1625,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              pages: 1
            }
 
-    assert map_size(Projection.callbacks()) == 37
+    assert map_size(Projection.callbacks()) == 38
+    # The routing examples kept for training, a line at a time, for the download.
+    assert is_function(Projection.callbacks().routing_examples, 2)
     # One finding, for the question its Forget or Mark explained asks first.
     assert is_function(Projection.callbacks().finding, 1)
     # What forgetting a topic or a fact takes with it, for both confirmations.

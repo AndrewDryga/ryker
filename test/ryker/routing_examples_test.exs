@@ -411,6 +411,70 @@ defmodule Ryker.RoutingExamplesTest do
     end
   end
 
+  describe "the export" do
+    test "the export writes one fine-tuning line per kept example and none for a forgotten one" do
+      keep_examples!()
+      kept = route!("Ev-examples-export", "hi, reply with one word", @quick_reply)
+      deliver_routing_responses!()
+
+      forgotten =
+        route!("Ev-examples-export-2", "the staging account is acme-staging", @ignore,
+          message: 2,
+          channel: "C999"
+        )
+
+      assert {:ok, %{copied: 2}} = RoutingExamples.capture(@options)
+      topic = topic!(forgotten, "staging-account", "Staging account")
+      assert {:ok, _outcome} = Forgetting.forget_topic(topic.id)
+
+      assert [line] = lines()
+      assert String.ends_with?(line, "\n")
+      # The fine-tuning messages come first, as trainers read them.
+      assert String.starts_with?(line, ~s({"messages":[{"role":"user","content":))
+
+      example = Repo.get_by!(Example, input_id: kept.id)
+      document = Jason.decode!(line)
+
+      assert document["messages"] == [
+               %{"role" => "user", "content" => example.prompt},
+               %{"role" => "assistant", "content" => @quick_reply}
+             ]
+
+      assert document["output_schema"] == example.output_schema
+      labels = document["labels"]
+      assert labels["example_id"] == example.id
+      assert labels["input_id"] == kept.id
+      # Routing answered by itself, so there is no request for feedback to name.
+      assert labels["request_id"] == nil
+      assert labels["model"] == @target
+      assert labels["conversation_ref"] == @conversation
+      assert labels["decision"]["action"] == "quick_reply"
+      assert labels["outcome"]["sent"] == %{"delivered" => 1}
+      assert labels["usage"]["input_tokens"] == 7_026
+      assert labels["decided_at"] == DateTime.to_iso8601(example.decided_at)
+    end
+
+    test "the export goes oldest decision first and stops when its reader does" do
+      keep_examples!()
+      older = route!("Ev-examples-order", "hello there", @ignore)
+      newer = route!("Ev-examples-order-2", "good morning", @ignore, message: 2)
+      assert {:ok, %{copied: 2}} = RoutingExamples.capture(@options)
+
+      Repo.update_all(from(x in Example, where: x.input_id == ^newer.id),
+        set: [decided_at: DateTime.add(Repo.now!(), -1, :day)]
+      )
+
+      assert Enum.map(lines(), &Jason.decode!(&1)["labels"]["input_id"]) == [newer.id, older.id]
+
+      assert {:ok, [first]} =
+               RoutingExamples.Export.reduce([], fn line, read ->
+                 {:halt, [IO.iodata_to_binary(line) | read]}
+               end)
+
+      assert Jason.decode!(first)["labels"]["input_id"] == newer.id
+    end
+  end
+
   describe "the worker" do
     # Nothing settles by the clock, so an idle worker sleeps ten seconds; a
     # routed message has to wake it.
@@ -432,6 +496,15 @@ defmodule Ryker.RoutingExamplesTest do
   end
 
   # -- Helpers -------------------------------------------------------------------
+
+  defp lines do
+    assert {:ok, lines} =
+             RoutingExamples.Export.reduce([], fn line, read ->
+               {:cont, [IO.iodata_to_binary(line) | read]}
+             end)
+
+    Enum.reverse(lines)
+  end
 
   defp eventually(check, attempts \\ 40) do
     case check.() do

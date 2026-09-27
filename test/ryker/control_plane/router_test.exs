@@ -23,6 +23,25 @@ defmodule Ryker.ControlPlane.RouterTest do
 
   @secret ControlPlaneOptions.secret()
 
+  # The file the Data retention page offers: every kept example a line at a
+  # time, saved rather than shown, and never the whole set held at once.
+  test "routing examples download as a JSON Lines file sent a line at a time" do
+    response = request(:get, "/settings/retention/routing-examples.jsonl")
+
+    assert response.status == 200
+    assert response.state == :chunked
+    assert get_resp_header(response, "content-type") == ["application/jsonl; charset=utf-8"]
+
+    assert [disposition] = get_resp_header(response, "content-disposition")
+
+    assert disposition =~
+             ~r/\Aattachment; filename="ryker-routing-examples-\d{4}-\d{2}-\d{2}\.jsonl"\z/
+
+    assert response.resp_body ==
+             ~s({"messages":[{"role":"user","content":"one"}]}\n) <>
+               ~s({"messages":[{"role":"user","content":"two"}]}\n)
+  end
+
   test "removed admission pages are not redirects or compatibility aliases" do
     id = Ecto.UUID.generate()
     options = options()

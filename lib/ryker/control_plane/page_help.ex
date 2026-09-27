@@ -869,7 +869,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Routing examples for training",
        [
          "With Keep routing examples for training on, Ryker keeps a copy of each routing decision once its outcome is known. A copy holds the exact prompt, the model's answer, the decision, how the request turned out and the cost. Credentials, and the part of a link after the question mark, are taken out first.",
-         "Copies stay for their own limit, a year unless you change it, after the prompts above are deleted. Turning it off deletes every copy, so Ryker asks first. Deleting a message or a channel, or forgetting what Ryker learned from a message, removes it from every copy at once."
+         "Copies stay for their own limit, a year unless you change it, after the prompts above are deleted. Turning it off deletes every copy, so Ryker asks first. Deleting a message or a channel, or forgetting what Ryker learned from a message, removes it from every copy at once. Download routing examples saves them as a JSON Lines file for fine-tuning a model."
        ]}
     ])
   end

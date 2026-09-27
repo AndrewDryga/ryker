@@ -948,6 +948,18 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             needs_attention: [%{kind: :blocked_work, ref: "episode:one", title: "Blocked work"}]
           }
         end,
+        # Two routing examples, handed on a line at a time as the export does.
+        routing_examples: fn acc, fun ->
+          {:ok,
+           Enum.reduce_while(
+             [
+               ~s({"messages":[{"role":"user","content":"one"}]}\n),
+               ~s({"messages":[{"role":"user","content":"two"}]}\n)
+             ],
+             acc,
+             fun
+           )}
+        end,
         repositories: fn _params ->
           [
             %{
