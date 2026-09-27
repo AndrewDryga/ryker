@@ -23,8 +23,6 @@ defmodule Ryker.Runtime.Owner do
   alias Ryker.Slack.Names
 
   @retry_ms 5_000
-  # Started and replaced by this owner, in the dependency order assembly keeps.
-  @children Assembly.runtimes()
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(options) do
@@ -175,7 +173,7 @@ defmodule Ryker.Runtime.Owner do
   end
 
   defp applied_children(state, configuration) do
-    Map.new(@children, fn {key, _module} ->
+    Map.new(Assembly.runtimes(), fn {key, _module} ->
       {key, child_configuration(state, key, configuration)}
     end)
     |> Enum.reject(fn {_key, configuration} -> is_nil(configuration) end)
@@ -206,7 +204,8 @@ defmodule Ryker.Runtime.Owner do
   # child that would not start as `{:runtime_start_failed, key, reason}`.
   defp reconcile_children(state, desired) do
     {running, failures} =
-      Enum.reduce(@children, {state.running, []}, fn {key, module}, {running, failures} ->
+      Enum.reduce(Assembly.runtimes(), {state.running, []}, fn {key, module},
+                                                               {running, failures} ->
         case reconcile_child(state, running, key, module, Map.get(desired, key)) do
           {:ok, running} ->
             {running, failures}

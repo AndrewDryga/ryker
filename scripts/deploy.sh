@@ -7,13 +7,13 @@
 #
 #   1. refuse a dirty tree and, unless --allow-not-main says otherwise, a
 #      HEAD that is not main's, so what runs is always an exact named commit;
-#   2. back the database up into .ryker/backups/ before anything changes:
-#      the container runs its migrations when it boots, and a migration that
-#      fails on real rows is undone from that archive, not by hand;
-#   3. build the image from a clean git worktree of HEAD, so nothing in the
+#   2. build the image from a clean git worktree of HEAD, so nothing in the
 #      working directory that git does not know about can reach the image;
 #      a build that fails stops here, before the backup, with nothing changed;
-#   4. replace only the ryker container (`up --detach --build --wait
+#   3. pause Ryker and back up the database and encrypted state into .ryker/backups/:
+#      the container runs its migrations when it boots, and a migration that
+#      fails on real rows is undone from that archive, not by hand;
+#   4. replace only the ryker container (`up --detach --no-build --wait
 #      --no-deps ryker`); PostgreSQL, the bundled worker and its Docker
 #      daemon keep running and are never rebuilt here;
 #   5. wait, from the host's side, for /healthz, /readyz and the exact

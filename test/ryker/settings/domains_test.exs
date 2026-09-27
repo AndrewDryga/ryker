@@ -20,9 +20,9 @@ defmodule Ryker.Settings.DomainsTest do
 
   test "each kind of work has its own models, and only a list the worker can run is saved",
        %{snapshot: snapshot} do
-    # The models are written into the bundled policies for their kind of work.
-    # A malformed list would stop the worker at its next reload, so it never
-    # reaches disk. Coop takes one model and at most three fallbacks.
+    # Each new job freezes its work kind's ordered target ladder. Reject malformed
+    # settings before they can produce a job Coop cannot admit: one model and at
+    # most three fallbacks.
     assert snapshot.work.routing_models == ["codex:gpt-5.6-sol/medium@default"]
     assert snapshot.work.conversation_models == ["codex:gpt-5.6-terra/medium@default"]
     assert snapshot.work.deep_models == ["codex:gpt-5.6-sol/xhigh@default"]
@@ -73,12 +73,9 @@ defmodule Ryker.Settings.DomainsTest do
   end
 
   # Andrew, 2026-09-26: "Can I have fallbacks between models/providers like
-  # coop allows?" A fallback runs on another account, and Ryker cannot see
-  # which accounts the worker has signed in: Model accounts is that list. A
-  # model on an account missing from it would reach the worker's policy file,
-  # and Coop refuses the whole file while one account is not signed in: the
-  # change never runs, and until the worker kept its last loaded policies it
-  # stopped every kind of work, not only the one that named it.
+  # coop allows?" A fallback can change model, provider or account. Ryker records
+  # the intended worker accounts here; Coop checks their actual credentials when
+  # admitting a job. Reject unlisted accounts before freezing a new job ladder.
   test "an account not listed under Model accounts is refused", %{snapshot: snapshot} do
     fallback = "codex:gpt-5.6-sol/medium@personal"
     routing = ["codex:gpt-5.6-sol/medium@default", fallback]

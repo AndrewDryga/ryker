@@ -6,14 +6,14 @@ defmodule Ryker.Settings.Work do
   one. Each kind of work the bundled worker runs has its own ordered list of
   models: routing, conversation, standard, deep and contributor work,
   schedules, incident rooms and learning. The first is used; each later one is
-  a fallback Coop moves to when the one before it hits a usage limit or its
-  account's sign-in fails. A model is `provider:model/effort@account`, one
+  fallback Coop moves to when the one before it hits a usage limit. Invalid
+  sign-ins require repair rather than fallback. A model is `provider:model/effort@account`, one
   account each, and Coop takes at most four.
 
   `model_accounts` lists the accounts the worker has signed in, as
-  `provider@name`. Ryker cannot see the worker's sign-ins, and Coop refuses the
-  whole policy file while any model names an account that is not signed in,
-  so a model may only name a listed account. `ready_routing_sessions` is how
+  `provider@name`. A model may only name a listed account; Coop validates the
+  actual worker credentials when admitting the immutable job's target ladder.
+  `ready_routing_sessions` is how
   many routing sessions Ryker starts ahead of time (`Ryker.Admission.ReadyPool`);
   0 turns that off.
   """

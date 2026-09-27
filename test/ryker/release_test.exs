@@ -191,7 +191,7 @@ defmodule Ryker.ReleaseTest do
     # fake control plane; this holds the shape the documentation promises.
     assert deploy =~ "git worktree add --detach"
     assert deploy =~ "pg_dump -U ryker -d ryker --format=custom"
-    assert deploy =~ "up --detach --build --wait"
+    assert deploy =~ "\n  \"${compose[@]}\" up --detach --no-build --wait "
     assert deploy =~ "--no-deps ryker"
     assert deploy =~ "x-ryker-version"
     assert deploy =~ "--allow-not-main"

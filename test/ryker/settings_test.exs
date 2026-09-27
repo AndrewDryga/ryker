@@ -59,7 +59,7 @@ defmodule Ryker.SettingsTest do
   end
 
   test "only the authenticated local settings boundary may initialize or edit" do
-    for actor <- [nil, "", "slack:user:U1", "local-operator"] do
+    for actor <- [nil, "", "slack:user:U1", "local-operator", "migration:legacy-environment"] do
       assert Settings.initialize(actor) == {:error, :settings_forbidden}
       assert Settings.save_retention(%{}, 0, actor) == {:error, :settings_forbidden}
     end
