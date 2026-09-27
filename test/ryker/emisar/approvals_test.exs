@@ -36,18 +36,11 @@ defmodule Ryker.Emisar.ApprovalsTest do
     def permanent?(_reason), do: false
   end
 
-  # Verifies the replacement token against the account already connected.
+  # Emisar as it answers a replacement key (`Ryker.TestSupport.EmisarMCP`).
   defmodule SameAccountRequester do
-    def request(_client, :post, "/mcp", _body, _headers) do
-      {:ok,
-       %{
-         body: %{
-           "jsonrpc" => "2.0",
-           "result" => %{"account" => %{"id" => "account-acme", "name" => "Acme production"}}
-         },
-         headers: [],
-         status: 200
-       }}
+    def request(client, :post, "/mcp", body, _headers) do
+      {:ok, token} = client.token_provider.()
+      Ryker.TestSupport.EmisarMCP.answer(body, token)
     end
   end
 

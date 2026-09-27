@@ -257,6 +257,7 @@ defmodule Ryker.IntegrationSetup do
 
     with :ok <- nonempty(token, :token),
          {:ok, identity} <- verify_emisar(token, rpc_url, options),
+         :ok <- not_connected(identity.account_ref),
          ref <- emisar_connection_ref(requested_ref, identity.account_ref),
          display_name <- optional_text(params, "display_name", identity.account_label),
          :ok <- connection_ref(ref),
@@ -373,17 +374,17 @@ defmodule Ryker.IntegrationSetup do
   def rotate_emisar(ref, token, options \\ []) when is_binary(ref) and is_binary(token) do
     snapshot = Settings.fetch!()
 
+    # Emisar cannot say whose key this is, so the replacement proves only that
+    # it works; the connection keeps its identity, which approvals are pinned to.
     with connection when not is_nil(connection) <-
            Enum.find(snapshot.emisar_connections, &(&1.ref == ref)),
-         {:ok, identity} <- verify_emisar(token, connection.rpc_url, options),
-         true <- identity.account_ref == connection.account_ref,
+         {:ok, _identity} <- verify_emisar(token, connection.rpc_url, options),
          {:ok, _credential} <- Credentials.put(:emisar, ref, token, @actor),
          {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, @actor),
          {:ok, _watched_again} <- Approvals.token_replaced(ref) do
       {:ok, %{ref: ref, status: :rotated}}
     else
       nil -> {:error, :connection_not_found}
-      false -> {:error, :emisar_account_mismatch}
       {:error, _reason} = error -> error
     end
   end
@@ -703,34 +704,66 @@ defmodule Ryker.IntegrationSetup do
          do: :ok
   end
 
+  # Emisar's handshake names the server, never the account behind a key, and
+  # nothing else in its protocol does. A key proves itself by listing the agent
+  # tools, which only an agent key may do; the connection is known by the key's
+  # fingerprint and named after Emisar's address. Ryker once required an
+  # account Emisar never sends, so no real key could connect (2026-09-27).
   defp verify_emisar(token, rpc_url, options) do
     with {:ok, origin, path} <- rpc_endpoint(rpc_url),
          {:ok, http} <- json_http(origin, token, options),
-         {:ok, %{body: %{"result" => result}, status: 200}} <-
-           request(
-             http,
-             :post,
-             path,
-             %{
-               "id" => "ryker-account-identity",
-               "jsonrpc" => "2.0",
-               "method" => "initialize",
-               "params" => %{
-                 "capabilities" => %{},
-                 "clientInfo" => %{"name" => "ryker", "version" => "1"},
-                 "protocolVersion" => "2025-11-25"
-               }
-             },
-             [],
-             options
-           ),
-         %{"account" => %{"id" => account_ref} = account} <- result,
-         :ok <- bounded_text(account_ref, 1, 256, :account_ref),
-         account_label when is_binary(account_label) <- account["name"] || account_ref do
-      {:ok, %{account_ref: account_ref, account_label: account_label}}
+         {:ok, %{"serverInfo" => %{}}} <-
+           emisar_call(http, path, "initialize", emisar_handshake(), options),
+         {:ok, %{"tools" => tools}} when is_list(tools) <-
+           emisar_call(http, path, "tools/list", %{}, options) do
+      {:ok, %{account_ref: key_fingerprint(token), account_label: URI.parse(rpc_url).host}}
     else
       {:error, _reason} = error -> error
-      _missing -> {:error, {:emisar_verification_failed, :account_identity_unavailable}}
+      _unexpected -> {:error, {:emisar_verification_failed, :response}}
+    end
+  end
+
+  defp emisar_handshake do
+    %{
+      "capabilities" => %{},
+      "clientInfo" => %{"name" => "ryker", "version" => "1"},
+      "protocolVersion" => "2025-11-25"
+    }
+  end
+
+  defp emisar_call(http, path, method, params, options) do
+    body = %{
+      "id" => "ryker-" <> method,
+      "jsonrpc" => "2.0",
+      "method" => method,
+      "params" => params
+    }
+
+    case request(http, :post, path, body, [], options) do
+      {:ok, %{status: 200, body: %{"result" => result}}} ->
+        {:ok, result}
+
+      {:ok, %{status: status}} when status in [401, 403] ->
+        {:error, {:emisar_verification_failed, :token_refused}}
+
+      {:ok, %{body: %{"error" => %{"code" => -32_002}}}} ->
+        {:error, {:emisar_verification_failed, :wrong_key_kind}}
+
+      {:ok, _unexpected} ->
+        {:error, {:emisar_verification_failed, :response}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp key_fingerprint(token),
+    do: "key-" <> binary_part(Base.encode16(:crypto.hash(:sha256, token), case: :lower), 0, 32)
+
+  defp not_connected(account_ref) do
+    case Enum.find(Settings.fetch!().emisar_connections, &(&1.account_ref == account_ref)) do
+      nil -> :ok
+      connection -> {:error, {:emisar_key_already_connected, connection.display_name}}
     end
   end
 

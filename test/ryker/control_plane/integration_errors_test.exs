@@ -19,7 +19,6 @@ defmodule Ryker.ControlPlane.IntegrationErrorsTest do
     {:invalid_credential, :token},
     {:invalid_credential, :ref},
     {:invalid_credential, :display_name},
-    {:invalid_credential, :account_ref},
     {:slack_verification_failed, :socket_mode},
     {:slack_verification_failed, "invalid_auth"},
     {:slack_verification_failed, "not_authed"},
@@ -43,7 +42,9 @@ defmodule Ryker.ControlPlane.IntegrationErrorsTest do
     {:invalid_github_app_jwt, :private_key},
     {:invalid_github_app_jwt, :app_id},
     {:emisar_verification_failed, :rpc_url},
-    {:emisar_verification_failed, :account_identity_unavailable},
+    {:emisar_verification_failed, :token_refused},
+    {:emisar_verification_failed, :wrong_key_kind},
+    {:emisar_key_already_connected, "emisar.dev"},
     {:emisar_verification_failed, :response},
     {:delivery_transport_unavailable, %{reason: :econnrefused}},
     {:delivery_protocol_error, :invalid_json},
@@ -54,7 +55,6 @@ defmodule Ryker.ControlPlane.IntegrationErrorsTest do
     :webhook_secret_too_short,
     :connection_not_found,
     :environment_not_found,
-    :emisar_account_mismatch,
     {:invalid_settings, [{:enabled, :required}]},
     {:settings_conflict, %{}}
   ]
@@ -71,9 +71,9 @@ defmodule Ryker.ControlPlane.IntegrationErrorsTest do
   end
 
   test "the refusals QA met say what to change" do
-    assert IntegrationErrors.message({:emisar_verification_failed, :account_identity_unavailable}) ==
-             "Emisar did not say which account this token belongs to. Check that you pasted " <>
-               "an API token and the right Emisar address, then try again."
+    assert IntegrationErrors.message({:emisar_verification_failed, :token_refused}) ==
+             "Emisar refused this API key. Create an agent API key in Emisar under AI agents " <>
+               "› Connect, paste it here, and keep the address unless your Emisar is self-hosted."
 
     assert IntegrationErrors.message({:invalid_credential, :app_token}) ==
              "That app token does not look right: it starts with xapp- and is under Basic " <>
