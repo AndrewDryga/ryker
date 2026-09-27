@@ -4,11 +4,20 @@ defmodule Ryker.Publication.FollowupsTest do
   import Ecto.Query
 
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Event, EventChangeset}
+  alias Ryker.Episodes.{Command, Event, EventChangeset}
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Publication.{Custody, Followup, Followups, LifecycleEvent, Publication}
+
+  alias Ryker.Publication.{
+    Custody,
+    Followup,
+    FollowupExecutor,
+    Followups,
+    LifecycleEvent,
+    Publication
+  }
 
   alias Ryker.Continuity
   alias Ryker.Knowledge.KnowledgeSnapshot
@@ -16,9 +25,18 @@ defmodule Ryker.Publication.FollowupsTest do
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
 
+  alias Ryker.Work.Cancellation
   alias Ryker.Work.Custody, as: WorkCustody
   alias Ryker.Work.DeliveryReceipt
   alias Ryker.Work.SubmissionBuilder
+
+  # A GitHub that reports the status it was given and says it was asked.
+  defmodule GitHubReports do
+    def get_publication_status(%{status: status, test_pid: test_pid}, _repository, _number) do
+      send(test_pid, :github_asked)
+      {:ok, status}
+    end
+  end
 
   @now ~U[2026-08-28 12:10:00.000000Z]
 
@@ -165,25 +183,15 @@ defmodule Ryker.Publication.FollowupsTest do
     assert content["publication"]["head_sha"] == publication.commit_sha
   end
 
+  # The wait is a real deployment wakeup's: one whose turn never held the task
+  # now ends at the first look, so a made-up turn could not show this.
   test "only the exact verification turn can satisfy a queued deployment wakeup" do
     %{episode: episode, publication: publication} =
       PublicationFixture.published!("exact-verification-turn")
 
-    followup = Repo.get_by!(Followup, publication_id: publication.id)
-    verification_sequence = 100
-    verification_turn_ref = "turn:publication-verification:exact"
-
-    Repo.update_all(
-      from(saved in Followup, where: saved.id == ^followup.id),
-      set: [
-        next_poll_at: @now,
-        verification_event_ref: "lifecycle:deployment:exact",
-        verification_sequence: verification_sequence,
-        verification_turn_ref: verification_turn_ref
-      ]
-    )
-
-    insert_result_event!(episode.id, verification_sequence + 1, "turn:older-work")
+    woken = wake_on_deployment!(publication)
+    insert_result_event!(episode.id, woken.verification_sequence + 1, "turn:older-work")
+    a_minute_later!(publication)
 
     assert {:ok, claim} = Followups.claim_poll("publication-followup:wrong-verification", 60)
 
@@ -192,12 +200,8 @@ defmodule Ryker.Publication.FollowupsTest do
 
     assert not_verified.verified_at == nil
 
-    Repo.update_all(
-      from(saved in Followup, where: saved.id == ^followup.id),
-      set: [next_poll_at: @now]
-    )
-
-    insert_result_event!(episode.id, verification_sequence + 2, verification_turn_ref)
+    insert_result_event!(episode.id, woken.verification_sequence + 2, woken.verification_turn_ref)
+    a_minute_later!(publication)
 
     assert {:ok, exact_claim} =
              Followups.claim_poll("publication-followup:exact-verification", 60)
@@ -317,35 +321,126 @@ defmodule Ryker.Publication.FollowupsTest do
     assert nudged.publication.id == publication.id
   end
 
-  # Red checks wake the task, and once it accepts a result the follow-up
-  # settles that verification. Settling used to park the pull request as well,
-  # so one still open after the task answered was never checked again unless a
-  # webhook arrived.
-  test "an open pull request is still checked every ten minutes once the task it woke settles" do
-    %{episode: episode, publication: publication} = PublicationFixture.published!("settled-open")
-    turn_ref = "turn:publication-verification:settled-open"
+  # --- the wait for a woken task --------------------------------------------
 
-    Repo.update_all(
-      from(saved in Followup, where: saved.publication_id == ^publication.id),
-      set: [
-        next_poll_at: @now,
-        verification_event_ref: "lifecycle:checks:settled-open",
-        verification_sequence: 100,
-        verification_turn_ref: turn_ref
-      ]
-    )
+  # Red checks wake the task, and Ryker waits for the woken turn before it asks
+  # GitHub again. Only that turn accepting a result used to end the wait, so a
+  # newer turn taking the task, a cancelled task or a blocked turn left the
+  # pull request unchecked for good: nothing would notice it merge, close or go
+  # green. A wakeup that finds the task busy is queued behind another turn and
+  # never gets its own, so it was stuck the same way.
+  for ending <- [:taken_over, :cancelled, :blocked] do
+    test "an open pull request is checked at once when the turn its red checks woke is #{String.replace(to_string(ending), "_", " ")}" do
+      %{episode: episode, publication: publication} =
+        PublicationFixture.published!("woken-#{unquote(ending)}")
 
-    insert_result_event!(episode.id, 101, turn_ref)
+      woken = wake_on_red_checks!(publication)
+      end_woken_turn!(unquote(ending), episode, woken)
 
-    assert {:ok, claim} = Followups.claim_poll("publication-followup:settled-open", 60)
-    settled_after = Repo.now!()
+      a_minute_later!(publication)
+      assert next_check!(publication) == :checked_task
+      assert next_check!(publication) == :checked_github
+      assert next_check!(publication) == :nothing_due
+    end
+  end
 
-    assert {:ok, settled} =
-             Followups.reconcile_verification(publication.ref, claim.lease_ref, 60)
+  test "an open pull request is checked at once when its red checks find the task busy" do
+    %{episode: episode, publication: publication} = PublicationFixture.published!("woken-busy")
 
-    assert %DateTime{} = settled.verified_at
-    assert settled.pr_state == "open"
-    assert_next_check(settled, ten_minutes_after: settled_after)
+    # A person's message has the task working on another turn, so the wakeup
+    # waits in its queue and the turn it names never holds the task.
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 destination: %{
+                   conversation_ref: episode.destination_conversation_ref,
+                   thread_ref: episode.destination_thread_ref,
+                   transport: episode.destination_transport
+                 },
+                 episode_id: episode.id,
+                 episode_key: episode.key,
+                 native_input_id: "slack:message:busy:#{episode.id}",
+                 occurred_at: Repo.now!(),
+                 payload: %{"text" => "Also rename the flag."},
+                 turn_ref: "turn:person:#{episode.id}"
+               })
+             )
+
+    wake_on_red_checks!(publication)
+    a_minute_later!(publication)
+    assert next_check!(publication) == :checked_task
+    assert next_check!(publication) == :checked_github
+  end
+
+  # Coop stops any turn after an hour, so a woken turn still holding the task
+  # by then is stuck or starting over, and waiting longer only leaves the pull
+  # request unwatched.
+  test "Ryker waits at most an hour for the turn red checks woke before it checks the pull request again" do
+    %{publication: publication} = PublicationFixture.published!("woken-hour")
+    woken = wake_on_red_checks!(publication)
+    assert {:ok, work} = WorkCustody.claim_next("work:woken-hour", 60, :work)
+    assert work.turn.turn_ref == woken.verification_turn_ref
+
+    # While the woken turn works, GitHub is not asked.
+    a_minute_later!(publication)
+    assert next_check!(publication) == :checked_task
+    assert next_check!(publication) == :nothing_due
+
+    wake_admitted!(woken, minutes_ago: 61)
+    a_minute_later!(publication)
+    assert next_check!(publication) == :checked_task
+    assert next_check!(publication) == :checked_github
+  end
+
+  # While Ryker waits for the woken turn it does not ask GitHub, so a webhook
+  # that arrives then only brings the wait's next look forward. The pull
+  # request used to be checked ten minutes after the turn finished, so what the
+  # webhook announced waited that long.
+  test "a webhook that arrives while Ryker waits for the woken turn still gets its GitHub check" do
+    %{episode: episode, publication: publication} =
+      PublicationFixture.published!("woken-webhook", pull_request_number: 95)
+
+    woken = wake_on_red_checks!(publication)
+
+    check_run = %{
+      "check_run" => %{
+        "head_sha" => publication.commit_sha,
+        "pull_requests" => [%{"number" => 95}]
+      }
+    }
+
+    assert Followups.nudge_github_event("acme/ryker", "check_run", "delivery:95", check_run) ==
+             {:ok, :nudged}
+
+    assert next_check!(publication) == :checked_task
+
+    # The woken turn finishes its correction.
+    insert_result_event!(episode.id, woken.verification_sequence + 1, woken.verification_turn_ref)
+    a_minute_later!(publication)
+    assert next_check!(publication) == :checked_task
+    assert next_check!(publication) == :checked_github
+  end
+
+  # A deployment wakes the task to verify a merged pull request. A person who
+  # asks for a check during that wait is owed an answer, but the wait's end
+  # parked the merged pull request for good and the answer never came.
+  test "a check request made while Ryker waits for the woken turn is still answered" do
+    %{episode: episode, publication: publication} = PublicationFixture.published!("woken-check")
+    woken = wake_on_deployment!(publication)
+    merged = merged_status(publication)
+
+    assert {:ok, %{status: :requested}} = Followups.request_check(publication.ref, "check:1")
+    assert next_check!(publication, merged) == :checked_task
+
+    insert_result_event!(episode.id, woken.verification_sequence + 1, woken.verification_turn_ref)
+    a_minute_later!(publication)
+    assert next_check!(publication, merged) == :checked_task
+    assert next_check!(publication, merged) == :checked_github
+
+    assert %LifecycleEvent{summary: summary} =
+             Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "status")
+
+    assert summary =~ "is merged"
   end
 
   test "review feedback fails closed when two publications claim one pull request" do
@@ -1349,6 +1444,150 @@ defmodule Ryker.Publication.FollowupsTest do
       from(saved in Followup, where: saved.publication_id == ^publication.id),
       set: [deadline_at: @now, inserted_at: DateTime.add(@now, -1, :second), next_poll_at: @now]
     )
+  end
+
+  # Red checks on the reviewed head wake the task: the poll records them and
+  # the wakeup is admitted, which hands the task to the woken turn.
+  defp wake_on_red_checks!(publication) do
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:red", 60)
+    red = lifecycle_status(publication, "failing", false)
+    assert {:ok, _followup} = Followups.store_poll(publication.ref, claim.lease_ref, red)
+    deliver_pending!()
+
+    woken = Repo.get_by!(Followup, publication_id: publication.id)
+    assert is_binary(woken.verification_turn_ref)
+    woken
+  end
+
+  # A deployment of the merged pull request wakes the task to verify it.
+  defp wake_on_deployment!(publication) do
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:merge", 60)
+
+    assert {:ok, _merged} =
+             Followups.store_poll(publication.ref, claim.lease_ref, merged_status(publication))
+
+    deployed = typed_lifecycle_input([publication.branch_ref], "deployment", "succeeded")
+    assert Followups.observe_input(deployed) == {:ok, 1}
+    deliver_pending!()
+
+    woken = Repo.get_by!(Followup, publication_id: publication.id)
+    assert is_binary(woken.verification_turn_ref)
+    woken
+  end
+
+  defp merged_status(publication),
+    do: lifecycle_status(publication, "passing", true, String.duplicate("b", 40))
+
+  defp end_woken_turn!(:taken_over, episode, woken) do
+    assert {:ok, _transition} =
+             Episodes.apply(%Command.TransferOwner{
+               episode_key: episode.key,
+               expected_owner: %{kind: :turn, ref: woken.verification_turn_ref},
+               new_owner: %{kind: :turn, ref: "turn:newer:#{woken.id}"},
+               occurred_at: Repo.now!(),
+               transfer_ref: "transfer:newer:#{woken.id}"
+             })
+  end
+
+  defp end_woken_turn!(:cancelled, episode, woken) do
+    assert {:ok, _transition} =
+             Episodes.apply(%Command.CancelEpisode{
+               cancel_ref: "cancel:#{woken.id}",
+               episode_key: episode.key,
+               expected_owner: %{kind: :turn, ref: woken.verification_turn_ref},
+               occurred_at: Repo.now!(),
+               reason: "The task was closed."
+             })
+  end
+
+  defp end_woken_turn!(:blocked, _episode, woken) do
+    assert {:ok, work} = WorkCustody.claim_next("work:woken", 60, :work)
+    assert work.turn.turn_ref == woken.verification_turn_ref
+
+    assert {:ok, _blocking} =
+             WorkCustody.request_block(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               work.lease_ref,
+               "The correction cannot continue."
+             )
+
+    assert {:ok, stopping} = WorkCustody.claim_next("work:woken-stop", 60, :work)
+
+    assert {:ok, stopped} =
+             Cancellation.absent_receipt(
+               "ryker:work:create:#{work.session.id}:g#{work.session.create_generation}",
+               nil,
+               work.session.coop_session_id,
+               "closed",
+               "ryker:work:cancel-close:#{work.turn.id}:g1"
+             )
+
+    assert {:ok, %{turn: %{status: :blocked}}} =
+             WorkCustody.settle_cancellation(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               stopping.lease_ref,
+               stopped
+             )
+  end
+
+  defp wake_admitted!(woken, minutes_ago: minutes) do
+    {1, nil} =
+      Repo.update_all(
+        from(event in Event,
+          where:
+            event.episode_id == ^woken.episode_id and
+              event.sequence == ^woken.verification_sequence
+        ),
+        set: [inserted_at: DateTime.add(Repo.now!(), -minutes, :minute)]
+      )
+  end
+
+  # The minute between two looks at a woken task passes.
+  defp a_minute_later!(publication) do
+    {1, nil} =
+      Repo.update_all(
+        from(saved in Followup,
+          where: saved.publication_id == ^publication.id and saved.next_poll_at < ^@never
+        ),
+        set: [next_poll_at: @now]
+      )
+  end
+
+  # Runs the pull request's next check as the follow-up worker would, if one
+  # is due, against a GitHub that reports `status`: by default still open with
+  # its checks red. Says whether the check asked GitHub or only looked at the
+  # woken task.
+  defp next_check!(publication, status \\ nil) do
+    status = status || lifecycle_status(publication, "failing", false)
+    worker = "publication-followup:next:#{System.unique_integer([:positive])}"
+
+    case Followups.claim_poll(worker, 60) do
+      {:ok, nil} ->
+        :nothing_due
+
+      {:ok, claim} ->
+        assert claim.publication.id == publication.id
+
+        options = [
+          adapters: %{"slack" => :unused},
+          api: GitHubReports,
+          client: %{status: status, test_pid: self()},
+          interval_seconds: 60,
+          lease_seconds: 60
+        ]
+
+        assert {:ok, _checked} = FollowupExecutor.run_poll(claim, options)
+
+        receive do
+          :github_asked -> :checked_github
+        after
+          0 -> :checked_task
+        end
+    end
   end
 
   # Exactly the row state `persist_publication/3` leaves once the corrected
