@@ -605,6 +605,8 @@ defmodule Ryker.RoutingExamples do
   end
 
   defp erase(query) do
+    now = Repo.now!()
+
     Repo.update_all(
       from(example in query, where: is_nil(example.forgotten_at)),
       set: [
@@ -614,8 +616,8 @@ defmodule Ryker.RoutingExamples do
         decision: nil,
         outcome: nil,
         usage: nil,
-        forgotten_at: Repo.now!(),
-        updated_at: Repo.now!()
+        forgotten_at: now,
+        updated_at: now
       ]
     )
 

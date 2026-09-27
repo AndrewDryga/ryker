@@ -235,6 +235,25 @@ defmodule Ryker.RoutingExamplesTest do
       assert Repo.aggregate(Example, :count) == 3
     end
 
+    # A learned topic reaches later prompts on its own, its summary quoted
+    # where the message it came from may no longer be.
+    test "forgetting a learned topic erases the examples whose prompt quoted it" do
+      keep_examples!()
+      first = route!("Ev-examples-topic", "the staging account is acme-staging", @ignore)
+      topic = topic!(first, "staging-account", "Staging account")
+      second = route!("Ev-examples-topic-2", "which account is staging?", @ignore, message: 2)
+      assert {:ok, %{copied: 2}} = RoutingExamples.capture(@options)
+
+      assert {:ok, :ok} =
+               Repo.transaction(fn ->
+                 RoutingExamples.forget_topics_in_transaction([topic.id])
+               end)
+
+      assert_erased(second)
+      # Routed before the topic was learned, it never quoted it.
+      assert kept(first)
+    end
+
     test "a message forgotten before its example is taken is never copied" do
       keep_examples!()
       first = route!("Ev-examples-early", "the staging account is acme-staging", @ignore)
