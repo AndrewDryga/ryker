@@ -68,7 +68,7 @@ defmodule Ryker.Improvement.Evidence do
     {routing, routing_keys} = routing(entries, deleted, secrets)
     work = work(episode, secrets)
     feedback = feedback(request, entries, deleted, secrets)
-    person_words? = Enum.any?(messages, &(&1["from"] == "person" and is_binary(&1["text"])))
+    person_words? = Enum.any?(messages, &(&1["from"] == "person" and words?(&1["text"])))
 
     keys =
       (Enum.map(entries, &entry_key/1) ++ routing_keys.keys ++ feedback_keys(feedback))
@@ -115,7 +115,8 @@ defmodule Ryker.Improvement.Evidence do
     events =
       for entry <- entries,
           entry.actor_kind == :user,
-          %{"text" => text} when is_binary(text) <- [message(entry, deleted, secrets)],
+          %{"text" => text} <- [message(entry, deleted, secrets)],
+          words?(text),
           do: event(entry, text)
 
     snapshot =
@@ -222,6 +223,9 @@ defmodule Ryker.Improvement.Evidence do
         Map.put(base, "text", redact(words(entry.content), secrets))
     end
   end
+
+  # A message with something to read: a file or an image alone is not one.
+  defp words?(text), do: is_binary(text) and String.trim(text) != ""
 
   defp sender(:user), do: "person"
   defp sender(kind), do: Atom.to_string(kind)
