@@ -4,8 +4,8 @@ defmodule Ryker.ControlPlane.UsagePage do
   them. An open page redraws when usage is recorded or a price changes
   (`subscriptions/0`).
   """
-  alias Ryker.{Accounting, Settings}
-  alias Ryker.ControlPlane.{Kit, SettingsRows, UsageChart}
+  alias Ryker.{Accounting, LocalRouting, Settings}
+  alias Ryker.ControlPlane.{Kit, LocalRoutingUsage, SettingsRows, UsageChart}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
@@ -18,9 +18,15 @@ defmodule Ryker.ControlPlane.UsagePage do
   @doc """
   The topics an open Usage page listens to, as the context functions that
   subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): every execution's
-  usage, and the prices in the settings.
+  usage, the prices in the settings, and the local routing model's
+  comparisons.
   """
-  def subscriptions, do: [{Accounting, :subscribe_usage, []}, {Settings, :subscribe, []}]
+  def subscriptions,
+    do: [
+      {Accounting, :subscribe_usage, []},
+      {Settings, :subscribe, []},
+      {LocalRouting, :subscribe_comparisons, []}
+    ]
 
   def render(snapshot) do
     totals = snapshot.totals
@@ -48,6 +54,7 @@ defmodule Ryker.ControlPlane.UsagePage do
       timing(totals),
       "</section></div>",
       performance(Map.get(snapshot, :performance, []), snapshot),
+      LocalRoutingUsage.render(Map.get(snapshot, :local_routing)),
       section("By account", "profiles", Map.get(snapshot, :profiles, []), snapshot, :profile),
       section(
         "By model",

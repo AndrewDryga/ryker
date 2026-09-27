@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
   @moduledoc "Comparable usage breakdowns from the same deduplicated execution ledger."
   import Ecto.Query
   alias Ryker.Accounting.Pricing
+  alias Ryker.ControlPlane.LocalRoutingUsage
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Work.{Measurement, Turn}
@@ -42,7 +43,11 @@ defmodule Ryker.ControlPlane.UsageProjection do
     |> since()
     |> Ryker.Accounting.Query.executions(mode)
     |> snapshot()
-    |> Map.merge(%{mode: mode, window: window})
+    |> Map.merge(%{
+      local_routing: LocalRoutingUsage.project(since(window), mode),
+      mode: mode,
+      window: window
+    })
   end
 
   def page(_params), do: page(%{})
