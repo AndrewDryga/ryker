@@ -137,6 +137,27 @@ make eval-trend
 
 Passing deterministic and model gates does not deploy the runtime.
 
+### Eval cases from feedback
+
+Memory › Feedback › What to fix lists the requests people were unhappy with, each with Ryker's own
+diagnosis of what went wrong (`Ryker.Improvement`). Accepting one keeps it as an eval case.
+**Download eval cases** there, or `MIX_ENV=prod mix ryker.eval_cases --output DIR`, writes each
+accepted case as a world scenario directory: `scenario.json`, `tool-catalog.json` (the standard
+catalog, by reference), `routing.json` (each routing decision's exact prompt and answer) and
+`PROVENANCE.md` (what happened, the diagnosis, and what is still to fill in).
+
+The scenario holds the person's messages up to their first negative feedback as its events, with
+Slack people, the workspace and channels renamed, and the diagnosis's expectation as its quality
+rubric. Move a directory into `testdata/scenarios/`, fill in what its `PROVENANCE.md` lists (the
+world's repositories and tool answers, hard and trajectory checks, the actors' authority, and a
+recorded good answer with the `host-replay` tag if it should also run in `make eval-replay`), and
+run it alone:
+
+```bash
+scripts/elixir-world-eval.sh ~/.local/state/ryker/eval-history/feedback.json \
+  --case feedback-20260927-3f2a9c1b --repeat 1
+```
+
 ## Release qualification
 
 ```bash

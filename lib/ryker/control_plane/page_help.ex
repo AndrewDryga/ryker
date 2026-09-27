@@ -59,6 +59,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/memory/findings", :findings},
     {"/memory/learning", :learning},
     {"/memory/feedback", :feedback},
+    {"/memory/feedback/fix", :improvement},
     {"/integrations", :integrations},
     {"/integrations/slack", :slack},
     {"/integrations/github", :github},
@@ -686,6 +687,29 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"How long it is kept",
        [
          "Feedback is kept as long as prompts and replies are, set on the Data retention page."
+       ]}
+    ])
+  end
+
+  defp help(:improvement) do
+    page("How What to fix works", [
+      {"What is here",
+       [
+         "Each request someone was unhappy with is listed once, however much feedback it got. They were frustrated or angry, or reacted with a thumbs down or a similar emoji. They asked the same thing again, or changed or deleted their message after the answer. Or you reviewed a request that was stopped.",
+         "Ryker reads each one itself, with the learning models, while background learning is on. It waits until the request is done and a few minutes pass without new feedback. It says whose fault it was, where it went wrong, what went wrong and what it should have done, and how sure it is. It never changes anything."
+       ]},
+      {"What the kinds mean",
+       [
+         "Host bug: Ryker's own code let the model down, such as a missing tool or a good answer that was mishandled. Prompt bug: the model did what its instructions said, and they led it wrong. Model mistake: the instructions were enough and the model still got it wrong. Not a problem: the answer was reasonable. Unclear: the evidence does not say."
+       ]},
+      {"Decide",
+       [
+         "Accept one to keep it as an eval case: Ryker keeps the messages it rests on, so the case outlives them. Dismiss one that is not worth it. Both ask first, and you can change your mind from the Accepted and Dismissed views.",
+         "Download eval cases gives every accepted case as a world scenario for testdata/scenarios, with what went wrong and what is still to fill in. mix ryker.eval_cases --output DIR writes the same files."
+       ]},
+      {"How long it is kept",
+       [
+         "A request here is kept as long as prompts and replies are. An accepted case is kept as long as routing examples are, while you keep them for training. Forgetting or deleting a message it quotes erases it at once."
        ]}
     ])
   end

@@ -4,9 +4,10 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   its Timeline: what people told Ryker about its answers (`Ryker.Feedback`),
   by category, frustrated first, and over time.
 
-  The page opens on every category at once: how many of each, a table of the
-  latest days, and the newest few of each category with the way to all of
-  them. One category (`?category=frustrated`) is a sub-page of its own: every
+  The page opens on every category at once: how many of each, what there is
+  to fix (`Ryker.ControlPlane.ImprovementProjection.summary/0`), a table of
+  the latest days, and the newest few of each category with the way to all
+  of them. One category (`?category=frustrated`) is a sub-page of its own: every
   signal of that kind, newest first under day headings, a page at a time.
   Search narrows both by what a signal says (a reason, a note, an emoji) and
   by the request it is about. Each row names its request as Activity names
@@ -15,7 +16,15 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Activity, CurrentInputs, PagedRelation, Search, SlackMarkdown}
+  alias Ryker.ControlPlane.{
+    Activity,
+    CurrentInputs,
+    ImprovementProjection,
+    PagedRelation,
+    Search,
+    SlackMarkdown
+  }
+
   alias Ryker.Episodes.{Episode, RoutingDigest}
   alias Ryker.Feedback.Signal
   alias Ryker.Ingress.Inbox.Entry
@@ -62,8 +71,13 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
     }
 
     case category do
-      nil -> Map.put(view, :groups, groups(matching, counts))
-      category -> Map.merge(view, category_page(matching, category, params))
+      nil ->
+        view
+        |> Map.put(:groups, groups(matching, counts))
+        |> Map.put(:improvement, ImprovementProjection.summary())
+
+      category ->
+        Map.merge(view, category_page(matching, category, params))
     end
   end
 
@@ -192,16 +206,10 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   defp present([]), do: []
 
   defp present(signals) do
-    episodes = episode_requests(signals)
-    inputs = input_requests(signals)
+    requests = requests(signals)
 
     Enum.map(signals, fn %Signal{} = signal ->
-      request =
-        if signal.episode_id,
-          do: Map.get(episodes, signal.episode_id),
-          else: Map.get(inputs, signal.input_id)
-
-      request = request || gone_request()
+      request = request(requests, signal)
 
       %{
         id: signal.id,
@@ -215,6 +223,27 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
         message_href: message_href(signal.source_ref)
       }
     end)
+  end
+
+  @doc """
+  The requests `records` are about, named as Activity names them, each with
+  its Timeline link and where it happened: every record carries an
+  `episode_id` or an `input_id`, as feedback and improvement candidates do.
+  Read it with `request/2`.
+  """
+  @spec requests([map()]) :: %{episodes: map(), inputs: map()}
+  def requests(records),
+    do: %{episodes: episode_requests(records), inputs: input_requests(records)}
+
+  @doc "The request one record is about, from `requests/1`, or the words for one that is gone."
+  @spec request(map(), map()) :: map()
+  def request(%{episodes: episodes, inputs: inputs}, record) do
+    found =
+      if record.episode_id,
+        do: Map.get(episodes, record.episode_id),
+        else: Map.get(inputs, record.input_id)
+
+    found || gone_request()
   end
 
   defp episode_requests(signals) do

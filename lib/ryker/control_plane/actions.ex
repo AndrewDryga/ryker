@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.ControlPlane.WorkChanges
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
+  alias Ryker.Improvement
   alias Ryker.Ingress.WorkProfile
   alias Ryker.IntegrationSetup
   alias Ryker.Operator.{EpisodeReviews, Failures}
@@ -67,6 +68,8 @@ defmodule Ryker.ControlPlane.Actions do
       forget_memory: &Memories.forget/1,
       forget_knowledge: &Forgetting.forget_topic/1,
       forget_finding: &Findings.forget/1,
+      accept_improvement: &Improvement.accept(&1, @actor_ref),
+      dismiss_improvement: &Improvement.dismiss(&1, @actor_ref),
       mark_finding_explained: &Findings.mark_explained/1,
       resolve_episode: &resolve_episode/1,
       resolve_memory_review: &resolve_memory_review/3,

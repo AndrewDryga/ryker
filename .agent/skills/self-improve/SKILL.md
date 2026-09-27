@@ -41,6 +41,19 @@ invent a Decisions page or send its obsolete actions.
 - Fix confirmed defects test-first through the normal gate. Do not silently turn
   a model answer into a policy or an operator-confirmed memory.
 
+## 1b. What to fix — requests people were unhappy with
+
+Memory › Feedback › What to fix (`/memory/feedback/fix`) lists every request that got negative
+feedback (frustrated or angry, a thumbs down or similar, asked again, edited or deleted after the
+answer, a stopped request reviewed), each with Ryker's own diagnosis: host bug, prompt bug, model
+mistake, not a problem or unclear, the step, what went wrong and what it should have done.
+
+- Read the surest diagnoses first; open the Timeline where one looks wrong.
+- Accept the real problems as eval cases and dismiss the rest (both are two-step confirms).
+- `MIX_ENV=prod mix ryker.eval_cases --output DIR` (or Download eval cases on the page) writes the
+  accepted cases as world scenarios; fill in what each `PROVENANCE.md` lists, add them under
+  `testdata/scenarios/`, and fix the host or prompt side test-first as in section 1.
+
 ## 2. Memory review — keep, merge, forget
 
 - The stale/duplicate review queue: control plane Memory page (keep, merge, forget

@@ -73,16 +73,19 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
        %{reply: reply, greeting: greeting, day: day} do
     document = page(%{})
 
+    # The feedback first, then what there is to fix: the unhappy request is
+    # one candidate, however many negative signals it got.
     assert counts(document) == [
              {"5 pieces of feedback", nil},
              {"2 frustrated", "/memory/feedback?category=frustrated"},
              {"1 asked again", "/memory/feedback?category=asked_again"},
              {"1 satisfied", "/memory/feedback?category=satisfied"},
-             {"1 reviewed", "/memory/feedback?category=reviewed"}
+             {"1 reviewed", "/memory/feedback?category=reviewed"},
+             {"1 to decide", "/memory/feedback/fix"}
            ]
 
     assert document |> LazyHTML.query(".section-head h2") |> Enum.map(&text/1) ==
-             ["By day", "Frustrated", "Asked again", "Satisfied", "Reviewed"]
+             ["What to fix", "By day", "Frustrated", "Asked again", "Satisfied", "Reviewed"]
 
     # Over time: a row a day, a column a kind, frustrated first.
     assert document |> LazyHTML.query(".kit-table th") |> Enum.map(&text/1) ==
