@@ -1,4 +1,19 @@
 defmodule Ryker.Repo do
+  @moduledoc """
+  The one PostgreSQL repository, and the clock and error classes custody
+  compares against.
+
+  Side effects that must not outlive a rollback, such as the announcements
+  open pages redraw on (`Ryker.PubSub`), wait for the commit through
+  `after_commit/1`. The rule for nesting: a callback registered anywhere
+  inside a transaction runs once the outermost transaction this process
+  opened commits, and never if it rolls back. Emisar instead refuses a nested
+  after-commit and makes the caller hoist it to the outermost transaction;
+  Ryker's custody writes join whatever transaction their caller opened, often
+  several levels deep, so hoisting would mean threading every announcement
+  back up through every custody call, and one forgotten would announce a
+  change before it was visible.
+  """
   use Ecto.Repo,
     adapter: Ecto.Adapters.Postgres,
     otp_app: :ryker
