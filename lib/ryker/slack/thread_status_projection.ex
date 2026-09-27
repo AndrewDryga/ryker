@@ -55,7 +55,8 @@ defmodule Ryker.Slack.ThreadStatusProjection do
     {"is writing the reply…", ~w(update_conversation_summary validate_final)}
   ]
 
-  # Emisar's tools, by the server name its connection gives the worker. The
+  # Emisar's tools, by the server name its connection gives the worker, or
+  # through Ryker's own server, which has offered them since 2026-09-27. The
   # action a run asks for is the model's argument and stays out of the line.
   @emisar_server "emisar"
   @emisar_tool_phrases [
@@ -239,7 +240,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   # a phrase; a name no table knows says "is working…".
   defp tool_phrase(%{"input" => %{"server" => server, "tool" => tool}})
        when server in @state_servers,
-       do: phrase_for(@state_tool_phrases, tool)
+       do: phrase_for(@state_tool_phrases ++ @emisar_tool_phrases, tool)
 
   defp tool_phrase(%{"input" => %{"server" => @emisar_server, "tool" => tool}}),
     do: phrase_for(@emisar_tool_phrases, tool)

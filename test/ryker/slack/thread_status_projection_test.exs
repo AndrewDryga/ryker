@@ -235,6 +235,15 @@ defmodule Ryker.Slack.ThreadStatusProjectionTest do
          },
          "kind" => "execute"
        }, "is asking Emisar to run an action…"},
+      # Since 2026-09-27 Emisar's tools reach Work through Ryker's own server.
+      {%{
+         "input" => %{
+           "arguments" => %{"query" => "hunter2 disk usage"},
+           "server" => "controller-tools",
+           "tool" => "find_actions"
+         },
+         "kind" => "execute"
+       }, "is looking up Emisar actions…"},
       # A Work update's words reach the thread as the update itself, never
       # as the status line above it (2026-09-27, post_slack_update).
       {%{
