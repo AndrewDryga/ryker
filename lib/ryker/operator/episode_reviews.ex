@@ -6,13 +6,18 @@ defmodule Ryker.Operator.EpisodeReviews do
   return the existing receipt instead of rewriting who reviewed it.
 
   A review recorded is announced after the outermost commit
-  (`subscribe_reviews/0`), on the reviewed request's topics too.
+  (`subscribe_reviews/0`), on the reviewed request's topics too. It is also
+  kept as feedback on the request (`Ryker.Feedback`), with the ending it
+  covered and its note, in the same transaction.
   """
 
   import Ecto.Changeset
   import Ecto.Query
 
+  require Logger
+
   alias Ryker.Episodes.Episode
+  alias Ryker.Feedback
   alias Ryker.Operator.{EpisodeReview, Reference}
   alias Ryker.Repo
 
@@ -79,11 +84,34 @@ defmodule Ryker.Operator.EpisodeReviews do
              |> Repo.insert() do
           {:ok, review} ->
             broadcast_review_recorded(review)
+            record_feedback(review, episode)
             %{review: review, status: :recorded}
 
           {:error, changeset} ->
             Repo.rollback({:episode_review_store, changeset.errors})
         end
+    end
+  end
+
+  # The review is the act; the feedback is what it says about the answer.
+  # A signal that cannot be kept is logged and never undoes the review.
+  defp record_feedback(%EpisodeReview{} = review, %Episode{} = episode) do
+    case Feedback.record_in_transaction(%{
+           kind: :reviewed,
+           value: Atom.to_string(episode.state),
+           note: if(review.note == "", do: nil, else: review.note),
+           actor_ref: review.actor_ref,
+           source: "control_plane",
+           source_ref: "episode-review:#{review.id}",
+           occurred_at: review.reviewed_at,
+           request: {:episode, episode.id}
+         }) do
+      {:ok, _recorded} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("review feedback not kept: #{inspect(reason, limit: 5)}")
+        :ok
     end
   end
 

@@ -34,6 +34,7 @@ defmodule Ryker.Retention.Data do
           routing_examples: non_neg_integer(),
           routing_responses: non_neg_integer(),
           episode_histories: non_neg_integer(),
+          feedback: non_neg_integer(),
           input_artifacts: non_neg_integer(),
           operational_inputs: non_neg_integer(),
           operational_turns: non_neg_integer(),
@@ -281,6 +282,15 @@ defmodule Ryker.Retention.Data do
     horizon: :operational_data_seconds
   }
 
+  # Feedback on an answer ages from when Ryker recorded it, not from when the
+  # source says it happened: a redelivered old event is still recent news.
+  @recorded_feedback %{
+    table: "answer_feedback",
+    age: "inserted_at",
+    horizon: :operational_data_seconds,
+    limit: 500
+  }
+
   # A finished setup conversation ages from its last change, and every one from
   # its own expiry, so the horizon applies to either branch of an OR.
   @prune_configuration_sessions """
@@ -517,6 +527,7 @@ defmodule Ryker.Retention.Data do
     worker_events = prune_aged(@discarded_worker_events, settings)
     _non_work_sessions = execute_count(@prune_non_work_sessions, [cutoff])
     routing_responses = prune_aged(@delivered_routing_responses, settings)
+    feedback = prune_aged(@recorded_feedback, settings)
     _github_events = prune_aged(@processed_github_events, settings)
 
     configuration_sessions =
@@ -540,6 +551,7 @@ defmodule Ryker.Retention.Data do
       result
       | configuration_sessions: configuration_sessions,
         conversation_memory: result.conversation_memory + learning_artifacts,
+        feedback: feedback,
         routing_responses: routing_responses,
         input_artifacts: input_artifacts,
         operational_inputs: operational_inputs,
@@ -1091,6 +1103,7 @@ defmodule Ryker.Retention.Data do
       routing_examples: 0,
       routing_responses: 0,
       episode_histories: 0,
+      feedback: 0,
       input_artifacts: 0,
       operational_inputs: 0,
       operational_turns: 0,

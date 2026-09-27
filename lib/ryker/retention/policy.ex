@@ -204,6 +204,12 @@ defmodule Ryker.Retention.Policy do
         "classifier artifacts expire with source custody; compact attempts cascade with ingress"
     },
     %{
+      table: "answer_feedback",
+      class: :operational,
+      why:
+        "how people took Ryker's answers (reactions, edits, asking again, routing's read of their next message, reviews) expires at the operational horizon, or with its request when that goes first"
+    },
+    %{
       table: "conversation_rollups",
       class: :conversation_memory,
       why: "bounded derived continuity retained after source-summary compaction"
