@@ -215,6 +215,33 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert off.admission_ready.target == 0
   end
 
+  # Found live 2026-09-27: every step of a repository's setup saves its state
+  # to settings, and any runtime whose configuration changed is restarted, so
+  # the setup worker was stopped mid-run by its own progress and every added
+  # repository cycled through "cloning" and "scanning" for an hour.
+  test "a repository's setup progress restarts no runtime" do
+    settings = connected!()
+    assert {:ok, before} = Assembly.build(bootstrap(), settings)
+
+    {:ok, settings} =
+      Settings.put_repository(
+        %{
+          ref: "ryker",
+          onboarding_state: :scanning,
+          onboarding_error: nil,
+          source_commit: String.duplicate("a", 40)
+        },
+        settings.installation.revision,
+        @actor
+      )
+
+    assert {:ok, changed} = Assembly.build(bootstrap(), settings)
+
+    for key <- Map.keys(before), Map.get(before, key) != Map.get(changed, key) do
+      flunk("#{key} changed with setup progress")
+    end
+  end
+
   test "an integration is enabled by its saved connection, never by a credential present" do
     # Every credential below is in the environment for this whole test. If a
     # credential could turn a lane on, a deployment that merely holds a token
