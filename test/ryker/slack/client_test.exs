@@ -1061,6 +1061,37 @@ defmodule Ryker.Slack.ClientTest do
              FakeRequester.requests(requester)
   end
 
+  # A top-level delivery searched the channel's whole history for an earlier
+  # copy, and a channel past 10,000 messages ran out of pages first, so its
+  # post stopped for good. A delivery frozen at a known moment searches from
+  # then.
+  test "a search for an earlier copy can start after a Slack timestamp" do
+    {:ok, requester} =
+      FakeRequester.start([
+        slack(%{"messages" => [], "response_metadata" => %{"next_cursor" => ""}})
+      ])
+
+    client = client(requester)
+
+    assert Client.find_message(
+             client,
+             "C123",
+             nil,
+             "weekly-report:2026-10-05",
+             "1790000000.000000"
+           ) ==
+             :not_found
+
+    assert [
+             {:get,
+              "/conversations.history?channel=C123&limit=100&include_all_metadata=true&oldest=1790000000.000000",
+              nil, []}
+           ] = FakeRequester.requests(requester)
+
+    assert Client.find_message(client, "C123", nil, "weekly-report:2026-10-05", "yesterday") ==
+             {:error, {:invalid_slack_api_request, :timestamp}}
+  end
+
   test "requires an exact requester callback and bounded trusted configuration" do
     assert Client.new(http: self(), requester: String) ==
              {:error, {:invalid_slack_client, :requester}}

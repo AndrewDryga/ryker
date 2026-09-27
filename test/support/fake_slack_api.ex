@@ -14,10 +14,11 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
     * `{:slack_updated, channel, message_ref, document, delivery_ref}`
     * `{:slack_uploaded, channel, thread, document, delivery_ref, files}`
 
-  Of the optional callbacks it exports only `update_message/5` and
-  `joined_conversations/1`. Code that checks for another one, such as
-  removing a reaction or posting a private line, finds it absent, as it did
-  with every fake this one replaced.
+  Of the optional callbacks it exports only `update_message/5`,
+  `joined_conversations/1` and `find_message/5`, which finds what `find_message/4`
+  finds and keeps each search's `oldest` in `searched_since`. Code that
+  checks for another one, such as removing a reaction or posting a private
+  line, finds it absent, as it did with every fake this one replaced.
 
   Options:
 
@@ -67,6 +68,7 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
         messages: %{},
         posts: [],
         reacted: [],
+        searched_since: [],
         reactions: MapSet.new(),
         updates: [],
         uploads: []
@@ -87,6 +89,12 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
       result = found(Map.fetch(state.messages, {channel, thread, delivery_ref}))
       {result, %{state | finds: state.finds + 1}}
     end)
+  end
+
+  @impl true
+  def find_message(agent, channel, thread, delivery_ref, oldest) do
+    Agent.update(agent, &%{&1 | searched_since: &1.searched_since ++ [oldest]})
+    find_message(agent, channel, thread, delivery_ref)
   end
 
   @impl true
