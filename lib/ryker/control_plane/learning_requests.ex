@@ -321,7 +321,6 @@ defmodule Ryker.ControlPlane.LearningRequests do
       counts: %{},
       coverage: nil,
       href: nil,
-      pruned_at: run.pruned_at,
       # The briefing names Slack people while it is drawn; see `Names.revision/0`.
       names: Names.revision()
     }
