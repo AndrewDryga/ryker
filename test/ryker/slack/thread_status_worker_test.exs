@@ -4,6 +4,7 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
 
   import ExUnit.CaptureLog
   import Ecto.Query
+  import Ryker.TestHelpers, only: [eventually: 2]
 
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
   alias Ryker.Episodes.Episode
@@ -295,6 +296,52 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
              {"C456", "1787832000.000100", "is searching what it knows…"},
              {"C456", "1787832000.000100", "is searching what it knows…"}
            ]
+  end
+
+  # On 2026-09-27 an idle install committed about 125 transactions a second;
+  # the thread-status worker rebuilt its projection every second. It now
+  # sleeps until a message, a request or a status is announced, so a running
+  # turn's next step has to wake it for the thread to say what it is doing.
+  test "a step a running turn takes while the worker is idle reaches its thread at once" do
+    {:ok, client} = Agent.start_link(fn -> %{writes: []} end)
+
+    options =
+      options(client, nil, %{
+        idle_interval_ms: 300_000,
+        interval_ms: 300_000,
+        snapshot: &ThreadStatusProjection.snapshot/1
+      })
+
+    worker = start_supervised!({ThreadStatusWorker, options})
+    # Its first poll found nothing, and its next timer is five minutes away.
+    _state = :sys.get_state(worker)
+
+    narrate!(running_turn!(), 1, "tool.started", state_tool("search", "search_slack"))
+
+    assert eventually(
+             fn ->
+               Agent.get(client, & &1.writes) == [
+                 {"C456", "1787832000.000100", "is searching Slack…"}
+               ]
+             end,
+             500
+           )
+  end
+
+  # Slack lets a thread status lapse after two minutes, so a shown one is
+  # written again every ninety seconds, and only the clock says when: a
+  # worker sleeping its safety-net interval would refresh it late.
+  test "a shown status whose refresh falls due is written then, not at the safety-net interval" do
+    {:ok, client} = Agent.start_link(fn -> %{writes: []} end)
+    {:ok, projection} = Agent.start_link(fn -> [target(:working, "is working...")] end)
+    options = options(client, projection, %{idle_interval_ms: 300_000, interval_ms: 300_000})
+
+    assert {:ok, %{failed: 0, written: 1}} = ThreadStatusWorker.run_once(options)
+    settle_delivery!(-89)
+    start_supervised!({ThreadStatusWorker, options})
+
+    refute eventually(fn -> length(Agent.get(client, & &1.writes)) == 2 end, 500)
+    assert eventually(fn -> length(Agent.get(client, & &1.writes)) == 2 end, 1_500)
   end
 
   test "the supervised worker advances its independent reconciliation loop" do

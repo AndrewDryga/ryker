@@ -3,14 +3,23 @@ defmodule Ryker.Slack.ThreadStatusWorker do
 
   @moduledoc """
   Reconciles durable lifecycle state into generation-fenced Slack status writes.
+
+  A message, a request or a status that changes is announced, and that wakes
+  the worker at once. Otherwise it sleeps until a paced or retried write, or
+  a shown status's refresh, falls due, or for its safety-net interval, which
+  also catches a status that changes with the clock alone, such as a step
+  that has gone quiet.
   """
 
   use Ryker.PollingWorker, lane: :slack_status, interval: :interval_ms
 
   require Logger
 
+  alias Ryker.Episodes
+  alias Ryker.Ingress.Inbox
   alias Ryker.Observability.Progress
   alias Ryker.Options
+  alias Ryker.PollingWorker
   alias Ryker.Slack.ThreadStatuses
 
   @default_interval_ms 1_000
@@ -27,20 +36,38 @@ defmodule Ryker.Slack.ThreadStatusWorker do
     GenServer.start_link(__MODULE__, options, name: options.name)
   end
 
-  @impl Ryker.PollingWorker
+  @impl PollingWorker
+  def wake_on(_options),
+    do: [
+      &Inbox.subscribe_inputs/0,
+      &Episodes.subscribe_episodes/0,
+      &ThreadStatuses.subscribe_thread_statuses/0
+    ]
+
+  @impl PollingWorker
   def poll(options) do
-    outcome =
+    {outcome, delay} =
       case run_once(options) do
+        {:ok, %{failed: 0, written: 0} = outcome} ->
+          {outcome, idle_delay(options)}
+
         {:ok, outcome} ->
-          outcome
+          {outcome, 0}
 
         {:error, reason} ->
           Logger.warning("Slack thread-status worker failed: #{inspect(reason)}")
-          %{failed: 1, written: 0}
+          {%{failed: 1, written: 0}, options.interval_ms}
       end
 
     _ = Progress.beat(:slack_status, if(outcome.failed == 0, do: :cycle, else: :error))
-    options.interval_ms
+    delay
+  end
+
+  defp idle_delay(options) do
+    PollingWorker.idle_delay(
+      &ThreadStatuses.next_due_at(options.workspace_ref, &1, options.refresh_interval_ms),
+      Map.get(options, :idle_interval_ms, PollingWorker.idle_interval_ms())
+    )
   end
 
   @spec run_once(map() | keyword()) ::
@@ -154,6 +181,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
     required = [:api, :client, :snapshot, :worker_ref, :workspace_ref]
 
     optional = [
+      :idle_interval_ms,
       :interval_ms,
       :lease_seconds,
       :max_attempts,
@@ -197,6 +225,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
       valid_ref?(Map.get(options, :worker_ref)),
       valid_ref?(Map.get(options, :workspace_ref)),
       Map.get(options, :interval_ms) in 50..3_600_000,
+      Map.get(options, :idle_interval_ms, 50) in 50..3_600_000,
       Map.get(options, :lease_seconds) in 5..3_600,
       Map.get(options, :max_attempts) in 1..100,
       Map.get(options, :maximum_writes) in 1..100,
