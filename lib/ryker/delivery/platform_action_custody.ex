@@ -66,14 +66,18 @@ defmodule Ryker.Delivery.PlatformActionCustody do
          :ok <- update_kind(attributes),
          {:ok, _request} <- request_attributes(attributes),
          :ok <- live_binding_shape(binding) do
-      # A refusal writes nothing, so it returns rather than rolls back: Chat
-      # calls this inside its own transaction, which a rollback would end.
-      case Repo.transaction(fn -> enqueue_update_locked(binding, attributes) end) do
-        {:ok, {:refused, reason}} -> {:error, reason}
-        result -> result
-      end
+      refused_as_error(Repo.transaction(fn -> enqueue_update_locked(binding, attributes) end))
     end
   end
+
+  # A refusal writes nothing, so it returns rather than rolls back: Chat calls
+  # this inside its own transaction, which a rollback would end.
+  defp refused_as_error({:ok, {:refused, reason}}), do: {:error, reason}
+  defp refused_as_error(result), do: result
+
+  @doc "How many updates one Work turn may post before its answer."
+  @spec maximum_updates() :: pos_integer()
+  def maximum_updates, do: @maximum_updates
 
   defp update_kind(%{tool: :post_slack_update, kind: :message}), do: :ok
   defp update_kind(_attributes), do: {:error, {:invalid_platform_action, :kind}}
@@ -361,29 +365,32 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp enqueue_update_locked(binding, attributes) do
     {episode, turn} = lock_binding(binding)
 
-    with :ok <- live_binding(episode, turn, binding, Repo.now!()) do
-      updates =
-        Repo.all(
-          from(action in PlatformAction,
-            where: action.turn_id == ^turn.id and action.tool == :post_slack_update,
-            order_by: [asc: action.host_slot]
-          )
-        )
-
-      case Enum.find(updates, &(&1.document == attributes.document)) do
-        %PlatformAction{} = same ->
-          %{action: same, status: :duplicate}
-
-        nil when length(updates) >= @maximum_updates ->
-          {:refused, :update_limit_reached}
-
-        nil ->
-          attributes = %{attributes | host_slot: "update:#{length(updates) + 1}"}
-          {:ok, request} = request_attributes(attributes)
-          enqueue_for_ids(episode.id, turn.id, attributes, request)
-      end
-    else
+    case live_binding(episode, turn, binding, Repo.now!()) do
+      :ok -> next_update(episode, turn, attributes)
       {:error, reason} -> {:refused, reason}
+    end
+  end
+
+  defp next_update(episode, turn, attributes) do
+    updates =
+      Repo.all(
+        from(action in PlatformAction,
+          where: action.turn_id == ^turn.id and action.tool == :post_slack_update,
+          order_by: [asc: action.host_slot]
+        )
+      )
+
+    case Enum.find(updates, &(&1.document == attributes.document)) do
+      %PlatformAction{} = same ->
+        %{action: same, status: :duplicate}
+
+      nil when length(updates) >= @maximum_updates ->
+        {:refused, :update_limit_reached}
+
+      nil ->
+        attributes = %{attributes | host_slot: "update:#{length(updates) + 1}"}
+        {:ok, request} = request_attributes(attributes)
+        enqueue_for_ids(episode.id, turn.id, attributes, request)
     end
   end
 
@@ -455,30 +462,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp claim_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    case Repo.one(
-           from(action in PlatformAction,
-             as: :action,
-             where:
-               action.status == :pending and
-                 (is_nil(action.next_attempt_at) or action.next_attempt_at <= ^now) and
-                 (is_nil(action.lease_expires_at) or action.lease_expires_at <= ^now),
-             where:
-               action.tool != :post_slack_update or
-                 not exists(
-                   from(earlier in PlatformAction,
-                     where:
-                       earlier.turn_id == parent_as(:action).turn_id and
-                         earlier.tool == :post_slack_update and
-                         earlier.host_slot < parent_as(:action).host_slot and
-                         earlier.status != :delivered,
-                     select: 1
-                   )
-                 ),
-             order_by: [asc: action.inserted_at, asc: action.id],
-             limit: 1,
-             lock: "FOR UPDATE SKIP LOCKED"
-           )
-         ) do
+    case Repo.one(claimable(now)) do
       nil ->
         nil
 
@@ -502,6 +486,34 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
         %{action: action, lease_ref: lease_ref}
     end
+  end
+
+  # The oldest action a worker may send now. An update waits until every
+  # earlier update of its turn is delivered, so they arrive in the order the
+  # model posted them.
+  defp claimable(now) do
+    from(action in PlatformAction,
+      as: :action,
+      where:
+        action.status == :pending and
+          (is_nil(action.next_attempt_at) or action.next_attempt_at <= ^now) and
+          (is_nil(action.lease_expires_at) or action.lease_expires_at <= ^now),
+      where: action.tool != :post_slack_update or not exists(earlier_update_undelivered()),
+      order_by: [asc: action.inserted_at, asc: action.id],
+      limit: 1,
+      lock: "FOR UPDATE SKIP LOCKED"
+    )
+  end
+
+  defp earlier_update_undelivered do
+    from(earlier in PlatformAction,
+      where:
+        earlier.turn_id == parent_as(:action).turn_id and
+          earlier.tool == :post_slack_update and
+          earlier.host_slot < parent_as(:action).host_slot and
+          earlier.status != :delivered,
+      select: 1
+    )
   end
 
   defp mutate_claim(action_ref, lease_ref, callback) do

@@ -34,31 +34,33 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
          {:ok, responses} <- decided_responses(entry.decision_document) do
       responses
       |> Enum.with_index(1)
-      |> Enum.reduce_while({:ok, []}, fn {{kind, document}, position}, {:ok, inserted} ->
-        entry
-        |> RoutingResponseChangeset.insert(
-          Ecto.UUID.generate(),
-          position,
-          kind,
-          document,
-          CanonicalJSON.digest(document)
-        )
-        |> Repo.insert()
-        |> persistence_result(:routing_response)
-        |> case do
-          {:ok, response} -> {:cont, {:ok, [response | inserted]}}
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end)
-      |> case do
+      |> Enum.reduce_while({:ok, []}, &insert_response(entry, &1, &2))
+      |> then(fn
         {:ok, inserted} -> {:ok, Enum.reverse(inserted)}
         {:error, _reason} = error -> error
-      end
+      end)
     end
   end
 
   def enqueue_in_transaction(%Entry{status: :decided}), do: {:ok, []}
   def enqueue_in_transaction(_entry), do: {:error, {:invalid_routing_response, :entry}}
+
+  defp insert_response(entry, {{kind, document}, position}, {:ok, inserted}) do
+    entry
+    |> RoutingResponseChangeset.insert(
+      Ecto.UUID.generate(),
+      position,
+      kind,
+      document,
+      CanonicalJSON.digest(document)
+    )
+    |> Repo.insert()
+    |> persistence_result(:routing_response)
+    |> case do
+      {:ok, response} -> {:cont, {:ok, [response | inserted]}}
+      {:error, _reason} = error -> {:halt, error}
+    end
+  end
 
   # The words first, as written, then the emoji on the person's message: a
   # reaction that cannot be added never holds back the answer.

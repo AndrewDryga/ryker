@@ -4,8 +4,11 @@ defmodule Ryker.ObservabilityTest do
   import Ecto.Query
   import Plug.Test
 
+  alias Ryker.Admission
+  alias Ryker.Admission.Decision
   alias Ryker.ControlPlane.Router
   alias Ryker.CoopFleet.{Client, ControlPlane, Worker}
+  alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.ControlPlaneOptions
@@ -373,6 +376,53 @@ defmodule Ryker.ObservabilityTest do
     refute metrics =~ secret
     refute metrics =~ entry.id
     refute metrics =~ transition.episode.destination_conversation_ref
+  end
+
+  # Routing may send a few messages for one person's message, each after the
+  # one before it is delivered (2026-09-27). The second waiting its turn is
+  # not work a worker could take: counted as claimable it would age into a
+  # stalled queue and fail readiness, paging someone about a thread where
+  # nothing is wrong.
+  @tag isolation: "REPEATABLE READ"
+  test "a routing message waiting for the one before it is not claimable work" do
+    assert {:ok, input} = slack_input("hi")
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+    assert {:ok, context} =
+             Admission.context(Inbox.ref(entry),
+               now: @now,
+               continuation_window: 1_800,
+               history_window: 2_592_000,
+               candidate_limit: 8,
+               lease_ref: nil
+             )
+
+    assert {:ok, decision} =
+             Decision.parse(%{
+               "action" => "quick_reply",
+               "episode_ref" => nil,
+               "messages" => ["Hi!", "What can I help with?"],
+               "reactions" => nil,
+               "relation" => "unrelated",
+               "repository" => nil,
+               "repository_source" => nil,
+               "reason" => "A greeting needs a greeting back.",
+               "work_class" => nil
+             })
+
+    assert {:ok, _result} = Admission.commit(context, decision, "decision:observability")
+
+    routing = fn ->
+      assert {:ok, snapshot} = Observability.snapshot(86_400)
+      Enum.find(snapshot.queues, &(&1.name == :routing_delivery))
+    end
+
+    assert %{claimable: 1, active_leases: 0} = routing.()
+
+    assert {:ok, %{response: %{position: 1}}} =
+             RoutingResponseCustody.claim_next("observability-routing", 60)
+
+    assert %{claimable: 0, active_leases: 1} = routing.()
   end
 
   test "readiness fails for custody whose active lease has outlived the stall bound" do
