@@ -705,6 +705,28 @@ defmodule Ryker.Ingress.InboxTest do
              )
   end
 
+  # A voice message, or an app's attachment-only notification, has no text of
+  # its own. The next message in its conversation named it as the message it
+  # waits behind with an empty summary, which the queue ledger refuses, and
+  # the insert raised inside the Slack gateway: the gateway restarted and Slack
+  # delivered the event again, until the earlier message was routed. Found on
+  # 2026-09-27 while voice messages started waiting for their words.
+  test "a message behind an earlier one with no text of its own is still recorded" do
+    {:ok, %{entry: silent}} =
+      Inbox.record(input!(event_ref: "Ev-no-text", content: %{"text" => "", "files" => []}))
+
+    assert {:ok, %{entry: next, status: :recorded}} =
+             Inbox.record(input!(event_ref: "Ev-after-no-text", message_ref: "1787832001.000100"))
+
+    assert %{rows: [["waiting_predecessor", predecessor, nil]]} =
+             Repo.query!(
+               "SELECT kind, predecessor_input_id, detail FROM input_custody_transitions WHERE input_id = $1 AND kind = 'waiting_predecessor'",
+               [Ecto.UUID.dump!(next.id)]
+             )
+
+    assert Ecto.UUID.cast!(predecessor) == silent.id
+  end
+
   test "an expired claim becomes eligible without spending or losing the input" do
     assert {:ok, %{entry: entry}} = Inbox.record(input!(event_ref: "Ev-expired"))
     assert {:ok, %{lease_ref: first_lease}} = Inbox.claim_next("executor:old", @occurred_at, 1)
