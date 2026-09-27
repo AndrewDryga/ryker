@@ -78,7 +78,7 @@ defmodule Ryker.ControlPlane.ImprovementPage do
     ~H"""
     <div class="memory-view memory-improvement">
       <Kit.counts label="What to fix" items={counts(@view)} />
-      <Kit.facts id="improvement-week" facts={[{"Last 7 days", week(@view.week)}]} />
+      <Kit.facts id="improvement-week" facts={[{"Last 7 days", week_words(@view.week)}]} />
       <Kit.toolbar>
         <Kit.segmented label="Decision" options={views(@view)} />
       </Kit.toolbar>
@@ -293,13 +293,17 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   defp reason("stopped"), do: "the request was stopped"
   defp reason(other), do: other
 
-  # What the last seven days brought, in words: what was found and what Ryker
-  # made of it, then what people decided. A quiet week says so rather than
-  # leaving the line out, which would read as a good week.
-  defp week(%{found: 0, accepted: 0, dismissed: 0}),
+  @doc """
+  What a week brought (`Ryker.Improvement.week/2`), in words: what was found
+  and what Ryker made of it, then what people decided. A quiet week says so
+  rather than leaving the line out, which would read as a good week. The
+  page's Last 7 days line and the weekly report's What to fix read it.
+  """
+  @spec week_words(map()) :: String.t()
+  def week_words(%{found: 0, accepted: 0, dismissed: 0}),
     do: "Nothing new, and nothing accepted or dismissed."
 
-  defp week(week), do: found(week) <> " " <> decided(week)
+  def week_words(week), do: found(week) <> " " <> decided(week)
 
   defp found(%{found: 0}), do: "Nothing new."
 

@@ -200,6 +200,60 @@ defmodule Ryker.Improvement do
   def for_request({:input, id}) when is_binary(id), do: Repo.get_by(Candidate, input_id: id)
   def for_request(_request), do: nil
 
+  @doc """
+  What `from` up to `to` brought, among the candidates nobody forgot: how many
+  were `found` (created then), by what Ryker made of them (`categories`, in
+  the order the page lists them, only those with any; `waiting` still to
+  analyze; `not_analyzed` the rest), and how many were `accepted` or
+  `dismissed` then. What to fix says it for the last seven days, and the
+  weekly report for its week, from this one read so they cannot disagree.
+  """
+  @spec week(DateTime.t(), DateTime.t()) :: map()
+  def week(%DateTime{} = from, %DateTime{} = to) do
+    visible = from(candidate in Candidate, where: is_nil(candidate.forgotten_at))
+
+    found =
+      from(candidate in visible,
+        where: candidate.inserted_at >= ^from and candidate.inserted_at < ^to
+      )
+
+    decided =
+      from(candidate in visible,
+        where: candidate.decided_at >= ^from and candidate.decided_at < ^to
+      )
+
+    waiting =
+      from(candidate in found,
+        where: candidate.analysis in [:pending, :running] and candidate.status != :dismissed
+      )
+
+    categories =
+      from(candidate in found,
+        where: not is_nil(candidate.category),
+        group_by: candidate.category,
+        select: {candidate.category, count()}
+      )
+      |> Repo.all()
+      |> Map.new()
+
+    counts = %{
+      found: Repo.aggregate(found, :count),
+      waiting: Repo.aggregate(waiting, :count),
+      accepted: Repo.aggregate(from(c in decided, where: c.status == :accepted), :count),
+      dismissed: Repo.aggregate(from(c in decided, where: c.status == :dismissed), :count)
+    }
+
+    Map.merge(counts, %{
+      categories:
+        for(
+          category <- Candidate.categories(),
+          Map.has_key?(categories, category),
+          do: {category, Map.fetch!(categories, category)}
+        ),
+      not_analyzed: counts.found - (categories |> Map.values() |> Enum.sum()) - counts.waiting
+    })
+  end
+
   # -- Decisions -------------------------------------------------------------------
 
   @doc """
