@@ -33,6 +33,7 @@ defmodule Ryker.Slack.IncidentRooms do
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
   alias Ryker.Records.TaskOffers
+  alias Ryker.UTCDateTime
   alias Ryker.Work.{Custody, Session, Turn}
 
   @request_fields [
@@ -260,6 +261,73 @@ defmodule Ryker.Slack.IncidentRooms do
     )
   end
 
+  @doc """
+  The earliest moment after `since` at which a room has work by the clock
+  alone: a request or lifecycle change retried after a backoff, a health
+  check due `health_check_seconds` after the last, a pinned card due its
+  check `root_card_check_seconds` after the last, or an unrenewed lease
+  running out. Nil when no room waits on the clock.
+  """
+  @spec next_due_at(DateTime.t(), pos_integer(), pos_integer()) :: DateTime.t() | nil
+  def next_due_at(%DateTime{} = since, health_check_seconds, root_card_check_seconds) do
+    phases =
+      from(room in IncidentRoom,
+        where: room.status in [:requested, :ready],
+        select: %{
+          lifecycle:
+            type(
+              fragment(
+                "CASE WHEN (? = 'requested' AND ? IN ('pending', 'active')) OR (? = 'ready' AND ? <> ?) THEN GREATEST(?, ?) END",
+                room.status,
+                room.channel_state,
+                room.status,
+                room.channel_state,
+                room.reconciled_channel_state,
+                room.next_attempt_at,
+                room.lease_expires_at
+              ),
+              :utc_datetime_usec
+            ),
+          health:
+            type(
+              fragment(
+                "CASE WHEN ? = 'ready' AND ? <> 'deleted' AND ? = ? THEN GREATEST(?, ?) END",
+                room.status,
+                room.channel_state,
+                room.channel_state,
+                room.reconciled_channel_state,
+                datetime_add(room.channel_checked_at, ^health_check_seconds, "second"),
+                room.lease_expires_at
+              ),
+              :utc_datetime_usec
+            ),
+          root_card:
+            type(
+              fragment(
+                "CASE WHEN ? = 'ready' AND ? = 'active' AND ? = 'active' AND ? IS NOT NULL THEN GREATEST(?, ?) END",
+                room.status,
+                room.channel_state,
+                room.reconciled_channel_state,
+                room.root_message_ref,
+                datetime_add(room.root_card_checked_at, ^root_card_check_seconds, "second"),
+                room.lease_expires_at
+              ),
+              :utc_datetime_usec
+            )
+        }
+      )
+
+    from(room in subquery(phases),
+      select: [
+        filter(min(room.lifecycle), room.lifecycle > ^since),
+        filter(min(room.health), room.health > ^since),
+        filter(min(room.root_card), room.root_card > ^since)
+      ]
+    )
+    |> Repo.one()
+    |> UTCDateTime.earliest()
+  end
+
   @spec claim_next(String.t(), pos_integer()) ::
           {:ok, IncidentRoom.t() | nil} | {:error, term()}
   def claim_next(worker_ref, lease_seconds) do
@@ -374,7 +442,8 @@ defmodule Ryker.Slack.IncidentRooms do
             root_card_fingerprint: fingerprint,
             root_card_ui_revision: ui_revision
           },
-          now
+          now,
+          if(unchanged_root_card?(room, fingerprint, ui_revision), do: :quiet, else: :announce)
         )
       end)
     end
@@ -1103,7 +1172,8 @@ defmodule Ryker.Slack.IncidentRooms do
             lease_ref: Ecto.UUID.generate(),
             next_attempt_at: nil
           },
-          now
+          now,
+          :quiet
         )
     end
   end
@@ -1135,6 +1205,9 @@ defmodule Ryker.Slack.IncidentRooms do
 
   defp lease_room(nil, _worker_ref, _lease_seconds, _now), do: nil
 
+  # A claim only takes the lease, which no page shows. A ready room is claimed
+  # for its card every few seconds; announcing each claim woke every worker
+  # that listens to requests as often.
   defp lease_room(%IncidentRoom{} = room, worker_ref, lease_seconds, now) do
     update!(
       room,
@@ -1145,10 +1218,13 @@ defmodule Ryker.Slack.IncidentRooms do
         lease_ref: Ecto.UUID.generate(),
         next_attempt_at: nil
       },
-      now
+      now,
+      :quiet
     )
   end
 
+  # A health check that found the channel as it was, with nothing to clear,
+  # changed nothing anyone sees.
   defp release_health_check(room, now) do
     update!(
       room,
@@ -1161,9 +1237,15 @@ defmodule Ryker.Slack.IncidentRooms do
         lease_ref: nil,
         next_attempt_at: nil
       },
-      now
+      now,
+      if(is_nil(room.last_error_code), do: :quiet, else: :announce)
     )
   end
+
+  defp unchanged_root_card?(room, fingerprint, ui_revision),
+    do:
+      room.root_card_fingerprint == fingerprint and room.root_card_ui_revision == ui_revision and
+        is_nil(room.last_error_code)
 
   defp insert_observation_event!(room, state, event_ref, occurred_at) do
     kind = observation_kind(state)
@@ -1374,19 +1456,16 @@ defmodule Ryker.Slack.IncidentRooms do
 
   # A renewal only moves the lease's expiry, which no page shows.
   defp update!(room, %{lease_expires_at: _expiry} = attributes, now)
-       when map_size(attributes) == 1 do
-    case room
-         |> IncidentRoomChangeset.update(Map.put(attributes, :updated_at, now))
-         |> Repo.update() do
-      {:ok, room} -> room
-      {:error, changeset} -> Repo.rollback({:incident_room_persistence_failed, changeset.errors})
-    end
-  end
+       when map_size(attributes) == 1,
+       do: update!(room, attributes, now, :quiet)
 
-  defp update!(room, attributes, now) do
+  defp update!(room, attributes, now), do: update!(room, attributes, now, :announce)
+
+  defp update!(room, attributes, now, announce) do
     attributes = Map.put(attributes, :updated_at, now)
 
     case room |> IncidentRoomChangeset.update(attributes) |> Repo.update() do
+      {:ok, room} when announce == :quiet -> room
       {:ok, room} -> tap(room, &broadcast_room_updated/1)
       {:error, changeset} -> Repo.rollback({:incident_room_persistence_failed, changeset.errors})
     end

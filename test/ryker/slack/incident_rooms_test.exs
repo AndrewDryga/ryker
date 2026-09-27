@@ -2,6 +2,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   use Ryker.DataCase, async: false
 
   import Ecto.Query
+  import Ryker.TestHelpers, only: [eventually: 2]
 
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, InstructionSettings}
   alias Ryker.Delivery.{Adapters, Dispatcher, JSONClient}
@@ -666,6 +667,75 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert {:ok, claim} = Custody.claim_next("work:unarchived-room", 60, :work)
     assert claim.episode.id == room.episode_id
     assert claim.turn.turn_ref == resumed_episode.owner_ref
+  end
+
+  # On 2026-09-27 an idle install committed about 125 transactions a second;
+  # the incident-room worker ran five queries every second with no room to
+  # tend. It now sleeps until a room or its request is announced, so a room
+  # someone asks for has to wake it.
+  test "a room requested while the worker is idle is set up at once, not at the next timer" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+
+    worker = start_supervised!({IncidentRoomWorker, sleeping_worker_options(agent)})
+    # Its first poll found nothing, and its next timer is five minutes away.
+    _state = :sys.get_state(worker)
+
+    assert {:ok, %{status: :requested}} = IncidentRooms.request(request(fixture))
+    assert eventually(fn -> Agent.get(agent, & &1.conversations) != [] end, 500)
+  end
+
+  # A room whose setup failed is retried after a backoff, and only the clock
+  # says when: a worker sleeping its whole safety-net interval would leave the
+  # incident without its room for ten seconds more.
+  test "a room whose retry falls due is set up then, not at the safety-net interval" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    assert {:ok, %{status: :requested}} = IncidentRooms.request(request(fixture))
+
+    Agent.update(agent, &Map.put(&1, :invite_error, :invite_offline))
+    assert {:ok, {:deferred, _room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    Agent.update(agent, &Map.delete(&1, :invite_error))
+
+    start_supervised!({IncidentRoomWorker, sleeping_worker_options(agent)})
+
+    refute eventually(fn -> Agent.get(agent, & &1.invites) != [] end, 500)
+    assert eventually(fn -> Agent.get(agent, & &1.invites) != [] end, 1_500)
+  end
+
+  # A ready room's pinned card is checked every few seconds for as long as
+  # the room is open, and each check announced its claim and its result on
+  # the incident's topics even when the card had not changed. Once a dozen
+  # workers woke on those topics, every such check woke all of them.
+  test "a check that finds a room's card unchanged is not announced" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    assert {:ok, %{room: requested}} = IncidentRooms.request(request(fixture))
+    assert {:ok, {:ready, _room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    room = Repo.get!(IncidentRoom, requested.id)
+    card_check_due!(room)
+    assert {:ok, {:ready, _room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    card_check_due!(room)
+    :ok = IncidentRooms.subscribe_rooms()
+    :ok = Episodes.subscribe_episode(room.episode_id)
+    assert {:ok, {:ready, _room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    refute_received {:incident_room_updated, _room_id}
+    refute_received {:episode_updated, _episode_id}
+  end
+
+  defp card_check_due!(room) do
+    Repo.update_all(from(stored in IncidentRoom, where: stored.id == ^room.id),
+      set: [
+        channel_checked_at: Repo.now!(),
+        root_card_checked_at: DateTime.add(Repo.now!(), -3_600, :second)
+      ]
+    )
   end
 
   # A room whose channel was deleted before setup finished was blocked for
@@ -1899,6 +1969,12 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     attributes
     |> ChannelConfigurationChangeset.configuration()
     |> Repo.insert!()
+  end
+
+  defp sleeping_worker_options(agent) do
+    agent
+    |> worker_options()
+    |> Map.merge(%{idle_interval_ms: 300_000, interval_ms: 300_000, name: nil})
   end
 
   defp worker_options(agent) do
