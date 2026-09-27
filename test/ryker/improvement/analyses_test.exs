@@ -238,6 +238,35 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert candidate.analysis == :pending
   end
 
+  # The worker can close a session before the turn meant for it is sent; a
+  # prompt is never sent to a session that cannot take it, and the next start
+  # gets a session of its own.
+  test "a session closed before its turn was sent is given up, and the next start makes another" do
+    request = unhappy_request!("1790100800.000100")
+    coop = coop!([Jason.encode!(@diagnosis)])
+
+    assert {:ok, _yielded} = Dispatcher.run_once(settings(coop))
+    Agent.update(coop, fn state -> put_in(state, [:session, "state"], "closed") end)
+    drain(settings(coop))
+
+    candidate = Improvement.for_request(request)
+    assert candidate.analysis == :done
+    assert candidate.start_count == 2
+
+    [closed, fresh] =
+      Repo.all(
+        from(run in AnalysisRun,
+          where: run.candidate_id == ^candidate.id,
+          order_by: run.generation
+        )
+      )
+
+    assert closed.error_code == "improvement_session_unaddressable"
+    assert closed.stop_receipt["kind"] == "never_submitted"
+    assert fresh.status == :applied
+    assert length(FakeCoopAPI.state(coop).submissions) == 1
+  end
+
   # "A person forgetting wins": a message deleted while its analysis is out
   # at Coop erases the prompt, and the run stops without ever sending it.
   test "an analysis whose prompt a person forgot while it was out stops without sending it" do
