@@ -131,7 +131,7 @@ defmodule Ryker.Runtime.Assembly do
     admission_ready = admission_ready(settings, admission)
     local_routing = local_routing(settings)
     learning = learning(settings, policies, work)
-    improvement = improvement(settings, learning)
+    improvement = improvement(settings, policies, work)
     schedules = schedules(settings, repositories, policies)
     gateway = worker_gateway(bootstrap)
     {github, github_left_out} = github(bootstrap, settings, repositories, environments)
@@ -597,19 +597,25 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   # Diagnosing what went wrong with a request people were unhappy with is
-  # learning from feedback: it uses learning's policy and models, and stops
-  # when learning is turned off (`Ryker.Improvement`).
-  defp improvement(_settings, nil), do: nil
-
-  defp improvement(settings, learning) do
-    Defaults.fetch!(:improvement)
-    |> Map.merge(%{
-      api: learning.api,
-      client: learning.client,
-      policy: learning.policy,
-      policy_digest: learning.policy_digest,
-      worker_ref: "#{settings.installation.host_ref}:improvement"
-    })
+  # learning from feedback: it uses learning's policy and models, and starts
+  # nothing while learning is off (`Ryker.Improvement`). It still runs then,
+  # to finish the analyses already out at Coop, so none is left holding a
+  # session and people's words past their horizon.
+  defp improvement(settings, policies, work) do
+    with %{} = policy <- installation_policy(policies, :learning),
+         %{api: _api} <- work do
+      Defaults.fetch!(:improvement)
+      |> Map.merge(%{
+        api: work.api,
+        client: work.client,
+        enabled: settings.learning.enabled,
+        policy: policy.name,
+        policy_digest: policy.digest,
+        worker_ref: "#{settings.installation.host_ref}:improvement"
+      })
+    else
+      _unavailable -> nil
+    end
   end
 
   defp schedules(settings, repositories, policies) do

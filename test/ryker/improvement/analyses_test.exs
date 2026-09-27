@@ -309,6 +309,28 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert length(FakeCoopAPI.state(coop).submissions) == 1
   end
 
+  # Self-analysis runs on learning's switch. Turned off, its lane used to
+  # stop outright, so an analysis already out at Coop never got stop proof:
+  # its session stayed open and the words in its prompt outlived their
+  # horizon until learning came back on (found in review, 2026-09-27).
+  test "with learning off, an analysis already out at Coop finishes and no other starts" do
+    out = unhappy_request!("1790101100.000100")
+    coop = coop!([Jason.encode!(@diagnosis)])
+    assert {:ok, _yielded} = Dispatcher.run_once(settings(coop))
+    waiting = unhappy_request!("1790101200.000100")
+
+    off = %{settings(coop) | enabled: false}
+    drain(off)
+
+    assert Improvement.for_request(out).analysis == :done
+    assert Improvement.for_request(waiting).analysis == :pending
+    assert length(FakeCoopAPI.state(coop).create_keys) == 1
+    assert Dispatcher.run_once(off) == {:ok, :idle}
+
+    # Nothing but the clock of what is out wakes it while learning is off.
+    assert Analyses.next_due_at(DateTime.add(DateTime.utc_now(), -3_600, :second), off) == nil
+  end
+
   # A deploy restarts the worker whenever it likes. One that landed after an
   # accepted answer's stop proof was saved and before its diagnosis left the
   # run looking finished with nothing kept: the next start paid for a second
@@ -428,6 +450,7 @@ defmodule Ryker.Improvement.AnalysesTest do
       policy: "ryker-learning",
       policy_digest: String.duplicate("a", 64),
       worker_ref: "improvement-test",
+      enabled: true,
       concurrency: 1,
       quiet_seconds: 0,
       poll_interval_ms: 100,

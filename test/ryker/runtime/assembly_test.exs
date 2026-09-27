@@ -332,9 +332,13 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), disconnect_webhooks(settings))
 
-    for absent <- [:slack, :github, :emisar, :learning, :improvement, :webhooks] do
+    for absent <- [:slack, :github, :emisar, :learning, :webhooks] do
       assert configuration[absent] == nil, "#{absent} started from a credential, not a setting"
     end
+
+    # Self-analysis stays only to finish what is already out at Coop, so no
+    # session of it is left open with people's words; it starts nothing new.
+    assert configuration[:improvement].enabled == false
 
     # The model is told what is connected from what actually runs.
     assert configuration[:work].connected == %{github: false, slack: false}
