@@ -56,6 +56,10 @@ defmodule Ryker.StateTools.Tools do
 
   def call(_name, _arguments, _options), do: {:error, "unknown_tool"}
 
+  @doc "The Emisar account of the session's environment, when it has one."
+  @spec emisar_pin(keyword() | map()) :: {:ok, map()} | {:error, :not_configured}
+  def emisar_pin(options), do: emisar_authority(options)
+
   defp result(record) do
     %{
       "continuation" => record.continuation,

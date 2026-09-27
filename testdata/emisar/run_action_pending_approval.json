@@ -1,0 +1,55 @@
+{
+  "action_id": "linux.disk_usage",
+  "ok": true,
+  "operation_id": "op_01J0D85Q1BKR5W6N7E2T4Y8P3C",
+  "pack_ref": "linux-core@0.5.0/sha256:f4f5f29abc2aa8ccef433224da60d01159ba1434d6749172ef3795583d794bcf",
+  "runs": [
+    {
+      "action_id": "linux.disk_usage",
+      "approval": {
+        "expires_at": "2026-09-12T08:07:23.236118Z",
+        "request_id": "01a08f81-cb81-7273-801b-ce6ad6321a77",
+        "url": "https://emisar.dev/app/example/approvals/01a08f81-cb81-7273-801b-ce6ad6321a77"
+      },
+      "created_at": "2026-09-11T08:07:23.232041Z",
+      "next": {
+        "arguments": {
+          "cursor": "<opaque>",
+          "run_id": "019f61cf-59b4-71d9-a78c-4ece74d1e164",
+          "timeout": "45s"
+        },
+        "tool": "wait_for_run"
+      },
+      "operation_id": "op_01J0D85Q1BKR5W6N7E2T4Y8P3C",
+      "pack_ref": "linux-core@0.5.0/sha256:f4f5f29abc2aa8ccef433224da60d01159ba1434d6749172ef3795583d794bcf",
+      "review": {
+        "approved_count": 1,
+        "argument_count": 1,
+        "command": {
+          "kind": "preview",
+          "text": "df -P -h /srv",
+          "truncated": false
+        },
+        "decisions": [
+          {
+            "actor": "Jane Doe",
+            "decided_at": "2026-09-11T08:07:23.379141Z",
+            "decision": "approve",
+            "reason": "Read-only query; no configuration changes."
+          }
+        ],
+        "evidence": "The alert at 20:50 UTC named /srv on this host.",
+        "expected": "A usage line for /srv, so the investigation can close.",
+        "reason": "Check whether /srv filled before the reload storm.",
+        "request_id": "01a08f81-cb81-7273-801b-ce6ad6321a77",
+        "required_approvals": 2,
+        "status": "pending"
+      },
+      "run_id": "019f61cf-59b4-71d9-a78c-4ece74d1e164",
+      "run_url": "https://emisar.dev/app/example/runs/019f61cf-59b4-71d9-a78c-4ece74d1e164",
+      "runner_ref": "nomad-hvn01~f5e3a96782c44bd31186fcaa14ba6efb",
+      "status": "pending_approval",
+      "wait_until": "2026-09-12T08:07:23.236118Z"
+    }
+  ]
+}

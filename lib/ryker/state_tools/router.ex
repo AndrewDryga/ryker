@@ -14,6 +14,7 @@ defmodule Ryker.StateTools.Router do
   require Logger
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Emisar.Tools, as: EmisarTools
   alias Ryker.HTTPConnection
   alias Ryker.StateTools.{CallLog, LookupContext, Tools, ToolVisibility}
 
@@ -97,7 +98,7 @@ defmodule Ryker.StateTools.Router do
            "method" => "initialize",
            "params" => %{} = params
          },
-         _options
+         options
        ) do
     version =
       case params["protocolVersion"] do
@@ -105,11 +106,20 @@ defmodule Ryker.StateTools.Router do
         _missing -> @protocol_version
       end
 
-    rpc_result(conn, id, %{
+    result = %{
       "capabilities" => %{"tools" => %{"listChanged" => false}},
       "protocolVersion" => version,
       "serverInfo" => %{"name" => "controller-tools", "version" => "1"}
-    })
+    }
+
+    # Emisar's own guidance for its tools, as Emisar gives it to any client.
+    case emisar_catalog(options) do
+      {:ok, _pin, %{instructions: text}} when is_binary(text) ->
+        rpc_result(conn, id, Map.put(result, "instructions", text))
+
+      _none ->
+        rpc_result(conn, id, result)
+    end
   end
 
   defp respond_rpc(
@@ -124,7 +134,8 @@ defmodule Ryker.StateTools.Router do
        ),
        do:
          rpc_result(conn, id, %{
-           "tools" => Tools.list(options) ++ visible_additional_tools(options)
+           "tools" =>
+             Tools.list(options) ++ visible_additional_tools(options) ++ emisar_tools(options)
          })
 
   defp respond_rpc(
@@ -139,9 +150,10 @@ defmodule Ryker.StateTools.Router do
        ) do
     called_at = DateTime.utc_now()
     answer = answer_tool(name, arguments, options)
-    CallLog.record(options.binding, name, arguments, answer, called_at)
+    CallLog.record(options.binding, name, arguments, logged(answer), called_at)
 
     case answer do
+      {:emisar, result} -> rpc_result(conn, id, result)
       {:ok, result} -> rpc_result(conn, id, tool_result(result, false))
       {:error, error} -> rpc_result(conn, id, tool_result(%{"error" => error}, true))
     end
@@ -230,9 +242,112 @@ defmodule Ryker.StateTools.Router do
         end
 
       true ->
-        {:error, "unknown_tool"}
+        call_emisar(name, arguments, options)
     end
   end
+
+  # Emisar's answer goes back as Emisar gave it; its refusal is a failed call
+  # on the timeline like any other.
+  defp logged({:emisar, %{"isError" => true} = result}),
+    do: {:error, result["structuredContent"] || "emisar_error"}
+
+  defp logged({:emisar, result}), do: {:ok, result}
+  defp logged(answer), do: answer
+
+  # Emisar's tools for a session whose environment has Emisar: exactly those
+  # Emisar lists for the environment's key, after Ryker's own, never one that
+  # shares a name with Ryker's, and in an observe-only session only those
+  # Emisar marks read-only.
+  defp emisar_tools(options) do
+    case emisar_catalog(options) do
+      {:ok, _pin, catalog} -> visible_emisar_tools(catalog, options)
+      _none -> []
+    end
+  end
+
+  defp visible_emisar_tools(catalog, options) do
+    taken =
+      MapSet.new(Tools.list(options) ++ visible_additional_tools(options), & &1["name"])
+
+    observe_only? = match?(%{episode: %{execution_mode: :shadow}}, options.binding)
+
+    Enum.filter(catalog.tools, fn tool ->
+      not MapSet.member?(taken, tool["name"]) and
+        (not observe_only? or EmisarTools.read_only?(tool))
+    end)
+  end
+
+  defp emisar_catalog(options) do
+    with {:ok, pin} <- Tools.emisar_pin(options),
+         {:ok, catalog} <- EmisarTools.catalog(pin),
+         do: {:ok, pin, catalog}
+  end
+
+  defp call_emisar(name, arguments, options) do
+    with {:ok, pin} <- emisar_pin(options),
+         {:ok, catalog} <- EmisarTools.catalog(pin),
+         %{} = tool <- Enum.find(visible_emisar_tools(catalog, options), &(&1["name"] == name)) do
+      pin |> EmisarTools.call(tool, arguments) |> emisar_answer()
+    else
+      :no_emisar -> {:error, "unknown_tool"}
+      nil -> {:error, "unknown_tool"}
+      {:error, _reason} = error -> emisar_answer(error)
+    end
+  end
+
+  defp emisar_pin(options) do
+    case Tools.emisar_pin(options) do
+      {:ok, pin} -> {:ok, pin}
+      {:error, _no_emisar} -> :no_emisar
+    end
+  end
+
+  defp emisar_answer({:ok, result}), do: {:emisar, result}
+
+  defp emisar_answer({:error, :key_refused}),
+    do:
+      {:error,
+       "emisar_key_refused: Emisar refused the key of this conversation's environment. " <>
+         "Nothing ran. A person can replace the key on Ryker's Integrations page."}
+
+  defp emisar_answer({:error, :unavailable}),
+    do:
+      {:error,
+       "emisar_unavailable: Ryker could not reach Emisar, so nothing ran and nothing was " <>
+         "read. Say so rather than guessing what Emisar would have answered."}
+
+  defp emisar_answer({:error, :not_configured}),
+    do:
+      {:error,
+       "emisar_not_configured: this conversation's environment has no usable Emisar " <>
+         "account, so nothing ran."}
+
+  defp emisar_answer({:error, {:rejected, message}}),
+    do: {:error, "emisar_rejected: Emisar rejected the call before running it: " <> message}
+
+  defp emisar_answer({:error, :answer_withheld}),
+    do:
+      {:error,
+       "emisar_answer_withheld: Emisar's answer carried the environment's key, so Ryker " <>
+         "withheld it. Tell a person; do not repeat the call."}
+
+  # Emisar: "If transport fails after a mutation may have reached Emisar,
+  # recover through its operation ID; never repeat the mutation merely because
+  # the response was lost."
+  defp emisar_answer({:error, {:no_answer, operation_id}}),
+    do:
+      {:error,
+       %{
+         "code" => "emisar_no_answer",
+         "message" =>
+           "Emisar may have received this request, but its answer was lost, so it may " <>
+             "have run. Do not repeat it: look the operation up with get_operation.",
+         "next" => %{
+           "arguments" => %{"operation_id" => operation_id},
+           "tool" => "get_operation"
+         },
+         "operation_id" => operation_id
+       }}
 
   defp call_additional(callback, name, arguments, binding) when is_function(callback, 3),
     do: callback.(name, arguments, binding)

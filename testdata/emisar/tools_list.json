@@ -1,0 +1,406 @@
+{
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Search runnable actions across every in-scope runner by operational task. Pass the task as `query`; one search covers the whole fleet, so do not repeat it per runner. Returns only actions you can run right now, ranked, without argument schemas \u2014 call get_action once for the chosen action_id and pack_ref; it lists up to 15 compatible runners and, when more exist, returns a list_runners continuation for the rest. The exact filters only narrow a known target; `query` is the normal path.",
+      "inputSchema": {
+        "$defs": {
+          "action_id": {
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$",
+            "type": "string",
+            "x-maxUtf8Bytes": 128
+          },
+          "cursor": {
+            "description": "Opaque continuation token. Copy it verbatim from the `next` continuation (or `next_cursor`) an identical prior call returned; never invent one or reuse one across a different query.",
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "pack_id": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_-]*$",
+            "type": "string"
+          },
+          "pack_ref": {
+            "maxLength": 255,
+            "pattern": "^[a-z][a-z0-9_-]*@[0-9]+(?:\\.[0-9]+)*(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?/sha256:[0-9a-f]{64}$",
+            "type": "string",
+            "x-maxUtf8Bytes": 255
+          },
+          "runner_ref": {
+            "maxLength": 113,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}~[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "runner_refs": {
+            "items": {
+              "$ref": "#/$defs/runner_ref"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "query",
+                "action_id"
+              ]
+            }
+          },
+          {
+            "not": {
+              "required": [
+                "pack_id",
+                "pack_ref"
+              ]
+            }
+          },
+          {
+            "not": {
+              "required": [
+                "target",
+                "runner_refs"
+              ]
+            }
+          }
+        ],
+        "properties": {
+          "action_id": {
+            "$ref": "#/$defs/action_id"
+          },
+          "cursor": {
+            "$ref": "#/$defs/cursor"
+          },
+          "limit": {
+            "default": 15,
+            "description": "Maximum candidates to return, 1 through 15 (default 15). Omit unless you deliberately want fewer.",
+            "maximum": 15,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pack_id": {
+            "$ref": "#/$defs/pack_id"
+          },
+          "pack_ref": {
+            "$ref": "#/$defs/pack_ref"
+          },
+          "query": {
+            "description": "The operational task to search for, as free text. This is the normal input; omit the exact filters unless narrowing a known target.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "runner_refs": {
+            "$ref": "#/$defs/runner_refs"
+          },
+          "target": {
+            "description": "Case-insensitive text matched against runner name, hostname, group, and label keys and values; keeps actions executable on at least one matching runner. A target that matches no runner returns no candidates, which does not mean the action is missing. Mutually exclusive with runner_refs.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "find_actions",
+      "title": "Find actions"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Get a trusted action's argument schema, optional stdout JSON output_schema, risk and side effects in an immutable pack_ref. compatible_runners may be empty and, without runner_refs, holds at most 15; more_compatible_runners then comes with a list_runners continuation for the rest. Explicit runner_refs must all be eligible. Call before run_action or authoring a runbook step.",
+      "inputSchema": {
+        "$defs": {
+          "action_id": {
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$",
+            "type": "string",
+            "x-maxUtf8Bytes": 128
+          },
+          "get_action_arguments": {
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "target",
+                    "runner_refs"
+                  ]
+                }
+              }
+            ],
+            "properties": {
+              "action_id": {
+                "$ref": "#/$defs/action_id"
+              },
+              "pack_ref": {
+                "$ref": "#/$defs/pack_ref"
+              },
+              "runner_refs": {
+                "$ref": "#/$defs/runner_refs"
+              },
+              "target": {
+                "description": "Case-insensitive text matched against runner name, hostname, group, and label keys and values; narrows compatible_runners to matches. Mutually exclusive with runner_refs.",
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "action_id",
+              "pack_ref"
+            ],
+            "type": "object"
+          },
+          "pack_ref": {
+            "maxLength": 255,
+            "pattern": "^[a-z][a-z0-9_-]*@[0-9]+(?:\\.[0-9]+)*(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?/sha256:[0-9a-f]{64}$",
+            "type": "string",
+            "x-maxUtf8Bytes": 255
+          },
+          "runner_ref": {
+            "maxLength": 113,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}~[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "runner_refs": {
+            "items": {
+              "$ref": "#/$defs/runner_ref"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [
+          {
+            "$ref": "#/$defs/get_action_arguments"
+          }
+        ],
+        "type": "object"
+      },
+      "name": "get_action",
+      "title": "Get action"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Run one exact action on explicit runner_refs through Emisar scope, policy, approval, audit, and signed runner verification. The selected action may be destructive; inspect it with get_action first. Emisar evaluates policy and handles any required human approval.\n\nUse plain, complete sentences for an operator who has not read the conversation. State material impact and uncertainty. Put relevant IDs and hashes after the explanation. Avoid compressed shorthand, approval-history recaps, and lists of unrelated resources.\n\nExample (adapt the facts to the actual run):\nReason: Enable logical decoding on dev-db to prepare it for replication. This change includes the approved database restart.\nEvidence: The reviewed plan changes only cloudsql.logical_decoding to on for dev-db and preserves the existing IAM flag. The database and its backup were healthy when checked at 21:35 UTC.\nExpected: Logical decoding is enabled and dev-db returns to a healthy state after restarting. Verify recovery before changing another source. This step does not start replication or copy data.",
+      "inputSchema": {
+        "$defs": {
+          "action_id": {
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$",
+            "type": "string",
+            "x-maxUtf8Bytes": 128
+          },
+          "evidence": {
+            "description": "Optional: explain observations and why they matter, then add supporting references. Include only checks performed and state uncertainty. Emisar does not verify them.",
+            "maxLength": 4000,
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "expected": {
+            "description": "Optional: describe the observable result and how to check it. For diagnostic reads, state the question the output should answer. Keep later steps distinct. This is an expectation, not a verified result.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "pack_ref": {
+            "maxLength": 255,
+            "pattern": "^[a-z][a-z0-9_-]*@[0-9]+(?:\\.[0-9]+)*(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?/sha256:[0-9a-f]{64}$",
+            "type": "string",
+            "x-maxUtf8Bytes": 255
+          },
+          "reason": {
+            "description": "Explain the action or runbook, its target, purpose, and material impact in plain sentences for approvers and the audit log. At least 12 characters.",
+            "maxLength": 2000,
+            "minLength": 12,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "runner_ref": {
+            "maxLength": 113,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}~[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "runner_refs": {
+            "items": {
+              "$ref": "#/$defs/runner_ref"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "wait_short": {
+            "pattern": "^(0|([1-9]|[1-5][0-9]|60)s|([1-9][0-9]{0,3}|[1-5][0-9]{4}|60000)ms)$",
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "$ref": "#/$defs/action_id"
+          },
+          "args": {
+            "type": "object",
+            "x-maxRawUtf8Bytes": 32768
+          },
+          "evidence": {
+            "$ref": "#/$defs/evidence"
+          },
+          "expected": {
+            "$ref": "#/$defs/expected"
+          },
+          "pack_ref": {
+            "$ref": "#/$defs/pack_ref"
+          },
+          "reason": {
+            "$ref": "#/$defs/reason"
+          },
+          "runner_refs": {
+            "$ref": "#/$defs/runner_refs"
+          },
+          "wait": {
+            "$ref": "#/$defs/wait_short",
+            "default": "45s",
+            "description": "Maximum time to block before returning the current state, as a duration string: \"0\", \"30s\", or \"1500ms\"."
+          }
+        },
+        "required": [
+          "action_id",
+          "pack_ref",
+          "runner_refs",
+          "args",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "name": "run_action",
+      "title": "Run action"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Wait for one run or runbook execution to change state, finish, or reach the timeout. Follow a run's next cursor for raw output, or a terminal execution's outputs_next cursor for extracted values omitted from its bounded result. Observation never cancels or repeats infrastructure work.",
+      "inputSchema": {
+        "$defs": {
+          "run_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "runbook_execution_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "wait_for_run_arguments": {
+            "additionalProperties": false,
+            "oneOf": [
+              {
+                "not": {
+                  "required": [
+                    "runbook_execution_id"
+                  ]
+                },
+                "required": [
+                  "run_id"
+                ]
+              },
+              {
+                "if": {
+                  "required": [
+                    "cursor"
+                  ]
+                },
+                "not": {
+                  "required": [
+                    "run_id"
+                  ]
+                },
+                "required": [
+                  "runbook_execution_id"
+                ],
+                "then": {
+                  "properties": {
+                    "timeout": {
+                      "const": "0"
+                    }
+                  },
+                  "required": [
+                    "timeout"
+                  ]
+                }
+              }
+            ],
+            "properties": {
+              "cursor": {
+                "description": "Opaque output cursor. Do not construct or edit this; pass only the value from a prior response's `next` or `outputs_next`. With run_id it streams raw run output; with runbook_execution_id it pages extracted outputs omitted from a terminal execution result.",
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "run_id": {
+                "$ref": "#/$defs/run_id"
+              },
+              "runbook_execution_id": {
+                "$ref": "#/$defs/runbook_execution_id"
+              },
+              "timeout": {
+                "$ref": "#/$defs/wait_short",
+                "default": "45s",
+                "description": "Maximum time to block before returning the current state, as a duration string: \"0\", \"30s\", or \"1500ms\"."
+              }
+            },
+            "type": "object"
+          },
+          "wait_short": {
+            "pattern": "^(0|([1-9]|[1-5][0-9]|60)s|([1-9][0-9]{0,3}|[1-5][0-9]{4}|60000)ms)$",
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [
+          {
+            "$ref": "#/$defs/wait_for_run_arguments"
+          }
+        ],
+        "type": "object"
+      },
+      "name": "wait_for_run",
+      "title": "Wait for run"
+    }
+  ]
+}

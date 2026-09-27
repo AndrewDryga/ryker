@@ -746,8 +746,13 @@ ordinary language instead of dumping the source ledger into the conversation.
 
 Changes to running systems go only through Emisar, and Emisar decides them. Anyone in a
 conversation Ryker serves can ask for an exact change; Ryker adds no operator check of its own.
-Every work session in an environment with an Emisar account can use Emisar's tools (they come from
-the worker's own MCP configuration) and Ryker's tool for recording the approval it then waits on.
+Every work session in an environment with an Emisar account can use Emisar's tools and Ryker's tool
+for recording the approval it then waits on. Ryker offers exactly the tools Emisar lists for that
+environment's key, with Emisar's own instructions, on the tool server Work already uses, and forwards
+each call with the key; the key never reaches the worker, and Emisar's answer comes back unchanged.
+An observe-only session gets only the tools Emisar marks read-only. A mutation carries an operation
+id Ryker chooses, so when its answer is lost the model is told to look that operation up rather
+than send it again.
 Emisar's policy decides whether an action runs and who must approve it, and Emisar's audit records
 the decision. The model is told not to treat an alert or other event as a request to act, and not
 to run an action again or start a replacement run while it verifies one; those are instructions to
