@@ -32,7 +32,13 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     SubmissionBuilder
   }
 
-  @now ~U[2026-08-28 12:00:00.000000Z]
+  # An hour before this file compiles, which is every test run: in the past, as
+  # a confirmation is, but never a fixed date. Preferences confirmed at a fixed
+  # 2026-08-28 12:00 had expired by 2026-09-27 and left the turn context.
+  @now DateTime.utc_now()
+       |> DateTime.add(-3_600, :second)
+       |> DateTime.truncate(:second)
+       |> Map.put(:microsecond, {0, 6})
 
   for {text, offered?} <- [
         {"Why did the quasar billing subscription renew?", false},
