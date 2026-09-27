@@ -162,16 +162,17 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"What this page shows",
        [
          "One request from start to finish: the message that started it, how Ryker decided what to do, the work it did and the answer it sent. Steps are in the order they happened.",
-         "A message Ryker answered, reacted to or left alone without starting work has its own page like this. It shows the message, what Ryker decided and sent, and the rest of its thread."
+         "A message Ryker answered, reacted to or left alone without starting work has its own page like this. It shows the message, how Ryker decided what to do and what it sent, then the rest of its thread."
        ]},
       {"Read the steps",
        [
          "Each message goes through four stages: Intake, Routing, Work and Answer. Open a card to see its details, such as the exact request Ryker sent to the model and the answer it got back.",
          "Every card has a # link to itself, so you can share the exact step."
        ]},
-      {"Learning and Cleanup",
+      {"After the answer",
        [
-         "After the answer, Learning shows what Ryker learned from these messages in the background, with its prompt, answer and cost. Cleanup shows how the worker's session was closed and its working copy removed or kept."
+         "Learning shows what Ryker learned from these messages in the background, with its prompt, answer and cost. Cleanup shows how the worker's session was closed and its working copy removed or kept.",
+         "Reviews come last: each time someone checked how the request ended, with the note they left. Mark ending reviewed at the top adds one."
        ]},
       {"The summary at the top",
        [

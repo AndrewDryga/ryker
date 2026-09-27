@@ -31,7 +31,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
       )
 
     chapters = chapters(assigns.snapshot, assigns.timeline)
-    assigns = assign(assigns, :timeline_groups, timeline_groups(chapters))
+
+    assigns =
+      assign(
+        assigns,
+        :timeline_groups,
+        timeline_groups(chapters) ++ review_groups(assigns.snapshot.trace.review)
+      )
+
     assigns = assign(assigns, :source_link, source_link(assigns.snapshot))
 
     ~H"""
@@ -235,47 +242,36 @@ defmodule Ryker.ControlPlane.EpisodePage do
         groups={@timeline_groups}
         params={@params}
       />
-      <.disclosure
-        id={"request-identity-#{@snapshot.episode.ref}"}
-        label="Request identity"
-        class="story-identity"
-      >
-        <.fact_list facts={episode_identity(@snapshot)} />
-      </.disclosure>
-      <.disclosure
-        id={"review-history-#{@snapshot.episode.ref}"}
-        label="Review history"
-        class="story-review"
-      >
-        <p :if={@snapshot.trace.review[:at] == nil && @snapshot.trace.review[:note] in [nil, ""]}>
-          Not reviewed
-        </p>
-        <p :if={@snapshot.trace.review[:note] not in [nil, ""]}>
-          {@snapshot.trace.review[:note]
-          |> Ryker.InspectionRedactor.artifact(max_bytes: 2_048)
-          |> Map.fetch!(:text)}
-        </p>
-        <.fact_list facts={review_identity(@snapshot)} />
-      </.disclosure>
     </div>
     """
   end
 
-  defp episode_identity(snapshot) do
+  # Andrew, 2026-09-27: "reviews can be own section like [Cleanup] with own
+  # cards." Every review of how the request ended is a card in a chapter of
+  # its own, after the background chapters. A request nobody has reviewed yet
+  # has no chapter; the end of its timeline says so quietly instead.
+  defp review_groups(%{reviews: [_ | _] = reviews}) do
     [
-      %{label: "Request ID", value: snapshot.episode.ref, identifier: true},
-      %{label: "Conversation", value: Names.destination(snapshot.episode.destination)},
-      %{label: "Destination ID", value: snapshot.episode.destination, identifier: true},
-      %{label: "Created", value: timestamp(snapshot.episode.created_at)}
+      %{
+        band: :review,
+        conversation_turn: nil,
+        description: "Each time someone checked how this request ended, and any note they left.",
+        kind: :review,
+        marker: "R",
+        phases: [
+          %{
+            band: :review,
+            turn: nil,
+            steps:
+              Enum.map(reviews, &%{id: "review-#{&1.id}", kind: :review, at: &1.at, review: &1})
+          }
+        ],
+        title: "Reviews"
+      }
     ]
   end
 
-  defp review_identity(snapshot) do
-    case snapshot.trace.review[:at] do
-      nil -> []
-      at -> [%{label: "Reviewed", value: timestamp(at)}]
-    end
-  end
+  defp review_groups(_review), do: []
 
   @doc """
   The page of a message that has no request of its own: a greeting routing
@@ -543,6 +539,18 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </span>
       </p>
       <.timeline_bands groups={@groups} started_at={@snapshot.trace.received_at} />
+      <Kit.empty
+        :if={@snapshot.trace.review.awaiting}
+        id="review-awaiting"
+        icon={:check}
+        title={
+          if @snapshot.trace.review.reviews == [],
+            do: "Not reviewed yet",
+            else: "How it ended this time is not reviewed yet"
+        }
+        text="Once you have checked how this request ended, mark it reviewed at the top of the page."
+        variant={:hint}
+      />
       <div id="latest-outcome" class="case-outcome">
         <div
           :if={@snapshot.trace.case_file.awaiting_reply && !@snapshot.trace[:startup]}
@@ -975,8 +983,25 @@ defmodule Ryker.ControlPlane.EpisodePage do
         />
         <.event :if={@entry.kind == :event && !card_stage?(@entry.step.stage)} step={@entry.step} />
         <EpisodeRequest.render :if={@entry.kind == :request} request={@entry} />
+        <.review :if={@entry.kind == :review} review={@entry.review} />
       </div>
     </article>
+    """
+  end
+
+  attr(:review, :map, required: true)
+
+  # One review of how the request ended: the note the person left, and
+  # whether it covers the ending the request has now or one before it
+  # continued.
+  defp review(assigns) do
+    ~H"""
+    <div class="case-event-content review-card">
+      <.card_heading title="Ending reviewed">
+        <:meta>{if @review.current, do: "Current ending", else: "An earlier ending"}</:meta>
+      </.card_heading>
+      <p :if={@review.note} class="case-event-summary">{@review.note}</p>
+    </div>
     """
   end
 

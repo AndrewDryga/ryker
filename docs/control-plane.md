@@ -282,6 +282,12 @@ working copy's and the plan's fingerprints, the plan request), the receipt, its
 fingerprint and the removal request, and the tries, next try and error, with the
 error in words on the card and its code and detail in Details.
 
+**Reviews** closes a request's page once someone has marked how it ended as
+reviewed: one card per review (the twenty most recent), each with the note left
+and whether it covers the ending the request has now or one before it went on. A
+request that ended and is waiting for a review says so in one quiet line
+instead; a request still working says nothing about reviews.
+
 The **Incident rooms** page at `/incident-rooms` lists the Slack channels Ryker
 opens to work on an incident: one row per room with its state in words (Setting
 up, Open, Needs attention, Closed), its channel, repository, when it opened and a
