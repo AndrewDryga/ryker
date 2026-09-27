@@ -695,7 +695,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How What to fix works", [
       {"What is here",
        [
-         "Each request someone was unhappy with is listed once, however much feedback it got. They were frustrated or angry, or reacted with a thumbs down or a similar emoji. They asked the same thing again, or changed or deleted their message after the answer. Or you reviewed a request that was stopped.",
+         "Each request someone was unhappy with is listed once, however much feedback it got. They were frustrated or angry, or reacted with a thumbs down or a similar emoji. They asked the same thing again, or changed or deleted their message after the answer. Or you reviewed a request that was stopped. Last 7 days, under the counts, says what the past week brought: the requests found, by what Ryker made of them, and how many were accepted or dismissed.",
          "Ryker reads each one itself, with the learning models, while background learning is on. It waits until the request is done and a few minutes pass without new feedback. It says whose fault it was, where it went wrong, what went wrong and what it should have done, and how sure it is. It never changes anything."
        ]},
       {"What the kinds mean",

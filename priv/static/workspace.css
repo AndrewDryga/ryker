@@ -2256,6 +2256,7 @@
 .ryker-app .kit-status-line a[data-tone=warn] { color:var(--ryker-warning); text-decoration-color:color-mix(in srgb, var(--ryker-warning) 40%, transparent); }
 .ryker-app .kit-facts { display:grid; grid-template-columns:minmax(140px, max-content) minmax(0, 1fr); gap:8px 24px; max-width:720px; margin:0; }
 .ryker-app .section-head + .kit-facts { margin-top:12px; }
+.ryker-app .kit-counts + .kit-facts { margin:0 0 16px; }
 .ryker-app .kit-facts > div { display:contents; }
 .ryker-app .kit-facts dt, .ryker-app .kit-facts dd { margin:0; padding:0; border:0; }
 .ryker-app .kit-facts dt { font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
