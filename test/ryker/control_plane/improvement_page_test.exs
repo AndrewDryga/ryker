@@ -153,6 +153,28 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     assert Enum.any?(entries, &String.ends_with?(to_string(elem(&1, 0)), "/scenario.json"))
   end
 
+  test "a request whose words are gone says so, and offers only Dismiss", %{waiting: waiting} do
+    Repo.update_all(from(c in Candidate, where: c.id == ^waiting.id),
+      set: [analysis: :failed, error_code: "improvement_evidence_unavailable"]
+    )
+
+    document =
+      Pages.page(["memory", "feedback", "fix"], %{}, options())
+      |> Map.fetch!(:body)
+      |> LazyHTML.from_fragment()
+
+    row = row(document, waiting.id)
+    assert text(LazyHTML.query(row, "h3 .state-word")) == "Not analyzed"
+
+    assert row |> LazyHTML.query("h3 .state-word") |> LazyHTML.attribute("title") ==
+             [
+               "The person's messages were deleted or have expired, so there was nothing to analyze."
+             ]
+
+    assert actions(row) == ["Dismiss"]
+    assert confirmation("/actions/improvement/#{waiting.id}/accept").status == 404
+  end
+
   test "the Feedback page says how many are to decide, accepted and dismissed, and what went wrong",
        %{access: access} do
     assert {:ok, _accepted} = Improvement.accept(access.id, "control-plane:local")

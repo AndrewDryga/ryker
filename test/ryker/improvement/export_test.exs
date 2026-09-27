@@ -143,6 +143,48 @@ defmodule Ryker.Improvement.ExportTest do
              {:error, :improvement_candidate_not_found}
   end
 
+  # A case replays the person's words; once they deleted every one of them
+  # there is nothing to replay, and accepting says so rather than keeping an
+  # empty case that the download would silently leave out.
+  test "a request whose words were all deleted cannot become an eval case" do
+    question =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: "CEXPORTOPS",
+        actor: "UEXPORTPERSON",
+        text: "Why is checkout slow?",
+        ts: "1790200950.000100"
+      )
+
+    reply =
+      Answers.work_reply!(
+        question,
+        "Checkout is fine.",
+        "1790200950.000200",
+        DateTime.add(question.occurred_at, 60, :second)
+      )
+
+    Answers.slack_message!(
+      workspace: @workspace,
+      channel: "CEXPORTOPS",
+      actor: "UEXPORTPERSON",
+      text: "",
+      ts: "1790200950.000100",
+      kind: :delete,
+      revision: 2,
+      at: DateTime.add(question.occurred_at, 120, :second)
+    )
+
+    candidate = Improvement.for_request({:episode, reply.episode.id})
+    assert candidate.reasons == ["edited"]
+
+    assert Improvement.accept(candidate.id, "control-plane:local") ==
+             {:error, :improvement_evidence_unavailable}
+
+    assert Repo.get!(Candidate, candidate.id).status == :open
+    assert {:ok, _dismissed} = Improvement.dismiss(candidate.id, "control-plane:local")
+  end
+
   # The harvested correction: a person asks Ryker to check their
   # infrastructure, Ryker asks for access it already has, and the person
   # says so. Their first message's routing example is kept.
