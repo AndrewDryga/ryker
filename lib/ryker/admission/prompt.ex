@@ -65,8 +65,9 @@ defmodule Ryker.Admission.Prompt do
     continue the same work, or start from linked history as allowed by the candidate.
   - quick_reply: when offered, you answer the person yourself, briefly, and no work starts: a
     greeting, thanks, "are you there?", or a question the conversation in front of you already
-    answers. Anything that needs a tool, a lookup or checking something is reply or start_episode.
-  - react: when offered, a nonverbal acknowledgement is sufficient. Supply the exact emoji name.
+    answers. It may say it in a few short messages and add emoji to the person's message.
+    Anything that needs a tool, a lookup or checking something is reply or start_episode.
+  - react: when offered, a nonverbal acknowledgement is sufficient. Supply the exact emoji names.
   - ignore: no Ryker action would help. Give a short factual reason. Never ignore a request directed
     at Ryker.
 
@@ -145,16 +146,22 @@ defmodule Ryker.Admission.Prompt do
 
   @quick_reply """
   When quick_reply is offered, use it only when the person is talking to Ryker, never to answer
-  people talking to each other. message is the whole answer, written to the person in plain words and
-  in the conversation's language. Keep it short. It is sent exactly as written: never say you checked
-  or will do something, and never state a fact about systems, incidents or deployments that the
-  conversation does not show. If you are unsure whether a quick answer is enough, it is not; choose
-  reply or start_episode. message is null on every other action.
+  people talking to each other. messages is the whole answer, written to the person in plain words
+  and in the conversation's language, and each message is sent in order exactly as written. One short
+  message is usually enough; send a second or third only when separate messages read more naturally,
+  such as a greeting and then the answer, and keep every one brief. Never say you checked or will do
+  something, and never state a fact about systems, incidents or deployments that the conversation
+  does not show. If you are unsure whether a quick answer is enough, it is not; choose reply or
+  start_episode. messages is null on every other action.
   """
 
   @reaction """
-  When react is offered, reaction is one emoji name. If the response format lists names, choose one
-  of them; otherwise use any standard emoji short name, such as eyes or white_check_mark.
+  When react is offered, reactions lists the emoji added to the person's message, usually one; add
+  another only when it says something the first does not. If the response format lists names, choose
+  from them; otherwise use any standard emoji short name, such as eyes or white_check_mark. A
+  quick_reply may carry reactions beside its messages, for example when the person asks for a reply
+  and a reaction, or an emoji acknowledges what the words answer; otherwise its reactions is null.
+  Every other action sends null.
   """
 
   @spec build(Context.t()) :: map()

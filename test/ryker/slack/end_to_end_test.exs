@@ -8,7 +8,8 @@ defmodule Ryker.Slack.EndToEndTest do
   import Ecto.Query
 
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
-  alias Ryker.Delivery.{Adapters, Dispatcher}
+  alias Ryker.Delivery.{Adapters, Dispatcher, RoutingResponse}
+  alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
   alias Ryker.Repo
 
@@ -245,6 +246,103 @@ defmodule Ryker.Slack.EndToEndTest do
     refute_receive {:slack_posted, _channel, _thread, _document, _ref, _message_ref}
   end
 
+  # Andrew, 2026-09-26, to Ryker in Slack: "Now both reply and add a
+  # reaction". Routing could answer by itself with one message or one emoji,
+  # never both, so it started a whole work run: 1 min 22 s for a greeting and
+  # a 👍. Routing now sends both itself. Slack keeps a post whose answer was
+  # lost, so the retry must find that message instead of posting it again.
+  test "a message asking for both a reply and a reaction gets both, once each, and starts no work" do
+    assert {:ack, {:recorded, input_ref}} =
+             Gateway.handle_envelope(both_envelope(), gateway_settings())
+
+    {:ok, admission} =
+      FakeCoopAPI.start_link([
+        Jason.encode!(%{
+          "action" => "quick_reply",
+          "episode_ref" => nil,
+          "messages" => ["Hi again!"],
+          "reactions" => ["thumbsup"],
+          "relation" => "unrelated",
+          "repository" => nil,
+          "repository_source" => nil,
+          "reason" => "A greeting that asks for a reply and a reaction needs no work.",
+          "work_class" => nil
+        })
+      ])
+
+    assert {:ok, {:decided, admitted}} =
+             AdmissionDispatcher.run_once(admission_options(admission))
+
+    assert {:ok, entry} = Inbox.fetch(input_ref)
+    assert admitted.result.entry.id == entry.id
+    assert admitted.result.entry.decision_action == :quick_reply
+    assert admitted.result.episode == nil
+
+    {:ok, slack} =
+      FakeSlackAPI.start_link(
+        lose: [:post_message],
+        message_ref: fn _n -> "1787832006.000600" end
+      )
+
+    assert {:ok, adapters} =
+             Adapters.new(%{
+               "slack" => %{
+                 binding: %{
+                   workspaces: %{"TSLACKENDTOEND" => %{api: FakeSlackAPI, client: slack}}
+                 },
+                 message_publisher: Publisher,
+                 reaction_publisher: Publisher
+               }
+             })
+
+    routing = [
+      adapters: adapters,
+      kind: :routing,
+      lease_seconds: 60,
+      retry_base_seconds: 1,
+      retry_max_seconds: 60,
+      worker_ref: "slack-routing-e2e"
+    ]
+
+    # Slack took the post but its answer was lost; the reaction waits its turn.
+    assert {:ok, {:deferred, :routing, reply_ref, {:delivery_uncertain, _lost}}} =
+             Dispatcher.run_once(routing)
+
+    assert {:ok, :idle} = Dispatcher.run_once(routing)
+
+    Repo.update_all(RoutingResponse, set: [next_attempt_at: DateTime.add(@now, -1, :second)])
+
+    assert {:ok, {:delivered, :routing, ^reply_ref}} = Dispatcher.run_once(routing)
+    assert {:ok, {:delivered, :routing, reaction_ref}} = Dispatcher.run_once(routing)
+    assert {:ok, :idle} = Dispatcher.run_once(routing)
+    refute reaction_ref == reply_ref
+
+    state = FakeSlackAPI.state(slack)
+
+    assert [
+             %{
+               channel: "C456",
+               thread: "1787832005.000500",
+               document: %{"message" => "Hi again!"},
+               delivery_ref: ^reply_ref
+             }
+           ] = state.posts
+
+    assert state.reactions == MapSet.new([{"C456", "1787832005.000500", "thumbsup"}])
+
+    assert Enum.map(
+             Repo.all(from(response in RoutingResponse, order_by: response.position)),
+             &{&1.kind, &1.status, &1.external_receipt["message_ref"]}
+           ) == [
+             {:message, :delivered, "1787832006.000600"},
+             {:reaction, :delivered, "1787832005.000500"}
+           ]
+
+    assert Repo.aggregate(Episode, :count) == 0
+    assert Repo.aggregate(Session, :count) == 0
+    assert Repo.aggregate(Turn, :count) == 0
+  end
+
   defp gateway_settings do
     %{
       client: :directory,
@@ -280,6 +378,27 @@ defmodule Ryker.Slack.EndToEndTest do
         },
         "event_id" => "Ev-slack-e2e",
         "event_time" => 1_787_832_001,
+        "team_id" => "TSLACKENDTOEND",
+        "type" => "event_callback"
+      },
+      "type" => "events_api"
+    }
+  end
+
+  defp both_envelope do
+    %{
+      "envelope_id" => "env-slack-e2e-both",
+      "payload" => %{
+        "event" => %{
+          "channel" => "C456",
+          "event_ts" => "1787832005.000500",
+          "text" => "<@UBOT> Now both reply and add a reaction",
+          "ts" => "1787832005.000500",
+          "type" => "app_mention",
+          "user" => "U123"
+        },
+        "event_id" => "Ev-slack-e2e-both",
+        "event_time" => 1_787_832_005,
         "team_id" => "TSLACKENDTOEND",
         "type" => "event_callback"
       },

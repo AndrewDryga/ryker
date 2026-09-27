@@ -52,6 +52,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   @capability_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2eb"
   @edit_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ec"
   @quick_reply_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ed"
+  @several_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ee"
   @now ~U[2026-08-30 18:00:00.000000Z]
   @digest String.duplicate("a", 64)
   @first_question "Is checkout readiness failing?"
@@ -355,7 +356,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert {:ok, %{status: :recorded}} = send_message(@quick_reply_event_id, @now, "hi")
 
     {:ok, admission} =
-      FakeCoopAPI.start_link([decision(:quick_reply, "Hi! What can I help with?")])
+      FakeCoopAPI.start_link([quick_answer("Hi! What can I help with?")])
 
     assert {:ok, {:decided, admitted}} =
              AdmissionDispatcher.run_once(admission_options(admission, @now))
@@ -401,6 +402,57 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert LazyHTML.text(answer) =~ "Answer"
     assert LazyHTML.text(answer) =~ "Hi! What can I help with?"
     assert LazyHTML.text(answer) =~ "Sent"
+  end
+
+  # Andrew, 2026-09-26: "Now both reply and add a reaction" started a whole
+  # work run, because routing could answer with one message or one emoji.
+  # In Chat, routing's messages must appear under the person's message in
+  # the order it wrote them, each once, with its emoji on that message, and
+  # the conversation stops showing Ryker at work only when all have arrived.
+  test "routing's several messages and emoji reach the Chat once each, in the order it wrote them" do
+    assert {:ok, %{status: :recorded}} =
+             send_message(@several_event_id, @now, "Now both reply and add a reaction")
+
+    {:ok, admission} =
+      FakeCoopAPI.start_link([
+        quick_answer(["Hi again!", "Want me to check anything else?"], ["thumbsup"])
+      ])
+
+    assert {:ok, {:decided, admitted}} =
+             AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+    assert admitted.result.entry.decision_action == :quick_reply
+    assert admitted.result.episode == nil
+
+    delivered =
+      Enum.map(1..3, fn step ->
+        assert {:ok, waiting} = Projection.lab_conversation(@conversation_id)
+        assert waiting.live
+
+        assert {:ok, {:delivered, :routing, ref}} =
+                 Ryker.Delivery.Dispatcher.run_once(delivery_options("several-#{step}", :routing))
+
+        ref
+      end)
+
+    assert {:ok, :idle} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options("several-done", :routing))
+
+    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    [first_ref, second_ref, reaction_ref] = delivered
+
+    assert [
+             %{actor: :operator, text: "Now both reply and add a reaction", reactions: reactions},
+             %{actor: :ryker, text: "Hi again!", ref: ^first_ref},
+             %{actor: :ryker, text: "Want me to check anything else?", ref: ^second_ref}
+           ] = conversation.messages
+
+    assert reactions == [
+             %{delivery_ref: reaction_ref, emoji_name: "thumbsup", status: :delivered}
+           ]
+
+    assert conversation.episodes == []
+    refute conversation.live
   end
 
   test "a generated artifact is delivered and retrievable only through its exact Lab turn" do
@@ -1154,12 +1206,12 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     })
   end
 
-  defp decision(:quick_reply, message) do
+  defp quick_answer(messages, reactions \\ nil) do
     Jason.encode!(%{
       "action" => "quick_reply",
       "episode_ref" => nil,
-      "messages" => [message],
-      "reactions" => nil,
+      "messages" => List.wrap(messages),
+      "reactions" => reactions,
       "relation" => "unrelated",
       "repository" => nil,
       "repository_source" => nil,
