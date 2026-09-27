@@ -58,7 +58,7 @@ defmodule Ryker.PollingWorkerTest do
 
     @impl Ryker.PollingWorker
     def poll(state) do
-      send(state.parent, {:polled, self()})
+      send(state.parent, {:polled, self(), System.monotonic_time(:millisecond)})
       state.interval_ms
     end
   end
@@ -160,18 +160,41 @@ defmodule Ryker.PollingWorkerTest do
     worker =
       start_supervised!({WokenWorker, parent: self(), topic: topic, interval_ms: 60_000})
 
-    assert_receive {:polled, ^worker}, 1_000
-    refute_receive {:polled, ^worker}, 100
+    assert_receive {:polled, ^worker, _at}, 1_000
+    refute_receive {:polled, ^worker, _at}, 100
 
     :ok = :sys.suspend(worker)
     for change <- 1..5, do: Ryker.PubSub.broadcast(topic, {:changed, change})
     :ok = :sys.resume(worker)
 
-    assert_receive {:polled, ^worker}, 500
-    refute_receive {:polled, ^worker}, 200
+    assert_receive {:polled, ^worker, _at}, 500
+    refute_receive {:polled, ^worker, _at}, 200
 
     Ryker.PubSub.broadcast(topic, {:changed, 6})
-    assert_receive {:polled, ^worker}, 500
+    assert_receive {:polled, ^worker, _at}, 500
+  end
+
+  # A request's topics hear every activity step of every running turn, and
+  # a dozen workers now listen to them. Answering each step with a poll would
+  # have polled more under load than the old timers ever did.
+  test "a stream of announcements never makes a worker poll more than four times a second" do
+    topic = "polling-worker-test:#{System.unique_integer([:positive])}"
+
+    worker =
+      start_supervised!({WokenWorker, parent: self(), topic: topic, interval_ms: 60_000})
+
+    assert_receive {:polled, ^worker, _at}, 1_000
+    started = System.monotonic_time(:millisecond)
+
+    for change <- 1..60 do
+      Ryker.PubSub.broadcast(topic, {:changed, change})
+      Process.sleep(10)
+    end
+
+    polls = received_polls(worker, [], 400)
+    # The first four at once, then one each 250 ms: seven in about 750 ms.
+    assert length(polls) in 5..8
+    assert polls |> Enum.take(4) |> Enum.all?(&(&1 - started < 150))
   end
 
   # Every worker now handles every message, to hear the announcements it
@@ -282,6 +305,14 @@ defmodule Ryker.PollingWorkerTest do
     assert log =~ "(retention, 1000 ms)"
     refute log =~ "private SQL"
     refute log =~ "connection details"
+  end
+
+  defp received_polls(worker, polls, quiet_ms) do
+    receive do
+      {:polled, ^worker, at} -> received_polls(worker, [at | polls], quiet_ms)
+    after
+      quiet_ms -> Enum.reverse(polls)
+    end
   end
 
   defp failing_state(kind) do
