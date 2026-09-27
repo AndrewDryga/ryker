@@ -866,7 +866,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Choosing",
        [
-         "Usage & cost shows what each kind of work costs, so you can see where a different model would matter. A model that no price covers shows its cost as not priced; Add a price opens Model prices."
+         "Usage & cost shows what each kind of work costs, so you can see where a different model would matter. A model that no price covers shows its cost as not priced; Add a price opens Model prices.",
+         "Local routing model tries a small model you run yourself, such as one in Ollama, on each routing prompt after the provider model has decided. Usage & cost shows how often it would have decided the same. Routing never waits for it and always uses the provider model's decision."
        ]},
       {"Saving",
        [

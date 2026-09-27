@@ -118,6 +118,16 @@ defmodule Ryker.ControlPlane.SettingsSections do
     "repositories" => "acme-api, acme-web",
     "targets" => "checkout, payments"
   }
+  # What the local routing model does in each mode, in the words a person
+  # picks between.
+  @local_routing_modes [
+    {"off", "Off",
+     "Routing uses only the provider model, and nothing is sent to the local model."},
+    {"shadow", "Compare in the background",
+     "After the provider model has decided, the local model is asked the same routing prompt. " <>
+       "Usage & cost shows how often it would have decided the same. Routing still uses only " <>
+       "the provider model's decision."}
+  ]
   @weekdays [
     {"1", "Monday"},
     {"2", "Tuesday"},
@@ -624,6 +634,71 @@ defmodule Ryker.ControlPlane.SettingsSections do
             format: "Fix the account marked above, then save again.",
             list: "List each account once.",
             in_use: {__MODULE__, :accounts_in_use}
+          }
+        }
+      ]
+    },
+    # Andrew, 2026-09-27: "build/fine-tune our own super-efficient self hosted
+    # model later ... So we can do more on free routing steps more accurately
+    # and fallback to large provider models only when needed." Phase 1 only
+    # measures (`Ryker.LocalRouting`): in the background the local model is
+    # asked the routing prompt the provider already answered, and Usage &
+    # cost shows how often it agrees. Routing never waits for it or uses it.
+    # Usage links to this card by its anchor.
+    %{
+      key: :local_routing,
+      domain: :work,
+      kind: :singleton,
+      schema: Work,
+      anchor: "local-routing",
+      title: "Local routing model",
+      description:
+        "A small model you run yourself, tried on routing beside the provider model to see how " <>
+          "often it would decide the same. It never changes what Ryker does.",
+      help:
+        "To try one with Ollama on the Mac that runs Ryker: run ollama serve, then ollama pull " <>
+          "qwen2.5:3b or another small model, then save its endpoint and name here. Routing " <>
+          "prompts are long, so start Ollama with OLLAMA_CONTEXT_LENGTH=16384. Every routing " <>
+          "prompt, with the message and its conversation, is sent to this endpoint.",
+      fields: [
+        %{
+          name: :local_routing_mode,
+          kind: :choice,
+          label: "Mode",
+          options: @local_routing_modes,
+          errors: %{required: "Choose whether to compare the local model in the background."}
+        },
+        %{
+          name: :local_routing_endpoint,
+          kind: :text,
+          label: "Endpoint",
+          placeholder: "http://host.docker.internal:11434/v1",
+          help:
+            "The server's OpenAI-compatible address, ending in /v1. From Ryker's container, " <>
+              "the Mac itself is host.docker.internal.",
+          errors: %{
+            required:
+              "Enter the local model's endpoint, such as http://host.docker.internal:11434/v1.",
+            format:
+              "Write the endpoint as one http:// or https:// address, such as " <>
+                "http://host.docker.internal:11434/v1, without a user name or query.",
+            insecure:
+              "Use https for a server on another network. Plain http is only for this " <>
+                "machine (localhost, host.docker.internal) or a private address such as " <>
+                "192.168.1.20."
+          }
+        },
+        %{
+          name: :local_routing_model,
+          kind: :text,
+          label: "Model",
+          placeholder: "qwen2.5:3b",
+          help: "The model's name as the server lists it, such as qwen2.5:3b.",
+          errors: %{
+            required: "Enter the model's name as the server lists it, such as qwen2.5:3b.",
+            format:
+              "Write the model's name without spaces, as the server lists it, such as " <>
+                "qwen2.5:3b."
           }
         }
       ]
