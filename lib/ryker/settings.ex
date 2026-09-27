@@ -355,10 +355,11 @@ defmodule Ryker.Settings do
   @doc """
   Creates or edits one environment.
 
-  `repositories` is the ordered list of repository refs. Work may change any
-  of them and reads the others; the first is the default choice. Making an
-  environment the default takes the default from whichever environment had
-  it, in the same revision.
+  `repositories` lists its repository refs, the default first, and `access`
+  maps a repository ref to `:read_write`, which a task may change, or
+  `:read_only`, which work only reads; see `Ryker.Settings.Environment`.
+  Making an environment the default takes the default from whichever
+  environment had it, in the same revision.
   """
   def put_environment(attributes, expected_revision, actor_ref) do
     with :ok <- authorize(actor_ref),
@@ -462,36 +463,46 @@ defmodule Ryker.Settings do
             do: Repo.update!(changeset),
             else: changeset |> Ecto.Changeset.force_change(:inserted_at, now) |> Repo.insert!()
 
-        repository_refs = replace_environment_repositories!(current, changeset)
+        rows = replace_environment_repositories!(current, changeset)
 
         {:changed,
          environment
-         |> Map.take(Environment.fields() -- [:repositories])
-         |> Map.put(:repositories, repository_refs)
+         |> Map.take(Environment.fields() -- [:repositories, :access])
+         |> Map.put(:repositories, Enum.map(rows, &elem(&1, 0)))
+         |> Map.put(:access, Map.new(rows))
          |> stringify()}
     end
   end
 
+  # The environment's repositories as saved now, the default first:
+  # [{ref, access}].
   defp replace_environment_repositories!(current, changeset) do
     ref = Ecto.Changeset.get_field(changeset, :ref)
 
-    case Ecto.Changeset.fetch_change(changeset, :repository_refs) do
-      {:ok, refs} ->
+    case Ecto.Changeset.fetch_change(changeset, :repository_rows) do
+      {:ok, rows} ->
         Repo.delete_all(from(row in EnvironmentRepository, where: row.environment_ref == ^ref))
 
         Repo.insert_all(
           EnvironmentRepository,
-          refs
+          rows
           |> Enum.with_index()
-          |> Enum.map(fn {repository_ref, position} ->
-            %{environment_ref: ref, repository_ref: repository_ref, position: position}
+          |> Enum.map(fn {{repository_ref, access}, position} ->
+            %{
+              access: access,
+              environment_ref: ref,
+              position: position,
+              repository_ref: repository_ref
+            }
           end)
         )
 
-        refs
+        rows
 
       :error ->
-        if current, do: Environment.repository_refs(current), else: []
+        if current,
+          do: Enum.map(current.repositories, &{&1.repository_ref, &1.access}),
+          else: []
     end
   end
 

@@ -114,7 +114,8 @@ defmodule Ryker.Retention.Policy do
     %{
       table: "environment_repository_settings",
       class: :kept,
-      why: "each environment's ordered repositories; the first is the one its work changes"
+      why:
+        "each environment's repositories, whether its work may change each, and the default, the one it changes unless it picks another"
     },
     %{
       table: "policy_bindings",

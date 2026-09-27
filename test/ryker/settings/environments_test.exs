@@ -95,6 +95,92 @@ defmodule Ryker.Settings.EnvironmentsTest do
              %{installation: 1, repositories: 3, environments: 2}
   end
 
+  # Andrew, 2026-09-27, of an environment's repositories: "can we here limit
+  # read or read/write access per repo?" Until then work in an environment
+  # could change any of its repositories. Each one now keeps its own access;
+  # one nobody limited stays read and write, as every repository was, and the
+  # default, the repository a task changes unless it picks another, can never
+  # be read only, or work there would have nothing to change.
+  test "each repository of an environment keeps its own access, and the default is never read only",
+       %{snapshot: snapshot} do
+    assert {:ok, saved} =
+             Settings.put_environment(
+               %{
+                 ref: "production",
+                 display_name: "Production",
+                 repositories: ["payments", "ledger", "runbooks"],
+                 access: %{"ledger" => :read_only}
+               },
+               snapshot.installation.revision,
+               @actor
+             )
+
+    [environment] = saved.environments
+
+    assert Enum.map(environment.repositories, &{&1.repository_ref, &1.access}) == [
+             {"payments", :read_write},
+             {"ledger", :read_only},
+             {"runbooks", :read_write}
+           ]
+
+    assert Environment.writable_refs(environment) == ["payments", "runbooks"]
+    assert Environment.read_only_refs(environment) == ["ledger"]
+
+    # A write that does not name a repository's access keeps it, and a
+    # repository new to the environment starts read and write.
+    {:ok, _billing} =
+      Settings.put_repository(%{ref: "billing"}, saved.installation.revision, @actor)
+
+    assert {:ok, grown} =
+             Settings.put_environment(
+               %{ref: "production", repositories: ["payments", "ledger", "runbooks", "billing"]},
+               Settings.fetch!().installation.revision,
+               @actor
+             )
+
+    assert [environment] = grown.environments
+    assert Environment.read_only_refs(environment) == ["ledger"]
+    assert Environment.writable_refs(environment) == ["payments", "runbooks", "billing"]
+
+    # Changing only an access is an edit of its own.
+    assert {:ok, limited} =
+             Settings.put_environment(
+               %{ref: "production", access: %{"runbooks" => "read_only"}},
+               grown.installation.revision,
+               @actor
+             )
+
+    assert limited.installation.revision == grown.installation.revision + 1
+    assert Environment.read_only_refs(hd(limited.environments)) == ["ledger", "runbooks"]
+
+    # The default is refused read only, whether named so or moved first.
+    for attributes <- [
+          %{ref: "production", access: %{"payments" => :read_only}},
+          %{ref: "production", repositories: ["ledger", "payments"]}
+        ] do
+      assert {:error, {:invalid_settings, [access: :default_read_only]}} =
+               Settings.put_environment(attributes, limited.installation.revision, @actor)
+    end
+
+    # An access for a repository the environment does not hold, or a word
+    # that is not an access, is refused rather than dropped.
+    assert {:error, {:invalid_settings, [access: :unknown_repository]}} =
+             Settings.put_environment(
+               %{ref: "production", access: %{"billing-old" => :read_only}},
+               limited.installation.revision,
+               @actor
+             )
+
+    assert {:error, {:invalid_settings, [access: :access]}} =
+             Settings.put_environment(
+               %{ref: "production", access: %{"ledger" => "admin"}},
+               limited.installation.revision,
+               @actor
+             )
+
+    assert Settings.fetch!().installation.revision == limited.installation.revision
+  end
+
   # Manual testing, 2026-09-26: a second environment named "Production" was
   # saved beside the first, and Chat's picker, the channel settings and the
   # list then offered two identical names with nothing to tell them apart.

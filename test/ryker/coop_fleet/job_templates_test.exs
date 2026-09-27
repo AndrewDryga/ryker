@@ -93,12 +93,42 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
     refute environment.authority_digest == template(templates, :standard).authority_digest
 
     [scope] = snapshot.environments
-    single = %{scope | repositories: [%EnvironmentRepository{repository_ref: "app", position: 0}]}
+
+    single = %{
+      scope
+      | repositories: [
+          %EnvironmentRepository{repository_ref: "app", position: 0, access: :read_write}
+        ]
+    }
 
     refute Enum.any?(
              JobTemplates.from_settings(%{snapshot | environments: [single]}),
              &(&1.scope_kind == :environment)
            )
+  end
+
+  # Andrew, 2026-09-27: "can we here limit read or read/write access per
+  # repo?" A repository an environment only reads is never a working copy
+  # there, so no template opens it as one, writable or not: it is only ever
+  # mounted beside the repositories work may change.
+  test "a read-only repository is only mounted beside the repositories work may change" do
+    snapshot = snapshot()
+    [production] = snapshot.environments
+    [app, library] = production.repositories
+    limited = %{production | repositories: [app, %{library | access: :read_only}]}
+
+    environment =
+      %{snapshot | environments: [limited]}
+      |> JobTemplates.from_settings()
+      |> Enum.filter(&(&1.scope_kind == :environment))
+
+    assert Enum.map(environment, & &1.purpose) |> Enum.sort() ==
+             Enum.sort([:conversational, :contributor, :deep, :standard])
+
+    for template <- environment do
+      assert template.repository_ref == "app"
+      assert template.repositories == ["app", "library"]
+    end
   end
 
   defp template(templates, purpose),
@@ -125,8 +155,8 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
         %Environment{
           ref: "production",
           repositories: [
-            %EnvironmentRepository{repository_ref: "app", position: 0},
-            %EnvironmentRepository{repository_ref: "library", position: 1}
+            %EnvironmentRepository{repository_ref: "app", position: 0, access: :read_write},
+            %EnvironmentRepository{repository_ref: "library", position: 1, access: :read_write}
           ]
         }
       ]

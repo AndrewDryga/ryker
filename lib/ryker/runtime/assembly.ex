@@ -240,10 +240,12 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   # Every environment that can run work, by ref. Work in one may change any of
-  # its repositories and mounts the others read-only, so each repository needs
-  # its own policies there; an environment without repositories runs on the
-  # installation's own policy and mounts nothing. One in which any repository
-  # lacks the policies it needs runs nothing and is left out.
+  # its read and write repositories and mounts the others read-only, so each
+  # read and write repository needs its own policies there; a read-only one is
+  # only ever mounted beside it. An environment without repositories runs on
+  # the installation's own policy and mounts nothing. One in which any read
+  # and write repository lacks the policies it needs runs nothing and is left
+  # out.
   defp environments(settings, repositories, policies, outside) do
     github_repositories = Map.new(settings.repositories, &{&1.ref, &1.github_repository})
 
@@ -264,11 +266,13 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  # Every repository of the environment needs its policies before any work
-  # runs there.
+  # Every repository work may change needs its policies before any work runs
+  # in the environment.
   defp shared_entry(environment, refs, repositories, policies, github_repositories) do
     classes =
-      Map.new(refs, &{&1, repository_policies(environment, &1, refs, repositories, policies)})
+      environment
+      |> Environment.writable_refs()
+      |> Map.new(&{&1, repository_policies(environment, &1, refs, repositories, policies)})
 
     if Enum.all?(classes, fn {_ref, found} -> found end),
       do: repository_entry(environment, refs, classes, github_repositories)
@@ -303,13 +307,14 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  # A confirmed task changes the repository it names, under that repository's
-  # contributor policy in the environment, with every other repository of the
-  # environment mounted read-only beside it.
+  # A confirmed task changes the read and write repository it names, under
+  # that repository's contributor policy in the environment, with every other
+  # repository of the environment mounted read-only beside it. A read-only
+  # repository has no policies here, so no work is ever placed in it.
   defp repository_entry(environment, refs, classes, github_repositories) do
     %{
       contributor_policies:
-        Map.new(refs, fn ref ->
+        Map.new(Map.keys(classes), fn ref ->
           {ref,
            Map.merge(Map.fetch!(classes, ref).contributor, %{
              environment_ref: environment.ref,
@@ -324,9 +329,7 @@ defmodule Ryker.Runtime.Assembly do
           environment_ref: environment.ref,
           parallel_goal_limit: environment.parallel_goal_limit,
           policies:
-            Map.new(refs, fn ref ->
-              found = Map.fetch!(classes, ref)
-
+            Map.new(classes, fn {ref, found} ->
               {ref,
                %{
                  conversational: class_policy(found.conversation),
@@ -420,10 +423,13 @@ defmodule Ryker.Runtime.Assembly do
   # GitHub events for a repository run in the environment
   # `Environment.for_repository/2` names among those that can run work, else
   # on the repository alone. An event is about its own repository, so that
-  # repository is the default choice of the work it starts there.
+  # repository is the default choice of the work it starts there, unless the
+  # environment only reads it: the environment's default then stays the one
+  # work changes, and the event's repository is mounted read-only beside it.
   defp github_entry(repository_ref, settings, repositories, environments) do
     case repository_environment(repository_ref, settings, environments) do
-      %{work_profile: %{repositories: refs} = profile} = entry ->
+      %{work_profile: %{repositories: refs, policies: policies} = profile} = entry
+      when is_map_key(policies, repository_ref) ->
         %{
           entry
           | work_profile: %{
@@ -431,6 +437,9 @@ defmodule Ryker.Runtime.Assembly do
               | repositories: [repository_ref | List.delete(refs, repository_ref)]
             }
         }
+
+      %{} = entry ->
+        entry
 
       nil ->
         case Map.fetch(repositories, repository_ref) do
@@ -451,21 +460,27 @@ defmodule Ryker.Runtime.Assembly do
 
   # A task confirmed on GitHub changes the repository it names, in the
   # environment that repository's events run in, else on the repository alone.
+  # An environment that only reads the repository has no task to confirm in
+  # it: nothing there may change it.
   defp task_entries(settings, repositories, environments) do
     held =
       Enum.flat_map(environments, fn {_ref, entry} -> Map.keys(entry.contributor_policies) end)
 
     (Map.keys(repositories) ++ held)
     |> Enum.uniq()
-    |> Map.new(fn ref ->
+    |> Enum.flat_map(fn ref ->
       entry =
         case repository_environment(ref, settings, environments) do
           nil -> repository_alone(ref, Map.fetch!(repositories, ref))
           environment -> environment
         end
 
-      {ref, Map.fetch!(entry.contributor_policies, ref)}
+      case Map.fetch(entry.contributor_policies, ref) do
+        {:ok, policy} -> [{ref, policy}]
+        :error -> []
+      end
     end)
+    |> Map.new()
   end
 
   # A reviewed binding names the policy; a Work profile pins it per work class.

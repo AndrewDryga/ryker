@@ -332,14 +332,19 @@ defmodule Ryker.ControlPlane.Actions do
 
   # Task policies are keyed by environment, then by the repository each
   # places its task in. A task changes the repository it names, so it runs in
-  # the conversation's own environment when that holds it, else in the first
-  # environment (by ref) that does.
+  # the conversation's own environment when that may change it, else in the
+  # first environment (by ref) that may. One the conversation's environment
+  # only reads is not changed from any environment.
   defp task_policy(task_policies, work_profile, repository) do
-    case own_task_policy(task_policies, work_profile, repository) do
-      %{} = own ->
+    case {read_only_here?(work_profile, repository),
+          own_task_policy(task_policies, work_profile, repository)} do
+      {true, _own} ->
+        :error
+
+      {false, %{} = own} ->
         {:ok, own}
 
-      nil ->
+      {false, nil} ->
         task_policies
         |> Enum.sort_by(fn {environment_ref, _policies} -> environment_ref end)
         |> Enum.find_value(:error, fn {_environment_ref, policies} ->
@@ -347,6 +352,11 @@ defmodule Ryker.ControlPlane.Actions do
         end)
     end
   end
+
+  defp read_only_here?(%WorkProfile{} = profile, repository),
+    do: repository in WorkProfile.read_only_refs(profile)
+
+  defp read_only_here?(_outside, _repository), do: false
 
   defp environment_task_policy(policies, repository) do
     case Map.get(policies, repository) do
