@@ -25,9 +25,16 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     defdelegate prepare_create_session(client, key, policy, ref, source), to: Fake
     defdelegate create_session(client, key, policy, ref, source), to: Fake
-    defdelegate get_session(client, id), to: Fake
     defdelegate get_turn(client, session_id, turn_id), to: Fake
     defdelegate cancel_turn(client, session_id, turn_id, key, revision), to: Fake
+
+    # What the fleet says of every session while a test sets `:session_answer`.
+    def get_session(client, id) do
+      case Agent.get(client, &Map.get(&1, :session_answer)) do
+        nil -> Fake.get_session(client, id)
+        answer -> answer
+      end
+    end
 
     def operation_by_key(client, key) do
       Agent.update(client, &Map.update(&1, :lookups, [key], fn keys -> keys ++ [key] end))
@@ -267,6 +274,41 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert length(FakeCoopAPI.state(coop).submissions) == 1
   end
 
+  # The fleet never replaces a session whose worker went away. Before this,
+  # a run whose worker left between the create and the submit asked Coop
+  # again every minute for a day, then started over anyway (found in review,
+  # 2026-09-27). No turn was sent, so there is nothing to wait for.
+  test "a session its worker left before the turn was sent is given up at once, and the next start makes another" do
+    request = unhappy_request!("1790101000.000100")
+    coop = coop!([Jason.encode!(@diagnosis)])
+
+    Agent.update(
+      coop,
+      &Map.put(&1, :session_answer, {:error, {:coop_session_replacement_required, "gone", 1}})
+    )
+
+    Enum.reduce_while(1..5, nil, fn _pass, _ ->
+      assert {:ok, _result} = Dispatcher.run_once(settings(coop))
+      if stopped_run(request), do: {:halt, nil}, else: {:cont, nil}
+    end)
+
+    gone = stopped_run(request)
+    assert gone, "the run still waits for a session no worker holds"
+    assert gone.error_code == "improvement_session_unaddressable"
+
+    assert %{"kind" => "never_submitted", "session" => "unaddressable"} = gone.stop_receipt
+    assert gone.stop_receipt["reason"] == "coop_session_replacement_required"
+    assert Map.get(FakeCoopAPI.state(coop), :submissions, []) == []
+
+    Agent.update(coop, &Map.delete(&1, :session_answer))
+    drain(settings(coop))
+
+    candidate = Improvement.for_request(request)
+    assert candidate.analysis == :done
+    assert candidate.start_count == 2
+    assert length(FakeCoopAPI.state(coop).submissions) == 1
+  end
+
   # A deploy restarts the worker whenever it likes. One that landed after an
   # accepted answer's stop proof was saved and before its diagnosis left the
   # run looking finished with nothing kept: the next start paid for a second
@@ -337,6 +379,18 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert forgotten.analysis == :failed
     assert forgotten.error_code == "improvement_forgotten"
     assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
+  end
+
+  defp stopped_run(request) do
+    candidate = Improvement.for_request(request)
+
+    Repo.one(
+      from(run in AnalysisRun,
+        where: run.candidate_id == ^candidate.id and not is_nil(run.remote_stopped_at),
+        order_by: [asc: run.generation],
+        limit: 1
+      )
+    )
   end
 
   # The first time this test's process writes a run's stop proof, the

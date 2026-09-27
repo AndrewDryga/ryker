@@ -684,6 +684,28 @@ defmodule Ryker.Improvement.Analyses do
   end
 
   @doc """
+  An ended run whose turn was never sent stops on that proof once its
+  session can no longer be addressed: the submit revision is frozen before
+  anything is sent, and none was.
+  """
+  def record_unaddressable_stop(claim, run_id, reason) when is_binary(reason) do
+    run_transaction(claim, run_id, fn run ->
+      unless run.status in [:stale, :rejected] and is_nil(run.submit_revision) and
+               is_nil(run.coop_turn_id),
+             do: Repo.rollback(:improvement_absence_unconfirmed)
+
+      session = FleetSession.for_run(run)
+
+      store_stop(run, %{
+        "kind" => "never_submitted",
+        "reason" => reason,
+        "session" => "unaddressable",
+        "session_id" => session && session.coop_session_id
+      })
+    end)
+  end
+
+  @doc """
   An ended run whose session was never asked for stops on that proof: its
   session is not bound, and Coop has no create for its key (the caller
   asked).

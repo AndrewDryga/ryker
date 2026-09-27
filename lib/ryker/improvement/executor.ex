@@ -87,9 +87,39 @@ defmodule Ryker.Improvement.Executor do
             turn_step(claim, run, session, settings)
         end
 
+      {:error, reason} = error ->
+        if unaddressable?(run, reason),
+          do: give_up_session(claim, run, reason),
+          else: error
+
       other ->
         other
     end
+  end
+
+  # A session this run can no longer use: the worker holding it went away and
+  # the fleet never replaces a session, or it is not this run's. The submit
+  # revision is frozen before anything is sent, so without one no turn exists
+  # to wait for, and giving up costs a start, never a model call.
+  defp unaddressable?(run, reason),
+    do: is_nil(run.submit_revision) and is_nil(run.coop_turn_id) and unaddressable?(reason)
+
+  defp unaddressable?({:coop_session_replacement_required, _session, _generation}), do: true
+
+  defp unaddressable?(reason),
+    do:
+      reason in [:improvement_session_authority_conflict, :improvement_session_identity_conflict]
+
+  defp give_up_session(claim, run, reason) do
+    code =
+      case reason do
+        {code, _session, _generation} -> Atom.to_string(code)
+        code -> Atom.to_string(code)
+      end
+
+    with {:ok, _ended} <- Analyses.end_attempt(claim, run.id, :improvement_session_unaddressable),
+         {:ok, _stopped} <- Analyses.record_unaddressable_stop(claim, run.id, code),
+         do: {:ok, :stopped}
   end
 
   # -- The session -------------------------------------------------------------------
