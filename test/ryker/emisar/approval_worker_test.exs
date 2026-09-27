@@ -1,7 +1,7 @@
 defmodule Ryker.Emisar.ApprovalWorkerTest do
   use Ryker.DataCase, async: false
 
-  alias Ryker.Emisar.{ApprovalWorker, RunState}
+  alias Ryker.Emisar.{Approvals, ApprovalWorker, RunState}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
@@ -85,6 +85,49 @@ defmodule Ryker.Emisar.ApprovalWorkerTest do
 
     invalid_state = %{dispatcher_options: [], poll_interval_ms: 60_000}
     assert {:noreply, ^invalid_state} = ApprovalWorker.handle_info(:poll, invalid_state)
+  end
+
+  # On 2026-09-27 an idle install committed about 125 transactions a second;
+  # each approval slot polled every second with nothing to watch. A slot now
+  # sleeps until a watch or a waiting task is announced, so a task that
+  # starts waiting for an approval has to wake it.
+  test "a task that starts waiting for an approval is watched at once, not at the next timer" do
+    worker = start_supervised!({ApprovalWorker, sleeping_options()})
+    # Its first poll found nothing, and its next timer is a minute away.
+    _state = :sys.get_state(worker)
+
+    waiting_approval!("woken")
+    assert_receive {:worker_wait_for_run, "run-woken"}, 500
+  end
+
+  # A watched run is looked at again every few seconds, and only the clock
+  # says when: a slot sleeping its whole safety-net interval would notice an
+  # approval up to ten seconds late.
+  test "a watch whose next look falls due is looked at then, not at the safety-net interval" do
+    waiting_approval!("due")
+    {:ok, claim} = Approvals.claim_next(@connection_ref, "approval-worker:earlier", 60)
+
+    {:ok, %{status: :monitoring}} =
+      Approvals.observe(
+        @connection_ref,
+        claim.approval.request_id,
+        claim.lease_ref,
+        run_state("due", "pending_approval"),
+        1
+      )
+
+    start_supervised!({ApprovalWorker, sleeping_options()})
+
+    refute_receive {:worker_wait_for_run, "run-due"}, 500
+    assert_receive {:worker_wait_for_run, "run-due"}, 1_500
+  end
+
+  defp sleeping_options do
+    [
+      dispatcher_options: dispatcher_options(),
+      idle_interval_ms: 60_000,
+      poll_interval_ms: 60_000
+    ]
   end
 
   defp dispatcher_options(result \\ {:error, :not_used}, worker_ref \\ "approval-worker:test") do
