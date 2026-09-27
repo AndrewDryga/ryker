@@ -1,52 +1,54 @@
 # RYKER.md
 
-> Repository knowledge generated from `67d5ee3dff091c293b20a209c648915807f0f2e7`. Facts below come from the linked files. Commands are detected, not executed, unless a later note says otherwise.
+Written by Ryker from `e07c3c9` on 2026-09-27. This is only an outline from the file list: Ryker could not finish reading the repository, and replaces it on its next refresh.
 
 ## Purpose
 
-Ryker is a persistent engineering and operations teammate backed by isolated [Coop](https://github.com/AndrewDryga/coop) sessions and governed Emisar access. Its core is platform-neutral: Slack, GitHub comments and pull-request reviews, and authenticated webhooks are adapters over the same ingress, episode, Work, and Delivery contracts. It can answer, investigate, change code, and prepare reviewed work without turning every request into an incident.
+Ryker is a persistent engineering and operations teammate backed by isolated [Coop](https://github.com/AndrewDryga/coop) sessions and governed Emisar access. Its core is platform-neutral: Slack, GitHub comments and pull-request reviews, and authenticated webhooks are adapters over the same ingress, episode, Work, and Delivery contracts. It can answer, investigate, change code, and prepare reviewed work without turning every request into an incident From [README.md](README.md).
 
-## Repository map
+## Components
 
-- [`.agent/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/.agent)
-- [`.claude/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/.claude)
-- [`.codex/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/.codex)
-- [`.gemini/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/.gemini)
-- [`.githooks/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/.githooks)
-- [`.github/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/.github)
-- [`brand/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/brand)
-- [`config/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/config)
-- [`deploy/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/deploy)
-- [`docs/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/docs)
-- [`lib/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/lib)
-- [`priv/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/priv)
-- [`scripts/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/scripts)
-- [`site/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/site)
-- [`test/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/test)
-- [`testdata/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/testdata)
+- [.github/](.github/)
+- [brand/](brand/)
+- [config/](config/)
+- [deploy/](deploy/)
+- [docs/](docs/)
+- [lib/](lib/)
+- [priv/](priv/)
+- [scripts/](scripts/)
+- [site/](site/)
+- [test/](test/)
+- [testdata/](testdata/)
 
-## Languages and dependencies
+## Files that describe it
 
-- Elixir: 1254 source files
-- Shell: 23 source files
-- JavaScript: 2 source files
-- Python: 2 source files
+- [AGENTS.md](AGENTS.md)
+- [CLAUDE.md](CLAUDE.md)
+- [Dockerfile](Dockerfile)
+- [GEMINI.md](GEMINI.md)
+- [Makefile](Makefile)
+- [README.md](README.md)
+- [mix.exs](mix.exs)
+- [.agent/Dockerfile](.agent/Dockerfile)
+- [brand/README.md](brand/README.md)
+- [.agent/tasks/README.md](.agent/tasks/README.md)
+- [brand/ryker/README.md](brand/ryker/README.md)
+- [deploy/compose/coop/Dockerfile](deploy/compose/coop/Dockerfile)
+- [testdata/learning/livebook-intended-zero/README.md](testdata/learning/livebook-intended-zero/README.md)
+- [testdata/scenarios/missing-project-answer-is-remembered/README.md](testdata/scenarios/missing-project-answer-is-remembered/README.md)
+- [testdata/scenarios/missing-project-answer-unblocks-blocked-checks/README.md](testdata/scenarios/missing-project-answer-unblocks-blocked-checks/README.md)
+- [testdata/scenarios/missing-project-candidates-need-one-question/README.md](testdata/scenarios/missing-project-candidates-need-one-question/README.md)
+- [testdata/scenarios/missing-project-denied-access-asks-about-access/README.md](testdata/scenarios/missing-project-denied-access-asks-about-access/README.md)
+- [testdata/scenarios/missing-project-discovery-failure-stays-honest/README.md](testdata/scenarios/missing-project-discovery-failure-stays-honest/README.md)
+- [testdata/scenarios/missing-project-discovery-proves-one-target/README.md](testdata/scenarios/missing-project-discovery-proves-one-target/README.md)
+- [testdata/scenarios/missing-project-empty-discovery-still-asks/README.md](testdata/scenarios/missing-project-empty-discovery-still-asks/README.md)
+- [testdata/scenarios/missing-project-many-candidates-narrow-first/README.md](testdata/scenarios/missing-project-many-candidates-narrow-first/README.md)
+- [testdata/scenarios/missing-project-review-asks-for-context/README.md](testdata/scenarios/missing-project-review-asks-for-context/README.md)
+- [test/ryker/coop_fleet/fixtures/README.md](test/ryker/coop_fleet/fixtures/README.md)
+- [test/ryker/emisar/fixtures/README.md](test/ryker/emisar/fixtures/README.md)
+- [test/ryker/episodes/fixtures/README.md](test/ryker/episodes/fixtures/README.md)
+- [test/ryker/slack/fixtures/README.md](test/ryker/slack/fixtures/README.md)
 
-## Setup, build and test
+## CI
 
-- `mix deps.get` (detected from repository files; not run during setup)
-- `mix test` (detected from repository files; not run during setup)
-- `make test` (detected from repository files; not run during setup)
-
-## CI and release
-
-GitHub Actions workflows are under [`.github/workflows/`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/.github/workflows). Read the exact workflow before changing release or deployment behavior.
-
-## Conventions and operational notes
-
-Read [`AGENTS.md`](https://github.com/AndrewDryga/ryker/blob/67d5ee3dff091c293b20a209c648915807f0f2e7/AGENTS.md) before making changes. These files remain authoritative over this summary.
-
-## Unresolved questions
-
-- Confirm production deployment ownership and verification steps if they are not documented in the linked sources.
-- Confirm any required secrets, external services, or generated files before running the detected commands.
+The GitHub Actions workflows are in [.github/workflows/](.github/workflows/).
