@@ -141,6 +141,20 @@ defmodule Ryker.Settings do
     end
   end
 
+  @doc """
+  Whether the newest revision is a person's save, from the control plane or
+  from Slack, rather than GitHub's webhook or repository setup recording its
+  progress. Only a person's save is announced as being applied: setup writes a
+  revision per step, and announcing each one blinked a notice on every
+  settings page for as long as setup ran.
+  """
+  @spec saved_by_person?(snapshot()) :: boolean()
+  def saved_by_person?(%{installation: %{saved_by: saved_by}}), do: person?(saved_by)
+
+  defp person?(@actor), do: true
+  defp person?("slack:user:" <> _user_ref), do: true
+  defp person?(_system), do: false
+
   @spec application_status(snapshot()) :: :pending | :applied | {:failed, atom()}
   def application_status(%{installation: installation}) do
     cond do
