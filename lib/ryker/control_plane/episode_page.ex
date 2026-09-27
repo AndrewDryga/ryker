@@ -1048,17 +1048,17 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ~H"""
     <div class="case-event-content feedback-card">
       <.card_heading title={FeedbackPage.title(@feedback)}>
+        <:description>
+          <Kit.person person={@feedback.who} /><span :if={@feedback.request.where}> · {@feedback.request.where}</span><span :if={
+            @feedback.message_href
+          }> · <a href={@feedback.message_href}>Their message →</a></span>
+        </:description>
         <:meta>
           <Kit.state tone={elem(@state, 0)} word={elem(@state, 1)} hint={elem(@state, 2)} />
         </:meta>
       </.card_heading>
       <p :if={feedback_reason(@feedback)} class="case-event-summary">
         {feedback_reason(@feedback)}
-      </p>
-      <p class="case-event-summary">
-        <Kit.person person={@feedback.who} />
-        <span :if={@feedback.request.where}> · {@feedback.request.where}</span>
-        <a :if={@feedback.message_href} href={@feedback.message_href}> · Their message →</a>
       </p>
     </div>
     """
