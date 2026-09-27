@@ -1,8 +1,15 @@
 defmodule Ryker.GitHub.OnboardingWorker do
-  @moduledoc "Drains durable repository onboarding states without coupling repositories together."
+  @moduledoc """
+  Drains durable repository onboarding states without coupling repositories together.
+
+  Every settings save is announced, a repository added or a setup step taken
+  among them, and that wakes the worker at once. With no repository to set
+  up it sleeps for its safety-net interval.
+  """
   use Ryker.PollingWorker, lane: :github_onboarding, interval: :interval_ms
 
   alias Ryker.GitHub.Onboarding
+  alias Ryker.PollingWorker
   alias Ryker.Settings
 
   @default_interval 2_000
@@ -11,32 +18,39 @@ defmodule Ryker.GitHub.OnboardingWorker do
 
   def options!(options) when is_map(options) do
     interval = Map.get(options, :interval_ms, @default_interval)
+    idle_interval = Map.get(options, :idle_interval_ms, PollingWorker.idle_interval_ms())
     api = Map.get(options, :api, Ryker.GitHub.Onboarding.Remote)
 
     unless is_integer(interval) and interval in 100..60_000 and
+             is_integer(idle_interval) and idle_interval in 100..3_600_000 and
              is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, :pin, 2) and
              function_exported?(api, :scan, 3) and function_exported?(api, :publish, 4),
            do: raise(ArgumentError, "GitHub onboarding worker configuration is invalid")
 
-    %{api: api, interval_ms: interval}
+    %{api: api, idle_interval_ms: idle_interval, interval_ms: interval}
   end
 
   def options!(options) when is_list(options), do: options |> Map.new() |> options!()
 
-  @impl Ryker.PollingWorker
+  @impl PollingWorker
   def setup(options), do: {:ok, options!(options)}
+
+  @impl PollingWorker
+  def wake_on(_state), do: [&Settings.subscribe/0]
 
   # A database the worker cannot read backs off and says so. Choosing the
   # next repository used to turn every error into "nothing to do", so an
   # outage looked like an idle queue.
-  @impl Ryker.PollingWorker
+  @impl PollingWorker
   def poll(state) do
     case next_repository() do
-      nil -> :ok
-      {:onboard, ref} -> _ = Onboarding.run(ref, api: state.api)
-    end
+      nil ->
+        state.idle_interval_ms
 
-    state.interval_ms
+      {:onboard, ref} ->
+        _ = Onboarding.run(ref, api: state.api)
+        state.interval_ms
+    end
   end
 
   defp next_repository do
