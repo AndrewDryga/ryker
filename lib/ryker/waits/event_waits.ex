@@ -16,6 +16,7 @@ defmodule Ryker.Waits.EventWaits do
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Waits.EventSubscription
   alias Ryker.Waits.EventSubscriptions
 
@@ -31,6 +32,38 @@ defmodule Ryker.Waits.EventWaits do
           resume_at(record_id, episode_id, now)
       end
     end
+  end
+
+  @doc """
+  The earliest moment after `since` at which a wait falls due by the clock
+  alone: a timer or a source wait's polling fallback, or a hard deadline.
+  Nil when no wait is timed. A wait that starts, ends or hears its event is
+  a change to its request, which is announced.
+  """
+  @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(%DateTime{} = since) do
+    subscriptions =
+      Repo.one(
+        from(subscription in EventSubscription,
+          where: subscription.status == :active,
+          select: [
+            filter(min(subscription.poll_after), subscription.poll_after > ^since),
+            filter(min(subscription.deadline_at), subscription.deadline_at > ^since)
+          ]
+        )
+      )
+
+    deadlines =
+      Repo.one(
+        from(episode in Episode,
+          where:
+            episode.state == :waiting_for_event and episode.owner_kind == :event and
+              episode.owner_deadline_at > ^since,
+          select: min(episode.owner_deadline_at)
+        )
+      )
+
+    UTCDateTime.earliest([deadlines | subscriptions])
   end
 
   defp due_wait(now) do
