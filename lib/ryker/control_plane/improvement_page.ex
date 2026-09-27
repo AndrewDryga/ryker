@@ -134,7 +134,7 @@ defmodule Ryker.ControlPlane.ImprovementPage do
       </:details>
       <:actions>
         <.action_button
-          :if={@item.status in [:open, :dismissed]}
+          :if={@item.status in [:open, :dismissed] and acceptable?(@item)}
           path={action_path(@item.id, "accept")}
           label="Accept as eval case"
         />
@@ -147,6 +147,12 @@ defmodule Ryker.ControlPlane.ImprovementPage do
     </Kit.entity_row>
     """
   end
+
+  # A request whose person's words are all gone has no case to keep.
+  defp acceptable?(%{analysis: :failed, error_code: "improvement_evidence_unavailable"}),
+    do: false
+
+  defp acceptable?(_item), do: true
 
   # -- Words -----------------------------------------------------------------------
 

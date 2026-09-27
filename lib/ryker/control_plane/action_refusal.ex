@@ -23,6 +23,10 @@ defmodule Ryker.ControlPlane.ActionRefusal do
       "Scheduled work cannot start because no worker is set up to run it. " <>
         "Settings › Advanced shows how to add one."
 
+  def explain(:improvement_evidence_unavailable),
+    do:
+      "The person's messages were deleted or have expired, so there is nothing to keep as an eval case. You can still dismiss it."
+
   def explain(_reason),
     do: "Ryker did not do this. The page may be out of date: go back, reload it, and try again."
 end

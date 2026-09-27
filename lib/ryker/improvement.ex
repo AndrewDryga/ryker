@@ -205,8 +205,10 @@ defmodule Ryker.Improvement do
   @doc """
   Accepts a candidate as an eval case, by `actor_ref`. The evidence it rests
   on is read now and kept with it, so the case can be exported after the
-  request's own messages expire. A candidate that was dismissed can still be
-  accepted; one already accepted stays as it is.
+  request's own messages expire; with none of the person's words left there
+  is no case (`{:error, :improvement_evidence_unavailable}`). A candidate
+  that was dismissed can still be accepted; one already accepted stays as it
+  is.
   """
   @spec accept(term(), String.t()) :: {:ok, Candidate.t()} | {:error, term()}
   def accept(id, actor_ref), do: decide(id, actor_ref, :accepted)
@@ -238,8 +240,11 @@ defmodule Ryker.Improvement do
     end
   end
 
+  # A case needs the person's words: once every one of them was deleted or
+  # has expired there is nothing to replay, and accepting one says so.
   defp save_decision(candidate, actor_ref, :accepted) do
     evidence = Evidence.case_snapshot(candidate)
+    if is_nil(evidence.snapshot), do: Repo.rollback(:improvement_evidence_unavailable)
 
     candidate
     |> Ecto.Changeset.change(

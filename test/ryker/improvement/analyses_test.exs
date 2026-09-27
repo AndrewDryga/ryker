@@ -112,6 +112,16 @@ defmodule Ryker.Improvement.AnalysesTest do
              )
            )
 
+    # Cleanup claims it under its run, as it claims a learning session under
+    # its learning run (the request's own Work session is not this test's).
+    work_sessions =
+      Repo.all(from(s in Session, where: s.episode_id == ^elem(request, 1), select: s.id))
+
+    assert {:ok, %{owner: %AnalysisRun{id: owner}, session: %Session{id: claimed}}} =
+             RetentionCustody.claim_next("improvement-cleanup", 60, session_ids: work_sessions)
+
+    assert {owner, claimed} == {run.id, session.id}
+
     assert Repo.exists?(
              from(execution in Execution,
                where: execution.kind == "improvement" and execution.source_id == ^run.id
@@ -241,6 +251,15 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     assert [%AnalysisRun{started_at: %DateTime{}, remote_stopped_at: nil} = run] =
              Repo.all(from(run in AnalysisRun, where: run.candidate_id == ^candidate.id))
+
+    # A session whose run may still be busy is never cleaned up under it.
+    session = Repo.get_by!(Session, execution_kind: :improvement, improvement_run_id: run.id)
+
+    refute Repo.exists?(
+             from([session: eligible] in RetentionCustody.eligible_query(DateTime.utc_now()),
+               where: eligible.id == ^session.id
+             )
+           )
 
     Answers.slack_message!(
       workspace: @workspace,

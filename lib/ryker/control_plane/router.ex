@@ -866,7 +866,8 @@ defmodule Ryker.ControlPlane.Router do
        when action in ["accept", "dismiss"] do
     case options.projection.improvement_candidate.(resource_ref) do
       {:ok, %{status: status} = item}
-      when (action == "accept" and status != :accepted) or
+      when (action == "accept" and status != :accepted and
+              item.error_code != "improvement_evidence_unavailable") or
              (action == "dismiss" and status != :dismissed) ->
         {title, explanation} = improvement_confirmation(action, item)
         {:ok, title, explanation, "improvement:#{action}"}
