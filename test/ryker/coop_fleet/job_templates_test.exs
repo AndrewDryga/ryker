@@ -1,7 +1,8 @@
 defmodule Ryker.CoopFleet.JobTemplatesTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.CoopFleet.JobTemplates
+  alias Ryker.Admission.ReadySessions
+  alias Ryker.CoopFleet.{JobSpec, JobTemplates}
   alias Ryker.Settings.{Environment, EnvironmentRepository, GitHubBinding, Repository, Work}
 
   test "repository-free jobs retain tools and semantic repair in an empty read-only workspace" do
@@ -19,6 +20,43 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
       refute execution["project_env"]
       refute execution["project_mcp"]
     end
+  end
+
+  # Coop keeps a prepared routing agent running for the routing job's warm
+  # idle timeout, and a session kept ready is handed out for at most its
+  # maximum age. The agent has to outlast that by the five minutes a message
+  # may take to reach its turn, or the message would start it cold again.
+  # Every other job starts its agent on its first turn and stops it after
+  # each, so none holds one of the worker's runtime slots while it idles.
+  test "only routing keeps a prepared agent running, and past a ready session's age" do
+    for purpose <- [
+          :conversational,
+          :contributor,
+          :deep,
+          :incident,
+          :learning,
+          :schedule,
+          :schedule_governed,
+          :schedule_read_only,
+          :standard
+        ] do
+      assert JobTemplates.execution(%Work{}, purpose, false)["limits"]["warm_idle_timeout_ms"] ==
+               0
+    end
+
+    routing = JobTemplates.execution(%Work{}, :admission, false)
+    warm_ms = routing["limits"]["warm_idle_timeout_ms"]
+    assert warm_ms >= (ReadySessions.maximum_age_seconds() + 5 * 60) * 1_000
+
+    job =
+      Map.merge(routing, %{
+        "version" => 1,
+        "job_ref" => "ryker-admission-ready:#{Ecto.UUID.generate()}",
+        "source" => nil,
+        "companions" => []
+      })
+
+    assert {:ok, _digest} = JobSpec.digest(job)
   end
 
   test "controller templates require no worker or policy rows" do

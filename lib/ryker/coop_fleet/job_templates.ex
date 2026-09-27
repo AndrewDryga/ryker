@@ -27,7 +27,20 @@ defmodule Ryker.CoopFleet.JobTemplates do
     learning: :learning_models
   }
 
+  # How long Coop keeps an agent running between turns. Only routing sessions
+  # are prepared ahead of any message (`Ryker.Admission.ReadyPool`); every other
+  # job starts its agent on its first turn and stops it after each, so none
+  # holds one of the worker's runtime slots while it idles. A session kept
+  # ready is handed out for five minutes less than this
+  # (`Ryker.Admission.ReadySessions`), so the agent a message claims is still
+  # running when its turn arrives. Coop allows at most an hour.
+  @routing_warm_idle_timeout_ms 35 * 60 * 1_000
+
   def model_field(purpose), do: Map.get(@models, purpose)
+
+  @spec warm_idle_timeout_ms(atom()) :: non_neg_integer()
+  def warm_idle_timeout_ms(:admission), do: @routing_warm_idle_timeout_ms
+  def warm_idle_timeout_ms(_purpose), do: 0
 
   def from_settings(snapshot) do
     repositories =
@@ -75,7 +88,7 @@ defmodule Ryker.CoopFleet.JobTemplates do
         "max_queued_turns" => 20,
         "max_queued_bytes" => 1_048_576,
         "turn_timeout_ms" => 3_600_000,
-        "warm_idle_timeout_ms" => 0,
+        "warm_idle_timeout_ms" => warm_idle_timeout_ms(purpose),
         "max_patch_bytes" => 1_048_576
       }
     }

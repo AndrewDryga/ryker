@@ -5,10 +5,19 @@ defmodule Ryker.Admission.ReadyPool do
   "Routing sessions kept ready" (Settings › Advanced) says how many; 0 turns
   it off. Each pass retires the sessions that can no longer serve a message
   (started under another routing policy, past their age, or beyond the
-  setting), settles any a stopped pass left starting, and starts new ones
-  until the setting is met. Cleanup closes what the pass retires. The pool
-  never hands a session out: a message claims one itself through
-  `Ryker.Admission.ReadySessions`, and the next pass replaces it.
+  setting), settles any a stopped pass left starting, starts new ones until
+  the setting is met, and has Coop prepare the oldest one not yet prepared.
+  Cleanup closes what the pass retires. The pool never hands a session out: a
+  message claims one itself through `Ryker.Admission.ReadySessions`, and the
+  next pass replaces it.
+
+  Preparing starts the session's agent, so the message's turn starts on an
+  agent already running instead of waiting for the box and the agent to
+  start. A worker with other work is not asked (the transport answers
+  `:coop_worker_busy`): the session stays ready and is prepared once the
+  worker has nothing else to do. Coop keeps a prepared agent running past the
+  age at which the session is retired. A session Coop refuses is not asked
+  again; it stays ready, and a message takes it only when no prepared one is.
 
   A start that fails holds the next one back, 5 s after the first failure and
   twice as long after each one in a row, up to 5 minutes. The wait is counted
@@ -52,7 +61,11 @@ defmodule Ryker.Admission.ReadyPool do
   @retry_base_seconds 5
   @retry_max_seconds 300
 
-  @type pass :: %{retired: non_neg_integer(), started: non_neg_integer()}
+  @type pass :: %{
+          prepared: non_neg_integer(),
+          retired: non_neg_integer(),
+          started: non_neg_integer()
+        }
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
@@ -90,14 +103,16 @@ defmodule Ryker.Admission.ReadyPool do
 
   @doc """
   One pass: retire what can no longer serve a message, settle what a stopped
-  pass left starting, then start sessions until the setting is met.
+  pass left starting, start sessions until the setting is met, then prepare
+  the oldest one not yet prepared.
   """
   @spec keep(keyword() | map()) :: {:ok, pass()} | {:error, term()}
   def keep(options) do
     with {:ok, settings} <- settings(options) do
       policy = %{name: settings.policy, digest: settings.policy_digest}
       retired = retire_unusable(policy, settings.target) + settle_stranded(settings)
-      {:ok, %{retired: retired, started: start(settings, policy, 0)}}
+      started = start(settings, policy, 0)
+      {:ok, %{prepared: prepare(settings, policy), retired: retired, started: started}}
     end
   end
 
@@ -251,6 +266,53 @@ defmodule Ryker.Admission.ReadyPool do
       {:error, _reason} -> :starting
     end
   end
+
+  # One session a pass, the one a message would take first. A prepare holds
+  # the worker's command queue while Coop starts the agent, so the transport
+  # sends it only to a worker with nothing else to do.
+  defp prepare(settings, policy) do
+    with true <- function_exported?(settings.api, :prepare_session, 3),
+         [session | _later] <- ReadySessions.unprepared(policy) do
+      prepare_session(session, settings)
+    else
+      _nothing_to_prepare -> 0
+    end
+  end
+
+  defp prepare_session(session, settings) do
+    asked_at = Repo.now!()
+    key = prepare_key(session)
+
+    case settings.api.prepare_session(settings.client, session.coop_session_id, key) do
+      {:ok, _remote} ->
+        if match?({:ok, _warm}, ReadySessions.mark_warm(session, asked_at)), do: 1, else: 0
+
+      {:error, reason} ->
+        if later?(reason), do: 0, else: not_prepared(session, reason)
+    end
+  end
+
+  # The worker has other work, the prepare it was sent has not answered yet,
+  # or the session's placement is moving: a later pass asks again, and the
+  # same key never sends a second prepare.
+  defp later?(:coop_worker_busy), do: true
+  defp later?({:coop_worker_command_timeout, _command_id}), do: true
+  defp later?({:coop_session_replacement_pending, _session, _generation, _until}), do: true
+  defp later?(_reason), do: false
+
+  # A message that claimed the session while it was being prepared refuses
+  # the prepare as well; that session is the message's now, not a failure.
+  defp not_prepared(session, reason) do
+    with {:ok, _cold} <- ReadySessions.mark_cold(session) do
+      Logger.warning(
+        "a routing session kept ready was not prepared: #{inspect(reason, limit: 5)}"
+      )
+    end
+
+    0
+  end
+
+  defp prepare_key(%Session{id: id}), do: "ryker:admission-ready:prepare:#{id}"
 
   defp retry_due do
     case ReadySessions.failed_starts() do
