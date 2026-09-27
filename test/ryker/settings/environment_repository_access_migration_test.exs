@@ -8,7 +8,7 @@ defmodule Ryker.Settings.EnvironmentRepositoryAccessMigrationTest do
 
   @version 20_260_927_131_500
   @migration Ryker.Repo.Migrations.AddEnvironmentRepositoryAccess
-  @file_name "20260927131500_add_environment_repository_access.exs"
+  @file_name "20260927151500_add_environment_repository_access.exs"
   # The migrator's own lock holds the one sandboxed connection while its task
   # waits for that same connection, so it is skipped: nothing else migrates here.
   @options [log: false, migration_lock: false]

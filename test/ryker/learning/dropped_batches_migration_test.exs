@@ -15,7 +15,7 @@ defmodule Ryker.Learning.DroppedBatchesMigrationTest do
 
   @version 20_260_927_130_000
   @migration Ryker.Repo.Migrations.AllowDroppedLearningBatches
-  @file_name "20260927130000_allow_dropped_learning_batches.exs"
+  @file_name "20260927150000_allow_dropped_learning_batches.exs"
   # The migrator's own lock holds the one sandboxed connection while its task
   # waits for that same connection, so it is skipped: nothing else migrates here.
   @options [log: false, migration_lock: false]
