@@ -517,7 +517,12 @@ defmodule Ryker.ControlPlane.Kit do
   attr(:id, :string, required: true)
   attr(:title, :string, required: true, doc: "The question: Remove Staging?")
   attr(:text, :string, default: nil, doc: "What doing it changes, and what stays")
-  attr(:label, :string, required: true, doc: "The button that does it: Remove environment")
+
+  attr(:label, :string,
+    default: nil,
+    doc:
+      "The button that does it: Remove environment; nil when nothing can be done, as when a removal is refused"
+  )
 
   attr(:tone, :atom,
     values: [:danger, :primary],
@@ -537,6 +542,10 @@ defmodule Ryker.ControlPlane.Kit do
   attr(:token, :string, default: nil)
   attr(:rest, :global, doc: "The event, and its values, of the button that does it")
 
+  slot(:inner_block,
+    doc: "What else it has to show under the text, such as how much a change would delete"
+  )
+
   @doc """
   The question before anything that removes, deletes or forgets, and before
   every other step that asks first: over the page, centred, with the page
@@ -549,6 +558,8 @@ defmodule Ryker.ControlPlane.Kit do
 
   The button that does it sends the event in `rest`, or, with `action`,
   posts to that address with its `token`, as a confirmed action's page does.
+  Without a `label` nothing can be done: it says why, as when a removal is
+  refused, and its one button, OK, closes it the way Cancel does.
   """
   def confirm_modal(assigns) do
     ~H"""
@@ -575,15 +586,21 @@ defmodule Ryker.ControlPlane.Kit do
         </span>
         <h2 id={@id <> "-title"} class="kit-modal-title">{@title}</h2>
         <p :if={@text} id={@id <> "-text"} class="kit-modal-text">{@text}</p>
+        <div :if={@inner_block != []} class="kit-modal-body">{render_slot(@inner_block)}</div>
         <Components.form_feedback :if={@error} message={@error} tone={:error} class="kit-modal-error" />
         <div id={@id <> "-actions"} class="kit-modal-actions">
           <button type="button" class="ui-button secondary" phx-click={@cancel} phx-target={@target}>
-            Cancel
+            {if @label, do: "Cancel", else: "OK"}
           </button>
-          <button :if={!@action} type="button" class={["ui-button", Atom.to_string(@tone)]} {@rest}>
+          <button
+            :if={@label && !@action}
+            type="button"
+            class={["ui-button", Atom.to_string(@tone)]}
+            {@rest}
+          >
             {@label}
           </button>
-          <form :if={@action} method="post" action={@action} class="kit-modal-form">
+          <form :if={@label && @action} method="post" action={@action} class="kit-modal-form">
             <input type="hidden" name="_token" value={@token} />
             <button type="submit" class={["ui-button", Atom.to_string(@tone)]}>{@label}</button>
           </form>
