@@ -14,6 +14,19 @@ defmodule Ryker.Publication.FollowupDispatcher do
     end
   end
 
+  @doc """
+  The earliest moment after `since` at which the configured follow-up custody
+  has a poll or a notice due by the clock alone, or nil; a custody that cannot
+  say has nothing the worker could sleep until.
+  """
+  @spec next_due_at(keyword(), DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(options, %DateTime{} = since) do
+    custody = Keyword.get(options, :custody, Followups)
+
+    if callback?(custody, :next_due_at, 1),
+      do: custody.next_due_at(since)
+  end
+
   defp poll_once(settings) do
     with {:ok, claim} <- settings.custody.claim_poll(settings.worker_ref, settings.lease_seconds) do
       case claim do
