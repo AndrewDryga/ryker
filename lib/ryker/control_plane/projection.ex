@@ -3,8 +3,10 @@ defmodule Ryker.ControlPlane.Projection do
   The callback map the router and the workbench bind to, and nothing else.
 
   Every page's read model lives in its own module; this is the one place that
-  lists them. Raw ingress bodies, model prompts, credentials, and arbitrary
-  state payloads never cross any of these boundaries.
+  lists them. Raw ingress bodies, credentials, and arbitrary state payloads
+  never cross any of these boundaries. Model prompts cross only redacted: in
+  a request's model calls, and as the routing examples someone chose to keep
+  for training, downloaded from Data retention.
   """
 
   alias Ryker.ControlPlane.{
@@ -32,6 +34,8 @@ defmodule Ryker.ControlPlane.Projection do
     UsageProjection,
     WorkspaceProjection
   }
+
+  alias Ryker.RoutingExamples.Export
 
   @spec callbacks() :: map()
   def callbacks do
@@ -64,6 +68,7 @@ defmodule Ryker.ControlPlane.Projection do
       overview: &OverviewProjection.overview/0,
       readiness: &ProductReadiness.current/0,
       repositories: &RepositoryProjection.list/1,
+      routing_examples: &Export.reduce/2,
       schedule: &ScheduleProjection.fetch/1,
       schedules: &ScheduleProjection.list/1,
       settings: &SettingsView.fetch/0,

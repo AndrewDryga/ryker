@@ -1615,7 +1615,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   # own super-efficient self hosted model later?" Keeping routing examples is
   # the consent for that, off until someone turns it on, and the page offers
   # the file while they are kept.
-  test "Data retention keeps routing examples for training only once turned on" do
+  test "Data retention keeps routing examples for training only once turned on, and offers them" do
     initialize!()
     {:ok, view, _html} = open("/settings/retention")
 
@@ -1627,12 +1627,19 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert has_element?(view, "#settings-retention-routing_examples_enabled:not([checked])")
     assert has_element?(view, "#settings-retention-routing_examples_seconds[value='365']")
+    refute has_element?(view, "#download-routing-examples")
 
     view
     |> form("#settings-retention-form", %{"routing_examples_enabled" => "true"})
     |> render_submit()
 
     assert Settings.fetch!().retention.routing_examples_enabled
+
+    assert has_element?(
+             view,
+             "a#download-routing-examples[href='/settings/retention/routing-examples.jsonl'][download]",
+             "Download routing examples"
+           )
 
     # Turning it off deletes what was kept, so it asks first, in its own words.
     view
@@ -1646,6 +1653,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     view |> element("#settings-retention-impact button", "Stop keeping them") |> render_click()
 
     refute Settings.fetch!().retention.routing_examples_enabled
+    refute has_element?(view, "#download-routing-examples")
   end
 
   test "a retention limit out of order or out of range is refused with a reason to act on" do

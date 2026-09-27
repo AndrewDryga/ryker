@@ -142,6 +142,39 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # The routing examples kept for training, as a JSON Lines file, from the
+  # Data retention page. Each line is sent as it is read, so the download never
+  # holds the whole set; a reader who stops reading ends the export.
+  defp route(
+         %Plug.Conn{
+           method: "GET",
+           path_info: ["settings", "retention", "routing-examples.jsonl"]
+         } = conn,
+         options
+       ) do
+    conn =
+      conn
+      |> put_resp_content_type("application/jsonl")
+      |> put_resp_header(
+        "content-disposition",
+        ~s(attachment; filename="ryker-routing-examples-#{Date.utc_today()}.jsonl")
+      )
+      |> send_chunked(200)
+
+    exported =
+      options.projection.routing_examples.(conn, fn line, conn ->
+        case chunk(conn, line) do
+          {:ok, conn} -> {:cont, conn}
+          {:error, _closed} -> {:halt, conn}
+        end
+      end)
+
+    case exported do
+      {:ok, conn} -> halt(conn)
+      {:error, _reason} -> halt(conn)
+    end
+  end
+
   defp route(
          %Plug.Conn{
            method: "GET",

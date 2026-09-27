@@ -127,6 +127,18 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <:action :if={@section == :environments and is_nil(@form)}>
           <EnvironmentsPage.add />
         </:action>
+        <%!-- A file download, so a plain link: the browser saves what the
+        router streams and the page stays where it is. --%>
+        <:action :if={@section == :retention and @view.snapshot.retention.routing_examples_enabled}>
+          <a
+            id="download-routing-examples"
+            href="/settings/retention/routing-examples.jsonl"
+            class="ui-button secondary"
+            download
+          >
+            <Components.icon name={:arrow_down} />Download routing examples
+          </a>
+        </:action>
       </Components.page_header>
 
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="page-feedback" />
