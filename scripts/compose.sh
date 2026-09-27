@@ -32,6 +32,18 @@ compose() {
   docker compose --env-file "$env_file" "$@"
 }
 
+# Signs a model account in on the worker volume. Coop refuses a sign-in whose
+# project directory holds its own network records, and the container's working
+# directory "/" holds everything, so it runs from /tmp. It also refuses to record
+# a process whose id is 1, and `run --entrypoint coop` makes coop process 1, so a
+# shell stays process 1 and runs it as a child (the `exit` keeps sh from
+# replacing itself with coop).
+model_login() {
+  # shellcheck disable=SC2016 # $0 is expanded by the container's shell
+  compose run --rm --no-deps -w /tmp --entrypoint /bin/sh ryker-coop \
+    -c 'coop login "$0"; exit $?' "$1"
+}
+
 value() {
   sed -n "s/^$1=//p" "$2" | tail -n 1
 }
@@ -147,7 +159,7 @@ install_ryker() {
       echo "Imported the existing Codex sign-in into Ryker's private worker volume."
     else
       echo "Connect the model account Ryker will use for work. This is stored only in the private worker volume."
-      compose run --rm --no-deps --entrypoint coop ryker-coop login codex
+      model_login codex
     fi
   fi
 
@@ -271,7 +283,7 @@ case "$command" in
     require_install
     provider=${2:-codex}
     [ "$#" -le 2 ] || usage
-    compose run --rm --no-deps --entrypoint coop ryker-coop login "$provider"
+    model_login "$provider"
     compose restart ryker-coop
     ;;
   worker-token)
