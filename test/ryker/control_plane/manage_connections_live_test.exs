@@ -4,7 +4,8 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   that says whether Slack or GitHub is connected; Add repositories, a page of
   its own that lists what the GitHub App reaches when it opens and again on
   Refresh; and what a repository's row can do: retry its setup, finish an
-  add that stopped half-way, and remove it after a question over the list.
+  add that stopped half-way, have its RYKER.md written again, and remove it
+  after a question over the list.
   Channel defaults and publishing settings live on the Slack and GitHub
   integration pages, not in a disclosure under these lists.
   """
@@ -14,7 +15,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, RepositoryImport}
-  alias Ryker.{Credentials, IntegrationSetup, Settings}
+  alias Ryker.{Credentials, IntegrationSetup, RepositoryKnowledge, Settings}
 
   @endpoint Endpoint
   @actor "control-plane:local"
@@ -321,6 +322,59 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     render_click(view, "remove-repository", %{"repository" => "acme-web"})
     assert has_element?(view, "#{question} .kit-modal-title", "Remove acme/web?")
     assert Enum.map(Settings.fetch!().repositories, & &1.ref) == ["acme-web"]
+  end
+
+  # Andrew, 2026-09-27: RYKER.md was written once, at setup, and never
+  # again. Refresh knowledge has a model read the repository again now, after
+  # a question over the list that says what it does.
+  test "Refresh knowledge asks first, then has RYKER.md written again" do
+    connect_github!()
+
+    {:ok, %{added: ["acme/api"]}} =
+      IntegrationSetup.import_github_repositories([repository("acme/api", 11)])
+
+    {:ok, _snapshot} =
+      Settings.put_repository(%{ref: "acme-api", onboarding_state: :ready}, :current, @actor)
+
+    {:ok, view, _html} = open("/repositories")
+    button = "#repository-acme-api button[phx-value-action=refresh-knowledge]"
+    question = "#confirm-refresh-knowledge"
+
+    view |> element(button, "Refresh knowledge") |> render_click()
+    assert has_element?(view, "#{question} .kit-modal-title", "Refresh knowledge of acme/api?")
+
+    assert has_element?(
+             view,
+             "#{question} .kit-modal-text",
+             "A model reads the repository again now"
+           )
+
+    # Cancel closes it and asks for nothing.
+    view |> element("#{question} button", "Cancel") |> render_click()
+    refute has_element?(view, question)
+    assert RepositoryKnowledge.entry("acme-api") == nil
+
+    view |> element(button, "Refresh knowledge") |> render_click()
+    view |> element("#{question} button", "Refresh knowledge") |> render_click()
+
+    refute has_element?(view, question)
+
+    assert has_element?(
+             view,
+             "#repository-notice.form-feedback-success",
+             "Ryker is reading acme/api again. A new RYKER.md arrives as a pull request."
+           )
+
+    entry = RepositoryKnowledge.entry("acme-api")
+    assert {entry.phase, entry.requested_by} == {:write, @actor}
+
+    # While it is written, the row says so and cannot be asked again.
+    assert has_element?(view, "#repository-acme-api .entity-meta", "Writing RYKER.md")
+    refute has_element?(view, button)
+
+    # A refresh never asked about only asks.
+    render_click(view, "refresh-knowledge", %{"repository" => "acme-api"})
+    assert has_element?(view, "#{question} .kit-modal-title", "Refresh knowledge of acme/api?")
   end
 
   test "a removal that would leave an environment nothing to change says why in its question" do

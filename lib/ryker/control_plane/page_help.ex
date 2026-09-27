@@ -433,9 +433,10 @@ defmodule Ryker.ControlPlane.PageHelp do
          "Connect GitHub first. Add repositories then opens a page that lists what the Ryker GitHub App can reach, and Refresh lists it again. Each one you add joins the default environment, so work there can use it at once. You can also add new ones automatically when the App gets access to them.",
          "Remove takes a repository out of every environment, stops its setup and deletes the copy of its code Ryker keeps. Ryker asks first. Past requests stay, and you can add it again later."
        ]},
-      {"Setting up",
+      {"RYKER.md",
        [
-         "Ryker copies the code and reads it. It then proposes a RYKER.md file, with what it learned about the repository, in a pull request you can review."
+         "Once a repository is set up, a model reads it and writes RYKER.md: what it is for, its parts, how to build, test and ship it, and where to look. Every later task there starts from it. Ryker keeps only the paths that exist and the commands its files show, and proposes it in a draft pull request you review.",
+         "Once a day Ryker checks again. It rewrites RYKER.md when a README, AGENTS.md, CLAUDE.md, a build file or a CI workflow changed, or a week after its last write once any code changed. An open pull request is updated, never a second one opened. Refresh knowledge rewrites it now."
        ]},
       {"Who can ask for work",
        [

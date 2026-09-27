@@ -73,60 +73,60 @@ defmodule Ryker.RepositoryKnowledge do
   def entry(ref) when is_binary(ref), do: Repo.get(Entry, ref)
 
   @doc """
-  Why a step failed, in words a person can act on. Every reason the lane
-  records has one; an unknown one still says what happened and what comes
-  next.
+  Why a step failed, in words a person can act on: each sentence stands on
+  the repository's row by itself. Every reason the lane records has one; an
+  unknown one still says what happened and what comes next.
   """
   @spec failure(term()) :: String.t()
   def failure({:github_onboarding, :archived}),
     do:
-      "The repository is archived on GitHub, so Ryker cannot propose RYKER.md. " <>
-        "Unarchive it on GitHub, then refresh."
+      "The repository is archived on GitHub, so Ryker cannot propose its RYKER.md. " <>
+        "Unarchive it on GitHub, then refresh knowledge."
 
   def failure({:github_onboarding, :permission}),
     do:
-      "The Ryker GitHub App cannot read this repository or open its pull request. " <>
-        "Give it Contents and Pull requests (read and write), then refresh."
+      "The Ryker GitHub App cannot read this repository or open its RYKER.md pull request. " <>
+        "Give it Contents and Pull requests (Read and write), then refresh knowledge."
 
   def failure({:github_onboarding, :not_found}),
-    do: "GitHub no longer finds the repository or its default branch."
+    do:
+      "GitHub no longer finds this repository or its default branch, so RYKER.md was not updated."
 
-  def failure(:repository_empty), do: "The repository has no commits yet."
+  def failure(:repository_empty),
+    do: "The repository has no commits yet, so there is nothing to write RYKER.md from."
 
   def failure(:repository_too_large),
-    do: "The repository has too many files for Ryker to list them."
+    do: "The repository has too many files for Ryker to check a RYKER.md against them."
 
-  def failure(:repository_knowledge_retry_exhausted),
+  def failure(reason),
     do:
-      "Ryker could not finish reading the repository. It tries again with the next daily " <>
-        "check, or refresh."
+      "RYKER.md was not updated: #{cause(reason)} Ryker tries again with the next daily " <>
+        "check, or refresh knowledge."
 
-  def failure(reason)
-      when reason in [:output_contract_failed, :invalid_repository_knowledge],
-      do: "The model's answer did not follow the form Ryker asks for."
+  defp cause(reason) when reason in [:output_contract_failed, :invalid_repository_knowledge],
+    do: "the model's answers did not follow the form Ryker asks for."
 
-  def failure(:repository_knowledge_unusable),
-    do: "The model named nothing Ryker could find in the repository."
+  defp cause(:repository_knowledge_unusable),
+    do: "the model named nothing Ryker could find in the repository."
 
-  def failure(:repository_knowledge_execution_timeout),
-    do: "The model ran out of time reading the repository."
+  defp cause(:repository_knowledge_execution_timeout),
+    do: "the model ran out of time reading the repository."
 
-  def failure(reason)
-      when reason in [
-             :repository_knowledge_provider_failed,
-             :repository_knowledge_attempt_expired
-           ],
-      do: "The model stopped before it answered."
+  defp cause(reason)
+       when reason in [
+              :repository_knowledge_provider_failed,
+              :repository_knowledge_attempt_expired
+            ],
+       do: "the model stopped before it answered."
 
-  def failure(reason)
-      when reason in [
-             :repository_knowledge_session_not_isolated,
-             :repository_knowledge_session_unaddressable
-           ],
-      do: "The worker could not give the model a read-only copy of the repository."
+  defp cause(reason)
+       when reason in [
+              :repository_knowledge_session_not_isolated,
+              :repository_knowledge_session_unaddressable
+            ],
+       do: "the worker could not give the model a read-only copy of the repository."
 
-  def failure(_reason),
-    do: "Ryker could not update RYKER.md. It tries again with the next daily check."
+  defp cause(_reason), do: "Ryker could not finish reading the repository."
 
   @doc """
   Delivers `{:repository_knowledge_updated, ref}` after any change to a

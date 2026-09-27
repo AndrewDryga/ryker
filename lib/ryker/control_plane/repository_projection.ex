@@ -2,7 +2,9 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   @moduledoc """
   The repository directory: every repository saved settings, an
   environment, a schedule, a session, a publication names, with
-  the environments it is in, its counts, its configured work and the freshness receipt of its last recorded work.
+  the environments it is in, its counts, its configured work, the freshness
+  receipt of its last recorded work, and where its RYKER.md stands
+  (`Ryker.RepositoryKnowledge`).
 
   Channels choose environments, not repositories, so a repository's channels
   are the channels whose environment holds it.
@@ -13,7 +15,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   alias Ryker.ControlPlane.{Environments, Search}
   alias Ryker.GitHub.Events
   alias Ryker.Publication.Publication
-  alias Ryker.Repo
+  alias Ryker.{Repo, RepositoryKnowledge}
   alias Ryker.Schedules.Schedule
   alias Ryker.Settings
   alias Ryker.Work.{Session, Turn}
@@ -50,6 +52,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     sessions = grouped_count(Session, :repository_ref)
     publications = grouped_count(Publication, :repository)
     freshness = repository_freshness()
+    knowledge = RepositoryKnowledge.entries()
 
     names =
       [
@@ -74,6 +77,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
         configured: Map.get(configured, repository_ref),
         environments: environments |> Map.get(repository_ref, []) |> Enum.map(& &1.display_name),
         freshness: Map.get(freshness, repository_ref),
+        knowledge: knowledge_view(Map.get(knowledge, repository_ref)),
         publications: Map.get(publications, repository_ref, 0),
         ref: repository_ref,
         schedules: Map.get(schedules, repository_ref, 0),
@@ -83,6 +87,29 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   end
 
   def list(_params), do: list(%{})
+
+  # What a row says of RYKER.md: what is under way, the last document Ryker
+  # wrote and its pull request, why the last step failed, and when the next
+  # check is due. The document itself stays in the database.
+  defp knowledge_view(nil), do: nil
+
+  defp knowledge_view(entry) do
+    Map.take(entry, [
+      :phase,
+      :reason,
+      :document_by,
+      :document_commit,
+      :document_at,
+      :published_at,
+      :publication,
+      :pull_request_url,
+      :pull_request_number,
+      :pull_request_state,
+      :checked_at,
+      :next_check_at,
+      :error
+    ])
+  end
 
   defp filter_repository_search(names, nil, _configured), do: names
 

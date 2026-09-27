@@ -50,7 +50,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     UsageProjection
   }
 
-  alias Ryker.{IntegrationSetup, Settings}
+  alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.Retention.Data, as: RetentionData
   alias Ryker.Slack.{ChannelConfigurations, Names}
 
@@ -87,8 +87,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     github_delivery_updated history_pruned improvement_updated incident_room_updated input_updated
     instructions_saved
     knowledge_updated learning_updated local_routing_updated memory_updated operator_action_recorded
-    platform_action_updated publication_updated record_updated routing_response_updated
-    schedule_updated settings_applied settings_saved slack_channel_updated
+    platform_action_updated publication_updated record_updated repository_knowledge_updated
+    routing_response_updated schedule_updated settings_applied settings_saved slack_channel_updated
     slack_connection_changed slack_interaction_updated slack_names_updated
     task_card_updated thread_status_updated usage_recorded weekly_report_updated
     work_session_updated
@@ -134,6 +134,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        github_repository_discovery: :idle,
        repository_notice: nil,
        repository_question: nil,
+       knowledge_question: nil,
        channel_notice: nil,
        welcome_pending: nil,
        slack_members: [],
@@ -869,6 +870,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       when is_binary(ref),
       do: {:noreply, ask_remove_repository(socket, ref)}
 
+  # Refreshing a repository's RYKER.md asks over the list too: it spends a
+  # model turn, and what it writes reaches the repository as a pull request.
+  def handle_event(
+        "confirm-settings-action",
+        %{"action" => "refresh-knowledge", "ref" => ref},
+        socket
+      )
+      when is_binary(ref),
+      do: {:noreply, ask_refresh_knowledge(socket, ref)}
+
   # Anything on the settings pages that disconnects or deletes asks first. The
   # button that starts it only opens the question; the action runs when the
   # question's own button sends it, so a double click never gets past it.
@@ -879,7 +890,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          assign(socket, settings_confirm: {action, ref}, setup_notice: nil, setup_failure: nil)}
 
   def handle_event("cancel-settings-action", _params, socket),
-    do: {:noreply, assign(socket, :settings_confirm, nil)}
+    do: {:noreply, assign(socket, settings_confirm: nil, knowledge_question: nil)}
 
   def handle_event("disconnect-integration", %{"kind" => kind}, socket)
       when kind in ["slack", "github"] do
@@ -947,6 +958,37 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     {:noreply, socket |> assign(repository_notice: notice) |> refresh(true)}
   end
+
+  # Only the question's own button refreshes; one never asked about only
+  # asks. A refresh that cannot run says why on the list.
+  def handle_event(
+        "refresh-knowledge",
+        %{"repository" => ref},
+        %{assigns: %{settings_confirm: {"refresh-knowledge", ref}}} = socket
+      ) do
+    name = socket.assigns.knowledge_question && socket.assigns.knowledge_question.name
+
+    notice =
+      case RepositoryKnowledge.refresh(ref, @actor_ref) do
+        {:ok, :requested} ->
+          {:list, :success,
+           "Ryker is reading #{name || ref} again. A new RYKER.md arrives as a pull request."}
+
+        {:ok, :already_writing} ->
+          {:list, :success, "Ryker is already writing RYKER.md for #{name || ref}."}
+
+        {:error, reason} ->
+          {:list, :error, refresh_error(reason)}
+      end
+
+    {:noreply,
+     socket
+     |> assign(settings_confirm: nil, knowledge_question: nil, repository_notice: notice)
+     |> refresh(true)}
+  end
+
+  def handle_event("refresh-knowledge", %{"repository" => ref}, socket) when is_binary(ref),
+    do: {:noreply, ask_refresh_knowledge(socket, ref)}
 
   # Only the question's own button removes; a removal that was never asked
   # about only asks. One that is refused keeps its question open and says why.
@@ -1561,6 +1603,27 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
+  defp ask_refresh_knowledge(socket, ref) do
+    %{projection: projection} = Endpoint.config(:control_plane)
+
+    case Enum.find(projection.repositories.(%{"q" => ref}), &(&1.ref == ref)) do
+      %{configured: %{}} = item ->
+        assign(socket,
+          settings_confirm: {"refresh-knowledge", ref},
+          knowledge_question:
+            item
+            |> RepositoriesPage.refresh_question()
+            |> Map.put(:name, RepositoriesPage.name(item)),
+          repository_notice: nil
+        )
+
+      _gone ->
+        socket
+        |> assign(repository_notice: {:list, :error, refresh_error(:repository_not_found)})
+        |> refresh(true)
+    end
+  end
+
   defp confirmed(%{assigns: %{settings_confirm: asked}} = socket, asked, run),
     do: {:noreply, socket |> assign(:settings_confirm, nil) |> run.()}
 
@@ -1808,6 +1871,20 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp add_again_error(:repository_not_found), do: "That repository is no longer added."
   defp add_again_error(reason), do: IntegrationErrors.message(reason)
+
+  defp refresh_error(:repository_not_found), do: "That repository is no longer added."
+
+  defp refresh_error(:repository_not_ready),
+    do: "RYKER.md is written once the repository's setup has finished."
+
+  defp refresh_error(reason)
+       when reason in [:github_access_unavailable, :repository_binding_missing],
+       do:
+         "Ryker cannot reach this repository on GitHub. Give the Ryker GitHub App access " <>
+           "to it, then refresh."
+
+  defp refresh_error(_reason),
+    do: "RYKER.md could not be refreshed. Reload the page and try again."
 
   defp remove_error(:repository_not_found), do: "That repository is no longer added."
 
@@ -2345,6 +2422,19 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             label="Remove repository"
             cancel="cancel-settings-action"
             phx-click="remove-repository"
+            phx-value-repository={elem(@settings_confirm, 1)}
+          />
+          <Kit.confirm_modal
+            :if={
+              @path == "/repositories" and match?({"refresh-knowledge", _ref}, @settings_confirm) and
+                @knowledge_question
+            }
+            id="confirm-refresh-knowledge"
+            title={@knowledge_question.title}
+            text={@knowledge_question.text}
+            label="Refresh knowledge"
+            cancel="cancel-settings-action"
+            phx-click="refresh-knowledge"
             phx-value-repository={elem(@settings_confirm, 1)}
           />
           <Kit.confirm_modal
