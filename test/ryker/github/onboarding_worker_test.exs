@@ -9,8 +9,6 @@ defmodule Ryker.GitHub.OnboardingWorkerTest do
 
   defmodule API do
     def pin(_binding, _repository), do: {:error, :not_used}
-    def scan(_binding, _repository, _commit), do: {:error, :not_used}
-    def publish(_binding, _repository, _commit, _content), do: {:error, :not_used}
   end
 
   defmodule PinningAPI do
@@ -18,9 +16,6 @@ defmodule Ryker.GitHub.OnboardingWorkerTest do
       send(:onboarding_worker_test, {:pin, repository.github_repository})
       {:error, :remote_failed}
     end
-
-    def scan(_binding, _repository, _commit), do: {:error, :not_used}
-    def publish(_binding, _repository, _commit, _content), do: {:error, :not_used}
   end
 
   # Every GitHub event nudges the onboarding worker to poll at once. Each nudge

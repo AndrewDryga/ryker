@@ -220,7 +220,7 @@ defmodule Ryker.Retention.Data do
   WITH candidates AS (
     SELECT session.id
     FROM episode_work_sessions AS session
-    WHERE session.execution_kind IN ('admission', 'learning', 'improvement')
+    WHERE session.execution_kind IN ('admission', 'learning', 'improvement', 'knowledge')
       AND session.cleanup_status = 'discarded'
       AND NOT session.activity_sync_pending
       AND session.updated_at < clock_timestamp() - ($1 * interval '1 second')
@@ -351,6 +351,30 @@ defmodule Ryker.Retention.Data do
   UPDATE improvement_analysis_runs AS run
   SET prompt = NULL, result = NULL, pruned_at = clock_timestamp()
   FROM candidates
+  WHERE run.id = candidates.id
+  """
+
+  # A repository knowledge turn that stopped ages out at the operational
+  # horizon once cleanup removed its session; the run that wrote the
+  # repository's current RYKER.md stays with it (`Ryker.RepositoryKnowledge`).
+  @prune_knowledge_runs """
+  WITH candidates AS (
+    SELECT run.id
+    FROM repository_knowledge_runs AS run
+    WHERE (run.remote_stopped_at IS NOT NULL OR run.started_at IS NULL)
+      AND run.updated_at < clock_timestamp() - ($1 * interval '1 second')
+      AND NOT EXISTS (
+        SELECT 1 FROM episode_work_sessions AS session WHERE session.knowledge_run_id = run.id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM repository_knowledge AS entry WHERE entry.document_run_id = run.id
+      )
+    ORDER BY run.updated_at, run.id
+    LIMIT 100
+    FOR UPDATE OF run SKIP LOCKED
+  )
+  DELETE FROM repository_knowledge_runs AS run
+  USING candidates
   WHERE run.id = candidates.id
   """
 
@@ -608,6 +632,7 @@ defmodule Ryker.Retention.Data do
     _weekly_reports = prune_aged(@finished_weekly_reports, settings)
     feedback = prune_aged(@recorded_feedback, settings)
     _improvement_runs = execute_count(@prune_improvement_runs, [cutoff])
+    _knowledge_runs = execute_count(@prune_knowledge_runs, [cutoff])
 
     improvement =
       execute_count(@prune_improvement_candidates, [

@@ -556,7 +556,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
           help:
             "Investigations that use tools: reading code, checking logs, running read-only " <>
               "commands and asking Emisar to run something. Routing picks it for most work " <>
-              "that needs more than a quick answer.",
+              "that needs more than a quick answer. It also reads each repository to write " <>
+              "its RYKER.md.",
           errors: @ladder_errors
         },
         %{

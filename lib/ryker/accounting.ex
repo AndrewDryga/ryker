@@ -145,6 +145,38 @@ defmodule Ryker.Accounting do
      )}
   end
 
+  @doc """
+  The caller already owns the repository's knowledge lease; one ledger row
+  per frozen knowledge attempt (`Ryker.RepositoryKnowledge`). It belongs to
+  no request, and counts under the repository's GitHub conversation.
+  """
+  def observe_knowledge_in_transaction(entry, run, session_id, remote_turn, remote_session, now) do
+    measurement = Measurement.prepare(remote_turn, remote_session)
+
+    measurement =
+      if remote_turn["state"] == "completed",
+        do: Measurement.acceptance_attributes(measurement, now),
+        else: measurement
+
+    {:ok,
+     record(
+       %{
+         kind: "knowledge",
+         source_id: run.id,
+         generation: to_string(run.generation),
+         episode_id: nil,
+         session_id: session_id,
+         transport: run.transport,
+         conversation_ref: run.conversation_ref,
+         repository_ref: entry.repository_ref,
+         execution_mode: "live"
+       },
+       remote_turn,
+       measurement,
+       now
+     )}
+  end
+
   @doc "Records host acceptance timing in the same transaction as result acceptance."
   def accepted_in_transaction(episode, session, turn) do
     record(

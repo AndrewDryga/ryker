@@ -23,7 +23,7 @@ defmodule Ryker.Settings.Repository do
     )
 
     field(:onboarding_state, Ecto.Enum,
-      values: [:pending, :cloning, :scanning, :publishing, :ready, :blocked],
+      values: [:pending, :cloning, :ready, :blocked],
       default: :pending
     )
 

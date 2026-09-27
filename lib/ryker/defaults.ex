@@ -36,6 +36,10 @@ defmodule Ryker.Defaults do
     poll_interval_ms: 1_000,
     quiet_seconds: 300
   }
+  # RYKER.md for each repository (`Ryker.RepositoryKnowledge`): one slot. A
+  # model reading a whole repository takes minutes, so its turn gets half an
+  # hour before it is cancelled.
+  @repository_knowledge %{execution_timeout_seconds: 1_800, poll_interval_ms: 1_000}
   @delivery %{
     action_concurrency: 2,
     lease_seconds: 60,
@@ -132,6 +136,7 @@ defmodule Ryker.Defaults do
     learning: @learning,
     local_routing: @local_routing,
     publication: @publication,
+    repository_knowledge: @repository_knowledge,
     retention: @retention,
     routing_examples: @routing_examples,
     schedules: @schedules,

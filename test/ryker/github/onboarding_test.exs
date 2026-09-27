@@ -4,7 +4,7 @@ defmodule Ryker.GitHub.OnboardingTest do
   import ExUnit.CaptureLog
 
   alias Ryker.GitHub.{Onboarding, OnboardingWorker}
-  alias Ryker.{Repo, Settings}
+  alias Ryker.{Repo, RepositoryKnowledge, Settings}
 
   @actor "control-plane:local"
   @commit String.duplicate("a", 40)
@@ -13,16 +13,6 @@ defmodule Ryker.GitHub.OnboardingTest do
     def pin(binding, repository) do
       send(self(), {:pin, binding.name, repository.github_repository})
       {:ok, String.duplicate("a", 40)}
-    end
-
-    def scan(binding, repository, commit) do
-      send(self(), {:scan, binding.name, repository.github_repository, commit})
-      {:ok, %{content: "# RYKER.md\n", status: :proposed}}
-    end
-
-    def publish(binding, repository, commit, content) do
-      send(self(), {:publish, binding.name, repository.github_repository, commit, content})
-      {:ok, %{url: "https://github.com/acme/repo/pull/7"}}
     end
   end
 
@@ -36,55 +26,25 @@ defmodule Ryker.GitHub.OnboardingTest do
 
       {:error, :remote_failed}
     end
-
-    def scan(_binding, _repository, _commit), do: flunk("must not scan")
-    def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
   end
 
-  defmodule ExistingAPI do
-    def pin(_binding, _repository), do: {:ok, String.duplicate("a", 40)}
-
-    def scan(_binding, _repository, _commit),
-      do: {:ok, %{content: "# Human repository knowledge\n", status: :accepted}}
-
-    def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
-  end
-
-  defmodule CrashingScanAPI do
-    def pin(_binding, _repository), do: {:ok, String.duplicate("a", 40)}
-    def scan(_binding, _repository, _commit), do: raise(ArgumentError, "unexpected tree entry")
-    def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
-  end
-
-  defmodule ArchivedAPI do
-    def pin(_binding, _repository), do: {:ok, String.duplicate("a", 40)}
-
-    def scan(_binding, _repository, _commit),
-      do: {:ok, %{content: "# RYKER.md\n", status: :proposed}}
-
-    def publish(_binding, _repository, _commit, _content),
-      do: {:error, {:github_onboarding, :archived}}
+  defmodule CrashingPinAPI do
+    def pin(_binding, _repository), do: raise(ArgumentError, "unexpected ref object")
   end
 
   # Removes the repository while its setup reads it, as Remove on the
   # Repositories page does.
   defmodule RemovedDuringSetupAPI do
-    def pin(_binding, _repository), do: {:ok, String.duplicate("a", 40)}
-
-    def scan(_binding, _repository, _commit) do
+    def pin(_binding, _repository) do
       {:ok, _removed} =
         Ryker.IntegrationSetup.remove_repository("repo", storage_root: System.tmp_dir!())
 
-      {:ok, %{content: "# RYKER.md\n", status: :proposed}}
+      {:ok, String.duplicate("a", 40)}
     end
-
-    def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
   end
 
   defmodule UnknownFailureAPI do
     def pin(_binding, _repository), do: {:error, {:github_status, 502}}
-    def scan(_binding, _repository, _commit), do: flunk("must not scan")
-    def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
   end
 
   setup do
@@ -174,21 +134,13 @@ defmodule Ryker.GitHub.OnboardingTest do
     log =
       capture_log(fn ->
         assert {:error, {:setup_crashed, ArgumentError}} =
-                 Onboarding.run("repo", api: CrashingScanAPI)
+                 Onboarding.run("repo", api: CrashingPinAPI)
       end)
 
     repository = Enum.find(Settings.fetch!().repositories, &(&1.ref == "repo"))
     assert repository.onboarding_state == :blocked
     assert repository.onboarding_error =~ "stopped on an unexpected error"
-    assert log =~ "unexpected tree entry"
-  end
-
-  # AndrewDryga/andrewdryga.github.com, 2026-09-27: archived on GitHub, it read
-  # "The GitHub App is missing contents or pull-request permission."
-  test "an archived repository says it is archived, not that a permission is missing" do
-    assert {:error, {:github_onboarding, :archived}} = Onboarding.run("repo", api: ArchivedAPI)
-    repository = Enum.find(Settings.fetch!().repositories, &(&1.ref == "repo"))
-    assert repository.onboarding_error =~ "archived on GitHub"
+    assert log =~ "unexpected ref object"
   end
 
   test "a setup failure Ryker has no sentence for is logged with its reason" do
@@ -201,32 +153,25 @@ defmodule Ryker.GitHub.OnboardingTest do
     assert log =~ "github_status"
   end
 
-  test "pins, scans and publishes one resumable repository knowledge proposal" do
-    assert {:ok, :pull_request_opened} = Onboarding.run("repo", api: API)
+  # Setup scanned the file list once and opened a pull request of what it
+  # found (Andrew, 2026-09-27: "those are pretty weak summaries"). It now
+  # pins the default branch head and hands RYKER.md to the knowledge lane,
+  # whose first check is due at once: a model reads the repository there.
+  test "setup pins the default branch head and hands RYKER.md to the knowledge lane" do
+    assert {:ok, :ready} = Onboarding.run("repo", api: API)
     assert_receive {:pin, "repo", "acme/repo"}
-    assert_receive {:scan, "repo", "acme/repo", @commit}
-    assert_receive {:publish, "repo", "acme/repo", @commit, "# RYKER.md\n"}
 
     repository = Enum.find(Settings.fetch!().repositories, &(&1.ref == "repo"))
     assert repository.onboarding_state == :ready
     assert repository.source_commit == @commit
-    assert repository.knowledge_pull_request_url == "https://github.com/acme/repo/pull/7"
-    assert repository.knowledge_content == "# RYKER.md\n"
-    assert repository.knowledge_status == :proposed
-    assert repository.knowledge_source_commit == @commit
-
-    assert repository.knowledge_sha256 ==
-             :crypto.hash(:sha256, "# RYKER.md\n") |> Base.encode16(case: :lower)
-
     assert repository.onboarding_error == nil
-  end
 
-  test "an existing human knowledge file is kept without opening a pull request" do
-    assert {:ok, :already_present} = Onboarding.run("repo", api: ExistingAPI)
-    repository = Enum.find(Settings.fetch!().repositories, &(&1.ref == "repo"))
-    assert repository.onboarding_state == :ready
+    # Nothing is written or proposed by setup itself.
+    assert repository.knowledge_content == nil
     assert repository.knowledge_pull_request_url == nil
-    assert repository.knowledge_status == :accepted
-    assert repository.knowledge_content == "# Human repository knowledge\n"
+
+    entry = RepositoryKnowledge.entry("repo")
+    assert entry.phase == :idle
+    assert DateTime.compare(entry.next_check_at, Repo.now!()) != :gt
   end
 end

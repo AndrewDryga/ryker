@@ -12,9 +12,11 @@ defmodule Ryker.Work.Session do
     belongs_to(:learning_run, Ryker.Learning.LearningRun)
     # A session of one self-analysis turn (`Ryker.Improvement`).
     belongs_to(:improvement_run, Ryker.Improvement.AnalysisRun)
+    # A session of one repository knowledge turn (`Ryker.RepositoryKnowledge`).
+    belongs_to(:knowledge_run, Ryker.RepositoryKnowledge.Run)
 
     field(:execution_kind, Ecto.Enum,
-      values: [:work, :admission, :learning, :improvement],
+      values: [:work, :admission, :learning, :improvement, :knowledge],
       default: :work
     )
 
@@ -100,7 +102,7 @@ defmodule Ryker.Work.Session do
   @type t :: %__MODULE__{
           id: Ecto.UUID.t() | nil,
           episode_id: Ecto.UUID.t() | nil,
-          execution_kind: :work | :admission | :learning | :improvement,
+          execution_kind: :work | :admission | :learning | :improvement | :knowledge,
           policy: String.t() | nil,
           policy_digest: String.t() | nil,
           authority_digest: String.t() | nil,
