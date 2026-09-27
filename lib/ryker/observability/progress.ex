@@ -27,7 +27,11 @@ defmodule Ryker.Observability.Progress do
     work
   )a
   @outcomes ~w(cycle error)a
-  @minimum_interval_ms 5_000
+  # Readiness calls a lane stalled after fifteen minutes without a beat. An
+  # idle worker now polls about every ten seconds, so a beat every five made
+  # nearly every idle poll write this table: a quarter of all an idle install
+  # still committed. Once a minute proves the loop turns all the same.
+  @minimum_interval_ms 60_000
 
   @spec lanes() :: [atom()]
   def lanes, do: @lanes
