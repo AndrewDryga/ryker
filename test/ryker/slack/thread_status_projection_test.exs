@@ -240,7 +240,7 @@ defmodule Ryker.Slack.ThreadStatusProjectionTest do
       {%{
          "input" => %{
            "arguments" => %{"message" => "Deploy check: hunter2 rotated at internal.example"},
-           "server" => "responder-state",
+           "server" => "controller-tools",
            "tool" => "post_slack_update"
          },
          "kind" => "execute"

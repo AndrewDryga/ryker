@@ -338,8 +338,12 @@ defmodule Ryker.Slack.EndToEndTest do
              {:reaction, :delivered, "1787832005.000500"}
            ]
 
+    # Routing's own worker session is a session too; no Work session starts.
     assert Repo.aggregate(Episode, :count) == 0
-    assert Repo.aggregate(Session, :count) == 0
+
+    assert Repo.aggregate(from(session in Session, where: not is_nil(session.episode_id)), :count) ==
+             0
+
     assert Repo.aggregate(Turn, :count) == 0
   end
 
