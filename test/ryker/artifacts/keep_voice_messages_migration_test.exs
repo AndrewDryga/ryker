@@ -45,7 +45,7 @@ defmodule Ryker.Artifacts.KeepVoiceMessagesMigrationTest do
       artifact!(repo, prefix, "video/quicktime")
 
       assert_raise Postgrex.Error, ~r/input_artifact_identity_valid/, fn ->
-        artifact!(repo, prefix, "audio/flac")
+        artifact!(repo, prefix, "audio/amr")
       end
 
       assert_raise Postgrex.Error, ~r/nowhere to keep them/, fn ->

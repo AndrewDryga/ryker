@@ -61,7 +61,7 @@ Slack metadata under normal operational-data retention; Coop removes the binary 
 turn becomes terminal. Unsupported or misleading content fails closed with a user-visible retry
 message and does not start repository work.
 
-Voice messages and videos (m4a/mp4/aac, webm/ogg/opus, mp3, wav, mov) are kept too and reach the
+Voice messages and videos (m4a/mp4/aac, webm/ogg/opus, mp3, wav, flac, mov) are kept too and reach the
 models as words. Ryker uses Slack's own transcript when Slack finished one; otherwise the Ryker
 container transcribes the recording itself, with ffmpeg and whisper.cpp's multilingual base model
 shipped in the image, before routing reads the message, so a voice message is handled like typed

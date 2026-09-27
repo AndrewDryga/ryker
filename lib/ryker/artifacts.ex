@@ -25,7 +25,7 @@ defmodule Ryker.Artifacts do
   # Voice messages and videos are kept for the record and reach models as
   # their transcript (`Ryker.Transcription`): Coop takes no audio or video.
   @recording_media_types ~w(
-    audio/aac audio/mp4 audio/mpeg audio/ogg audio/wav audio/webm
+    audio/aac audio/flac audio/mp4 audio/mpeg audio/ogg audio/wav audio/webm
     video/mp4 video/quicktime video/webm
   )
   @media_types @model_media_types ++ @recording_media_types
@@ -33,6 +33,8 @@ defmodule Ryker.Artifacts do
   @recording_labels %{
     "audio/aac" => "audio/aac",
     "audio/x-aac" => "audio/aac",
+    "audio/flac" => "audio/flac",
+    "audio/x-flac" => "audio/flac",
     "audio/mp4" => "audio/mp4",
     "audio/m4a" => "audio/mp4",
     "audio/x-m4a" => "audio/mp4",
@@ -287,6 +289,7 @@ defmodule Ryker.Artifacts do
        do: true
 
   defp media_matches?("audio/ogg", <<"OggS", _rest::binary>>), do: true
+  defp media_matches?("audio/flac", <<"fLaC", _rest::binary>>), do: true
   defp media_matches?("audio/wav", <<"RIFF", _size::binary-size(4), "WAVE", _::binary>>), do: true
   defp media_matches?("audio/mpeg", <<"ID3", _rest::binary>>), do: true
 

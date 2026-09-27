@@ -276,6 +276,22 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
     refute Map.has_key?(descriptor, "transcript")
   end
 
+  # Any audio Slack shares is somebody talking, even in a format Ryker does
+  # not keep: routing hears that a voice message arrived that Ryker could not
+  # transcribe, never just an unsupported file.
+  test "a voice message in a format Ryker does not keep still reaches routing as a voice message" do
+    amr = %{voice_message() | "id" => "F0C5LM60AMR", "mimetype" => "audio/amr"}
+
+    assert {:ok, enriched} =
+             AttachmentIngestor.ingest(
+               %{audience: :direct, input: voice_input!([amr])},
+               options({:error, :must_not_download})
+             )
+
+    assert routing_input(enriched.input) =~ "a voice message Ryker could not transcribe"
+    refute_received {:download, _id, _maximum}
+  end
+
   # A voice message longer than Ryker transcribes, or larger than it keeps, is
   # refused before download; routing reads why in plain words rather than an
   # unreadable file, so the person hears what to send instead.

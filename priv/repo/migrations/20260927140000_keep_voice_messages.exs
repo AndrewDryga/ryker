@@ -16,7 +16,7 @@ defmodule Ryker.Repo.Migrations.KeepVoiceMessages do
     application/json application/yaml application/x-yaml application/pdf
   )
   @recordings ~w(
-    audio/aac audio/mp4 audio/mpeg audio/ogg audio/wav audio/webm
+    audio/aac audio/flac audio/mp4 audio/mpeg audio/ogg audio/wav audio/webm
     video/mp4 video/quicktime video/webm
   )
 
