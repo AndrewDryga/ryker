@@ -8,7 +8,8 @@ defmodule Ryker.IntegrationSetup do
 
   require Logger
 
-  alias Ryker.Credentials
+  alias Ryker.{Bootstrap, Credentials}
+  alias Ryker.CoopFleet.ManagedSources
   alias Ryker.Delivery.JSONClient
   alias Ryker.Emisar.Approvals
   alias Ryker.GitHub.AppJWT
@@ -566,6 +567,131 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
+  @doc """
+  Finishes adding a repository whose import stopped before its GitHub
+  binding was saved, the way the picker adds it: from the repositories the
+  GitHub App reaches (`discovered`, as `github_repositories/1` lists them).
+  AndrewDryga/andrewdryga.github.com was left that way on 2026-09-26, and its
+  row offered only a Retry that could never work.
+  """
+  @spec add_github_repository_again(String.t(), [map()]) :: {:ok, map()} | {:error, term()}
+  def add_github_repository_again(ref, discovered) when is_binary(ref) and is_list(discovered) do
+    case Enum.find(Settings.fetch!().repositories, &(&1.ref == ref)) do
+      %{github_repository: name} when is_binary(name) ->
+        case Enum.find(discovered, &(&1.full_name == name)) do
+          nil -> {:error, {:github_repository_unreachable, name}}
+          repository -> import_github_repositories([repository])
+        end
+
+      _missing_or_not_from_github ->
+        {:error, :repository_not_found}
+    end
+  end
+
+  @doc """
+  Removes an added repository in one change: it leaves every environment and
+  every webhook's deployment reports, and its GitHub binding goes with it;
+  then the mirror Ryker keeps of it for workers' jobs is deleted. A setup
+  that is running stops at its next step (`Ryker.GitHub.Onboarding`).
+  Requests made in it stay, and adding it again later starts it over. The
+  Coop workers are not touched: each fetches its own copy for a job.
+
+  Andrew, 2026-09-27: "how do I remove repositories?!" Nothing could.
+  """
+  @spec remove_repository(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def remove_repository(ref, options \\ []) when is_binary(ref) do
+    case Settings.atomically(fn -> remove_saved_repository(ref) end) do
+      {:ok, removed} ->
+        storage_root = Keyword.get_lazy(options, :storage_root, &Bootstrap.storage_root!/0)
+        :ok = ManagedSources.remove_mirror(storage_root, ref)
+        {:ok, removed}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp remove_saved_repository(ref) do
+    snapshot = Settings.fetch!()
+
+    with %{} = repository <-
+           Enum.find(snapshot.repositories, &(&1.ref == ref)) || {:error, :repository_not_found},
+         {:ok, _snapshot} <- leave_environments(snapshot, ref),
+         {:ok, _snapshot} <- leave_deployment_reports(snapshot, ref),
+         {:ok, _snapshot} <- drop_github_bindings(snapshot, ref),
+         {:ok, snapshot} <- Settings.delete_repository(ref, :current, @actor) do
+      {:ok, %{repository: repository, snapshot: snapshot}}
+    end
+  end
+
+  # An environment's default repository is the one work changes, so it has to
+  # be read and write: when the removed one was the default, the next read and
+  # write repository takes its place. An environment left with only read-only
+  # repositories would have nothing work could change, so that is refused
+  # and names it; making another repository there read and write first is
+  # the person's choice, never Ryker's.
+  defp leave_environments(snapshot, ref) do
+    snapshot.environments
+    |> Enum.filter(&(ref in Environment.repository_refs(&1)))
+    |> each_write(&leave_environment(&1, ref))
+  end
+
+  defp leave_environment(environment, ref) do
+    remaining = Enum.reject(environment.repositories, &(&1.repository_ref == ref))
+
+    case Enum.split_with(remaining, &(&1.access == :read_write)) do
+      {[], [_read_only | _rest]} ->
+        {:error, {:environment_left_read_only, environment.display_name}}
+
+      {writable, _read_only} ->
+        refs = Enum.map(remaining, & &1.repository_ref)
+
+        refs =
+          case writable do
+            [%{repository_ref: default} | _rest] -> [default | List.delete(refs, default)]
+            [] -> refs
+          end
+
+        Settings.put_environment(%{ref: environment.ref, repositories: refs}, :current, @actor)
+    end
+  end
+
+  # A deployment report that names only this repository could report nothing
+  # afterwards, so it goes; the source keeps receiving its events.
+  defp leave_deployment_reports(snapshot, ref) do
+    snapshot.webhook_sources
+    |> Enum.filter(&(ref in ((&1.publication_lifecycle || %{})["repositories"] || [])))
+    |> each_write(fn source ->
+      remaining = source.publication_lifecycle["repositories"] -- [ref]
+
+      lifecycle =
+        if remaining == [],
+          do: nil,
+          else: Map.put(source.publication_lifecycle, "repositories", remaining)
+
+      Settings.put_webhook_source(
+        %{name: source.name, publication_lifecycle: lifecycle},
+        :current,
+        @actor
+      )
+    end)
+  end
+
+  defp drop_github_bindings(snapshot, ref) do
+    snapshot.github_bindings
+    |> Enum.filter(&(&1.repository_ref == ref))
+    |> each_write(&Settings.delete_github_binding(&1.name, :current, @actor))
+  end
+
+  defp each_write(items, write) do
+    Enum.reduce_while(items, {:ok, nil}, fn item, _result ->
+      case write.(item) do
+        {:ok, snapshot} -> {:cont, {:ok, snapshot}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
   @spec delete_webhook_credential(String.t()) :: {:ok, map()} | {:error, term()}
   def delete_webhook_credential(name) when is_binary(name) do
     if Enum.any?(Settings.fetch!().webhook_sources, &(&1.secret_name == name)) do
@@ -876,7 +1002,16 @@ defmodule Ryker.IntegrationSetup do
     )
   end
 
-  defp put_imported_repository(_existing, _ref, _repository), do: {:ok, :kept}
+  # A repository saved half-way could never be set up ("GitHub binding is
+  # missing"), so finishing it starts its setup over. Kept as it was, it read
+  # "Setup stopped" after Add it again finished it (2026-09-27).
+  defp put_imported_repository(_existing, ref, _repository),
+    do:
+      Settings.put_repository(
+        %{ref: ref, onboarding_state: :pending, onboarding_error: nil},
+        :current,
+        @actor
+      )
 
   @doc false
   def github_action_grants(permissions) do

@@ -41,6 +41,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     PageHelp,
     Pages,
     PathRef,
+    RepositoriesPage,
     RequestFilters,
     Router,
     RunningSystem,
@@ -56,7 +57,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # Who a choice made on these pages is recorded as, like every other
   # control-plane write.
   @actor_ref "control-plane:local"
-  @confirmed_settings_actions ~w(disconnect-slack disconnect-github delete-emisar delete-environment delete-webhook-credential turn-off-learning)
+  @confirmed_settings_actions ~w(disconnect-slack disconnect-github delete-emisar delete-environment delete-webhook-credential turn-off-learning remove-repository)
   @settings_pages %{
     ["setup"] => :setup,
     ["environments"] => :environments,
@@ -129,6 +130,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        github_repositories: [],
        github_repository_discovery: :idle,
        repository_notice: nil,
+       repository_question: nil,
        channel_notice: nil,
        welcome_pending: nil,
        slack_members: [],
@@ -202,15 +204,24 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        lab_environment_saved: nil
      )
      |> assign_conversation_draft(location.path)
+     |> reset_repository_discovery(location.path, socket.assigns.path)
      |> refresh(true)}
   end
 
   # What an import added is said on the list it returned to; every other
   # outcome on Repositories stays with the page it happened on.
-  defp carried_repository_notice({:imported, _tone, _message} = notice, "/repositories"),
+  defp carried_repository_notice({:list, _tone, _message} = notice, "/repositories"),
     do: notice
 
   defp carried_repository_notice(_notice, _path), do: nil
+
+  # Each visit to Add repositories lists what the GitHub App reaches afresh.
+  defp reset_repository_discovery(socket, "/repositories/new", "/repositories/new"), do: socket
+
+  defp reset_repository_discovery(socket, "/repositories/new", _previous),
+    do: assign(socket, github_repositories: [], github_repository_discovery: :idle)
+
+  defp reset_repository_discovery(socket, _path, _previous), do: socket
 
   # A conversation view is opened once per navigation: the index gets a fresh
   # identity nothing is written behind. Reloads come through refresh/2, not
@@ -387,6 +398,25 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # Anything else, such as a reply to a request this page no longer waits
   # for, changes nothing it shows.
   def handle_info(_message, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_async(:github_repositories, {:ok, {:ok, repositories}}, socket),
+    do:
+      {:noreply,
+       assign(socket, github_repositories: repositories, github_repository_discovery: :complete)}
+
+  def handle_async(:github_repositories, {:ok, {:error, reason}}, socket),
+    do:
+      {:noreply,
+       assign(socket, github_repository_discovery: {:error, IntegrationErrors.message(reason)})}
+
+  def handle_async(:github_repositories, {:exit, _reason}, socket),
+    do:
+      {:noreply,
+       assign(socket,
+         github_repository_discovery:
+           {:error, "Ryker could not list the repositories. Refresh to try again."}
+       )}
 
   @impl true
   def handle_event(event, _params, socket) when event in ["refresh", "show-new"],
@@ -604,23 +634,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  def handle_event("discover-github-repositories", _params, socket) do
-    case IntegrationSetup.github_repositories() do
-      {:ok, repositories} ->
+  # Add repositories lists what the GitHub App reaches when it opens; this
+  # lists it again, keeping what was ticked (repository-picker.mjs).
+  def handle_event("refresh-github-repositories", _params, socket) do
+    if socket.assigns.github_repository_discovery == :loading,
+      do: {:noreply, socket},
+      else:
         {:noreply,
-         assign(socket,
-           github_repositories: repositories,
-           github_repository_discovery: :complete,
-           repository_notice: nil
-         )}
-
-      {:error, reason} ->
-        {:noreply,
-         assign(socket,
-           github_repository_discovery: {:error, IntegrationErrors.message(reason)},
-           repository_notice: nil
-         )}
-    end
+         socket
+         |> assign(repository_notice: nil)
+         |> discover_github_repositories(Endpoint.config(:control_plane))}
   end
 
   def handle_event("import-github-repositories", params, socket) do
@@ -661,7 +684,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          if(tone == :success,
            do:
              socket
-             |> assign(repository_notice: {:imported, tone, message})
+             |> assign(repository_notice: {:list, tone, message})
              |> push_patch(to: "/repositories"),
            else: socket |> assign(repository_notice: {:import, tone, message}) |> refresh(true)
          )}
@@ -833,6 +856,15 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("cancel-action", _params, socket),
     do: {:noreply, assign(socket, :action_question, nil)}
 
+  # Removing a repository asks over the list, in words that say what it does.
+  def handle_event(
+        "confirm-settings-action",
+        %{"action" => "remove-repository", "ref" => ref},
+        socket
+      )
+      when is_binary(ref),
+      do: {:noreply, ask_remove_repository(socket, ref)}
+
   # Anything on the settings pages that disconnects or deletes asks first. The
   # button that starts it only opens the question; the action runs when the
   # question's own button sends it, so a double click never gets past it.
@@ -890,10 +922,60 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       {:error, reason} ->
         {:noreply,
          socket
-         |> assign(repository_notice: {:retry, :error, retry_error(reason)})
+         |> assign(repository_notice: {:list, :error, retry_error(reason)})
          |> refresh(true)}
     end
   end
+
+  # A repository whose import stopped half-way is found among what the GitHub
+  # App reaches and added the way the picker adds it.
+  def handle_event("add-repository-again", %{"repository" => ref}, socket)
+      when is_binary(ref) do
+    %{actions: actions} = Endpoint.config(:control_plane)
+
+    notice =
+      with {:ok, discovered} <- actions.github_repositories.(),
+           {:ok, result} <- IntegrationSetup.add_github_repository_again(ref, discovered) do
+        {:list, import_tone(result), import_message(result, default_environment())}
+      else
+        {:error, reason} -> {:list, :error, add_again_error(reason)}
+      end
+
+    {:noreply, socket |> assign(repository_notice: notice) |> refresh(true)}
+  end
+
+  # Only the question's own button removes; a removal that was never asked
+  # about only asks. One that is refused keeps its question open and says why.
+  def handle_event(
+        "remove-repository",
+        %{"repository" => ref},
+        %{assigns: %{settings_confirm: {"remove-repository", ref}}} = socket
+      ) do
+    case IntegrationSetup.remove_repository(ref) do
+      {:ok, %{repository: repository}} ->
+        {:noreply,
+         socket
+         |> assign(
+           settings_confirm: nil,
+           repository_question: nil,
+           repository_notice:
+             {:list, :success,
+              "Removed #{repository.github_repository || ref}. Its past requests stay in Activity."}
+         )
+         |> refresh(true)}
+
+      {:error, reason} ->
+        {:noreply,
+         assign(socket,
+           repository_question:
+             socket.assigns.repository_question &&
+               %{socket.assigns.repository_question | error: remove_error(reason)}
+         )}
+    end
+  end
+
+  def handle_event("remove-repository", %{"repository" => ref}, socket) when is_binary(ref),
+    do: {:noreply, ask_remove_repository(socket, ref)}
 
   # A heavy body is prepared when the reader opens it and stays prepared while
   # they read: a refresh that closed the prompt they were halfway through would
@@ -1312,7 +1394,28 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
+  # Add repositories lists what the GitHub App reaches once the page is live;
+  # a redraw does not ask GitHub again.
+  defp load_detail(socket, options, ["repositories", "new"]) do
+    socket = load_snapshot(socket, options)
+
+    if socket.assigns.github_repository_discovery == :idle and connected?(socket) and
+         match?({:ok, %{github_connection: :ready}}, socket.assigns.settings),
+       do: discover_github_repositories(socket, options),
+       else: socket
+  end
+
   defp load_detail(socket, options, _segments), do: load_snapshot(socket, options)
+
+  # GitHub can take seconds to list every installation's repositories, so the
+  # page stays live while it answers.
+  defp discover_github_repositories(socket, options) do
+    discover = options.actions.github_repositories
+
+    socket
+    |> assign(:github_repository_discovery, :loading)
+    |> start_async(:github_repositories, discover)
+  end
 
   # Setup, the environments, the integrations and the installation settings
   # are one native page family, with a page of its own for each form that adds
@@ -1426,6 +1529,25 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         setup_failure: IntegrationErrors.message(reason),
         setup_reveal: nil
       )
+
+  # The question is read from the repository's row as the list shows it now.
+  defp ask_remove_repository(socket, ref) do
+    %{projection: projection} = Endpoint.config(:control_plane)
+
+    case Enum.find(projection.repositories.(%{"q" => ref}), &(&1.ref == ref)) do
+      %{configured: %{}} = item ->
+        assign(socket,
+          settings_confirm: {"remove-repository", ref},
+          repository_question: Map.put(RepositoriesPage.removal(item), :error, nil),
+          repository_notice: nil
+        )
+
+      _gone ->
+        socket
+        |> assign(repository_notice: {:list, :error, remove_error(:repository_not_found)})
+        |> refresh(true)
+    end
+  end
 
   defp confirmed(%{assigns: %{settings_confirm: asked}} = socket, asked, run),
     do: {:noreply, socket |> assign(:settings_confirm, nil) |> run.()}
@@ -1666,6 +1788,24 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp retry_error(_reason),
     do: "Setup could not be retried. Reload the page and try again."
+
+  defp add_again_error({:github_repository_unreachable, name}),
+    do:
+      "The GitHub App cannot reach #{name}. Give the app access to it on GitHub, then add it " <>
+        "again."
+
+  defp add_again_error(:repository_not_found), do: "That repository is no longer added."
+  defp add_again_error(reason), do: IntegrationErrors.message(reason)
+
+  defp remove_error(:repository_not_found), do: "That repository is no longer added."
+
+  defp remove_error({:environment_left_read_only, environment}),
+    do:
+      "Work in #{environment} can change only this repository. Make another of its " <>
+        "repositories read and write on the Environments page, then remove this one."
+
+  defp remove_error(_reason),
+    do: "The repository could not be removed. Reload the page and try again."
 
   # Read-only evidence of what the running process assembled. It is rendered
   # from the application environment the runtime published, not from settings,
@@ -2129,6 +2269,19 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
                   confirm={@settings_confirm}
                 />
               </:action>
+              <:action :if={
+                @path == "/repositories/new" and
+                  match?({:ok, %{github_connection: :ready}}, @settings)
+              }>
+                <button
+                  type="button"
+                  class="ui-button secondary"
+                  phx-click="refresh-github-repositories"
+                  disabled={@github_repository_discovery in [:idle, :loading]}
+                >{if @github_repository_discovery in [:idle, :loading] and @github_repositories != [],
+                  do: "Refreshing…",
+                  else: "Refresh"}</button>
+              </:action>
             </Components.page_header>
             <Ryker.ControlPlane.ChannelsPage.slack_status
               :if={@path == "/channels"}
@@ -2145,16 +2298,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               settings={@settings}
             />
             <Components.form_feedback
-              :if={@path == "/repositories" && match?({:retry, _tone, _message}, @repository_notice)}
-              id="repository-retry-notice"
-              tone={elem(@repository_notice, 1)}
-              message={elem(@repository_notice, 2)}
-            />
-            <Components.form_feedback
-              :if={
-                @path == "/repositories" && match?({:imported, _tone, _message}, @repository_notice)
-              }
-              id="repository-imported-notice"
+              :if={@path == "/repositories" && match?({:list, _tone, _message}, @repository_notice)}
+              id="repository-notice"
               class="page-feedback"
               tone={elem(@repository_notice, 1)}
               message={elem(@repository_notice, 2)}
@@ -2175,6 +2320,20 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               />
             </Kit.form_card>
           </div>
+          <Kit.confirm_modal
+            :if={
+              @path == "/repositories" and match?({"remove-repository", _ref}, @settings_confirm) and
+                @repository_question
+            }
+            id="confirm-remove-repository"
+            title={@repository_question.title}
+            text={@repository_question.text}
+            error={@repository_question.error}
+            label="Remove repository"
+            cancel="cancel-settings-action"
+            phx-click="remove-repository"
+            phx-value-repository={elem(@settings_confirm, 1)}
+          />
           <Kit.confirm_modal
             :if={@action_question}
             id="action-question"

@@ -1,10 +1,12 @@
 defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   @moduledoc """
   The live shell around the Channels and Repositories lists: the one line
-  that says whether Slack or GitHub is connected, the Add repositories page
-  and the outcome of what was done on it. Channel defaults and publishing
-  settings live on the Slack and GitHub integration pages now, not in a
-  disclosure under these lists.
+  that says whether Slack or GitHub is connected; Add repositories, a page of
+  its own that lists what the GitHub App reaches when it opens and again on
+  Refresh; and what a repository's row can do: retry its setup, finish an
+  add that stopped half-way, and remove it after a question over the list.
+  Channel defaults and publishing settings live on the Slack and GitHub
+  integration pages, not in a disclosure under these lists.
   """
   use Ryker.DataCase, async: false
 
@@ -12,12 +14,21 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, RepositoryImport}
-  alias Ryker.{Credentials, Settings}
+  alias Ryker.{Credentials, IntegrationSetup, Settings}
 
   @endpoint Endpoint
   @actor "control-plane:local"
 
   setup do
+    # What the GitHub App reaches, as Add repositories and Add it again ask
+    # for it, with how many times they asked.
+    github = start_supervised!({Agent, fn -> %{asked: 0, answer: {:ok, []}} end})
+
+    actions =
+      Map.put(Actions.callbacks(), :github_repositories, fn ->
+        Agent.get_and_update(github, &{&1.answer, %{&1 | asked: &1.asked + 1}})
+      end)
+
     start_supervised!(
       {Endpoint,
        server: false,
@@ -27,7 +38,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
        check_origin: ["//localhost:4321"],
        url: [host: "localhost", port: 4321],
        control_plane: %{
-         actions: Actions.callbacks(),
+         actions: actions,
          projection: Projection.callbacks(),
          observability: %{},
          csrf_secret: String.duplicate("s", 32)
@@ -35,7 +46,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     )
 
     {:ok, snapshot} = Settings.initialize(@actor)
-    %{snapshot: snapshot}
+    %{snapshot: snapshot, github: github}
   end
 
   test "the Channels page says whether Slack is connected, and its defaults live in Integrations" do
@@ -58,27 +69,33 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
     # Adding repositories needs the App: until it works, the status line is
     # the one way forward, with no second prompt beside it.
-    refute has_element?(view, ".page-action a[href='/repositories/new']")
+    refute has_element?(view, "a[href='/repositories/new']")
     refute has_element?(view, "#add-repositories")
     refute has_element?(view, "details.area-settings")
 
-    # The page of the form says the same, rather than an empty form.
+    # The page of the form says the same, rather than an empty form, and asks
+    # GitHub nothing.
     {:ok, view, _html} = open("/repositories/new")
     assert has_element?(view, "#github-status a[href='/integrations/github']", "Connect GitHub")
     refute has_element?(view, "#add-repositories")
+    refute has_element?(view, "button[phx-click=refresh-github-repositories]")
   end
 
-  # Andrew, 2026-09-27, of every add form opened in place over a list: "it
-  # blends into the content ... we need a much better way to do forms like
-  # this, properly designed". Adding repositories was a disclosure under the
-  # list; it is a page of its own now, its form in one card under a title that
-  # says what it adds and a way back, and an import that adds nothing stays
-  # there and says why.
-  test "adding repositories happens on a page of its own, apart from the list" do
+  # Andrew, 2026-09-27: "what is the point to show two add repositories
+  # buttons here?" The header and the GitHub line each offered it, and the
+  # page it opened listed nothing until Find repositories was pressed.
+  test "the Repositories page offers Add repositories once, and it opens its own page" do
     connect_github!()
     {:ok, view, _html} = open("/repositories")
 
-    refute has_element?(view, "#add-repositories")
+    main = view |> render() |> LazyHTML.from_fragment() |> LazyHTML.query("main")
+    assert main |> LazyHTML.query("a[href='/repositories/new']") |> Enum.count() == 1
+
+    # The GitHub line still says a repository is needed, and opens GitHub's
+    # page rather than a second way to add one.
+    assert has_element?(view, "#github-status", "Add a repository to start")
+    assert has_element?(view, "#github-status a[href='/integrations/github']", "Manage")
+
     view |> element(".page-action a", "Add repositories") |> render_click()
     assert_patch(view, "/repositories/new")
 
@@ -91,14 +108,71 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
              "Each one joins the default environment, where new channels work."
            )
 
-    assert has_element?(
-             view,
-             ".kit-form-card #add-repositories button[phx-click=discover-github-repositories]",
-             "Find repositories"
-           )
-
+    refute has_element?(view, "[phx-click=discover-github-repositories]")
     refute has_element?(view, ".entity-list")
     refute has_element?(view, "#operator-search")
+  end
+
+  # Andrew, 2026-09-27: "add repositories can be separate page so it's not
+  # below table and you can load list of repos on load and have button to
+  # refresh the list when needed."
+  test "Add repositories lists what the GitHub App reaches when it opens, and again on Refresh",
+       %{github: github} do
+    connect_github!()
+    answer!(github, [repository("acme/api", 11), repository("acme/web", 12, true)])
+
+    {:ok, view, _html} = open("/repositories/new")
+    render_async(view)
+
+    assert has_element?(view, "#repository-picker li[data-repository-name='acme/api']")
+
+    assert has_element?(
+             view,
+             "#repository-picker li[data-repository-name='acme/web'] input[disabled]"
+           )
+
+    assert has_element?(view, "#repository-picker li", "Already added")
+    assert asked(github) == 1
+
+    # Given access to another repository, the App lists it after a Refresh.
+    answer!(github, [
+      repository("acme/api", 11),
+      repository("acme/docs", 13),
+      repository("acme/web", 12, true)
+    ])
+
+    view |> element(".page-action button", "Refresh") |> render_click()
+    render_async(view)
+
+    assert has_element?(view, "#repository-picker li[data-repository-name='acme/docs']")
+    assert asked(github) == 2
+  end
+
+  test "an App that lists nothing, or cannot be asked, says so on the Add page", %{github: github} do
+    connect_github!()
+
+    {:ok, view, _html} = open("/repositories/new")
+    render_async(view)
+    assert has_element?(view, "#repository-discovery-empty", "No repositories found")
+
+    Agent.update(github, &%{&1 | answer: {:error, {:github_verification_failed, :installations}}})
+    view |> element(".page-action button", "Refresh") |> render_click()
+    render_async(view)
+
+    assert has_element?(view, ".repository-discovery-error .form-feedback-error")
+    refute has_element?(view, "#repository-picker")
+  end
+
+  # Andrew, 2026-09-27, of every add form opened in place over a list: "it
+  # blends into the content". An import that adds what was chosen returns to
+  # the list, which says where the repositories went; one that adds nothing
+  # stays on the page and says why.
+  test "adding repositories goes back to the list, which says where they went", %{github: github} do
+    connect_github!()
+    answer!(github, [repository("acme/api", 11), repository("acme/docs", 13)])
+
+    {:ok, view, _html} = open("/repositories/new")
+    render_async(view)
 
     render_hook(view, "import-github-repositories", %{"import_mode" => "selected"})
 
@@ -108,32 +182,36 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
              "No repositories were selected."
            )
 
-    # The outcome belongs to the page it happened on.
-    assert {:error, {:live_redirect, %{to: "/repositories"}}} =
-             view |> element("nav.kit-back a") |> render_click()
+    view
+    |> form("#repository-picker", %{"repository_ids" => ["11"]})
+    |> render_submit(%{"import_mode" => "selected"})
 
-    {:ok, view, _html} = open("/repositories")
+    assert_patch(view, "/repositories")
+
+    assert has_element?(
+             view,
+             "#repository-notice.form-feedback-success",
+             "Added 1 repository to the Default environment."
+           )
+
+    assert has_element?(view, "#repository-acme-api")
+    refute has_element?(view, "#repository-acme-docs")
     refute has_element?(view, "#repository-import-notice")
-    refute has_element?(view, "#repository-imported-notice")
   end
 
   test "an import's outcome is said inside the Add repositories form" do
     # Until 2026-09-24 the result of an import ("2 added · 0 already present
     # · 0 failed") was assigned and never rendered on this page: people
     # pressed Add and saw nothing happen, whether it had worked or not.
-    view = %{
-      github_connection: :ready,
-      snapshot: %{repositories: [], github: %{auto_add_repositories: false}}
-    }
-
     for {tone, message, role} <- [
           {:error, "Connection could not be verified.", "alert"},
           {:info, "No repositories were selected.", "status"}
         ] do
       document =
         render_component(&RepositoryImport.repository_import/1,
-          view: view,
+          view: ready_view(),
           repositories: [],
+          discovery: :complete,
           notice: {tone, message}
         )
         |> LazyHTML.from_fragment()
@@ -151,24 +229,15 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   # Selection itself is test/js/repository_picker_test.mjs; this pins what the
   # server draws before the hook runs.
   test "the repository picker starts with nothing ticked and counts what it will add" do
-    view = %{
-      github_connection: :ready,
-      snapshot: %{repositories: [], github: %{auto_add_repositories: false}}
-    }
-
-    repositories =
-      for {name, id, present} <- [
-            {"acme/api", 1, false},
-            {"acme/web", 2, true},
-            {"acme/docs", 3, false}
-          ] do
-        %{full_name: name, repository_id: id, default_branch: "main", already_present: present}
-      end
-
     picker =
       render_component(&RepositoryImport.repository_import/1,
-        view: view,
-        repositories: repositories
+        view: ready_view(),
+        repositories: [
+          repository("acme/api", 1),
+          repository("acme/web", 2, true),
+          repository("acme/docs", 3)
+        ],
+        discovery: :complete
       )
       |> LazyHTML.from_fragment()
       |> LazyHTML.query("form#repository-picker[phx-hook=RepositoryPicker]")
@@ -192,14 +261,171 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
     assert has_element?(
              view,
-             "#repository-retry-notice.form-feedback-error[role=alert]",
+             "#repository-notice.form-feedback-error[role=alert]",
              "That repository is no longer added."
            )
 
     refute has_element?(view, "#repository-import-notice")
   end
 
+  # Andrew, 2026-09-27: "how do I remove repositories?!"
+  test "a repository is removed only after the question over the list is answered" do
+    connect_github!()
+
+    {:ok, %{added: ["acme/api", "acme/web"]}} =
+      IntegrationSetup.import_github_repositories([
+        repository("acme/api", 11),
+        repository("acme/web", 12)
+      ])
+
+    {:ok, view, _html} = open("/repositories")
+
+    view
+    |> element("#repository-acme-api button[phx-value-action=remove-repository]", "Remove")
+    |> render_click()
+
+    question = "#confirm-remove-repository"
+    assert has_element?(view, "#{question} .kit-modal-title", "Remove acme/api?")
+
+    assert has_element?(
+             view,
+             "#{question} .kit-modal-text",
+             "Work in Default can no longer use its code."
+           )
+
+    assert Enum.map(Settings.fetch!().repositories, & &1.ref) == ["acme-api", "acme-web"]
+
+    # Cancel closes it and removes nothing.
+    view |> element("#{question} button", "Cancel") |> render_click()
+    refute has_element?(view, question)
+    assert Enum.map(Settings.fetch!().repositories, & &1.ref) == ["acme-api", "acme-web"]
+
+    view
+    |> element("#repository-acme-api button[phx-value-action=remove-repository]", "Remove")
+    |> render_click()
+
+    view |> element("#{question} button", "Remove repository") |> render_click()
+
+    refute has_element?(view, question)
+
+    assert has_element?(
+             view,
+             "#repository-notice.form-feedback-success",
+             "Removed acme/api. Its past requests stay in Activity."
+           )
+
+    refute has_element?(view, "#repository-acme-api")
+    assert Enum.map(Settings.fetch!().repositories, & &1.ref) == ["acme-web"]
+
+    # A remove that was never asked about only asks.
+    render_click(view, "remove-repository", %{"repository" => "acme-web"})
+    assert has_element?(view, "#{question} .kit-modal-title", "Remove acme/web?")
+    assert Enum.map(Settings.fetch!().repositories, & &1.ref) == ["acme-web"]
+  end
+
+  test "a removal that would leave an environment nothing to change says why in its question" do
+    connect_github!()
+
+    {:ok, %{added: ["acme/api", "acme/docs"]}} =
+      IntegrationSetup.import_github_repositories([
+        repository("acme/api", 11),
+        repository("acme/docs", 13)
+      ])
+
+    {:ok, _snapshot} =
+      Settings.put_environment(
+        %{ref: "default", access: %{"acme-docs" => :read_only}},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    {:ok, view, _html} = open("/repositories")
+
+    view
+    |> element("#repository-acme-api button[phx-value-action=remove-repository]", "Remove")
+    |> render_click()
+
+    view
+    |> element("#confirm-remove-repository button", "Remove repository")
+    |> render_click()
+
+    assert has_element?(
+             view,
+             "#confirm-remove-repository .form-feedback-error",
+             "Work in Default can change only this repository."
+           )
+
+    assert Enum.map(Settings.fetch!().repositories, & &1.ref) == ["acme-api", "acme-docs"]
+  end
+
+  # AndrewDryga/andrewdryga.github.com was saved without its GitHub binding
+  # on 2026-09-26 and read "GitHub binding is missing" with a Retry that
+  # stopped at the same place every time.
+  test "a repository whose adding stopped half-way is finished with Add it again",
+       %{github: github} do
+    connect_github!()
+
+    {:ok, _snapshot} =
+      Settings.put_repository(
+        %{
+          ref: "acme-site",
+          display_name: "acme/site",
+          github_repository: "acme/site",
+          onboarding_state: :blocked,
+          onboarding_error: "GitHub binding is missing."
+        },
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    answer!(github, [repository("acme/site", 31)])
+    {:ok, view, _html} = open("/repositories")
+
+    row = "#repository-acme-site"
+    assert has_element?(view, "#{row} .state-word[data-tone=warn]", "Not fully added")
+    assert has_element?(view, "#{row} .entity-text", "Add it again, or remove it.")
+    refute has_element?(view, "#{row} button[phx-click=retry-github-onboarding]")
+    assert has_element?(view, "#{row} button[phx-value-action=remove-repository]", "Remove")
+
+    view
+    |> element("#{row} button[phx-click=add-repository-again]", "Add it again")
+    |> render_click()
+
+    assert has_element?(
+             view,
+             "#repository-notice.form-feedback-success",
+             "Added 1 repository to the Default environment."
+           )
+
+    # Finished, its setup starts over instead of reading as stopped.
+    assert has_element?(view, "#{row} .state-word", "Setting up")
+    refute has_element?(view, "#{row} .entity-text")
+    assert [%{repository_ref: "acme-site"}] = Settings.fetch!().github_bindings
+  end
+
   defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+
+  defp answer!(github, repositories),
+    do: Agent.update(github, &%{&1 | answer: {:ok, repositories}})
+
+  defp asked(github), do: Agent.get(github, & &1.asked)
+
+  defp repository(full_name, id, present \\ false) do
+    %{
+      already_present: present,
+      default_branch: "main",
+      full_name: full_name,
+      installation_id: 41,
+      permissions: %{"contents" => "write", "metadata" => "read", "pull_requests" => "write"},
+      repository_id: id
+    }
+  end
+
+  defp ready_view,
+    do: %{
+      github_connection: :ready,
+      snapshot: %{repositories: [], github: %{auto_add_repositories: false}}
+    }
 
   # A verified GitHub App as Connect leaves it before any repository is added.
   defp connect_github! do

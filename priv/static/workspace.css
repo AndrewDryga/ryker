@@ -1047,15 +1047,10 @@
 .ryker-app :where(input,select,textarea):focus-visible { outline:2px solid var(--ryker-mint); outline-offset:2px; }
 .ryker-app :where(input,select,textarea):disabled { background:var(--ryker-disabled-bg); border-color:var(--ryker-disabled-border); color:var(--ryker-disabled-text); cursor:not-allowed; }
 
-.connection-card form, .integration-panel form, .repository-picker form { display:grid; gap:18px; max-width:760px; }
-.connection-card label, .integration-panel label, .repository-picker > form > label { display:grid; gap:6px; font-size:14px; font-weight:600; }
-.connection-card input, .connection-card textarea, .integration-panel input, .integration-panel textarea, .integration-panel select, .repository-picker input[type=text] { width:100%; min-height:var(--ryker-control-height); padding:9px 11px; border:1px solid var(--ryker-control-border); border-radius:6px; font:inherit; }
-.connection-card form > .ui-button, .repository-picker form > .ui-button { justify-self:start; }
-.repository-picker ul { margin:0; padding:0; list-style:none; border-top:1px solid var(--ryker-stroke); }
-.repository-picker li { border-bottom:1px solid var(--ryker-stroke); }
-.repository-picker li label { display:grid; grid-template-columns:20px minmax(0,1fr) auto; gap:10px; align-items:center; min-height:48px; cursor:pointer; }
-.repository-picker li input { width:18px; height:18px; accent-color:var(--ryker-mint); }
-.repository-picker li span { color:var(--ryker-text-secondary); font-size:13px; }
+.connection-card form { display:grid; gap:18px; max-width:760px; }
+.connection-card label { display:grid; gap:6px; font-size:14px; font-weight:600; }
+.connection-card input, .connection-card textarea { width:100%; min-height:var(--ryker-control-height); padding:9px 11px; border:1px solid var(--ryker-control-border); border-radius:6px; font:inherit; }
+.connection-card form > .ui-button { justify-self:start; }
 
 /* Shared dark-state vocabulary. Brand mint is reserved for selection and
    actions; lifecycle meaning keeps independent, labelled colors. */
@@ -1802,14 +1797,15 @@
 .channel-page .section-actions a { font-size:13px; line-height:18px; }
 .channel-page .channel-usage { display:flex; flex-wrap:wrap; gap:4px 16px; margin:0; font-size:14px; line-height:20px; color:var(--ryker-text); }
 .channel-page .channel-usage-note { margin:4px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-/* Adding repositories: a disclosure that reads like a section head. */
+/* Add repositories (/repositories/new): the list loads as the page opens. */
 .repository-import-body { display:grid; justify-items:start; gap:16px; }
-.repository-import-body > :is(form, .kit-empty, .repository-discovery-result, .form-feedback) { justify-self:stretch; }
+.repository-import-body > :is(form, .kit-empty, .repository-discovery-error, .form-feedback) { justify-self:stretch; }
 .repository-import form { display:grid; gap:16px; }
 .repository-import ul { margin:0; padding:0; list-style:none; }
 .repository-import li { border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 7%, transparent); }
 .repository-import li label { display:grid; grid-template-columns:20px minmax(0,1fr) auto; align-items:center; gap:10px; min-height:44px; cursor:pointer; }
 .repository-import li input { width:18px; height:18px; accent-color:var(--ryker-mint); }
+.repository-import li strong { min-width:0; overflow-wrap:anywhere; }
 .repository-import li span { font-size:13px; color:var(--ryker-text-secondary); }
 .repository-search { display:grid; gap:6px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .ryker-app .repository-search input { box-sizing:border-box; width:100%; max-width:420px; min-height:var(--ryker-control-height); padding:8px 12px; border:1px solid var(--ryker-control-border); border-radius:8px; background:var(--ryker-control-bg); color:var(--ryker-text); font:inherit; font-size:14px; }
@@ -1817,12 +1813,8 @@
 .repository-import-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .repository-select-all { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0; }
 .ryker-app .repository-import-actions .ui-button:disabled { opacity:.55; cursor:not-allowed; }
-.repository-connect-prompt, .repository-discovery-result { display:flex; align-items:center; justify-content:space-between; gap:16px; }
-.repository-connect-prompt p, .repository-discovery-result p { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
-.repository-discovery-result strong { display:block; margin-bottom:2px; font-size:14px; color:var(--ryker-text); }
-.repository-discovery-feedback { flex:1; margin:0; }
-.repository-discovery-actions { display:flex; flex:none; flex-wrap:wrap; gap:8px; }
-#repository-retry-notice { max-width:1040px; margin:0 0 16px; }
+.repository-discovery-error { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.repository-discovery-error .form-feedback { flex:1; margin:0; }
 /* Working copies: one storage line per worker, then the copies. */
 .working-copies-storage { display:grid; gap:6px; max-width:1040px; margin:0 0 16px; }
 .working-copies-storage .storage-line, .working-copies-storage .storage-note { margin:0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
@@ -1834,7 +1826,7 @@
   .connection-line { flex-direction:column; align-items:flex-start; }
   :is(.repositories-page, .working-copies-page) .entity-facts, .channel-page .channel-facts { grid-template-columns:minmax(0,1fr); gap:2px; }
   :is(.repositories-page, .working-copies-page) .entity-facts dd, .channel-page .channel-facts dd { margin-bottom:8px; }
-  .repository-connect-prompt, .repository-discovery-result { flex-direction:column; align-items:flex-start; }
+  .repository-discovery-error { flex-direction:column; align-items:flex-start; }
 }
 
 /* Memory (2026-09-24 redesign): Facts, Learned, Findings and Learning are Kit

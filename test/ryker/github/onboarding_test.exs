@@ -66,6 +66,21 @@ defmodule Ryker.GitHub.OnboardingTest do
       do: {:error, {:github_onboarding, :archived}}
   end
 
+  # Removes the repository while its setup reads it, as Remove on the
+  # Repositories page does.
+  defmodule RemovedDuringSetupAPI do
+    def pin(_binding, _repository), do: {:ok, String.duplicate("a", 40)}
+
+    def scan(_binding, _repository, _commit) do
+      {:ok, _removed} =
+        Ryker.IntegrationSetup.remove_repository("repo", storage_root: System.tmp_dir!())
+
+      {:ok, %{content: "# RYKER.md\n", status: :proposed}}
+    end
+
+    def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
+  end
+
   defmodule UnknownFailureAPI do
     def pin(_binding, _repository), do: {:error, {:github_status, 502}}
     def scan(_binding, _repository, _commit), do: flunk("must not scan")
@@ -101,6 +116,22 @@ defmodule Ryker.GitHub.OnboardingTest do
       )
 
     :ok
+  end
+
+  # Every step of a setup saved the repository by its ref, so a step that
+  # finished after Remove saved it again, holding nothing but its setup
+  # state (2026-09-27).
+  test "a repository removed while it is being set up stays removed" do
+    log =
+      capture_log(fn ->
+        assert {:error, :repository_removed} = Onboarding.run("repo", api: RemovedDuringSetupAPI)
+      end)
+
+    snapshot = Settings.fetch!()
+    assert snapshot.repositories == []
+    assert snapshot.github_bindings == []
+    refute log =~ "could not be marked blocked"
+    refute log =~ "setup raised"
   end
 
   # A block that could not be saved was swallowed whole: the repository read

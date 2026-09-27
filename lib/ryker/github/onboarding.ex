@@ -31,6 +31,10 @@ defmodule Ryker.GitHub.Onboarding do
          {:ok, outcome} <- publish(repository_ref, repository, binding, source_commit, scan, api) do
       {:ok, outcome}
     else
+      # Removed while it was being set up: there is nothing left to mark.
+      {:error, :repository_removed} = removed ->
+        removed
+
       {:error, reason} = error ->
         _ = block(repository_ref, reason)
         error
@@ -54,32 +58,33 @@ defmodule Ryker.GitHub.Onboarding do
     repository = Enum.find(snapshot.repositories, &(&1.ref == ref))
     binding = Enum.find(snapshot.github_bindings, &(&1.repository_ref == ref))
 
-    if repository && binding,
-      do: {:ok, repository, binding},
-      else: {:error, :repository_binding_missing}
+    cond do
+      is_nil(repository) -> {:error, :repository_removed}
+      is_nil(binding) -> {:error, :repository_binding_missing}
+      true -> {:ok, repository, binding}
+    end
   end
 
   defp available(%{github_access: :available}), do: :ok
   defp available(_repository), do: {:error, :repository_access_unavailable}
 
   defp pin(repository, binding, api) do
-    :ok = transition(repository.ref, %{onboarding_state: :cloning, onboarding_error: nil})
+    with :ok <- transition(repository.ref, %{onboarding_state: :cloning, onboarding_error: nil}),
+         do: source_commit(repository, binding, api)
+  end
 
-    case repository.source_commit do
-      commit when is_binary(commit) ->
-        {:ok, commit}
+  defp source_commit(%{source_commit: commit}, _binding, _api) when is_binary(commit),
+    do: {:ok, commit}
 
-      nil ->
-        with {:ok, commit} <- api.pin(binding, repository),
-             :ok <- transition(repository.ref, %{source_commit: commit}) do
-          {:ok, commit}
-        end
-    end
+  defp source_commit(repository, binding, api) do
+    with {:ok, commit} <- api.pin(binding, repository),
+         :ok <- transition(repository.ref, %{source_commit: commit}),
+         do: {:ok, commit}
   end
 
   defp scan(ref, repository, binding, source_commit, api) do
-    :ok = transition(ref, %{onboarding_state: :scanning})
-    api.scan(binding, repository, source_commit)
+    with :ok <- transition(ref, %{onboarding_state: :scanning}),
+         do: api.scan(binding, repository, source_commit)
   end
 
   defp publish(
@@ -90,14 +95,13 @@ defmodule Ryker.GitHub.Onboarding do
          %{content: content, status: :accepted},
          _api
        ) do
-    :ok =
-      transition(
-        ref,
-        knowledge_attributes(content, source_commit, :accepted)
-        |> Map.merge(%{onboarding_state: :ready, onboarding_error: nil})
-      )
-
-    {:ok, :already_present}
+    with :ok <-
+           transition(
+             ref,
+             knowledge_attributes(content, source_commit, :accepted)
+             |> Map.merge(%{onboarding_state: :ready, onboarding_error: nil})
+           ),
+         do: {:ok, :already_present}
   end
 
   defp publish(
@@ -108,9 +112,8 @@ defmodule Ryker.GitHub.Onboarding do
          %{content: content, status: :proposed},
          api
        ) do
-    :ok = transition(ref, %{onboarding_state: :publishing})
-
-    with {:ok, %{url: url}} <- api.publish(binding, repository, source_commit, content),
+    with :ok <- transition(ref, %{onboarding_state: :publishing}),
+         {:ok, %{url: url}} <- api.publish(binding, repository, source_commit, content),
          :ok <-
            transition(ref, %{
              knowledge_pull_request_url: url,
@@ -136,16 +139,23 @@ defmodule Ryker.GitHub.Onboarding do
 
   defp digest(content), do: :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
 
+  # A step writes only a repository that is still added, at the revision it
+  # read it at. Removing a repository while its setup ran would otherwise
+  # save it again, holding nothing but its setup state.
   defp transition(ref, attributes) do
     snapshot = Settings.fetch!()
 
-    case Settings.put_repository(
-           Map.put(attributes, :ref, ref),
-           snapshot.installation.revision,
-           @actor
-         ) do
-      {:ok, _snapshot} -> :ok
-      {:error, reason} -> {:error, reason}
+    if Enum.any?(snapshot.repositories, &(&1.ref == ref)) do
+      case Settings.put_repository(
+             Map.put(attributes, :ref, ref),
+             snapshot.installation.revision,
+             @actor
+           ) do
+        {:ok, _snapshot} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :repository_removed}
     end
   end
 

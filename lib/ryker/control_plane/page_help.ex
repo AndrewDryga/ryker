@@ -423,12 +423,12 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How repositories work", [
       {"What this page shows",
        [
-         "The code Ryker can read and change. Each repository is Ready, Setting up or Needs attention, with the environments it is in and where it was used."
+         "The code Ryker can read and change. Each repository is Ready, Setting up, Not fully added or Needs attention, with the environments it is in and where it was used."
        ]},
-      {"Add repositories",
+      {"Add and remove repositories",
        [
-         "Connect GitHub first. Then Add repositories opens a page of its own that lists what the Ryker GitHub App can reach. Each one you add joins the default environment, so work there can use it at once, and the list says what was added.",
-         "You can also add new repositories automatically when the App gets access to them."
+         "Connect GitHub first. Add repositories then opens a page that lists what the Ryker GitHub App can reach, and Refresh lists it again. Each one you add joins the default environment, so work there can use it at once. You can also add new ones automatically when the App gets access to them.",
+         "Remove takes a repository out of every environment, stops its setup and deletes the copy of its code Ryker keeps. Ryker asks first. Past requests stay, and you can add it again later."
        ]},
       {"Setting up",
        [
@@ -440,7 +440,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"When something looks wrong",
        [
-         "Needs attention says what stopped, such as GitHub access that was removed. Fix the cause, then press Retry setup."
+         "Needs attention says what stopped, such as GitHub access that was removed. Fix the cause, then press Retry setup.",
+         "Not fully added means adding it stopped before it finished. Add it again finishes it."
        ]}
     ])
   end

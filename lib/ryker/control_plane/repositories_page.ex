@@ -1,11 +1,13 @@
 defmodule Ryker.ControlPlane.RepositoriesPage do
   @moduledoc """
   The Repositories list: the code Ryker can read and work in, one Kit row per
-  repository. A row says whether the repository is ready, still being set up
-  or needs a person, and what to do about it, and which environments it is
-  in; access, permissions, GitHub events, RYKER.md, the last code Ryker used
-  wait in one closed Details disclosure per row.
-  An open list redraws when anything a row says changes (`subscriptions/0`).
+  repository. A row says whether the repository is ready, still being set up,
+  not fully added or needs a person, and what to do about it, and which
+  environments it is in; access, permissions, GitHub events, RYKER.md, the
+  last code Ryker used wait in one closed Details disclosure per row. Every
+  added repository can be removed; the page asks first, over the list
+  (`removal/1`). An open list redraws when anything a row says changes
+  (`subscriptions/0`).
   """
   use Phoenix.Component
 
@@ -25,6 +27,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   # one that is missing is a detail. Flagging a missing deployments permission
   # put Andrew's repository in Needs attention (2026-09-26).
   @optional_permissions ~w(checks actions deployments issues)
+  @setting_up [:pending, :cloning, :scanning, :publishing]
 
   @doc """
   The topics an open Repositories list listens to, as the context functions
@@ -95,14 +98,30 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
           text={problem(item)}
           meta={meta(item, @now)}
         >
-          <:actions :if={retry?(item)}>
+          <:actions :if={removable?(item)}>
             <button
+              :if={retry?(item)}
               type="button"
               class="ui-button secondary"
               phx-click="retry-github-onboarding"
               phx-value-repository={item.ref}
               phx-disable-with="Retrying…"
             >Retry setup</button>
+            <button
+              :if={add_again?(item)}
+              type="button"
+              class="ui-button secondary"
+              phx-click="add-repository-again"
+              phx-value-repository={item.ref}
+              phx-disable-with="Adding…"
+            >Add it again</button>
+            <button
+              type="button"
+              class="ui-button quiet"
+              phx-click="confirm-settings-action"
+              phx-value-action="remove-repository"
+              phx-value-ref={item.ref}
+            >Remove<span class="sr-only">{" " <> name(item)}</span></button>
           </:actions>
           <:details>
             <details id={"repository-" <> item.ref <> "-details"} class="entity-details">
@@ -137,23 +156,59 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   attr(:settings, :any, required: true, doc: "The settings view the shell already read")
 
   @doc """
-  One line saying where GitHub stands, in the words the GitHub page uses, with
-  the one step that moves it forward.
+  One line saying where GitHub stands, in the words the GitHub page uses. Its
+  button opens GitHub's page: Add repositories is the list's own action, so
+  the line never offers it a second time (Andrew, 2026-09-27: "what is the
+  point to show two add repositories buttons here?").
   """
   def github_status(assigns) do
+    assigns =
+      assign(assigns, :integration, assigns.settings |> github() |> without_adding())
+
     ~H"""
-    <Integrations.line
-      id="github-status"
-      key={:github}
-      integration={Integrations.read(:github, @settings)}
-    />
+    <Integrations.line id="github-status" key={:github} integration={@integration} />
     """
+  end
+
+  defp github(settings), do: Integrations.read(:github, settings)
+
+  defp without_adding(%{action: %{href: "/repositories/new"}} = integration),
+    do: %{integration | action: %{label: "Manage", href: "/integrations/github"}}
+
+  defp without_adding(integration), do: integration
+
+  @doc """
+  What removing a repository asks: its name, then what removing it does, in
+  the order it matters to the people using it.
+  """
+  @spec removal(map()) :: %{title: String.t(), text: String.t()}
+  def removal(item) do
+    text =
+      [
+        item.environments != [] &&
+          "Work in #{Environments.sentence(item.environments)} can no longer use its code.",
+        item.schedules > 0 && "Schedules that work in it stop running.",
+        if(get_in(item, [:configured, :onboarding_state]) in @setting_up,
+          do: "Its setup stops, and Ryker deletes the copy of its code it keeps.",
+          else: "Ryker deletes the copy of its code it keeps."
+        ),
+        "Past requests stay, and you can add it again later."
+      ]
+      |> Enum.filter(& &1)
+      |> Enum.join(" ")
+
+    %{title: "Remove #{name(item)}?", text: text}
   end
 
   @doc "The name people know a repository by: owner/repo when it was added from GitHub."
   @spec name(map()) :: String.t()
   def name(%{configured: %{github_repository: name}}) when is_binary(name), do: name
   def name(%{ref: ref}), do: ref
+
+  # Saved without its GitHub binding (an import that stopped half-way), a
+  # repository can be neither set up nor worked in, and retrying its setup
+  # only stops again at "GitHub binding is missing".
+  defp state(%{configured: %{github_bound: false}}), do: {:warn, "Not fully added"}
 
   defp state(%{configured: %{onboarding_state: onboarding}} = item) do
     cond do
@@ -182,6 +237,16 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   end
 
   # One sentence: what is wrong, then what to do about it.
+  defp problem(%{configured: %{github_bound: false} = repository}) do
+    if is_binary(repository[:github_repository]),
+      do:
+        "Adding it stopped before it finished, so Ryker cannot use it yet. " <>
+          "Add it again, or remove it.",
+      else:
+        "It was not added from GitHub, so Ryker cannot use it. Remove it, then add it from " <>
+          "GitHub."
+  end
+
   defp problem(%{configured: %{github_access: :removed}}),
     do:
       "GitHub access was removed. Give the Ryker GitHub App access to this repository again, then retry."
@@ -190,9 +255,16 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     do:
       "The Ryker GitHub App is suspended for this repository. Unsuspend it in GitHub, then retry."
 
-  defp problem(%{configured: %{onboarding_state: :blocked} = repository}),
-    do:
-      "Setup stopped: #{String.trim_trailing(repository[:onboarding_error] || "the last step failed", ".")}. Fix the cause, then retry setup."
+  # A reason that already says how to go on is not followed by a second
+  # instruction: an archived repository's "Unarchive it on GitHub and retry,
+  # or remove it" read on with "Fix the cause, then retry setup" (2026-09-27).
+  defp problem(%{configured: %{onboarding_state: :blocked} = repository}) do
+    reason = repository[:onboarding_error] || "The last step failed."
+
+    if reason =~ ~r/\bretry\b/i,
+      do: "Setup stopped. " <> reason,
+      else: "Setup stopped. #{reason} Fix the cause, then retry setup."
+  end
 
   defp problem(%{configured: %{github_permissions: permissions}}) when is_map(permissions) do
     case missing_permissions(permissions) do
@@ -227,11 +299,28 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     |> Enum.map(&String.replace(&1, "_", " "))
   end
 
-  defp retry?(%{configured: %{onboarding_state: :blocked, github_access: :available}}), do: true
+  defp retry?(%{
+         configured: %{onboarding_state: :blocked, github_access: :available, github_bound: true}
+       }),
+       do: true
+
   defp retry?(_item), do: false
 
+  defp add_again?(%{configured: %{github_bound: false, github_repository: name}}),
+    do: is_binary(name)
+
+  defp add_again?(_item), do: false
+
+  # Only a saved repository can be removed; one Ryker only saw in past work
+  # has nothing to remove but its history, which stays.
+  defp removable?(%{configured: %{onboarding_state: _saved}}), do: true
+  defp removable?(_item), do: false
+
+  # Not fully added, a repository is not being set up whatever its state says.
+  defp meta(%{configured: %{github_bound: false}} = item, now), do: use_facts(item, now)
+
   defp meta(%{configured: %{onboarding_state: onboarding} = repository}, now)
-       when onboarding in [:pending, :cloning, :scanning, :publishing] do
+       when onboarding in @setting_up do
     [
       step(onboarding),
       repository[:updated_at] &&
@@ -239,7 +328,9 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     ]
   end
 
-  defp meta(item, now),
+  defp meta(item, now), do: use_facts(item, now)
+
+  defp use_facts(item, now),
     do: [environments(item), used_in(item), tasks(item.sessions), code(item.freshness, now)]
 
   defp step(:pending), do: "Waiting to start"
