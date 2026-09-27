@@ -294,14 +294,8 @@ defmodule Ryker.ControlPlane.CapabilityTools do
            }) do
       {:ok, %{"action_ref" => frozen.action_ref, "status" => Atom.to_string(frozen.status)}}
     else
-      {:error, :update_limit_reached} ->
-        {:error, SlackCapabilityTools.update_limit_error()}
-
-      {:error, {:invalid_update_mentions, violations}} ->
-        {:error, "invalid_arguments: " <> Enum.join(violations, " ") <> " Nothing was posted."}
-
       {:error, reason} ->
-        {:error, error_code(reason)}
+        {:error, SlackCapabilityTools.update_error_code(reason) || error_code(reason)}
     end
   end
 

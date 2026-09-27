@@ -175,7 +175,7 @@ defmodule Ryker.Slack.CapabilityTools do
       },
       %{
         "description" =>
-          "Post one short message in this conversation right away, before your final answer: an early acknowledgement when the work will take a while, a partial finding someone can act on now, or what you are doing next. It goes at once to the thread your answer goes to, at most 3 per turn, in the order posted. It never replaces the final answer, and the final answer is accepted only once every update has been delivered.",
+          "Post one short message in this conversation right away, before your final answer: an early acknowledgement when the work will take a while, a partial finding someone can act on now, or what you are doing next. It goes at once to the thread your answer goes to, at most #{PlatformActionCustody.maximum_updates()} per turn, in the order posted. It never replaces the final answer, and the final answer is accepted only once every update has been delivered.",
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{
@@ -587,10 +587,10 @@ defmodule Ryker.Slack.CapabilityTools do
 
   defp error_code(:invalid_arguments), do: "invalid_arguments"
 
-  defp error_code({:invalid_update_mentions, violations}),
-    do: "invalid_arguments: " <> Enum.join(violations, " ") <> " Nothing was posted."
+  defp error_code({:invalid_update_mentions, _violations} = reason),
+    do: update_error_code(reason)
 
-  defp error_code(:update_limit_reached), do: update_limit_error()
+  defp error_code(:update_limit_reached), do: update_error_code(:update_limit_reached)
   defp error_code(:invalid_source_cursor), do: "invalid_source_cursor"
   defp error_code(:unauthorized), do: "unauthorized"
   defp error_code(:slack_action_token_not_authorized), do: "unauthorized"
@@ -599,11 +599,16 @@ defmodule Ryker.Slack.CapabilityTools do
   defp error_code(_reason), do: "temporarily_unavailable"
 
   @doc """
-  The refusal a Work update past the turn's bound gets, the same in Slack and
-  Chat: what happened and what to do instead.
+  What a refused Work update reads, the same in Slack and Chat: what happened
+  and what to do instead. Nil for a refusal every tool shares.
   """
-  @spec update_limit_error() :: String.t()
-  def update_limit_error,
+  @spec update_error_code(term()) :: String.t() | nil
+  def update_error_code({:invalid_update_mentions, violations}),
+    do: "invalid_arguments: " <> Enum.join(violations, " ") <> " Nothing was posted."
+
+  def update_error_code(:update_limit_reached),
     do:
-      "update_limit_reached: this turn has already posted its 3 updates. Nothing was posted; say anything more in the final answer."
+      "update_limit_reached: this turn has already posted its #{PlatformActionCustody.maximum_updates()} updates. Nothing was posted; say anything more in the final answer."
+
+  def update_error_code(_reason), do: nil
 end
