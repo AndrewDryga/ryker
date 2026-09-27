@@ -932,7 +932,10 @@ defmodule Ryker.ControlPlane.LiveTest do
       refute html =~ "Up to 2 files"
       refute html =~ "Saved on acceptance"
 
-      assert LazyHTML.query(document, ".lab-composer-dock > .lab-chat-footer")
+      assert LazyHTML.query(
+               document,
+               ".lab-composer-dock > .lab-composer-foot > .lab-chat-footer"
+             )
              |> LazyHTML.text()
              |> String.trim() == "⌘ / Ctrl + Enter to send"
 
@@ -1091,12 +1094,11 @@ defmodule Ryker.ControlPlane.LiveTest do
   # Andrew, 2026-09-25: "Chat picks its environment." Every conversation ran
   # in the default environment and nothing on the page said so, so a question
   # about staging was answered from production's repositories and Emisar
-  # account. The conversation's head now offers the environments in one
-  # select: a new conversation starts in the default, a choice is saved for
-  # the conversation and survives a reload and a routine refresh, and "No
-  # environment" is a choice too. (The head is this control beside the title,
-  # not the "Ready for your message" hero the draft test still refuses.)
-  test "a conversation picks its environment in its head and keeps the choice" do
+  # account. The conversation now offers the environments in one select
+  # under its message box: a new conversation starts in the default, a
+  # choice is saved for the conversation and survives a reload and a routine
+  # refresh, and "No environment" is a choice too.
+  test "a conversation picks its environment under its message box and keeps the choice" do
     alias Ryker.Fixtures.ChannelEnvironments
 
     ChannelEnvironments.environment!("production", %{
@@ -1107,21 +1109,22 @@ defmodule Ryker.ControlPlane.LiveTest do
     ChannelEnvironments.environment!("staging", %{repositories: ["acme-api"]})
     conn = build_conn() |> Map.put(:host, "localhost")
 
-    # A new conversation starts in the default environment; the head holds
-    # only that choice (2026-09-26: a title there duplicated the list).
+    # A new conversation starts in the default environment, chosen under its
+    # message box; nothing sits above the messages (Andrew, 2026-09-27: "we
+    # don't waste space on top bar with huge dropdown").
     {:ok, draft, _} = live(conn, "/conversations")
-    refute has_element?(draft, "header.lab-chat-head h2")
+    refute has_element?(draft, ".lab-column header")
 
     assert has_element?(
              draft,
-             "header.lab-chat-head form.lab-environment option[selected][value=production]",
+             ".lab-composer-foot form.lab-environment option[selected][value=production]",
              "Production"
            )
 
     id = Ecto.UUID.generate()
     {:ok, view, html} = live(conn, "/conversations/#{id}")
     assert has_element?(view, "form.lab-environment option[selected][value=production]")
-    refute has_element?(view, "header.lab-chat-head h2")
+    refute has_element?(view, ".lab-column header")
 
     assert html
            |> LazyHTML.from_document()
@@ -1129,11 +1132,13 @@ defmodule Ryker.ControlPlane.LiveTest do
            |> Enum.map(&String.trim(LazyHTML.text(&1))) ==
              ["Production", "Staging", "No environment"]
 
-    # A choice is saved for the conversation and the head shows it at once.
+    # A choice is saved for the conversation as it changes, shows at once,
+    # and a small Saved beside it says it took.
     view |> element("form.lab-environment") |> render_change(%{"environment" => "staging"})
     assert ConversationLab.environment(id) == {:ok, "staging"}
     assert has_element?(view, "form.lab-environment option[selected][value=staging]", "Staging")
     refute has_element?(view, "form.lab-environment option[selected][value=production]")
+    assert has_element?(view, "#lab-environment-saved .kit-saved-mark", "Saved")
 
     # It survives a reload and the routine refresh.
     {:ok, again, _} = live(conn, "/conversations/#{id}")
@@ -1151,11 +1156,12 @@ defmodule Ryker.ControlPlane.LiveTest do
              "No environment"
            )
 
-    # An environment that no longer exists cannot be chosen; the head keeps
-    # saying what is true.
+    # An environment that no longer exists cannot be chosen; the choice keeps
+    # saying what is true, and nothing says Saved.
     again |> element("form.lab-environment") |> render_change(%{"environment" => "gone"})
     assert ConversationLab.environment(id) == {:ok, nil}
     assert has_element?(again, "form.lab-environment option[selected][value='']")
+    refute has_element?(again, "#lab-environment-saved .kit-saved-mark")
   end
 
   test "an inspection link opens beside the conversation instead of replacing it" do

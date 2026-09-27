@@ -722,11 +722,17 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     refute has_element?(view, "#settings-new-channels-form input[name=enabled]")
 
+    # Andrew, 2026-09-27: "you can save on change no need to add button, and
+    # edit confirmation can be way more subtle". What new channels do is one
+    # choice: it saves as it changes, and a small Saved beside it says so.
+    refute has_element?(view, "#settings-new-channels-form button")
+
     view
     |> form("#settings-new-channels-form", %{"default_participation" => "shadow"})
-    |> render_submit()
+    |> render_change()
 
-    assert has_element?(view, "#settings-new-channels [role=status]", "Saved.")
+    assert Settings.fetch!().slack.default_participation == :shadow
+    assert has_element?(view, "#settings-new-channels-saved .kit-saved-mark", "Saved")
 
     view
     |> form("#settings-incident-rooms-form", %{
@@ -775,15 +781,17 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert LazyHTML.query(slack, "section.kit-card > header.section-head#new-channels h2")
            |> LazyHTML.text() == "New channels"
 
+    # A card of one choice saves as it changes, so it has no button; the
+    # switch under Who can manage Ryker is such a choice.
     for {card, action} <- [
-          {"Who can manage Ryker", "Save changes"},
-          {"New channels", "Save changes"},
-          {"Incident rooms", "Save changes"},
-          {"Slack tokens", "Replace tokens"}
+          {"Who can manage Ryker", []},
+          {"New channels", []},
+          {"Incident rooms", ["Save changes"]},
+          {"Slack tokens", ["Replace tokens"]}
         ] do
       assert slack
              |> LazyHTML.query("section.kit-card[aria-label='#{card}'] form button[type=submit]")
-             |> texts() == [action],
+             |> texts() == action,
              card
     end
 

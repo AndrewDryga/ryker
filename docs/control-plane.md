@@ -1007,12 +1007,14 @@ without Slack. It is an ordinary way to use the same agent: enter here, receive
 replies here, inspect the exact execution from each message. The page is a
 directory of retained conversations (grouped by recency, times in UTC) beside
 the conversation; each row says where the conversation stands and, once any
-environment exists, the environment it works in (the one its head shows, or "No
-environment"). The index is an empty draft: its composer is bound to a fresh
+environment exists, the environment it works in (the one chosen under its
+message box, or "No environment"). The index is an empty draft: its composer is bound to a fresh
 identity and nothing is written until the first message, after which the browser
 opens that conversation; `New` in the directory header returns to the index. A
-draft is not a conversation yet: it has no title and no row, and its head holds
-only the environment select, when there is an environment to choose. The
+draft is not a conversation yet: it has no title and no row. Nothing sits
+above the messages: the environment is a compact select under the composer,
+beside the keyboard hint, saved as it changes with a small Saved beside it,
+and with no environment to choose it says so and links to adding one. The
 composer sits at the bottom of the conversation column in both, a hint line's
 height above the window's edge, so the first message does not move it; the index
 shows the ten authored examples in the free space above it, in quiet columns

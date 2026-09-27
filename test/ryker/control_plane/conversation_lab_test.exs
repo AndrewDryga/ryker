@@ -1673,10 +1673,10 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert ConversationLab.environment(@conversation_id) == {:ok, nil}
   end
 
-  # Andrew, 2026-09-26: "Each conversation shows its environment." Chat picks
+  # Andrew, 2026-09-26: "Each conversation shows its environment." Chat picked
   # a conversation's environment in its head, but the list said nothing, so
   # finding the staging conversation meant opening each one. The list reads
-  # each environment the way the head does: the one chosen or recorded when
+  # each environment the way the conversation's own choice does: the one chosen or recorded when
   # the conversation started, none, or the default for a conversation from
   # before conversations kept theirs (2026-09-25).
   test "the conversation list carries the environment each conversation works in" do

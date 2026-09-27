@@ -1560,21 +1560,19 @@
 
 .lab-chat { background:var(--ryker-surface-sunken); }
 .lab-column { max-width:860px; padding:20px 32px 0; }
-/* The head of the conversation (2026-09-25, "Chat picks its environment"):
-   its title on one line, under it where its messages work, and at the right
-   the environment they run in as one compact select in the app's control
-   finish; a hairline closes the head above the transcript. A new
-   conversation's head is only that select. The resets keep the global
-   header banner (sticky, raised) off it: it read as one more conversation. */
-.lab-chat-head { position:static; z-index:auto; display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:8px 24px; margin:0 0 4px; padding:0 0 14px; border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 6%, transparent); background:transparent; backdrop-filter:none; }
-.lab-chat-head-main { flex:1 1 240px; min-width:0; }
-.ryker-app .lab-chat-title { margin:0; font-size:16px; line-height:24px; font-weight:600; letter-spacing:-.005em; color:var(--ryker-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.lab-chat-place { margin:2px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
-.lab-environment { display:flex; flex:none; align-items:center; gap:8px; margin:0 0 0 auto; }
+/* Under the message box, where the conversation works, chosen in place
+   and saved as it changes, and the one keyboard hint at the far edge. It
+   was a head of its own above the messages until Andrew, 2026-09-27: "we
+   don't waste space on top bar with huge dropdown". The select reads as its
+   words until pointed at. */
+.lab-composer-foot { display:flex; flex-wrap:wrap; align-items:center; gap:4px 16px; padding:8px 0 16px; }
+.lab-composer-foot .lab-chat-footer { margin:0 0 0 auto; padding:0; }
+.lab-environment { display:flex; flex-wrap:wrap; align-items:center; gap:2px 6px; min-width:0; margin:0; }
 .lab-environment label { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); white-space:nowrap; }
-.ryker-app .lab-environment select { box-sizing:border-box; min-height:32px; max-width:240px; padding:5px 32px 5px 10px; border:1px solid var(--ryker-control-border); border-radius:8px; background-color:var(--ryker-control-bg); background-position:right 15px center,right 10px center; color:var(--ryker-control-text); font:inherit; font-size:13px; line-height:20px; }
+.ryker-app .lab-environment select { box-sizing:border-box; field-sizing:content; min-height:28px; max-width:240px; padding:3px 26px 3px 8px; border:1px solid transparent; border-radius:6px; background-color:transparent; background-position:right 12px center,right 7px center; color:var(--ryker-text); font:inherit; font-size:13px; line-height:20px; font-weight:500; cursor:pointer; }
+.ryker-app .lab-environment select:hover { border-color:var(--ryker-control-border); background-color:var(--ryker-control-bg); }
 .ryker-app .lab-environment select:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:1px; }
-.lab-environment-none { margin:0 0 0 auto; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.lab-environment-none { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .lab-environment-none .lab-environment-label { margin-right:4px; }
 .lab-chat-message { position:relative; padding:14px 0 14px 44px; }
 .lab-avatar { position:absolute; left:0; top:14px; width:32px; height:32px; border-radius:9px; display:grid; place-items:center; font-size:13px; font-weight:600; color:var(--ryker-text); background:color-mix(in srgb, var(--ryker-text) 10%, transparent); }
@@ -1606,7 +1604,6 @@
 
 @media (max-width:800px) {
   .lab-column { padding:12px 16px 0; }
-  .lab-environment { margin-left:0; }
   .lab-chat-message { padding-left:40px; }
   .lab-avatar { width:28px; height:28px; border-radius:8px; }
 }
