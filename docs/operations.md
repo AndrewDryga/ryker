@@ -191,6 +191,45 @@ inspect the failed request and its exact custody phase before retrying a visible
 leases, operation keys, receipts or episode rows by hand; the typed retry and reconcile controls
 preserve the fences that make recovery safe.
 
+## Local routing model
+
+Ryker can try a small model you run yourself on routing, beside the provider model, to see
+whether it could route as well (Settings › Models › Local routing model). This is phase 1, shadow
+mode, and it only measures: routing always decides with the provider model and never waits for the
+local one.
+
+**What shadow mode measures.** With the mode at Compare in the background, each routing decision
+Ryker accepts from the provider queues one comparison. One lane later sends the local model the
+exact prompt the provider answered, with routing's response contract as structured output
+(`response_format` `json_schema`), one question at a time. Each call is cut off after 120 s; an
+unreachable model is asked again after 30 s, 2 min and 8 min, then given up. The answer goes through
+routing's own checks, and it agrees when it would make Ryker do the same next: the same action,
+earlier work, relation to that work, kind of work, repository, branch or commit, and emoji. The
+words of a quick reply and the reason are not compared. Usage & cost shows how many comparisons
+ran, how many answers were valid and how many agreed, the median local time beside the provider's,
+what the provider spent on those messages and the part of it on messages the local model agreed on,
+and the latest disagreements, each opening its request. Comparisons are operational data and leave
+with their message's bodies.
+
+**Enable it with Ollama on the Mac that runs Ryker.**
+
+```bash
+OLLAMA_CONTEXT_LENGTH=16384 ollama serve
+ollama pull qwen2.5:3b
+```
+
+Then in Settings › Models › Local routing model choose Compare in the background, set the endpoint
+to `http://host.docker.internal:11434/v1` and the model to `qwen2.5:3b` (or the small model you
+pulled). A routing prompt runs to several thousand tokens, longer than Ollama's default context,
+which would cut its start. The Compose project names the host `host.docker.internal` on Linux too.
+Every routing prompt, with the message and its conversation, goes to that endpoint, so plain http is
+accepted only for this machine or a private network; anywhere else needs https.
+
+**Phase 2, the cascade, is not built.** The local model would answer first, and routing would fall
+back to the provider model when the local answer is invalid or unsure, or for work that needs the
+larger model. The agreement phase 1 measures, and what the provider spent on the messages the local
+model agreed on, say whether that is worth building and what it would save.
+
 ## Names that still say responder
 
 The product is Ryker. A few wire names remain `responder-*` because Coop workers, webhook senders,
