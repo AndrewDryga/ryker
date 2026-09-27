@@ -66,7 +66,10 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
 
     certificate = "certificate:#{suffix}"
     hash = :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)
-    {:ok, _worker} = ControlPlane.authorize_worker("worker-a", "workspace-main", hash)
+    # A shared worker ID deadlocked async fixtures that took the settings lock
+    # after enrollment; sandbox rollback does not isolate unique-index locks.
+    worker_id = "worker:#{suffix}"
+    {:ok, _worker} = ControlPlane.authorize_worker(worker_id, "workspace-main", hash)
 
     poll =
       @fixture
@@ -78,6 +81,7 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
         "command_results" => [],
         "event_batches" => []
       })
+      |> put_in(["worker", "id"], worker_id)
       |> put_in(["worker", "clock_at"], DateTime.to_iso8601(Repo.now!()))
 
     {:ok, _response} = ControlPlane.handle_poll_certificate(certificate, poll)

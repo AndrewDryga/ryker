@@ -50,7 +50,7 @@ defmodule Ryker.RenameAuditTest do
     {~r//, ~r/responder-delivery:/,
      "GitHub comment marker that keeps already-posted comments idempotent; changing it would repost every delivered comment"},
     # --- evidence and history named outside the immutable paths
-    {~r{^lib/ryker/episodes/replay\.ex$|^test/ryker/(admission|episodes)/replay_test\.exs$},
+    {~r{^test/support/episodes/replay\.ex$|^test/ryker/(admission|episodes)/replay_test\.exs$},
      ~r/responder\.db/,
      "Go-era SQLite state file: the recorded episode fixtures name it as their harvest provenance (source.database)"},
     {~r{^docs/control-plane\.md$}, ~r/responder_(state|preferences)(?![A-Za-z0-9_])/,

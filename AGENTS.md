@@ -31,12 +31,12 @@ Use the narrowest validation that proves the current edit while iterating:
    `scripts/elixir-test.sh test/ryker/work/executor_test.exs:120`. It runs against the
    shared test database and finishes in about a second.
 2. Run `make dev-check` once before committing. It is the deterministic repository gate:
-   formatting, warnings-as-errors, Credo, the whole ExUnit suite in a fresh database,
+   formatting, warnings-as-errors, Credo, ExUnit except slow capacity tests in a fresh database,
    control-plane JavaScript, and ShellCheck. It takes a few minutes and never calls a model.
 3. Commit, then run `scripts/deploy.sh` (see "Finish by deploying").
 4. `make check` is the full gate: dev-check plus the deterministic host replay in an
    isolated database, the watchdog, deploy and live-acceptance script self-tests, the
-   thirty-day retention simulation, and the eval-trend self-test. CI runs it on every push to origin.
+   thirty-day retention simulation, slow capacity tests, and the eval-trend self-test. CI runs it on every push to origin.
    Run it locally before a tagged release or when a change touches retention custody or the
    release scripts, not before every deploy.
 5. Run live Slack, Coop, or Emisar acceptance only when the changed integration boundary
@@ -103,10 +103,10 @@ Work is not done when the gate is green. It is done when the code is running.
 The only deployment is the Docker Compose project `ryker` in this checkout; `.ryker/compose.env`
 holds its pins (`RYKER_VERSION`, `RYKER_IMAGE`) and its roots, and `scripts/compose.sh` is its
 lifecycle. Commit the change, then run `scripts/deploy.sh`. It refuses a dirty tree and a HEAD
-that is not `main`'s (pass `--allow-not-main` only on purpose), backs the database up into
-`.ryker/backups/pre-deploy-<time>.tar.gz` first, builds `ryker:0.1.0-g<commit>` from a clean
-git worktree of HEAD, replaces only the `ryker` container with
-`docker compose up --detach --build --wait --no-deps ryker` (migrations run when the container
+that is not `main`'s (pass `--allow-not-main` only on purpose), builds `ryker:0.1.0-g<commit>`
+from a clean git worktree of HEAD, then pauses Ryker and backs up the database and encrypted state
+into `.ryker/backups/pre-deploy-<time>.tar.gz`, and replaces only the `ryker` container with
+`docker compose up --detach --no-build --wait --no-deps ryker` (migrations run when the container
 boots), waits from the host's side for `/healthz`, `/readyz` and the exact `x-ryker-version`
 header, and only then pins the new version in `.ryker/compose.env`. On failure it prints the
 container's log tail and leaves the previous version pinned, so `scripts/compose.sh start`

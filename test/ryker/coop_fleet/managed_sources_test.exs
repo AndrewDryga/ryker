@@ -8,33 +8,27 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
     owner = self()
     storage = Path.join(System.tmp_dir!(), "mirror-lock-#{System.unique_integer([:positive])}")
 
-    first =
-      Task.async(fn ->
-        ManagedSources.with_mirror_lock(storage, "one", fn ->
-          send(owner, :first_locked)
-          receive do: (:release -> :ok)
-        end)
-      end)
-
-    assert_receive :first_locked
-
+    # Hold the first lock here; fixture startup is not a 100ms latency contract.
     second =
-      Task.async(fn ->
-        ManagedSources.with_mirror_lock(storage, "one", fn -> send(owner, :same_locked) end)
+      ManagedSources.with_mirror_lock(storage, "one", fn ->
+        second =
+          Task.async(fn ->
+            ManagedSources.with_mirror_lock(storage, "one", fn -> send(owner, :same_locked) end)
+          end)
+
+        other =
+          Task.async(fn ->
+            ManagedSources.with_mirror_lock(storage, "two", fn -> send(owner, :other_locked) end)
+          end)
+
+        assert_receive :other_locked, 2_000
+        refute_receive :same_locked
+        Task.await(other)
+        second
       end)
 
-    other =
-      Task.async(fn ->
-        ManagedSources.with_mirror_lock(storage, "two", fn -> send(owner, :other_locked) end)
-      end)
-
-    assert_receive :other_locked, 2_000
-    refute_receive :same_locked
-    send(first.pid, :release)
-    assert Task.await(first) == :ok
     Task.await(second)
-    Task.await(other)
-    assert_receive :same_locked
+    assert_received :same_locked
   end
 
   test "branch selection pins the default and selected identities without a full bundle" do

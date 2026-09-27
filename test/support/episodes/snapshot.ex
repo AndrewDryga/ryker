@@ -1,6 +1,6 @@
 defmodule Ryker.Episodes.Snapshot do
   @moduledoc """
-  Stable data-only projection used by replay fixtures and external boundaries.
+  Stable data-only projection for episode replay and persistence assertions.
   """
 
   alias Ryker.Episodes.Episode

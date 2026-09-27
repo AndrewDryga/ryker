@@ -24,9 +24,10 @@ Before committing, run:
 make dev-check
 ```
 
-It checks formatting, compilation warnings, Credo, migrations, and the whole ExUnit suite in a
-freshly created test database, plus the control-plane JavaScript tests and ShellCheck. Nothing in
-it calls a model. It is the gate for every commit and every deploy.
+It checks formatting, compilation warnings, Credo, migrations, and the ExUnit suite except slow
+capacity tests in a freshly created test database, plus the control-plane JavaScript tests and
+ShellCheck. Nothing in it calls a model. It is the gate for every commit and every deploy;
+`make check` also runs the slow capacity tests.
 
 `make coverage` runs the suite with coverage instrumentation and writes the report under `cover/`.
 It is not part of any gate.

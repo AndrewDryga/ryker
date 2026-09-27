@@ -8,9 +8,37 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
 
   @actor "control-plane:local"
 
-  setup do
+  setup context do
     {:ok, _} = Settings.initialize(@actor)
     snapshot = add_repository!("app", 17)
+
+    snapshot =
+      if targets = context[:targets] do
+        {:ok, snapshot} =
+          Settings.put_pricing_rate(
+            %{
+              execution_target: "claude:claude-opus-4-6",
+              input_usd_per_million: "5",
+              cached_input_usd_per_million: "0.5",
+              output_usd_per_million: "25",
+              effective_from: ~D[2026-09-26],
+              provenance: "https://www.anthropic.com/pricing"
+            },
+            snapshot.installation.revision,
+            @actor
+          )
+
+        {:ok, snapshot} =
+          Settings.save_work(
+            %{model_accounts: ["codex@default", "claude@backup"], contributor_models: targets},
+            snapshot.installation.revision,
+            @actor
+          )
+
+        snapshot
+      else
+        snapshot
+      end
 
     template =
       Enum.find(
@@ -43,14 +71,20 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     %{session: session, snapshot: snapshot}
   end
 
-  test "freezes settings and exact source before any placement or command", %{
+  @tag targets: [
+         "codex:gpt-5.6-sol/medium@default",
+         "codex:gpt-5.6-terra/high@default",
+         "claude:claude-opus-4-6/high@backup"
+       ]
+  test "freezes the model and provider ladder and exact source before placement", %{
     session: session,
-    snapshot: snapshot
+    snapshot: snapshot,
+    targets: targets
   } do
     assert {:ok, pinned} = JobAuthority.ensure_pinned(session, "/private/source", &prepare/3)
     job = pinned.worker_job_document
     assert job["job_ref"] == session.external_ref
-    assert job["targets"] == snapshot.work.contributor_models
+    assert job["targets"] == targets
     assert job["source"] == source()
     assert job["mode"] == "normal"
     refute job["repository_read_only"]
@@ -63,10 +97,17 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert Repo.aggregate(Placement, :count) == 0
     assert Repo.aggregate(Command, :count) == 0
 
+    assert {:ok, _} =
+             Settings.save_work(
+               %{contributor_models: [hd(snapshot.work.contributor_models)]},
+               snapshot.installation.revision,
+               @actor
+             )
+
     Repo.update_all(Settings.Repository, set: [github_access: :suspended])
 
     assert {:ok, ^pinned} =
-             JobAuthority.ensure_pinned(pinned, nil, fn _, _, _ ->
+             JobAuthority.ensure_pinned(Repo.get!(Session, session.id), nil, fn _, _, _ ->
                flunk("refetched a frozen job")
              end)
   end

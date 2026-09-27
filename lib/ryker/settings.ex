@@ -705,7 +705,6 @@ defmodule Ryker.Settings do
   # of the saved workspace while admins may (`Ryker.Slack.Operators`). The
   # payload's own claim of who sent it is never the grant.
   defp authorize(@actor), do: :ok
-  defp authorize("migration:legacy-environment"), do: :ok
   defp authorize("github:webhook"), do: :ok
   defp authorize("github:onboarding"), do: :ok
 
