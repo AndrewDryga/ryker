@@ -60,6 +60,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
       :replay ->
         apply_replayed_event_batch(placement, events, cursor, session_events?)
 
+      :retired_replay ->
+        Enum.each(events, &verify_replayed_event!(placement, &1))
+
       :conflict ->
         Shared.rollback({:coop_worker_event_cursor_conflict, cursor, after_sequence})
     end
@@ -76,6 +79,18 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
 
   defp event_batch_disposition(_placement, cursor, _last_sequence, [], cursor, _now),
     do: :fresh
+
+  # A placement retired with its discarded session still hears from its worker:
+  # the discard's own events, or activity reported late. They are kept and
+  # acknowledged without reaching the discarded session's activity. Refusing
+  # them refused the worker's whole poll, and it re-sent the batch every second
+  # (2026-09-27 09:14 UTC: no Coop command reached the worker until the fix).
+  defp event_batch_disposition(%Placement{state: :retired}, cursor, _last, _events, cursor, _now),
+    do: :terminal_cleanup
+
+  defp event_batch_disposition(%Placement{state: :retired}, _after, last, _events, cursor, _now)
+       when last <= cursor,
+       do: :retired_replay
 
   defp event_batch_disposition(
          %Placement{state: :replaced} = placement,
