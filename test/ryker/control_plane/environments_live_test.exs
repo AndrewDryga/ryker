@@ -70,7 +70,13 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
              ["/environments/production/edit"]
 
     assert LazyHTML.query(production, ".entity-tag") |> LazyHTML.text() == "Default"
-    assert LazyHTML.query(production, ".entity-icon") |> Enum.count() == 1
+    # Andrew, 2026-09-27: "whats the point of logo if you can't click on it?"
+    # The tile opens the environment as its name does, for a pointer only: the
+    # name stays the one link a keyboard or screen reader meets.
+    icon = LazyHTML.query(production, "a.entity-icon")
+    assert LazyHTML.attribute(icon, "href") == ["/environments/production/edit"]
+    assert LazyHTML.attribute(icon, "tabindex") == ["-1"]
+    assert LazyHTML.attribute(icon, "aria-hidden") == ["true"]
 
     # Every repository is there to work in, and a task picks the one it
     # changes; the first is only the default, so the row says so.

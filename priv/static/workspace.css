@@ -1647,6 +1647,7 @@
 .entity-icon[data-tone=info] { background:var(--ryker-info-soft); color:var(--ryker-info); }
 .entity-icon[data-tone=warn] { background:var(--ryker-warning-soft); color:var(--ryker-warning); }
 .entity-icon[data-tone=bad] { background:var(--ryker-error-soft); color:var(--ryker-error); }
+a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .entity-body { grid-column:body; min-width:0; }
 .ryker-app .entity-name { display:flex; align-items:center; flex-wrap:wrap; gap:4px 10px; margin:0; font-size:15px; line-height:22px; font-weight:600; color:var(--ryker-text); letter-spacing:-.005em; }
 .entity-name a { color:inherit; overflow-wrap:anywhere; }
