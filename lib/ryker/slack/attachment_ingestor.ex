@@ -218,17 +218,19 @@ defmodule Ryker.Slack.AttachmentIngestor do
   defp unavailable(reason, file) do
     descriptor = %{"reason" => reason, "status" => "unavailable"}
 
-    case file |> label() |> Artifacts.recording_media_type() do
-      nil ->
-        descriptor
-
-      media_type ->
-        Map.merge(descriptor, Transcription.outcome(media_type, {:error, failure(reason)}))
+    case recording_label(file) do
+      nil -> descriptor
+      label -> Map.merge(descriptor, Transcription.outcome(label, {:error, failure(reason)}))
     end
   end
 
-  defp label(%{"mimetype" => label}), do: label
-  defp label(_file), do: nil
+  # Any audio or video Slack shares is somebody talking, even in a format
+  # Ryker does not keep.
+  defp recording_label(%{"mimetype" => "audio/" <> _format = label}), do: label
+  defp recording_label(%{"mimetype" => "video/" <> _format = label}), do: label
+  defp recording_label(%{"subtype" => "slack_audio"}), do: "audio/mp4"
+  defp recording_label(%{"subtype" => "slack_video"}), do: "video/mp4"
+  defp recording_label(_file), do: nil
 
   defp transcript(artifact, file, options) do
     words =
