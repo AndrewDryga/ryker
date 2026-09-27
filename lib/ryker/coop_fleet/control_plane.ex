@@ -39,6 +39,9 @@ defmodule Ryker.CoopFleet.ControlPlane do
           {:ok, Placement.t()} | {:error, term()}
   defdelegate place_session(session_id, requirements, lease_seconds), to: Placements
 
+  @spec retire_session_placements(Ecto.UUID.t(), DateTime.t()) :: :ok
+  defdelegate retire_session_placements(session_id, now), to: Placements
+
   @doc """
   Whether any current worker could take this session's next placement.
 

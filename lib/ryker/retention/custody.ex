@@ -16,6 +16,7 @@ defmodule Ryker.Retention.Custody do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
+  alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
   alias Ryker.CoopFleet.Placement
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode
@@ -833,7 +834,11 @@ defmodule Ryker.Retention.Custody do
     end
   end
 
+  # A discarded session has nothing left on any worker, so its placement ends
+  # with it; otherwise the worker renews it on every poll, for good.
   defp settle(session, receipt, now) do
+    :ok = FleetControlPlane.retire_session_placements(session.id, now)
+
     persist(session, %{
       cleanup_attempt_count: 0,
       cleanup_last_error_code: nil,

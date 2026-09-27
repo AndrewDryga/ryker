@@ -447,6 +447,28 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     end)
   end
 
+  @doc """
+  Retires every placement still addressing `session_id`, whose worker session
+  is gone. Retention settles a session as discarded only once its worker
+  discarded it or can no longer hold it, so nothing addresses the session
+  again; before 2026-09-27 its placement stayed active, and every poll of the
+  worker renewed it.
+  """
+  @spec retire_session_placements(Ecto.UUID.t(), DateTime.t()) :: :ok
+  def retire_session_placements(session_id, now) do
+    from(placement in Placement,
+      where:
+        placement.session_id == ^session_id and
+          placement.state in ^Placement.current_states(),
+      lock: "FOR UPDATE"
+    )
+    |> Repo.all()
+    |> Enum.each(fn placement ->
+      retired = placement |> change(%{state: :retired}) |> Repo.update!()
+      Commands.fail_undelivered_commands(retired, now)
+    end)
+  end
+
   @doc false
   def renew_worker_placements(worker, now, lease_seconds) do
     expires_at = DateTime.add(now, lease_seconds, :second)

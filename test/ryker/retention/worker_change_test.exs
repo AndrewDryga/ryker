@@ -66,6 +66,28 @@ defmodule Ryker.Retention.WorkerChangeTest do
     refute Map.has_key?(holder.requirements, "policy_digest")
   end
 
+  # Found live 2026-09-27: 133 of the worker's 136 active placements belonged
+  # to sessions retention had already discarded. Nothing retired a placement
+  # when its session was discarded, and each worker poll renews every active
+  # placement a row at a time, so an idle install wrote 122 placement rows a
+  # second, and the pile grew by one with every finished conversation.
+  test "a discarded session's placement is retired, so the worker's polls stop renewing it" do
+    worker = enroll!("discarded")
+    session = terminal_session!("discarded", worker)
+    fleet = fleet_client(worker, @started, remote_session(session))
+
+    assert {:ok, {:executed, %{phase: :grace}}} = run(fleet, "cleanup:discarded:grace")
+    assert {:ok, {:executed, %{phase: :closed}}} = run(fleet, "cleanup:discarded:close")
+    assert {:ok, {:executed, %{phase: :planned}}} = run(fleet, "cleanup:discarded:plan")
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(fleet, "cleanup:discarded:discard")
+
+    assert %Placement{state: :retired} = retired = current_placement!(session)
+
+    poll!(worker, @started)
+
+    assert current_placement!(session) == retired
+  end
+
   # The same trap, one step later: the worker removed from Ryker can never
   # answer again, so waiting on it is waiting forever.
   test "a cleanup whose worker was removed from Ryker ends with a receipt instead of waiting" do
