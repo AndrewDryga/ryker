@@ -1,5 +1,5 @@
 defmodule Ryker.Operator.Learning do
-  @moduledoc "Explicit, audited recovery of a deferred learning batch without erasing its cost."
+  @moduledoc "Explicit, audited recovery or dropping of a deferred learning batch without erasing its cost."
   alias Ryker.Learning.{Batches, Rebuilds}
   alias Ryker.Operator.Actions
 
@@ -25,6 +25,30 @@ defmodule Ryker.Operator.Learning do
   end
 
   def retry(_, _, _, _), do: {:error, :invalid_learning_retry}
+
+  @doc "Drops a stopped batch at the budget version the person saw; its cost stays recorded."
+  def drop(id, expected_version, actor_ref, action_ref)
+      when is_integer(expected_version) and expected_version >= 0 do
+    case Ecto.UUID.cast(id) do
+      {:ok, ^id} ->
+        Actions.run(
+          %{
+            action: :discard,
+            action_ref: action_ref,
+            actor_ref: actor_ref,
+            kind: "learning",
+            resource_ref: id,
+            request: %{"expected_budget_version" => expected_version}
+          },
+          fn -> Batches.drop_in_transaction(id, expected_version) end
+        )
+
+      _ ->
+        {:error, :invalid_learning_drop}
+    end
+  end
+
+  def drop(_, _, _, _), do: {:error, :invalid_learning_drop}
 
   def rebuild(id, version, generation, selections, actor_ref, action_ref)
       when is_integer(version) and version in 1..9_223_372_036_854_775_807 and

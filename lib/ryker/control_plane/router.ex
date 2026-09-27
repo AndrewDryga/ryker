@@ -578,6 +578,23 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # Dropping a stopped learning batch is bound to the budget version the
+  # question was asked at: a batch granted another start since is not the
+  # batch the person chose to drop.
+  defp confirmation("learning", resource_ref, "drop", options) do
+    case options.projection.learning.(%{"batch" => resource_ref}) do
+      %{selected: %{id: ^resource_ref, drop_available: true} = batch} ->
+        messages = if batch.input_count == 1, do: "this message", else: "these messages"
+
+        {:ok, "Drop this learning batch?",
+         "Ryker stops trying to learn from #{messages} in #{batch.conversation}. Nothing it already learned changes, and replies are unaffected. Its attempts and the model starts they used stay recorded. You can't undo this.",
+         "learning:drop:#{batch.budget_version}"}
+
+      _unavailable ->
+        {:error, :not_found}
+    end
+  end
+
   defp confirmation("memory-review", resource_ref, action, options)
        when action in ["keep", "merge", "forget", "dismiss"] do
     snapshot = options.projection.memory.(%{})
@@ -729,6 +746,9 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("work", resource_ref, "retry", actions, "work:retry:" <> fingerprint),
     do: actions.retry_work.(resource_ref, fingerprint)
 
+  defp perform("learning", resource_ref, "drop", actions, "learning:drop:" <> version),
+    do: actions.drop_learning.(resource_ref, String.to_integer(version))
+
   defp perform(kind, resource_ref, action, actions, _canonical_action),
     do: perform(kind, resource_ref, action, actions)
 
@@ -825,6 +845,7 @@ defmodule Ryker.ControlPlane.Router do
     do: "/failures"
 
   defp action_return_path("knowledge", _resource_ref), do: "/memory/learned"
+  defp action_return_path("learning", resource_ref), do: LearningActivity.path(resource_ref)
 
   defp action_return_path(_kind, _resource_ref), do: "/memory"
 
@@ -878,11 +899,11 @@ defmodule Ryker.ControlPlane.Router do
 
   defp forgetting_consequences(_preview), do: ""
 
-  # A confirmation opened from a request's timeline or its conversation names
-  # that page as `back` and returns there, on Cancel and after confirming.
-  # Only those pages of this control plane are accepted, so the parameter can
-  # never send anyone elsewhere.
-  @back ~r{\A/(?:timeline|conversations)/(?!\.+\z)[A-Za-z0-9%._~-]+\z}
+  # A confirmation opened from a request's timeline, its conversation or a
+  # learning batch's page names that page as `back` and returns there, on
+  # Cancel and after confirming. Only those pages of this control plane are
+  # accepted, so the parameter can never send anyone elsewhere.
+  @back ~r"\A(?:/(?:timeline|conversations)/(?!\.+\z)[A-Za-z0-9%._~-]+|/memory/learning\?batch=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\z"
 
   defp back(conn) do
     case fetch_query_params(conn).query_params do

@@ -4,16 +4,20 @@ defmodule Ryker.ControlPlane.LearningPage do
   what it has not read yet, the batches that need a person, what it did
   recently, the handovers it could not save and the worker sessions it holds.
 
-  One batch opens in place with its attempts and the way to grant it one more
-  model start; each attempt opens on its learning card on the Timeline, which
-  shows exactly how it was learned. The switch that turns learning on or off
-  is the page's one action, rendered by the shell opposite the title. An open
-  page redraws when learning, the messages waiting for it or its sessions
-  change (`subscriptions/0`).
+  One batch is a sub-page of its own (`heading/1` gives the shell its title
+  and the way back to all learning): its state, what happened, what a person
+  can do about a stopped batch, its attempts and their technical details.
+  Each attempt opens on its learning card on the Timeline, which shows
+  exactly how it was learned. The switch that turns learning on or off is
+  the list's one action, rendered by the shell opposite the title; a batch's
+  page has none. An open page redraws when learning, the messages waiting
+  for it or its sessions change (`subscriptions/0`).
   """
   use Phoenix.Component
 
   import Ryker.ControlPlane.Components, only: [action_button: 1, pager: 1]
+
+  alias Ryker.ControlPlane.Components
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{CSRF, Kit, LearningActivity, MemoryFormat}
@@ -39,6 +43,22 @@ defmodule Ryker.ControlPlane.LearningPage do
 
   @doc "The query keys the Learning page reads."
   def query_keys, do: LearningActivity.query_keys()
+
+  @doc """
+  The shell's heading for one batch: what it learned from, and the way back
+  to all learning. Nil for the list, which keeps the page's own title and its
+  switch; `:not_found` for a batch that does not exist.
+  """
+  @spec heading(map(), map()) :: map() | :not_found | nil
+  def heading(%{selected: %{} = batch}, _params),
+    do: %{
+      title: "Learning from #{batch.conversation}",
+      description: nil,
+      back: {"All learning", "/memory/learning"}
+    }
+
+  def heading(_activity, %{"batch" => _batch}), do: :not_found
+  def heading(_activity, _params), do: nil
 
   @doc """
   The Learning body for a `LearningActivity` projection and the worker
@@ -237,68 +257,88 @@ defmodule Ryker.ControlPlane.LearningPage do
   attr(:batch, :map, required: true)
   attr(:csrf_secret, :string, default: nil)
 
+  # One batch's page under the shell's heading (`heading/1`), read the way a
+  # failure's page reads: its state, what happened, what you can do, then its
+  # attempts. Andrew, 2026-09-27: "this is poorly designed, especially back
+  # button you can't even find clearly"; a batch stuck on a topic that lost
+  # its messages offered only relearning it, and "why I can't just
+  # forget/delete it?".
   defp batch(assigns) do
     ~H"""
-    <p class="memory-back"><a href="/memory/learning">← All learning</a></p>
-    <article class="memory-record" id={"batch-" <> @batch.id}>
-      <h2 class="memory-record-title">
-        <span>{@batch.conversation}</span>
-        <Kit.state tone={elem(state(@batch.status), 0)} word={elem(state(@batch.status), 1)} />
-      </h2>
-      <p :if={@batch.error} class="memory-record-lede">{@batch.error}</p>
-      <p :if={@batch.status == :no_change} class="memory-record-lede">
-        This pass found nothing to add or change. That is a normal outcome, not missing memory.
-      </p>
-      <MemoryFormat.facts facts={[
-        MemoryFormat.link("Open conversation", @batch.conversation_path),
-        @batch.repository,
-        MemoryFormat.count(@batch.input_count, "message", "messages"),
-        starts(@batch),
-        if(@batch.mode == :shadow, do: "From shadow mode"),
-        MemoryFormat.time(@batch.at, "Queued "),
-        MemoryFormat.time(@batch.completed_at, "Finished "),
-        MemoryFormat.time(@batch[:next_check], "Next check ")
-      ]} />
-      <p :if={@batch.retry_blocked} class="memory-note">{@batch.retry_blocked}</p>
+    <article class="memory-batch" id={"batch-" <> @batch.id}>
+      <Kit.status_line id="batch-status" state={state(@batch.status)}>
+        <span :if={@batch.completed_at}>{MemoryFormat.time(@batch.completed_at, ended(@batch.status))}</span>
+        <span :if={is_nil(@batch.completed_at)}>{MemoryFormat.time(@batch.at, "queued ")}</span>
+        <span :if={@batch[:next_check]}>{MemoryFormat.time(@batch.next_check, "next check ")}</span>
+      </Kit.status_line>
+      <Kit.facts id="batch-facts" facts={batch_facts(@batch)} />
+      <Kit.section_head title="What happened" />
+      <div class="memory-prose">
+        <p>{happened(@batch.status)}</p>
+        <p :if={cause(@batch)}>{cause(@batch)}</p>
+      </div>
     </article>
-    <section :if={@batch[:relearn] not in [nil, []]} id="relearn-topics" class="memory-section">
-      <Kit.section_head
-        title="Relearn the topic first"
-        lede="These messages would update a learned topic that lost the messages it was learned from, so every start stops on it. Relearn it from the messages that still exist; one more start can then update it."
-      />
-      <Kit.entity_list label="Topics to relearn">
+    <section :if={@batch.status == :deferred} id="what-you-can-do" class="memory-section">
+      <Kit.section_head title="What you can do" lede={options_lede(@batch)} />
+      <p :if={@batch.retry_blocked} class="memory-note">{@batch.retry_blocked}</p>
+      <Kit.entity_list label="What you can do">
         <Kit.entity_row
           :for={topic <- @batch.relearn}
           id={"relearn-" <> topic.id}
-          icon={:book}
-          name={topic.title}
-          href={topic.path}
-          state={{:warn, "Not used"}}
+          name={"Relearn “#{topic.title}”"}
+          text="Ryker relearns the topic from messages you choose that still exist. One more start can then update it with these messages."
         >
-          <:actions><a class="ui-button primary" href={topic.path}>Relearn it</a></:actions>
+          <:actions><a class="ui-button primary" href={topic.path}>Relearn</a></:actions>
+        </Kit.entity_row>
+        <Kit.entity_row
+          :for={topic <- @batch.relearn}
+          id={"forget-" <> topic.id}
+          name={"Forget “#{topic.title}”"}
+          text="Ryker stops using the topic, erases what it learned and never learns from its messages again. One more start can then read these messages without it."
+        >
+          <:actions>
+            <.action_button path={forget_path(topic.id, @batch.id)} label="Forget topic" />
+          </:actions>
+        </Kit.entity_row>
+        <Kit.entity_row
+          :if={@batch.retry_available && @csrf_secret}
+          id="retry"
+          name="Grant one more start"
+          text="Ryker reads these same messages again with one more start, using the learning settings in place now. The messages are checked again first. Earlier attempts and the starts they used stay recorded."
+        >
+          <:actions>
+            <form
+              class="action-control"
+              method="post"
+              action={"/actions/learning/" <> @batch.id <> "/retry"}
+            >
+              <input type="hidden" name="budget_version" value={@batch.budget_version} />
+              <input
+                type="hidden"
+                name="_token"
+                value={
+                  CSRF.token(
+                    @csrf_secret,
+                    "learning:retry",
+                    LearningActivity.retry_resource(@batch.id, @batch.budget_version)
+                  )
+                }
+              />
+              <button type="submit" class="ui-button primary">Grant one more start</button>
+            </form>
+          </:actions>
+        </Kit.entity_row>
+        <Kit.entity_row
+          :if={@batch[:drop_available]}
+          id="drop"
+          name="Drop this batch"
+          text="Ryker stops trying to learn from these messages and the batch no longer needs you. Nothing Ryker already learned changes, and replies are unaffected."
+        >
+          <:actions>
+            <.action_button path={"/actions/learning/" <> @batch.id <> "/drop"} label="Drop batch" />
+          </:actions>
         </Kit.entity_row>
       </Kit.entity_list>
-    </section>
-    <section :if={@batch.retry_available && @csrf_secret} id="retry" class="memory-section">
-      <Kit.section_head
-        title="Try once more"
-        lede="Ryker reads these same messages again with one more start, using the learning settings in place now. The messages are checked again first. Earlier attempts and the starts they used stay recorded."
-      />
-      <form class="memory-retry" method="post" action={"/actions/learning/" <> @batch.id <> "/retry"}>
-        <input type="hidden" name="budget_version" value={@batch.budget_version} />
-        <input
-          type="hidden"
-          name="_token"
-          value={
-            CSRF.token(
-              @csrf_secret,
-              "learning:retry",
-              LearningActivity.retry_resource(@batch.id, @batch.budget_version)
-            )
-          }
-        />
-        <button type="submit" class="ui-button primary">Grant one more start</button>
-      </form>
     </section>
     <section id="attempts" class="memory-section">
       <Kit.section_head
@@ -335,12 +375,84 @@ defmodule Ryker.ControlPlane.LearningPage do
         later="Older attempts →"
       />
     </section>
-    <details :if={@batch.error_code} class="memory-details">
-      <summary>Details</summary>
-      <p>Diagnostic code <code>{@batch.error_code}</code></p>
-    </details>
+    <Components.disclosure
+      :if={@batch.error_code}
+      id="batch-technical"
+      label="Technical details"
+      class="memory-technical"
+    >
+      <Components.fact_list facts={[
+        %{label: "Diagnostic code", value: @batch.error_code, identifier: true}
+      ]} />
+    </Components.disclosure>
     """
   end
+
+  # A batch that needed a person stopped, and still reads so once dropped;
+  # any other finished.
+  defp ended(status) when status in [:deferred, :dropped], do: "stopped "
+  defp ended(_status), do: "finished "
+
+  # A batch's facts, one per line: where its messages came from and what it
+  # spent.
+  defp batch_facts(batch) do
+    [
+      {"Conversation", MemoryFormat.link(batch.conversation, batch.conversation_path)},
+      {"Repository", batch.repository},
+      {"Messages", MemoryFormat.count(batch.input_count, "message", "messages")},
+      {"Model starts", starts(batch)},
+      {"Mode", if(batch.mode == :shadow, do: "Shadow mode")},
+      {"Queued", MemoryFormat.time(batch.at)}
+    ]
+  end
+
+  defp happened(:queued), do: "Ryker has these messages lined up to learn from."
+  defp happened(:running), do: "Ryker is reading these messages now."
+
+  defp happened(:applied),
+    do:
+      "Ryker read these messages and updated what it knows. Each attempt below shows what it changed."
+
+  defp happened(:no_change),
+    do:
+      "Ryker read these messages and found nothing to add or change. That is a normal outcome, not missing memory."
+
+  defp happened(:deferred), do: "Ryker stopped learning from these messages and needs you."
+
+  defp happened(:superseded),
+    do:
+      "These messages changed, were removed or expired before Ryker could learn from them, so it did not."
+
+  defp happened(:dropped),
+    do:
+      "Learning from these messages was dropped. Ryker will not read them again, and nothing it already learned changed."
+
+  # Why it stopped. A batch stopped by topics that lost their messages names
+  # them; any other says what its code means.
+  defp cause(%{relearn: [topic]}),
+    do:
+      "Every attempt stopped on “#{topic.title}”, a learned topic that lost the messages it was learned from. Ryker does not change such a topic."
+
+  defp cause(%{relearn: [_, _ | _] = topics}),
+    do:
+      "Every attempt stopped on #{Enum.map_join(topics, ", ", &"“#{&1.title}”")}, learned topics that lost the messages they were learned from. Ryker does not change such topics."
+
+  defp cause(batch), do: batch.error
+
+  defp options_lede(%{relearn: [_ | _]}),
+    do:
+      "Every start stops on a learned topic that lost its messages. Relearn or forget it first, or drop this batch."
+
+  defp options_lede(%{retry_available: true}),
+    do: "One more start may work if what stopped the attempts has changed."
+
+  defp options_lede(_batch), do: nil
+
+  # Forgetting a topic from a batch's page asks first, then comes back here.
+  defp forget_path(topic_id, batch_id),
+    do:
+      "/actions/knowledge/#{topic_id}/forget?" <>
+        URI.encode_query(%{"back" => LearningActivity.path(batch_id)})
 
   defp state_word(:on), do: {:on, "Learning is on"}
   defp state_word(:starting), do: {:busy, "Learning is starting"}
@@ -390,6 +502,7 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp state(:no_change), do: {:off, LearningActivity.label(:no_change)}
   defp state(:deferred), do: {:warn, LearningActivity.label(:deferred)}
   defp state(:superseded), do: {:off, LearningActivity.label(:superseded)}
+  defp state(:dropped), do: {:off, LearningActivity.label(:dropped)}
 
   defp attempt_state(%{status: status, label: label}) when status in [:rejected, :stale],
     do: {:warn, label}

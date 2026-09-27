@@ -657,7 +657,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Turn it on or off",
        [
-         "The switch at the top turns learning on at once; turning it off asks first. While it is off, new messages wait and nothing Ryker already learned is lost."
+         "The switch at the top of this list turns learning on at once; turning it off asks first. While it is off, new messages wait and nothing Ryker already learned is lost."
        ]},
       {"Recent passes",
        [
@@ -666,8 +666,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"When learning needs you",
        [
-         "Needs attention lists conversations where learning stopped, such as after it used all its tries. Review one to see what happened; Grant one more start tries the same messages once more. When it stopped on a learned topic that lost its messages, relearn that topic on Learned first.",
-         "If learning can't start, the page links to the settings it is missing."
+         "Needs attention lists conversations where learning stopped, such as after it used all its tries. Review one to see what happened and what you can do: Grant one more start tries the same messages once more, and Drop batch stops trying to learn from them.",
+         "When it stopped on a learned topic that lost its messages, relearn that topic or forget it first. If learning can't start, the page links to the settings it is missing."
        ]}
     ])
   end

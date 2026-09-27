@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.LearningSwitchTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
+  alias Ryker.Learning.Batch
   alias Ryker.Settings
 
   @endpoint Endpoint
@@ -70,6 +71,41 @@ defmodule Ryker.ControlPlane.LearningSwitchTest do
     assert enabled?()
     refute has_element?(view, ".kit-status-line .state-word", "Learning is off")
     assert has_element?(view, ".learning-switch button", "Turn off learning")
+  end
+
+  test "the switch belongs to the Learning list alone; a batch's page leads back to it instead" do
+    # Andrew, 2026-09-27: "i don't need turn off button on subpages". A
+    # batch's page carried the list's switch opposite its title, and its way
+    # back to the list was a small grey link under it.
+    batch =
+      Repo.insert!(%Batch{
+        id: Ecto.UUID.generate(),
+        scope_key: "learning-switch-test",
+        transport: "slack",
+        conversation_ref: "slack:T123:C456",
+        execution_mode: :live,
+        policy: "learning-switch-test",
+        policy_digest: String.duplicate("a", 64),
+        status: :applied,
+        input_count: 1,
+        completed_at: DateTime.utc_now()
+      })
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, page, _html} = live(conn, "/memory/learning?batch=#{batch.id}")
+    refute has_element?(page, ".learning-switch")
+
+    assert has_element?(
+             page,
+             ".page-header > nav.kit-back a[href='/memory/learning']",
+             "All learning"
+           )
+
+    assert has_element?(page, ".page-heading h1", "Learning from Slack channel C456")
+
+    {:ok, list, _html} = live(conn, "/memory/learning")
+    assert has_element?(list, ".page-action .learning-switch button", "Turn off learning")
+    refute has_element?(list, ".page-header nav.kit-back")
   end
 
   defp enabled? do

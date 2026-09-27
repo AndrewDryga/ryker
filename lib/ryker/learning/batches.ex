@@ -410,6 +410,32 @@ defmodule Ryker.Learning.Batches do
       "error_code" => batch.error_code
     }
 
+  @doc """
+  Drops a stopped batch: Ryker stops trying to learn from its messages. Its
+  attempts, the starts they used and why it stopped stay recorded; nothing
+  learned changes. Only a stopped batch at the budget version the person saw
+  can be dropped, and only once no model execution of its conversation is
+  still unconfirmed, which reconciliation has to settle first.
+
+  Andrew, 2026-09-27: a batch stuck on a learned topic that lost its own
+  messages offered only relearning that topic; "why I can't just
+  forget/delete it?"
+  """
+  def drop_in_transaction(id, expected_version) do
+    unless Repo.in_transaction?(), do: raise(ArgumentError, "operator audit transaction required")
+    Batch.lock_queue!()
+    batch = Repo.one(from(b in Batch, where: b.id == ^id, lock: "FOR UPDATE"))
+
+    unless batch && batch.status == :deferred && batch.budget_version == expected_version,
+      do: Repo.rollback(:learning_batch_changed)
+
+    if Repo.exists?(outstanding_scope_query(batch.scope_key)),
+      do: Repo.rollback(:learning_remote_outstanding)
+
+    dropped = save(batch, status: :dropped, next_attempt_at: nil)
+    {:ok, %{previous: retry_document(batch), outcome: retry_document(dropped)}}
+  end
+
   def yield(claim, delay_seconds) when is_integer(delay_seconds) and delay_seconds in 0..300 do
     Repo.transaction(fn ->
       batch = owned!(claim)

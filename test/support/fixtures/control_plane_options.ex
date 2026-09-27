@@ -828,7 +828,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             ]
           }
         end,
-        learning: fn _params ->
+        # The stopped pass the Failures double links to opens as its own
+        # page; any other batch does not exist.
+        learning: fn params ->
           %{
             state: :on,
             enabled: true,
@@ -839,8 +841,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             attention: %{items: [], page: 1, pages: 1, total: 0},
             recent: %{items: [], page: 1, pages: 1, total: 0, outcome: ""},
             handover_failures: %{total: 0, items: [], page: 1, pages: 1},
-            selected: nil,
-            receipt: nil
+            selected: learning_batch(params["batch"])
           }
         end,
         # A recorded topic learned from the same message as another, and a
@@ -1264,6 +1265,40 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
       }
     }
   end
+
+  @stopped_batch "5b0c6f1e-6a55-4f47-9c7e-7b1d2c3a4e5f"
+
+  defp learning_batch(@stopped_batch) do
+    %{
+      id: @stopped_batch,
+      status: :deferred,
+      label: "Needs attention",
+      conversation: "#infra",
+      conversation_path: "/activity?conversation=slack%3AT123%3AC456",
+      repository: "ryker",
+      mode: :live,
+      input_count: 2,
+      start_count: 3,
+      start_limit: 3,
+      budget_version: 0,
+      at: ~U[2026-08-28 12:00:00Z],
+      completed_at: ~U[2026-08-28 12:10:00Z],
+      next_check: nil,
+      error:
+        "The approved model starts were used. Inspect the attempts before granting one more start.",
+      error_code: "learning_retry_exhausted",
+      path: "/memory/learning?batch=#{@stopped_batch}",
+      attempts: [],
+      attempt_page: 1,
+      attempt_pages: 1,
+      relearn: [],
+      retry_available: true,
+      retry_blocked: nil,
+      drop_available: true
+    }
+  end
+
+  defp learning_batch(_id), do: nil
 
   defp failure_row(kind, ref) do
     case Enum.find(failure_rows(), &(&1.kind == kind and &1.ref == ref)) do

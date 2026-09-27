@@ -439,9 +439,27 @@ defmodule Ryker.ControlPlane.Components do
   attr(:label, :string, required: true)
   attr(:tone, :any, default: :secondary)
 
+  @doc """
+  A button that opens an action's confirmation page, as a GET form so it
+  reads and works as a button.
+
+  A browser replaces the query of a GET form's action with the form's own
+  fields, so the query of `path`, such as `back`, the page the confirmation
+  returns to, rides along as hidden fields. Before 2026-09-27 it was dropped,
+  and Retry work on a request's timeline returned to Failures.
+  """
   def action_button(assigns) do
+    uri = URI.parse(assigns.path)
+
+    assigns =
+      assign(assigns,
+        action: uri.path,
+        fields: uri.query |> Kernel.||("") |> URI.decode_query() |> Enum.sort()
+      )
+
     ~H"""
-    <form class="action-control" method="get" action={@path}>
+    <form class="action-control" method="get" action={@action}>
+      <input :for={{name, value} <- @fields} type="hidden" name={name} value={value} />
       <button type="submit" class={"ui-button #{@tone}"}>{@label}</button>
     </form>
     """
@@ -449,7 +467,7 @@ defmodule Ryker.ControlPlane.Components do
 
   def action_button(path, label, tone \\ :secondary) do
     # GET only opens the existing confirmation; its protected POST performs the action.
-    %{path: path, label: label, tone: tone}
+    %{__changed__: nil, path: path, label: label, tone: tone}
     |> action_button()
     |> Safe.to_iodata()
   end
