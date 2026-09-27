@@ -31,6 +31,7 @@ defmodule Ryker.Publication.Custody do
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Work.{DeliveryReceipt, Session, Turn}
 
   @claimable [:review_pending, :review_ready, :publish_pending, :published_ready]
@@ -216,6 +217,26 @@ defmodule Ryker.Publication.Custody do
       Repo.transaction(fn -> claim_next_locked(worker_ref, lease_seconds) end)
       |> transaction_result()
     end
+  end
+
+  @doc """
+  The earliest moment after `since` at which a publication step becomes
+  claimable by the clock alone: its retry's backoff ends, or the lease of a
+  claim nobody renewed runs out. Nil when no step waits on the clock; a review
+  waiting for its request's Work turn waits on a change to the request, which
+  is announced.
+  """
+  @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(%DateTime{} = since) do
+    from(publication in Publication,
+      where: publication.status in ^@claimable,
+      select: [
+        filter(min(publication.next_attempt_at), publication.next_attempt_at > ^since),
+        filter(min(publication.lease_expires_at), publication.lease_expires_at > ^since)
+      ]
+    )
+    |> Repo.one()
+    |> UTCDateTime.earliest()
   end
 
   def freeze_review_revision(publication_ref, lease_ref, revision) do

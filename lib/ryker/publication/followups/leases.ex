@@ -13,6 +13,7 @@ defmodule Ryker.Publication.Followups.Leases do
   alias Ryker.Publication.{Followup, LifecycleEvent, Publication}
   alias Ryker.Publication.Followups.Store
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
 
   def claim_poll(worker_ref, lease_seconds) do
     with :ok <- Store.reference(worker_ref, :worker_ref),
@@ -26,6 +27,36 @@ defmodule Ryker.Publication.Followups.Leases do
          :ok <- Store.positive(lease_seconds, :lease_seconds) do
       Store.transaction(fn -> claim_delivery_locked(worker_ref, lease_seconds) end)
     end
+  end
+
+  def next_due_at(%DateTime{} = since) do
+    polls =
+      Repo.one(
+        from(followup in Followup,
+          join: publication in Publication,
+          on:
+            publication.id == followup.publication_id and
+              publication.episode_id == followup.episode_id,
+          where: publication.status == :published,
+          select: [
+            filter(min(followup.next_poll_at), followup.next_poll_at > ^since),
+            filter(min(followup.lease_expires_at), followup.lease_expires_at > ^since)
+          ]
+        )
+      )
+
+    deliveries =
+      Repo.one(
+        from(event in LifecycleEvent,
+          where: event.delivery_state == :pending,
+          select: [
+            filter(min(event.next_attempt_at), event.next_attempt_at > ^since),
+            filter(min(event.lease_expires_at), event.lease_expires_at > ^since)
+          ]
+        )
+      )
+
+    UTCDateTime.earliest(polls ++ deliveries)
   end
 
   def renew_poll(publication_ref, lease_ref, lease_seconds) do
