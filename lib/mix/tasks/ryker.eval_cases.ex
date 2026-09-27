@@ -20,11 +20,9 @@ defmodule Mix.Tasks.Ryker.EvalCases do
   @impl Mix.Task
   def run(arguments) do
     with {:ok, options, []} <- Support.parse(arguments, [output: :string], 0),
-         {:ok, directory} <- Support.required_option(options, :output) do
-      case Support.with_repo(fn -> Export.write(directory) end) do
-        {:ok, count} -> Mix.shell().info("Wrote #{count} eval cases to #{directory}")
-        {:error, reason} -> Support.fail("eval case export", reason)
-      end
+         {:ok, directory} <- Support.required_option(options, :output),
+         {:ok, count} <- Support.with_repo(fn -> Export.write(directory) end) do
+      Mix.shell().info("Wrote #{count} eval cases to #{directory}")
     else
       {:error, reason} -> Support.fail("eval case export", reason)
     end
