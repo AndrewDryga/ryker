@@ -6,12 +6,22 @@ defmodule Ryker.Episodes.Reactions do
   request. The provider adapter supplies authenticated actor and message
   identity; this boundary resolves that message back to its durable Work turn
   before appending an idempotent episode event.
+
+  Every reaction on one of Ryker's messages is also feedback on the answer
+  (`Ryker.Feedback`), recorded with the episode event in one transaction. A
+  quick reply routing sent by itself, or an update the Work model posted, has
+  no Work turn: a reaction on one is kept as feedback on its request alone
+  (`Ryker.Feedback.Answers`), and it wakes nothing.
   """
 
   import Ecto.Query
 
+  require Logger
+
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Event}
+  alias Ryker.Feedback
+  alias Ryker.Feedback.Answers
   alias Ryker.Repo
   alias Ryker.Work.Turn
 
@@ -35,7 +45,17 @@ defmodule Ryker.Episodes.Reactions do
           }
         }
 
-  @spec record(attributes()) :: {:ok, Ryker.Episodes.Transition.t()} | {:error, term()}
+  @doc """
+  Records one reaction added to or taken back from one of Ryker's messages.
+
+  On a Work reply it is the episode's event and feedback on the answer,
+  returned as the episode's transition. On a quick reply or a posted update it
+  is feedback alone, returned as `%{status: :applied | :duplicate}`. A message
+  that is not one Ryker delivered is `:conversation_reaction_target_not_found`.
+  """
+  @spec record(attributes()) ::
+          {:ok, Ryker.Episodes.Transition.t() | %{status: :applied | :duplicate}}
+          | {:error, term()}
   def record(%{} = attributes) do
     with :ok <- exact_fields(attributes, @fields, :fields),
          :ok <- action(attributes.action),
@@ -45,23 +65,76 @@ defmodule Ryker.Episodes.Reactions do
          :ok <- occurred_at(attributes.occurred_at),
          :ok <- source(attributes.source),
          :ok <- target(attributes.target),
-         :ok <- source_matches_transport(attributes.source.kind, attributes.target.transport),
-         {:ok, episode, delivery_ref} <- resolve_target(attributes.target) do
-      Episodes.apply(%Command.RecordReaction{
-        action: attributes.action,
-        actor_ref: attributes.actor_ref,
-        emoji_name: attributes.emoji_name,
-        episode_key: episode.key,
-        event_ref: attributes.event_ref,
-        occurred_at: attributes.occurred_at,
-        source: attributes.source,
-        target_delivery_ref: delivery_ref,
-        target_message_ref: attributes.target.message_ref
-      })
+         :ok <- source_matches_transport(attributes.source.kind, attributes.target.transport) do
+      case resolve_target(attributes.target) do
+        {:ok, episode, delivery_ref} -> record_on_reply(attributes, episode, delivery_ref)
+        {:error, :conversation_reaction_target_not_found} -> record_on_other_message(attributes)
+        {:error, _reason} = error -> error
+      end
     end
   end
 
   def record(_attributes), do: {:error, {:invalid_conversation_reaction, :fields}}
+
+  defp record_on_reply(attributes, episode, delivery_ref) do
+    command = %Command.RecordReaction{
+      action: attributes.action,
+      actor_ref: attributes.actor_ref,
+      emoji_name: attributes.emoji_name,
+      episode_key: episode.key,
+      event_ref: attributes.event_ref,
+      occurred_at: attributes.occurred_at,
+      source: attributes.source,
+      target_delivery_ref: delivery_ref,
+      target_message_ref: attributes.target.message_ref
+    }
+
+    Repo.transaction(fn ->
+      case Episodes.apply_batch_in_transaction([command]) do
+        {:ok, [transition]} ->
+          keep_feedback(attributes, {:episode, transition.episode.id})
+          transition
+
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+    end)
+  end
+
+  # The reaction is the event; the feedback is what it says about the answer.
+  # A signal that cannot be kept is logged and never refuses the reaction.
+  defp keep_feedback(attributes, request) do
+    case Feedback.record_in_transaction(feedback(attributes, request)) do
+      {:ok, _recorded} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("reaction feedback not kept: #{inspect(reason, limit: 5)}")
+    end
+  end
+
+  defp record_on_other_message(attributes) do
+    with {:ok, request} <- Answers.message_request(attributes.target),
+         {:ok, %{status: status}} <- Feedback.record(feedback(attributes, request)) do
+      {:ok, %{status: if(status == :recorded, do: :applied, else: :duplicate)}}
+    else
+      :error -> {:error, :conversation_reaction_target_not_found}
+      {:error, :feedback_request_not_found} -> {:error, :conversation_reaction_target_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp feedback(attributes, request) do
+    %{
+      kind: if(attributes.action == :add, do: :reaction_added, else: :reaction_removed),
+      value: attributes.emoji_name,
+      actor_ref: attributes.actor_ref,
+      source: attributes.source.kind,
+      source_ref: attributes.event_ref,
+      occurred_at: attributes.occurred_at,
+      request: request
+    }
+  end
 
   @doc """
   Returns current added reactions, grouped by host delivery reference.
