@@ -35,6 +35,7 @@ defmodule Ryker.Retention.Data do
           routing_responses: non_neg_integer(),
           episode_histories: non_neg_integer(),
           feedback: non_neg_integer(),
+          improvement: non_neg_integer(),
           input_artifacts: non_neg_integer(),
           operational_inputs: non_neg_integer(),
           operational_turns: non_neg_integer(),
@@ -219,7 +220,7 @@ defmodule Ryker.Retention.Data do
   WITH candidates AS (
     SELECT session.id
     FROM episode_work_sessions AS session
-    WHERE session.execution_kind IN ('admission', 'learning')
+    WHERE session.execution_kind IN ('admission', 'learning', 'improvement')
       AND session.cleanup_status = 'discarded'
       AND NOT session.activity_sync_pending
       AND session.updated_at < clock_timestamp() - ($1 * interval '1 second')
@@ -290,6 +291,58 @@ defmodule Ryker.Retention.Data do
     horizon: :operational_data_seconds,
     limit: 500
   }
+
+  # A request people were unhappy with (`Ryker.Improvement`) ages from its last
+  # change, like the feedback it came from; an accepted case is training data
+  # and ages from its acceptance over the routing examples window while those
+  # are kept. It names its request without a foreign key, so it is written
+  # out: nothing above reaches it, and it waits while a session of one of its
+  # analysis runs is still on record, which cleanup removes first.
+  @prune_improvement_candidates """
+  WITH candidates AS (
+    SELECT candidate.id
+    FROM improvement_candidates AS candidate
+    WHERE candidate.analysis <> 'running'
+      AND (
+        (candidate.status <> 'accepted'
+          AND candidate.updated_at < clock_timestamp() - ($1 * interval '1 second'))
+        OR (candidate.status = 'accepted'
+          AND candidate.decided_at < clock_timestamp()
+            - ((CASE WHEN $2 THEN $3 ELSE $1 END) * interval '1 second'))
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM improvement_analysis_runs AS run
+        JOIN episode_work_sessions AS session ON session.improvement_run_id = run.id
+        WHERE run.candidate_id = candidate.id
+      )
+    ORDER BY candidate.updated_at, candidate.id
+    LIMIT 100
+    FOR UPDATE OF candidate SKIP LOCKED
+  )
+  DELETE FROM improvement_candidates AS candidate
+  USING candidates
+  WHERE candidate.id = candidates.id
+  """
+
+  # The exact prompt and answer of an analysis turn quote people's messages:
+  # their words go at the operational horizon once the turn has stopped (or
+  # never started), and the run keeps only its receipts.
+  @prune_improvement_runs """
+  WITH candidates AS (
+    SELECT run.id
+    FROM improvement_analysis_runs AS run
+    WHERE run.pruned_at IS NULL
+      AND (run.remote_stopped_at IS NOT NULL OR run.started_at IS NULL)
+      AND run.updated_at < clock_timestamp() - ($1 * interval '1 second')
+    ORDER BY run.updated_at, run.id
+    LIMIT 100
+    FOR UPDATE OF run SKIP LOCKED
+  )
+  UPDATE improvement_analysis_runs AS run
+  SET prompt = NULL, result = NULL, pruned_at = clock_timestamp()
+  FROM candidates
+  WHERE run.id = candidates.id
+  """
 
   # A finished setup conversation ages from its last change, and every one from
   # its own expiry, so the horizon applies to either branch of an OR.
@@ -543,6 +596,15 @@ defmodule Ryker.Retention.Data do
     _non_work_sessions = execute_count(@prune_non_work_sessions, [cutoff])
     routing_responses = prune_aged(@delivered_routing_responses, settings)
     feedback = prune_aged(@recorded_feedback, settings)
+    _improvement_runs = execute_count(@prune_improvement_runs, [cutoff])
+
+    improvement =
+      execute_count(@prune_improvement_candidates, [
+        cutoff,
+        settings.routing_examples_enabled,
+        settings.routing_examples_seconds
+      ])
+
     _github_events = prune_aged(@processed_github_events, settings)
 
     configuration_sessions =
@@ -568,6 +630,7 @@ defmodule Ryker.Retention.Data do
       | configuration_sessions: configuration_sessions,
         conversation_memory: result.conversation_memory + learning_artifacts,
         feedback: feedback,
+        improvement: improvement,
         routing_responses: routing_responses,
         input_artifacts: input_artifacts,
         operational_inputs: operational_inputs,
@@ -1120,6 +1183,7 @@ defmodule Ryker.Retention.Data do
       routing_responses: 0,
       episode_histories: 0,
       feedback: 0,
+      improvement: 0,
       input_artifacts: 0,
       operational_inputs: 0,
       operational_turns: 0,

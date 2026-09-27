@@ -10,7 +10,14 @@ defmodule Ryker.Work.Session do
     belongs_to(:episode, Ryker.Episodes.Episode)
     belongs_to(:admission_input, Ryker.Ingress.Inbox.Entry)
     belongs_to(:learning_run, Ryker.Learning.LearningRun)
-    field(:execution_kind, Ecto.Enum, values: [:work, :admission, :learning], default: :work)
+    # A session of one self-analysis turn (`Ryker.Improvement`).
+    belongs_to(:improvement_run, Ryker.Improvement.AnalysisRun)
+
+    field(:execution_kind, Ecto.Enum,
+      values: [:work, :admission, :learning, :improvement],
+      default: :work
+    )
+
     field(:policy, :string)
     field(:policy_digest, :string)
     field(:authority_digest, :string)
@@ -93,7 +100,7 @@ defmodule Ryker.Work.Session do
   @type t :: %__MODULE__{
           id: Ecto.UUID.t() | nil,
           episode_id: Ecto.UUID.t() | nil,
-          execution_kind: :work | :admission | :learning,
+          execution_kind: :work | :admission | :learning | :improvement,
           policy: String.t() | nil,
           policy_digest: String.t() | nil,
           authority_digest: String.t() | nil,
