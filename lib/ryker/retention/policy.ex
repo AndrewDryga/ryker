@@ -223,6 +223,18 @@ defmodule Ryker.Retention.Policy do
         "each self-analysis turn's exact prompt and answer leave with their candidate; their words are erased at the operational horizon once the turn has stopped, and at once when a person forgets what they quote"
     },
     %{
+      table: "repository_knowledge",
+      class: :kept,
+      why:
+        "one row per repository: when its RYKER.md is next checked, the last document Ryker wrote from it, and its pull request; it is the refresh schedule and the proof of what was proposed"
+    },
+    %{
+      table: "repository_knowledge_runs",
+      class: :operational,
+      why:
+        "each model turn that read a repository, with its prompt and answer; a stopped one leaves at the operational horizon once its session is gone, except the one that wrote the current RYKER.md"
+    },
+    %{
       table: "weekly_reports",
       class: :operational,
       why:

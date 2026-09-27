@@ -143,6 +143,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
          "ryker-admission:",
          "ryker-admission-ready:",
          "ryker-improvement:",
+         "ryker-knowledge:",
          "ryker-learning:",
          "ryker-work:"
        ]),

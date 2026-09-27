@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   alias Ryker.Work.ExecutionTarget
 
   # Every work type the projection can name; anything else is a missing identity.
-  @work_kinds ~w(admission learning self_analysis conversational standard deep continuation resumed task event_wait schedule publication approval)
+  @work_kinds ~w(admission learning self_analysis repository_knowledge conversational standard deep continuation resumed task event_wait schedule publication approval)
 
   def work_kinds, do: @work_kinds
 
@@ -363,6 +363,10 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp kind_link("self_analysis", label, _params, _snapshot),
     do: ["<a title=\"What to fix\" href=\"/memory/feedback/fix\">", e(label), "</a>"]
 
+  # Reading each repository for its RYKER.md belongs to no request either.
+  defp kind_link("repository_knowledge", label, _params, _snapshot),
+    do: ["<a title=\"Repositories\" href=\"/repositories\">", e(label), "</a>"]
+
   defp kind_link(_kind, label, params, snapshot), do: entity_link(label, params, snapshot)
 
   defp entity_link(label, params, snapshot) do
@@ -396,6 +400,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   def kind_name("admission"), do: "Routing"
   def kind_name("learning"), do: "Learning"
   def kind_name("self_analysis"), do: "Self-analysis"
+  def kind_name("repository_knowledge"), do: "Repository knowledge"
   def kind_name("conversational"), do: "Conversation"
   def kind_name("standard"), do: "Investigation"
   def kind_name("deep"), do: "Deep investigation"

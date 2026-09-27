@@ -1151,7 +1151,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
           {"standard_models",
            "Investigations that use tools: reading code, checking logs, running read-only " <>
              "commands and asking Emisar to run something. Routing picks it for most work " <>
-             "that needs more than a quick answer."},
+             "that needs more than a quick answer. It also reads each repository to write " <>
+             "its RYKER.md."},
           {"deep_models",
            "The same kind of work, when routing judges the request hard, ambiguous or risky."},
           {"contributor_models",

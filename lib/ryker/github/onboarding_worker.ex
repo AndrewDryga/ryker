@@ -19,7 +19,7 @@ defmodule Ryker.GitHub.OnboardingWorker do
   def options!(options) when is_map(options) do
     interval = Map.get(options, :interval_ms, @default_interval)
     idle_interval = Map.get(options, :idle_interval_ms, PollingWorker.idle_interval_ms())
-    api = Map.get(options, :api, Ryker.GitHub.Onboarding.Remote)
+    api = Map.get(options, :api, Ryker.GitHub.RepositoryFiles)
 
     unless interval in 100..60_000 and idle_interval in 100..3_600_000 and remote?(api),
       do: raise(ArgumentError, "GitHub onboarding worker configuration is invalid")
@@ -30,9 +30,7 @@ defmodule Ryker.GitHub.OnboardingWorker do
   def options!(options) when is_list(options), do: options |> Map.new() |> options!()
 
   defp remote?(api),
-    do:
-      is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, :pin, 2) and
-        function_exported?(api, :scan, 3) and function_exported?(api, :publish, 4)
+    do: is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, :pin, 2)
 
   @impl PollingWorker
   def setup(options), do: {:ok, options!(options)}
@@ -67,7 +65,7 @@ defmodule Ryker.GitHub.OnboardingWorker do
       snapshot.repositories
       |> Enum.filter(
         &(&1.github_access == :available and
-            &1.onboarding_state in [:pending, :cloning, :scanning, :publishing])
+            &1.onboarding_state in [:pending, :cloning])
       )
       |> Enum.min_by(&{DateTime.to_unix(&1.updated_at, :microsecond), &1.ref}, fn -> nil end)
 

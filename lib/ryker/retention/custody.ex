@@ -3,8 +3,8 @@ defmodule Ryker.Retention.Custody do
   PostgreSQL custody for exact Coop session cleanup.
 
   Cleanup is eligible only after the owning episode and every local Work turn
-  are terminal, the owning learning or self-analysis run has exact remote
-  stop proof, an
+  are terminal, the owning learning, self-analysis or repository knowledge
+  run has exact remote stop proof, an
   admission input has finished or advanced past that session generation, or a
   routing session started ahead of time was retired before any message
   claimed it (`Ryker.Admission.ReadySessions`); no unpublished publication may
@@ -27,6 +27,7 @@ defmodule Ryker.Retention.Custody do
   alias Ryker.Publication.Publication
   alias Ryker.Reference
   alias Ryker.Repo
+  alias Ryker.RepositoryKnowledge.Run, as: KnowledgeRun
   alias Ryker.Retention.Plan
   alias Ryker.Work.Custody, as: WorkCustody
   alias Ryker.Work.{Session, Turn}
@@ -43,12 +44,12 @@ defmodule Ryker.Retention.Custody do
   # eligibility and read as a stall the moment it could run again. A retained
   # workspace is eligible again at its scheduled recheck, or when its
   # publication became durable.
-  defmacrop eligible_at(session, episode, learning, improvement, admission) do
+  defmacrop eligible_at(session, episode, learning, improvement, knowledge, admission) do
     quote do
       fragment(
         """
         CASE
-          WHEN ? IN ('active', 'close_pending') THEN GREATEST(COALESCE(?, ?, ?, ?, ?), ?)
+          WHEN ? IN ('active', 'close_pending') THEN GREATEST(COALESCE(?, ?, ?, ?, ?, ?), ?)
           WHEN ? = 'grace' THEN COALESCE(?, ?)
           WHEN ? IN ('plan_pending', 'discard_pending') THEN GREATEST(COALESCE(?, ?), ?)
           WHEN ? = 'retained' THEN COALESCE(
@@ -63,6 +64,7 @@ defmodule Ryker.Retention.Custody do
         unquote(session).cleanup_status,
         unquote(learning).remote_stopped_at,
         unquote(improvement).remote_stopped_at,
+        unquote(knowledge).remote_stopped_at,
         unquote(admission).updated_at,
         unquote(episode).updated_at,
         unquote(session).updated_at,
@@ -84,7 +86,13 @@ defmodule Ryker.Retention.Custody do
   end
 
   @type claim :: %{
-          owner: Episode.t() | LearningRun.t() | AnalysisRun.t() | Entry.t() | :ready_pool,
+          owner:
+            Episode.t()
+            | LearningRun.t()
+            | AnalysisRun.t()
+            | KnowledgeRun.t()
+            | Entry.t()
+            | :ready_pool,
           lease_ref: String.t(),
           session: Session.t(),
           worker_id: String.t() | nil
@@ -122,6 +130,9 @@ defmodule Ryker.Retention.Custody do
       left_join: improvement in AnalysisRun,
       as: :improvement,
       on: improvement.id == session.improvement_run_id,
+      left_join: knowledge in KnowledgeRun,
+      as: :knowledge,
+      on: knowledge.id == session.knowledge_run_id,
       left_join: admission in Entry,
       as: :admission,
       on: admission.id == session.admission_input_id,
@@ -150,9 +161,10 @@ defmodule Ryker.Retention.Custody do
           episode: episode,
           learning: learning,
           improvement: improvement,
+          knowledge: knowledge,
           admission: admission
         ] in query,
-        select: min(eligible_at(session, episode, learning, improvement, admission))
+        select: min(eligible_at(session, episode, learning, improvement, knowledge, admission))
       )
     )
   end
@@ -167,11 +179,13 @@ defmodule Ryker.Retention.Custody do
           episode: episode,
           learning: learning,
           improvement: improvement,
+          knowledge: knowledge,
           admission: admission
         ] in claimable_query(now),
-        select: {session, eligible_at(session, episode, learning, improvement, admission)},
+        select:
+          {session, eligible_at(session, episode, learning, improvement, knowledge, admission)},
         order_by: [
-          asc: eligible_at(session, episode, learning, improvement, admission),
+          asc: eligible_at(session, episode, learning, improvement, knowledge, admission),
           asc: session.id
         ],
         limit: ^limit
@@ -551,23 +565,25 @@ defmodule Ryker.Retention.Custody do
         episode: episode,
         learning: learning,
         improvement: improvement,
+        knowledge: knowledge,
         admission: admission,
         placement: placement
       ] in placed_query(now),
       where: session.id not in ^exclude.session_ids,
       where: is_nil(placement.worker_id) or placement.worker_id not in ^exclude.worker_ids,
       order_by: [
-        asc: eligible_at(session, episode, learning, improvement, admission),
+        asc: eligible_at(session, episode, learning, improvement, knowledge, admission),
         asc: session.id
       ],
       select:
         {session.execution_kind,
          type(
            fragment(
-             "COALESCE(?, ?, ?, ?)",
+             "COALESCE(?, ?, ?, ?, ?)",
              session.episode_id,
              session.learning_run_id,
              session.improvement_run_id,
+             session.knowledge_run_id,
              session.admission_input_id
            ),
            :binary_id
@@ -614,7 +630,7 @@ defmodule Ryker.Retention.Custody do
     do:
       dynamic(
         ^work_finished() or ^learning_finished() or ^improvement_finished() or
-          ^admission_finished() or ^ready_retired()
+          ^knowledge_finished() or ^admission_finished() or ^ready_retired()
       )
 
   defp work_finished do
@@ -635,6 +651,13 @@ defmodule Ryker.Retention.Custody do
     dynamic(
       [session: session, improvement: improvement],
       session.execution_kind == :improvement and not is_nil(improvement.remote_stopped_at)
+    )
+  end
+
+  defp knowledge_finished do
+    dynamic(
+      [session: session, knowledge: knowledge],
+      session.execution_kind == :knowledge and not is_nil(knowledge.remote_stopped_at)
     )
   end
 
@@ -706,6 +729,9 @@ defmodule Ryker.Retention.Custody do
   defp lock_owner(:improvement, run_id, lock),
     do: lock_owner_query(from(run in AnalysisRun, where: run.id == ^run_id), lock)
 
+  defp lock_owner(:knowledge, run_id, lock),
+    do: lock_owner_query(from(run in KnowledgeRun, where: run.id == ^run_id), lock)
+
   # A routing session started ahead of time has no message until one claims
   # it. Until then the pool owns it, and the session's own state says whether
   # the pool gave it up; the session row is locked right after.
@@ -740,6 +766,7 @@ defmodule Ryker.Retention.Custody do
   defp owner_finished?(%Episode{state: state}, _session), do: state in @terminal_episode_states
   defp owner_finished?(%LearningRun{remote_stopped_at: %DateTime{}}, _session), do: true
   defp owner_finished?(%AnalysisRun{remote_stopped_at: %DateTime{}}, _session), do: true
+  defp owner_finished?(%KnowledgeRun{remote_stopped_at: %DateTime{}}, _session), do: true
 
   defp owner_finished?(%Entry{status: status}, _session)
        when status in [:decided, :superseded],
@@ -1068,10 +1095,11 @@ defmodule Ryker.Retention.Custody do
             {session.execution_kind,
              type(
                fragment(
-                 "COALESCE(?, ?, ?, ?)",
+                 "COALESCE(?, ?, ?, ?, ?)",
                  session.episode_id,
                  session.learning_run_id,
                  session.improvement_run_id,
+                 session.knowledge_run_id,
                  session.admission_input_id
                ),
                :binary_id

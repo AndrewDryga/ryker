@@ -69,6 +69,9 @@ defmodule Ryker.Runtime.Assembly do
     # credential changing, restarts only the copy, never cleanup.
     {:routing_examples, Ryker.RoutingExamples.Worker},
     {:github, Ryker.GitHub.Runtime},
+    # RYKER.md for each repository: model turns through Work's adapter, and
+    # GitHub through the App, so it starts after both.
+    {:repository_knowledge, Ryker.RepositoryKnowledge.Runtime},
     {:publication, Ryker.Publication.Runtime},
     {:delivery, Ryker.Delivery.Runtime},
     # Its own key, so turning the weekly report on or off starts or stops
@@ -138,6 +141,7 @@ defmodule Ryker.Runtime.Assembly do
     schedules = schedules(settings, repositories, policies)
     gateway = worker_gateway(bootstrap)
     {github, github_left_out} = github(bootstrap, settings, repositories, environments)
+    repository_knowledge = repository_knowledge(settings, work, github)
 
     {slack, slack_left_out} =
       slack(bootstrap, settings, environments, schedules, policies, outside)
@@ -186,6 +190,7 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:learning, learning)
     |> put_optional(:local_routing, local_routing)
     |> put_optional(:publication, publication)
+    |> put_optional(:repository_knowledge, repository_knowledge)
     |> put_optional(:retention, retention)
     |> put_optional(:routing_examples, routing_examples)
     |> put_optional(:schedules, schedules)
@@ -622,6 +627,22 @@ defmodule Ryker.Runtime.Assembly do
       _unavailable -> nil
     end
   end
+
+  # RYKER.md is read by a model through Work's adapter and proposed through
+  # the GitHub App, so it runs only where both do. Each repository's own
+  # read-only policy is found when a turn is prepared
+  # (`Ryker.RepositoryKnowledge.Dispatcher`), so adding or setting up a
+  # repository never restarts this lane.
+  defp repository_knowledge(settings, %{api: api, client: client}, %{}) do
+    Defaults.fetch!(:repository_knowledge)
+    |> Map.merge(%{
+      api: api,
+      client: client,
+      worker_ref: "#{settings.installation.host_ref}:repository-knowledge"
+    })
+  end
+
+  defp repository_knowledge(_settings, _work, _github), do: nil
 
   defp schedules(settings, repositories, policies) do
     with %{} = read_only <- installation_policy(policies, :schedule_read_only),

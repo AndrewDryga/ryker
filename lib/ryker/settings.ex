@@ -765,6 +765,9 @@ defmodule Ryker.Settings do
   defp authorize(@actor), do: :ok
   defp authorize("github:webhook"), do: :ok
   defp authorize("github:onboarding"), do: :ok
+  # Work's copy of RYKER.md, as the knowledge lane proposes or reads it
+  # (`Ryker.RepositoryKnowledge`).
+  defp authorize("github:knowledge"), do: :ok
 
   defp authorize("slack:user:" <> user_ref) when byte_size(user_ref) in 1..255 do
     saved =

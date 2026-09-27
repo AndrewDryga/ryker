@@ -1,5 +1,5 @@
 defmodule Ryker.Accounting.Execution do
-  @moduledoc "Compact per-Coop-turn accounting for admission, Work, learning and self-analysis executions; this is not a claim of per-provider-call visibility."
+  @moduledoc "Compact per-Coop-turn accounting for admission, Work, learning, self-analysis and repository knowledge executions; this is not a claim of per-provider-call visibility."
   use Ecto.Schema
   @primary_key {:id, :binary_id, autogenerate: true}
 

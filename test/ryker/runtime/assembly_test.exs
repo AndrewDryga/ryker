@@ -139,6 +139,7 @@ defmodule Ryker.Runtime.AssemblyTest do
                :improvement,
                :learning,
                :publication,
+               :repository_knowledge,
                :retention,
                :schedules,
                :slack,
@@ -157,6 +158,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert configuration[:admission].worker_ref == "#{host}:admission"
     assert configuration[:learning].worker_ref == "#{host}:learning"
     assert configuration[:improvement].worker_ref == "#{host}:improvement"
+    assert configuration[:repository_knowledge].worker_ref == "#{host}:repository-knowledge"
     assert configuration[:delivery].worker_ref == "#{host}:delivery"
     assert configuration[:publication].worker_ref == "#{host}:publication"
     assert configuration[:retention].worker_ref == "#{host}:retention"
@@ -179,6 +181,13 @@ defmodule Ryker.Runtime.AssemblyTest do
     # adapter, in a lane of its own.
     assert Map.take(configuration[:improvement], [:api, :client, :policy, :policy_digest]) ==
              Map.take(configuration[:learning], [:api, :client, :policy, :policy_digest])
+
+    # RYKER.md is read by a model through Work's own adapter; each
+    # repository's policy is found when a turn is prepared, never here.
+    assert Map.take(configuration[:repository_knowledge], [:api, :client]) ==
+             Map.take(configuration[:work], [:api, :client])
+
+    refute Map.has_key?(configuration[:repository_knowledge], :policy)
 
     assert configuration[:schedules].read_only_policy.name == "ryker-schedule-read-only"
     assert configuration[:schedules].governed_operation_policy.name == "ryker-schedule-governed"
@@ -270,8 +279,10 @@ defmodule Ryker.Runtime.AssemblyTest do
   # Found live 2026-09-27: every step of a repository's setup saves its state
   # to settings, and any runtime whose configuration changed is restarted, so
   # the setup worker was stopped mid-run by its own progress and every added
-  # repository cycled through "cloning" and "scanning" for an hour.
-  test "a repository's setup progress restarts no runtime" do
+  # repository cycled through "cloning" and "scanning" for an hour. The
+  # knowledge lane saves Work's copy of RYKER.md the same way, so writing it
+  # must restart nothing either, the lane itself least of all.
+  test "a repository's setup and RYKER.md progress restart no runtime" do
     settings = connected!()
     assert {:ok, before} = Assembly.build(bootstrap(), settings)
 
@@ -279,7 +290,7 @@ defmodule Ryker.Runtime.AssemblyTest do
       Settings.put_repository(
         %{
           ref: "ryker",
-          onboarding_state: :scanning,
+          onboarding_state: :cloning,
           onboarding_error: nil,
           source_commit: String.duplicate("a", 40)
         },
@@ -287,10 +298,24 @@ defmodule Ryker.Runtime.AssemblyTest do
         @actor
       )
 
+    {:ok, settings} =
+      Settings.put_repository(
+        %{
+          ref: "ryker",
+          knowledge_content: "# RYKER.md\n",
+          knowledge_status: :proposed,
+          knowledge_source_commit: String.duplicate("b", 40),
+          knowledge_sha256: String.duplicate("c", 64),
+          knowledge_pull_request_url: "https://github.com/acme/ryker/pull/9"
+        },
+        settings.installation.revision,
+        "github:knowledge"
+      )
+
     assert {:ok, changed} = Assembly.build(bootstrap(), settings)
 
     for key <- Map.keys(before), Map.get(before, key) != Map.get(changed, key) do
-      flunk("#{key} changed with setup progress")
+      flunk("#{key} changed with setup or RYKER.md progress")
     end
   end
 
@@ -332,7 +357,8 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), disconnect_webhooks(settings))
 
-    for absent <- [:slack, :github, :emisar, :learning, :webhooks] do
+    # RYKER.md needs GitHub, so it stops with it.
+    for absent <- [:slack, :github, :emisar, :learning, :webhooks, :repository_knowledge] do
       assert configuration[absent] == nil, "#{absent} started from a credential, not a setting"
     end
 
@@ -1263,6 +1289,7 @@ defmodule Ryker.Runtime.AssemblyTest do
           :admission_ready,
           :learning,
           :improvement,
+          :repository_knowledge,
           :retention,
           :publication
         ] do
