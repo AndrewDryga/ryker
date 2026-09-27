@@ -25,7 +25,16 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.Custody
 
-  @now ~U[2026-09-04 22:51:44.000000Z]
+  # An hour before this file compiles, which is every test run: in the past, as
+  # a confirmation is, but never a fixed date. Rules confirmed at a fixed
+  # 2026-09-04 22:51:44 expire 30 days later and the runtime reads the database
+  # clock, so from 2026-10-04 22:51 UTC every rule here would have read as
+  # expired and six of these tests would have failed, as thirty others did when
+  # their fixed 2026-08-28 confirmations expired on 2026-09-27.
+  @now DateTime.utc_now()
+       |> DateTime.add(-3_600, :second)
+       |> DateTime.truncate(:second)
+       |> Map.put(:microsecond, {0, 6})
   @conversation "slack:T123:C456"
   @workspace "slack:T123"
 
@@ -230,7 +239,8 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
         content: %{"text" => "Terraform plan: 2 to add, 1 to change, 0 to destroy"},
         event_kind: :message,
         event_ref: "Ev-inventory-#{actor_kind}",
-        message_ref: "1788562304.000100",
+        # A Slack message's ts is the moment it was sent.
+        message_ref: "#{DateTime.to_unix(@now)}.000100",
         occurred_at: @now,
         revision: 1,
         thread_ref: nil,
