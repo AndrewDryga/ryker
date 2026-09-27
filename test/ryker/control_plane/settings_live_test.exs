@@ -915,10 +915,12 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, _view, html} = open("/settings/models")
     models = LazyHTML.from_document(html)
 
-    assert LazyHTML.query(models, "main section.kit-card > header.section-head h2") |> texts() ==
-             ["Requests", "Other work", "Model accounts"]
+    cards = ["Requests", "Other work", "Model accounts", "Local routing model"]
 
-    for card <- ["Requests", "Other work", "Model accounts"] do
+    assert LazyHTML.query(models, "main section.kit-card > header.section-head h2") |> texts() ==
+             cards
+
+    for card <- cards do
       assert models
              |> LazyHTML.query("section.kit-card[aria-label='#{card}'] form button[type=submit]")
              |> texts() == ["Save changes"],
@@ -995,6 +997,76 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              deep <> "[model]'] option[value='codex:gpt-5.6-luna'][selected]",
              "gpt-5.6-luna (no price)"
            )
+  end
+
+  # Andrew, 2026-09-27: a small self-hosted routing model, tried in shadow
+  # first. The card says in plain words what it does and how to run one with
+  # Ollama on the Mac that runs Ryker, and turning it on without somewhere to
+  # send the prompt, or across the internet in plain http, is refused in
+  # words that say what to type.
+  test "the local routing model is set on the Models page in plain words and off until it has somewhere to ask" do
+    initialize!()
+    {:ok, view, _html} = open("/settings/models")
+
+    card = "#settings-local_routing"
+    assert has_element?(view, "#{card} header#local-routing h2", "Local routing model")
+    assert has_element?(view, "#{card} .settings-form-help", "ollama serve")
+    assert has_element?(view, "#{card} .settings-form-help", "ollama pull")
+    assert has_element?(view, "#{card} input[name=local_routing_mode][value=off][checked]")
+    assert has_element?(view, "#{card} .settings-option", "Compare in the background")
+
+    assert has_element?(
+             view,
+             "#{card} input[name=local_routing_endpoint][placeholder='http://host.docker.internal:11434/v1']"
+           )
+
+    assert has_element?(view, "#{card} input[name=local_routing_model][placeholder='qwen2.5:3b']")
+
+    view
+    |> form("#settings-local_routing-form", %{"local_routing_mode" => "shadow"})
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "#{card} .settings-error",
+             "Enter the local model's endpoint, such as http://host.docker.internal:11434/v1."
+           )
+
+    assert has_element?(
+             view,
+             "#{card} .settings-error",
+             "Enter the model's name as the server lists it, such as qwen2.5:3b."
+           )
+
+    view
+    |> form("#settings-local_routing-form", %{
+      "local_routing_mode" => "shadow",
+      "local_routing_endpoint" => "http://llm.example.com/v1",
+      "local_routing_model" => "qwen2.5:3b"
+    })
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "#{card} .settings-error",
+             "Use https for a server on another network."
+           )
+
+    assert Settings.fetch!().work.local_routing_mode == :off
+
+    view
+    |> form("#settings-local_routing-form", %{
+      "local_routing_mode" => "shadow",
+      "local_routing_endpoint" => "http://host.docker.internal:11434/v1",
+      "local_routing_model" => "qwen2.5:3b"
+    })
+    |> render_submit()
+
+    work = Settings.fetch!().work
+    assert work.local_routing_mode == :shadow
+    assert work.local_routing_endpoint == "http://host.docker.internal:11434/v1"
+    assert work.local_routing_model == "qwen2.5:3b"
+    refute has_element?(view, "#{card} .settings-error")
   end
 
   test "each kind of work says under its title where Ryker uses its models" do

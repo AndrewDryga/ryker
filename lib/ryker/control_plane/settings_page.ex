@@ -1334,7 +1334,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # A person as a row's name: the one rendering every page uses for people.
   defp people(people), do: Kit.people(%{people: people, more: [], __changed__: nil})
 
-  defp editors(:model), do: [:request_models, :other_models, :model_accounts]
+  defp editors(:model), do: [:request_models, :other_models, :model_accounts, :local_routing]
   defp editors(:retention), do: [:retention]
   defp editors(:pricing), do: [:pricing]
   defp editors(:system), do: [:work]
