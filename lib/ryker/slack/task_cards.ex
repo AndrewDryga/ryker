@@ -133,7 +133,7 @@ defmodule Ryker.Slack.TaskCards do
             next_attempt_at: nil
           },
           now,
-          if(unchanged?(card, fingerprint, ui_revision), do: :quiet, else: :announce)
+          check_announcement(card, fingerprint, ui_revision)
         )
       end)
     end
@@ -318,10 +318,18 @@ defmodule Ryker.Slack.TaskCards do
 
   # A check that found the card as it was, with nothing to clear, changed
   # nothing anyone sees.
-  defp unchanged?(card, fingerprint, ui_revision),
-    do:
-      card.card_fingerprint == fingerprint and card.card_ui_revision == ui_revision and
-        is_nil(card.last_error_code)
+  defp check_announcement(
+         %TaskCard{
+           card_fingerprint: fingerprint,
+           card_ui_revision: revision,
+           last_error_code: nil
+         },
+         fingerprint,
+         revision
+       ),
+       do: :quiet
+
+  defp check_announcement(_card, _fingerprint, _revision), do: :announce
 
   defp update!(card, attributes, now, announce \\ :announce) do
     case card

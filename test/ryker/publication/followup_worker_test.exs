@@ -2,7 +2,7 @@ defmodule Ryker.Publication.FollowupWorkerTest do
   use Ryker.DataCase, async: false
 
   alias Ryker.Fixtures.Publication, as: PublicationFixture
-  alias Ryker.Publication.{FollowupWorker, Followups}
+  alias Ryker.Publication.{Followups, FollowupWorker}
 
   defmodule RecordingExecutor do
     def run_poll(claim, options) do

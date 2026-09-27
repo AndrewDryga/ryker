@@ -443,7 +443,7 @@ defmodule Ryker.Slack.IncidentRooms do
             root_card_ui_revision: ui_revision
           },
           now,
-          if(unchanged_root_card?(room, fingerprint, ui_revision), do: :quiet, else: :announce)
+          root_card_announcement(room, fingerprint, ui_revision)
         )
       end)
     end
@@ -1242,10 +1242,20 @@ defmodule Ryker.Slack.IncidentRooms do
     )
   end
 
-  defp unchanged_root_card?(room, fingerprint, ui_revision),
-    do:
-      room.root_card_fingerprint == fingerprint and room.root_card_ui_revision == ui_revision and
-        is_nil(room.last_error_code)
+  # A card check that found the pinned card as it was, with nothing to clear,
+  # changed nothing anyone sees.
+  defp root_card_announcement(
+         %IncidentRoom{
+           last_error_code: nil,
+           root_card_fingerprint: fingerprint,
+           root_card_ui_revision: revision
+         },
+         fingerprint,
+         revision
+       ),
+       do: :quiet
+
+  defp root_card_announcement(_room, _fingerprint, _revision), do: :announce
 
   defp insert_observation_event!(room, state, event_ref, occurred_at) do
     kind = observation_kind(state)
