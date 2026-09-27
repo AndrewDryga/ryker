@@ -14,7 +14,13 @@ defmodule Ryker.Work.Custody do
   blocks, and pauses delivery, `Ryker.Work.Custody.Cancellation` stops turns and
   recovers blocked episodes, and `Ryker.Work.Custody.Locks` holds the row
   locking and argument validation they all share.
+
+  Every session and turn a seam writes is announced after the outermost
+  commit: sessions on this module's topic (`subscribe_sessions/0`), turns on
+  their request's (`Ryker.Episodes.subscribe_episode/1`).
   """
+
+  import Ecto.Query, only: [from: 2]
 
   alias Ryker.Episodes.Episode
   alias Ryker.Work.Custody.{Cancellation, Claims, Delivery, Sessions, Turns}
@@ -819,4 +825,47 @@ defmodule Ryker.Work.Custody do
   """
   @spec reply_target(Episode.t(), Turn.t()) :: map() | nil
   defdelegate reply_target(episode, turn), to: Delivery
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to Coop session changes: `{:work_session_updated,
+  session_id}` once a session for a request, for routing a message or for
+  learning is created, kept ready, placed, bound, rotated, cleaned up or
+  discarded, and that change has committed. The session's request, if it has
+  one, hears it on its own topic too.
+  """
+  def subscribe_sessions, do: Ryker.PubSub.subscribe(sessions_topic())
+
+  def unsubscribe_sessions, do: Ryker.PubSub.unsubscribe(sessions_topic())
+
+  @doc "Internal — announces, after the outermost commit, that `session` changed."
+  @spec broadcast_session_updated(Session.t()) :: :ok
+  def broadcast_session_updated(%Session{id: id} = session) when is_binary(id) do
+    Ryker.Episodes.broadcast_episode_updated(session.episode_id)
+
+    Ryker.Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(sessions_topic(), {:work_session_updated, id})
+    end)
+  end
+
+  @doc """
+  Internal — announces, after the outermost commit, that a turn or something
+  kept for it (its output files, its state tool calls) changed. A turn is part
+  of its request's record, so its request's topics hear it. Takes the turn, or
+  its id: its request is then read after the commit.
+  """
+  @spec broadcast_turn_updated(Turn.t() | Ecto.UUID.t()) :: :ok
+  def broadcast_turn_updated(%Turn{episode_id: episode_id}),
+    do: Ryker.Episodes.broadcast_episode_updated(episode_id)
+
+  def broadcast_turn_updated(turn_id) when is_binary(turn_id) do
+    Ryker.Repo.after_commit(fn ->
+      from(turn in Turn, where: turn.id == ^turn_id, select: turn.episode_id)
+      |> Ryker.Repo.one()
+      |> Ryker.Episodes.broadcast_episode_updated()
+    end)
+  end
+
+  defp sessions_topic, do: "work:sessions"
 end

@@ -52,6 +52,7 @@ defmodule Ryker.Episodes.CorrelationClaims do
            returning: true
          ) do
       {1, [claim]} ->
+        Ryker.Episodes.broadcast_episode_updated(claim.episode_id)
         {:ok, claim}
 
       {0, []} ->
@@ -65,6 +66,8 @@ defmodule Ryker.Episodes.CorrelationClaims do
     if owner.lifecycle_state == row.lifecycle_state do
       {:ok, owner}
     else
+      Ryker.Episodes.broadcast_episode_updated(owner.episode_id)
+
       owner
       |> Ecto.Changeset.change(lifecycle_state: row.lifecycle_state)
       |> Repo.update()

@@ -6,6 +6,10 @@ defmodule Ryker.Emisar.Approvals do
   lease, validates the immutable run identity, and converts one terminal run
   into one trusted input that resumes the same episode. It never calls
   `run_action` and never grants mutation authority.
+
+  Each watch registered, observed, blocked, closed or settled is announced
+  after the outermost commit (`subscribe_approvals/0`), on its request's
+  topics too.
   """
 
   import Ecto.Query
@@ -14,6 +18,7 @@ defmodule Ryker.Emisar.Approvals do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Ingress.Input
+  alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
   alias Ryker.Repo
@@ -369,7 +374,7 @@ defmodule Ryker.Emisar.Approvals do
       |> ApprovalChangeset.insert()
       |> Repo.insert()
       |> case do
-        {:ok, _approval} -> :ok
+        {:ok, approval} -> broadcast_approval_updated(approval)
         {:error, changeset} -> {:error, {:emisar_approval_persistence_failed, changeset.errors}}
       end
     end
@@ -539,6 +544,7 @@ defmodule Ryker.Emisar.Approvals do
              status: :resumed,
              terminal_at: now
            }) do
+      Records.broadcast_record_updated(answered_record)
       %{approval: approval, episode: resumed.episode, record: answered_record, status: :resumed}
     else
       nil -> Repo.rollback(:emisar_approval_not_found)
@@ -715,6 +721,7 @@ defmodule Ryker.Emisar.Approvals do
   defp update!(approval, attributes) do
     case approval |> ApprovalChangeset.update(attributes) |> Repo.update() do
       {:ok, approval} ->
+        broadcast_approval_updated(approval)
         approval
 
       {:error, changeset} ->
@@ -755,4 +762,31 @@ defmodule Ryker.Emisar.Approvals do
 
   defp transaction_result({:ok, value}), do: {:ok, value}
   defp transaction_result({:error, reason}), do: {:error, reason}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to Emisar approval watches: `{:emisar_approval_updated,
+  approval_id}` once a watch is registered, observed, deferred, blocked, closed
+  or settled by Emisar's decision, and that change has committed.
+  """
+  def subscribe_approvals, do: Ryker.PubSub.subscribe(approvals_topic())
+
+  def unsubscribe_approvals, do: Ryker.PubSub.unsubscribe(approvals_topic())
+
+  defp approvals_topic, do: "emisar:approvals"
+
+  @doc """
+  Internal — announces, after the outermost commit, that approval watch
+  `approval` changed. The operator's rearm (`Ryker.Operator.Emisar`) calls it
+  too.
+  """
+  @spec broadcast_approval_updated(Approval.t()) :: :ok
+  def broadcast_approval_updated(%Approval{id: id, episode_id: episode_id}) do
+    Episodes.broadcast_episode_updated(episode_id)
+
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(approvals_topic(), {:emisar_approval_updated, id})
+    end)
+  end
 end

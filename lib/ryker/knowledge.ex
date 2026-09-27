@@ -1,5 +1,10 @@
 defmodule Ryker.Knowledge do
-  @moduledoc "Maintained conversation topics with versioned, revocable source dependencies."
+  @moduledoc """
+  Maintained conversation topics with versioned, revocable source dependencies.
+
+  A topic learned, revised, forgotten or pruned is announced after the
+  outermost commit (`subscribe_knowledge/0`).
+  """
   import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Ingress.Inbox.Entry
@@ -901,6 +906,7 @@ defmodule Ryker.Knowledge do
         else: Repo.insert!(struct!(ConversationKnowledge, Map.put(attrs, :id, id)))
 
     persist_memberships(item, roots, source.direct_sources, version)
+    broadcast_knowledge_updated(item.id)
 
     if Repo.exists?(from(k in valid_query(), where: k.id == ^item.id)) do
       Repo.insert!(%KnowledgeRevision{
@@ -1114,4 +1120,29 @@ defmodule Ryker.Knowledge do
 
     if is_integer(value) and value > 0, do: value
   end
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to learned topic changes: `{:knowledge_updated,
+  knowledge_id}` once a topic is learned, revised, relearned, forgotten or
+  expires, or a run is shown it, and that change has committed.
+  """
+  def subscribe_knowledge, do: Ryker.PubSub.subscribe(knowledge_topic())
+
+  def unsubscribe_knowledge, do: Ryker.PubSub.unsubscribe(knowledge_topic())
+
+  @doc """
+  Internal — announces, after the outermost commit, that topic
+  `knowledge_id` changed. Forgetting and retention, which change topics
+  outside this module, call it too.
+  """
+  @spec broadcast_knowledge_updated(Ecto.UUID.t()) :: :ok
+  def broadcast_knowledge_updated(knowledge_id),
+    do:
+      Repo.after_commit(fn ->
+        Ryker.PubSub.broadcast(knowledge_topic(), {:knowledge_updated, knowledge_id})
+      end)
+
+  defp knowledge_topic, do: "knowledge"
 end

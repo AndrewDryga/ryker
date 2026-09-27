@@ -11,6 +11,9 @@ defmodule Ryker.Waits.EventSubscriptions do
   One event-only watch may remain open alongside a human question. The question
   owns continuation; source updates remain queued until the answer resumes Work.
   Reconciliation preserves that exact matcher during the question and Work turn.
+
+  A follow-up started, resolved or cancelled is announced after the outermost
+  commit (`subscribe_follow_ups/0`), on its request's topics too.
   """
 
   import Ecto.Query
@@ -18,6 +21,7 @@ defmodule Ryker.Waits.EventSubscriptions do
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
 
+  alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
   alias Ryker.Waits.EventSubscription
@@ -80,11 +84,16 @@ defmodule Ryker.Waits.EventSubscriptions do
 
         {:error, {:invalid_event_subscription, field}}
         when field in [:deadline, :poll_after, :timer_deadline, :source_kind, :cursor] ->
-          Repo.update_all(
-            from(record in Record, where: record.id == ^record_id and record.status == :open),
-            set: [wait_error: Atom.to_string(field), updated_at: Repo.now!()]
-          )
+          {_count, refused} =
+            Repo.update_all(
+              from(record in Record,
+                where: record.id == ^record_id and record.status == :open,
+                select: record
+              ),
+              set: [wait_error: Atom.to_string(field), updated_at: Repo.now!()]
+            )
 
+          Enum.each(refused, &Records.broadcast_record_updated/1)
           count
 
         {:error, reason} ->
@@ -110,13 +119,20 @@ defmodule Ryker.Waits.EventSubscriptions do
           where: ^stale_wait,
           order_by: [asc: subscription.id],
           limit: @reconcile_limit,
-          select: %{record_id: record.id, ref: record.ref, subscription_id: subscription.id}
+          select: %{
+            episode_id: subscription.episode_id,
+            record_id: record.id,
+            ref: record.ref,
+            subscription_id: subscription.id
+          }
         )
       )
 
     now = Repo.now!()
 
     Enum.each(stale, fn item ->
+      broadcast_follow_up_updated(item.subscription_id, item.episode_id)
+
       Repo.update_all(
         from(subscription in EventSubscription,
           where: subscription.id == ^item.subscription_id and subscription.status == :active
@@ -131,10 +147,16 @@ defmodule Ryker.Waits.EventSubscriptions do
         inc: [revision: 1]
       )
 
-      Repo.update_all(
-        from(record in Record, where: record.id == ^item.record_id and record.status == :open),
-        set: [status: :dismissed, updated_at: now]
-      )
+      {_count, dismissed} =
+        Repo.update_all(
+          from(record in Record,
+            where: record.id == ^item.record_id and record.status == :open,
+            select: record
+          ),
+          set: [status: :dismissed, updated_at: now]
+        )
+
+      Enum.each(dismissed, &Records.broadcast_record_updated/1)
     end)
 
     length(stale)
@@ -183,11 +205,12 @@ defmodule Ryker.Waits.EventSubscriptions do
               updated_at: ^now
             ],
             inc: [revision: 1]
-          ]
+          ],
+          select: {subscription.id, subscription.episode_id}
         )
 
-      _updated = Repo.update_all(query, [])
-      :ok
+      {_count, resolved} = Repo.update_all(query, [])
+      Enum.each(resolved, fn {id, episode_id} -> broadcast_follow_up_updated(id, episode_id) end)
     else
       {:error, :event_subscription_transaction_required}
     end
@@ -306,6 +329,7 @@ defmodule Ryker.Waits.EventSubscriptions do
       |> Repo.insert()
       |> case do
         {:ok, subscription} ->
+          broadcast_follow_up_updated(subscription.id, subscription.episode_id)
           {:ok, subscription}
 
         {:error, changeset} ->
@@ -370,4 +394,25 @@ defmodule Ryker.Waits.EventSubscriptions do
 
   defp resolution(kind, wait_ref),
     do: {:resolved, %{"event_wait_ref" => wait_ref, "kind" => Atom.to_string(kind)}}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to follow-up changes: `{:follow_up_updated,
+  subscription_id}` once Ryker starts waiting for an event or a time, or a
+  wait is resolved or cancelled, and that change has committed.
+  """
+  def subscribe_follow_ups, do: Ryker.PubSub.subscribe(follow_ups_topic())
+
+  def unsubscribe_follow_ups, do: Ryker.PubSub.unsubscribe(follow_ups_topic())
+
+  defp follow_ups_topic, do: "follow_ups"
+
+  defp broadcast_follow_up_updated(subscription_id, episode_id) do
+    Ryker.Episodes.broadcast_episode_updated(episode_id)
+
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(follow_ups_topic(), {:follow_up_updated, subscription_id})
+    end)
+  end
 end

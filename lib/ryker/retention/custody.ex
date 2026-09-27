@@ -25,6 +25,7 @@ defmodule Ryker.Retention.Custody do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Retention.Plan
+  alias Ryker.Work.Custody, as: WorkCustody
   alias Ryker.Work.{Session, Turn}
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
@@ -1077,7 +1078,7 @@ defmodule Ryker.Retention.Custody do
     )
     |> Repo.update()
     |> case do
-      {:ok, stored} -> stored
+      {:ok, stored} -> tap(stored, &WorkCustody.broadcast_session_updated/1)
       {:error, changeset} -> Repo.rollback({:retention_persistence_failed, changeset})
     end
   end

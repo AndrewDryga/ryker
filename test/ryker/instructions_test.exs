@@ -19,6 +19,26 @@ defmodule Ryker.InstructionsTest do
     assert Repo.aggregate(Edit, :count) == 0
   end
 
+  # Instructions and a channel's page show the saved text. Until 2026-09-26 an
+  # open page in another tab heard of a save from a trigger's NOTIFY and a
+  # five-second poll; the context now announces the save, and an unchanged
+  # save, which writes nothing, stays quiet.
+  #
+  # Other tests save instructions while this one runs and are announced on the
+  # same topic, so this one saves a channel of its own.
+  test "a saved change reaches the pages showing that scope's instructions" do
+    channel = "C#{System.unique_integer([:positive])}"
+    scope = {:channel, "T1", channel}
+    scope_ref = "slack:T1:#{channel}"
+    :ok = Instructions.subscribe_instructions()
+
+    assert {:ok, %{revision: 1}} = Instructions.save(scope, "Keep replies concise.", 0, @actor)
+    assert_received {:instructions_saved, ^scope_ref}
+
+    assert {:ok, %{revision: 1}} = Instructions.save(scope, "Keep replies concise.", 1, @actor)
+    refute_received {:instructions_saved, ^scope_ref}
+  end
+
   test "global and bound-channel text are captured together without importing another channel" do
     assert {:ok, %{revision: 1}} = Instructions.save(:global, "Keep replies concise.", 0, @actor)
 

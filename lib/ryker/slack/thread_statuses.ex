@@ -5,6 +5,10 @@ defmodule Ryker.Slack.ThreadStatuses do
   Each semantic change and periodic refresh advances one persisted generation.
   A late receipt from an older write therefore cannot settle a newer desired
   status or clear.
+
+  Each status written, confirmed, deferred, blocked or rearmed, and each
+  receipt Slack gave for one, is announced after the outermost commit
+  (`subscribe_thread_statuses/0`).
   """
 
   import Ecto.Query
@@ -272,7 +276,7 @@ defmodule Ryker.Slack.ThreadStatuses do
 
     case attributes |> ThreadStatusChangeset.insert() |> Repo.insert() do
       {:ok, status} ->
-        status
+        tap(status, &broadcast_thread_status_updated/1)
 
       {:error, changeset} ->
         Repo.rollback({:slack_thread_status_persistence_failed, changeset.errors})
@@ -313,7 +317,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   defp update!(status, attributes) do
     case status |> ThreadStatusChangeset.update(attributes) |> Repo.update() do
       {:ok, status} ->
-        status
+        tap(status, &broadcast_thread_status_updated/1)
 
       {:error, changeset} ->
         Repo.rollback({:slack_thread_status_persistence_failed, changeset.errors})
@@ -415,4 +419,33 @@ defmodule Ryker.Slack.ThreadStatuses do
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to Slack thread status changes:
+  `{:thread_status_updated, status_id}` once the status Ryker shows in a
+  thread is set, confirmed, deferred, blocked or rearmed, or Slack answers a
+  write of it, and that change has committed.
+  """
+  def subscribe_thread_statuses, do: Ryker.PubSub.subscribe(thread_statuses_topic())
+
+  def unsubscribe_thread_statuses, do: Ryker.PubSub.unsubscribe(thread_statuses_topic())
+
+  @doc """
+  Internal — announces, after the outermost commit, that `status` changed.
+  `Ryker.Slack.ThreadStatusReceipts`, which records what Slack answered,
+  calls it too. A status for a request is heard on the request's topics.
+  """
+  @spec broadcast_thread_status_updated(ThreadStatus.t()) :: :ok
+  def broadcast_thread_status_updated(%ThreadStatus{id: id} = status) do
+    if status.origin_kind == "episode",
+      do: Ryker.Episodes.broadcast_episode_updated(status.origin_id)
+
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(thread_statuses_topic(), {:thread_status_updated, id})
+    end)
+  end
+
+  defp thread_statuses_topic, do: "slack:thread_statuses"
 end

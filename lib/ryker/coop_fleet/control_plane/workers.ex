@@ -7,6 +7,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   records the heartbeat a poll carries, and applies the rest of that poll in
   one transaction through the other control-plane parts: placement leases,
   command acknowledgements and results, event batches, and command delivery.
+
+  A poll that changes what a page shows about the worker (its state, what it
+  can run, its storage, or its return after going quiet) is announced after
+  the poll commits (`subscribe_workers/0`). A heartbeat that only moves
+  `last_seen_at` is not: a worker polls every few seconds.
   """
 
   import Ecto.Changeset
@@ -143,6 +148,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     clock_at = parse_timestamp!(hello["clock_at"])
     ensure_clock_skew!(worker_id, clock_at, now)
 
+    previous = worker
+
     worker =
       worker
       |> change(%{
@@ -173,6 +180,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
       |> Repo.update()
       |> Shared.unwrap_write()
 
+    if status_changed?(previous, worker, now), do: broadcast_worker_updated(worker)
     Placements.renew_worker_placements(worker, now, lease_seconds)
     Commands.acknowledge_commands(worker_id, poll["acknowledged_command_ids"], now)
 
@@ -328,4 +336,35 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     |> Repo.insert(on_conflict: :nothing, conflict_target: :sha256)
     |> Shared.unwrap_write()
   end
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to Coop worker status: `{:coop_worker_updated,
+  worker_id}` once a poll changes a worker's state, capacity, repositories,
+  policies, storage or build, or brings it back after it stopped reporting,
+  and that poll has committed.
+  """
+  def subscribe_workers, do: Ryker.PubSub.subscribe(workers_topic())
+
+  def unsubscribe_workers, do: Ryker.PubSub.unsubscribe(workers_topic())
+
+  defp workers_topic, do: "coop:workers"
+
+  # What pages read from a worker row, and whether it had gone quiet: the
+  # fleet counts a worker silent for a minute as stale.
+  @status_fields ~w(state capacity capabilities repositories policy_digests policy_authority_digests storage build_version sandbox_digest protocol_version drain_requested_at)a
+  @quiet_seconds 60
+
+  defp status_changed?(previous, current, now) do
+    Map.take(previous, @status_fields) != Map.take(current, @status_fields) or
+      is_nil(previous.last_seen_at) or
+      DateTime.diff(now, previous.last_seen_at, :second) > @quiet_seconds
+  end
+
+  defp broadcast_worker_updated(%Worker{id: id}),
+    do:
+      Repo.after_commit(fn ->
+        Ryker.PubSub.broadcast(workers_topic(), {:coop_worker_updated, id})
+      end)
 end

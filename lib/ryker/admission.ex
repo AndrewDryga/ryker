@@ -4,6 +4,9 @@ defmodule Ryker.Admission do
 
   It uses conversation, thread, episode state, and age to bound the choices the
   model may make. It never searches for provider names or status phrases.
+
+  Routing a message is announced after each commit (`subscribe_routing/0`):
+  every phase its attempt reaches, and the decision.
   """
 
   import Ecto.Query
@@ -932,6 +935,8 @@ defmodule Ryker.Admission do
     |> Repo.update()
     |> case do
       {:ok, decided} ->
+        broadcast_routing_updated(decided)
+
         with :ok <- Attempts.committed(decided),
              {:ok, _response} <- maybe_enqueue_routing_response(decided) do
           {:ok, decided}
@@ -958,6 +963,7 @@ defmodule Ryker.Admission do
             detail: decided.last_error_detail
           )
 
+        broadcast_routing_updated(decided)
         {:ok, decided}
 
       {:error, changeset} ->
@@ -1337,4 +1343,30 @@ defmodule Ryker.Admission do
   end
 
   defp utc_datetime?(_value), do: false
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to routing progress: `{:routing_updated, input_id}`
+  once routing a message starts an attempt, reaches a new phase, or decides,
+  and that change has committed.
+  """
+  def subscribe_routing, do: Ryker.PubSub.subscribe(routing_topic())
+
+  def unsubscribe_routing, do: Ryker.PubSub.unsubscribe(routing_topic())
+
+  @doc """
+  Internal — announces, after the outermost commit, that routing `entry` made
+  progress. The message's own topics (`Ryker.Ingress.Inbox`) hear it too.
+  """
+  @spec broadcast_routing_updated(Entry.t()) :: :ok
+  def broadcast_routing_updated(%Entry{id: input_id} = entry) do
+    Inbox.broadcast_input_updated(entry)
+
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(routing_topic(), {:routing_updated, input_id})
+    end)
+  end
+
+  defp routing_topic, do: "routing"
 end

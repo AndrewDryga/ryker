@@ -5,6 +5,10 @@ defmodule Ryker.Schedules do
   A schedule stores an inert typed goal and a resolved destination. Each due
   occurrence creates one fresh linked episode under the policy resolved at
   dispatch time; controls, Coop sessions, and writable forks are never reused.
+
+  A schedule confirmed, paused, resumed, run, missed, expired or deleted is
+  announced after the outermost commit (`subscribe_schedules/0`,
+  `subscribe_schedule/1`), on the topics of the request that offered it too.
   """
 
   import Ecto.Query
@@ -16,6 +20,7 @@ defmodule Ryker.Schedules do
   alias Ryker.Reference
   alias Ryker.Repo
 
+  alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
@@ -259,7 +264,7 @@ defmodule Ryker.Schedules do
              recurrence,
              next_occurrence_at
            ),
-         {:ok, _record} <-
+         {:ok, confirmed} <-
            record
            |> RecordChangeset.confirm_resource(%{
              confirmed_at: attributes.occurred_at,
@@ -268,6 +273,7 @@ defmodule Ryker.Schedules do
              status: :confirmed
            })
            |> Repo.update() do
+      Records.broadcast_record_updated(confirmed)
       %{schedule: schedule, status: :confirmed}
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -320,8 +326,12 @@ defmodule Ryker.Schedules do
       |> ScheduleChangeset.insert()
       |> Repo.insert()
       |> case do
-        {:ok, schedule} -> {:ok, schedule}
-        {:error, changeset} -> {:error, {:schedule_persistence_failed, changeset.errors}}
+        {:ok, schedule} ->
+          broadcast_schedule_updated(schedule)
+          {:ok, schedule}
+
+        {:error, changeset} ->
+          {:error, {:schedule_persistence_failed, changeset.errors}}
       end
     end
   end
@@ -550,8 +560,12 @@ defmodule Ryker.Schedules do
     |> ScheduleOccurrenceChangeset.insert()
     |> Repo.insert()
     |> case do
-      {:ok, occurrence} -> {:ok, occurrence}
-      {:error, changeset} -> {:error, {:schedule_occurrence_persistence_failed, changeset.errors}}
+      {:ok, occurrence} ->
+        broadcast_schedule_updated(occurrence.schedule_id)
+        {:ok, occurrence}
+
+      {:error, changeset} ->
+        {:error, {:schedule_occurrence_persistence_failed, changeset.errors}}
     end
   end
 
@@ -876,10 +890,19 @@ defmodule Ryker.Schedules do
 
   defp policy(_policy), do: {:error, :schedule_policy_unavailable}
 
+  # A renewal only moves the lease's expiry, which no page shows.
+  defp update_schedule!(schedule, %{lease_expires_at: _expiry} = attributes)
+       when map_size(attributes) == 1 do
+    schedule
+    |> ScheduleChangeset.update(attributes)
+    |> Repo.update!()
+  end
+
   defp update_schedule!(schedule, attributes) do
     schedule
     |> ScheduleChangeset.update(attributes)
     |> Repo.update!()
+    |> tap(&broadcast_schedule_updated/1)
   end
 
   defp confirmation_attributes(attributes) when is_list(attributes) do
@@ -951,5 +974,52 @@ defmodule Ryker.Schedules do
   defp bounded_error(reason) do
     value = inspect(reason, limit: 20, printable_limit: 3_500, width: 120)
     if byte_size(value) <= 4_096, do: value, else: String.byte_slice(value, 0, 4_093) <> "..."
+  end
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to every schedule's changes: `{:schedule_updated,
+  schedule_id}` once a schedule is confirmed, paused, resumed, deleted, run,
+  missed, retried or ends, and that change has committed.
+  """
+  def subscribe_schedules, do: Ryker.PubSub.subscribe(schedules_topic())
+
+  def unsubscribe_schedules, do: Ryker.PubSub.unsubscribe(schedules_topic())
+
+  @doc """
+  Subscribes the caller to one schedule's changes (`{:schedule_updated,
+  schedule_id}`), by the schedule's ref, for the page that shows it.
+  """
+  def subscribe_schedule(schedule_ref), do: Ryker.PubSub.subscribe(schedule_topic(schedule_ref))
+
+  def unsubscribe_schedule(schedule_ref),
+    do: Ryker.PubSub.unsubscribe(schedule_topic(schedule_ref))
+
+  defp schedules_topic, do: "schedules"
+  defp schedule_topic(schedule_ref), do: "schedule:#{schedule_ref}"
+
+  @doc """
+  Internal — announces, after the outermost commit, that `schedule` changed.
+  Automation changes, which edit a schedule outside this module, call it too.
+  """
+  @spec broadcast_schedule_updated(Schedule.t() | Ecto.UUID.t()) :: :ok
+  def broadcast_schedule_updated(%Schedule{id: id, ref: ref} = schedule) do
+    Episodes.broadcast_episode_updated(schedule.source_episode_id)
+    Repo.after_commit(fn -> announce_schedule(id, ref) end)
+  end
+
+  def broadcast_schedule_updated(schedule_id) when is_binary(schedule_id) do
+    Repo.after_commit(fn ->
+      case Repo.one(from(schedule in Schedule, where: schedule.id == ^schedule_id)) do
+        %Schedule{ref: ref} -> announce_schedule(schedule_id, ref)
+        nil -> :ok
+      end
+    end)
+  end
+
+  defp announce_schedule(id, ref) do
+    Ryker.PubSub.broadcast(schedule_topic(ref), {:schedule_updated, id})
+    Ryker.PubSub.broadcast(schedules_topic(), {:schedule_updated, id})
   end
 end

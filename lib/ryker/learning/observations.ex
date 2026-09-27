@@ -10,6 +10,7 @@ defmodule Ryker.Learning.Observations do
   alias Ryker.Continuity
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeAnchors
+  alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Memories.MemorySearchPage
@@ -163,8 +164,12 @@ defmodule Ryker.Learning.Observations do
              conflict_target: [:identity_key],
              allow_stale: true
            ) do
-        {:ok, _} -> quarantine_conflicting_revision(entry)
-        {:error, reason} -> {:error, reason}
+        {:ok, _} ->
+          Learning.broadcast_learning_updated(entry.id)
+          quarantine_conflicting_revision(entry)
+
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       false -> {:error, :observation_transaction_required}

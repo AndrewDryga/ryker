@@ -151,6 +151,7 @@ defmodule Ryker.Memories.Cases do
             anchor_keys: []
           )
           |> Repo.update!()
+          |> tap(&announce_case/1)
       end
     end)
   end
@@ -198,15 +199,26 @@ defmodule Ryker.Memories.Cases do
         record
         |> Ecto.Changeset.change(Map.put(attributes, :updated_at, now))
         |> Repo.update()
+        |> tap(&announce_case/1)
 
       nil ->
-        Repo.insert(
-          struct!(CaseRecord, Map.merge(attributes, %{inserted_at: now, updated_at: now})),
-          on_conflict: :nothing,
-          conflict_target: [:case_ref]
-        )
+        struct!(CaseRecord, Map.merge(attributes, %{inserted_at: now, updated_at: now}))
+        |> Repo.insert(on_conflict: :nothing, conflict_target: [:case_ref])
+        |> tap(&announce_case/1)
     end
   end
+
+  # A remembered case shows on the memory pages and on the request it was
+  # captured from.
+  defp announce_case({:ok, %CaseRecord{id: id} = record}) when is_binary(id),
+    do: announce_case(record)
+
+  defp announce_case(%CaseRecord{id: id, episode_id: episode_id}) when is_binary(id) do
+    Ryker.Episodes.broadcast_episode_updated(episode_id)
+    Ryker.Memories.broadcast_memory_updated(id)
+  end
+
+  defp announce_case(_not_written), do: :ok
 
   defp attributes(%Episode{} = episode) do
     digest = Repo.get_by(RoutingDigest, episode_id: episode.id)

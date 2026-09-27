@@ -19,6 +19,7 @@ defmodule Ryker.Records.InputRequests do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Slack.InteractionAudits
 
+  alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
@@ -158,6 +159,8 @@ defmodule Ryker.Records.InputRequests do
              turn,
              :choice
            ) do
+      Records.broadcast_record_updated(record)
+
       %{
         input_ref: Inbox.ref(inbox_receipt.entry),
         record: record,

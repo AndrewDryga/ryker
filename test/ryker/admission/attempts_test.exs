@@ -81,6 +81,23 @@ defmodule Ryker.Admission.AttemptsTest do
     assert Repo.aggregate(Query.executions(nil), :count) == 1
   end
 
+  # Activity says "Routing" while a message is being routed, and its page
+  # shows each phase. Until 2026-09-26 both waited on a trigger's NOTIFY and a
+  # five-second poll; the context now says so itself once the phase commits.
+  test "each routing phase a message reaches is announced to the pages showing it" do
+    {entry, settings} = claimed_input!()
+    id = entry.id
+    :ok = Ryker.Admission.subscribe_routing()
+    :ok = Inbox.subscribe_input(id)
+
+    assert {:ok, _attempt} = Attempts.prepare(entry, settings)
+    assert_received {:routing_updated, ^id}
+    assert_received {:input_updated, ^id}
+
+    assert :ok = Attempts.observe(entry, "provider_running", %{}, settings)
+    assert_received {:routing_updated, ^id}
+  end
+
   defp claimed_input! do
     now = DateTime.utc_now()
 

@@ -14,7 +14,7 @@ defmodule Ryker.StateTools.CallLog do
 
   alias Ryker.Repo
   alias Ryker.StateTools.CallRecord
-  alias Ryker.Work.{Activity, Turn}
+  alias Ryker.Work.{Activity, Custody, Turn}
 
   @maximum_listed 5_000
 
@@ -43,7 +43,12 @@ defmodule Ryker.StateTools.CallLog do
 
     # A savepoint when a caller already holds a transaction, so a refused
     # write cannot abort work that is not this record's.
-    _kept = Repo.transaction(fn -> Repo.insert!(record) end)
+    _kept =
+      Repo.transaction(fn ->
+        Custody.broadcast_turn_updated(turn_id)
+        Repo.insert!(record)
+      end)
+
     :ok
   rescue
     _refused -> :ok

@@ -23,6 +23,28 @@ defmodule Ryker.Schedules.SchedulesTest do
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy %{digest: String.duplicate("c", 64), name: "ryker-scheduled-read"}
 
+  # Schedules, a schedule's page and the request that offered it all show the
+  # schedule. Until 2026-09-26 they heard of a change from a trigger's NOTIFY
+  # and a five-second poll; the context now announces each change it commits,
+  # and a lease renewal, which no page shows, stays quiet.
+  test "a confirmed and paused schedule reaches the schedule pages and the request that offered it" do
+    fixture = delivered_offer!("announced")
+    episode_id = fixture.episode.id
+    :ok = Schedules.subscribe_schedules()
+    :ok = Episodes.subscribe_episode(episode_id)
+
+    assert {:ok, %{schedule: %{id: id, ref: ref}}} =
+             Schedules.confirm(confirmation(fixture, "announced"))
+
+    assert_received {:schedule_updated, ^id}
+    assert_received {:episode_updated, ^episode_id}
+
+    :ok = Schedules.subscribe_schedule(ref)
+    assert {:ok, _paused} = Schedules.set_status(ref, :paused)
+    assert_received {:schedule_updated, ^id}
+    assert_received {:schedule_updated, ^id}
+  end
+
   test "the exact delivered offer creates one durable schedule and dispatches fresh linked work" do
     fixture = delivered_offer!("confirmed")
 

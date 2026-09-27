@@ -106,6 +106,22 @@ defmodule Ryker.Memories.MemoriesTest do
     assert match["memory_ref"] == confirmed.memory.ref
   end
 
+  # Memory › Facts lists what people asked Ryker to remember. Until 2026-09-26
+  # an open page heard of a new or forgotten fact from a trigger's NOTIFY and
+  # a five-second poll; the context now announces each change it commits.
+  test "a confirmed and forgotten fact reaches the memory pages" do
+    fixture = delivered_offers!("announced")
+    :ok = Memories.subscribe_memories()
+
+    assert {:ok, %{memory: %{id: id, ref: ref}}} =
+             Memories.confirm(confirmation(fixture, fixture.first, "announced"))
+
+    assert_received {:memory_updated, ^id}
+
+    assert {:ok, _forgotten} = Memories.forget(ref)
+    assert_received {:memory_updated, ^id}
+  end
+
   test "confirmed operational memory is scoped, provenance-bearing, replaceable, and forgettable" do
     fixture = delivered_offers!("lifecycle")
 

@@ -18,6 +18,9 @@ defmodule Ryker.Continuity do
       serves the summary and rollup lanes of memory search.
     * `Ryker.Continuity.Compaction` folds aged summaries into rollups and
       removes a deleted Slack channel's continuity; retention calls it directly.
+
+  A summary published, recalled, compacted or removed is announced after the
+  outermost commit (`subscribe_continuity/0`).
   """
 
   alias Ryker.Continuity.Compaction
@@ -46,4 +49,29 @@ defmodule Ryker.Continuity do
 
   @doc "The continuity scope of an episode's destination."
   defdelegate destination_context(episode, repository_ref), to: Scope
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to conversation summary changes:
+  `{:continuity_updated, conversation_ref}` once a summary of that
+  conversation (or the repository or workspace it rolls up into) is
+  published, recalled, compacted or removed, and that change has committed.
+  """
+  def subscribe_continuity, do: Ryker.PubSub.subscribe(continuity_topic())
+
+  def unsubscribe_continuity, do: Ryker.PubSub.unsubscribe(continuity_topic())
+
+  @doc """
+  Internal — announces, after the outermost commit, that the summaries of
+  `conversation_ref` changed. The continuity seams call it.
+  """
+  @spec broadcast_continuity_updated(String.t()) :: :ok
+  def broadcast_continuity_updated(conversation_ref),
+    do:
+      Ryker.Repo.after_commit(fn ->
+        Ryker.PubSub.broadcast(continuity_topic(), {:continuity_updated, conversation_ref})
+      end)
+
+  defp continuity_topic, do: "continuity"
 end

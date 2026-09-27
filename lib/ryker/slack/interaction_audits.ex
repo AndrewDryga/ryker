@@ -6,6 +6,9 @@ defmodule Ryker.Slack.InteractionAudits do
   authority outcome. Denials need no shared-message mutation. Stale and confirmed controls
   enter a fenced repaint queue so the host-owned message catches up even when
   the gateway process exits immediately after acknowledging the user.
+
+  Each control recorded, repainted, deferred, blocked or rearmed is announced
+  after the outermost commit (`subscribe_interactions/0`).
   """
 
   import Ecto.Query
@@ -167,6 +170,7 @@ defmodule Ryker.Slack.InteractionAudits do
       nil ->
         case attributes |> InteractionAuditChangeset.insert() |> Repo.insert() do
           {:ok, audit} ->
+            broadcast_interaction_updated(audit)
             %{audit: audit, status: :recorded}
 
           {:error, changeset} ->
@@ -296,7 +300,7 @@ defmodule Ryker.Slack.InteractionAudits do
   defp update!(audit, attributes) do
     case audit |> InteractionAuditChangeset.update(attributes) |> Repo.update() do
       {:ok, updated} ->
-        updated
+        tap(updated, &broadcast_interaction_updated/1)
 
       {:error, changeset} ->
         Repo.rollback({:slack_interaction_audit_persistence_failed, changeset.errors})
@@ -365,4 +369,24 @@ defmodule Ryker.Slack.InteractionAudits do
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to Slack control changes:
+  `{:slack_interaction_updated, audit_id}` once someone's click or answer in
+  Slack is recorded, or the message it changed is repainted, deferred,
+  blocked or rearmed, and that change has committed.
+  """
+  def subscribe_interactions, do: Ryker.PubSub.subscribe(interactions_topic())
+
+  def unsubscribe_interactions, do: Ryker.PubSub.unsubscribe(interactions_topic())
+
+  defp interactions_topic, do: "slack:interactions"
+
+  defp broadcast_interaction_updated(%InteractionAudit{id: id}),
+    do:
+      Repo.after_commit(fn ->
+        Ryker.PubSub.broadcast(interactions_topic(), {:slack_interaction_updated, id})
+      end)
 end

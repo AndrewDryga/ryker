@@ -15,6 +15,7 @@ defmodule Ryker.Memories.Reviews do
   alias Ryker.CanonicalJSON
   alias Ryker.Repo
 
+  alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Memories
@@ -363,7 +364,10 @@ defmodule Ryker.Memories.Reviews do
     end
   end
 
-  defp review_inserted({:ok, _review}), do: true
+  defp review_inserted({:ok, review}) do
+    Memories.broadcast_memory_updated(review.id)
+    true
+  end
 
   defp review_inserted({:error, changeset}) do
     if Keyword.has_key?(changeset.errors, :source_digest),
@@ -480,6 +484,7 @@ defmodule Ryker.Memories.Reviews do
                  status: review_status(action)
                })
                |> Repo.update() do
+          Memories.broadcast_memory_updated(review.id)
           dismiss_superseded_reviews(review, entries, action, actor_ref)
           dismiss_orphan_reviews(actor_ref)
 
@@ -620,6 +625,8 @@ defmodule Ryker.Memories.Reviews do
         status: :dismissed
       })
       |> Repo.update!()
+
+      Memories.broadcast_memory_updated(review.id)
     end)
   end
 
@@ -650,6 +657,8 @@ defmodule Ryker.Memories.Reviews do
         status: :dismissed
       })
       |> Repo.update!()
+
+      Memories.broadcast_memory_updated(item.id)
     end)
 
     :ok
@@ -815,10 +824,13 @@ defmodule Ryker.Memories.Reviews do
   end
 
   defp review_source!(%{type: :memory, record: entry}, now) do
+    Memories.broadcast_memory_updated(entry.id)
     entry |> MemoryEntryChangeset.review(now) |> Repo.update!()
   end
 
   defp review_source!(%{type: :guidance, record: behavior}, now) do
+    Behaviors.broadcast_behavior_updated(behavior.id)
+
     behavior
     |> BehaviorChangeset.update(%{last_reviewed_at: now})
     |> Repo.update!()
@@ -829,6 +841,8 @@ defmodule Ryker.Memories.Reviews do
 
   defp redact_review_source!(%{type: :guidance, record: behavior}, status, hash_field) do
     payload = %{hash_field => CanonicalJSON.digest(behavior.payload)}
+
+    Behaviors.broadcast_behavior_updated(behavior.id)
 
     behavior
     |> BehaviorChangeset.update(%{
@@ -883,7 +897,8 @@ defmodule Ryker.Memories.Reviews do
     |> review_edit_result()
   end
 
-  defp review_edit_result({:ok, _entry}), do: :ok
+  defp review_edit_result({:ok, %Behavior{id: id}}), do: Behaviors.broadcast_behavior_updated(id)
+  defp review_edit_result({:ok, %MemoryEntry{id: id}}), do: Memories.broadcast_memory_updated(id)
 
   defp review_edit_result({:error, changeset}),
     do: {:error, {:memory_review_edit_failed, changeset.errors}}

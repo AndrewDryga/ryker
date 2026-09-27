@@ -11,6 +11,7 @@ defmodule Ryker.Artifacts.Outputs do
 
   alias Ryker.Artifacts.{OutputArtifact, OutputArtifactChangeset}
   alias Ryker.Repo
+  alias Ryker.Work.Custody
 
   @maximum_artifacts 5
   @maximum_bytes 8 * 1_024 * 1_024
@@ -49,7 +50,10 @@ defmodule Ryker.Artifacts.Outputs do
          true <- length(values) <= @maximum_artifacts,
          {:ok, prepared} <- prepare_bodies(turn_id, values),
          true <- Enum.sum(Enum.map(prepared, & &1.byte_size)) <= @maximum_bytes do
-      Repo.transaction(fn -> Enum.map(prepared, &put_one!/1) end)
+      Repo.transaction(fn ->
+        Custody.broadcast_turn_updated(turn_id)
+        Enum.map(prepared, &put_one!/1)
+      end)
     else
       false -> {:error, {:invalid_work_output_artifacts, :bodies}}
       {:error, _reason} = error -> error

@@ -11,10 +11,10 @@ defmodule Ryker.Operator.Retention do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Operator.RetentionAction
+  alias Ryker.Operator.{Actions, RetentionAction}
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Custody, Session}
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
 
@@ -256,6 +256,7 @@ defmodule Ryker.Operator.Retention do
     |> Ecto.Changeset.foreign_key_constraint(:session_id)
     |> Ecto.Changeset.check_constraint(:action_ref, name: :retention_operator_action_valid)
     |> Repo.insert!()
+    |> tap(&Actions.broadcast_action_recorded(&1.id))
   end
 
   defp persist(session, attributes) do
@@ -274,6 +275,7 @@ defmodule Ryker.Operator.Retention do
       name: :episode_work_session_cleanup_blocked_valid
     )
     |> Repo.update!()
+    |> tap(&Custody.broadcast_session_updated/1)
   end
 
   defp reference(value, _field) when is_binary(value) do

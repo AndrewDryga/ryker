@@ -6,12 +6,17 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   Admission freezes the exact emoji or words and the host-owned destination
   in the same transaction as the model decision. Platform workers can retry
   delivery, but cannot change either the target or what is sent.
+
+  Each response queued, claimed, retried, blocked or delivered is announced
+  after the outermost commit (`subscribe_routing_responses/0`), on its message's
+  topics too (`Ryker.Ingress.Inbox`).
   """
 
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{Request, RoutingResponse, RoutingResponseChangeset}
+  alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Work.DeliveryReceipt
@@ -319,12 +324,21 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
     if DateTime.compare(current, requested) == :lt, do: requested, else: current
   end
 
-  defp persistence_result({:ok, value}, _operation), do: {:ok, value}
+  defp persistence_result({:ok, value}, _operation) do
+    broadcast_routing_response_updated(value)
+    {:ok, value}
+  end
 
   defp persistence_result({:error, changeset}, operation),
     do: {:error, {:persistence_failed, operation, changeset.errors}}
 
-  defp unwrap_or_rollback({:ok, value}, _operation), do: value
+  # A renewal only moves the lease's expiry, which no page shows.
+  defp unwrap_or_rollback({:ok, value}, :delivery_renewal), do: value
+
+  defp unwrap_or_rollback({:ok, value}, _operation) do
+    broadcast_routing_response_updated(value)
+    value
+  end
 
   defp unwrap_or_rollback({:error, changeset}, operation),
     do: Repo.rollback({:persistence_failed, operation, changeset.errors})
@@ -346,4 +360,26 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
 
   defp positive_integer(value, _field) when is_integer(value) and value > 0, do: :ok
   defp positive_integer(_value, field), do: {:error, {:invalid_routing_response, field}}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to routing response changes:
+  `{:routing_response_updated, response_id}` once a reaction or quick reply
+  routing chose is queued, claimed, retried, blocked or delivered, and that
+  change has committed.
+  """
+  def subscribe_routing_responses, do: Ryker.PubSub.subscribe(routing_responses_topic())
+
+  def unsubscribe_routing_responses, do: Ryker.PubSub.unsubscribe(routing_responses_topic())
+
+  defp routing_responses_topic, do: "delivery:routing_responses"
+
+  defp broadcast_routing_response_updated(%RoutingResponse{id: id} = response) do
+    Inbox.broadcast_input_updated(response.input_id)
+
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(routing_responses_topic(), {:routing_response_updated, id})
+    end)
+  end
 end

@@ -5,6 +5,9 @@ defmodule Ryker.Instructions do
   Only trusted operator controls save settings. Each new model request captures
   both layers in one database read; already frozen requests never resolve again.
   Edit provenance keeps fingerprints, not another retained copy of cleared text.
+
+  A saved change is announced after the outermost commit
+  (`subscribe_instructions/0`).
   """
 
   import Ecto.Query
@@ -147,6 +150,7 @@ defmodule Ryker.Instructions do
       inserted_at: now
     })
 
+    broadcast_instructions_saved(saved.scope_ref)
     saved
   end
 
@@ -190,4 +194,23 @@ defmodule Ryker.Instructions do
   end
 
   defp actor(_), do: {:error, {:invalid_instructions, :actor}}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to instruction changes: `{:instructions_saved,
+  scope_ref}` once the global instructions or a channel's are saved, and that
+  change has committed. `scope_ref` is `"global"` or the channel's.
+  """
+  def subscribe_instructions, do: Ryker.PubSub.subscribe(instructions_topic())
+
+  def unsubscribe_instructions, do: Ryker.PubSub.unsubscribe(instructions_topic())
+
+  defp instructions_topic, do: "instructions"
+
+  defp broadcast_instructions_saved(scope_ref),
+    do:
+      Repo.after_commit(fn ->
+        Ryker.PubSub.broadcast(instructions_topic(), {:instructions_saved, scope_ref})
+      end)
 end

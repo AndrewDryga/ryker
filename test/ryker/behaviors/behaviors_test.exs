@@ -29,6 +29,26 @@ defmodule Ryker.Behaviors.BehaviorsTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  # Rules, Instructions and the memory pages list confirmed behavior, and the
+  # offer's record changes on its request's page. Until 2026-09-26 they heard
+  # of it from a trigger's NOTIFY and a five-second poll; the context now
+  # announces the behavior and the record it confirmed.
+  test "confirmed and switched-off guidance reaches the behavior pages and the offer's request" do
+    fixture = delivered_offers!("announced-guidance")
+    record_id = fixture.guidance.id
+    :ok = Behaviors.subscribe_behaviors()
+    :ok = Records.subscribe_records()
+
+    assert {:ok, %{behavior: %{id: id, ref: ref}}} =
+             Behaviors.confirm(confirmation(fixture, fixture.guidance, "announced"))
+
+    assert_received {:behavior_updated, ^id}
+    assert_received {:record_updated, ^record_id}
+
+    assert {:ok, _disabled} = Behaviors.set_status(ref, :disabled)
+    assert_received {:behavior_updated, ^id}
+  end
+
   test "confirmed guidance is immediately searchable when the database clock trails the host" do
     # Two full-gate guidance searches returned [] immediately after successful
     # confirmation: host-generated insertion times exceeded the database cursor

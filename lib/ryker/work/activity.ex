@@ -15,7 +15,9 @@ defmodule Ryker.Work.Activity do
 
   alias Ecto.Changeset
   alias Ryker.CanonicalJSON
+  alias Ryker.Episodes
   alias Ryker.Episodes.Episode
+  alias Ryker.Ingress.Inbox
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Work.{ActivityEvent, ActivityPaths, Session}
@@ -457,7 +459,21 @@ defmodule Ryker.Work.Activity do
         {:error, changeset} -> {:halt, {:error, {:coop_activity_store, changeset.errors}}}
       end
     end)
+    |> announce_inserted(session)
   end
+
+  # What a turn is doing shows on its request's page, and what routing is
+  # doing on its message's.
+  defp announce_inserted({:ok, inserted} = result, session) when inserted > 0 do
+    Episodes.broadcast_episode_updated(session.episode_id)
+
+    if session.admission_input_id,
+      do: Inbox.broadcast_input_updated(session.admission_input_id)
+
+    result
+  end
+
+  defp announce_inserted(result, _session), do: result
 
   defp next_cursor([], cursor), do: cursor
   defp next_cursor(events, _cursor), do: List.last(events).sequence

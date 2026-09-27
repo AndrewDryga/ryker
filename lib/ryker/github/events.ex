@@ -1,5 +1,11 @@
 defmodule Ryker.GitHub.Events do
-  @moduledoc "Idempotent custody and health projection for authenticated GitHub deliveries."
+  @moduledoc """
+  Idempotent custody and health projection for authenticated GitHub deliveries.
+
+  A delivery recorded, repeated or processed is announced after the outermost
+  commit (`subscribe_deliveries/0`), so a page showing a repository's GitHub
+  health can say it again.
+  """
 
   import Ecto.Query
 
@@ -30,9 +36,15 @@ defmodule Ryker.GitHub.Events do
            on_conflict: :nothing,
            returning: true
          ) do
-      {0, []} -> duplicate(binding.name, delivery_ref, attributes.payload_digest, now)
-      {1, [%Event{} = event]} -> {:ok, event}
-      _unexpected -> {:error, :github_event_persistence_failed}
+      {0, []} ->
+        duplicate(binding.name, delivery_ref, attributes.payload_digest, now)
+
+      {1, [%Event{} = event]} ->
+        broadcast_delivery_updated(event.binding_ref)
+        {:ok, event}
+
+      _unexpected ->
+        {:error, :github_event_persistence_failed}
     end
   end
 
@@ -47,6 +59,7 @@ defmodule Ryker.GitHub.Events do
       processed_at: Repo.now!()
     })
     |> Repo.update()
+    |> tap(fn _result -> broadcast_delivery_updated(event.binding_ref) end)
   end
 
   def complete(:duplicate, _disposition, _reason), do: {:ok, :duplicate}
@@ -119,6 +132,7 @@ defmodule Ryker.GitHub.Events do
             set: [last_duplicate_at: now]
           )
 
+        broadcast_delivery_updated(binding_ref)
         {:ok, :duplicate}
 
       %Event{} ->
@@ -165,4 +179,23 @@ defmodule Ryker.GitHub.Events do
 
   defp force_microsecond_precision(%DateTime{microsecond: {value, _precision}} = time),
     do: %{time | microsecond: {value, 6}}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to GitHub deliveries: `{:github_delivery_updated,
+  binding_ref}` once a delivery for that GitHub binding is recorded,
+  repeated or processed, and that change has committed.
+  """
+  def subscribe_deliveries, do: Ryker.PubSub.subscribe(deliveries_topic())
+
+  def unsubscribe_deliveries, do: Ryker.PubSub.unsubscribe(deliveries_topic())
+
+  defp deliveries_topic, do: "github:deliveries"
+
+  defp broadcast_delivery_updated(binding_ref),
+    do:
+      Repo.after_commit(fn ->
+        Ryker.PubSub.broadcast(deliveries_topic(), {:github_delivery_updated, binding_ref})
+      end)
 end

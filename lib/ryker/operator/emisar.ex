@@ -133,6 +133,7 @@ defmodule Ryker.Operator.Emisar do
                  status: :monitoring
                })
                |> Repo.update() do
+          Approvals.broadcast_approval_updated(rearmed)
           fetch_locked(rearmed)
         else
           {:error, %Ecto.Changeset{} = changeset} ->

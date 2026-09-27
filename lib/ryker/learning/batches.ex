@@ -1,5 +1,10 @@
 defmodule Ryker.Learning.Batches do
-  @moduledoc "Durable, exclusively assigned learning inputs and leased execution budgets."
+  @moduledoc """
+  Durable, exclusively assigned learning inputs and leased execution budgets.
+
+  Every batch or pass this module writes is announced after the outermost
+  commit (`Ryker.Learning.subscribe_learning/0`), except a lease renewal.
+  """
   import Ecto.Query
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, InputMembership, Rebuilds, Runtime}
@@ -232,6 +237,7 @@ defmodule Ryker.Learning.Batches do
 
       valid_ids = current_members!(batch, members)
       retire_unstarted_manifest!(unstarted, valid_ids)
+      Learning.broadcast_learning_updated(batch.id)
       {:ok, %{claim | batch: batch, inputs: inputs(batch.id)}}
     end)
   end
@@ -643,6 +649,7 @@ defmodule Ryker.Learning.Batches do
       end)
 
     Repo.insert_all(InputMembership, rows)
+    Learning.broadcast_learning_updated(batch.id)
     batch
   end
 
@@ -740,5 +747,14 @@ defmodule Ryker.Learning.Batches do
   @doc false
   def lock_owned_in_transaction!(claim), do: owned!(claim)
 
-  defp save(row, attrs), do: row |> Ecto.Changeset.change(attrs) |> Repo.update!()
+  # A renewal only moves the lease and its heartbeat, which no page shows.
+  defp save(row, [heartbeat_at: _heartbeat, lease_expires_at: _expiry] = attrs),
+    do: row |> Ecto.Changeset.change(attrs) |> Repo.update!()
+
+  defp save(row, attrs) do
+    row
+    |> Ecto.Changeset.change(attrs)
+    |> Repo.update!()
+    |> tap(&Learning.broadcast_learning_updated(&1.id))
+  end
 end

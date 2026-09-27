@@ -22,6 +22,34 @@ defmodule Ryker.EpisodesTest do
     assert [%{sequence: 1, kind: :input_admitted}] = Episodes.list_events(command.episode_key)
   end
 
+  # A request's Timeline, the Activity list and the conversation the request
+  # answers all show its state. Until 2026-09-26 they heard of a change from a
+  # trigger's NOTIFY and a five-second poll; the kernel now announces each
+  # applied transition once it commits, and a duplicate, which changes nothing,
+  # is not announced.
+  test "an applied transition reaches its request, every request list and its conversation" do
+    command = EpisodeFixtures.admit_input()
+    %{transport: transport, conversation_ref: conversation} = command.destination
+    :ok = Episodes.subscribe_episodes()
+    :ok = Episodes.subscribe_conversations(transport)
+    :ok = Episodes.subscribe_conversation(transport, conversation)
+
+    assert {:ok, %{episode: %{id: id}}} = Episodes.apply(command)
+    assert_received {:episode_updated, ^id}
+    assert_received {:conversation_updated, ^conversation}
+    assert_received {:conversation_updated, ^conversation}
+
+    # Other tests' requests are announced on the same list topic, so only
+    # this request's announcements count.
+    :ok = Episodes.subscribe_episode(id)
+    assert {:ok, %{status: :duplicate}} = Episodes.apply(command)
+    refute_received {:episode_updated, ^id}
+
+    assert {:ok, %{status: :applied}} = Episodes.apply(EpisodeFixtures.record_reaction())
+    assert_received {:episode_updated, ^id}
+    assert_received {:episode_updated, ^id}
+  end
+
   test "reaction feedback is durably idempotent without creating another turn" do
     input = EpisodeFixtures.admit_input()
     assert {:ok, admitted} = Episodes.apply(input)

@@ -15,6 +15,10 @@ defmodule Ryker.Memories do
   layer (Slack, the control plane, work submission), not a compatibility shim:
   callers inside the state, retention, and tooling layers call the owning
   module directly.
+
+  A fact confirmed, edited, reviewed, superseded or forgotten, a review item
+  opened or resolved, and a remembered case captured or removed are announced
+  after the outermost commit (`subscribe_memories/0`).
   """
 
   import Ecto.Query
@@ -31,6 +35,7 @@ defmodule Ryker.Memories do
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemoryEntryChangeset
+  alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
@@ -215,6 +220,7 @@ defmodule Ryker.Memories do
            |> MemoryEntryChangeset.insert()
            |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
            |> Repo.insert() do
+      broadcast_memory_updated(memory.id)
       %{memory: memory, status: :confirmed}
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -389,7 +395,7 @@ defmodule Ryker.Memories do
     with :ok <- capacity(prepared),
          :ok <- supersede_existing(prepared),
          {:ok, entry} <- insert_entry(record, episode, attributes, prepared),
-         {:ok, _record} <-
+         {:ok, confirmed} <-
            record
            |> RecordChangeset.confirm_resource(%{
              confirmed_at: attributes.occurred_at,
@@ -398,6 +404,7 @@ defmodule Ryker.Memories do
              status: :confirmed
            })
            |> Repo.update() do
+      Records.broadcast_record_updated(confirmed)
       %{memory: entry, status: :confirmed}
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -549,8 +556,12 @@ defmodule Ryker.Memories do
     |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
     |> Repo.insert()
     |> case do
-      {:ok, entry} -> {:ok, entry}
-      {:error, changeset} -> {:error, {:memory_persistence_failed, changeset.errors}}
+      {:ok, entry} ->
+        broadcast_memory_updated(entry.id)
+        {:ok, entry}
+
+      {:error, changeset} ->
+        {:error, {:memory_persistence_failed, changeset.errors}}
     end
   end
 
@@ -671,5 +682,29 @@ defmodule Ryker.Memories do
     entry
     |> MemoryEntryChangeset.redact(status, payload, fingerprint)
     |> Repo.update!()
+    |> tap(&broadcast_memory_updated(&1.id))
   end
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to memory changes: `{:memory_updated, id}` once a
+  fact, a review item or a remembered case changes, and that change has
+  committed. `id` is the changed row's.
+  """
+  def subscribe_memories, do: Ryker.PubSub.subscribe(memories_topic())
+
+  def unsubscribe_memories, do: Ryker.PubSub.unsubscribe(memories_topic())
+
+  @doc """
+  Internal — announces, after the outermost commit, that the fact, review
+  item or remembered case `id` changed. The memory modules that write one call
+  this.
+  """
+  @spec broadcast_memory_updated(Ecto.UUID.t()) :: :ok
+  def broadcast_memory_updated(id) when is_binary(id),
+    do:
+      Repo.after_commit(fn -> Ryker.PubSub.broadcast(memories_topic(), {:memory_updated, id}) end)
+
+  defp memories_topic, do: "memories"
 end

@@ -303,8 +303,12 @@ defmodule Ryker.Work.Executor.Turns do
   # Inspection evidence is observed, never required: its outcome is discarded
   # here so a worker that cannot export it, or a capture that fails, changes
   # nothing about this turn's decisions, prompt bytes, authority or effects.
+  # What the worker recorded shows on the request's Timeline, so the request
+  # hears that it arrived.
   defp capture_session_evidence(claim, settings) do
-    SessionEvidenceCapture.capture(claim.session, settings.api, settings.client)
+    captured = SessionEvidenceCapture.capture(claim.session, settings.api, settings.client)
+    Custody.broadcast_turn_updated(claim.turn)
+    captured
   end
 
   defp checkpoint_accepted_workspace(

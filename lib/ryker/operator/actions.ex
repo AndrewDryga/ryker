@@ -5,6 +5,10 @@ defmodule Ryker.Operator.Actions do
   The caller supplies only bounded identity and payload-free request metadata.
   The protected callback runs in the same PostgreSQL transaction as the audit
   insert, so a lost response can be reconciled by repeating the action ref.
+
+  Each recorded action is announced after the outermost commit
+  (`subscribe_actions/0`); what the action changed is announced by the
+  context that owns it.
   """
 
   import Ecto.Query
@@ -114,6 +118,7 @@ defmodule Ryker.Operator.Actions do
         )
         |> Repo.insert!()
 
+      broadcast_action_recorded(action.id)
       receipt(action, :recorded)
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -172,4 +177,29 @@ defmodule Ryker.Operator.Actions do
 
   defp transaction_result({:ok, value}), do: {:ok, value}
   defp transaction_result({:error, reason}), do: {:error, reason}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to operator actions: `{:operator_action_recorded,
+  action_id}` once a retry, rearm, discard or other privileged operator action
+  is recorded, and that change has committed.
+  """
+  def subscribe_actions, do: Ryker.PubSub.subscribe(actions_topic())
+
+  def unsubscribe_actions, do: Ryker.PubSub.unsubscribe(actions_topic())
+
+  @doc """
+  Internal — announces, after the outermost commit, that operator action
+  `action_id` was recorded. Working-copy recovery (`Ryker.Operator.Retention`)
+  keeps its own audit rows and announces them here too.
+  """
+  @spec broadcast_action_recorded(Ecto.UUID.t()) :: :ok
+  def broadcast_action_recorded(action_id),
+    do:
+      Repo.after_commit(fn ->
+        Ryker.PubSub.broadcast(actions_topic(), {:operator_action_recorded, action_id})
+      end)
+
+  defp actions_topic, do: "operator:actions"
 end

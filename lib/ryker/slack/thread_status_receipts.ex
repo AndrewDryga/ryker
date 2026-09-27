@@ -4,6 +4,7 @@ defmodule Ryker.Slack.ThreadStatusReceipts do
   import Ecto.Query
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
+  alias Ryker.Slack.ThreadStatuses
 
   @primary_key {:id, :binary_id, autogenerate: true}
   schema "slack_thread_status_receipts" do
@@ -37,6 +38,7 @@ defmodule Ryker.Slack.ThreadStatusReceipts do
         if(result != :ok, do: InspectionRedactor.artifact(inspect(result), max_bytes: 1_000).text)
     }
     |> Repo.insert(on_conflict: :nothing, conflict_target: [:lease_ref])
+    |> tap(fn _receipt -> ThreadStatuses.broadcast_thread_status_updated(status) end)
   end
 
   # Tests read the receipts of one thread back, in acknowledgement order.

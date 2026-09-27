@@ -87,6 +87,22 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     assert Enum.all?(Repo.all(KnowledgeRevision), &(&1.inserted_at == database_time))
   end
 
+  # Memory › Learned lists what Ryker learned. Until 2026-09-26 an open page
+  # heard of a new topic or revision from a trigger's NOTIFY and a five-second
+  # poll; the context now announces each topic it writes once that commits.
+  test "a learned topic and its revision reach the learned pages" do
+    first = input!(1, @firing)
+    :ok = Knowledge.subscribe_knowledge()
+    learn!(first, @firing)
+    %{id: id} = Repo.one!(ConversationKnowledge)
+    assert_received {:knowledge_updated, ^id}
+
+    [before] = Knowledge.context(first, "blitz-infra")
+    second = input!(2, @resolved)
+    learn!(second, @resolved, before)
+    assert_received {:knowledge_updated, ^id}
+  end
+
   test "related matching does not disclose unrelated recent topics to fill empty slots" do
     # In the replay a new topic inherited 114 roots. Filling the candidate
     # budget with unrelated recent prose spreads those roots into every update.

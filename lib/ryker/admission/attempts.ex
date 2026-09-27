@@ -2,6 +2,7 @@ defmodule Ryker.Admission.Attempts do
   @moduledoc "Fenced request artifacts and observed milestones for each admission execution generation."
   import Ecto.Query
   alias Ecto.Changeset
+  alias Ryker.Admission
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry
@@ -128,6 +129,7 @@ defmodule Ryker.Admission.Attempts do
             milestones: %{"context_prepared" => DateTime.to_iso8601(settings.now.())}
           })
 
+      Admission.broadcast_routing_updated(current)
       action.(attempt)
     end)
   end

@@ -5,6 +5,13 @@ defmodule Ryker.Episodes do
   One transaction serializes a source identity, decides its pure transition,
   and stores the projection plus immutable event. No external action runs in
   this transaction.
+
+  An episode is what the control plane calls a request, and this context owns
+  the topics that say one changed (`subscribe_episode/1`), and the topics that
+  say a conversation's requests and messages did (`subscribe_conversation/2`).
+  Every context that keeps something for a request (its work, deliveries,
+  publications, records, follow-ups, Slack cards) announces it here, after its
+  commit, with `broadcast_episode_updated/1`.
   """
 
   import Ecto.Query
@@ -213,6 +220,7 @@ defmodule Ryker.Episodes do
          :ok <- close_open_questions(episode),
          :ok <- withdraw_retained_sources(event),
          :ok <- RoutingDigests.refresh_in_transaction(episode, event) do
+      broadcast_episode_updated(episode)
       {:ok, %{transition | episode: episode, event: event}}
     end
   end
@@ -283,4 +291,109 @@ defmodule Ryker.Episodes do
 
   defp transaction_result({:ok, value}), do: {:ok, value}
   defp transaction_result({:error, reason}), do: {:error, reason}
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to every request's changes: `{:episode_updated,
+  episode_id}` once anything recorded for a request commits, its state and
+  events or anything another context keeps for it.
+  """
+  def subscribe_episodes, do: Ryker.PubSub.subscribe(episodes_topic())
+
+  def unsubscribe_episodes, do: Ryker.PubSub.unsubscribe(episodes_topic())
+
+  @doc """
+  Subscribes the caller to one request's changes (`{:episode_updated,
+  episode_id}`), for a page that shows that request alone.
+  """
+  def subscribe_episode(episode_id), do: Ryker.PubSub.subscribe(episode_topic(episode_id))
+
+  def unsubscribe_episode(episode_id), do: Ryker.PubSub.unsubscribe(episode_topic(episode_id))
+
+  @doc """
+  Subscribes the caller to every conversation of one transport:
+  `{:conversation_updated, conversation_ref}` once a message received there,
+  a request addressed there or anything kept for one commits. Chat's
+  conversations are the `"control_plane"` transport's.
+  """
+  def subscribe_conversations(transport),
+    do: Ryker.PubSub.subscribe(conversations_topic(transport))
+
+  def unsubscribe_conversations(transport),
+    do: Ryker.PubSub.unsubscribe(conversations_topic(transport))
+
+  @doc """
+  Subscribes the caller to one conversation (`{:conversation_updated,
+  conversation_ref}`), such as the Slack channel a channel page shows.
+  """
+  def subscribe_conversation(transport, conversation_ref),
+    do: Ryker.PubSub.subscribe(conversation_topic(transport, conversation_ref))
+
+  def unsubscribe_conversation(transport, conversation_ref),
+    do: Ryker.PubSub.unsubscribe(conversation_topic(transport, conversation_ref))
+
+  @doc """
+  Internal — announces, after the outermost commit, that something recorded
+  for a request changed. Takes the episode or its id; either way the
+  conversation it is addressed to is read once the change has committed, so
+  the same request announced several times in one transaction, by any of the
+  contexts that keep something for it, is announced once.
+  """
+  @spec broadcast_episode_updated(Episode.t() | Ecto.UUID.t() | nil) :: :ok
+  def broadcast_episode_updated(%Episode{id: id}) when is_binary(id),
+    do: broadcast_episode_updated(id)
+
+  def broadcast_episode_updated(episode_id) when is_binary(episode_id),
+    do: Repo.after_commit(fn -> announce_episode(episode_id) end)
+
+  def broadcast_episode_updated(nil), do: :ok
+
+  @doc """
+  Internal — announces, after the outermost commit, that something in a
+  conversation changed that no request holds yet: a message received there,
+  or a choice made for the conversation itself.
+  """
+  @spec broadcast_conversation_updated(String.t() | nil, String.t() | nil) :: :ok
+  def broadcast_conversation_updated(transport, conversation_ref)
+      when is_binary(transport) and is_binary(conversation_ref),
+      do: Repo.after_commit(fn -> announce_conversation(transport, conversation_ref) end)
+
+  def broadcast_conversation_updated(_transport, _conversation_ref), do: :ok
+
+  defp episodes_topic, do: "episodes"
+  defp episode_topic(episode_id), do: "episode:#{episode_id}"
+  defp conversations_topic(transport), do: "conversations:#{transport}"
+
+  defp conversation_topic(transport, conversation_ref),
+    do: "conversation:#{transport}:#{conversation_ref}"
+
+  # A request removed by the change is still announced, so a page showing it
+  # can say it is gone; it has no conversation left to announce.
+  defp announce_episode(episode_id) do
+    destination =
+      Repo.one(
+        from(episode in Episode,
+          where: episode.id == ^episode_id,
+          select: {episode.destination_transport, episode.destination_conversation_ref}
+        )
+      )
+
+    Ryker.PubSub.broadcast(episode_topic(episode_id), {:episode_updated, episode_id})
+    Ryker.PubSub.broadcast(episodes_topic(), {:episode_updated, episode_id})
+
+    case destination do
+      {transport, conversation_ref} when is_binary(transport) and is_binary(conversation_ref) ->
+        announce_conversation(transport, conversation_ref)
+
+      _none ->
+        :ok
+    end
+  end
+
+  defp announce_conversation(transport, conversation_ref) do
+    message = {:conversation_updated, conversation_ref}
+    Ryker.PubSub.broadcast(conversation_topic(transport, conversation_ref), message)
+    Ryker.PubSub.broadcast(conversations_topic(transport), message)
+  end
 end

@@ -5,6 +5,10 @@ defmodule Ryker.Publication.Custody do
   A model-created publication offer is inert. This module binds it to the
   delivered episode, its immutable Coop session generation, and one trusted
   repository before any review or GitHub mutation can run.
+
+  A publication requested, reviewed, approved, published or followed up is
+  announced after the outermost commit (`subscribe_publications/0`), on its
+  request's topics too.
   """
 
   import Ecto.Query
@@ -841,8 +845,12 @@ defmodule Ryker.Publication.Custody do
       |> Repo.insert()
 
     case publication do
-      {:ok, publication} -> %{publication: publication, status: :requested}
-      {:error, changeset} -> Repo.rollback({:publication_persistence_failed, changeset.errors})
+      {:ok, publication} ->
+        broadcast_publication_updated(publication)
+        %{publication: publication, status: :requested}
+
+      {:error, changeset} ->
+        Repo.rollback({:publication_persistence_failed, changeset.errors})
     end
   end
 
@@ -1286,10 +1294,19 @@ defmodule Ryker.Publication.Custody do
   defp status(%Publication{status: expected}, expected), do: :ok
   defp status(_publication, _expected), do: {:error, :publication_status_changed}
 
+  # A renewal only moves the lease's expiry, which no page shows.
+  defp update!(publication, %{lease_expires_at: _expiry} = attributes, now)
+       when map_size(attributes) == 1 do
+    publication
+    |> Changeset.update(Map.put(attributes, :updated_at, now))
+    |> Repo.update!()
+  end
+
   defp update!(publication, attributes, now) do
     publication
     |> Changeset.update(Map.put(attributes, :updated_at, now))
     |> Repo.update!()
+    |> tap(&broadcast_publication_updated/1)
   end
 
   defp attributes(attributes, fields, error) when is_list(attributes) do
@@ -1381,4 +1398,51 @@ defmodule Ryker.Publication.Custody do
     [owner, repository, "pull", _number] = String.split(String.trim_leading(path, "/"), "/")
     "#{owner}/#{repository}"
   end
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to publication changes: `{:publication_updated,
+  publication_id}` once a code change Ryker offered is requested for review,
+  reviewed, approved, published, followed up or given up, and that change has
+  committed.
+  """
+  def subscribe_publications, do: Ryker.PubSub.subscribe(publications_topic())
+
+  def unsubscribe_publications, do: Ryker.PubSub.unsubscribe(publications_topic())
+
+  @doc """
+  Internal — announces, after the outermost commit, that a publication, its
+  follow-up or one of its lifecycle events changed. Takes the publication, or
+  its id: its request is then read after the commit.
+  """
+  @spec broadcast_publication_updated(Publication.t() | Ecto.UUID.t()) :: :ok
+  def broadcast_publication_updated(%Publication{id: id, episode_id: episode_id}) do
+    Ryker.Episodes.broadcast_episode_updated(episode_id)
+    Repo.after_commit(fn -> announce_publication(id) end)
+  end
+
+  def broadcast_publication_updated(publication_id) when is_binary(publication_id) do
+    Repo.after_commit(fn ->
+      publication_id
+      |> episode_of_publication()
+      |> Ryker.Episodes.broadcast_episode_updated()
+
+      announce_publication(publication_id)
+    end)
+  end
+
+  defp publications_topic, do: "publications"
+
+  defp episode_of_publication(publication_id),
+    do:
+      Repo.one(
+        from(publication in Publication,
+          where: publication.id == ^publication_id,
+          select: publication.episode_id
+        )
+      )
+
+  defp announce_publication(publication_id),
+    do: Ryker.PubSub.broadcast(publications_topic(), {:publication_updated, publication_id})
 end

@@ -13,7 +13,9 @@ defmodule Ryker.ControlPlane.ConversationLab do
   of the default does not move it; `select_environment/2` changes it for the
   messages that follow. `work_profile/2` resolves a message's Work profile
   from the console's placements: the environment's while it can run work,
-  otherwise the profile of work outside any environment.
+  otherwise the profile of work outside any environment. A conversation's
+  environment, once stored or changed, is announced on the conversation's
+  topics (`Ryker.Episodes.subscribe_conversations/1`).
   """
 
   import Ecto.Query
@@ -32,6 +34,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
   }
 
   alias Ryker.Artifacts
+  alias Ryker.Episodes
   alias Ryker.Episodes.Reactions
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Ingress.Inbox.Entry
@@ -407,8 +410,11 @@ defmodule Ryker.ControlPlane.ConversationLab do
            """,
            [conversation_id]
          ) do
-      {:ok, _result} -> :ok
-      {:error, reason} -> {:error, {:conversation_lab_persistence_failed, :conversation, reason}}
+      {:ok, _result} ->
+        Episodes.broadcast_conversation_updated("control_plane", ref(conversation_id))
+
+      {:error, reason} ->
+        {:error, {:conversation_lab_persistence_failed, :conversation, reason}}
     end
   end
 
@@ -436,6 +442,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
            [conversation_id, environment_ref]
          ) do
       {:ok, _result} ->
+        Episodes.broadcast_conversation_updated("control_plane", ref(conversation_id))
         environment_ref
 
       {:error, %Postgrex.Error{postgres: %{code: :foreign_key_violation}}} ->

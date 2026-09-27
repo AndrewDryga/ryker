@@ -16,6 +16,28 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  # What routing sends by itself shows on the message's page and on Failures
+  # while it is blocked. Until 2026-09-26 those pages heard of it from a
+  # trigger's NOTIFY and a five-second poll; custody now announces it.
+  test "a queued and claimed routing response reaches the pages that show it" do
+    entry = record_input!("Ev-reaction-announced")
+    input_id = entry.id
+    :ok = RoutingResponseCustody.subscribe_routing_responses()
+    :ok = Inbox.subscribe_input(input_id)
+
+    assert {:ok, _applied} =
+             Admission.commit(context!(entry), reaction!("eyes"), "decision:announced")
+
+    %{id: id} = Repo.get_by!(RoutingResponse, input_id: input_id)
+    assert_received {:routing_response_updated, ^id}
+    assert_received {:input_updated, ^input_id}
+
+    assert {:ok, %{response: %{id: ^id}}} =
+             RoutingResponseCustody.claim_next("routing-response-worker", 60)
+
+    assert_received {:routing_response_updated, ^id}
+  end
+
   test "an accepted reaction becomes one durable leased delivery" do
     entry = record_input!("Ev-reaction-custody")
     context = context!(entry)

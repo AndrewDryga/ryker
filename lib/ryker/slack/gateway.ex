@@ -6,6 +6,10 @@ defmodule Ryker.Slack.Gateway do
   input is durable. A host control becomes acknowledgeable only after its
   authority-checked transition has completed. Transient failures deliberately
   leave the envelope unacknowledged for Slack to retry.
+
+  The connection coming up or going down is announced
+  (`subscribe_connection/0`): it is process state, not a row, so no commit
+  says it.
   """
 
   use GenServer
@@ -80,6 +84,8 @@ defmodule Ryker.Slack.Gateway do
   def handle_info(:connect, %{connection: nil} = state) do
     case state.transport.connect(state.transport_options) do
       {:ok, connection} ->
+        broadcast_connection_changed(true)
+
         {:noreply,
          state
          |> Map.put(:connection, connection)
@@ -129,6 +135,7 @@ defmodule Ryker.Slack.Gateway do
   def terminate(_reason, %{connection: nil}), do: :ok
 
   def terminate(_reason, state) do
+    broadcast_connection_changed(false)
     state.transport.close(state.connection)
   end
 
@@ -828,7 +835,10 @@ defmodule Ryker.Slack.Gateway do
   end
 
   defp reconnect(state) do
-    if state.connection, do: state.transport.close(state.connection)
+    if state.connection do
+      broadcast_connection_changed(false)
+      state.transport.close(state.connection)
+    end
 
     state
     |> Map.put(:connection, nil)
@@ -870,4 +880,19 @@ defmodule Ryker.Slack.Gateway do
   defp transport?(_transport), do: false
 
   defp positive_timeout?(value), do: is_integer(value) and value > 0 and value <= 300_000
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to the Socket Mode connection:
+  `{:slack_connection_changed, connected?}` once it comes up or goes down.
+  """
+  def subscribe_connection, do: Ryker.PubSub.subscribe(connection_topic())
+
+  def unsubscribe_connection, do: Ryker.PubSub.unsubscribe(connection_topic())
+
+  defp connection_topic, do: "slack:connection"
+
+  defp broadcast_connection_changed(connected?),
+    do: Ryker.PubSub.broadcast(connection_topic(), {:slack_connection_changed, connected?})
 end
