@@ -11,6 +11,8 @@ defmodule Ryker.Admission do
 
   import Ecto.Query
 
+  require Logger
+
   alias Ryker.Admission.Attempts
 
   alias Ryker.Admission.{
@@ -28,6 +30,7 @@ defmodule Ryker.Admission do
 
   alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
+  alias Ryker.Feedback
 
   alias Ryker.Episodes.{
     Command,
@@ -175,6 +178,7 @@ defmodule Ryker.Admission do
         input_entry: entry,
         custom_instructions: Ryker.Instructions.snapshot(input.destination),
         person_asking: person_asking(input, entry),
+        previous_answer: previous_answer(input, captured),
         repository_choices: repository_choices(entry),
         routing_receipt: routing_receipt,
         slack_addressing: slack_addressing(entry),
@@ -225,6 +229,18 @@ defmodule Ryker.Admission do
       description -> %{"ref" => ref, "description" => description}
     end
   end
+
+  # Routing is asked how a person feels about Ryker's previous answer only
+  # when a person writes a new message in Slack or Chat after one: an app, an
+  # alert or an edit says nothing about how an answer landed.
+  defp previous_answer(
+         %Input{actor: %{kind: :user}, event_kind: :message, source: %{kind: kind}},
+         captured
+       )
+       when kind in ["slack", "control_plane"],
+       do: captured.previous_answer
+
+  defp previous_answer(_input, _captured), do: nil
 
   defp capture_conversation_context(entry, settings) do
     entry
@@ -733,6 +749,7 @@ defmodule Ryker.Admission do
              {:ok, episode} <-
                maybe_resume_blocked_episode(episode, admitted_input_ref(transitions)),
              {:ok, decided} <- persist_decision(entry, decision, decision_ref, episode),
+             :ok <- keep_sentiment(context, decision, decided),
              :ok <- Observations.record_excerpt_in_transaction(decided),
              :ok <-
                finalize_assignment_runs(entry, decision, decision_ref, episode, :decided) do
@@ -746,6 +763,39 @@ defmodule Ryker.Admission do
         error
     end
   end
+
+  # How the sender feels about Ryker's previous answer is feedback on that
+  # answer's request, kept with the decision that read it. It is an input,
+  # never a dependency: one the host cannot keep is logged, and the decision
+  # commits exactly as it would have without it.
+  defp keep_sentiment(
+         %Context{previous_answer: %{"request" => request}, input: input},
+         %Decision{sentiment: %{feeling: feeling, reason: reason}},
+         decided
+       ) do
+    case Feedback.record_in_transaction(%{
+           kind: :sentiment,
+           value: Atom.to_string(feeling),
+           note: reason,
+           actor_ref: input.actor.ref,
+           source: input.source.kind,
+           source_ref: Inbox.ref(decided),
+           occurred_at: input.occurred_at,
+           request: feedback_request(request)
+         }) do
+      {:ok, _recorded} ->
+        :ok
+
+      {:error, error} ->
+        Logger.warning("routing sentiment not kept: #{inspect(error, limit: 5)}")
+        :ok
+    end
+  end
+
+  defp keep_sentiment(_context, _decision, _decided), do: :ok
+
+  defp feedback_request(%{"episode_id" => id}), do: {:episode, id}
+  defp feedback_request(%{"input_id" => id}), do: {:input, id}
 
   defp supersede_stale_revision(entry, selection, decision, decision_ref, details, reason) do
     case existing_episode(selection) do

@@ -31,16 +31,23 @@ defmodule Ryker.Admission.ConversationContext do
   @message_bytes 1_024
   @provider_pages 3
 
-  @type t :: %{bundle: map(), manifest: map()}
+  @typedoc """
+  The frozen bundle and its manifest, and `previous_answer`: the latest of
+  Ryker's answers among the bundle's messages (a Work reply or a quick
+  reply, not an update posted while it worked), with the request it belongs
+  to, or nil when the bundle holds none.
+  """
+  @type t :: %{bundle: map(), manifest: map(), previous_answer: map() | nil}
 
   @spec capture(Entry.t(), keyword()) :: t()
   def capture(%Entry{} = entry, options \\ []) do
     limit = validated_limit(Keyword.get(options, :local_history_limit, @default_limit))
     reader = Keyword.get(options, :reader)
     kind = origin_kind(entry)
+    {ryker, answers} = ryker_messages(entry, kind, limit)
 
     retained =
-      (retained_predecessors(entry, kind, limit) ++ ryker_messages(entry, kind, limit))
+      (retained_predecessors(entry, kind, limit) ++ ryker)
       |> Enum.sort_by(&{&1["occurred_at"], &1["source_message_ref"]})
       |> Enum.take(-limit)
 
@@ -54,16 +61,50 @@ defmodule Ryker.Admission.ConversationContext do
       "thread_summary" => nil
     }
 
-    %{bundle: bundle, manifest: manifest(entry, kind, limit, messages, root, read_status)}
+    %{
+      bundle: bundle,
+      manifest: manifest(entry, kind, limit, messages, root, read_status),
+      previous_answer: previous_answer(messages, answers)
+    }
   end
 
   @doc "Merges the selected thread summary into a captured bundle and its manifest."
   @spec with_thread_summary(t(), map()) :: t()
-  def with_thread_summary(%{bundle: bundle, manifest: manifest}, thread_summary) do
+  def with_thread_summary(%{bundle: bundle, manifest: manifest} = captured, thread_summary) do
     %{
-      bundle: Map.put(bundle, "thread_summary", thread_summary["document"]),
-      manifest: Map.put(manifest, "thread_summary", Map.delete(thread_summary, "document"))
+      captured
+      | bundle: Map.put(bundle, "thread_summary", thread_summary["document"]),
+        manifest: Map.put(manifest, "thread_summary", Map.delete(thread_summary, "document"))
     }
+  end
+
+  @doc """
+  The latest of Ryker's answers still among `bundle`'s messages, from the
+  answers a capture found, or nil. Fitting a prompt drops the oldest
+  messages, so the answer is looked for again in what is left.
+  """
+  @spec previous_answer_in(map() | nil, map() | nil) :: map() | nil
+  def previous_answer_in(%{"messages" => messages}, %{"message_ref" => ref} = answer)
+      when is_list(messages) do
+    if Enum.any?(messages, &(&1["actor_ref"] == "ryker" and &1["source_message_ref"] == ref)),
+      do: answer
+  end
+
+  def previous_answer_in(_bundle, _answer), do: nil
+
+  # Ryker's answers are its Work replies and its quick replies; an update the
+  # Work model posted while it worked is not one. The latest the bundle kept
+  # is the answer a message sent after it may be reacting to.
+  defp previous_answer(messages, answers) do
+    messages
+    |> Enum.reverse()
+    |> Enum.find_value(fn message ->
+      message["actor_ref"] == "ryker" and Map.get(answers, message["source_message_ref"])
+    end)
+    |> case do
+      %{} = answer -> answer
+      _none -> nil
+    end
   end
 
   @doc false
@@ -115,10 +156,30 @@ defmodule Ryker.Admission.ConversationContext do
   # thread and execution-mode rules as the inputs. Only a delivery receipt
   # proves a message was sent; accepted-but-undelivered answers never enter a
   # context.
+  #
+  # Each answer (a reply or a quick reply) is also returned by the message it
+  # was sent as, with the request it belongs to: `previous_answer/2` reads it.
   defp ryker_messages(entry, kind, limit) do
-    (delivered_replies(entry, kind, limit) ++
-       delivered_posts(entry, kind, limit) ++ delivered_quick_replies(entry, kind, limit))
-    |> Enum.flat_map(&ryker_message(&1, entry))
+    sent =
+      delivered_replies(entry, kind, limit) ++
+        delivered_posts(entry, kind, limit) ++ delivered_quick_replies(entry, kind, limit)
+
+    messages = Enum.flat_map(sent, &ryker_message(&1, entry))
+
+    answers =
+      for %{request: request} = answer <- sent,
+          request != nil,
+          [document] <- [ryker_message(answer, entry)],
+          into: %{} do
+        {document["source_message_ref"],
+         %{
+           "at" => document["occurred_at"],
+           "message_ref" => document["source_message_ref"],
+           "request" => request
+         }}
+      end
+
+    {messages, answers}
   end
 
   defp delivered_replies(entry, kind, limit) do
@@ -140,7 +201,8 @@ defmodule Ryker.Admission.ConversationContext do
     |> select([turn], %{
       at: turn.delivered_at,
       document: turn.delivery_document,
-      receipt: turn.external_receipt
+      receipt: turn.external_receipt,
+      request: %{"episode_id" => turn.episode_id}
     })
     |> Repo.all()
   end
@@ -186,6 +248,7 @@ defmodule Ryker.Admission.ConversationContext do
       at: response.delivered_at,
       document: response.document,
       receipt: response.external_receipt,
+      request: %{"input_id" => response.input_id},
       thread_ref: response.thread_ref
     })
     |> Repo.all()

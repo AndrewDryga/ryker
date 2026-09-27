@@ -13,8 +13,16 @@ defmodule Ryker.Admission.Decision do
   order, and its optional `reactions` up to three emoji added to the person's
   message. A reaction alone is one to three emoji in `reactions` (Andrew,
   2026-09-26: "Now both reply and add a reaction" had to start a work run).
+
+  When the message follows one of Ryker's answers, the result may also say
+  how its sender feels about that answer (`sentiment`,
+  `Ryker.Admission.Sentiment`). It is optional and never part of the
+  decision: a result without it, or with one Ryker cannot read, is the same
+  decision, its stored document and fingerprint leave it out, and the host
+  keeps it only as feedback on that answer.
   """
 
+  alias Ryker.Admission.Sentiment
   alias Ryker.Work.RepositorySource
 
   @actions [:start_episode, :continue_episode, :reply, :quick_reply, :react, :ignore]
@@ -36,8 +44,9 @@ defmodule Ryker.Admission.Decision do
     :work_class
   ]
   # A decision built without a repository chose none, and one without
-  # messages or reactions sends nothing by itself.
-  defstruct @enforce_keys ++ [messages: nil, reactions: nil, repository: nil]
+  # messages or reactions sends nothing by itself. A sentiment rides beside
+  # the decision and is never part of it.
+  defstruct @enforce_keys ++ [messages: nil, reactions: nil, repository: nil, sentiment: nil]
 
   @type t :: %__MODULE__{
           action: :start_episode | :continue_episode | :reply | :quick_reply | :react | :ignore,
@@ -48,11 +57,19 @@ defmodule Ryker.Admission.Decision do
           reason: String.t(),
           repository: String.t() | nil,
           repository_source: map() | nil,
+          sentiment: Sentiment.t() | nil,
           work_class: :conversational | :standard | :deep | nil
         }
 
+  @doc """
+  Reads a routing result. Every decision field is required and checked; an
+  optional `sentiment` beside them is read leniently and never refuses the
+  result (`Ryker.Admission.Sentiment.parse/1`).
+  """
   @spec parse(map()) :: {:ok, t()} | {:error, term()}
   def parse(%{} = value) do
+    {sentiment, value} = Map.pop(value, "sentiment")
+
     with :ok <- exact_fields(value),
          {:ok, action} <- parse_enum(value["action"], @actions, :action),
          {:ok, relation} <- parse_enum(value["relation"], @relations, :relation),
@@ -76,6 +93,7 @@ defmodule Ryker.Admission.Decision do
          reason: value["reason"],
          repository: repository,
          repository_source: repository_source,
+         sentiment: Sentiment.parse(sentiment),
          work_class: work_class
        }}
     end
@@ -83,10 +101,16 @@ defmodule Ryker.Admission.Decision do
 
   def parse(_value), do: {:error, {:invalid_decision, :type}}
 
+  @doc "Checks a decision the host holds again, keeping the sentiment beside it."
   @spec prepare(t()) :: {:ok, t()} | {:error, term()}
-  def prepare(%__MODULE__{} = decision), do: decision |> document() |> parse()
+  def prepare(%__MODULE__{} = decision) do
+    with {:ok, prepared} <- decision |> document() |> parse(),
+         do: {:ok, %{prepared | sentiment: Sentiment.prepare(decision.sentiment)}}
+  end
+
   def prepare(_decision), do: {:error, {:invalid_decision, :type}}
 
+  @doc "The decision as it is stored: every decision field, and never the sentiment."
   @spec document(t()) :: map()
   def document(%__MODULE__{} = decision) do
     %{
@@ -135,6 +159,11 @@ defmodule Ryker.Admission.Decision do
       when is_list(allowed_actions) and is_boolean(repository_source?),
       do: json_schema(allowed_actions, reaction_names, repository_source?, [])
 
+  @spec json_schema([atom()], :any | [String.t()] | nil, boolean(), [String.t()]) :: map()
+  def json_schema(allowed_actions, reaction_names, repository_source?, repository_choices),
+    do:
+      json_schema(allowed_actions, reaction_names, repository_source?, repository_choices, false)
+
   @doc """
   Publishes the decision contract for one source.
 
@@ -143,11 +172,21 @@ defmodule Ryker.Admission.Decision do
   `repository_choices` are the repositories of the route's environment when
   it has more than one: a new episode must name one of them, and every other
   action sends null. With one repository or none there is nothing to choose.
+
+  `sentiment?` offers the optional `sentiment` beside the decision, when a
+  person's message follows one of Ryker's answers. It is never required.
   """
-  @spec json_schema([atom()], :any | [String.t()] | nil, boolean(), [String.t()]) :: map()
-  def json_schema(allowed_actions, reaction_names, repository_source?, repository_choices)
+  @spec json_schema([atom()], :any | [String.t()] | nil, boolean(), [String.t()], boolean()) ::
+          map()
+  def json_schema(
+        allowed_actions,
+        reaction_names,
+        repository_source?,
+        repository_choices,
+        sentiment?
+      )
       when is_list(allowed_actions) and is_boolean(repository_source?) and
-             is_list(repository_choices) do
+             is_list(repository_choices) and is_boolean(sentiment?) do
     actions = Enum.filter(@actions, &(&1 in allowed_actions))
 
     %{
@@ -179,6 +218,7 @@ defmodule Ryker.Admission.Decision do
       "title" => "Ryker admission decision",
       "type" => "object"
     }
+    |> offer_sentiment(sentiment?)
   end
 
   @doc """
@@ -230,6 +270,12 @@ defmodule Ryker.Admission.Decision do
     do: choices
 
   defp recorded_choices(_repository), do: []
+
+  # Offered, never required: the decision stands without it.
+  defp offer_sentiment(schema, false), do: schema
+
+  defp offer_sentiment(schema, true),
+    do: put_in(schema, ["properties", "sentiment"], Sentiment.json_schema())
 
   defp decision_shapes(actions, reaction_names, repository_source?, repository_choices) do
     selectable = repository_source? and :start_episode in actions

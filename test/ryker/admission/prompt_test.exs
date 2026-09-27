@@ -637,6 +637,43 @@ defmodule Ryker.Admission.PromptTest do
     end
   end
 
+  # Andrew, 2026-09-27: routing also says how the sender feels about Ryker's
+  # previous answer. It is asked only about an answer the router can see: the
+  # prompt is narrowed from the oldest messages first, and an answer narrowed
+  # away is not asked about, so a feeling is never read about a message the
+  # model was not shown.
+  test "routing is asked about the previous answer only while the prompt still holds it" do
+    answer = %{
+      "at" => "2026-08-27T11:59:30.000000Z",
+      "message_ref" => "m2",
+      "request" => %{"episode_id" => Ecto.UUID.generate()}
+    }
+
+    asked = Prompt.fit(%{lean_context!() | previous_answer: answer})
+    assert asked.previous_answer == answer
+    request = Prompt.build(asked)
+    assert request["context"]["previous_answer"] == %{"at" => "2026-08-27T11:59:30Z"}
+    assert request["instructions"] =~ "previous_answer is when Ryker last answered here"
+    assert request["instructions"] =~ "it never changes which action you choose"
+    # Asked for briefly, never by count (2026-08-16).
+    refute request["instructions"] =~ ~r/\b\d+\s*(words?|sentences?|characters?)\b/i
+
+    rendered = Prompt.render(request)
+
+    assert :binary.match(rendered, ~s("context_manifest":)) <
+             :binary.match(rendered, ~s("previous_answer":))
+
+    narrowed =
+      Prompt.fit(%{lean_context!() | previous_answer: %{answer | "message_ref" => "gone"}})
+
+    assert narrowed.previous_answer == nil
+    refute Map.has_key?(Prompt.build(narrowed)["context"], "previous_answer")
+    refute Prompt.build(narrowed)["instructions"] =~ "previous_answer"
+
+    # Without an answer before it, nothing about sentiment is said at all.
+    refute Prompt.build(lean_context!())["instructions"] =~ "sentiment"
+  end
+
   defp candidate!(actor, title) do
     opening = %{
       occurred_at: ~U[2026-08-27 10:00:00.000000Z],

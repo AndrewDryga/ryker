@@ -6,7 +6,7 @@ defmodule Ryker.Admission.Prompt do
   output without duplicating the schema inside natural-language instructions.
   """
 
-  alias Ryker.Admission.{Candidate, Context}
+  alias Ryker.Admission.{Candidate, Context, ConversationContext}
   alias Ryker.CanonicalJSON
 
   @max_encoded_bytes 65_536
@@ -167,6 +167,17 @@ defmodule Ryker.Admission.Prompt do
   Every other action sends null.
   """
 
+  @sentiment """
+  previous_answer is when Ryker last answered here before this event: the message from ryker sent
+  at that time in conversation_context. In sentiment, say how the person who sent this event feels
+  about that answer, judging only by what they write now. feeling is satisfied when it helped or
+  they thank Ryker for it, neutral when they react to it without feeling either way, frustrated
+  when it missed, was wrong or left them repeating or correcting themselves, and angry when they
+  are upset with Ryker. reason says briefly, in plain words, what in their message shows it. Use
+  null when the event does not react to that answer, such as a new question or people talking to
+  each other. sentiment is only noted: it never changes which action you choose.
+  """
+
   @spec build(Context.t()) :: map()
   def build(%Context{} = context) do
     request =
@@ -212,7 +223,17 @@ defmodule Ryker.Admission.Prompt do
     fitted =
       expand_previews(baseline, captured, @baseline_preview_bytes, Candidate.preview_limit())
 
-    %{fitted | fitted?: true}
+    # Narrowing drops the oldest messages first; an answer it dropped is no
+    # longer one the router can see, so it is not asked about.
+    %{
+      fitted
+      | fitted?: true,
+        previous_answer:
+          ConversationContext.previous_answer_in(
+            fitted.conversation_context,
+            fitted.previous_answer
+          )
+    }
   end
 
   # Fitted and restored contexts never reread or refit their candidate strings.
@@ -233,19 +254,7 @@ defmodule Ryker.Admission.Prompt do
     do: %{"context" => document, "instructions" => instructions(document)}
 
   defp instructions(document) do
-    text =
-      [
-        @instructions,
-        Map.has_key?(document, "slack_addressing") && @addressing,
-        (Map.has_key?(document, "conversation_observations") or
-           Map.has_key?(document, "conversation_knowledge")) && @memory,
-        Map.has_key?(document, "repository_choices") && @repository_choices,
-        Map.has_key?(document, "repository_source_kinds") && @repository_source,
-        "quick_reply" in document["allowed_actions"] && @quick_reply,
-        "react" in document["allowed_actions"] && @reaction
-      ]
-      |> Enum.filter(&is_binary/1)
-      |> Enum.join("\n")
+    text = Enum.join([@instructions | paragraphs(document)], "\n")
 
     # The context carries the operator's instructions only when they say
     # something (`Ryker.Admission.Context.custom_instructions?/1`).
@@ -254,11 +263,30 @@ defmodule Ryker.Admission.Prompt do
       else: text
   end
 
+  # Each paragraph about data that is often absent, in the prompt's order,
+  # only when its data is present.
+  defp paragraphs(document) do
+    actions = document["allowed_actions"]
+
+    [
+      {Map.has_key?(document, "slack_addressing"), @addressing},
+      {Map.has_key?(document, "conversation_observations") or
+         Map.has_key?(document, "conversation_knowledge"), @memory},
+      {Map.has_key?(document, "repository_choices"), @repository_choices},
+      {Map.has_key?(document, "repository_source_kinds"), @repository_source},
+      {"quick_reply" in actions, @quick_reply},
+      {"react" in actions, @reaction},
+      {Map.has_key?(document, "previous_answer"), @sentiment}
+    ]
+    |> Enum.filter(&elem(&1, 0))
+    |> Enum.map(&elem(&1, 1))
+  end
+
   # The order a reader needs: the saved operator instructions, then the event
   # itself, the conversation around it, what Ryker remembers, the time, and the
   # earlier work it may belong to. Canonical key order put the instructions
   # last, where they could never be a cached prefix.
-  @context_order ~w(custom_instructions input slack_addressing conversation_context context_manifest conversation_observations conversation_knowledge candidates allowed_actions repository_choices repository_source_kinds)
+  @context_order ~w(custom_instructions input slack_addressing conversation_context context_manifest previous_answer conversation_observations conversation_knowledge candidates allowed_actions repository_choices repository_source_kinds)
 
   @doc "The prompt text: instructions first, then the context in reading order."
   @spec render(map()) :: String.t()

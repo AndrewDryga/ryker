@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   @moduledoc "A readable model call, with the retained evidence available inline."
   use Phoenix.Component
 
+  alias Ryker.Admission.Sentiment
   alias Ryker.ControlPlane.CallRun
   alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.RequestContextHTML
@@ -676,7 +677,8 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           },
           earlier_work_fact(request, candidate),
           source_fact(candidate),
-          reaction_fact(candidate)
+          reaction_fact(candidate),
+          sentiment_fact(document(request, "response"))
           | answer_facts(candidate)
         ]
         |> Enum.reject(&is_nil/1)
@@ -832,6 +834,33 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   end
 
   defp reaction_fact(_candidate), do: nil
+
+  # How routing read the sender's feeling about Ryker's previous answer. The
+  # committed decision never holds it, so it is read from the model's answer
+  # with the parser the host kept it with (`Ryker.Admission.Sentiment`): one
+  # it could not read is left out here as it was left out of the feedback.
+  defp sentiment_fact(%{"assistant_message" => message}) when is_binary(message) do
+    case Jason.decode(message) do
+      {:ok, %{"sentiment" => sentiment}} -> sentiment_fact(sentiment)
+      _none -> nil
+    end
+  end
+
+  defp sentiment_fact(%{} = sentiment) do
+    case Sentiment.parse(sentiment) do
+      %{feeling: feeling, reason: reason} ->
+        %{
+          label: "Felt about the last answer",
+          value: feeling |> Atom.to_string() |> String.capitalize(),
+          note: reason
+        }
+
+      nil ->
+        nil
+    end
+  end
+
+  defp sentiment_fact(_candidate), do: nil
 
   # A quick answer of one message reads "Answer"; of several, each message in
   # the order it was sent.

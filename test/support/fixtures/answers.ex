@@ -38,7 +38,10 @@ defmodule Ryker.Fixtures.Answers do
                  ref: Keyword.get(options, :actor, "UALICE")
                },
                channel_ref: Keyword.fetch!(options, :channel),
-               content: %{"text" => Keyword.fetch!(options, :text)},
+               content:
+                 Keyword.get_lazy(options, :content, fn ->
+                   %{"text" => Keyword.fetch!(options, :text)}
+                 end),
                event_kind: Keyword.get(options, :kind, :message),
                event_ref:
                  Keyword.get(
@@ -299,14 +302,18 @@ defmodule Ryker.Fixtures.Answers do
     })
   end
 
-  @doc "An update the Work model posted for `reply`'s request, as Slack message `post_ts`."
-  def post!(%{episode: episode, turn: turn}, text, post_ts, %DateTime{} = at) do
+  @doc """
+  An update the Work model posted for `reply`'s request, as Slack message
+  `post_ts`, in the request's thread or the one `:thread` names.
+  """
+  def post!(%{episode: episode, turn: turn}, text, post_ts, %DateTime{} = at, options \\ []) do
     document = %{"message" => text}
+    thread = Keyword.get(options, :thread, episode.destination_thread_ref)
 
     receipt = %{
       "conversation_ref" => episode.destination_conversation_ref,
       "message_ref" => post_ts,
-      "thread_ref" => episode.destination_thread_ref,
+      "thread_ref" => thread,
       "transport" => episode.destination_transport
     }
 
@@ -320,7 +327,7 @@ defmodule Ryker.Fixtures.Answers do
       kind: :message,
       transport: episode.destination_transport,
       conversation_ref: episode.destination_conversation_ref,
-      thread_ref: episode.destination_thread_ref,
+      thread_ref: thread,
       document: document,
       intent_fingerprint: CanonicalJSON.digest(document),
       status: :delivered,

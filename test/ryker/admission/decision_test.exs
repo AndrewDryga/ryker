@@ -640,6 +640,56 @@ defmodule Ryker.Admission.DecisionTest do
     assert {:error, _invalid} = JSV.validate(chosen, JSV.build!(schema), cast: false)
   end
 
+  # Andrew, 2026-09-27: routing also reports how the sender feels about
+  # Ryker's previous answer. The contract offers it beside the decision only
+  # when asked, never requires it, and refuses no value of it: Coop checks the
+  # whole result against this format, and a stricter sentiment would make a
+  # mistyped feeling a reason to correct the routing decision.
+  test "the contract offers a sentiment only when asked, and no value of it is refused" do
+    assert Decision.json_schema([:reply, :ignore], :any, false, []) ==
+             Decision.json_schema([:reply, :ignore], :any, false, [], false)
+
+    refute Map.has_key?(Decision.json_schema()["properties"], "sentiment")
+
+    schema = Decision.json_schema([:reply, :ignore], :any, false, [], true)
+    assert schema["required"] == Decision.json_schema()["required"]
+
+    assert %{"anyOf" => [asked, %{"type" => "null"}, _anything]} =
+             schema["properties"]["sentiment"]
+
+    assert asked["properties"]["feeling"]["enum"] == ~w(satisfied neutral frustrated angry)
+    assert asked["required"] == ["feeling", "reason"]
+
+    built = JSV.build!(schema)
+    document = decision_document([])
+
+    for sentiment <- [
+          %{"feeling" => "angry", "reason" => "They are upset the deploy broke again."},
+          nil,
+          "angry",
+          %{"feeling" => "furious"},
+          %{"feeling" => "neutral", "reason" => String.duplicate("a", 400)}
+        ] do
+      result = Map.put(document, "sentiment", sentiment)
+      assert {:ok, _valid} = JSV.validate(result, built, cast: false)
+      assert {:ok, decision} = Decision.parse(result)
+
+      assert Decision.fingerprint(decision) ==
+               Decision.fingerprint(elem(Decision.parse(document), 1))
+    end
+
+    assert {:ok, %Decision{sentiment: %{feeling: :angry, reason: "Upset."}} = decision} =
+             Decision.parse(
+               Map.put(document, "sentiment", %{"feeling" => "angry", "reason" => "Upset."})
+             )
+
+    # Checked again the way the host holds it, the sentiment stays beside the
+    # decision and out of its stored document.
+    assert {:ok, %Decision{sentiment: %{feeling: :angry}}} = Decision.prepare(decision)
+    refute Map.has_key?(Decision.document(decision), "sentiment")
+    assert {:ok, %Decision{sentiment: nil}} = Decision.prepare(%{decision | sentiment: :furious})
+  end
+
   defp decision_document(overrides) do
     defaults = %{
       "action" => "reply",

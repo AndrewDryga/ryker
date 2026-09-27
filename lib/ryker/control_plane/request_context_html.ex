@@ -16,6 +16,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Custom instructions", "policy", nil,
        "The global and channel text, scopes and revisions saved with this request, not today's settings. Empty text means no instruction at that scope."},
     "input" => {"Current message", "conversation", nil, nil},
+    "previous_answer" =>
+      {"Ryker's previous answer", "conversation", nil,
+       "When Ryker last answered here before this message. Routing says how the sender feels about that answer; it is kept as feedback on the request that answered."},
     "slack_addressing" => {"How the message reached Ryker", "conversation", nil, nil},
     "inputs" => {"Conversation messages", "conversation", nil, nil},
     "current_inputs" =>
@@ -99,7 +102,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   # Historical inspection keeps the label of the saved tool catalog; no execution
   # producer emits the old key.
   @sources Map.put(@sources, "responder_state_tools", @sources["controller_tools"])
-  @order ~w(custom_instructions input slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools responder_state_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
+  @order ~w(custom_instructions input previous_answer slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools responder_state_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
   @instruction_not_recorded :instruction_not_recorded
   # The evidence a self-analysis was given, under its prompt's `context`: what
   # the request was, what was said, what routing and Work did, what people
