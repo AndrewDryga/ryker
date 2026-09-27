@@ -692,7 +692,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     result =
       IntegrationSetup.rotate_emisar(Map.get(params, "ref", ""), Map.get(params, "token", ""))
 
-    {:noreply, finish_setup(socket, result, "Emisar token was rotated.")}
+    {:noreply, finish_setup(socket, result, "The Emisar key was replaced.")}
   end
 
   def handle_event("disable-emisar", %{"ref" => ref}, socket) when is_binary(ref) do

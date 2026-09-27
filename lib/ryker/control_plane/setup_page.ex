@@ -350,7 +350,7 @@ defmodule Ryker.ControlPlane.SetupPage do
           class={["ui-button", if(@paused, do: "secondary", else: "primary")]}
         >{@emisar.action.label}</.link>
         <p :if={@emisar.status == :not_set_up}>
-          Optional, but strongly recommended. You need an Emisar account and an API token. About
+          Optional, but strongly recommended. You need an Emisar account and an agent API key. About
           3 minutes.
         </p>
       </div>

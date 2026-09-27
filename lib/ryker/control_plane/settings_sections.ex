@@ -96,6 +96,28 @@ defmodule Ryker.ControlPlane.SettingsSections do
     "repositories" => "Ryker's names for the repositories",
     "targets" => "The services or stacks it deploys"
   }
+  # What each subfield's value looks like, shown in the empty box: a dotted
+  # path into the payload, or a comma-separated list (Andrew, 2026-09-27: "for
+  # inputs where format is known we should show placeholder showing it").
+  @subfield_placeholders %{
+    "event_id" => "event.id",
+    "status" => "event.status",
+    "title" => "event.title",
+    "severity" => "event.severity",
+    "summary" => "event.summary",
+    "source_url" => "event.url",
+    "starts_at" => "event.started_at",
+    "ends_at" => "event.ended_at",
+    "incident_id" => "incident.id",
+    "item_id" => "item.id",
+    "labels" => "event.labels",
+    "annotations" => "event.annotations",
+    "revision" => "deploy.revision",
+    "environments" => "production, staging",
+    "kinds" => "deployment, terraform",
+    "repositories" => "acme-api, acme-web",
+    "targets" => "checkout, payments"
+  }
   @weekdays [
     {"1", "Monday"},
     {"2", "Tuesday"},
@@ -144,6 +166,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :channel_prefix,
           kind: :text,
           label: "Name starts with",
+          placeholder: "inc",
           help: "Lowercase letters, numbers, dashes and underscores, such as inc.",
           errors: %{
             required: "Choose how incident room names start, such as inc.",
@@ -205,6 +228,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :branch_prefix,
           kind: :text,
           label: "Branch names start with",
+          placeholder: "ryker",
           help: "Branches that already exist keep their names."
         }
       ]
@@ -227,6 +251,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :timezone,
           kind: :text,
           label: "Time zone",
+          placeholder: "Europe/Berlin",
           help: "An IANA name such as Europe/Berlin. The post follows that zone across DST."
         }
       ]
@@ -308,6 +333,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :name,
           kind: :text,
           label: "Source name",
+          placeholder: "grafana",
           identity: true,
           group: "Source",
           help: "The end of this source's address. It cannot change later.",
@@ -387,6 +413,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :destination_thread_ref,
           kind: :text,
           label: "Thread (optional)",
+          placeholder: "1712345678.123456",
           group: "Where work goes",
           help:
             "Only to post every event into one existing thread. Leave empty and each " <>
@@ -411,6 +438,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :group_by_labels,
           kind: :list,
           label: "Group by labels",
+          placeholder: "service, cluster",
           group: "Where work goes",
           help:
             "Optional. Events with the same values for these labels, such as service and " <>
@@ -709,24 +737,28 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :input_usd_per_million,
           kind: :decimal,
           label: "Input",
+          placeholder: "0.00",
           group: "US dollars per million tokens"
         },
         %{
           name: :cached_input_usd_per_million,
           kind: :decimal,
           label: "Cached input",
+          placeholder: "0.00",
           group: "US dollars per million tokens"
         },
         %{
           name: :output_usd_per_million,
           kind: :decimal,
           label: "Output",
+          placeholder: "0.00",
           group: "US dollars per million tokens"
         },
         %{
           name: :reasoning_usd_per_million,
           kind: :decimal,
           label: "Reasoning",
+          placeholder: "0.00",
           group: "US dollars per million tokens",
           help: "Leave empty when output already counts reasoning, as Codex and Claude report it."
         },
@@ -775,6 +807,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
   @doc "The words a composite control shows for one of its parts."
   @spec subfield_label(String.t()) :: String.t()
   def subfield_label(subfield), do: Map.get(@subfield_labels, subfield, subfield)
+
+  @doc "What a composite control's part looks like when filled in, shown while it is empty."
+  @spec subfield_placeholder(String.t()) :: String.t() | nil
+  def subfield_placeholder(subfield), do: Map.get(@subfield_placeholders, subfield)
 
   @doc "The longest limit, in days, any kind of data can be kept."
   def longest_days, do: @longest_days

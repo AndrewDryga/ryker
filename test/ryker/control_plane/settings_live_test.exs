@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SettingsPage, SettingsView, SetupPage}
-  alias Ryker.Credentials
+  alias Ryker.{Credentials, IntegrationSetup}
   alias Ryker.Settings
   alias Ryker.Settings.{Installation, PricingRate}
   alias Ryker.Slack.{ChannelConfigurationChangeset, ChannelConfigurations}
@@ -472,7 +472,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(view, "nav.kit-back a[href='/integrations/emisar']", "Emisar")
     assert has_element?(view, ".kit-facts dd", "https://emisar.example/api/mcp/rpc")
     assert has_element?(view, "form[phx-submit=rename-emisar]", "Save name")
-    assert has_element?(view, "form[phx-submit=rotate-emisar]", "Replace token")
+    assert has_element?(view, "form[phx-submit=rotate-emisar]", "Replace key")
 
     assert has_element?(
              view,
@@ -530,6 +530,87 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     view |> element(".kit-form-card a", "Cancel") |> render_click()
     assert_patch(view, "/integrations/emisar")
     refute has_element?(view, "form[phx-submit=connect-emisar]")
+  end
+
+  # Andrew, 2026-09-27, of the empty Emisar key box: "for inputs where format
+  # is known we should show placeholder showing it, eg `emk-...` here". An
+  # empty box leaves the format to be learned from a refusal.
+  test "a box whose format is known shows that format while it is empty" do
+    initialize!()
+
+    # Every form that asks for one, on the page each has of its own.
+    for {path, placeholders} <- [
+          {"/integrations/emisar/new",
+           [
+             {"#emisar-connect-token", "emk-…"},
+             {"#emisar-connect-url", "https://emisar.dev/api/mcp/rpc"}
+           ]},
+          {"/integrations/slack",
+           [
+             {"input[name='connection[app_token]']", "xapp-…"},
+             {"input[name='connection[bot_token]']", "xoxb-…"}
+           ]},
+          {"/integrations/github",
+           [
+             {"input[name='connection[app_id]']", "123456"},
+             {"input[name='connection[webhook_secret]']", "32 characters or more"}
+           ]},
+          {"/integrations/webhooks/credentials/new",
+           [
+             {"#webhook-credential-name", "grafana"},
+             {"#webhook-credential-secret", "32 characters or more"}
+           ]},
+          {"/settings/prices/new", [{"#settings-pricing-execution_target", "codex:gpt-5.6-sol"}]},
+          {"/environments/new", [{"input[name='environment[display_name]']", "Production"}]}
+        ] do
+      {:ok, view, _html} = open(path)
+
+      for {input, placeholder} <- placeholders do
+        assert has_element?(view, "#{input}[placeholder='#{placeholder}']"),
+               "#{path}: #{input} does not show #{placeholder}"
+      end
+    end
+
+    # The key is what Emisar checks; Emisar never names an account for it.
+    {:ok, view, _html} = open("/integrations/emisar/new")
+
+    assert has_element?(
+             view,
+             "form[phx-submit=connect-emisar] .settings-help",
+             "Ryker checks the key with Emisar, then stores it encrypted."
+           )
+  end
+
+  # Andrew, 2026-09-27: an account connected with its default name read
+  # "emisar.dev" as its name and again first in the line under it.
+  test "an Emisar account named after its address says the address once" do
+    snapshot = initialize!()
+
+    {:ok, _snapshot} =
+      Settings.put_emisar_connection(
+        %{
+          ref: "emisar-dev",
+          display_name: "emisar.dev",
+          rpc_url: "https://emisar.dev/api/mcp/rpc",
+          account_ref: "key-" <> String.duplicate("a", 32),
+          account_label: "emisar.dev",
+          enabled_for_new_work: true,
+          monitoring_enabled: true,
+          verified_at: ~U[2026-09-27 09:00:00.000000Z]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, view, _html} = open("/integrations/emisar")
+    assert has_element?(view, ".entity-row .entity-name", "emisar.dev")
+    refute has_element?(view, ".entity-row .entity-meta", "emisar.dev")
+
+    # Given a name of its own, the account still says where it is.
+    {:ok, _snapshot} = IntegrationSetup.rename_emisar("emisar-dev", "Production approvals")
+    {:ok, view, _html} = open("/integrations/emisar")
+    assert has_element?(view, ".entity-row .entity-name", "Production approvals")
+    assert has_element?(view, ".entity-row .entity-meta", "emisar.dev")
   end
 
   test "an Emisar account is removed only after the question is answered, and its environments lose it" do

@@ -312,6 +312,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
               name="environment[display_name]"
               value={@draft.display_name}
               maxlength="80"
+              placeholder="Production"
               required
             />
           </div>
