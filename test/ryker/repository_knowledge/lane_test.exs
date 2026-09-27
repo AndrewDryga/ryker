@@ -401,7 +401,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert entry.document_by == :outline
 
     assert entry.error ==
-             "RYKER.md was not updated: the model named nothing Ryker could find in the " <>
+             "RYKER.md is only an outline: the model named nothing Ryker could find in the " <>
                "repository. Ryker tries again with the next daily check, or refresh knowledge."
   end
 
@@ -422,6 +422,18 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
                "repository. Ryker tries again with the next daily check, or refresh knowledge."
 
     assert FakeGitHubRepository.state().open.document == written.document
+  end
+
+  # A repository row counts the tasks people asked for there. Reading the
+  # repository for its RYKER.md is none of them: the first console run showed
+  # emisar with "1 task" before anyone had asked Ryker anything.
+  test "reading a repository for its RYKER.md is not counted as a task there" do
+    github!()
+    coop = coop!([answer_json()])
+    written!(coop)
+
+    assert Repo.exists?(from(session in Session, where: session.execution_kind == :knowledge))
+    assert [%{ref: "emisar", sessions: 0}] = Ryker.ControlPlane.Projection.repositories(%{})
   end
 
   # The worker sleeps until the next check falls due, as a UTC DateTime,

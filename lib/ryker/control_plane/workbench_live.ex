@@ -2433,6 +2433,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             title={@knowledge_question.title}
             text={@knowledge_question.text}
             label="Refresh knowledge"
+            tone={:primary}
             cancel="cancel-settings-action"
             phx-click="refresh-knowledge"
             phx-value-repository={elem(@settings_confirm, 1)}

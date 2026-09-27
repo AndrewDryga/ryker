@@ -49,7 +49,14 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
       end)
 
     schedules = grouped_count(Schedule, :repository)
-    sessions = grouped_count(Session, :repository_ref)
+    # The tasks people asked for: a session that read the repository for its
+    # RYKER.md is none of them.
+    sessions =
+      grouped_count(
+        from(session in Session, where: session.execution_kind == :work),
+        :repository_ref
+      )
+
     publications = grouped_count(Publication, :repository)
     freshness = repository_freshness()
     knowledge = RepositoryKnowledge.entries()
