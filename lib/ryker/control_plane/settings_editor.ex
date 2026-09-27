@@ -845,7 +845,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           phx-value-field={@name}
           phx-value-action="add"
           phx-target={@myself}
-          aria-label={"Add a fallback for #{@field.label}"}
+          aria-label={"Add fallback for #{@field.label}"}
         ><Components.icon name={:plus} /><span>Add fallback</span></button>
       </div>
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
