@@ -126,6 +126,22 @@ defmodule Ryker.GitHub.OnboardingTest do
   # Found live 2026-09-27: five repositories stopped in setup on a sentence
   # that named nothing, and the log said nothing either.
 
+  # Found live 2026-09-27: a scan that raised crashed the setup worker, which
+  # restarted, took the next repository and crashed again, about twice a second
+  # for an hour; every repository sat in "scanning" and nothing was logged.
+  test "a setup step that raises stops that repository with a logged reason, not the worker" do
+    log =
+      capture_log(fn ->
+        assert {:error, {:setup_crashed, ArgumentError}} =
+                 Onboarding.run("repo", api: CrashingScanAPI)
+      end)
+
+    repository = Enum.find(Settings.fetch!().repositories, &(&1.ref == "repo"))
+    assert repository.onboarding_state == :blocked
+    assert repository.onboarding_error =~ "stopped on an unexpected error"
+    assert log =~ "unexpected tree entry"
+  end
+
   test "a setup failure Ryker has no sentence for is logged with its reason" do
     log =
       capture_log(fn ->
