@@ -108,7 +108,9 @@ defmodule Ryker.ControlPlane.Kit do
   The name is the one thing always shown; everything else is optional, and
   an empty fact is dropped rather than shown as a placeholder. A row that is
   only a way into its item (`link_row`) opens it from anywhere on the row,
-  while the name stays the one link assistive technology announces.
+  while the name stays the one link assistive technology announces. A row
+  with an href opens it from its icon too, for a pointer only (Andrew,
+  2026-09-27: "whats the point of logo if you can't click on it?").
 
   Andrew, 2026-09-27, of a learned topic's row: its "Not used" sat against
   its Forget button, and the sentence saying why sat under the row. The
@@ -134,7 +136,27 @@ defmodule Ryker.ControlPlane.Kit do
       role="listitem"
     >
       <p :if={@group} class="entity-group" role="heading" aria-level="2">{@group}</p>
-      <span :if={@icon} class="entity-icon" data-tone={@icon_tone} aria-hidden="true">
+      <.link
+        :if={@icon && @href && @navigate}
+        navigate={@href}
+        class="entity-icon"
+        data-tone={@icon_tone}
+        tabindex="-1"
+        aria-hidden="true"
+      >
+        <Components.icon name={@icon} />
+      </.link>
+      <a
+        :if={@icon && @href && !@navigate}
+        href={@href}
+        class="entity-icon"
+        data-tone={@icon_tone}
+        tabindex="-1"
+        aria-hidden="true"
+      >
+        <Components.icon name={@icon} />
+      </a>
+      <span :if={@icon && !@href} class="entity-icon" data-tone={@icon_tone} aria-hidden="true">
         <Components.icon name={@icon} />
       </span>
       <div class="entity-body">
