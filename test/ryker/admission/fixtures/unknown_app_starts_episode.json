@@ -1,6 +1,7 @@
 {
   "name": "unknown app message starts a new episode",
   "source": {
+    "reshaped": "2026-09-27: the recorded routing decision was rewritten into the current contract, as the live-replies migration rewrote stored decisions: reaction became reactions, and messages and repository were added as null. The recorded choice is unchanged.",
     "database": "blitz responder.db",
     "slack_input_ids": ["slack_message_1736cfe8ee17dd96c2c933a957dbfb2d"],
     "run_ids": [],
@@ -25,9 +26,11 @@
   "decision": {
     "action": "start_episode",
     "episode_ref": null,
-    "reaction": null,
+    "messages": null,
+    "reactions": null,
     "work_class": "standard",
     "relation": "unrelated",
+    "repository": null,
     "repository_source": null,
     "reason": "This new app message contains work worth handling."
   },

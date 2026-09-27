@@ -310,9 +310,11 @@ defmodule Ryker.Admission.RoutingContractTest do
       Decision.parse(%{
         "action" => Atom.to_string(action),
         "episode_ref" => episode_ref,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => Atom.to_string(relation),
         "reason" => "The evidence names the same unreachable primary.",
+        "repository" => nil,
         "repository_source" => nil,
         "work_class" => "standard"
       })

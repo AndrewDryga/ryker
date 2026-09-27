@@ -93,9 +93,11 @@ defmodule Ryker.Work.AdmissionBackdropTest do
       Decision.parse(%{
         "action" => "start_episode",
         "episode_ref" => nil,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "unrelated",
         "reason" => "This needs investigation.",
+        "repository" => nil,
         "repository_source" => nil,
         "work_class" => "standard"
       })

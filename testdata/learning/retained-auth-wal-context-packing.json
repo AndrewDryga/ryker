@@ -6,7 +6,8 @@
     "run_id": "ef7268fe-3704-410f-a392-1d62a4ae6b95",
     "prompt_sha256": "66b8cfa3dbcb0f1c4099028e034ea634034e430c63ef9fec1fc6ddd31ceb9e89",
     "result_sha256": "2f8c95ca3bd9d77a78ccc800c66b81e36f45e307ebf6e75cb697df4b8f6b2353",
-    "note": "Exact raw input fields, original prompt/result and topic states harvested from read-only private replay snapshots. Prefit order reconstructed by reversing all 25 tail-first omissions because retained knowledge was empty. Tests seed deterministic historical source identities and capacity counts; they do not claim a model judgment over the seeded history."
+    "note": "Exact raw input fields, original prompt/result and topic states harvested from read-only private replay snapshots. Prefit order reconstructed by reversing all 25 tail-first omissions because retained knowledge was empty. Tests seed deterministic historical source identities and capacity counts; they do not claim a model judgment over the seeded history.",
+    "reshaped": "2026-09-27: each stored decision_document was rewritten as the live-replies migration rewrote stored decisions (reaction became reactions; messages, repository and repository_source were added as null) and decision_fingerprint taken again from the rewritten document. The recorded choice is unchanged."
   },
   "inputs": [
     {
@@ -51,14 +52,17 @@
       "work_policy": "blitz-replay-conversation-v1",
       "work_policy_digest": "535a8566d33cadc50bfce8c1410e4fa0652c3745b428925791e5a489f5703679",
       "decision_ref": "coop-admission:turn_838bbbfac73de07e3c1ab1ad203255df:a6bcf3baea1dada97ec0a05ff22ff927cbe85732f80532a67347f34f3aa28af7",
-      "decision_fingerprint": "6cfd968d0be0d1eada1504e8584a4d70f40e218405ffa7d79e664b2cb6b3d150",
+      "decision_fingerprint": "750c278d2bf3fe7e41dcec2fcc1b5399df297d24f1eafe1b40d30694e574f19b",
       "decision_document": {
         "action": "start_episode",
         "episode_ref": null,
-        "reaction": null,
+        "messages": null,
+        "reactions": null,
         "reason": "The alert resolved, but the reported repaired-data mismatches may still require repair verification; resolution alone does not establish data consistency. Investigate repair status and recurrence. None of the offered episodes matches this alert lifecycle.",
         "relation": "unrelated",
-        "work_class": "standard"
+        "work_class": "standard",
+        "repository": null,
+        "repository_source": null
       },
       "status": "decided",
       "event_kind": "message",
@@ -110,14 +114,17 @@
       "work_policy": "blitz-replay-conversation-v1",
       "work_policy_digest": "535a8566d33cadc50bfce8c1410e4fa0652c3745b428925791e5a489f5703679",
       "decision_ref": "coop-admission:turn_68c6ad0fea671473eb602ec98fb751de:87a472ea1ae993fe31e74684e45122cdd7b74ab3295474619ac11d0da6e3e230",
-      "decision_fingerprint": "f9879d47a94ac74cd37d130e6dcb2a3476e03c282cf6e0a488fb54bdeb322496",
+      "decision_fingerprint": "1f7feb2ca8c05ddd708c5da4fb8db9a326dd46cb45ba743ad5258299709ed721",
       "decision_document": {
         "action": "ignore",
         "episode_ref": null,
-        "reaction": null,
+        "messages": null,
+        "reactions": null,
         "reason": "This automated notification reports resolved WAL archive alerts, with no ongoing failure or human request. None of the offered episodes tracks this alert lifecycle.",
         "relation": "unrelated",
-        "work_class": null
+        "work_class": null,
+        "repository": null,
+        "repository_source": null
       },
       "status": "decided",
       "event_kind": "message",
@@ -169,14 +176,17 @@
       "work_policy": "blitz-replay-conversation-v1",
       "work_policy_digest": "535a8566d33cadc50bfce8c1410e4fa0652c3745b428925791e5a489f5703679",
       "decision_ref": "coop-admission:turn_f28b4da19d0364737d96f91bcaaf8d05:6f80081fa28dd2ca4c6bbee9750fbc91d243db3ce2a863397fc492b046f1f5ec",
-      "decision_fingerprint": "f9879d47a94ac74cd37d130e6dcb2a3476e03c282cf6e0a488fb54bdeb322496",
+      "decision_fingerprint": "1f7feb2ca8c05ddd708c5da4fb8db9a326dd46cb45ba743ad5258299709ed721",
       "decision_document": {
         "action": "ignore",
         "episode_ref": null,
-        "reaction": null,
+        "messages": null,
+        "reactions": null,
         "reason": "Automated recovery notification: the PostgreSQL deadlock alerts have resolved. No offered episode matches this alert lifecycle, and there is no explicit request or evidence of an ongoing issue requiring investigation.",
         "relation": "unrelated",
-        "work_class": null
+        "work_class": null,
+        "repository": null,
+        "repository_source": null
       },
       "status": "decided",
       "event_kind": "message",

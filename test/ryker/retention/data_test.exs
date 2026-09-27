@@ -1465,11 +1465,11 @@ defmodule Ryker.Retention.DataTest do
     Repo.query!(
       """
       INSERT INTO delivery_routing_responses
-        (id, input_id, kind, decision_ref, delivery_ref, transport, conversation_ref,
+        (id, input_id, position, kind, decision_ref, delivery_ref, transport, conversation_ref,
          source_item_ref, document, document_fingerprint, status, attempt_count,
          retry_generation, last_error_code, last_error_detail, external_receipt,
          external_receipt_fingerprint, delivered_at, inserted_at, updated_at)
-      VALUES ($1, $2, 'reaction', $3, $4, 'slack', 'C1', 'M1', '{"emoji_name":"eyes"}', $5, $6,
+      VALUES ($1, $2, 1, 'reaction', $3, $4, 'slack', 'C1', 'M1', '{"emoji_name":"eyes"}', $5, $6,
               1, 0, $7, $8, $9, $10, $11, $12, $12)
       """,
       [

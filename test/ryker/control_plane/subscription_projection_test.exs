@@ -53,8 +53,10 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
     decision = %{
       "action" => "start_episode",
       "episode_ref" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "Monitor the recorded run.",
       "work_class" => "standard"

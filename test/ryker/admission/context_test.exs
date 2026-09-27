@@ -401,8 +401,10 @@ defmodule Ryker.Admission.ContextTest do
              Decision.parse(%{
                "action" => "start_episode",
                "episode_ref" => candidate.ref,
-               "reaction" => nil,
+               "messages" => nil,
+               "reactions" => nil,
                "relation" => "history_only",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "The older work is useful history, but this is a new episode.",
                "work_class" => "standard"
@@ -414,8 +416,10 @@ defmodule Ryker.Admission.ContextTest do
              Decision.parse(%{
                "action" => "continue_episode",
                "episode_ref" => candidate.ref,
-               "reaction" => nil,
+               "messages" => nil,
+               "reactions" => nil,
                "relation" => "same_work",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "Continue the old work.",
                "work_class" => "standard"
@@ -430,8 +434,10 @@ defmodule Ryker.Admission.ContextTest do
              Decision.parse(%{
                "action" => "continue_episode",
                "episode_ref" => "candidate-not-offered",
-               "reaction" => nil,
+               "messages" => nil,
+               "reactions" => nil,
                "relation" => "same_work",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "Try an arbitrary reference.",
                "work_class" => "standard"
@@ -451,8 +457,10 @@ defmodule Ryker.Admission.ContextTest do
         decision_document: %{
           "action" => "ignore",
           "episode_ref" => nil,
-          "reaction" => nil,
+          "messages" => nil,
+          "reactions" => nil,
           "relation" => "unrelated",
+          "repository" => nil,
           "repository_source" => nil,
           "reason" => "Exact duplicate.",
           "work_class" => nil

@@ -584,8 +584,8 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           },
           earlier_work_fact(request, candidate),
           source_fact(candidate),
-          reaction_fact(candidate),
-          answer_fact(candidate)
+          reaction_fact(candidate)
+          | answer_facts(candidate)
         ]
         |> Enum.reject(&is_nil/1)
 
@@ -735,15 +735,28 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp source_fact(_candidate), do: nil
 
-  defp reaction_fact(%{"reaction" => %{"emoji_name" => emoji}}) when is_binary(emoji),
-    do: %{label: "Reaction", value: ":#{emoji}:"}
+  # Every emoji routing chose and every message it wrote, in its order.
+  defp reaction_fact(%{"reactions" => [_first | _rest] = reactions}) do
+    emoji = for reaction <- reactions, is_binary(reaction), do: ":#{reaction}:"
+    if emoji != [], do: %{label: "Reaction", value: Enum.join(emoji, " ")}
+  end
 
   defp reaction_fact(_candidate), do: nil
 
-  defp answer_fact(%{"action" => "quick_reply", "message" => message}) when is_binary(message),
-    do: %{label: "Answer", value: message}
+  # A quick answer of one message reads "Answer"; of several, each message in
+  # the order it was sent.
+  defp answer_facts(%{"action" => "quick_reply", "messages" => [message]})
+       when is_binary(message),
+       do: [%{label: "Answer", value: message}]
 
-  defp answer_fact(_candidate), do: nil
+  defp answer_facts(%{"action" => "quick_reply", "messages" => [_first | _rest] = messages}) do
+    messages
+    |> Enum.filter(&is_binary/1)
+    |> Enum.zip(~w(First Second Third))
+    |> Enum.map(fn {message, ordinal} -> %{label: "#{ordinal} message", value: message} end)
+  end
+
+  defp answer_facts(_candidate), do: []
 
   defp explanation(%{phase: :submission, source_kind: :admission}),
     do: "Use an AI model to classify this message and choose how to respond."

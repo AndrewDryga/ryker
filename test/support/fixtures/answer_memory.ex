@@ -67,8 +67,10 @@ defmodule Ryker.Fixtures.AnswerMemory do
       Decision.parse(%{
         "action" => "continue_episode",
         "episode_ref" => "candidate:answer-memory",
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "same_work",
+        "repository" => nil,
         "repository_source" => nil,
         "reason" => "Store-contract answer in the same episode.",
         "work_class" => "standard"

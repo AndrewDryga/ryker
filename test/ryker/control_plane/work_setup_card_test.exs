@@ -177,7 +177,8 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     decide!(second, work.episode, %{
       "action" => "continue_episode",
       "episode_ref" => "candidate:#{String.duplicate("e", 64)}",
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "reason" => "The same payment failure, still being investigated.",
       "relation" => "same_work",
       "repository" => nil,
@@ -511,7 +512,8 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     %{
       "action" => "start_episode",
       "episode_ref" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "reason" => "A new payment failure.",
       "relation" => "unrelated",
       "repository" => nil,

@@ -1,5 +1,5 @@
 {
-  "source": "Private Blitz replay; exact retained firing/resolved source inputs, no generated messages.",
+  "source": "Private Blitz replay; exact retained firing/resolved source inputs, no generated messages. Reshaped 2026-09-27: each stored decision_document was rewritten as the live-replies migration rewrote stored decisions (reaction became reactions; messages, repository and repository_source were added as null) and decision_fingerprint taken again from it; the recorded choice is unchanged.",
   "inputs": [
     {
       "source_input_id": "bec3eb2b-4b2d-4ba0-843a-84fe1ef62666",
@@ -48,13 +48,16 @@
       "decision_document": {
         "action": "start_episode",
         "episode_ref": null,
-        "reaction": null,
+        "messages": null,
+        "reactions": null,
         "reason": "New firing alert reports a cgroup-limit OOM kill of website/haproxy-edge on nomad-hvn01. Investigate allocation recovery, memory usage and limits, and service impact. None of the offered episodes matches this alert lifecycle.",
         "relation": "unrelated",
-        "work_class": "standard"
+        "work_class": "standard",
+        "repository": null,
+        "repository_source": null
       },
       "decision_ref": "coop-admission:turn_312ff6640aa8b5b0d8216edc64fb888a:f987ba1a8444da47aef3325a1e7d421ed037902d6c9ad1389fb6a2a40bee5278",
-      "decision_fingerprint": "6cfd968d0be0d1eada1504e8584a4d70f40e218405ffa7d79e664b2cb6b3d150",
+      "decision_fingerprint": "750c278d2bf3fe7e41dcec2fcc1b5399df297d24f1eafe1b40d30694e574f19b",
       "work_policy": "blitz-replay-conversation-v1",
       "work_policy_digest": "535a8566d33cadc50bfce8c1410e4fa0652c3745b428925791e5a489f5703679"
     },
@@ -105,13 +108,16 @@
       "decision_document": {
         "action": "start_episode",
         "episode_ref": "candidate:16cf965329815069f3f9ed77f1f8b019342efc07053c148c8bba78be334ed1ad",
-        "reaction": null,
+        "messages": null,
+        "reactions": null,
         "reason": "This recovery matches the workload and host in the active OOM alert and should inform incident closure. The candidate permits only history_only, so start linked work to reconcile the resolution; alert recovery alone does not establish that the memory-limit cause was fixed.",
         "relation": "history_only",
-        "work_class": "standard"
+        "work_class": "standard",
+        "repository": null,
+        "repository_source": null
       },
       "decision_ref": "coop-admission:turn_3316ae138bd771b8819720a2b3472dcc:f2db8d33a15846deaa76cc20ac1c0c91db03dc7e8d4844fa7174fc80c8a8ba73",
-      "decision_fingerprint": "0d55f4c83f91e9193db3f44c903541e20b88f37f824979dde44af52e79ca88ba",
+      "decision_fingerprint": "f499fb456b35c3a47d06b3c37fce07ae6e4e5dab88f48ec41a971dd0f90ad0f6",
       "work_policy": "blitz-replay-conversation-v1",
       "work_policy_digest": "535a8566d33cadc50bfce8c1410e4fa0652c3745b428925791e5a489f5703679"
     }

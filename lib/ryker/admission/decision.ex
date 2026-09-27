@@ -8,8 +8,11 @@ defmodule Ryker.Admission.Decision do
   ref, the one the work changes, from the choices the host offered.
 
   A quick reply is routing answering a simple message itself (a greeting, a
-  thanks) with the words in `message`, without starting the work model; it
-  starts and continues no work (Andrew, 2026-09-26).
+  thanks) without starting the work model; it starts and continues no work
+  (Andrew, 2026-09-26). Its `messages` are one to three short messages sent in
+  order, and its optional `reactions` up to three emoji added to the person's
+  message. A reaction alone is one to three emoji in `reactions` (Andrew,
+  2026-09-26: "Now both reply and add a reaction" had to start a work run).
   """
 
   alias Ryker.Work.RepositorySource
@@ -17,33 +20,30 @@ defmodule Ryker.Admission.Decision do
   @actions [:start_episode, :continue_episode, :reply, :quick_reply, :react, :ignore]
   @relations [:same_work, :history_only, :unrelated]
   @work_classes [:conversational, :standard, :deep]
-  @fields ~w(action episode_ref message reaction relation reason repository repository_source work_class)
-  # `repository` joined the contract on 2026-09-25 and `message` on 2026-09-26.
-  # A decision recorded before then carries no such key, and absence means what
-  # null means. Recorded answers are history and stay readable as recorded; the
-  # published schema still requires the keys, so a live model always sends them.
-  @required_fields @fields -- ["repository", "message"]
+  @fields ~w(action episode_ref messages reactions relation reason repository repository_source work_class)
+  @sorted_fields Enum.sort(@fields)
   @maximum_message 1_000
+  @maximum_messages 3
+  @maximum_reactions 3
   @nonblank_pattern "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
 
   @enforce_keys [
     :action,
     :episode_ref,
-    :reaction,
     :relation,
     :reason,
     :repository_source,
     :work_class
   ]
-  # A decision built without a repository chose none, and one without a
-  # message is no quick reply, like one recorded before the fields existed.
-  defstruct @enforce_keys ++ [repository: nil, message: nil]
+  # A decision built without a repository chose none, and one without
+  # messages or reactions sends nothing by itself.
+  defstruct @enforce_keys ++ [messages: nil, reactions: nil, repository: nil]
 
   @type t :: %__MODULE__{
           action: :start_episode | :continue_episode | :reply | :quick_reply | :react | :ignore,
           episode_ref: String.t() | nil,
-          message: String.t() | nil,
-          reaction: %{emoji_name: String.t()} | nil,
+          messages: [String.t()] | nil,
+          reactions: [String.t()] | nil,
           relation: :same_work | :history_only | :unrelated,
           reason: String.t(),
           repository: String.t() | nil,
@@ -58,20 +58,20 @@ defmodule Ryker.Admission.Decision do
          {:ok, relation} <- parse_enum(value["relation"], @relations, :relation),
          {:ok, work_class} <- parse_work_class(value["work_class"]),
          :ok <- validate_reference(value["episode_ref"]),
-         {:ok, reaction} <- parse_reaction(value["reaction"]),
          :ok <- validate_reason(value["reason"]),
-         {:ok, message} <- parse_message(action, Map.get(value, "message")),
-         :ok <- validate_shape(action, value["episode_ref"], reaction, relation),
+         {:ok, messages} <- parse_messages(action, value["messages"]),
+         {:ok, reactions} <- parse_reactions(action, value["reactions"]),
+         :ok <- validate_shape(action, value["episode_ref"], relation),
          :ok <- validate_work_class(action, work_class),
-         {:ok, repository} <- parse_repository(action, Map.get(value, "repository")),
+         {:ok, repository} <- parse_repository(action, value["repository"]),
          {:ok, repository_source} <-
            parse_repository_source(action, value["repository_source"]) do
       {:ok,
        %__MODULE__{
          action: action,
          episode_ref: value["episode_ref"],
-         message: message,
-         reaction: reaction,
+         messages: messages,
+         reactions: reactions,
          relation: relation,
          reason: value["reason"],
          repository: repository,
@@ -92,8 +92,8 @@ defmodule Ryker.Admission.Decision do
     %{
       "action" => Atom.to_string(decision.action),
       "episode_ref" => decision.episode_ref,
-      "message" => decision.message,
-      "reaction" => reaction_document(decision.reaction),
+      "messages" => decision.messages,
+      "reactions" => decision.reactions,
       "relation" => Atom.to_string(decision.relation),
       "reason" => decision.reason,
       "repository" => decision.repository,
@@ -108,14 +108,14 @@ defmodule Ryker.Admission.Decision do
 
   A provider may paraphrase either after a lost response. The natural
   Slack-input slot still reconciles that retry when the chosen action,
-  candidate, relation, and reaction are unchanged; the first recorded words
+  candidate, relation, and reactions are unchanged; the first recorded words
   are the ones sent.
   """
   @spec fingerprint(t()) :: String.t()
   def fingerprint(%__MODULE__{} = decision) do
     decision
     |> document()
-    |> Map.drop(["reason", "message"])
+    |> Map.drop(["reason", "messages"])
     |> Ryker.CanonicalJSON.digest()
   end
 
@@ -161,18 +161,8 @@ defmodule Ryker.Admission.Decision do
             %{"type" => "null"}
           ]
         },
-        "message" => %{
-          "anyOf" => [
-            bounded_string_schema(@maximum_message),
-            %{"type" => "null"}
-          ]
-        },
-        "reaction" => %{
-          "anyOf" => [
-            reaction_schema(reaction_names),
-            %{"type" => "null"}
-          ]
-        },
+        "messages" => %{"anyOf" => [messages_schema(), %{"type" => "null"}]},
+        "reactions" => %{"anyOf" => [reactions_schema(reaction_names), %{"type" => "null"}]},
         "relation" => %{"enum" => Enum.map(@relations, &Atom.to_string/1)},
         "reason" => bounded_string_schema(512),
         "repository" => nullable_repository_schema(repository_choices),
@@ -197,28 +187,33 @@ defmodule Ryker.Admission.Decision do
     pinned = %{choices: [], source: false}
 
     [
-      shape("start_episode", nil, nil, "unrelated", :investigation, new_episode),
-      shape("start_episode", :reference, nil, "history_only", :investigation, new_episode),
-      shape("continue_episode", :reference, nil, "same_work", :investigation, pinned),
-      shape("reply", nil, nil, "unrelated", :conversation, pinned),
-      shape("reply", :reference, nil, "same_work", :conversation, pinned),
-      shape("reply", :reference, nil, "history_only", :conversation, pinned),
-      "quick_reply" |> shape(nil, nil, "unrelated", nil, pinned) |> with_message(),
-      shape("react", nil, {:reaction, reaction_names}, "unrelated", nil, pinned),
-      shape("ignore", nil, nil, "unrelated", nil, pinned)
+      shape("start_episode", nil, "unrelated", :investigation, new_episode),
+      shape("start_episode", :reference, "history_only", :investigation, new_episode),
+      shape("continue_episode", :reference, "same_work", :investigation, pinned),
+      shape("reply", nil, "unrelated", :conversation, pinned),
+      shape("reply", :reference, "same_work", :conversation, pinned),
+      shape("reply", :reference, "history_only", :conversation, pinned),
+      "quick_reply"
+      |> shape(nil, "unrelated", nil, pinned)
+      |> sends("messages", messages_schema())
+      |> sends("reactions", optional_reactions_schema(reaction_names)),
+      "react"
+      |> shape(nil, "unrelated", nil, pinned)
+      |> sends("reactions", reactions_schema(reaction_names)),
+      shape("ignore", nil, "unrelated", nil, pinned)
     ]
     |> Enum.filter(fn %{"properties" => %{"action" => %{"const" => action}}} ->
       String.to_existing_atom(action) in actions
     end)
   end
 
-  defp shape(action, episode_ref, reaction, relation, work_class, selectors) do
+  defp shape(action, episode_ref, relation, work_class, selectors) do
     %{
       "properties" => %{
         "action" => %{"const" => action},
         "episode_ref" => reference_shape(episode_ref),
-        "message" => %{"type" => "null"},
-        "reaction" => reaction_shape(reaction),
+        "messages" => %{"type" => "null"},
+        "reactions" => %{"type" => "null"},
         "relation" => %{"const" => relation},
         "repository" => repository_shape(selectors.choices),
         "repository_source" => repository_source_schema(selectors.source),
@@ -227,9 +222,34 @@ defmodule Ryker.Admission.Decision do
     }
   end
 
-  # Only a quick reply carries words, and it always does.
-  defp with_message(shape),
-    do: put_in(shape, ["properties", "message"], bounded_string_schema(@maximum_message))
+  # Only a quick reply carries words, and it always does; it and a reaction
+  # are the only shapes that add emoji to the person's message.
+  defp sends(shape, field, schema), do: put_in(shape, ["properties", field], schema)
+
+  defp messages_schema do
+    %{
+      "items" => bounded_string_schema(@maximum_message),
+      "maxItems" => @maximum_messages,
+      "minItems" => 1,
+      "type" => "array"
+    }
+  end
+
+  defp reactions_schema(reaction_names) do
+    %{
+      "items" => emoji_name_schema(reaction_names),
+      "maxItems" => @maximum_reactions,
+      "minItems" => 1,
+      "type" => "array",
+      "uniqueItems" => true
+    }
+  end
+
+  # A source that cannot take a reaction offers a quick answer in words only.
+  defp optional_reactions_schema(nil), do: %{"type" => "null"}
+
+  defp optional_reactions_schema(reaction_names),
+    do: %{"anyOf" => [reactions_schema(reaction_names), %{"type" => "null"}]}
 
   defp repository_source_schema(false), do: %{"type" => "null"}
 
@@ -251,24 +271,9 @@ defmodule Ryker.Admission.Decision do
   defp reference_shape(:reference),
     do: bounded_string_schema(128)
 
-  defp reaction_shape(nil), do: %{"type" => "null"}
-
-  defp reaction_shape({:reaction, reaction_names}), do: reaction_schema(reaction_names)
-
   defp work_class_shape(:conversation), do: %{"const" => "conversational"}
   defp work_class_shape(:investigation), do: %{"enum" => ~w(standard deep)}
   defp work_class_shape(nil), do: %{"type" => "null"}
-
-  defp reaction_schema(reaction_names) do
-    %{
-      "additionalProperties" => false,
-      "properties" => %{
-        "emoji_name" => emoji_name_schema(reaction_names)
-      },
-      "required" => ["emoji_name"],
-      "type" => "object"
-    }
-  end
 
   defp emoji_name_schema(names) when is_list(names), do: %{"enum" => names, "type" => "string"}
 
@@ -282,10 +287,9 @@ defmodule Ryker.Admission.Decision do
   end
 
   defp exact_fields(value) do
-    if Enum.all?(@required_fields, &Map.has_key?(value, &1)) and
-         Enum.all?(Map.keys(value), &(&1 in @fields)),
-       do: :ok,
-       else: {:error, {:invalid_decision, :fields}}
+    if Enum.sort(Map.keys(value)) == @sorted_fields,
+      do: :ok,
+      else: {:error, {:invalid_decision, :fields}}
   end
 
   # A repository is chosen once, when the episode is created, from the
@@ -321,12 +325,29 @@ defmodule Ryker.Admission.Decision do
 
   defp parse_repository_source(_action, _value), do: invalid(:repository_source)
 
-  defp parse_message(:quick_reply, value) do
-    if bounded_text?(value, @maximum_message), do: {:ok, value}, else: invalid(:message)
+  # A quick reply always says something, in one to three messages sent in order.
+  defp parse_messages(:quick_reply, messages)
+       when is_list(messages) and length(messages) in 1..@maximum_messages do
+    if Enum.all?(messages, &bounded_text?(&1, @maximum_message)),
+      do: {:ok, messages},
+      else: invalid(:messages)
   end
 
-  defp parse_message(_action, nil), do: {:ok, nil}
-  defp parse_message(_action, _value), do: invalid(:message)
+  defp parse_messages(action, nil) when action != :quick_reply, do: {:ok, nil}
+  defp parse_messages(_action, _messages), do: invalid(:messages)
+
+  # A reaction is one to three different emoji; a quick reply may add them to
+  # its words or not. No other action touches the person's message.
+  defp parse_reactions(action, reactions)
+       when action in [:react, :quick_reply] and is_list(reactions) and
+              length(reactions) in 1..@maximum_reactions do
+    if Enum.all?(reactions, &emoji_name?/1) and Enum.uniq(reactions) == reactions,
+      do: {:ok, reactions},
+      else: invalid(:reactions)
+  end
+
+  defp parse_reactions(action, nil) when action != :react, do: {:ok, nil}
+  defp parse_reactions(_action, _reactions), do: invalid(:reactions)
 
   defp parse_work_class(nil), do: {:ok, nil}
   defp parse_work_class(value), do: parse_enum(value, @work_classes, :work_class)
@@ -345,19 +366,6 @@ defmodule Ryker.Admission.Decision do
       else: {:error, {:invalid_decision, :reason}}
   end
 
-  defp parse_reaction(nil), do: {:ok, nil}
-
-  defp parse_reaction(%{"emoji_name" => emoji_name} = reaction) when map_size(reaction) == 1 do
-    if emoji_name?(emoji_name),
-      do: {:ok, %{emoji_name: emoji_name}},
-      else: {:error, {:invalid_decision, :reaction}}
-  end
-
-  defp parse_reaction(_reaction), do: {:error, {:invalid_decision, :reaction}}
-
-  defp reaction_document(nil), do: nil
-  defp reaction_document(%{emoji_name: emoji_name}), do: %{"emoji_name" => emoji_name}
-
   defp work_class_document(nil), do: nil
   defp work_class_document(work_class), do: Atom.to_string(work_class)
 
@@ -370,47 +378,28 @@ defmodule Ryker.Admission.Decision do
   defp validate_work_class(action, nil) when action in [:quick_reply, :react, :ignore], do: :ok
   defp validate_work_class(_action, _work_class), do: invalid(:work_class)
 
-  defp validate_shape(:continue_episode, ref, nil, :same_work) when is_binary(ref), do: :ok
-  defp validate_shape(:continue_episode, _ref, nil, :same_work), do: invalid(:episode_ref)
-  defp validate_shape(:continue_episode, _ref, _reaction, :same_work), do: invalid(:reaction)
-  defp validate_shape(:continue_episode, _ref, _reaction, _relation), do: invalid(:relation)
+  defp validate_shape(:continue_episode, ref, :same_work) when is_binary(ref), do: :ok
+  defp validate_shape(:continue_episode, _ref, :same_work), do: invalid(:episode_ref)
+  defp validate_shape(:continue_episode, _ref, _relation), do: invalid(:relation)
 
-  defp validate_shape(:start_episode, nil, nil, :unrelated), do: :ok
-  defp validate_shape(:start_episode, ref, nil, :history_only) when is_binary(ref), do: :ok
-  defp validate_shape(:start_episode, nil, nil, :history_only), do: invalid(:episode_ref)
+  defp validate_shape(:start_episode, nil, :unrelated), do: :ok
+  defp validate_shape(:start_episode, ref, :history_only) when is_binary(ref), do: :ok
+  defp validate_shape(:start_episode, nil, :history_only), do: invalid(:episode_ref)
+  defp validate_shape(:start_episode, _ref, _relation), do: invalid(:relation)
 
-  defp validate_shape(:start_episode, _ref, reaction, _relation) when not is_nil(reaction),
-    do: invalid(:reaction)
+  defp validate_shape(:reply, nil, :unrelated), do: :ok
 
-  defp validate_shape(:start_episode, _ref, _reaction, _relation), do: invalid(:relation)
-
-  defp validate_shape(:reply, nil, nil, :unrelated), do: :ok
-
-  defp validate_shape(:reply, ref, nil, relation)
+  defp validate_shape(:reply, ref, relation)
        when is_binary(ref) and relation in [:same_work, :history_only],
        do: :ok
 
-  defp validate_shape(:reply, _ref, reaction, _relation) when not is_nil(reaction),
-    do: invalid(:reaction)
+  defp validate_shape(:reply, nil, _relation), do: invalid(:episode_ref)
+  defp validate_shape(:reply, _ref, _relation), do: invalid(:relation)
 
-  defp validate_shape(:reply, nil, _reaction, _relation), do: invalid(:episode_ref)
-  defp validate_shape(:reply, _ref, _reaction, _relation), do: invalid(:relation)
+  defp validate_shape(action, nil, :unrelated) when action in [:quick_reply, :react, :ignore],
+    do: :ok
 
-  defp validate_shape(:quick_reply, nil, nil, :unrelated), do: :ok
-
-  defp validate_shape(:quick_reply, _ref, reaction, _relation) when not is_nil(reaction),
-    do: invalid(:reaction)
-
-  defp validate_shape(:quick_reply, _ref, _reaction, _relation), do: invalid(:relation)
-
-  defp validate_shape(:react, nil, %{emoji_name: _emoji_name}, :unrelated), do: :ok
-  defp validate_shape(:react, _ref, nil, :unrelated), do: invalid(:reaction)
-  defp validate_shape(:react, _ref, _reaction, _relation), do: invalid(:relation)
-
-  defp validate_shape(:ignore, nil, nil, :unrelated), do: :ok
-
-  defp validate_shape(:ignore, _ref, _reaction, _relation),
-    do: invalid(:relation)
+  defp validate_shape(_action, _ref, _relation), do: invalid(:relation)
 
   defp invalid(field), do: {:error, {:invalid_decision, field}}
 

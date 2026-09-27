@@ -140,8 +140,10 @@ defmodule Ryker.Learning.ObservationsTest do
         Jason.encode!(%{
           "action" => "ignore",
           "episode_ref" => nil,
-          "reaction" => nil,
+          "messages" => nil,
+          "reactions" => nil,
           "relation" => "unrelated",
+          "repository" => nil,
           "repository_source" => nil,
           "reason" => "No response needed.",
           "work_class" => nil
@@ -411,8 +413,10 @@ defmodule Ryker.Learning.ObservationsTest do
       Decision.parse(%{
         "action" => "ignore",
         "episode_ref" => nil,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "unrelated",
+        "repository" => nil,
         "repository_source" => nil,
         "reason" => "A conversation decision requires no interruption.",
         "work_class" => nil

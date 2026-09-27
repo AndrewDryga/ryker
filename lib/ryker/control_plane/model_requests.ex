@@ -595,7 +595,14 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
       now = DateTime.utc_now()
       message = CaseFile.input_message(entry, disclosed(params))
-      response = Repo.get_by(RoutingResponse, input_id: id)
+
+      responses =
+        Repo.all(
+          from(response in RoutingResponse,
+            where: response.input_id == ^id,
+            order_by: [asc: response.position]
+          )
+        )
 
       {:ok,
        %{
@@ -620,10 +627,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
              )
          },
          message: message,
-         metrics: %{response_ms: response_ms(entry, response), cost: routing_cost(entry)},
+         metrics: %{response_ms: response_ms(entry, responses), cost: routing_cost(entry)},
          preparation: EpisodeTrace.input_preparation(entry),
          timeline: input_request_events(entry, params, options),
-         answer: routing_answer(entry, response, message),
+         answer: routing_answer(entry, responses, message),
          learning:
            [entry.id]
            |> LearningRequests.entries(
@@ -650,15 +657,19 @@ defmodule Ryker.ControlPlane.ModelRequests do
     )
   end
 
-  # From the message to the answer or reaction reaching the conversation, as
-  # a request's response time is measured.
-  defp response_ms(%Entry{occurred_at: %DateTime{} = sent}, %RoutingResponse{
-         status: :delivered,
-         delivered_at: %DateTime{} = delivered
-       }),
-       do: max(DateTime.diff(delivered, sent, :millisecond), 0)
+  # From the message to the first answer or reaction reaching the
+  # conversation, as a request's response time is measured.
+  defp response_ms(%Entry{occurred_at: %DateTime{} = sent}, responses) do
+    case for(
+           %RoutingResponse{status: :delivered, delivered_at: %DateTime{} = at} <- responses,
+           do: at
+         ) do
+      [] -> nil
+      delivered -> max(DateTime.diff(Enum.min(delivered, DateTime), sent, :millisecond), 0)
+    end
+  end
 
-  defp response_ms(_entry, _response), do: nil
+  defp response_ms(_entry, _responses), do: nil
 
   # Routing is the only spend a message without a request has.
   defp routing_cost(%Entry{id: id}) do
@@ -671,40 +682,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
   end
 
   # What Ryker sent without work, the last stage of a message routing handled
-  # itself: the reply as it reached the conversation, the reaction, or why it
-  # stayed quiet.
-  defp routing_answer(
-         entry,
-         %RoutingResponse{kind: :message, status: :delivered} = response,
-         message
-       ) do
-    text = Redactor.artifact(response.document["message"], max_bytes: 12_000)
+  # itself: each message as it reached the conversation and each reaction, in
+  # the order routing wrote them, or why it stayed quiet.
+  defp routing_answer(entry, [_first | _rest] = responses, message),
+    do: Enum.map(responses, &routing_answer_entry(entry, &1, message))
 
-    [
-      %{
-        id: "routing-response-#{response.id}",
-        kind: :message,
-        at: response.delivered_at,
-        band: :answer,
-        message: %{
-          id: response.id,
-          title: "Quick reply",
-          actor: "Ryker",
-          at: response.delivered_at,
-          status: "Sent",
-          text: text.text,
-          available: text.state == :retained,
-          transport: entry.destination_transport,
-          workspace: message[:workspace]
-        }
-      }
-    ]
-  end
-
-  defp routing_answer(_entry, %RoutingResponse{} = response, _message),
-    do: [event_entry(routing_answer_step(response))]
-
-  defp routing_answer(%Entry{status: :decided, decision_action: :ignore} = entry, nil, _message) do
+  defp routing_answer(%Entry{status: :decided, decision_action: :ignore} = entry, [], _message) do
     reason =
       case entry.decision_document do
         %{"reason" => reason} when is_binary(reason) -> RoutingReason.plain(reason)
@@ -724,7 +707,36 @@ defmodule Ryker.ControlPlane.ModelRequests do
     ]
   end
 
-  defp routing_answer(_entry, nil, _message), do: []
+  defp routing_answer(_entry, [], _message), do: []
+
+  defp routing_answer_entry(
+         entry,
+         %RoutingResponse{kind: :message, status: :delivered} = response,
+         message
+       ) do
+    text = Redactor.artifact(response.document["message"], max_bytes: 12_000)
+
+    %{
+      id: "routing-response-#{response.id}",
+      kind: :message,
+      at: response.delivered_at,
+      band: :answer,
+      message: %{
+        id: response.id,
+        title: "Quick reply",
+        actor: "Ryker",
+        at: response.delivered_at,
+        status: "Sent",
+        text: text.text,
+        available: text.state == :retained,
+        transport: entry.destination_transport,
+        workspace: message[:workspace]
+      }
+    }
+  end
+
+  defp routing_answer_entry(_entry, %RoutingResponse{} = response, _message),
+    do: event_entry(routing_answer_step(response))
 
   # When routing's decision was saved, from the attempt that made it; the
   # message row's own timestamp moves whenever the row changes again.

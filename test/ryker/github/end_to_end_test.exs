@@ -499,8 +499,10 @@ defmodule Ryker.GitHub.EndToEndTest do
     Jason.encode!(%{
       "action" => "react",
       "episode_ref" => nil,
-      "reaction" => %{"emoji_name" => emoji_name},
+      "messages" => nil,
+      "reactions" => [emoji_name],
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "A native reaction is enough acknowledgement for this comment.",
       "work_class" => nil
@@ -511,8 +513,10 @@ defmodule Ryker.GitHub.EndToEndTest do
     Jason.encode!(%{
       "action" => action,
       "episode_ref" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "This comment requests work and needs a new episode.",
       "work_class" => if(action == "reply", do: "conversational", else: "standard")

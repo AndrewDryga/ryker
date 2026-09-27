@@ -966,9 +966,11 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
         section("candidate", "Committed admission decision", %{
           "action" => "reply",
           "episode_ref" => nil,
-          "reaction" => nil,
+          "messages" => nil,
+          "reactions" => nil,
           "reason" => "The user sent a greeting that can be answered directly.",
           "relation" => "unrelated",
+          "repository" => nil,
           "repository_source" => nil,
           "work_class" => "conversational"
         }),

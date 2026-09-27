@@ -25,8 +25,10 @@ defmodule Ryker.AdmissionConcurrencyTest do
                Decision.parse(%{
                  "action" => "start_episode",
                  "episode_ref" => nil,
-                 "reaction" => nil,
+                 "messages" => nil,
+                 "reactions" => nil,
                  "relation" => "unrelated",
+                 "repository" => nil,
                  "repository_source" => nil,
                  "reason" => "This message asks Ryker to do new work.",
                  "work_class" => "standard"
@@ -159,8 +161,10 @@ defmodule Ryker.AdmissionConcurrencyTest do
                    Decision.parse(%{
                      "action" => "start_episode",
                      "episode_ref" => nil,
-                     "reaction" => nil,
+                     "messages" => nil,
+                     "reactions" => nil,
                      "relation" => "unrelated",
+                     "repository" => nil,
                      "repository_source" => nil,
                      "reason" => "The frozen snapshot offered no existing work.",
                      "work_class" => "standard"
@@ -271,8 +275,10 @@ defmodule Ryker.AdmissionConcurrencyTest do
                Decision.parse(%{
                  "action" => "start_episode",
                  "episode_ref" => candidate.ref,
-                 "reaction" => nil,
+                 "messages" => nil,
+                 "reactions" => nil,
                  "relation" => "history_only",
+                 "repository" => nil,
                  "repository_source" => nil,
                  "reason" => "This appears to be new work with relevant history.",
                  "work_class" => "standard"
@@ -363,9 +369,11 @@ defmodule Ryker.AdmissionConcurrencyTest do
                Decision.parse(%{
                  "action" => "start_episode",
                  "episode_ref" => nil,
-                 "reaction" => nil,
+                 "messages" => nil,
+                 "reactions" => nil,
                  "relation" => "unrelated",
                  "reason" => "This pull request needs a review.",
+                 "repository" => nil,
                  "repository_source" => nil,
                  "work_class" => "standard"
                })

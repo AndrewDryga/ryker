@@ -161,7 +161,6 @@ defmodule Ryker.Admission.Executor do
     %Decision{
       action: action,
       episode_ref: episode_ref,
-      reaction: nil,
       relation: relation,
       reason: reason,
       repository_source: nil,
@@ -794,7 +793,11 @@ defmodule Ryker.Admission.Executor do
   end
 
   defp violation({:admission_rejected, :reaction_not_allowed, details}) do
-    "The reaction is unavailable for this source. Allowed emoji names: #{inspect(details[:allowed])}; submitted: #{inspect(details[:submitted])}."
+    "These emoji are unavailable for this source: #{inspect(details[:submitted])}. Choose reactions only from the allowed emoji names: #{inspect(details[:allowed])}."
+  end
+
+  defp violation({:admission_rejected, :reactions_not_available}) do
+    "This source cannot take a reaction. Set reactions to null; a quick_reply answers with its messages alone."
   end
 
   defp violation({:admission_rejected, :repository_source_not_available}) do
@@ -819,6 +822,14 @@ defmodule Ryker.Admission.Executor do
 
   defp violation({:invalid_decision, :repository_source}) do
     "repository_source must be null, or on start_episode one of the four authorized selector shapes: {\"kind\":\"default\"}, {\"kind\":\"branch\",\"name\":...}, {\"kind\":\"pull_request\",\"number\":...}, {\"kind\":\"commit\",\"sha\":<full lowercase object id>}. Other actions keep the source their work already pinned."
+  end
+
+  defp violation({:invalid_decision, :messages}) do
+    "messages must be null except on quick_reply, where it lists one to three short messages sent in order, each nonblank text of at most 1,000 characters."
+  end
+
+  defp violation({:invalid_decision, :reactions}) do
+    "reactions must be one to three different emoji names on react, null or one to three different emoji names on quick_reply, and null on every other action."
   end
 
   defp violation({:invalid_decision, field}) do

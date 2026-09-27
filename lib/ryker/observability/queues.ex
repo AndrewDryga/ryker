@@ -10,7 +10,7 @@ defmodule Ryker.Observability.Queues do
 
   import Ecto.Query
 
-  alias Ryker.Delivery.RoutingResponse
+  alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
   alias Ryker.Emisar.Approval
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
@@ -201,6 +201,10 @@ defmodule Ryker.Observability.Queues do
     episodes = WorkCustody.claimable_episode_ids_query(now, phase)
     from(turn in query, where: turn.episode_id in subquery(episodes))
   end
+
+  # A routing response waits for every earlier one of its message to be
+  # delivered; only the next in line is claimable.
+  defp runnable(query, :routing_delivery, _now), do: RoutingResponseCustody.in_order(query)
 
   defp runnable(query, :publication, now) do
     publications =

@@ -6,19 +6,20 @@ defmodule Ryker.Delivery.RoutingResponseChangeset do
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Ingress.Inbox.Entry
 
-  @spec insert(Entry.t(), Ecto.UUID.t(), :reaction | :message, map(), String.t()) ::
+  @spec insert(Entry.t(), Ecto.UUID.t(), pos_integer(), :reaction | :message, map(), String.t()) ::
           Ecto.Changeset.t()
-  def insert(%Entry{} = entry, id, kind, document, document_fingerprint) do
+  def insert(%Entry{} = entry, id, position, kind, document, document_fingerprint) do
     attributes = %{
       attempt_count: 0,
       conversation_ref: entry.destination_conversation_ref,
       decision_ref: entry.decision_ref,
-      delivery_ref: "ingress-#{kind}:#{entry.id}",
+      delivery_ref: "ingress-#{kind}:#{entry.id}:#{position}",
       document: document,
       document_fingerprint: document_fingerprint,
       id: id,
       input_id: entry.id,
       kind: kind,
+      position: position,
       source_item_ref: entry.source_item_ref,
       status: :pending,
       thread_ref: entry.destination_thread_ref,
@@ -35,7 +36,10 @@ defmodule Ryker.Delivery.RoutingResponseChangeset do
     |> validate_length(:thread_ref, min: 1, max: 1_024)
     |> validate_length(:source_item_ref, min: 1, max: 1_024)
     |> validate_length(:document_fingerprint, is: 64)
-    |> unique_constraint(:input_id)
+    |> validate_number(:position, greater_than_or_equal_to: 1, less_than_or_equal_to: 6)
+    |> unique_constraint([:input_id, :position],
+      name: :delivery_routing_responses_input_position_index
+    )
     |> unique_constraint(:delivery_ref)
     |> foreign_key_constraint(:input_id)
     |> response_constraints()
@@ -180,5 +184,6 @@ defmodule Ryker.Delivery.RoutingResponseChangeset do
     |> check_constraint(:document, name: :delivery_routing_response_document_valid)
     |> check_constraint(:status, name: :delivery_routing_response_custody_valid)
     |> check_constraint(:delivery_ref, name: :delivery_routing_response_identity_valid)
+    |> check_constraint(:position, name: :delivery_routing_response_position_valid)
   end
 end

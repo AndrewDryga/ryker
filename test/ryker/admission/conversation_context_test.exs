@@ -349,7 +349,7 @@ defmodule Ryker.Admission.ConversationContextTest do
 
     receipt = %{
       "conversation_ref" => entry.destination_conversation_ref,
-      "delivery_ref" => "ingress-message:#{entry.id}",
+      "delivery_ref" => "ingress-message:#{entry.id}:1",
       "message_ref" => ts,
       "thread_ref" => entry.destination_thread_ref,
       "transport" => "slack"
@@ -358,9 +358,10 @@ defmodule Ryker.Admission.ConversationContextTest do
     Repo.insert!(%RoutingResponse{
       id: id,
       input_id: entry.id,
+      position: 1,
       kind: :message,
       decision_ref: "decision:#{id}",
-      delivery_ref: "ingress-message:#{entry.id}",
+      delivery_ref: "ingress-message:#{entry.id}:1",
       transport: "slack",
       conversation_ref: entry.destination_conversation_ref,
       thread_ref: entry.destination_thread_ref,

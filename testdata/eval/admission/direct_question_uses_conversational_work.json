@@ -1,6 +1,7 @@
 {
   "name": "a direct ordinary question uses conversational work",
   "source": {
+    "reshaped": "2026-09-27: the recorded routing decision was rewritten into the current contract, as the live-replies migration rewrote stored decisions: reaction became reactions, and messages and repository were added as null. The recorded choice is unchanged.",
     "path": "testdata/scenarios/ordinary-thread-question-gets-natural-answer/scenario.json",
     "scenario": "ordinary-thread-question-gets-natural-answer",
     "reason": "The exact checked-in conversation asks for a short explanation and needs no broad investigation."
@@ -24,9 +25,11 @@
   "decision": {
     "action": "reply",
     "episode_ref": null,
-    "reaction": null,
+    "messages": null,
+    "reactions": null,
     "work_class": "conversational",
     "relation": "unrelated",
+    "repository": null,
     "repository_source": null,
     "reason": "This direct conceptual question can be answered without a longer investigation."
   },

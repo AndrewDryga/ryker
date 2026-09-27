@@ -1116,8 +1116,10 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     Jason.encode!(%{
       "action" => "start_episode",
       "episode_ref" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "The first local message starts one durable conversation episode.",
       "work_class" => "standard"
@@ -1128,8 +1130,10 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     Jason.encode!(%{
       "action" => "continue_episode",
       "episode_ref" => candidate_ref,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "same_work",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "The local follow-up explicitly depends on the prior answer in this thread.",
       "work_class" => "standard"
@@ -1140,8 +1144,10 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     Jason.encode!(%{
       "action" => "react",
       "episode_ref" => nil,
-      "reaction" => %{"emoji_name" => "eyes"},
+      "messages" => nil,
+      "reactions" => ["eyes"],
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "A nonverbal acknowledgement is sufficient for this local message.",
       "work_class" => nil
@@ -1152,9 +1158,10 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     Jason.encode!(%{
       "action" => "quick_reply",
       "episode_ref" => nil,
-      "message" => message,
-      "reaction" => nil,
+      "messages" => [message],
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "A greeting needs a short answer, not work.",
       "work_class" => nil

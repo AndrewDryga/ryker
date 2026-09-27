@@ -673,8 +673,10 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     Jason.encode!(%{
       "action" => "start_episode",
       "episode_ref" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "The direct mention asks Ryker to choose a rollout plan.",
       "work_class" => "standard"
@@ -685,8 +687,10 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     Jason.encode!(%{
       "action" => "continue_episode",
       "episode_ref" => candidate_ref,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "same_work",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "This authorized answer belongs to the exact delivered question thread.",
       "work_class" => "standard"

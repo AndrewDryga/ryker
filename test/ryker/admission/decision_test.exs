@@ -5,47 +5,37 @@ defmodule Ryker.Admission.DecisionTest do
 
   test "parses each supported generic admission action" do
     cases = [
-      {%{"action" => "start_episode", "episode_ref" => nil, "relation" => "unrelated"},
-       :start_episode},
-      {%{
-         "action" => "continue_episode",
-         "episode_ref" => "candidate-1",
-         "relation" => "same_work"
-       }, :continue_episode},
-      {%{"action" => "reply", "episode_ref" => nil, "relation" => "unrelated"}, :reply},
-      {%{
-         "action" => "react",
-         "episode_ref" => nil,
-         "reaction" => %{"emoji_name" => "eyes"},
-         "relation" => "unrelated"
-       }, :react},
-      {%{"action" => "ignore", "episode_ref" => nil, "relation" => "unrelated"}, :ignore}
+      {decision_document(action: "start_episode", work_class: "standard"), :start_episode},
+      {decision_document(
+         action: "continue_episode",
+         episode_ref: "candidate-1",
+         relation: "same_work",
+         work_class: "standard"
+       ), :continue_episode},
+      {decision_document(action: "reply"), :reply},
+      {decision_document(action: "quick_reply", messages: ["Hi!"], work_class: nil),
+       :quick_reply},
+      {decision_document(action: "react", reactions: ["eyes"], work_class: nil), :react},
+      {decision_document(action: "ignore", work_class: nil), :ignore}
     ]
 
-    for {fields, expected_action} <- cases do
-      assert {:ok, decision} =
-               fields
-               |> Map.put_new("reaction", nil)
-               |> Map.put_new("repository_source", nil)
-               |> Map.put("work_class", work_class(expected_action))
-               |> Map.put("reason", "A short factual reason.")
-               |> Decision.parse()
-
+    for {document, expected_action} <- cases do
+      assert {:ok, decision} = Decision.parse(document)
       assert decision.action == expected_action
     end
   end
 
   test "permits a new episode to carry history without reusing its destination" do
     assert {:ok, decision} =
-             Decision.parse(%{
-               "action" => "start_episode",
-               "episode_ref" => "candidate-older-cycle",
-               "reaction" => nil,
-               "relation" => "history_only",
-               "reason" => "This is a new lifecycle related to the older work.",
-               "repository_source" => nil,
-               "work_class" => "standard"
-             })
+             Decision.parse(
+               decision_document(
+                 action: "start_episode",
+                 episode_ref: "candidate-older-cycle",
+                 relation: "history_only",
+                 reason: "This is a new lifecycle related to the older work.",
+                 work_class: "standard"
+               )
+             )
 
     assert decision.relation == :history_only
     assert decision.episode_ref == "candidate-older-cycle"
@@ -53,38 +43,191 @@ defmodule Ryker.Admission.DecisionTest do
 
   test "rejects unknown fields and inconsistent action shapes" do
     assert {:error, {:invalid_decision, :fields}} =
-             Decision.parse(%{
-               "action" => "ignore",
-               "episode_ref" => nil,
-               "reaction" => nil,
-               "relation" => "unrelated",
-               "reason" => "Duplicate event.",
-               "repository_source" => nil,
-               "work_class" => nil,
-               "thread_ts" => "the model cannot route"
-             })
+             decision_document(action: "ignore", work_class: nil)
+             |> Map.put("thread_ts", "the model cannot route")
+             |> Decision.parse()
 
     assert {:error, {:invalid_decision, :episode_ref}} =
-             Decision.parse(%{
-               "action" => "continue_episode",
-               "episode_ref" => nil,
-               "reaction" => nil,
-               "relation" => "same_work",
-               "reason" => "Continue it.",
-               "repository_source" => nil,
-               "work_class" => "standard"
-             })
+             Decision.parse(
+               decision_document(
+                 action: "continue_episode",
+                 relation: "same_work",
+                 work_class: "standard"
+               )
+             )
 
     assert {:error, {:invalid_decision, :relation}} =
-             Decision.parse(%{
-               "action" => "ignore",
-               "episode_ref" => "candidate-1",
-               "reaction" => nil,
-               "relation" => "same_work",
-               "reason" => "Ignore it.",
-               "repository_source" => nil,
-               "work_class" => nil
-             })
+             Decision.parse(
+               decision_document(
+                 action: "ignore",
+                 episode_ref: "candidate-1",
+                 relation: "same_work",
+                 work_class: nil
+               )
+             )
+  end
+
+  # Andrew, 2026-09-26, wrote "Now both reply and add a reaction" to Ryker in
+  # Slack. Routing could answer by itself with one message or one emoji, never
+  # both, so it started a whole work run: 1 min 22 s for a greeting and a 👍.
+  # A quick answer is now one to three messages sent in order, with up to three
+  # emoji on the person's message; a reaction alone is one to three emoji.
+  test "routing answers with a few messages and emoji, and refuses each shape in the field to fix" do
+    both =
+      decision_document(
+        action: "quick_reply",
+        messages: ["Hi again!", "Want me to look at the deploy too?"],
+        reactions: ["thumbsup"],
+        work_class: nil
+      )
+
+    assert {:ok, decision} = Decision.parse(both)
+    assert decision.messages == ["Hi again!", "Want me to look at the deploy too?"]
+    assert decision.reactions == ["thumbsup"]
+    assert Decision.document(decision) == both
+
+    # The emoji on a quick answer are optional; a reaction alone may carry a few.
+    assert {:ok, %Decision{reactions: nil}} =
+             Decision.parse(Map.put(both, "reactions", nil))
+
+    assert {:ok, %Decision{reactions: ["eyes", "white_check_mark"]}} =
+             Decision.parse(
+               decision_document(
+                 action: "react",
+                 reactions: ["eyes", "white_check_mark"],
+                 work_class: nil
+               )
+             )
+
+    words = fn messages -> Map.put(both, "messages", messages) end
+    emoji = fn reactions -> Map.put(both, "reactions", reactions) end
+
+    refusals = [
+      {words.(nil), :messages},
+      {words.([]), :messages},
+      {words.(["one", "two", "three", "four"]), :messages},
+      {words.(["Hi!", "   "]), :messages},
+      {words.([String.duplicate("a", 1_001)]), :messages},
+      {words.("Hi again!"), :messages},
+      {emoji.([]), :reactions},
+      {emoji.(["eyes", "eyes"]), :reactions},
+      {emoji.(["eyes", "heart", "rocket", "tada"]), :reactions},
+      {emoji.(["Thumbs Up!"]), :reactions},
+      {emoji.("thumbsup"), :reactions},
+      {decision_document(action: "react", work_class: nil), :reactions},
+      {decision_document(action: "react", reactions: ["eyes"], messages: ["Hi"], work_class: nil),
+       :messages},
+      {decision_document(action: "reply", messages: ["Hi"]), :messages},
+      {decision_document(action: "start_episode", reactions: ["eyes"], work_class: "standard"),
+       :reactions},
+      {decision_document(action: "ignore", reactions: ["eyes"], work_class: nil), :reactions}
+    ]
+
+    for {document, field} <- refusals do
+      assert Decision.parse(document) == {:error, {:invalid_decision, field}},
+             "expected #{inspect(document["messages"])} / #{inspect(document["reactions"])} " <>
+               "on #{document["action"]} to be refused as #{field}"
+    end
+
+    # A retry that only rephrases the words is the same decision; another emoji is not.
+    assert {:ok, rephrased} = Decision.parse(words.(["Hello again!"]))
+    assert {:ok, other_emoji} = Decision.parse(emoji.(["tada"]))
+    assert Decision.fingerprint(decision) == Decision.fingerprint(rephrased)
+    refute Decision.fingerprint(decision) == Decision.fingerprint(other_emoji)
+  end
+
+  test "the published contract offers several messages and emoji only where they are sent" do
+    schema = Decision.json_schema([:quick_reply, :react, :ignore], :any)
+    built = JSV.build!(schema)
+
+    [quick_reply] = shapes(schema, "quick_reply")
+    [react] = shapes(schema, "react")
+    [ignore] = shapes(schema, "ignore")
+
+    assert quick_reply["properties"]["messages"] == %{
+             "items" => %{
+               "maxLength" => 1_000,
+               "minLength" => 1,
+               "pattern" => "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+               "type" => "string"
+             },
+             "maxItems" => 3,
+             "minItems" => 1,
+             "type" => "array"
+           }
+
+    assert %{"anyOf" => [reactions, %{"type" => "null"}]} = quick_reply["properties"]["reactions"]
+    assert react["properties"]["reactions"] == reactions
+    assert reactions["maxItems"] == 3 and reactions["minItems"] == 1
+    assert reactions["uniqueItems"] == true
+    assert react["properties"]["messages"] == %{"type" => "null"}
+    assert ignore["properties"]["messages"] == %{"type" => "null"}
+    assert ignore["properties"]["reactions"] == %{"type" => "null"}
+
+    andrew =
+      decision_document(
+        action: "quick_reply",
+        messages: ["Hi again!"],
+        reactions: ["thumbsup"],
+        work_class: nil
+      )
+
+    assert {:ok, _valid} = JSV.validate(andrew, built, cast: false)
+
+    for refused <- [
+          Map.put(andrew, "messages", ["one", "two", "three", "four"]),
+          Map.put(andrew, "reactions", ["eyes", "eyes"]),
+          decision_document(action: "ignore", reactions: ["eyes"], work_class: nil)
+        ] do
+      assert {:error, _invalid} = JSV.validate(refused, built, cast: false)
+    end
+
+    # A source that cannot take a reaction is offered a quick answer in words only.
+    words_only = Decision.json_schema([:start_episode, :quick_reply, :ignore], nil)
+    [quick_reply] = shapes(words_only, "quick_reply")
+    assert quick_reply["properties"]["reactions"] == %{"type" => "null"}
+
+    assert {:error, _invalid} = JSV.validate(andrew, JSV.build!(words_only), cast: false)
+
+    # The source's own emoji names bound every reaction list.
+    named = Decision.json_schema([:quick_reply, :react, :ignore], ~w(+1 eyes heart))
+    [react] = shapes(named, "react")
+
+    assert react["properties"]["reactions"]["items"] == %{
+             "enum" => ~w(+1 eyes heart),
+             "type" => "string"
+           }
+
+    assert {:ok, _valid} =
+             JSV.validate(
+               decision_document(action: "react", reactions: ["+1", "heart"], work_class: nil),
+               JSV.build!(named),
+               cast: false
+             )
+
+    assert {:error, _invalid} =
+             JSV.validate(
+               decision_document(action: "react", reactions: ["thumbsup"], work_class: nil),
+               JSV.build!(named),
+               cast: false
+             )
+  end
+
+  # The decision documents stored before 2026-09-27 were rewritten into this
+  # shape by the migration that introduced it, so nothing reads an older one:
+  # a missing field, or `message` and `reaction` from before, is refused.
+  test "a decision is read only in the shape routing answers in" do
+    current = decision_document([])
+    assert {:ok, _decision} = Decision.parse(current)
+
+    for field <- ~w(messages reactions repository repository_source) do
+      assert Decision.parse(Map.delete(current, field)) == {:error, {:invalid_decision, :fields}}
+    end
+
+    for {old, value} <- [{"message", nil}, {"reaction", nil}] do
+      assert Decision.parse(Map.put(current, old, value)) ==
+               {:error, {:invalid_decision, :fields}}
+    end
   end
 
   test "publishes an exact JSON schema for model self-validation" do
@@ -96,8 +239,8 @@ defmodule Ryker.Admission.DecisionTest do
              [
                "action",
                "episode_ref",
-               "message",
-               "reaction",
+               "messages",
+               "reactions",
                "relation",
                "reason",
                "repository",
@@ -128,23 +271,22 @@ defmodule Ryker.Admission.DecisionTest do
     # about 27 s of a 66 s first reply before the work model even started.
     greeting = "Hi! What can I help with?"
 
-    assert {:ok, decision} =
-             Decision.parse(quick_reply(greeting))
+    assert {:ok, decision} = Decision.parse(quick_reply([greeting]))
 
     assert decision.action == :quick_reply
-    assert decision.message == greeting
-    assert Decision.document(decision)["message"] == greeting
+    assert decision.messages == [greeting]
+    assert Decision.document(decision)["messages"] == [greeting]
 
     # Only a quick reply carries words, and it always does; it continues no
     # work and needs no class of work.
     for document <- [
           quick_reply(nil),
-          quick_reply("   "),
-          quick_reply(String.duplicate("a", 1_001)),
-          decision_document(action: "reply", message: greeting),
-          decision_document(action: "ignore", work_class: nil, message: greeting),
-          Map.put(quick_reply(greeting), "work_class", "conversational"),
-          Map.merge(quick_reply(greeting), %{
+          quick_reply(["   "]),
+          quick_reply([String.duplicate("a", 1_001)]),
+          decision_document(action: "reply", messages: [greeting]),
+          decision_document(action: "ignore", work_class: nil, messages: [greeting]),
+          Map.put(quick_reply([greeting]), "work_class", "conversational"),
+          Map.merge(quick_reply([greeting]), %{
             "episode_ref" => "candidate-1",
             "relation" => "same_work"
           })
@@ -152,23 +294,13 @@ defmodule Ryker.Admission.DecisionTest do
       assert {:error, {:invalid_decision, _field}} = Decision.parse(document)
     end
 
-    # A decision recorded before quick replies has no message and still reads.
-    assert {:ok, %{message: nil}} =
-             decision_document([]) |> Map.delete("message") |> Decision.parse()
-
-    # A retry that only rephrases the reply is the same decision.
-    assert {:ok, rephrased} = Decision.parse(quick_reply("Hello! How can I help?"))
-    assert Decision.fingerprint(decision) == Decision.fingerprint(rephrased)
-
     # The published schema offers it with its words, and only where offered.
     schema = Decision.json_schema([:quick_reply, :ignore])
     assert schema["properties"]["action"]["enum"] == ~w(quick_reply ignore)
 
-    assert [%{"properties" => %{"message" => message}} | _rest] =
-             Enum.filter(schema["oneOf"], &(&1["properties"]["action"]["const"] == "quick_reply"))
-
-    assert message["type"] == "string"
-    assert message["maxLength"] == 1_000
+    assert [%{"properties" => %{"messages" => messages}}] = shapes(schema, "quick_reply")
+    assert messages["type"] == "array"
+    assert messages["items"]["maxLength"] == 1_000
   end
 
   test "schema-valid Unicode and text boundaries are accepted by the host parser" do
@@ -187,44 +319,40 @@ defmodule Ryker.Admission.DecisionTest do
 
   test "a reaction is complete enough for the Slack gateway to execute" do
     assert {:ok, decision} =
-             Decision.parse(%{
-               "action" => "react",
-               "episode_ref" => nil,
-               "reaction" => %{"emoji_name" => "white_check_mark"},
-               "relation" => "unrelated",
-               "reason" => "Acknowledge the update without adding another message.",
-               "repository_source" => nil,
-               "work_class" => nil
-             })
+             Decision.parse(
+               decision_document(
+                 action: "react",
+                 reactions: ["white_check_mark"],
+                 reason: "Acknowledge the update without adding another message.",
+                 work_class: nil
+               )
+             )
 
-    assert decision.reaction == %{emoji_name: "white_check_mark"}
+    assert decision.reactions == ["white_check_mark"]
 
-    assert {:error, {:invalid_decision, :reaction}} =
-             Decision.parse(%{
-               "action" => "react",
-               "episode_ref" => nil,
-               "reaction" => nil,
-               "relation" => "unrelated",
-               "reason" => "This cannot be delivered without an emoji name.",
-               "repository_source" => nil,
-               "work_class" => nil
-             })
+    assert {:error, {:invalid_decision, :reactions}} =
+             Decision.parse(
+               decision_document(
+                 action: "react",
+                 reason: "This cannot be delivered without an emoji name.",
+                 work_class: nil
+               )
+             )
   end
 
   test "retry identity ignores prose but retains every executable choice" do
     assert {:ok, first} =
-             Decision.parse(%{
-               "action" => "react",
-               "episode_ref" => nil,
-               "reaction" => %{"emoji_name" => "eyes"},
-               "relation" => "unrelated",
-               "reason" => "Acknowledge this update.",
-               "repository_source" => nil,
-               "work_class" => nil
-             })
+             Decision.parse(
+               decision_document(
+                 action: "react",
+                 reactions: ["eyes"],
+                 reason: "Acknowledge this update.",
+                 work_class: nil
+               )
+             )
 
     paraphrased = %{first | reason: "The update only needs an acknowledgement."}
-    different = %{first | reaction: %{emoji_name: "thumbsup"}}
+    different = %{first | reactions: ["thumbsup"]}
 
     assert Decision.fingerprint(first) == Decision.fingerprint(paraphrased)
     refute Decision.fingerprint(first) == Decision.fingerprint(different)
@@ -235,15 +363,16 @@ defmodule Ryker.Admission.DecisionTest do
       {decision_document(action: "unknown"), :action},
       {decision_document(relation: "unknown"), :relation},
       {decision_document(episode_ref: " "), :episode_ref},
-      {decision_document(reaction: %{"emoji_name" => "Eyes!"}), :reaction},
-      {decision_document(action: "start_episode", reaction: %{"emoji_name" => "eyes"}),
-       :reaction},
+      {decision_document(action: "react", reactions: ["Eyes!"], work_class: nil), :reactions},
+      {decision_document(action: "start_episode", reactions: ["eyes"], work_class: "standard"),
+       :reactions},
       {decision_document(action: "start_episode", relation: "history_only"), :episode_ref},
       {decision_document(action: "reply", relation: "history_only"), :episode_ref},
       {decision_document(
          action: "react",
          episode_ref: "candidate-1",
-         reaction: %{"emoji_name" => "eyes"}
+         reactions: ["eyes"],
+         work_class: nil
        ), :relation},
       {decision_document(action: "reply", work_class: "standard"), :work_class},
       {decision_document(action: "start_episode", work_class: "conversational"), :work_class},
@@ -267,24 +396,19 @@ defmodule Ryker.Admission.DecisionTest do
   test "limits reactions to the names issued by the source adapter" do
     schema = Decision.json_schema([:start_episode, :react, :ignore], ~w(+1 eyes heart))
 
-    assert schema["properties"]["reaction"]["anyOf"] |> hd() == %{
-             "additionalProperties" => false,
-             "properties" => %{
-               "emoji_name" => %{"enum" => ~w(+1 eyes heart), "type" => "string"}
-             },
-             "required" => ["emoji_name"],
-             "type" => "object"
+    assert schema["properties"]["reactions"]["anyOf"] |> hd() == %{
+             "items" => %{"enum" => ~w(+1 eyes heart), "type" => "string"},
+             "maxItems" => 3,
+             "minItems" => 1,
+             "type" => "array",
+             "uniqueItems" => true
            }
 
     built = JSV.build!(schema)
 
     assert {:ok, _document} =
              JSV.validate(
-               decision_document(
-                 action: "react",
-                 reaction: %{"emoji_name" => "heart"},
-                 work_class: nil
-               ),
+               decision_document(action: "react", reactions: ["heart"], work_class: nil),
                built,
                cast: false
              )
@@ -293,7 +417,7 @@ defmodule Ryker.Admission.DecisionTest do
              JSV.validate(
                decision_document(
                  action: "react",
-                 reaction: %{"emoji_name" => "white_check_mark"},
+                 reactions: ["white_check_mark"],
                  work_class: nil
                ),
                built,
@@ -305,15 +429,14 @@ defmodule Ryker.Admission.DecisionTest do
     branch = %{"kind" => "branch", "name" => "feature/payments"}
 
     assert {:ok, decision} =
-             Decision.parse(%{
-               "action" => "start_episode",
-               "episode_ref" => nil,
-               "reaction" => nil,
-               "relation" => "unrelated",
-               "reason" => "Review the named branch.",
-               "repository_source" => branch,
-               "work_class" => "standard"
-             })
+             Decision.parse(
+               decision_document(
+                 action: "start_episode",
+                 reason: "Review the named branch.",
+                 repository_source: branch,
+                 work_class: "standard"
+               )
+             )
 
     assert decision.repository_source == branch
     assert Decision.document(decision)["repository_source"] == branch
@@ -327,15 +450,16 @@ defmodule Ryker.Admission.DecisionTest do
     ]
 
     for {action, episode_ref, relation, work_class} <- rebinding do
-      document = %{
-        "action" => action,
-        "episode_ref" => episode_ref,
-        "reaction" => if(action == "react", do: %{"emoji_name" => "eyes"}, else: nil),
-        "relation" => relation,
-        "reason" => "A short factual reason.",
-        "repository_source" => branch,
-        "work_class" => work_class
-      }
+      document =
+        decision_document(
+          action: action,
+          episode_ref: episode_ref,
+          reactions: if(action == "react", do: ["eyes"]),
+          relation: relation,
+          reason: "A short factual reason.",
+          repository_source: branch,
+          work_class: work_class
+        )
 
       assert Decision.parse(document) == {:error, {:invalid_decision, :repository_source}},
              "expected #{action} to be unable to rebind source"
@@ -350,15 +474,13 @@ defmodule Ryker.Admission.DecisionTest do
           %{"kind" => "pull_request", "number" => 0},
           "main"
         ] do
-      document = %{
-        "action" => "start_episode",
-        "episode_ref" => nil,
-        "reaction" => nil,
-        "relation" => "unrelated",
-        "reason" => "Review the named source.",
-        "repository_source" => invalid,
-        "work_class" => "standard"
-      }
+      document =
+        decision_document(
+          action: "start_episode",
+          reason: "Review the named source.",
+          repository_source: invalid,
+          work_class: "standard"
+        )
 
       assert Decision.parse(document) == {:error, {:invalid_decision, :repository_source}}
     end
@@ -366,15 +488,12 @@ defmodule Ryker.Admission.DecisionTest do
 
   test "a retry that changes only the selector is a different durable decision" do
     document = fn source ->
-      %{
-        "action" => "start_episode",
-        "episode_ref" => nil,
-        "reaction" => nil,
-        "relation" => "unrelated",
-        "reason" => "Review the named branch.",
-        "repository_source" => source,
-        "work_class" => "standard"
-      }
+      decision_document(
+        action: "start_episode",
+        reason: "Review the named branch.",
+        repository_source: source,
+        work_class: "standard"
+      )
     end
 
     assert {:ok, branch} = Decision.parse(document.(%{"kind" => "branch", "name" => "one"}))
@@ -488,10 +607,6 @@ defmodule Ryker.Admission.DecisionTest do
                {:error, {:invalid_decision, :repository}}
     end
 
-    # A decision recorded before the field existed carries no key: it chose
-    # nothing, the same as null. Recorded answers are history, not rewritten.
-    assert {:ok, %Decision{repository: nil}} = Decision.parse(Map.delete(chosen, "repository"))
-
     # The published contract offers exactly the route's repositories, on a new
     # episode only, and requires the choice there.
     schema =
@@ -529,8 +644,8 @@ defmodule Ryker.Admission.DecisionTest do
     defaults = %{
       "action" => "reply",
       "episode_ref" => nil,
-      "message" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
       "reason" => "Answer directly.",
       "repository" => nil,
@@ -543,10 +658,9 @@ defmodule Ryker.Admission.DecisionTest do
     end)
   end
 
-  defp quick_reply(message),
-    do: decision_document(action: "quick_reply", work_class: nil, message: message)
+  defp quick_reply(messages),
+    do: decision_document(action: "quick_reply", work_class: nil, messages: messages)
 
-  defp work_class(action) when action in [:react, :ignore], do: nil
-  defp work_class(:reply), do: "conversational"
-  defp work_class(_action), do: "standard"
+  defp shapes(schema, action),
+    do: Enum.filter(schema["oneOf"], &(&1["properties"]["action"]["const"] == action))
 end

@@ -23,7 +23,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   }
 
   alias Ryker.Delivery.PlatformAction
-  alias Ryker.Delivery.RoutingResponse
+  alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
   alias Ryker.Episodes.{Episode, Event, RoutingDigest}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
@@ -797,9 +797,11 @@ defmodule Ryker.ControlPlane.ConversationProjection do
         )
       )
 
+    # A response waiting behind a stopped earlier one of its message is not
+    # being sent: the stopped one says so, and the conversation is not live.
     responses =
       Repo.one(
-        from(response in RoutingResponse,
+        from(response in RoutingResponseCustody.in_order(RoutingResponse),
           where:
             response.transport == "control_plane" and response.conversation_ref == ^ref and
               response.thread_ref == ^ref,

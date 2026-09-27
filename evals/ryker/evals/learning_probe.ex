@@ -111,7 +111,6 @@ defmodule Ryker.Evals.LearningProbe do
              %Decision{
                action: :start_episode,
                episode_ref: nil,
-               reaction: nil,
                relation: :unrelated,
                reason: "Authored held-out recall evaluation; routing is not under test.",
                repository_source: nil,

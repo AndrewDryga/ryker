@@ -1,6 +1,7 @@
 {
   "name": "a later human reply reopens the same thread episode",
   "source": {
+    "reshaped": "2026-09-27: the recorded routing decision was rewritten into the current contract, as the live-replies migration rewrote stored decisions: reaction became reactions, and messages and repository were added as null. The recorded choice is unchanged.",
     "database": "blitz responder.db",
     "slack_input_ids": [
       "slack_message_3c56151e0b8eb84ec8c70a221d0aa1e4",
@@ -46,9 +47,11 @@
   "decision": {
     "action": "continue_episode",
     "episode_ref": "$seed",
-    "reaction": null,
+    "messages": null,
+    "reactions": null,
     "work_class": "standard",
     "relation": "same_work",
+    "repository": null,
     "repository_source": null,
     "reason": "This is a new instruction in the exact same Slack thread."
   },
@@ -56,9 +59,11 @@
     {
       "action": "reply",
       "episode_ref": "$seed",
-      "reaction": null,
+      "messages": null,
+      "reactions": null,
       "work_class": "conversational",
       "relation": "same_work",
+      "repository": null,
       "repository_source": null,
       "reason": "This is a direct follow-up to the ads.txt redirect discussion. Whether www is needed can be answered conversationally, while distinguishing general guidance from unverified domain configuration."
     }

@@ -935,8 +935,10 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     decision = %{
       "action" => "reply",
       "episode_ref" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "A direct conversational reply.",
       "work_class" => "conversational"

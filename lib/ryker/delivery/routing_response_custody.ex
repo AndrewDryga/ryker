@@ -1,11 +1,14 @@
 defmodule Ryker.Delivery.RoutingResponseCustody do
   @moduledoc """
-  Durable single-owner custody for what routing sends by itself: a reaction
-  on the message, or a quick reply beside it.
+  Durable single-owner custody for what routing sends by itself: reactions on
+  the message, or a quick reply's messages beside it and its reactions on it.
 
-  Admission freezes the exact emoji or words and the host-owned destination
-  in the same transaction as the model decision. Platform workers can retry
-  delivery, but cannot change either the target or what is sent.
+  Admission freezes the exact emoji and words and the host-owned destination
+  in the same transaction as the model decision: one response per message or
+  emoji, the messages first in the order written, then the reactions. A
+  response is sent only once every earlier one of its input is delivered, so
+  a retry or a second worker never reorders them. Platform workers can retry
+  delivery, but cannot change the target, what is sent or its order.
 
   Each response queued, claimed, retried, blocked or delivered is announced
   after the outermost commit (`subscribe_routing_responses/0`), on its message's
@@ -24,34 +27,80 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   @type claim :: %{lease_ref: String.t(), response: RoutingResponse.t()}
 
   @doc false
-  @spec enqueue_in_transaction(Entry.t()) :: {:ok, RoutingResponse.t() | nil} | {:error, term()}
+  @spec enqueue_in_transaction(Entry.t()) :: {:ok, [RoutingResponse.t()]} | {:error, term()}
   def enqueue_in_transaction(%Entry{status: :decided, decision_action: action} = entry)
       when action in [:react, :quick_reply] do
     with :ok <- transaction_open(),
-         {:ok, kind, document} <- decided_response(entry.decision_document) do
-      entry
-      |> RoutingResponseChangeset.insert(
-        Ecto.UUID.generate(),
-        kind,
-        document,
-        CanonicalJSON.digest(document)
-      )
-      |> Repo.insert()
-      |> persistence_result(:routing_response)
+         {:ok, responses} <- decided_responses(entry.decision_document) do
+      responses
+      |> Enum.with_index(1)
+      |> Enum.reduce_while({:ok, []}, fn {{kind, document}, position}, {:ok, inserted} ->
+        entry
+        |> RoutingResponseChangeset.insert(
+          Ecto.UUID.generate(),
+          position,
+          kind,
+          document,
+          CanonicalJSON.digest(document)
+        )
+        |> Repo.insert()
+        |> persistence_result(:routing_response)
+        |> case do
+          {:ok, response} -> {:cont, {:ok, [response | inserted]}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+      end)
+      |> case do
+        {:ok, inserted} -> {:ok, Enum.reverse(inserted)}
+        {:error, _reason} = error -> error
+      end
     end
   end
 
-  def enqueue_in_transaction(%Entry{status: :decided}), do: {:ok, nil}
+  def enqueue_in_transaction(%Entry{status: :decided}), do: {:ok, []}
   def enqueue_in_transaction(_entry), do: {:error, {:invalid_routing_response, :entry}}
 
-  defp decided_response(%{"action" => "react", "reaction" => %{} = document}),
-    do: {:ok, :reaction, document}
+  # The words first, as written, then the emoji on the person's message: a
+  # reaction that cannot be added never holds back the answer.
+  defp decided_responses(%{"action" => "react", "reactions" => [_first | _rest] = reactions}),
+    do: {:ok, Enum.map(reactions, &reaction/1)}
 
-  defp decided_response(%{"action" => "quick_reply", "message" => message})
-       when is_binary(message),
-       do: {:ok, :message, %{"message" => message}}
+  defp decided_responses(%{
+         "action" => "quick_reply",
+         "messages" => [_first | _rest] = messages,
+         "reactions" => reactions
+       }) do
+    {:ok,
+     Enum.map(messages, &{:message, %{"message" => &1}}) ++
+       Enum.map(reactions || [], &reaction/1)}
+  end
 
-  defp decided_response(_decision), do: {:error, {:invalid_routing_response, :decision}}
+  defp decided_responses(_decision), do: {:error, {:invalid_routing_response, :decision}}
+
+  defp reaction(emoji_name), do: {:reaction, %{"emoji_name" => emoji_name}}
+
+  @doc """
+  The responses a worker may send now: pending ones whose every earlier
+  response for the same input is delivered. The claim and the queue gauges
+  read this one query, so a response waiting its turn is never counted as
+  stalled work.
+  """
+  @spec in_order(Ecto.Queryable.t()) :: Ecto.Query.t()
+  def in_order(query) do
+    from(response in query,
+      as: :response,
+      where:
+        not exists(
+          from(earlier in RoutingResponse,
+            where:
+              earlier.input_id == parent_as(:response).input_id and
+                earlier.position < parent_as(:response).position and
+                earlier.status != :delivered,
+            select: 1
+          )
+        )
+    )
+  end
 
   @spec claim_next(String.t(), pos_integer()) :: {:ok, claim() | nil} | {:error, term()}
   def claim_next(worker_ref, lease_seconds) do
@@ -175,12 +224,12 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
     now = Repo.now!()
 
     case Repo.one(
-           from(response in RoutingResponse,
+           from(response in in_order(RoutingResponse),
              where:
                response.status == :pending and
                  (is_nil(response.next_attempt_at) or response.next_attempt_at <= ^now) and
                  (is_nil(response.lease_ref) or response.lease_expires_at <= ^now),
-             order_by: [asc: response.inserted_at, asc: response.id],
+             order_by: [asc: response.inserted_at, asc: response.position, asc: response.id],
              limit: 1,
              lock: "FOR UPDATE SKIP LOCKED"
            )

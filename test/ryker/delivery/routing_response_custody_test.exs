@@ -49,7 +49,8 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
     pending = Repo.get_by!(RoutingResponse, input_id: entry.id)
     assert pending.status == :pending
     assert pending.kind == :reaction
-    assert pending.delivery_ref == "ingress-reaction:#{entry.id}"
+    assert pending.position == 1
+    assert pending.delivery_ref == "ingress-reaction:#{entry.id}:1"
     assert pending.decision_ref == "decision:reaction-custody"
     assert pending.document == %{"emoji_name" => "eyes"}
     assert pending.transport == "slack"
@@ -154,7 +155,7 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
 
     pending = Repo.get_by!(RoutingResponse, input_id: entry.id)
     assert pending.kind == :message
-    assert pending.delivery_ref == "ingress-message:#{entry.id}"
+    assert pending.delivery_ref == "ingress-message:#{entry.id}:1"
     assert pending.document == %{"message" => "Hi! What can I help with?"}
 
     assert {:ok, claim} = RoutingResponseCustody.claim_next("delivery:routing:quick", 60)
@@ -199,6 +200,96 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
 
     assert delivered.status == :delivered
     assert delivered.external_receipt["message_ref"] == "1787832002.000300"
+  end
+
+  # Andrew, 2026-09-26: routing could send one message or one emoji, so
+  # "Now both reply and add a reaction" started a whole work run. Its quick
+  # answer is now a few messages and emoji, and the person has to see the
+  # words in the order routing wrote them: a retry, a lost lease or a second
+  # worker must never send the second message before the first, or either twice.
+  test "a quick answer's messages and emoji are each sent once, in the order routing wrote them" do
+    entry = record_input!("Ev-quick-reply-several")
+
+    assert {:ok, _applied} =
+             Admission.commit(
+               context!(entry),
+               quick_reply!(["Hi again!", "Want me to check the deploy too?"], ["thumbsup"]),
+               "decision:quick-reply-several"
+             )
+
+    assert {:ok, first} = RoutingResponseCustody.claim_next("delivery:routing:one", 60)
+    assert {first.response.position, first.response.kind} == {1, :message}
+
+    # The second message waits while the first is out, and still after the
+    # first is put back for a retry.
+    assert {:ok, nil} = RoutingResponseCustody.claim_next("delivery:routing:two", 60)
+
+    assert {:ok, _deferred} =
+             RoutingResponseCustody.defer(
+               first.response.delivery_ref,
+               first.lease_ref,
+               1,
+               "delivery_uncertain",
+               "Slack's answer was lost."
+             )
+
+    Repo.update_all(RoutingResponse, set: [next_attempt_at: @now])
+    assert {:ok, retried} = RoutingResponseCustody.claim_next("delivery:routing:three", 60)
+    assert retried.response.id == first.response.id
+
+    sent =
+      Enum.map(1..3, fn position ->
+        claim =
+          if position == 1 do
+            retried
+          else
+            assert {:ok, %{} = claim} =
+                     RoutingResponseCustody.claim_next("delivery:routing:#{position}", 60)
+
+            claim
+          end
+
+        response = claim.response
+        assert response.position == position
+
+        message_ref =
+          if response.kind == :reaction,
+            do: response.source_item_ref,
+            else: "1787832002.00030#{position}"
+
+        assert {:ok, receipt} =
+                 DeliveryReceipt.new(
+                   response.delivery_ref,
+                   response.transport,
+                   response.conversation_ref,
+                   response.thread_ref,
+                   message_ref
+                 )
+
+        assert {:ok, %RoutingResponse{status: :delivered}} =
+                 RoutingResponseCustody.confirm_delivery(
+                   response.delivery_ref,
+                   claim.lease_ref,
+                   receipt
+                 )
+
+        {response.kind, response.document, response.delivery_ref, message_ref}
+      end)
+
+    assert [
+             {:message, %{"message" => "Hi again!"}, first_ref, "1787832002.000301"},
+             {:message, %{"message" => "Want me to check the deploy too?"}, second_ref,
+              "1787832002.000302"},
+             {:reaction, %{"emoji_name" => "thumbsup"}, reaction_ref, "1787832001.000200"}
+           ] = sent
+
+    assert Enum.uniq([first_ref, second_ref, reaction_ref]) == [
+             first_ref,
+             second_ref,
+             reaction_ref
+           ]
+
+    assert {:ok, nil} = RoutingResponseCustody.claim_next("delivery:routing:done", 60)
   end
 
   test "a shadow reaction is audited as a decision but never enters delivery custody" do
@@ -337,8 +428,10 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
              Decision.parse(%{
                "action" => "react",
                "episode_ref" => nil,
-               "reaction" => %{"emoji_name" => emoji_name},
+               "messages" => nil,
+               "reactions" => [emoji_name],
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "Acknowledge the source item without starting work.",
                "work_class" => nil
@@ -347,14 +440,15 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
     decision
   end
 
-  defp quick_reply!(message) do
+  defp quick_reply!(messages, reactions \\ nil) do
     assert {:ok, decision} =
              Decision.parse(%{
                "action" => "quick_reply",
                "episode_ref" => nil,
-               "message" => message,
-               "reaction" => nil,
+               "messages" => List.wrap(messages),
+               "reactions" => reactions,
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "A greeting needs a short answer, not work.",
                "work_class" => nil
@@ -368,8 +462,10 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
              Decision.parse(%{
                "action" => "ignore",
                "episode_ref" => nil,
-               "reaction" => nil,
+               "messages" => nil,
+               "reactions" => nil,
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "No response is needed.",
                "work_class" => nil
