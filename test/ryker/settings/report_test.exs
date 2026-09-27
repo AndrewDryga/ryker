@@ -99,8 +99,8 @@ defmodule Ryker.Settings.ReportTest do
     # The post follows a local time, so a zone nobody can resolve is a weekly
     # send nothing can compute. Note for whoever changes this: the release ships
     # Elixir's UTC-only time zone database, so Etc/UTC is the only zone this
-    # validation accepts today — the Settings form's "such as Europe/Berlin"
-    # help text is refused by this very check.
+    # validation accepts today, and Settings › Weekly report says so. The
+    # schedule itself reads any zone the database knows (`Ryker.WeeklyReport.Schedule`).
     revision = connect_slack!(revision)
 
     assert DateTime.now("Europe/Berlin") == {:error, :utc_only_time_zone_database}

@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SettingsPage, SettingsView, SetupPage}
   alias Ryker.{Credentials, IntegrationSetup}
+  alias Ryker.Fixtures.Answers
   alias Ryker.Settings
   alias Ryker.Settings.{Installation, PricingRate}
   alias Ryker.Slack.{ChannelConfigurationChangeset, ChannelConfigurations}
@@ -75,6 +76,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
           {fn -> :ok end, "/settings/models", "Models"},
           {fn -> :ok end, "/settings/retention", "Data retention"},
           {fn -> :ok end, "/settings/prices", "Model prices"},
+          {fn -> :ok end, "/settings/report", "Weekly report"},
           {fn -> :ok end, "/settings/advanced", "Advanced"}
         ] do
       prepare.()
@@ -194,13 +196,14 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     rows = LazyHTML.query(document, "main .settings-list .entity-row")
 
     assert rows |> LazyHTML.query(".entity-name a") |> LazyHTML.attribute("href") ==
-             ~w(/settings/models /settings/retention /settings/prices /settings/advanced)
+             ~w(/settings/models /settings/retention /settings/prices /settings/report /settings/advanced)
 
     assert rows |> LazyHTML.query(".entity-name a") |> texts() ==
-             ["Models", "Data retention", "Model prices", "Advanced"]
+             ["Models", "Data retention", "Model prices", "Weekly report", "Advanced"]
 
     # Each row says what its page sets, and where it is now.
-    assert rows |> LazyHTML.query(".entity-text") |> Enum.count() == 4
+    assert rows |> LazyHTML.query(".entity-text") |> Enum.count() == 5
+    assert LazyHTML.query(document, "#setting-report .entity-meta") |> LazyHTML.text() =~ "Off"
     models = LazyHTML.query(document, "#setting-model .entity-meta") |> LazyHTML.text()
     assert models =~ "gpt-5.6-sol"
     assert models =~ "gpt-5.6-terra"
@@ -213,10 +216,60 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     settings_links = LazyHTML.query(document, "details#nav-settings a")
 
     assert LazyHTML.attribute(settings_links, "href") ==
-             ~w(/settings /settings/models /settings/retention /settings/prices /settings/advanced)
+             ~w(/settings /settings/models /settings/retention /settings/prices /settings/report /settings/advanced)
 
     assert LazyHTML.query(document, "details#nav-settings a[aria-current=page]")
            |> LazyHTML.attribute("href") == ["/settings"]
+  end
+
+  # Andrew, 2026-09-27: the Weekly report setting saved and posted nothing.
+  # The page is where he sees what it would say before he turns it on, so the
+  # preview has to be the report's own words, and asking for it must neither
+  # post nor record a week as sent.
+  test "the Weekly report page previews this week's report in the page and posts nothing" do
+    initialize!()
+
+    Answers.slack_message!(
+      workspace: "TPREVIEW",
+      channel: "CPREVIEW",
+      text: "Is staging healthy?",
+      ts: "1790700001.000100"
+    )
+
+    {:ok, view, html} = open("/settings/report")
+    document = LazyHTML.from_document(html)
+    assert LazyHTML.query(document, "main h1") |> LazyHTML.text() == "Weekly report"
+    assert has_element?(view, "#settings-report form input[name='weekly_self_report_enabled']")
+    assert has_element?(view, "#settings-report form input[name='channel_ref']")
+    refute has_element?(view, "#weekly-report-text")
+
+    view |> element("#preview-weekly-report") |> render_click()
+    assert_patch(view, "/settings/report?preview=week")
+
+    text = view |> element("#weekly-report-text") |> render() |> LazyHTML.from_fragment()
+    words = LazyHTML.text(text)
+
+    assert words =~ "Weekly report"
+    assert words =~ "How my week went, from"
+    assert words =~ "I read 1 message (last week 0): 1 is still being read."
+
+    for heading <-
+          ~w(Requests Feedback Corrections Learned Cost) ++
+            ["What to fix", "Needs a person"] do
+      assert Enum.member?(LazyHTML.query(text, "strong") |> texts(), heading), heading
+    end
+
+    assert LazyHTML.query(text, "a[href='http://127.0.0.1:4321/activity']") |> Enum.count() == 1
+
+    # Nothing was posted, queued or recorded as sent.
+    assert Repo.aggregate(Ryker.WeeklyReport.Report, :count) == 0
+
+    # The preview is a link, so a reload shows it again.
+    {:ok, reloaded, _html} = open("/settings/report?preview=week")
+    assert has_element?(reloaded, "#weekly-report-text", "I read 1 message")
+
+    reloaded |> element("#weekly-report-preview a", "Hide the preview") |> render_click()
+    refute has_element?(reloaded, "#weekly-report-text")
   end
 
   test "the sidebar leads back into setup until every required step is done" do

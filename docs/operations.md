@@ -41,6 +41,11 @@ Change a bind address only when the surrounding network boundary is understood. 
 and webhook senders need an HTTPS reverse proxy to the exact signed ingress paths; do not publish
 the control UI, health, readiness or metrics endpoints.
 
+Links Ryker posts into Slack, such as the weekly report's, open the control UI at
+`RYKER_CONTROL_PUBLIC_URL`, which is `http://127.0.0.1:` and `RYKER_CONTROL_PORT` unless
+`.ryker/compose.env` sets it. Set it to the address you open the UI at when that differs, such as
+an SSH tunnel's local port. It must be HTTPS or a loopback HTTP address.
+
 ## Setup and connection states
 
 Open the setup URL printed by the installer (`/setup`). It leads through six required steps, one
@@ -229,6 +234,21 @@ accepted only for this machine or a private network; anywhere else needs https.
 back to the provider model when the local answer is invalid or unsure, or for work that needs the
 larger model. The agreement phase 1 measures, and what the provider spent on the messages the local
 model agreed on, say whether that is worth building and what it would save.
+
+## Weekly report
+
+Settings › Weekly report turns on one post a week in a Slack channel, at a day, time and zone you
+choose, saying how Ryker's week went: requests, feedback, what to fix, corrections, what it learned,
+the failures that leave someone waiting, and cost. Ryker counts it from PostgreSQL with no model
+turn. Invite Ryker to the channel first. Preview this week's report on that page shows what a report
+sent now would say, and posts nothing.
+
+A report covers the seven days before its send time. Turning it on posts at the next send time,
+never at once. Each week sent is a row in `weekly_reports`, written when the report falls due, so a
+restart never posts a week twice; after an outage Ryker posts the latest missed report once. The
+post goes through the delivery lanes with the same retries as a reply, and one Slack refuses is on
+Failures as "Posting the weekly report stopped", with Post the report again. This release reads
+times in `Etc/UTC` only.
 
 ## Names that still say responder
 

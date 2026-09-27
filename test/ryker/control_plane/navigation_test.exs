@@ -85,7 +85,7 @@ defmodule Ryker.ControlPlane.NavigationTest do
                ~w(/integrations /integrations/slack /integrations/github /integrations/emisar /integrations/webhooks)
 
       assert LazyHTML.query(bottom, "details#nav-settings a") |> LazyHTML.attribute("href") ==
-               ~w(/settings /settings/models /settings/retention /settings/prices /settings/advanced)
+               ~w(/settings /settings/models /settings/retention /settings/prices /settings/report /settings/advanced)
 
       mobile =
         render_component(&Navigation.mobile/1, path: "/", live: live)

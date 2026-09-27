@@ -53,6 +53,7 @@ defmodule Ryker.ControlPlane.Navigation do
        {"Models", "/settings/models"},
        {"Data retention", "/settings/retention"},
        {"Model prices", "/settings/prices"},
+       {"Weekly report", "/settings/report"},
        {"Advanced", "/settings/advanced"}
      ]}
   ]

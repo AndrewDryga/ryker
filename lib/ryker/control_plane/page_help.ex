@@ -69,6 +69,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/settings/models", :models},
     {"/settings/retention", :retention},
     {"/settings/prices", :prices},
+    {"/settings/report", :report},
     {"/settings/advanced", :advanced},
     {"/setup", :setup},
     # A page of one form shares the help of the list it adds to or edits.
@@ -860,7 +861,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How settings work", [
       {"What this page shows",
        [
-         "The settings that decide how Ryker itself runs, each with what it sets and what it is set to now: models, data retention, model prices and advanced settings."
+         "The settings that decide how Ryker itself runs, each with what it sets and what it is set to now: models, data retention, model prices, the weekly report and advanced settings."
        ]},
       {"Change a setting",
        [
@@ -938,6 +939,34 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Add or remove a price",
        [
          "Add price and a row's Edit open its form on a page of its own; Save returns to the list. Removing a price asks first: that model's cost then shows as not priced."
+       ]}
+    ])
+  end
+
+  defp help(:report) do
+    page("How the weekly report works", [
+      {"What it says",
+       [
+         "Once a week Ryker posts how its week went in one Slack channel. It says what people asked and what became of it, how they took its answers, and what self-analysis found. It also says how often its answers needed correcting, what it learned, which failures leave someone waiting, and what its model calls cost.",
+         "Each number stands beside last week's, each part links to the page with the rest, and a part with nothing to say says None."
+       ]},
+      {"Where the numbers come from",
+       [
+         "Ryker counts them from what it has on record. No model writes the report, so it cannot say anything the records do not hold.",
+         "A report covers the seven days before it is sent. It names a request, a topic or a diagnosis only when it came from a public channel, and a fact only when the whole workspace can use it. The rest is counted and linked, not quoted."
+       ]},
+      {"When it posts",
+       [
+         "At the day and time you choose, once a week. Turning it on never posts at once: the first report goes out at the next day and time.",
+         "If Ryker was down at that time, it posts the report when it is back. After a long outage it posts one report, not one for every week it missed."
+       ]},
+      {"Preview",
+       [
+         "Preview this week's report shows what a report sent now would say, from the seven days before now. Nothing is posted."
+       ]},
+      {"When something looks wrong",
+       [
+         "Invite Ryker to the channel before turning the report on. If Slack refuses the post, it shows on Failures, where Post the report again sends the same report to the same channel."
        ]}
     ])
   end
