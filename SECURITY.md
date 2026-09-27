@@ -51,8 +51,9 @@ policies that do not need them.
   token, identity, and journal owner-private. Workers connect outbound over mutual TLS; never
   expose the operator control plane to reach a worker.
 - Coop never receives Ryker's Slack, webhook, GitHub, or Emisar secrets: the fleet protocol carries
-  placement identities and the bounded submission only. Emisar access comes from Coop's own
-  owner-private configuration.
+  placement identities and the bounded submission only. Work reaches Emisar through Ryker's own
+  tool server, which forwards each call with the environment's Emisar key; the key stays on the
+  Ryker host, and an Emisar answer that carries it is withheld.
 - Use observe-only Emisar credentials when Slack should only investigate. To support explicit
   operator-directed actions, use a narrowly scoped Emisar credential whose server-side policy,
   approval, runner validation, and audit remain authoritative; prompts never grant authority.

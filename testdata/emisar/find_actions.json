@@ -1,0 +1,60 @@
+{
+  "candidates": [
+    {
+      "action_id": "linux.disk_usage",
+      "matched_fields": [
+        "action_id",
+        "title",
+        "summary"
+      ],
+      "next": {
+        "arguments": {
+          "action_id": "linux.disk_usage",
+          "pack_ref": "linux-core@0.5.0/sha256:f4f5f29abc2aa8ccef433224da60d01159ba1434d6749172ef3795583d794bcf"
+        },
+        "tool": "get_action"
+      },
+      "pack_ref": "linux-core@0.5.0/sha256:f4f5f29abc2aa8ccef433224da60d01159ba1434d6749172ef3795583d794bcf",
+      "risk": "low",
+      "side_effects": [
+        "Reads filesystem metadata via df.",
+        "Touches no files.",
+        "Does not mount, unmount, or modify anything."
+      ],
+      "summary": "Report filesystem usage for the supplied paths using df. Read-only. Use this to assess disk pressure before recommending cleanup, repair, compaction tuning, or adding disk. If a filesystem is >85% full, surface it but do not silently delete or truncate data — that's a separate, approval-gated action.",
+      "title": "Filesystem disk usage"
+    },
+    {
+      "action_id": "systemd.journal_disk_usage",
+      "matched_fields": [
+        "action_id",
+        "title",
+        "summary"
+      ],
+      "next": {
+        "arguments": {
+          "action_id": "systemd.journal_disk_usage",
+          "pack_ref": "systemd-deep@0.3.0/sha256:56db8a65d2391103b8c00bb2160c50cceeb24a7e5e210c7767ffec6d0c147dee"
+        },
+        "tool": "get_action"
+      },
+      "pack_ref": "systemd-deep@0.3.0/sha256:56db8a65d2391103b8c00bb2160c50cceeb24a7e5e210c7767ffec6d0c147dee",
+      "risk": "low",
+      "side_effects": [
+        "One journalctl invocation.",
+        "Read-only."
+      ],
+      "summary": "Show how much disk the systemd journal is using.",
+      "title": "journalctl --disk-usage"
+    }
+  ],
+  "next": {
+    "arguments": {
+      "cursor": "<opaque>",
+      "query": "disk usage"
+    },
+    "tool": "find_actions"
+  },
+  "observed_at": "2026-09-27T20:44:40.294031Z",
+  "ok": true
+}
