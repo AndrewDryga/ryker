@@ -74,18 +74,7 @@ defmodule Ryker.Improvement.Executor do
   defp execute(claim, run, settings) do
     case remote_session(claim, run, settings) do
       {:ok, %{} = session} ->
-        cond do
-          not isolated_session?(session) ->
-            stop(claim, run, session, :improvement_session_not_isolated, settings)
-
-          # The worker closed or used up the session before its turn was
-          # sent: nothing can be sent to it, and a new start gets a new one.
-          session["state"] != "open" and is_nil(run.coop_turn_id) and not ended?(run) ->
-            stop(claim, run, session, :improvement_session_unaddressable, settings)
-
-          true ->
-            turn_step(claim, run, session, settings)
-        end
+        session_step(claim, run, session, settings)
 
       {:error, reason} = error ->
         if unaddressable?(run, reason),
@@ -94,6 +83,21 @@ defmodule Ryker.Improvement.Executor do
 
       other ->
         other
+    end
+  end
+
+  defp session_step(claim, run, session, settings) do
+    cond do
+      not isolated_session?(session) ->
+        stop(claim, run, session, :improvement_session_not_isolated, settings)
+
+      # The worker closed or used up the session before its turn was sent:
+      # nothing can be sent to it, and a new start gets a new one.
+      session["state"] != "open" and is_nil(run.coop_turn_id) and not ended?(run) ->
+        stop(claim, run, session, :improvement_session_unaddressable, settings)
+
+      true ->
+        turn_step(claim, run, session, settings)
     end
   end
 

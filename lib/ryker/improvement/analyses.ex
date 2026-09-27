@@ -561,22 +561,11 @@ defmodule Ryker.Improvement.Analyses do
   the next one reads the same finished turn instead of asking the model
   again.
   """
-  def apply_result(claim, run_id, %{"state" => "completed", "id" => turn_id} = turn) do
+  def apply_result(claim, run_id, %{"state" => "completed"} = turn) do
     Repo.transaction(fn ->
       candidate = owned!(claim)
       run = locked_run!(candidate, run_id)
-
-      diagnosis =
-        case run.result && Prompt.parse(run.result) do
-          {:ok, diagnosis} -> diagnosis
-          _invalid -> Repo.rollback(:invalid_improvement_result)
-        end
-
-      unless run.status in [:responded, :applied] and is_map(run.validation_receipt),
-        do: Repo.rollback(:improvement_validation_unconfirmed)
-
-      unless run.coop_turn_id == turn_id and owned_session?(run, turn["session_id"]),
-        do: Repo.rollback(:improvement_remote_identity_conflict)
+      diagnosis = confirmed_diagnosis!(run, turn)
 
       run =
         run
@@ -606,6 +595,24 @@ defmodule Ryker.Improvement.Analyses do
   end
 
   def apply_result(_claim, _run_id, _turn), do: {:error, :improvement_remote_not_stopped}
+
+  # The run's answer as the host reads it, once Coop confirmed exactly this
+  # answer on exactly this run's turn; anything else rolls the save back.
+  defp confirmed_diagnosis!(run, turn) do
+    diagnosis =
+      case run.result && Prompt.parse(run.result) do
+        {:ok, diagnosis} -> diagnosis
+        _invalid -> Repo.rollback(:invalid_improvement_result)
+      end
+
+    unless run.status in [:responded, :applied] and is_map(run.validation_receipt),
+      do: Repo.rollback(:improvement_validation_unconfirmed)
+
+    unless run.coop_turn_id == turn["id"] and owned_session?(run, turn["session_id"]),
+      do: Repo.rollback(:improvement_remote_identity_conflict)
+
+    diagnosis
+  end
 
   defp target(%{"target" => target}) when is_binary(target), do: target
   defp target(_producer), do: nil
