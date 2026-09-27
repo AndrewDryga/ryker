@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")" && pwd -P)
+
+bootstrap() {
+  cat <<EOF
+Emisar development bootstrap
+
+Recommended: use the repository's pinned Coop box (host needs only Coop and Docker):
+  coop build
+  coop run -- ./run setup
+  coop shell
+
+Inside the shell, run ./run seed when demo data is needed and ./run serve to start Phoenix.
+
+Native: install the exact tool pins from .tool-versions, then let doctor verify every prerequisite:
+  asdf plugin add erlang || true
+  asdf plugin add elixir || true
+  asdf plugin add golang || true
+  asdf plugin add terraform || true
+  asdf plugin add tflint || true
+  asdf install
+  ./run setup
+  ./run doctor
+
+Native development also needs Git, Coop, Docker, the PostgreSQL client, ShellCheck, jq, GNU Bash (with read -N), GNU coreutils, Chrome/Chromium, and ImageMagick.
+On macOS, install the shell tools and put GNU coreutils ahead of Apple's tools:
+  brew install bash coreutils jq
+  export PATH="\$(brew --prefix coreutils)/libexec/gnubin:\$(brew --prefix bash)/bin:\$PATH"
+
+Pinned versions:
+$(awk 'NF && $1 !~ /^#/ {printf "  %-12s %s\n", $1, $2}' "$root/.tool-versions")
+EOF
+}
+
+if [[ ${1:-} == bootstrap ]]; then
+  bootstrap
+  exit 0
+fi
+
+if ! command -v go >/dev/null 2>&1; then
+  case ${1:-} in
+    ""|help|-h|--help)
+      bootstrap
+      exit 0
+      ;;
+    *)
+      printf 'Go is not installed, so ./run cannot start the repository devtool.\n\n' >&2
+      bootstrap >&2
+      exit 1
+      ;;
+  esac
+fi
+
+goos=$(GOTOOLCHAIN=local go env GOOS)
+goarch=$(GOTOOLCHAIN=local go env GOARCH)
+cache=${XDG_CACHE_HOME:-${HOME:?}/.cache}/emisar
+# Keyed on a strong digest of the checkout path, never a CRC32 of it: two paths
+# that collide in 32 bits would share one cached binary, and the mtime gate would
+# then keep each checkout running the other's build without ever deciding to
+# rebuild. So a host with neither shasum nor sha256sum is a hard error, not a
+# cksum fallback that reintroduces exactly that collision.
+if command -v shasum >/dev/null 2>&1; then
+  workspace=$(printf '%s' "$root" | shasum -a 256 | cut -c1-16)
+elif command -v sha256sum >/dev/null 2>&1; then
+  workspace=$(printf '%s' "$root" | sha256sum | cut -c1-16)
+else
+  printf './run needs shasum or sha256sum to key its per-checkout build cache.\n' >&2
+  exit 1
+fi
+binary="$cache/devtool-${goos}-${goarch}-${workspace}"
+temporary="$binary.tmp.$$"
+
+mkdir -p "$cache"
+chmod 700 "$cache"
+trap 'rm -f "$temporary"' EXIT
+
+rebuild=false
+if [[ ! -x "$binary" ]]; then
+  rebuild=true
+elif [[ "$root/.tool-versions" -nt "$binary" || "$root/tools/go.mod" -nt "$binary" || "$root/tools/go.sum" -nt "$binary" ]]; then
+  rebuild=true
+elif find "$root/tools" -type f -name '*.go' -newer "$binary" -print -quit | grep -q .; then
+  rebuild=true
+fi
+
+if [[ "$rebuild" == true ]]; then
+  (cd "$root/tools" && GOTOOLCHAIN=local go build -trimpath -o "$temporary" ./cmd/devtool)
+  chmod 700 "$temporary"
+  mv -f "$temporary" "$binary"
+fi
+
+trap - EXIT
+exec "$binary" "$@"

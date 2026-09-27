@@ -1,0 +1,56 @@
+{
+  "purpose": "Emisar gives AI agents that speak MCP a catalog of declared infrastructure actions instead of a shell. Policy decides what runs, what waits for a person's approval and what is denied, and a small outbound-only runner checks each action again on the host before it runs. This repository holds the Phoenix control plane, the Go runner and MCP bridge, the action-pack catalog and the production infrastructure.",
+  "components": [
+    {"path": "portal/", "what_it_does": "Elixir/Phoenix control plane: operator console, website, MCP API, authorization, approvals, audit and billing."},
+    {"path": "portal/apps/emisar", "what_it_does": "The domain contexts: accounts, runners, packs, policies, approvals and the audit trail."},
+    {"path": "portal/apps/emisar_web", "what_it_does": "The web console, the public site and the MCP HTTP endpoints."},
+    {"path": "runner/", "what_it_does": "Go runner that connects outbound to the control plane and runs declared actions on a host, with its operator CLI."},
+    {"path": "mcp/", "what_it_does": "Go stdio-to-HTTP bridge for local MCP clients."},
+    {"path": "packs/", "what_it_does": "The versioned catalog of YAML action packs and their behavior fixtures."},
+    {"path": "skills/", "what_it_does": "Standalone skills customers give their coding agents: install emisar, connect a client, author a pack."},
+    {"path": "infra/", "what_it_does": "Production Terraform for emisar on Google Cloud."},
+    {"path": "tools/", "what_it_does": "Go programs behind the ./run contributor command and CI."},
+    {"path": "dev/", "what_it_does": "Development Compose topologies, images, configs and fixtures."},
+    {"path": "run", "what_it_does": "The root contributor command for development, tests, gates and operations."},
+    {"path": ".agent/kb", "what_it_does": "Architecture, specifications, runbooks and the rule index."}
+  ],
+  "build_test_run": [
+    {"command": "./run help", "what_it_does": "Lists every contributor command.", "source_file": "AGENTS.md"},
+    {"command": "./run bootstrap", "what_it_does": "Prints the setup steps; works before Go is installed.", "source_file": "README.md"},
+    {"command": "coop run -- ./run setup", "what_it_does": "Starts the sidecars, installs dependencies, migrates and sets up browser tooling in the Coop box.", "source_file": "README.md"},
+    {"command": "./run seed", "what_it_does": "Loads the explicit, idempotent demo data.", "source_file": "README.md"},
+    {"command": "./run serve", "what_it_does": "Runs Phoenix with live reload at the URL Coop prints.", "source_file": "README.md"},
+    {"command": "./run doctor", "what_it_does": "Reports every detected tool version and any mismatch.", "source_file": "README.md"},
+    {"command": "./run test <project> ...", "what_it_does": "Runs focused tests for one project.", "source_file": "AGENTS.md"},
+    {"command": "./run gate portal --changed", "what_it_does": "Runs the Portal gate over what changed.", "source_file": "portal/AGENTS.md"},
+    {"command": "./run gate all", "what_it_does": "Runs every project's gate: the local finish line for the whole repository.", "source_file": "AGENTS.md"},
+    {"command": "./run smoke", "what_it_does": "Starts the packaged Compose topology with seeded data, three runners, MCP and signing.", "source_file": "README.md"},
+    {"command": "mix test", "what_it_does": "Runs the Portal umbrella's tests through its alias.", "source_file": "portal/mix.exs"}
+  ],
+  "deploy_release": [
+    {"step": "A push to main runs CI and publishes the portal image CI built and tested.", "source_file": ".github/workflows/cd.yml"},
+    {"step": "A runner-v* tag releases the runner through the trusted release workflow.", "source_file": ".github/workflows/runner-release.yml"},
+    {"step": "An mcp-v* tag releases the MCP bridge the same way.", "source_file": ".github/workflows/mcp-release.yml"},
+    {"step": "Infrastructure changes are applied by hand from infra/, with saved plans.", "source_file": "AGENTS.md"}
+  ],
+  "conventions": [
+    {"rule": "Read the root AGENTS.md and the touched project's AGENTS.md in full before editing.", "source_file": "AGENTS.md"},
+    {"rule": "Before 1.0, update every caller and remove superseded code in the same change; no shims, flags or speculative options.", "source_file": "AGENTS.md"},
+    {"rule": "Finish with ./run gate for the project you changed, and report the commands' real results.", "source_file": "AGENTS.md"},
+    {"rule": "Claim implementation work through Coop; done needs green gates, a focused commit with a Coop-Task trailer and coop tasks done.", "source_file": "AGENTS.md"},
+    {"rule": "Deploying, publishing and destructive actions need authority for that action; permission to edit code does not grant it.", "source_file": "AGENTS.md"},
+    {"rule": "Never edit a migration that ran in production; add a new one.", "source_file": "portal/AGENTS.md"}
+  ],
+  "where_to_look": [
+    {"task": "Change the console, the site or the MCP endpoints", "path": "portal/apps/emisar_web"},
+    {"task": "Change accounts, policies, approvals or audit", "path": "portal/apps/emisar"},
+    {"task": "Add or change an action pack", "path": "packs/"},
+    {"task": "Change what runs on hosts", "path": "runner/"},
+    {"task": "Change the ./run contributor command", "path": "tools/cmd/devtool"},
+    {"task": "Understand the architecture and trust boundaries", "path": ".agent/kb/architecture.md"},
+    {"task": "Change production infrastructure", "path": "infra/"}
+  ],
+  "open_questions": [
+    "Who may publish a runner or MCP bridge release, and where the signing keys are held, is not written down here."
+  ]
+}
