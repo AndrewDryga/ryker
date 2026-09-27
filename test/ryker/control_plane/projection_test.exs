@@ -1625,7 +1625,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              pages: 1
            }
 
-    assert map_size(Projection.callbacks()) == 36
+    assert map_size(Projection.callbacks()) == 37
+    # One finding, for the question its Forget or Mark explained asks first.
+    assert is_function(Projection.callbacks().finding, 1)
     # What forgetting a topic or a fact takes with it, for both confirmations.
     assert is_function(Projection.callbacks().forgetting, 1)
     # One failure callback serves every kind's page and confirmation.

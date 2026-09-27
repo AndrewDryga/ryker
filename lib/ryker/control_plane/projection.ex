@@ -46,6 +46,7 @@ defmodule Ryker.ControlPlane.Projection do
       failure: &FailureProjection.fetch/2,
       failures: &FailureProjection.list/1,
       findings: &FindingsProjection.list/1,
+      finding: &FindingsProjection.fetch/1,
       incident: &IncidentProjection.fetch/1,
       incidents: &IncidentProjection.list/1,
       instructions: &InstructionSettings.fetch/1,

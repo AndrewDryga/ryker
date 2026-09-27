@@ -632,11 +632,16 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How findings work", [
       {"What a finding is",
        [
-         "A conclusion Ryker reached while investigating a problem, saved with the evidence behind it. Ryker writes findings itself; this page only shows them."
+         "A conclusion Ryker reached while investigating a problem, saved with the evidence behind it. Ryker writes findings itself."
        ]},
       {"What the states mean",
        [
-         "Explained: the evidence shows why it happened. Expected and Out of scope come with Ryker's reason. Not explained yet: the question is still open."
+         "Explained: the evidence shows why it happened. Expected and Out of scope come with Ryker's reason. Not explained yet: the question is still open. Point at a state to see what it means."
+       ]},
+      {"Settle a finding",
+       [
+         "Mark explained settles a finding Ryker could not explain once you know why it happened. Forget is for a finding that is wrong or no longer matters.",
+         "Either way Ryker stops using the finding in later requests. It stays in the investigation's history and here, marked as such. Each asks you to confirm first and can't be undone."
        ]},
       {"Find a finding",
        [

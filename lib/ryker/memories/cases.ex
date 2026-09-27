@@ -296,12 +296,14 @@ defmodule Ryker.Memories.Cases do
     )
   end
 
+  # What the work still stands by: a replaced record, and a finding a person
+  # forgot or marked explained (`Ryker.Records.Findings`), are left out.
   defp records(episode_id, kind) do
     Repo.all(
       from(record in Record,
         where:
           record.episode_id == ^episode_id and record.kind == ^kind and
-            record.status != :superseded,
+            record.status in [:open, :confirmed],
         order_by: [asc: record.inserted_at],
         limit: 32,
         select: record.payload

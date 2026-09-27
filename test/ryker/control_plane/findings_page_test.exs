@@ -1,10 +1,11 @@
 defmodule Ryker.ControlPlane.FindingsPageTest do
   use Ryker.DataCase, async: false
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{FindingsPage, Pages, Projection}
+  alias Ryker.ControlPlane.{Actions, FindingsPage, Pages, Projection, Router}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Records
+  alias Ryker.Records.Findings
   alias Ryker.Repo
   alias Ryker.StateTools.Tools
   alias Ryker.Work.Custody
@@ -311,6 +312,110 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     assert html =~ "Not explained yet"
     assert {:ok, episode} = Projection.episode(claim.episode.key)
     refute inspect(episode.trace.steps) =~ "findings-hidden-secret"
+  end
+
+  test "a finding can be marked explained or forgotten, each asking first, and Ryker stops using it" do
+    # Andrew, 2026-09-27, of Findings: "any actions I should be able to do on
+    # those?" A finding could only be opened; one Ryker could not explain
+    # counted as not explained yet for good, and a wrong one kept feeding the
+    # investigation and later requests.
+    {claim, options} = claim!()
+    open = finding!(options, "Checkout pods restart after every deploy", "unexplained")
+    wrong = finding!(options, "Zero replicas in staging are intentional", "expected")
+
+    rows = findings()
+    assert counts(rows) == ["2 findings", "1 not explained yet"]
+    assert actions(rows, open.id) == ["Mark explained", "Forget"]
+    assert actions(rows, wrong.id) == ["Forget"]
+
+    # Each opens its confirmation first, and confirming comes back to Findings.
+    marked = confirm("/actions/finding/#{open.id}/mark-explained")
+    assert marked.status == 303
+    assert Plug.Conn.get_resp_header(marked, "location") == ["/memory/findings"]
+    assert confirm("/actions/finding/#{wrong.id}/forget").status == 303
+
+    rows = findings()
+    assert counts(rows) == ["2 findings"]
+    assert state(rows, open.id) == "Marked explained"
+    assert state(rows, wrong.id) == "Forgotten"
+    assert actions(rows, open.id) == []
+    assert actions(rows, wrong.id) == []
+
+    # Ryker no longer reads either: the investigation's own next turns and
+    # the related outcomes of later requests read only what it stands by.
+    refute Enum.any?(Records.retained_records(claim.episode.id), &(&1["kind"] == "finding"))
+
+    # A settled finding is settled once; only one Ryker could not explain can
+    # be marked explained; and its confirmation is gone.
+    assert Findings.forget(open.id) == {:error, :finding_settled}
+    assert confirmation("/actions/finding/#{open.id}/forget").status == 404
+
+    explained = finding!(options, "The probe timeout is shorter than warm-up", "out_of_scope")
+    assert Findings.mark_explained(explained.id) == {:error, :finding_not_unexplained}
+    assert confirmation("/actions/finding/#{explained.id}/mark-explained").status == 404
+  end
+
+  defp finding!(options, what, status) do
+    assert {:ok, %{"record_ref" => ref}} =
+             Tools.call(
+               "record_finding",
+               %{
+                 "what" => what,
+                 "status" => status,
+                 "reason" => "Recorded for the Findings actions.",
+                 "scope" => nil,
+                 "cause_evidence" => []
+               },
+               options
+             )
+
+    Repo.get_by!(Ryker.Records.Record, ref: ref)
+  end
+
+  defp findings do
+    render_component(&FindingsPage.render/1, view: Projection.findings(%{}))
+    |> LazyHTML.from_fragment()
+  end
+
+  defp counts(document) do
+    document
+    |> LazyHTML.query(".kit-counts .kit-count")
+    |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
+  end
+
+  defp state(document, id),
+    do: document |> LazyHTML.query("#finding-#{id} h3 .state-word") |> LazyHTML.text()
+
+  defp actions(document, id) do
+    document
+    |> LazyHTML.query("#finding-#{id} .entity-actions form[method=get] button")
+    |> Enum.map(&LazyHTML.text/1)
+  end
+
+  defp confirmation(path) do
+    Plug.Test.conn(:get, path)
+    |> Map.put(:host, "localhost")
+    |> Router.call(router())
+  end
+
+  defp confirm(path) do
+    page = confirmation(path)
+    assert page.status == 200, page.resp_body
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, page.resp_body)
+
+    Plug.Test.conn(:post, path, URI.encode_query(%{"_token" => token}))
+    |> Map.put(:host, "localhost")
+    |> Plug.Conn.put_req_header("content-type", "application/x-www-form-urlencoded")
+    |> Router.call(router())
+  end
+
+  defp router do
+    Router.init(%{
+      csrf_secret: String.duplicate("s", 32),
+      actions: Actions.callbacks(),
+      observability: %{},
+      projection: Projection.callbacks()
+    })
   end
 
   defp render_stub(view) do

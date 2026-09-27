@@ -1,8 +1,9 @@
 defmodule Ryker.ControlPlane.FindingsProjection do
   @moduledoc """
   The Findings page: every recorded finding, newest first, with the evidence
-  it cites and a link to the exact record on its episode's timeline when that
-  record is still within the timeline's window.
+  it cites, a link to the exact record on its episode's timeline when that
+  record is still within the timeline's window, and whether a person forgot
+  it or marked it explained (`Ryker.Records.Findings`).
   """
 
   import Ecto.Query
@@ -45,10 +46,14 @@ defmodule Ryker.ControlPlane.FindingsProjection do
         page_size: @page_size
       )
 
+    # A finding a person forgot or marked explained is no longer an open
+    # question.
     unexplained =
       Repo.aggregate(
         from([record, _episode] in findings,
-          where: fragment("?::jsonb->>'status' = 'unexplained'", record.payload)
+          where:
+            record.status == :open and
+              fragment("?::jsonb->>'status' = 'unexplained'", record.payload)
         ),
         :count
       )
@@ -81,6 +86,30 @@ defmodule Ryker.ControlPlane.FindingsProjection do
       pages: page.pages,
       items: Enum.map(rows, &finding_item(&1, evidence, visible_records, secrets))
     }
+  end
+
+  @doc """
+  One finding, for the question its Forget or Mark explained asks first: what
+  it concluded, how Ryker classified it and whether a person settled it
+  already. `:error` when there is no such finding.
+  """
+  @spec fetch(String.t()) :: {:ok, map()} | :error
+  def fetch(id) do
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %Record{kind: "finding"} = record <- Repo.get(Record, id) do
+      payload =
+        InspectionRedactor.document(record.payload, InspectionRedactor.configured_secrets())
+
+      {:ok,
+       %{
+         id: record.id,
+         what: payload["what"] || "Finding content is unavailable",
+         classification: payload["status"],
+         status: record.status
+       }}
+    else
+      _missing -> :error
+    end
   end
 
   defp search(query, ""), do: query
@@ -135,6 +164,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
       at: record.inserted_at,
       what: payload["what"] || "Finding content is unavailable",
       classification: payload["status"],
+      status: record.status,
       reason: payload["reason"],
       scope: payload["scope"],
       path: finding_record_path(path, record.id, visible_records),
