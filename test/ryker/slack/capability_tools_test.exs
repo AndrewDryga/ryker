@@ -503,7 +503,8 @@ defmodule Ryker.Slack.CapabilityToolsTest do
              "search_slack",
              "read_slack_source",
              "set_slack_reaction",
-             "post_slack_message"
+             "post_slack_message",
+             "post_slack_update"
            ]
 
     assert {:ok, result} =
@@ -954,7 +955,8 @@ defmodule Ryker.Slack.CapabilityToolsTest do
              "search_slack",
              "read_slack_source",
              "set_slack_reaction",
-             "post_slack_message"
+             "post_slack_message",
+             "post_slack_update"
            ]
 
     arguments = %{
@@ -1537,6 +1539,101 @@ defmodule Ryker.Slack.CapabilityToolsTest do
 
     assert_received {:enqueue_action,
                      %{document: %{"action" => "remove", "emoji_name" => "eyes"}}}
+  end
+
+  # Andrew, 2026-09-26: "let model to do that mid-conversation to make it
+  # really live". An update goes into the thread the answer goes to, at once,
+  # through the same custody as a reaction; it may name only the people the
+  # answer may, and past the turn's bound it is refused in words that say
+  # what to do instead, so the model does not retry into the same wall.
+  test "post_slack_update posts at once where the answer goes, and says what to fix when refused" do
+    destination = %{
+      "conversation_ref" => "slack:T123:G123",
+      "thread_ref" => "1787832000.000100",
+      "transport" => "slack"
+    }
+
+    options =
+      options()
+      |> Map.put(:update_destination, fn _binding -> {:ok, destination} end)
+      |> Map.put(:mention_authority, fn _binding ->
+        %{
+          "broadcasts" => [],
+          "channels" => [],
+          "user_groups" => [],
+          "users" => ["slack-user:U123"],
+          "workspace_ref" => "T123"
+        }
+      end)
+      |> Map.put(:enqueue_update, fn _binding, attributes ->
+        send(self(), {:enqueue_update, attributes})
+
+        {:ok,
+         %{
+           action: %PlatformAction{action_ref: "platform-action:update", status: :pending},
+           status: :created
+         }}
+      end)
+
+    assert CapabilityTools.call(
+             "post_slack_update",
+             %{"message" => "Looking at the deploy now, [@Ann](slack-user:U123)."},
+             work_binding(),
+             options
+           ) == {:ok, %{"action_ref" => "platform-action:update", "status" => "pending"}}
+
+    assert_received {:enqueue_update, attributes}
+
+    assert attributes == %{
+             conversation_ref: "slack:T123:G123",
+             document: %{"message" => "Looking at the deploy now, [@Ann](slack-user:U123)."},
+             kind: :message,
+             source_item_ref: nil,
+             thread_ref: "1787832000.000100",
+             tool: :post_slack_update,
+             transport: "slack"
+           }
+
+    # Someone the answer could not mention is refused before anything is frozen.
+    assert {:error,
+            "invalid_arguments: The typed Slack entity slack-user:U999 is not authorized." <> _} =
+             CapabilityTools.call(
+               "post_slack_update",
+               %{"message" => "Paging [@Bo](slack-user:U999)."},
+               work_binding(),
+               options
+             )
+
+    for arguments <- [
+          %{},
+          %{"message" => "  "},
+          %{"message" => String.duplicate("a", 2_001)},
+          %{"message" => "Hi", "thread_ref" => "1787832999.000100"}
+        ] do
+      assert CapabilityTools.call("post_slack_update", arguments, work_binding(), options) ==
+               {:error, "invalid_arguments"}
+    end
+
+    refute_received {:enqueue_update, _attributes}
+
+    full =
+      Map.put(options, :enqueue_update, fn _binding, _attributes ->
+        {:error, :update_limit_reached}
+      end)
+
+    assert {:error, "update_limit_reached: " <> correction} =
+             CapabilityTools.call(
+               "post_slack_update",
+               %{"message" => "More."},
+               work_binding(),
+               full
+             )
+
+    assert correction =~ "say anything more in the final answer"
+
+    # Only a live Slack turn may post.
+    assert CapabilityTools.call("post_slack_update", %{"message" => "Hi"}, %{}, options) ==
+             {:error, "unauthorized"}
   end
 
   test "post_slack_message creates an inert exact offer without treating prose as authority" do

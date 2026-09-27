@@ -65,6 +65,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
           asked,
           step("platform-action-#{action.id}-confirmed", :outcome, action.delivered_at, %{
             actor: action.transport,
+            delivery_ref: action.action_ref,
             details: [],
             stage: "Platform action",
             state: "confirmed",
@@ -261,6 +262,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   end
 
   defp platform_action_title(:post_slack_message), do: "Additional message"
+  defp platform_action_title(:post_slack_update), do: "Update"
   defp platform_action_title(:set_slack_reaction), do: "Slack reaction"
   defp platform_action_title(:set_github_reaction), do: "GitHub reaction"
   defp platform_action_title(tool), do: human(tool)

@@ -235,6 +235,16 @@ defmodule Ryker.Slack.ThreadStatusProjectionTest do
          },
          "kind" => "execute"
        }, "is asking Emisar to run an action…"},
+      # A Work update's words reach the thread as the update itself, never
+      # as the status line above it (2026-09-27, post_slack_update).
+      {%{
+         "input" => %{
+           "arguments" => %{"message" => "Deploy check: hunter2 rotated at internal.example"},
+           "server" => "responder-state",
+           "tool" => "post_slack_update"
+         },
+         "kind" => "execute"
+       }, "is posting an update…"},
       {%{
          "input" => %{
            "arguments" => %{"query" => "Deploy errors"},

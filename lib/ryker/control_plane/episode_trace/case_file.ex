@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   alias Ryker.ControlPlane.{CurrentInputs, ProviderMessage, SlackMarkdown}
   alias Ryker.ControlPlane.SourceText
+  alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.{Episode, RoutingDigests}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
@@ -49,6 +50,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     revisions = episode_id |> revisions() |> Enum.map(&revision_message(&1, options))
 
     replies = turns |> Enum.flat_map(&case_reply(&1, options)) |> Enum.take(-20)
+    updates = case_updates(episode_id, options)
     latest_reply = List.last(replies)
     current_turn = List.last(turns)
 
@@ -74,8 +76,45 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       reply_request_id: latest_reply && latest_reply.id,
       awaiting_reply: is_nil(current_turn) or is_nil(current_turn.delivery_document),
       conversation:
-        Enum.sort_by(revisions ++ Enum.filter(replies, & &1.delivered), & &1.at, DateTime)
+        Enum.sort_by(
+          revisions ++ Enum.filter(replies, & &1.delivered) ++ updates,
+          & &1.at,
+          DateTime
+        )
     }
+  end
+
+  # The updates the Work model posted while it worked, where they reached the
+  # conversation: before the answer of their turn, which is accepted only once
+  # every update is delivered.
+  defp case_updates(episode_id, options) do
+    Repo.all(
+      from(action in PlatformAction,
+        where:
+          action.episode_id == ^episode_id and action.tool == :post_slack_update and
+            action.status == :delivered and not is_nil(action.delivered_at),
+        order_by: [desc: action.delivered_at, desc: action.id],
+        limit: 20
+      )
+    )
+    |> Enum.reverse()
+    |> Enum.map(fn action ->
+      artifact = InspectionRedactor.artifact(action.document["message"], options)
+
+      %{
+        id: action.id,
+        owner: {:turn, action.turn_id},
+        at: action.delivered_at,
+        actor: "Ryker",
+        title: "Update",
+        update: true,
+        delivery_ref: action.action_ref,
+        delivered: true,
+        status: "Posted",
+        text: artifact.text,
+        available: artifact.state == :retained
+      }
+    end)
   end
 
   # Every revision this episode admitted, newest twenty, each beside the

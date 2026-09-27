@@ -15,7 +15,7 @@ defmodule Ryker.Delivery.PlatformAction do
     field(:host_slot, :string)
 
     field(:tool, Ecto.Enum,
-      values: [:set_slack_reaction, :post_slack_message, :set_github_reaction]
+      values: [:set_slack_reaction, :post_slack_message, :post_slack_update, :set_github_reaction]
     )
 
     field(:kind, Ecto.Enum, values: [:message, :reaction])

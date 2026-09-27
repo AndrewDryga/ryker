@@ -705,7 +705,8 @@ defmodule Ryker.Work.Validator do
            prepare_platform_action_identity(action_kind, action, source_item_ref),
          {:ok, current_human_inputs} <- prepare_current_human_inputs(current_human_inputs),
          {:ok, status} <- platform_action_status(status),
-         true <- tool in ~w(set_slack_reaction post_slack_message set_github_reaction) do
+         true <-
+           tool in ~w(set_slack_reaction post_slack_message post_slack_update set_github_reaction) do
       {:ok,
        %{
          action: action,

@@ -584,10 +584,20 @@ the turn's controller-tools binding. An
 incoming Slack, GitHub, webhook, or direct-conversation message cannot add a tool or change this list.
 All of those sources share the same trusted Work runtime. Direct conversations also install a loopback
 implementation of the exact Slack chat capability schemas: `list_slack_channels`, `search_slack`,
-`read_slack_source`, `set_slack_reaction`, and `post_slack_message`. In a Chat turn those tools expose
-one virtual workspace scoped to the current Chat conversation. Reads return only its durable messages;
-reactions and confirmed additional posts use the ordinary platform-action outbox but settle back into
-the local timeline. Human feedback reactions on delivered replies are passive ordered episode events:
+`read_slack_source`, `set_slack_reaction`, `post_slack_message`, and `post_slack_update`. In a Chat
+turn those tools expose one virtual workspace scoped to the current Chat conversation. Reads return
+only its durable messages; reactions, Work updates and confirmed additional posts use the ordinary
+platform-action outbox but settle back into the local timeline.
+
+`post_slack_update` lets live Slack and Chat work post a short message into its own conversation
+before the answer: an early acknowledgement, a partial finding, or what it is doing next. It goes at
+once, through the platform-action outbox, to the thread the turn's answer goes to (the input it
+answers, over the episode's home). A turn posts at most three, in slots `update:1` to `update:3`;
+the same words again are the same update, and a fourth is refused as `update_limit_reached`. Each is
+sent only after every earlier update of its turn is delivered, may name only the Slack entities the
+answer may (the same mention authority, rendering and validation as the final reply), and the
+final is accepted only once every update of its turn is delivered, so updates always read before
+the answer in Slack, in Chat and on the timeline. Observe-only runs and GitHub threads never see it. Human feedback reactions on delivered replies are passive ordered episode events:
 they do not wake work, but both the bounded add/remove history and current counts are frozen into the
 next logical turn. Chat message edits and deletes use the same stable-item revision contract as provider
 adapters. Every result identifies the adapter as emulated with external effects disabled.

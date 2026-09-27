@@ -402,6 +402,10 @@ validated decision:
   interrupt the team;
 - reply concisely where the human is speaking when they address Ryker and channel context or a
   bounded read-only investigation provides enough evidence;
+- while longer work runs, post a short update into the thread when it helps the person follow
+  along (an early acknowledgement, a partial finding, what Ryker is doing next): at most three per
+  turn, in order, always before the answer, which still says everything. The thread's status line
+  reads "is posting an update…" meanwhile;
 - attach an incident offer when a human-reported problem may benefit from coordinated
   investigation, without creating anything yet. One offer owns both paths: **Investigate** starts
   durable read-only work in the existing thread under the incident policy, with no room and no

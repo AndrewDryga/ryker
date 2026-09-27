@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
+  alias Ryker.Slack.CapabilityTools.Arguments, as: SlackArguments
   alias Ryker.StateTools.Binding
   alias Ryker.Work.Turn
 
@@ -38,6 +39,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
     read_slack_source
     set_slack_reaction
     post_slack_message
+    post_slack_update
   )
 
   @spec list() :: [map()]
@@ -271,6 +273,35 @@ defmodule Ryker.ControlPlane.CapabilityTools do
     else
       false -> {:error, "unauthorized"}
       {:error, reason} -> {:error, error_code(reason)}
+    end
+  end
+
+  # A Work update in Chat: posted at once in this conversation, under the
+  # same bound, order and typed-entity rule as in Slack; a Chat answer names
+  # no Slack entity.
+  defp dispatch("post_slack_update", arguments, context) do
+    with {:ok, message} <- SlackArguments.update_message(arguments),
+         :ok <- SlackCapabilityTools.update_mentions(message, nil),
+         {:ok, %{action: frozen}} <-
+           PlatformActionCustody.enqueue_update(context.binding, %{
+             conversation_ref: context.conversation_ref,
+             document: %{"message" => message},
+             kind: :message,
+             source_item_ref: nil,
+             thread_ref: context.conversation_ref,
+             tool: :post_slack_update,
+             transport: "control_plane"
+           }) do
+      {:ok, %{"action_ref" => frozen.action_ref, "status" => Atom.to_string(frozen.status)}}
+    else
+      {:error, :update_limit_reached} ->
+        {:error, SlackCapabilityTools.update_limit_error()}
+
+      {:error, {:invalid_update_mentions, violations}} ->
+        {:error, "invalid_arguments: " <> Enum.join(violations, " ") <> " Nothing was posted."}
+
+      {:error, reason} ->
+        {:error, error_code(reason)}
     end
   end
 

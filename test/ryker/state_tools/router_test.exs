@@ -2196,6 +2196,18 @@ defmodule Ryker.StateTools.RouterTest do
     refute bound_response.resp_body =~ "host-owned-source-cursor-secret"
   end
 
+  # A Work update posts into the conversation at once. An observe-only run
+  # that could see it would post from a shadow evaluation, and a GitHub
+  # thread has no host path for it, so it is offered to live Slack and Chat
+  # work only (2026-09-27).
+  test "a Work update is offered to live Slack and Chat work only" do
+    assert ToolVisibility.visible?("post_slack_update", "slack", :live)
+    assert ToolVisibility.visible?("post_slack_update", "control_plane", :live)
+    refute ToolVisibility.visible?("post_slack_update", "github", :live)
+    refute ToolVisibility.visible?("post_slack_update", "slack", :shadow)
+    refute ToolVisibility.visible?("post_slack_update", "control_plane", :shadow)
+  end
+
   test "a Lab turn sees generic and Slack-compatible local tools but not GitHub authority" do
     refute ToolVisibility.visible?(nil, "control_plane")
 

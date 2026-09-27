@@ -209,6 +209,87 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
            )
   end
 
+  # Andrew, 2026-09-26: "Sometimes it's even helpful to let model to do that
+  # mid-conversation to make it really live." The Work model may now post a
+  # short update into its own conversation while it works. Each is posted
+  # once, in the order it was written; a turn posts only a few; and the final
+  # answer is refused while an update is still on its way, or the answer
+  # could land above the update that led to it.
+  test "a Work update is posted once, in order, a turn posts few, and the answer waits for them" do
+    claim = claim!()
+
+    assert {:ok, %{action: first, status: :created}} =
+             PlatformActionCustody.enqueue_update(
+               claim,
+               update_attributes("Looking at the deploy now.")
+             )
+
+    assert {:ok, %{action: second, status: :created}} =
+             PlatformActionCustody.enqueue_update(
+               claim,
+               update_attributes("The rollout is at 40%.")
+             )
+
+    # The same update asked for again is the same update, not a second post.
+    assert {:ok, %{action: ^second, status: :duplicate}} =
+             PlatformActionCustody.enqueue_update(
+               claim,
+               update_attributes("The rollout is at 40%.")
+             )
+
+    assert {:ok, %{action: third, status: :created}} =
+             PlatformActionCustody.enqueue_update(
+               claim,
+               update_attributes("Checking the error rate.")
+             )
+
+    assert Enum.map([first, second, third], & &1.host_slot) == ~w(update:1 update:2 update:3)
+    assert Enum.all?([first, second, third], &(&1.thread_ref == "1787832000.000100"))
+
+    assert PlatformActionCustody.enqueue_update(claim, update_attributes("One more thing.")) ==
+             {:error, :update_limit_reached}
+
+    # The second waits while the first is out.
+    assert {:ok, %{action: out, lease_ref: lease_ref}} =
+             PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+    assert out.id == first.id
+    assert {:ok, nil} = PlatformActionCustody.claim_next("platform-action-worker-2", 60)
+    deliver_claimed!(out, lease_ref, "1787832000.000301")
+
+    # The answer is refused while the third update is still on its way.
+    for {update, message_ref} <- [{second, "1787832000.000302"}] do
+      assert {:ok, %{action: next, lease_ref: lease_ref}} =
+               PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+      assert next.id == update.id
+      deliver_claimed!(next, lease_ref, message_ref)
+    end
+
+    answer =
+      Jason.encode!(%{
+        "decision_reason" => nil,
+        "delivery" => "reply",
+        "message" => "The deploy finished and the error rate is back to normal.",
+        "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+      })
+
+    records = PlatformActionCustody.validation_records(claim.episode.id, claim.turn.id)
+    assert {:reject, [violation]} = Validator.validate(answer, validation_context(records), @now)
+
+    assert violation =~
+             "Do not complete while platform actions are unresolved: #{third.action_ref}"
+
+    assert {:ok, %{action: last, lease_ref: lease_ref}} =
+             PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+    assert last.id == third.id
+    deliver_claimed!(last, lease_ref, "1787832000.000303")
+
+    records = PlatformActionCustody.validation_records(claim.episode.id, claim.turn.id)
+    assert {:accept, _accepted} = Validator.validate(answer, validation_context(records), @now)
+  end
+
   test "shadow work cannot create a platform side effect" do
     claim = claim!()
 
@@ -340,6 +421,32 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
       "visible_reply_required" => true,
       "workspace" => nil
     }
+  end
+
+  defp update_attributes(message) do
+    %{
+      conversation_ref: "slack:T123:C123",
+      document: %{"message" => message},
+      kind: :message,
+      source_item_ref: nil,
+      thread_ref: "1787832000.000100",
+      tool: :post_slack_update,
+      transport: "slack"
+    }
+  end
+
+  defp deliver_claimed!(action, lease_ref, message_ref) do
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               action.action_ref,
+               action.transport,
+               action.conversation_ref,
+               action.thread_ref,
+               message_ref
+             )
+
+    assert {:ok, %{status: :delivered}} =
+             PlatformActionCustody.confirm_delivery(action.action_ref, lease_ref, receipt)
   end
 
   defp reaction_attributes do

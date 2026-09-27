@@ -903,9 +903,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # Routing's cards say what it decided; the heading does not repeat it.
   defp phase_summary(%{band: :routing}), do: nil
 
+  # An update posted while the work ran is not the answer.
   defp phase_summary(%{band: :answer, steps: entries}) do
     cond do
-      Enum.any?(entries, &(message_direction(&1) == "out")) ->
+      Enum.any?(entries, &(message_direction(&1) == "out" and !&1.message[:update])) ->
         "Response sent"
 
       Enum.any?(entries, &match?(%{kind: :event, step: %{stage: "Result"}}, &1)) ->
@@ -1830,6 +1831,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
         step[:delivery_ref] in copies.confirmed_delivery_refs
 
   defp redundant_step?(%{stage: "Delivery", state: "delivered"} = step, copies),
+    do: step[:delivery_ref] in copies.delivery_refs
+
+  # A Work update that reached the conversation is read in it, as the message
+  # it became; its confirmation says nothing more.
+  defp redundant_step?(%{stage: "Platform action", state: "confirmed"} = step, copies),
     do: step[:delivery_ref] in copies.delivery_refs
 
   defp redundant_step?(step, copies),

@@ -13,7 +13,8 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Repo
   alias Ryker.Slack.CapabilityTools.Arguments
-  alias Ryker.Work.Turn
+  alias Ryker.Slack.Mentions
+  alias Ryker.Work.{Custody, Turn}
 
   # A post may only land in a joined, non-shared channel; a private one only
   # when it is the current channel.
@@ -82,6 +83,21 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   end
 
   def binding(_binding, _workspace_ref), do: {:error, :unauthorized}
+
+  @doc """
+  Where a Work update goes: the conversation and thread this turn's answer
+  goes to, so an update and the answer after it read in one place.
+  """
+  @spec update_destination(term()) :: {:ok, map()} | {:error, :unauthorized}
+  def update_destination(%{episode: %Episode{} = episode, turn: %Turn{} = turn}),
+    do: {:ok, Custody.answer_target(episode, turn)}
+
+  def update_destination(_binding), do: {:error, :unauthorized}
+
+  @doc "The typed Slack entities a Work update may name: the ones its answer may."
+  @spec mention_authority(term()) :: map() | nil
+  def mention_authority(%{episode: %Episode{} = episode}), do: Mentions.authority(episode)
+  def mention_authority(_binding), do: nil
 
   @doc "The active human input on exactly this message, which a reaction may answer."
   @spec current_slack_input(term(), map()) :: {:ok, map()} | {:error, :unauthorized}
