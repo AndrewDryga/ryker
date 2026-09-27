@@ -216,6 +216,49 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert off.admission_ready.target == 0
   end
 
+  # The local routing model only measures (Andrew, 2026-09-27). Turning it on,
+  # pointing it elsewhere or turning it off must restart its own lane and
+  # nothing else: a routing slot stopped mid-message leaves that message
+  # waiting out its lease, for a comparison nobody reads in time.
+  test "the local routing model runs a lane of its own while it compares, and touches no other" do
+    settings = connected!()
+    assert {:ok, before} = Assembly.build(bootstrap(), settings)
+    refute Map.has_key?(before, :local_routing)
+
+    {:ok, settings} =
+      Settings.save_work(
+        %{
+          local_routing_mode: :shadow,
+          local_routing_endpoint: "http://host.docker.internal:11434/v1",
+          local_routing_model: "qwen2.5:3b"
+        },
+        settings.installation.revision,
+        @actor
+      )
+
+    assert {:ok, shadow} = Assembly.build(bootstrap(), settings)
+
+    assert shadow.local_routing == %{
+             endpoint: "http://host.docker.internal:11434/v1",
+             model: "qwen2.5:3b",
+             max_attempts: 4,
+             poll_interval_ms: 1_000,
+             retry_base_seconds: 30,
+             retry_max_seconds: 600,
+             timeout_ms: 120_000
+           }
+
+    for key <- Map.keys(before), Map.get(before, key) != Map.get(shadow, key) do
+      flunk("#{key} changed when the local routing model started comparing")
+    end
+
+    {:ok, settings} =
+      Settings.save_work(%{local_routing_mode: :off}, settings.installation.revision, @actor)
+
+    assert {:ok, off} = Assembly.build(bootstrap(), settings)
+    assert off == before
+  end
+
   # Found live 2026-09-27: every step of a repository's setup saves its state
   # to settings, and any runtime whose configuration changed is restarted, so
   # the setup worker was stopped mid-run by its own progress and every added

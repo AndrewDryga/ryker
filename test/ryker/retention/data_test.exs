@@ -15,6 +15,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Learning.Batches
   alias Ryker.Learning.FleetSession, as: LearningFleetSession
+  alias Ryker.LocalRouting.Comparison
   alias Ryker.Operator.Actions
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Operator.RetentionAction
@@ -475,6 +476,57 @@ defmodule Ryker.Retention.DataTest do
     assert {:ok, _result} = Data.prune(settings())
     assert Repo.get(Placement, placement.id) == nil
     assert Repo.get(Session, session.id) == nil
+  end
+
+  # A comparison holds the local routing model's answer to a routing prompt
+  # that quotes the message. It is operational data with no horizon of its
+  # own: it stays exactly as long as its message's bodies and leaves with
+  # them, never outliving what it answered.
+  test "a local routing comparison leaves with its message's bodies and not before" do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "hi, reply with one word please"},
+               event_kind: :message,
+               event_ref: "Ev-retention-local-routing",
+               message_ref: "1787832000.000200",
+               occurred_at: ~U[2026-09-27 14:53:25.000000Z],
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "T123"
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+    comparison =
+      Repo.insert!(%Comparison{
+        input_id: entry.id,
+        generation: 1,
+        execution_mode: :live,
+        status: :compared,
+        attempt_count: 1,
+        local_model: "qwen2.5:3b",
+        valid: true,
+        agrees: true,
+        differing_fields: [],
+        local_answer: ~s({"action":"quick_reply","messages":["Hi!"]}),
+        local_ms: 900,
+        compared_at: @old,
+        inserted_at: @old,
+        updated_at: @old
+      })
+
+    assert {:ok, _result} = Data.prune(settings())
+    assert Repo.get(Comparison, comparison.id)
+
+    Repo.query!("UPDATE ingress_inbox_entries SET operational_pruned_at = $1 WHERE id = $2", [
+      @old,
+      uuid!(entry.id)
+    ])
+
+    assert {:ok, _result} = Data.prune(settings())
+    assert Repo.get(Comparison, comparison.id) == nil
   end
 
   test "a rearmed learning session outlives its operator decision instead of stalling retention" do

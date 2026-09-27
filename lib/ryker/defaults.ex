@@ -75,6 +75,17 @@ defmodule Ryker.Defaults do
     retry_max_seconds: 1_800
   }
   @event_waits %{poll_interval_ms: 1_000}
+  # The local routing model's shadow comparisons (`Ryker.LocalRouting`): one
+  # lane asks one question at a time, each cut off at `timeout_ms`; an
+  # unreachable model is asked again after 30 s, 2 min and 8 min, then given
+  # up.
+  @local_routing %{
+    max_attempts: 4,
+    poll_interval_ms: 1_000,
+    retry_base_seconds: 30,
+    retry_max_seconds: 600,
+    timeout_ms: 120_000
+  }
   @slack %{
     api_url: "https://slack.com/api",
     handshake_timeout_ms: 10_000,
@@ -103,6 +114,7 @@ defmodule Ryker.Defaults do
     event_waits: @event_waits,
     github: @github,
     learning: @learning,
+    local_routing: @local_routing,
     publication: @publication,
     retention: @retention,
     routing_examples: @routing_examples,

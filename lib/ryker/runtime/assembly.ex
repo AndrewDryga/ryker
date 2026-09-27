@@ -56,6 +56,9 @@ defmodule Ryker.Runtime.Assembly do
     # Its own key, so changing how many routing sessions are kept ready
     # restarts only the pool, never the routing slots mid-message.
     {:admission_ready, Ryker.Admission.ReadyPool},
+    # Its own key too: the local routing model's comparisons never touch the
+    # routing slots, and turning them on or off restarts only their lane.
+    {:local_routing, Ryker.LocalRouting.Worker},
     {:work, Ryker.Work.Runtime},
     {:learning, Ryker.Learning.Runtime},
     {:retention, Ryker.Retention.Runtime},
@@ -123,6 +126,7 @@ defmodule Ryker.Runtime.Assembly do
     work = work(settings, bootstrap.storage_root)
     admission = admission(settings, policies, work)
     admission_ready = admission_ready(settings, admission)
+    local_routing = local_routing(settings)
     learning = learning(settings, policies, work)
     schedules = schedules(settings, repositories, policies)
     gateway = worker_gateway(bootstrap)
@@ -171,6 +175,7 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:event_waits, Defaults.fetch!(:event_waits))
     |> put_optional(:github, github && github.runtime)
     |> put_optional(:learning, learning)
+    |> put_optional(:local_routing, local_routing)
     |> put_optional(:publication, publication)
     |> put_optional(:retention, retention)
     |> put_optional(:routing_examples, routing_examples)
@@ -554,6 +559,17 @@ defmodule Ryker.Runtime.Assembly do
     |> Map.take([:api, :client, :policy, :policy_digest])
     |> Map.put(:target, settings.work.ready_routing_sessions)
   end
+
+  # The local routing model is asked only in shadow, only at the endpoint and
+  # model saved for it; it needs no worker, policy or Coop at all.
+  defp local_routing(%{work: %{local_routing_mode: :shadow} = work}) do
+    Map.merge(Defaults.fetch!(:local_routing), %{
+      endpoint: work.local_routing_endpoint,
+      model: work.local_routing_model
+    })
+  end
+
+  defp local_routing(_settings), do: nil
 
   defp learning(settings, policies, work) do
     with true <- settings.learning.enabled,

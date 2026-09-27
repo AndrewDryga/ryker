@@ -48,6 +48,7 @@ defmodule Ryker.Admission do
   alias Ryker.Knowledge
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.LocalRouting
   alias Ryker.Records
   alias Ryker.Records.InputRequests
 
@@ -70,8 +71,27 @@ defmodule Ryker.Admission do
   @spec restore_context(Entry.t(), String.t()) :: {:ok, Context.t()} | {:error, term()}
   def restore_context(%Entry{} = entry, lease_ref) do
     with :ok <- pending(entry),
-         :ok <- lease_owned(entry, lease_ref),
-         {:ok, input} <- input_from_entry(entry),
+         :ok <- lease_owned(entry, lease_ref) do
+      restored_context(entry)
+    end
+  end
+
+  def restore_context(_entry, _lease_ref),
+    do: {:error, {:invalid_admission_context_snapshot, :entry}}
+
+  @doc """
+  The context a decided message was routed in, restored from its frozen
+  snapshot the way a resumed routing run restores it, so another answer to
+  the same prompt can be put through the same checks (`validate/2`) without
+  routing it: `Ryker.LocalRouting` asks this of every comparison.
+  """
+  @spec decided_context(Entry.t()) :: {:ok, Context.t()} | {:error, term()}
+  def decided_context(%Entry{status: :decided} = entry), do: restored_context(entry)
+
+  def decided_context(_entry), do: {:error, {:invalid_admission_context_snapshot, :entry}}
+
+  defp restored_context(entry) do
+    with {:ok, input} <- input_from_entry(entry),
          snapshot when is_map(snapshot) <- entry.admission_context,
          {:ok, episode_ids} <- Context.episode_ids(snapshot),
          episodes <- episodes_by_id(episode_ids),
@@ -83,9 +103,6 @@ defmodule Ryker.Admission do
       _invalid -> {:error, {:invalid_admission_context_snapshot, :document}}
     end
   end
-
-  def restore_context(_entry, _lease_ref),
-    do: {:error, {:invalid_admission_context_snapshot, :entry}}
 
   defp snapshot_context(input, entry, settings) do
     nested? = Repo.in_transaction?()
@@ -938,6 +955,7 @@ defmodule Ryker.Admission do
         broadcast_routing_updated(decided)
 
         with :ok <- Attempts.committed(decided),
+             :ok <- LocalRouting.queue_in_transaction(decided),
              {:ok, _response} <- maybe_enqueue_routing_response(decided) do
           {:ok, decided}
         end

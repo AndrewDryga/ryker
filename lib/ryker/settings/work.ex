@@ -16,9 +16,18 @@ defmodule Ryker.Settings.Work do
   `ready_routing_sessions` is how
   many routing sessions Ryker starts ahead of time (`Ryker.Admission.ReadyPool`);
   0 turns that off.
+
+  The local routing model is a model the operator runs, such as Ollama on the
+  Mac that runs Ryker, reached at `local_routing_endpoint` and asked for
+  `local_routing_model`. At `local_routing_mode` `:shadow` it is asked each
+  routing prompt after the provider has decided (`Ryker.LocalRouting`); it
+  never decides anything. Comparing needs both an endpoint and a model, and
+  the endpoint follows `Ryker.LocalRouting.Endpoint`.
   """
   use Ecto.Schema
   import Ecto.Changeset
+
+  alias Ryker.LocalRouting.Endpoint
 
   @primary_key {:id, :string, autogenerate: false}
   # The providers the bundled worker runs, each of which takes these four
@@ -45,8 +54,13 @@ defmodule Ryker.Settings.Work do
   # set of permissions for all of them (`Ryker.Ingress.WorkProfile`), and Coop
   # counts the provider and account of each model, in order, as part of it.
   @shared_accounts [:conversation_models, :standard_models, :deep_models]
-  @fields [:workspace_ref, :ready_routing_sessions, :model_accounts | @model_fields]
+  @local_routing_fields [:local_routing_mode, :local_routing_endpoint, :local_routing_model]
+  @fields [:workspace_ref, :ready_routing_sessions, :model_accounts | @model_fields] ++
+            @local_routing_fields
   @maximum_ready_routing_sessions 5
+  # A model as a local server lists it: qwen2.5:3b, llama3.2:3b-instruct-q4_K_M
+  # or hf.co/bartowski/Qwen2.5-3B-Instruct-GGUF:Q4_K_M.
+  @local_model ~r/\A[A-Za-z0-9][A-Za-z0-9._:\/@+-]{0,199}\z/
 
   schema "work_settings" do
     field(:workspace_ref, :string)
@@ -56,9 +70,17 @@ defmodule Ryker.Settings.Work do
     for {name, default} <- @models do
       field(name, {:array, :string}, default: default)
     end
+
+    field(:local_routing_mode, Ecto.Enum, values: [:off, :shadow], default: :off)
+    field(:local_routing_endpoint, :string)
+    field(:local_routing_model, :string)
   end
 
   def fields, do: @fields
+
+  @doc "Whether `value` names a model the way a local server lists one."
+  @spec local_model?(term()) :: boolean()
+  def local_model?(value), do: is_binary(value) and Regex.match?(@local_model, value)
   def model_fields, do: @model_fields
   def providers, do: @providers
   def efforts, do: @efforts
@@ -95,6 +117,30 @@ defmodule Ryker.Settings.Work do
     |> validate_accounts()
     |> validate_models(current, snapshot)
     |> validate_shared_accounts()
+    |> validate_local_routing()
+  end
+
+  # An endpoint or a model is checked when this save changes it; comparing is
+  # checked against what the save leaves, since turning it on with either
+  # missing would queue comparisons that can only fail.
+  defp validate_local_routing(changeset) do
+    changeset =
+      changeset
+      |> validate_required([:local_routing_mode])
+      |> validate_change(:local_routing_endpoint, fn field, endpoint ->
+        case Endpoint.check(endpoint) do
+          :ok -> []
+          {:error, reason} -> [{field, {"is invalid", validation: reason}}]
+        end
+      end)
+      |> validate_change(:local_routing_model, fn field, model ->
+        if local_model?(model), do: [], else: [{field, {"is invalid", validation: :format}}]
+      end)
+      |> check_constraint(:local_routing_mode, name: :work_settings_local_routing_valid)
+
+    if get_field(changeset, :local_routing_mode) == :shadow,
+      do: validate_required(changeset, [:local_routing_endpoint, :local_routing_model]),
+      else: changeset
   end
 
   @doc "The account a model runs on, as `provider@name`."
