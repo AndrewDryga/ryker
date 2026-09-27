@@ -25,11 +25,21 @@ defmodule Ryker.UTCDateTime do
 
   def parse(value), do: exact(value)
 
-  @doc "The earliest of `values`, skipping nils; nil when every one is nil."
-  @spec earliest([DateTime.t() | nil]) :: DateTime.t() | nil
+  @doc """
+  The earliest of `values`, skipping nils; nil when every one is nil.
+
+  An aggregate the database computes comes back without a zone while a typed
+  field comes back as a `DateTime`; Ryker stores every time in UTC, so a
+  zone-less value is read as UTC.
+  """
+  @spec earliest([DateTime.t() | NaiveDateTime.t() | nil]) :: DateTime.t() | nil
   def earliest(values) when is_list(values) do
     values
     |> Enum.reject(&is_nil/1)
+    |> Enum.map(&utc/1)
     |> Enum.min(DateTime, fn -> nil end)
   end
+
+  defp utc(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+  defp utc(%DateTime{} = value), do: value
 end
