@@ -65,7 +65,8 @@ defmodule Ryker.Learning.ObservationsTest do
     assert item.text == @note["summary"]
     html = LearnedPage.html(view, "test-secret") |> IO.iodata_to_binary()
     assert html =~ "draft-ai-suggestions"
-    assert html =~ "Messages behind “Retained conversation context”"
+    # The messages are a sub-page, titled by the record they support.
+    assert LearnedPage.heading(view).title == "Messages behind “Retained conversation context”"
     assert html =~ "Open message"
     assert html =~ "name=\"q\""
     refute html =~ "Source excerpts"

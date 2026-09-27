@@ -1,5 +1,14 @@
 defmodule Ryker.ControlPlane.RelearnPanel do
-  @moduledoc false
+  @moduledoc """
+  The way to relearn a topic Ryker stopped using, on the topic's own page:
+  the messages that still exist, searchable and paged, to choose from, and
+  the one bound form that relearns the topic from the chosen ones.
+
+  It is a section of the page, never a collapsed disclosure: relearning is
+  what a topic Ryker no longer uses needs, and a form under a collapsed
+  summary was a primary input hidden behind a click (Andrew's rules,
+  2026-09-25).
+  """
   use Phoenix.Component
   import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1, timestamp: 1]
 
@@ -24,17 +33,11 @@ defmodule Ryker.ControlPlane.RelearnPanel do
       |> assign(:submission, submission(assigns.preview))
 
     ~H"""
-    <details class="knowledge-rebuild" id="relearn" open={Map.get(@preview, :expanded?, false)}>
-      <summary><strong>Relearn from current sources</strong></summary>
-      <p>
-        <strong>Keep the saved history.</strong>
-        Create a fresh understanding of this same topic from messages you choose.
-        The learning model receives those current originals, not the unavailable topic or its old summaries. This never sends a reply.
-      </p>
-      <p>
-        New requests and retries you grant use the learning settings in place now.
-        Earlier attempts keep the settings they ran with, their results and the starts they used.
-      </p>
+    <section class="knowledge-rebuild" id="relearn" aria-label="Relearn this topic">
+      <Kit.section_head
+        title="Relearn this topic"
+        lede="A message Ryker learned this from changed, was removed or expired, so Ryker stopped using it. Choose messages that still exist: Ryker relearns the topic from them alone, keeps its update history and posts nothing to the conversation."
+      />
       <p :if={@preview.existing_batch} class="relearn-existing">
         A relearning request already exists ·
         <a href={LearningActivity.path(@preview.existing_batch.id)}>Inspect its progress and attempts →</a>
@@ -148,7 +151,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
           summary={"#{@preview.total} messages"}
         />
       </div>
-    </details>
+    </section>
     """
   end
 

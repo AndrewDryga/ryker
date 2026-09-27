@@ -1660,12 +1660,13 @@
 .entity-meta { margin:3px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
 .entity-meta strong { color:var(--ryker-text); font-weight:500; }
 .entity-side { grid-column:side; display:flex; align-items:center; gap:16px; margin-left:20px; }
-.entity-side .state-word { padding:3px 10px 3px 9px; border-radius:999px; background:var(--ryker-surface-emphasis); font-size:12px; line-height:18px; }
-.entity-side .state-word::before { width:6px; height:6px; }
-.entity-side .state-word[data-tone=busy] { background:var(--ryker-accent-soft); color:var(--ryker-accent); }
-.entity-side .state-word[data-tone=busy]::before { box-shadow:none; }
-.entity-side .state-word[data-tone=warn] { background:var(--ryker-warning-soft); }
-.entity-side .state-word[data-tone=bad] { background:var(--ryker-error-soft); }
+/* A row's state is a tinted pill at the far edge, or beside the name in a list whose rows carry their own buttons (Kit state_by_name, 2026-09-27). */
+:is(.entity-side, .entity-name) .state-word { padding:3px 10px 3px 9px; border-radius:999px; background:var(--ryker-surface-emphasis); font-size:12px; line-height:18px; }
+:is(.entity-side, .entity-name) .state-word::before { width:6px; height:6px; }
+:is(.entity-side, .entity-name) .state-word[data-tone=busy] { background:var(--ryker-accent-soft); color:var(--ryker-accent); }
+:is(.entity-side, .entity-name) .state-word[data-tone=busy]::before { box-shadow:none; }
+:is(.entity-side, .entity-name) .state-word[data-tone=warn] { background:var(--ryker-warning-soft); }
+:is(.entity-side, .entity-name) .state-word[data-tone=bad] { background:var(--ryker-error-soft); }
 .entity-at { min-width:44px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap; }
 .entity-actions { grid-column:actions; display:flex; align-items:center; gap:8px; margin-left:16px; }
 .entity-actions form { margin:0; }
@@ -1678,6 +1679,8 @@
 .state-word[data-tone=warn]::before { background:var(--ryker-warning); }
 .state-word[data-tone=bad] { color:var(--ryker-error); }
 .state-word[data-tone=bad]::before { background:var(--ryker-error); }
+/* A state with a hint says why on hover and keyboard focus (tooltips.mjs); the dotted underline says there is more to read. */
+.state-word[data-hint] { cursor:help; text-decoration:underline dotted; text-decoration-color:color-mix(in srgb, currentColor 55%, transparent); text-underline-offset:3px; }
 /* The way back from a sub-page (Kit.back, 2026-09-27): the first thing on every sub-page, above its title. The parent page's name in secondary text with an arrow, on a 32px target whose hover ground shows it is a control; the arrow lines up with the title's left edge. */
 .ryker-app .kit-back { display:block; margin:0 0 12px; }
 .ryker-app .kit-back a { display:inline-flex; align-items:center; gap:6px; min-height:32px; margin-left:-8px; padding:4px 10px 4px 6px; border-radius:6px; font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text-secondary); text-decoration:none; }
@@ -1841,8 +1844,8 @@
 /* Memory (2026-09-24 redesign): Facts, Learned, Findings and Learning are Kit
    rows on the page. These rules add only what the Kit does not carry: the
    review callout, the learning status line and switch, links inside a row's
-   facts, clamped excerpts, Markdown inside a row, one opened record, and the
-   relearn picker and learning receipt without the frames they used to have. */
+   facts, clamped excerpts, Markdown inside a row, one topic's or one batch's
+   page, and the relearn picker without the frame it used to have. */
 .memory-view { max-width:1040px; min-width:0; }
 .memory-callout { display:flex; align-items:center; gap:12px; box-sizing:border-box; margin:0 0 20px; padding:12px 16px; border:1px solid color-mix(in srgb, var(--ryker-warning) 35%, transparent); border-radius:10px; background:color-mix(in srgb, var(--ryker-warning) 8%, transparent); font-size:13px; line-height:18px; color:var(--ryker-text); }
 .ryker-app .memory-callout .ui-button { flex:none; margin-left:auto; min-height:36px; padding:6px 14px; font-size:13px; line-height:18px; }
@@ -1867,6 +1870,20 @@
 .memory-record-text { max-width:720px; }
 .ryker-app .memory-record-text :is(p, li) { font-size:15px; line-height:24px; }
 .ryker-app .memory-record-lede { max-width:720px; margin:0 0 8px; font-size:14px; line-height:20px; color:var(--ryker-text); }
+/* One topic's or one batch's page (2026-09-27), under the shell's title and
+   status line: what the topic says or what happened, in reading type, then
+   its facts one per line, then its sections. */
+.memory-topic, .memory-batch { max-width:1040px; }
+.memory-topic-text { max-width:720px; margin:0 0 24px; }
+.ryker-app .memory-topic-text :is(p, li) { font-size:15px; line-height:24px; color:var(--ryker-text); }
+.ryker-app .memory-topic-text p { margin:0 0 12px; }
+.ryker-app .memory-topic-text :is(ul, ol) { margin:0 0 12px; padding-left:22px; }
+.ryker-app .memory-topic-text > :last-child { margin-bottom:0; }
+.memory-prose { max-width:720px; }
+.ryker-app .memory-prose p { margin:0 0 8px; font-size:14px; line-height:20px; color:var(--ryker-text); }
+.ryker-app .memory-prose p:last-child { margin-bottom:0; }
+.memory-technical { max-width:720px; margin:32px 0 0; }
+.ryker-app .memory-technical .ui-facts > div { padding:3px 0; border-top:0; }
 .memory-summary-groups { display:grid; gap:8px; max-width:720px; margin:8px 0 0; }
 .ryker-app .memory-summary-label { margin:0; font-size:13px; line-height:18px; font-weight:600; color:var(--ryker-text-secondary); }
 .ryker-app .memory-summary-groups ul { margin:2px 0 0; padding-left:18px; }
@@ -1892,10 +1909,9 @@
 .memory-evidence ul { display:grid; gap:8px; margin:8px 0 0; padding-left:18px; }
 .ryker-app .memory-evidence li { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text); }
 .memory-evidence li a { margin-left:8px; font-size:13px; color:var(--ryker-text-secondary); white-space:nowrap; }
-/* The relearn picker and the learning receipt sit on the page like any
-   other section: no panel, no coloured edge. */
-.knowledge-rebuild { max-width:1040px; margin:24px 0 0; overflow-wrap:anywhere; }
-.knowledge-rebuild > summary { width:fit-content; font-size:15px; line-height:22px; cursor:pointer; }
+/* The relearn picker is a section of a topic's page like any other: no
+   panel, no coloured edge, never collapsed. */
+.knowledge-rebuild { max-width:1040px; overflow-wrap:anywhere; }
 .knowledge-rebuild fieldset { min-width:0; margin:16px 0; padding:0; border:0; }
 .knowledge-rebuild legend { padding:0; font-size:14px; line-height:20px; font-weight:600; }
 .ryker-app .memory-edit { max-width:720px; }

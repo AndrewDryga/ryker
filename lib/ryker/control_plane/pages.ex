@@ -183,14 +183,17 @@ defmodule Ryker.ControlPlane.Pages do
     )
   end
 
+  # One topic, or the messages behind a record, is a sub-page with its own
+  # heading; the lists keep the page's.
   def page(["memory", "learned"], params, options) do
     view = options.projection.learned.(Map.take(params, LearnedPage.query_keys()))
+    body = LearnedPage.html(view, Map.get(options, :csrf_secret))
 
-    ok(
-      "Learned",
-      ConfigurationGuide.description(:learned),
-      LearnedPage.html(view, Map.get(options, :csrf_secret))
-    )
+    case LearnedPage.heading(view) do
+      nil -> ok("Learned", ConfigurationGuide.description(:learned), body)
+      :not_found -> not_found("Topic")
+      heading -> sub_page(heading, body)
+    end
   end
 
   # Background learning keeps its worker sessions in the same custody as
@@ -356,6 +359,16 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   defp ok(title, body), do: ok(title, nil, body)
+
+  # A sub-page's heading: its title and description, the way back to the page
+  # it belongs to, and the action opposite its title when it has one.
+  defp sub_page(heading, body) do
+    heading.title
+    |> ok(heading.description, body)
+    |> Map.merge(
+      Map.reject(Map.take(heading, [:back, :action]), fn {_key, value} -> is_nil(value) end)
+    )
+  end
 
   defp ok(title, description, body),
     do: %{status: 200, title: title, description: description, body: IO.iodata_to_binary(body)}

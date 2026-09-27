@@ -231,15 +231,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       }
 
       case Rebuilds.preview(id, options) do
-        {:ok, preview} ->
-          Map.put(
-            preview,
-            :expanded?,
-            Map.has_key?(params, "rebuild_q") or Map.has_key?(params, "rebuild_page")
-          )
-
-        {:error, _} ->
-          nil
+        {:ok, preview} -> preview
+        {:error, _} -> nil
       end
     end
   end

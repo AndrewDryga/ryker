@@ -392,16 +392,37 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert String.length(long) <= 281
     end
 
-    test "a topic Ryker no longer uses in answers says so and leads to relearning it" do
+    test "a topic Ryker no longer uses says why on its state, beside its name, and offers Relearn as a button" do
+      # Andrew, 2026-09-27: why Ryker stopped using a topic was a sentence
+      # under its row with "Relearn it" as a link in it, and its "Not used"
+      # sat against the Forget button. The reason is the state's hint now,
+      # Relearn is a button beside Forget, and the state sits by the name.
       document = learned(%{@learned | items: [%{@topic | available: false}]})
       row = LazyHTML.query(document, "article#topic-#{@topic_id}")
-      assert LazyHTML.query(row, ".state-word[data-tone=warn]") |> LazyHTML.text() == "Not used"
-      note = LazyHTML.query(row, ".memory-note")
-      assert LazyHTML.text(note) =~ "Ryker stopped using this in answers"
 
-      assert LazyHTML.query(note, "a") |> LazyHTML.attribute("href") == [
-               "/memory/learned?item=#{@topic_id}#relearn"
+      state = LazyHTML.query(row, "h3.entity-name .state-word[data-tone=warn]")
+      assert LazyHTML.text(state) == "Not used"
+
+      assert LazyHTML.attribute(state, "title") == [
+               "Ryker stopped using this in answers because a message it learned from changed, was removed or expired."
              ]
+
+      assert LazyHTML.attribute(state, "tabindex") == ["0"]
+      assert Enum.empty?(LazyHTML.query(row, ".entity-side .state-word, .memory-note"))
+
+      actions = LazyHTML.query(row, ".entity-actions")
+
+      assert LazyHTML.query(
+               actions,
+               "a.ui-button[href='/memory/learned?item=#{@topic_id}#relearn']"
+             )
+             |> LazyHTML.text() == "Relearn"
+
+      assert LazyHTML.query(
+               actions,
+               "form.action-control[action='/actions/knowledge/#{@topic_id}/forget'] button"
+             )
+             |> LazyHTML.text() == "Forget"
     end
 
     test "a search that finds nothing is told apart from a list with nothing learned yet" do
@@ -460,7 +481,11 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       end
     end
 
-    test "one topic opens with its full text, its update history and how an update was learned" do
+    test "one topic is a page of its own: title, state, text, facts, then each update with its source and how it was learned" do
+      # Andrew, 2026-09-27, of /memory/learned?item=…: "this page is not
+      # properly designed". It opened under the list's title with a smaller
+      # heading of its own, its facts in one run-on line, and Forget and the
+      # reason it was not used between them and a collapsed relearning form.
       revision = %{
         version: 2,
         at: @at,
@@ -472,26 +497,53 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
           "/timeline/episode%3Aone#learning-55555555-5555-4555-8555-555555555555-result"
       }
 
-      document =
-        learned(%{
-          @learned
-          | selected: @topic_id,
-            history: [revision],
-            history_pages: 2
-        })
+      view = %{@learned | selected: @topic_id, history: [revision], history_pages: 2}
 
-      assert LazyHTML.query(document, ".memory-back a[href='/memory/learned']") |> LazyHTML.text() =~
-               "All topics"
+      heading = LearnedPage.heading(view)
+      assert heading.title == "Deploy window decision"
+      assert heading.back == {"All topics", "/memory/learned"}
 
-      record = LazyHTML.query(document, "article.memory-record#topic-#{@topic_id}")
-      assert LazyHTML.query(record, "h2") |> LazyHTML.text() =~ "Deploy window decision"
-      assert LazyHTML.query(record, ".markdown-preview strong") |> LazyHTML.text() == "15:00 UTC"
-      assert LazyHTML.query(record, ".entity-meta") |> LazyHTML.text() =~ "Latest message"
+      assert LazyHTML.from_fragment(heading.action)
+             |> LazyHTML.query("form[action='/actions/knowledge/#{@topic_id}/forget'] button")
+             |> LazyHTML.text() == "Forget"
+
+      document = learned(view)
+      assert Enum.empty?(LazyHTML.query(document, "h1, h2.memory-record-title, .memory-back"))
+
+      topic = LazyHTML.query(document, "article.memory-topic#topic-#{@topic_id}")
+
+      assert LazyHTML.query(topic, "p.kit-status-line .state-word[data-tone=on]")
+             |> LazyHTML.text() == "In use"
+
+      assert LazyHTML.query(topic, "p.kit-status-line a[href='#history']") |> LazyHTML.text() =~
+               "3 updates"
+
+      assert LazyHTML.query(topic, ".memory-topic-text strong") |> LazyHTML.text() == "15:00 UTC"
+
+      facts = kit_facts(topic)
+
+      assert Enum.map(facts, &elem(&1, 0)) == [
+               "Learned in",
+               "Repository",
+               "Latest message",
+               "Kept until",
+               "Learned from"
+             ]
+
+      assert Map.take(Map.new(facts), ["Learned in", "Repository", "Kept until", "Learned from"]) ==
+               %{
+                 "Learned in" => "#infra",
+                 "Repository" => "ryker",
+                 "Kept until" => "No automatic expiry",
+                 "Learned from" => "2 messages"
+               }
 
       history = LazyHTML.query(document, "section#history")
       assert LazyHTML.query(history, "h3.entity-name") |> LazyHTML.text() =~ "Update 2"
+      assert LazyHTML.query(history, ".entity-meta") |> LazyHTML.text() =~ "From a message sent"
       original = LazyHTML.query(history, ".entity-meta a[target=_blank]")
       assert LazyHTML.attribute(original, "rel") == ["noopener noreferrer"]
+      assert LazyHTML.attribute(original, "href") == [revision.source]
 
       assert LazyHTML.query(history, ".entity-meta a[href='#{revision.learning_path}']")
              |> LazyHTML.text() == "How this was learned"
@@ -529,12 +581,23 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
             items: [source]
         })
 
-      assert LazyHTML.query(document, ".memory-back a") |> LazyHTML.attribute("href") == [
-               "/memory/learned?kind=context#summary-summary-1"
-             ]
+      heading =
+        LearnedPage.heading(%{
+          @learned
+          | kind: "sources",
+            source_parent: %{
+              back_label: "Conversation summaries",
+              back_path: "/memory/learned?kind=context#summary-summary-1",
+              title: "Validation schedule"
+            }
+        })
 
-      assert LazyHTML.query(document, ".section-head h2") |> LazyHTML.text() ==
-               "Messages behind “Validation schedule”"
+      assert heading.title == "Messages behind “Validation schedule”"
+
+      assert heading.back ==
+               {"Conversation summaries", "/memory/learned?kind=context#summary-summary-1"}
+
+      assert Enum.empty?(LazyHTML.query(document, ".memory-back, .section-head, h1"))
 
       toolbar =
         LazyHTML.query(document, ".kit-toolbar > form.filter-toolbar[action='/memory/learned']")
@@ -870,6 +933,14 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     |> LearningPage.html(sessions, @secret)
     |> IO.iodata_to_binary()
     |> LazyHTML.from_fragment()
+  end
+
+  # A Kit facts list as {label, value text} pairs, in order.
+  defp kit_facts(node) do
+    Enum.zip(
+      LazyHTML.query(node, ".kit-facts dt") |> Enum.map(&LazyHTML.text/1),
+      LazyHTML.query(node, ".kit-facts dd") |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
+    )
   end
 
   defp actions(row) do

@@ -617,7 +617,12 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"When something looks wrong",
        [
-         "A topic marked Not used lost a message it learned from, so Ryker stopped using it. Relearn it rebuilds the topic from messages you choose.",
+         "A topic marked Not used lost a message it learned from, so Ryker stopped using it. Point at Not used to see why.",
+         "Relearn rebuilds the topic from messages you choose that still exist, with the learning settings in place now, and keeps its update history. Forget stops Ryker using it for good."
+       ]},
+      {"Read a topic's history",
+       [
+         "A topic's page lists every update, newest first, with the message Ryker learned it from.",
          "How this was learned opens the learning pass on the Timeline, with the exact request Ryker sent, the answer it got and what it cost."
        ]}
     ])

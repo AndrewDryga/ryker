@@ -4,16 +4,20 @@ defmodule Ryker.ControlPlane.LearnedPage do
   conversations, and the summaries it saves when work in a conversation ends,
   each with the messages it learned from.
 
-  One topic opens in place with its full text, its update history with each
-  update linked to the learning card on the Timeline that wrote it, and, when
-  its sources are gone, the picker that relearns it from messages a person
-  chooses. A record's source messages open the same way, under the record
-  they support. An open page redraws when a topic, a summary or what they
-  were learned from changes (`subscriptions/0`).
+  One topic is a sub-page of its own (`heading/1` gives the shell its title,
+  the way back to all topics and Forget opposite the title): whether Ryker
+  uses it, its full text, its facts, the picker that relearns it from
+  messages a person chooses when its own messages are gone, and its update
+  history, each update with the message it came from and the learning card on
+  the Timeline that wrote it. A record's source messages are a sub-page the
+  same way, leading back to the record they support. An open page redraws
+  when a topic, a summary or what they were learned from changes
+  (`subscriptions/0`).
   """
   use Phoenix.Component
 
-  import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1, pager: 1]
+  import Ryker.ControlPlane.Components,
+    only: [action_button: 1, action_button: 2, filter_toolbar: 1, pager: 1]
 
   alias Phoenix.HTML.Safe
 
@@ -40,9 +44,44 @@ defmodule Ryker.ControlPlane.LearnedPage do
   end
 
   @unused "Ryker stopped using this in answers because a message it learned from changed, was removed or expired."
+  @in_use "Ryker uses this topic as context when it answers in this conversation."
+  @forgotten "Someone chose to forget it: its text and history are erased, and Ryker never learns from its messages again."
 
   @doc "The query keys the Learned page reads."
   def query_keys, do: ConversationMemory.query_keys()
+
+  @doc """
+  The shell's heading for a sub-page of Learned, or nil for the lists, which
+  keep the page's own title. One topic is titled by its name, leads back to
+  all topics and, until it is forgotten, has Forget opposite its title; the
+  messages behind a record lead back to that record. A topic that does not
+  exist is `:not_found`.
+  """
+  @spec heading(map()) :: map() | :not_found | nil
+  def heading(%{kind: "knowledge", selected: id, items: [item | _]}) when is_binary(id) do
+    %{
+      title: item.title,
+      description: nil,
+      back: {"All topics", "/memory/learned"},
+      action:
+        if(is_nil(item[:forgotten_at]),
+          do: forget_path(item.id) |> action_button("Forget") |> IO.iodata_to_binary()
+        )
+    }
+  end
+
+  def heading(%{kind: "knowledge", selected: id}) when is_binary(id), do: :not_found
+
+  def heading(%{kind: "sources", source_parent: %{} = parent}) do
+    %{
+      title: "Messages behind “#{parent.title}”",
+      description: "What Ryker learned this from. Each message opens where it was said.",
+      back: {parent.back_label, parent.back_path},
+      action: nil
+    }
+  end
+
+  def heading(_view), do: nil
 
   @doc "The Learned body for a `ConversationMemory` view."
   @spec html(map(), String.t() | nil) :: iodata()
@@ -67,9 +106,13 @@ defmodule Ryker.ControlPlane.LearnedPage do
     """
   end
 
+  # A topic's row: its name and whether Ryker uses it, then its words and
+  # facts, and its buttons at the far edge. Andrew, 2026-09-27: why Ryker
+  # stopped using a topic was a sentence under the row with "Relearn it" as a
+  # link in it, and "Not used" sat against the Forget button. The reason is
+  # the state's hint now, Relearn is a button beside Forget, and the state
+  # sits beside the name.
   defp topics(assigns) do
-    assigns = assign(assigns, :unused, @unused)
-
     ~H"""
     <.tools view={@view} />
     <Kit.entity_list :if={@view.items != []} class="memory-excerpts" label="Topics">
@@ -80,16 +123,16 @@ defmodule Ryker.ControlPlane.LearnedPage do
         name={item.title}
         href={ConversationMemory.topic_path(item.id)}
         state={topic_state(item)}
+        state_by_name
         text={MemoryFormat.excerpt(item.text, item.workspace)}
-        meta={topic_facts(item, :list)}
+        meta={topic_facts(item)}
       >
-        <:details :if={item.available == false and is_nil(item[:forgotten_at])}>
-          <p class="memory-note">
-            {@unused}
-            <a href={ConversationMemory.topic_path(item.id) <> "#relearn"}>Relearn it</a>
-          </p>
-        </:details>
         <:actions :if={is_nil(item[:forgotten_at])}>
+          <a
+            :if={item.available == false}
+            class="ui-button secondary"
+            href={ConversationMemory.topic_path(item.id) <> "#relearn"}
+          >Relearn</a>
           <.action_button path={forget_path(item.id)} label="Forget" />
         </:actions>
       </Kit.entity_row>
@@ -160,37 +203,34 @@ defmodule Ryker.ControlPlane.LearnedPage do
     """
   end
 
+  # One topic's page under the shell's heading (`heading/1`): whether Ryker
+  # uses it, its text, its facts, the way to relearn it when its messages are
+  # gone, then its update history. Andrew, 2026-09-27: "this page is not
+  # properly designed" — it opened under the list's title with its own
+  # smaller heading, and Forget and the reason it was not used sat between
+  # its facts and a collapsed relearning form.
   defp topic(assigns) do
-    assigns = assign(assigns, item: List.first(assigns.view.items), unused: @unused)
+    assigns = assign(assigns, :item, List.first(assigns.view.items))
 
     ~H"""
-    <p class="memory-back"><a href={list_path(@view, "knowledge", 1)}>← All topics</a></p>
     <%= if @item do %>
-      <article class="memory-record" id={"topic-" <> @item.id}>
-        <h2 class="memory-record-title">
-          <span>{@item.title}</span>
-          <Kit.state
-            :if={topic_state(@item)}
-            tone={elem(topic_state(@item), 0)}
-            word={elem(topic_state(@item), 1)}
-          />
-        </h2>
-        <div class="memory-record-text markdown-preview">
+      <article class="memory-topic" id={"topic-" <> @item.id}>
+        <Kit.status_line id="topic-status" state={topic_status(@item)}>
+          <span>{MemoryFormat.time(@item.changed_at, "updated ")}</span>
+          <a :if={@view.history != []} href="#history">
+            {MemoryFormat.count(@item.version, "update", "updates")}
+          </a>
+        </Kit.status_line>
+        <div class="memory-topic-text markdown-preview">
           {MemoryFormat.markdown(@item.text, @item.workspace)}
         </div>
-        <MemoryFormat.facts facts={topic_facts(@item, :record)} />
-        <p :if={@item.available == false and is_nil(@item[:forgotten_at])} class="memory-note">
-          {@unused} Relearn it below from the messages that still exist.
-        </p>
-        <div :if={is_nil(@item[:forgotten_at])} class="memory-record-actions">
-          <.action_button path={forget_path(@item.id)} label="Forget" />
-        </div>
+        <Kit.facts id="topic-facts" facts={topic_page_facts(@item)} />
       </article>
       <RelearnPanel.render :if={@view.rebuild} preview={@view.rebuild} csrf_secret={@csrf_secret} />
       <section :if={@view.history != []} id="history" class="memory-section">
         <Kit.section_head
           title="Update history"
-          lede="Each update keeps what Ryker knew at that time. A message’s time is when it was said, not when Ryker read it."
+          lede="Newest first. Each update keeps what Ryker knew then, the message it learned it from, and how it was learned."
         />
         <div class="entity-list" role="list" aria-label="Updates">
           <MemoryFormat.row
@@ -199,7 +239,7 @@ defmodule Ryker.ControlPlane.LearnedPage do
             name={"Update #{revision.version}"}
             meta={[
               MemoryFormat.time(revision.at, "Learned "),
-              MemoryFormat.time(revision.source_at, "From a message "),
+              MemoryFormat.time(revision.source_at, "From a message sent "),
               MemoryFormat.external("Open message", revision.source),
               MemoryFormat.link("How this was learned", revision.learning_path)
             ]}
@@ -218,32 +258,25 @@ defmodule Ryker.ControlPlane.LearnedPage do
           later="Older updates →"
         />
       </section>
-    <% else %>
-      <Kit.empty
-        icon={:book}
-        title="This topic is not available"
-        text="It may have been removed when the messages it came from expired. All topics shows what Ryker knows now."
-      />
     <% end %>
     """
   end
 
   # A forgotten topic says so; one whose messages changed says it is not used.
-  defp topic_state(%{forgotten_at: %DateTime{}}), do: {:off, "Forgotten"}
-  defp topic_state(%{available: false}), do: {:warn, "Not used"}
+  # A topic in use carries no state in the list, where that is the rule, and
+  # says so on its own page.
+  defp topic_state(%{forgotten_at: %DateTime{}}), do: {:off, "Forgotten", @forgotten}
+  defp topic_state(%{available: false}), do: {:warn, "Not used", @unused}
   defp topic_state(_item), do: nil
+
+  defp topic_status(item), do: topic_state(item) || {:on, "In use", @in_use}
 
   defp forget_path(id), do: "/actions/knowledge/#{id}/forget"
 
+  # The messages behind a topic or a summary, under the shell's heading
+  # (`heading/1`), which leads back to the record they support.
   defp sources(assigns) do
     ~H"""
-    <p class="memory-back">
-      <a href={@view.source_parent.back_path}>← {@view.source_parent.back_label}</a>
-    </p>
-    <Kit.section_head
-      title={"Messages behind “#{@view.source_parent.title}”"}
-      lede="What Ryker learned this from. Each message opens where it was said."
-    />
     <Kit.toolbar>
       <.filter_toolbar
         id="learned-search"
@@ -343,31 +376,49 @@ defmodule Ryker.ControlPlane.LearnedPage do
     do:
       "The messages behind this were removed or have expired. What Ryker learned stays readable."
 
-  # A topic's facts: where it came from, when it changed and what backs it.
-  # Its own page adds the dates and the request it came from.
-  defp topic_facts(item, form) do
+  # A topic's facts in its row: where it came from, when it changed and what
+  # backs it.
+  defp topic_facts(item) do
     [
       MemoryFormat.link(item.conversation, item.conversation_path),
       item.repository,
       MemoryFormat.time(item.changed_at, "Updated "),
-      if(form == :record, do: MemoryFormat.time(item.source_at, "Latest message ")),
-      if(form == :record, do: retention(item)),
       source_link(item),
-      if(form == :list,
-        do:
-          MemoryFormat.link(
-            MemoryFormat.count(item.version, "update", "updates"),
-            ConversationMemory.topic_path(item.id) <> "#history"
-          )
-      ),
-      if(form == :record, do: MemoryFormat.link("Open request", item.request_path))
+      MemoryFormat.link(
+        MemoryFormat.count(item.version, "update", "updates"),
+        ConversationMemory.topic_path(item.id) <> "#history"
+      )
     ]
   end
+
+  # A topic's facts on its own page, one per line. A forgotten topic keeps
+  # only where it was learned: what backed it is erased.
+  defp topic_page_facts(%{forgotten_at: %DateTime{}} = item),
+    do: [{"Learned in", MemoryFormat.link(item.conversation, item.conversation_path)}]
+
+  defp topic_page_facts(item) do
+    [
+      {"Learned in", MemoryFormat.link(item.conversation, item.conversation_path)},
+      {"Repository", item.repository},
+      {"Latest message", MemoryFormat.time(item.source_at)},
+      {"Kept until", kept_until(item)},
+      {"Learned from", messages_link(item)},
+      {"Request", MemoryFormat.link("Open request", item.request_path)}
+    ]
+  end
+
+  defp kept_until(%{expires_at: %DateTime{} = at}), do: MemoryFormat.time(at)
+  defp kept_until(_item), do: "No automatic expiry"
 
   defp source_link(%{source_path: path, source_count: count}) when is_binary(path),
     do: MemoryFormat.link(MemoryFormat.count(count, "source", "sources"), path)
 
   defp source_link(_item), do: nil
+
+  defp messages_link(%{source_path: path, source_count: count}) when is_binary(path),
+    do: MemoryFormat.link(MemoryFormat.count(count, "message", "messages"), path)
+
+  defp messages_link(_item), do: nil
 
   defp summary_warning(%{recall_warning: :missing_source_history}),
     do:
