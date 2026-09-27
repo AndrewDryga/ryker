@@ -57,10 +57,7 @@ defmodule Ryker.Admission.Worker do
   defp process_once(state) do
     case Dispatcher.run_once(state.dispatcher_options) do
       {:ok, :idle} ->
-        PollingWorker.idle_delay(
-          &Inbox.next_due_at/1,
-          state.idle_interval_ms
-        )
+        PollingWorker.idle_delay(&Inbox.next_due_at/1, state.idle_interval_ms)
 
       {:ok, {:decided, _execution}} ->
         0
