@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.LearningSwitch do
         :if={@asking}
         id={@id <> "-question"}
         title="Turn off learning?"
-        text="Ryker stops learning from new messages until you turn it on again. What it already learned stays, and passes already running finish."
+        text="Ryker stops learning from new messages, and stops analyzing requests people were unhappy with, until you turn it on again. What it already learned stays, and passes already running finish."
         label="Turn off learning"
         cancel="cancel-settings-action"
         phx-click="switch"

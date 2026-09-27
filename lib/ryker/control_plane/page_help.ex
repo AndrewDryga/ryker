@@ -722,7 +722,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Turn it on or off",
        [
-         "The switch at the top of this list turns learning on at once; turning it off asks first. While it is off, new messages wait and nothing Ryker already learned is lost."
+         "The switch at the top of this list turns learning on at once; turning it off asks first. While it is off, new messages wait and nothing Ryker already learned is lost.",
+         "The same switch runs the self-analysis of requests people were unhappy with, on Feedback › What to fix."
        ]},
       {"Recent passes",
        [
