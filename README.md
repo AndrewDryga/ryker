@@ -279,8 +279,9 @@ memory database: episodes own execution sessions, while PostgreSQL owns retained
 Derived conversation memory expires after the Conversation memory limit under Settings › Data
 retention (90 days by default). Source edits, deletion, expiry, or lost visibility can make
 derived content unavailable sooner. Reading it again does not renew the original source lifetime.
-The memory pages show the source, change time, and expiry separately. Learning receipts distinguish
-a useful update, a deliberate no-change result, and a failed or deferred batch. Turning learning off
+The memory pages show the source, change time, and expiry separately. Each learning attempt is a
+card on the Timeline of the messages it read, with its prompt, response, tokens and cost, and it
+distinguishes a useful update, a deliberate no-change result, and a failed or deferred attempt. Turning learning off
 stops background learning; retaining messages alone is not learning.
 
 The exact matching, retry, and recall boundaries are in

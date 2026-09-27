@@ -19,7 +19,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   alias Ryker.ControlPlane.EpisodeTrace.{
     CaseFile,
     Input,
-    Learning,
     Maintenance,
     Outcome,
     Preparation,
@@ -121,7 +120,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       |> Kernel.++(Outcome.incident_steps(episode.id))
       |> Kernel.++(Outcome.publication_steps(publications))
       |> Kernel.++(Outcome.schedule_steps(episode.id))
-      |> Kernel.++(Learning.steps(input_rows))
       |> Kernel.++(Maintenance.steps(sessions))
       |> chronological()
 

@@ -287,8 +287,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
   while other IDK what is that even?!"): the header with what the message says
   and what happened to it, the summary strip with what applies, and one
   Message band with the message as it was sent, what routing decided and what
-  Ryker sent. The thread around the message follows, then the cards that show
-  how routing got there, each as the request page draws it.
+  Ryker sent, then the Learning chapter when background learning read it. The
+  thread around the message follows, then the cards that show how routing got
+  there, each as the request page draws it.
   """
   attr(:view, :map, required: true, doc: "`Ryker.ControlPlane.ModelRequests.project_input/2`")
 
@@ -317,11 +318,33 @@ defmodule Ryker.ControlPlane.EpisodePage do
       title: "Message"
     }
 
+    # Learning over a message with no request is read here, as a request's
+    # page reads learning over its messages.
+    groups =
+      case view[:learning] || [] do
+        [] ->
+          [band]
+
+        learning ->
+          [
+            band,
+            %{
+              band: :learning,
+              conversation_turn: nil,
+              description: chapter_description(:learning),
+              kind: :background,
+              marker: phase_number(:learning),
+              phases: [%{band: :learning, steps: learning, turn: nil}],
+              title: chapter_title(%{band: :learning})
+            }
+          ]
+      end
+
     source = view.heading.source
 
     assigns =
       assign(assigns,
-        band: band,
+        groups: groups,
         details: details,
         outcome: message_outcome(results, view.answer),
         # A Chat message's source is the Chat itself; the header links there once.
@@ -388,7 +411,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       </section>
       <section class="case-timeline" id="execution-timeline" aria-label="Message timeline">
         <h2 class="sr-only">Message timeline</h2>
-        <.timeline_bands groups={[@band]} started_at={@view.heading.received_at} links={@links} />
+        <.timeline_bands groups={@groups} started_at={@view.heading.received_at} links={@links} />
       </section>
       <section
         :if={@view.thread}

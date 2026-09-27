@@ -1,15 +1,18 @@
 defmodule Ryker.ControlPlane.LearningActivityTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
+  import Phoenix.LiveViewTest, only: [render_component: 2]
   alias Ryker.CanonicalJSON
 
   alias Ryker.ControlPlane.{
     ConversationMemory,
     CSRF,
+    EpisodePage,
     FailureProjection,
     LearningActivity,
     LearningPage,
-    LearningReceipt,
+    ModelRequests,
+    Projection,
     Router
   }
 
@@ -293,24 +296,26 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
 
     assert {:ok, _} = Batches.finish(claim, :no_change, nil)
 
-    view = LearningActivity.project(%{"batch" => claim.batch.id, "attempt" => run.id})
+    view = LearningActivity.project(%{"batch" => claim.batch.id})
     assert view.counts.no_change == 1
     assert view.selected.id == claim.batch.id
-    assert view.selected.attempts |> Enum.map(& &1.id) == [run.id]
-    assert view.receipt.id == run.id
-    assert view.receipt.status == :rejected
-    assert view.receipt.error =~ "did not match"
-    assert Enum.find(view.receipt.sections, &(&1.id == "prompt")).artifact.text
+    assert [attempt] = view.selected.attempts
+    assert attempt.id == run.id
 
-    assert LearningActivity.project(%{"batch" => Ecto.UUID.generate(), "attempt" => run.id}).receipt ==
-             nil
+    # The rejected attempt opens on its Timeline card, which keeps the exact
+    # response and says why it was rejected.
+    result = timeline_card(attempt.path)
+    assert text(result, "h3") == attempt.label
+    assert text(result, ".request-decision") =~ "did not match"
+    assert text(result, ".routing-evidence") =~ "Raw model response"
 
-    html = render(%{"batch" => claim.batch.id, "attempt" => run.id})
+    briefing = timeline_card(String.replace_suffix(attempt.path, "-result", ""))
+    assert text(briefing, ".final-prompt") =~ "Prompt text"
 
+    html = render(%{"batch" => claim.batch.id})
     assert html =~ "No change needed"
-    assert html =~ "Learning attempt 1"
-    assert html =~ "Proposed topic updates"
-    refute html =~ "The proposed topic updates accepted together"
+    assert html =~ "Response rejected"
+    refute html =~ "learning-receipt"
   end
 
   test "learning attempt history is chronological even when a new source selection restarts generation numbers" do
@@ -336,7 +341,12 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     view = LearningActivity.project(%{"batch" => claim.batch.id})
     assert Enum.map(view.selected.attempts, & &1.id) == [newer.id, older.id]
     assert Enum.map(view.selected.attempts, & &1.number) == [2, 1]
-    assert LearningReceipt.project_attempt(claim.batch.id, newer.id, []).attempt_number == 2
+
+    # The Timeline numbers the attempts the way this page does.
+    for attempt <- view.selected.attempts do
+      assert text(timeline_card(attempt.path), ".case-card-heading-detail") ==
+               "Attempt #{attempt.number}"
+    end
   end
 
   test "a saved no-change attempt never becomes knowledge updated when its batch is reselected" do
@@ -362,7 +372,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
       assert [attempt] = LearningActivity.project(%{"batch" => claim.batch.id}).selected.attempts
       assert attempt.label == "No change needed", "batch #{status} rewrote the old outcome"
       refute Map.has_key?(attempt, :result)
-      assert LearningReceipt.project_attempt(claim.batch.id, run.id, []).outcome == attempt.label
+      assert text(timeline_card(attempt.path), "h3") == attempt.label
     end
   end
 
@@ -383,7 +393,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
       set_batch_status!(claim.batch, status)
       assert [attempt] = LearningActivity.project(%{"batch" => claim.batch.id}).selected.attempts
       assert attempt.label == "Learning completed"
-      assert LearningReceipt.project_attempt(claim.batch.id, run.id, []).outcome == attempt.label
+      assert text(timeline_card(attempt.path), "h3") == attempt.label
     end
   end
 
@@ -568,8 +578,8 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     params = %{"batch" => claim.batch.id}
     assert [attempt] = LearningActivity.project(params).selected.attempts
     assert attempt.error =~ "nothing was sent to the model"
-    assert LearningReceipt.project_attempt(claim.batch.id, run.id, []).error == attempt.error
-    html = render(Map.put(params, "attempt", run.id))
+    assert text(timeline_card(attempt.path), ".request-decision") =~ attempt.error
+    html = render(params)
     assert html =~ "The worker session could not be confirmed"
     refute html =~ "has not confirmed that this attempt stopped"
   end
@@ -681,6 +691,29 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     |> LearningPage.html([], String.duplicate("s", 32))
     |> IO.iodata_to_binary()
   end
+
+  # The card an attempt's link opens: the page its path names, at its anchor.
+  defp timeline_card("/timeline/" <> rest) do
+    [ref, anchor] = String.split(rest, "#")
+    ref = URI.decode_www_form(ref)
+    {:ok, snapshot} = Projection.episode(ref)
+    {:ok, timeline} = ModelRequests.timeline(ref, %{})
+
+    card =
+      render_component(&EpisodePage.render/1,
+        snapshot: snapshot,
+        timeline: timeline,
+        params: %{}
+      )
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#" <> anchor)
+
+    assert Enum.count(card) == 1, "#{rest} opens no card"
+    card
+  end
+
+  defp text(node, selector),
+    do: node |> LazyHTML.query(selector) |> LazyHTML.text() |> String.split() |> Enum.join(" ")
 
   defp inputs! do
     entries = Fixtures.inputs!()

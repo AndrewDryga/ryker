@@ -122,7 +122,6 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     history: [],
     history_page: 1,
     history_pages: 1,
-    learning: nil,
     items: [@topic]
   }
 
@@ -189,8 +188,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     attention: %{items: [@deferred], page: 1, pages: 1, total: 1},
     recent: %{items: [@applied], page: 1, pages: 1, total: 1, outcome: ""},
     handover_failures: %{total: 0, items: [], page: 1, pages: 1},
-    selected: nil,
-    receipt: nil
+    selected: nil
   }
 
   describe "Facts" do
@@ -470,22 +468,8 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
         text: "Deploys happen after 15:00 UTC.",
         source_input_id: nil,
         source: "https://slack.com/archives/C456/p1757494800000000",
-        learning_path: "/memory/learned?item=#{@topic_id}&update=2#learning-receipt"
-      }
-
-      receipt = %{
-        id: "run-1",
-        version: 2,
-        attempt_number: 1,
-        status: :applied,
-        outcome: "Knowledge updated",
-        at: @at,
-        error: nil,
-        expired: false,
-        input_count: 1,
-        reason: "Merged the two deploy notes.",
-        target: "codex:gpt-5.6-sol/medium@default",
-        sections: []
+        learning_path:
+          "/timeline/episode%3Aone#learning-55555555-5555-4555-8555-555555555555-result"
       }
 
       document =
@@ -493,8 +477,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
           @learned
           | selected: @topic_id,
             history: [revision],
-            history_pages: 2,
-            learning: receipt
+            history_pages: 2
         })
 
       assert LazyHTML.query(document, ".memory-back a[href='/memory/learned']") |> LazyHTML.text() =~
@@ -517,8 +500,9 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
                "/memory/learned?history_page=2&item=#{@topic_id}#history"
              ]
 
-      assert LazyHTML.query(document, "section#learning-receipt h2") |> LazyHTML.text() =~
-               "How update 2 was learned"
+      # How an update was learned is its learning card on the Timeline; the
+      # topic page no longer carries a receipt of its own.
+      assert Enum.empty?(LazyHTML.query(document, "#learning-receipt"))
 
       assert Enum.empty?(LazyHTML.query(document, ".kit-toolbar, .ui-eyebrow"))
     end
@@ -742,7 +726,8 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
         at: @at,
         error: "The model response did not match the learning contract.",
         error_code: "invalid_learning_result",
-        pruned_at: nil
+        pruned_at: nil,
+        path: "/timeline/episode%3Aone#learning-44444444-4444-4444-8444-444444444444-result"
       }
 
       selected =
@@ -789,8 +774,9 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
 
       attempts = LazyHTML.query(document, "section#attempts")
 
+      # Each attempt opens on its learning card on the Timeline.
       assert LazyHTML.query(attempts, "h3.entity-name a") |> LazyHTML.attribute("href") == [
-               LearningActivity.attempt_path(@batch_id, attempt.id)
+               attempt.path
              ]
 
       assert LazyHTML.query(attempts, ".state-word[data-tone=warn]") |> LazyHTML.text() ==

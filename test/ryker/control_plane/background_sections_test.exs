@@ -5,26 +5,32 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
   Learning reads decided inputs whether or not the request ever replied, so it
   is a peer of the work rather than a step inside it. It appears here only when
   one of this request's own inputs is a recorded member of the batch — sharing
-  a channel is not membership — and a batch that read other requests too says
-  how much of it came from this one instead of claiming the rest.
+  a channel is not membership — and an attempt that read other requests too
+  says how much of it came from this one instead of claiming the rest. Each
+  attempt is a model call with its briefing and result, like routing and work.
 
   Cleanup says what actually happened to the temporary session and workspace.
   Closing is not removing, a kept workspace is not a failure, a session that
   never bound a remote one had nothing to delete, and blocked cleanup does not
-  invalidate an answer that was already delivered.
+  invalidate an answer that was already delivered. Which worker held it, the
+  close request, the removal plan and the receipt sit behind Details.
   """
   use Ryker.DataCase, async: true
 
   import Ecto.Query
+  import Phoenix.LiveViewTest
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.Projection
+  alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection}
+  alias Ryker.CoopFleet.{ControlPlane, Placement}
   alias Ryker.Episodes
+  alias Ryker.FakeRetentionCoopAPI
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, InputMembership}
   alias Ryker.Learning.LearningRun
+  alias Ryker.Retention.Dispatcher, as: Cleanup
   alias Ryker.Slack.Input
   alias Ryker.Work.{Custody, Session}
 
@@ -32,62 +38,86 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
 
   test "a batch that read this request's input appears as background learning" do
     %{episode: episode, entry: entry} = admitted!("saved")
-    learning!(entry, updates: [%{"action" => "create", "subject" => "Deployment target"}])
+    run = learning!(entry, updates: [created(entry, "Deployment target")])
 
-    step = learning_step(episode)
-    assert step.state == "knowledge saved"
-    assert step.summary =~ "Saved 1 topic update"
-    assert step.tone == :good
-    assert step.href =~ "/memory/learning?"
-    assert Enum.find(step.details, &(&1.label == "Model")).presentation == :execution_target
-    refute Enum.any?(step.details, &(&1.label in ["Prompt", "Result"]))
+    result = learning_card(episode, run, "-result")
+    assert text(result, "h3") == "Knowledge updated"
+    assert text(result, ".request-decision") =~ "Deployment target"
+    assert text(result, ".call-run") =~ "gpt-5.6-sol"
+
+    assert result |> LazyHTML.query(".request-identity a") |> LazyHTML.attribute("href") == [
+             "/memory/learning?batch=#{run.batch_id}"
+           ]
   end
 
   test "a batch that only shares a channel is not this request's learning" do
     %{episode: episode} = admitted!("unrelated")
     %{entry: elsewhere} = admitted!("elsewhere")
-    learning!(elsewhere, updates: [%{"action" => "create", "subject" => "Other work"}])
+    learning!(elsewhere, updates: [created(elsewhere, "Other work")])
 
-    assert learning_step(episode) == nil
+    assert episode |> timeline() |> LazyHTML.query("section.phase-learning") |> Enum.empty?()
   end
 
   test "a cross-request batch says how much of it came from this request" do
     %{episode: episode, entry: entry} = admitted!("shared")
 
-    learning!(entry,
-      updates: [%{"action" => "update", "subject" => "Retry behavior"}],
-      manifest: ["one", "two", "three"]
-    )
+    run =
+      learning!(entry,
+        updates: [created(entry, "Retry behavior")],
+        others: [Ecto.UUID.generate(), Ecto.UUID.generate()]
+      )
 
-    details = learning_step(episode).details |> Map.new(&{&1.label, &1.value})
-    assert details["Messages read"] == "1 of 3 from this request"
+    assert text(learning_card(episode, run, "-result"), ".request-decision") =~
+             "1 of 3 from this request"
   end
 
   test "an all-defer judgment saved nothing and is not a failed batch" do
     %{episode: episode, entry: entry} = admitted!("deferred")
 
-    learning!(entry,
-      updates: [
-        %{"action" => "defer", "reason" => "Conflicting reports"},
-        %{"action" => "defer", "reason" => "Conflicting reports"}
-      ]
-    )
+    run =
+      learning!(entry,
+        updates: [
+          %{
+            "action" => "defer",
+            "reason" => "Conflicting reports",
+            "source_input_ids" => [entry.id]
+          },
+          %{
+            "action" => "defer",
+            "reason" => "Conflicting reports",
+            "source_input_ids" => [entry.id]
+          }
+        ]
+      )
 
-    step = learning_step(episode)
-    assert step.state == "deferred"
-    assert step.summary =~ "deferred every judgment"
-    refute step.summary =~ "Saved"
-    assert step.tone == nil
+    result = learning_card(episode, run, "-result")
+    assert text(result, "h3") == "No change needed"
+    decision = text(result, ".request-decision")
+    assert decision =~ "Nothing saved"
+    assert decision =~ "the model deferred every judgment"
+    assert decision =~ "Conflicting reports"
+    refute decision =~ "Saved"
   end
 
   test "a rejected learning result saved nothing and says so" do
     %{episode: episode, entry: entry} = admitted!("rejected")
-    learning!(entry, status: :rejected, error_code: "learning_match_required")
 
-    step = learning_step(episode)
-    assert step.state == "rejected"
-    assert step.summary =~ "Nothing was saved"
-    assert step.tone == :warn
+    run =
+      learning!(entry,
+        status: :rejected,
+        error_code: "learning_match_required",
+        updates: [created(entry, "Checkout outage")]
+      )
+
+    result = learning_card(episode, run, "-result")
+    assert text(result, "h3") == "Response rejected"
+    decision = text(result, ".request-decision")
+    assert decision =~ "Nothing saved"
+    assert decision =~ "A possible existing topic was found"
+    assert decision =~ "Proposed, not saved"
+    assert decision =~ "Checkout outage"
+    refute text(result, ".request-decision dt") =~ "learning_match_required"
+    assert text(result, ".request-identity") =~ "learning_match_required"
   end
 
   test "closing a session is not removing its working copy" do
@@ -129,7 +159,8 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
         "local_session_id" => Ecto.UUID.generate(),
         "remote_session_id" => nil,
         "remote_state" => "unknown"
-      }
+      },
+      cleanup_receipt_fingerprint: String.duplicate("c", 64)
     )
 
     assert maintenance_step(episode, "Working copy removed") == nil
@@ -151,11 +182,13 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
         "remote_session_id" => "coop-session-removed",
         "remote_state" => "unreachable",
         "worker_id" => "worker-gone"
-      }
+      },
+      cleanup_receipt_fingerprint: String.duplicate("c", 64)
     )
 
     step = maintenance_step(episode, "Working copy left on a removed worker")
     assert step.summary =~ "removed from Ryker"
+    assert Enum.find(step.details, &(&1.label == "Worker")).value == "worker-gone"
   end
 
   test "blocked cleanup does not invalidate the delivered answer" do
@@ -164,19 +197,93 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     cleanup!(episode,
       cleanup_status: :blocked,
       closed_at: @now,
+      cleanup_attempt_count: 3,
       cleanup_blocked_from: :discard_pending,
-      cleanup_last_error_code: "coop_unavailable"
+      cleanup_last_error_code: "coop_unavailable",
+      cleanup_last_error_detail: "{:coop_unavailable, :econnrefused}"
     )
 
     step = maintenance_step(episode, "Cleanup blocked")
     assert step.summary =~ "delivered answer is unaffected"
-    assert step.summary =~ "Coop unavailable"
+    # The error in words on the card; its code and the saved detail in Details.
+    assert step.summary =~ "The worker could not be reached"
+    refute step.summary =~ ~r/coop/i
+    details = Map.new(step.details, &{&1.label, &1.value})
+    assert details["Stopped while"] == "Removing the working copy"
+    assert details["Tries"] == "3"
+    assert details["Error code"] == "coop_unavailable"
+    assert details["Error detail"] =~ "econnrefused"
     assert step.tone == :warn
   end
 
-  defp learning_step(episode) do
-    {:ok, detail} = Projection.episode(episode.key)
-    Enum.find(detail.trace.steps, &(&1.stage == "Learning"))
+  # Andrew, 2026-09-26, of "B2 Cleanup — Worker session closed · Working copy
+  # removed": it should be forensic and detailed like everything else. The two
+  # cards said a session closed and a copy was removed, and nothing about which
+  # worker held it, the close request, what the removal plan found, or the
+  # receipt that proved the removal, though cleanup records each of them.
+  test "a request's cleanup cards show the session and working copy details behind Details" do
+    %{episode: episode} = admitted!("forensic")
+    session = finished_session!(episode, "remote-forensic")
+    place!(session, "worker-forensic")
+
+    {:ok, api} =
+      FakeRetentionCoopAPI.start_link(
+        sessions: [
+          %{
+            "external_ref" => session.external_ref,
+            "id" => session.coop_session_id,
+            "policy" => session.policy,
+            "policy_digest" => session.policy_digest,
+            "revision" => 7,
+            "state" => "open"
+          }
+        ]
+      )
+
+    for phase <- [:closed, :planned, :discarded],
+        do: assert({:ok, {:executed, %{phase: ^phase}}} = clean!(api))
+
+    stored = Repo.get!(Session, session.id)
+    chapter = episode |> timeline() |> LazyHTML.query("section.phase-maintenance")
+
+    closed = LazyHTML.query(chapter, "#event-maintenance-#{session.id}-closed")
+    assert text(closed, ".case-event-summary") =~ "closed"
+    assert text(closed, ".case-event-details") =~ "Closed at revision 7"
+    # An identifier shows shortened and carries its exact value to hover and copy.
+    closed_details = html(closed, ".case-event-details")
+
+    for exact <- ["worker-forensic", "remote-forensic", "ryker:retention:close:#{session.id}:g1"],
+        do: assert(closed_details =~ exact)
+
+    removed = LazyHTML.query(chapter, "#event-maintenance-#{session.id}-discarded")
+    summary = text(removed, ".case-event-summary")
+    assert summary =~ "no uncommitted changes"
+    assert summary =~ "no unpublished commits"
+    assert text(removed, ".case-event-details") =~ "Branch coop/session"
+    removed_details = html(removed, ".case-event-details")
+
+    for exact <- [
+          String.duplicate("a", 40),
+          stored.discard_plan_fingerprint,
+          stored.discard_plan_operation_id,
+          stored.cleanup_receipt_fingerprint,
+          "ryker:retention:discard:#{session.id}:g1"
+        ],
+        do: assert(removed_details =~ exact)
+
+    # Exact identifiers only inside Details; the lines on the face are words.
+    face = text(chapter, ".case-card-heading, .case-event-summary")
+
+    for exact <- [session.coop_session_id, "worker-forensic", stored.cleanup_receipt_fingerprint],
+        do: refute(face =~ exact)
+
+    refute face =~ ~r/\b(coop|episode|lease|receipt|fingerprint|digest)\b/i
+  end
+
+  defp learning_card(episode, run, suffix) do
+    card = episode |> timeline() |> LazyHTML.query("#learning-#{run.id}#{suffix}")
+    assert Enum.count(card) == 1, "no learning card for attempt #{run.id}"
+    card
   end
 
   defp maintenance_step(episode, title) do
@@ -184,16 +291,111 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     Enum.find(detail.trace.steps, &(&1.stage == "Maintenance" and &1.title == title))
   end
 
+  defp timeline(episode) do
+    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+
+    render_component(&EpisodePage.render/1, snapshot: snapshot, timeline: timeline, params: %{})
+    |> LazyHTML.from_fragment()
+  end
+
+  defp text(node, selector), do: node |> LazyHTML.query(selector) |> LazyHTML.text() |> squish()
+  defp html(node, selector), do: node |> LazyHTML.query(selector) |> LazyHTML.to_html()
+  defp squish(value), do: value |> String.split() |> Enum.join(" ")
+
   defp cleanup!(episode, fields) do
     session = Repo.one!(from(s in Session, where: s.episode_id == ^episode.id))
     Repo.update_all(from(s in Session, where: s.id == ^session.id), set: fields)
   end
 
+  # The request ends, so its pinned worker session becomes cleanup's to close.
+  defp finished_session!(episode, remote) do
+    session = Repo.one!(from(s in Session, where: s.episode_id == ^episode.id))
+    session = session |> Ecto.Changeset.change(coop_session_id: remote) |> Repo.update!()
+
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.cancel_episode(%{
+                 cancel_ref: "cancel:#{episode.id}",
+                 episode_key: episode.key,
+                 expected_owner: %{kind: :turn, ref: episode.owner_ref},
+                 occurred_at: DateTime.add(@now, 1, :second)
+               })
+             )
+
+    session
+  end
+
+  defp place!(session, worker_id) do
+    assert {:ok, _worker} =
+             ControlPlane.authorize_worker(
+               worker_id,
+               "workspace-background",
+               :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower)
+             )
+
+    now = DateTime.utc_now()
+    requirements = %{"workspace_ref" => "workspace-background"}
+
+    # Structural fixture: the durable record of which worker held the session.
+    Repo.insert!(%Placement{
+      episode_id: session.episode_id,
+      generation: 1,
+      id: Ecto.UUID.generate(),
+      inserted_at: now,
+      lease_expires_at: DateTime.add(now, 3_600, :second),
+      lease_ref: "placement-lease:#{session.id}",
+      requirements: requirements,
+      requirements_fingerprint: CanonicalJSON.digest(requirements),
+      session_id: session.id,
+      state: :retired,
+      updated_at: now,
+      worker_id: worker_id
+    })
+  end
+
+  # One cleanup pass with no grace period, as the retention dispatcher tests run it.
+  defp clean!(api) do
+    options = [
+      api: FakeRetentionCoopAPI,
+      client: api,
+      closed_session_grace_seconds: 0,
+      lease_seconds: 60,
+      max_attempts: 8,
+      retry_base_seconds: 1,
+      retry_max_seconds: 60,
+      worker_ref: "background-cleanup:#{System.unique_integer([:positive])}"
+    ]
+
+    case Cleanup.run_once(options) do
+      {:ok, {:executed, %{phase: :grace}}} -> Cleanup.run_once(options)
+      outcome -> outcome
+    end
+  end
+
+  defp created(entry, title) do
+    %{
+      "action" => "create",
+      "source_input_ids" => [entry.id],
+      "topic_key" => title |> String.downcase() |> String.replace(" ", "-"),
+      "title" => title,
+      "summary" => "#{title} is recorded from this request.",
+      "topics" => [],
+      "anchors" => [],
+      "target_ref" => nil,
+      "expected_version" => 0
+    }
+  end
+
+  # A structural learning attempt over the request's message: the frozen
+  # manifest names it, and the response is the host-contract shape.
   defp learning!(entry, options) do
     batch_id = Ecto.UUID.generate()
     updates = Keyword.get(options, :updates, [])
-    manifest = Keyword.get(options, :manifest, ["one"])
-    result = if updates == [], do: nil, else: Jason.encode!(%{"updates" => updates})
+    others = Keyword.get(options, :others, [])
+
+    result =
+      Jason.encode!(%{"reason" => "Keep what the request settled.", "updates" => updates})
 
     Repo.insert!(%Batch{
       id: batch_id,
@@ -204,10 +406,19 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
       policy: "learning",
       policy_digest: String.duplicate("a", 64),
       status: :applied,
-      input_count: length(manifest)
+      input_count: 1 + length(others)
     })
 
     Repo.insert!(%InputMembership{input_id: entry.id, batch_id: batch_id})
+
+    prompt =
+      CanonicalJSON.encode!(%{
+        "instructions" => "Learn from these messages without replying.",
+        "custom_instructions" => %{"global" => nil, "channel" => nil},
+        "inputs" => [%{"source_input_id" => entry.id, "content" => entry.content}],
+        "knowledge" => [],
+        "previous_attempt_error" => nil
+      })
 
     Repo.insert!(%LearningRun{
       id: Ecto.UUID.generate(),
@@ -215,17 +426,17 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
       batch_id: batch_id,
       generation: 1,
       status: Keyword.get(options, :status, :applied),
-      inputs: Enum.map(manifest, &%{"input_ref" => &1}),
+      inputs: Enum.map([entry.id | others], &%{"source_input_id" => &1}),
       source_dependencies: [],
       knowledge: [],
       omissions: [],
       policy: "learning",
       policy_digest: String.duplicate("a", 64),
-      prompt: "Read these messages.",
-      prompt_sha256: String.duplicate("b", 64),
+      prompt: prompt,
+      prompt_sha256: CanonicalJSON.digest(prompt),
       output_schema: %{"type" => "object"},
       result: result,
-      result_sha256: if(result, do: CanonicalJSON.digest(result)),
+      result_sha256: CanonicalJSON.digest(result),
       producer: %{"target" => "codex:gpt-5.6-sol/medium@default"},
       error_code: Keyword.get(options, :error_code),
       applied_at: DateTime.add(@now, 120, :second)

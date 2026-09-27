@@ -169,6 +169,10 @@ defmodule Ryker.ControlPlane.PageHelp do
          "Each message goes through four stages: Intake, Routing, Work and Answer. Open a card to see its details, such as the exact request Ryker sent to the model and the answer it got back.",
          "Every card has a # link to itself, so you can share the exact step."
        ]},
+      {"Learning and Cleanup",
+       [
+         "After the answer, Learning shows what Ryker learned from these messages in the background, with its prompt, answer and cost. Cleanup shows how the worker's session was closed and its working copy removed or kept."
+       ]},
       {"The summary at the top",
        [
          "The top says where the request stands, how long it took and what it cost. A cost marked ≈ includes an estimate. Next action says what the request is waiting for, if anything."
@@ -612,7 +616,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"When something looks wrong",
        [
          "A topic marked Not used lost a message it learned from, so Ryker stopped using it. Relearn it rebuilds the topic from messages you choose.",
-         "How this was learned shows the exact request and answer behind each update."
+         "How this was learned opens the learning pass on the Timeline, with the exact request Ryker sent, the answer it got and what it cost."
        ]}
     ])
   end
@@ -650,7 +654,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Recent passes",
        [
-         "Each pass reads new messages from one conversation. Finding nothing to change is a normal outcome. Filter by outcome to see what changed."
+         "Each pass reads new messages from one conversation. Finding nothing to change is a normal outcome. Filter by outcome to see what changed.",
+         "Open a batch to see its attempts. Each attempt opens on the Timeline beside the messages it read, with its prompt, the answer, tokens and cost."
        ]},
       {"When learning needs you",
        [

@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   The Learning page's read model: whether background learning runs here, the
   messages it has not read yet, the batches that need a person, what it did
   recently, the handovers that could not be saved, and one batch with its
-  frozen attempts and how a chosen attempt was learned. Read-only.
+  frozen attempts, each linked to its learning card on the Timeline. Read-only.
   """
   import Ecto.Query
 
@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
     Activity,
     ConversationMemory,
     ConversationProjection,
-    LearningReceipt,
+    LearningRequests,
     PagedRelation
   }
 
@@ -38,7 +38,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
     {"in_progress", [:queued, :running]},
     {"sources_changed", [:superseded]}
   ]
-  @query_keys ~w(batch attempt attempt_page outcome page attention_page handover_page)
+  @query_keys ~w(batch attempt_page outcome page attention_page handover_page)
 
   @doc "The query keys the Learning page reads."
   def query_keys, do: @query_keys
@@ -77,8 +77,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
       attention: batches([:deferred], "attention_page", params, secrets),
       recent: Map.put(batches(recent_statuses, "page", params, secrets), :outcome, outcome),
       handover_failures: handover_failures(params),
-      selected: selected,
-      receipt: receipt(selected, params, secrets)
+      selected: selected
     }
   end
 
@@ -164,11 +163,6 @@ defmodule Ryker.ControlPlane.LearningActivity do
       now: DateTime.utc_now()
     }
   end
-
-  defp receipt(%{id: batch_id}, params, secrets),
-    do: LearningReceipt.project_attempt(batch_id, params["attempt"], secrets)
-
-  defp receipt(nil, _params, _secrets), do: nil
 
   defp read(query, key, order, params),
     do: PagedRelation.read(query, order, key, params, page_size: @page_size)
@@ -414,23 +408,28 @@ defmodule Ryker.ControlPlane.LearningActivity do
           error_code: r.error_code,
           pruned_at: r.pruned_at,
           result: r.result,
-          stop_receipt: r.stop_receipt
+          stop_receipt: r.stop_receipt,
+          inputs: r.inputs,
+          remote_stopped_at: r.remote_stopped_at
         }
       )
       |> read("attempt_page", [desc: :inserted_at, desc: :id], params)
 
     offset = (page.page - 1) * @page_size
+    # Each attempt is read on its learning card on the Timeline.
+    paths = LearningRequests.paths(page.items)
 
     attempts =
       page.items
       |> Enum.with_index()
       |> Enum.map(fn {attempt, index} ->
         attempt
-        |> Map.drop([:result, :stop_receipt])
+        |> Map.drop([:result, :stop_receipt, :inputs, :remote_stopped_at])
         |> Map.merge(%{
           number: page.total - offset - index,
           error: attempt_error(attempt),
-          label: attempt_label(attempt)
+          label: attempt_label(attempt),
+          path: paths[attempt.id]
         })
       end)
 
@@ -441,8 +440,13 @@ defmodule Ryker.ControlPlane.LearningActivity do
     }
   end
 
-  defp attempt_label(%{status: :applied, pruned_at: nil, result: result})
-       when is_binary(result) do
+  @doc """
+  What one attempt came to, from its own saved result; the batch it belongs to
+  can end differently. The Learning page and the attempt's Timeline card read
+  it the same way.
+  """
+  def attempt_label(%{status: :applied, pruned_at: nil, result: result})
+      when is_binary(result) do
     # Reselection changes the batch, never the outcome of an earlier attempt.
     case Jason.decode(result) do
       {:ok, %{"updates" => updates}} when is_list(updates) ->
@@ -455,24 +459,8 @@ defmodule Ryker.ControlPlane.LearningActivity do
     end
   end
 
-  defp attempt_label(%{status: :applied}), do: "Learning completed"
-  defp attempt_label(%{status: status}), do: label(status)
-
-  def attempt_number(%LearningRun{batch_id: nil, generation: generation}), do: generation
-
-  def attempt_number(%LearningRun{} = run) do
-    # A new frozen source selection restarts its execution generation. The
-    # operator sees one chronological history for the original learning request.
-    Repo.aggregate(
-      from(r in LearningRun,
-        where: r.batch_id == ^run.batch_id,
-        where:
-          r.inserted_at < ^run.inserted_at or
-            (r.inserted_at == ^run.inserted_at and r.id <= ^run.id)
-      ),
-      :count
-    )
-  end
+  def attempt_label(%{status: :applied}), do: "Learning completed"
+  def attempt_label(%{status: status}), do: label(status)
 
   defp batch(row, secrets, context),
     do: %{
@@ -521,12 +509,6 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   @doc "Where one batch opens on the Learning page."
   def path(id), do: "/memory/learning?" <> URI.encode_query(%{"batch" => id})
-
-  @doc "Where one attempt of a batch shows exactly how it was learned."
-  def attempt_path(batch, run),
-    do:
-      "/memory/learning?" <>
-        URI.encode_query(%{"batch" => batch, "attempt" => run}) <> "#learning-receipt"
 
   def retry_resource(id, version), do: id <> ":" <> Integer.to_string(version)
 

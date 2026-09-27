@@ -47,6 +47,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         :result_evidence,
         result_evidence(request)
       )
+      |> assign(:retention_note, request[:retention_note])
 
     ~H"""
     <div class="episode-request">
@@ -60,6 +61,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           sentence(@retried_after.summary)
         )} <a href={@retried_after.href}>See attempt {@retried_after.generation} ↑</a>
       </p>
+      <p :if={@retention_note} class="artifact-unavailable request-retention">{@retention_note}</p>
       <section :if={!@result?} class="request-model-section" aria-label="Model">
         <h4>Model</h4>
         <Components.execution_target target={@request.target} />
@@ -108,7 +110,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       <.call_run :if={@run} run={@run} />
       <p :for={wait <- @request[:waits] || []} class="request-wait">{wait_text(wait)}</p>
       <div
-        :if={!@result? && (@input_sections != [] || @contract_section)}
+        :if={!@result? && !@retention_note && (@input_sections != [] || @contract_section)}
         class="prompt-assembly"
         aria-label="Briefing sources"
       >
@@ -127,7 +129,11 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           </Components.disclosure>
         <% end %>
       </div>
-      <section :if={@prompt_section} class="final-prompt" id={"#{@request.id}-final-prompt"}>
+      <section
+        :if={@prompt_section && !@retention_note}
+        class="final-prompt"
+        id={"#{@request.id}-final-prompt"}
+      >
         <header>
           <h4>
             Full submitted request<span :if={@prompt_section.artifact.truncated}>Partial display</span>
@@ -174,6 +180,20 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           source_kind={@request.source_kind}
         />
       </div>
+      <Components.disclosure
+        :if={@request[:identity]}
+        id={"#{@request.id}-identity"}
+        label="Details"
+        class="request-identity"
+      >
+        <Components.fact_list facts={@request.identity.facts} />
+        <a :if={@request.identity[:link]} href={@request.identity.link.href}>
+          {@request.identity.link.label} →
+        </a>
+        <Components.copy_block :if={@request.identity[:record]} label="Copy JSON">
+          <pre class="model-document-text" tabindex="0">{@request.identity.record}</pre>
+        </Components.copy_block>
+      </Components.disclosure>
     </div>
     """
   end
@@ -264,6 +284,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     Enum.filter(sections, &(&1.id in ids))
   end
 
+  defp result_evidence(%{source_kind: :learning, sections: sections}),
+    do: Enum.filter(sections, &(&1.id == "response" and &1.artifact.state == :retained))
+
   defp result_evidence(_request), do: []
 
   # The committed decision and timings are already readable above this point.
@@ -292,6 +315,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     """
   end
 
+  defp evidence_label(%{id: "response"}, :learning), do: "Raw model response"
   defp evidence_label(%{id: "response"}, _kind), do: "Raw routing response"
   defp evidence_label(%{id: "candidate"}, :work), do: "Raw model response"
   defp evidence_label(section, _kind), do: section.title
@@ -467,6 +491,10 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
        when is_integer(generation) and is_integer(generations) and generations > 1,
        do: "Attempt #{generation}"
 
+  defp attempt_label(%{source_kind: :learning, generation: generation, generations: total})
+       when is_integer(generation) and is_integer(total) and total > 1,
+       do: "Attempt #{generation}"
+
   defp attempt_label(_request), do: nil
 
   # What a work call is for, in the words of the work it was routed as.
@@ -500,6 +528,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp purpose_name(:learning), do: "Learning"
 
   defp headline(%{phase: :submission, source_kind: :admission}), do: "Routing briefing"
+  defp headline(%{phase: :submission, source_kind: :learning}), do: "Learning briefing"
   defp headline(%{phase: :submission}), do: "Work briefing"
 
   defp headline(%{source_kind: :admission} = request) do
@@ -508,6 +537,8 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       {candidate, _response} -> admission_headline(candidate)
     end
   end
+
+  defp headline(%{source_kind: :learning, learning: %{headline: headline}}), do: headline
 
   defp headline(request) do
     case {document(request, "candidate"), document(request, "validation")} do
@@ -561,6 +592,11 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp decision_facts(%{source_kind: :work, execution_mode: :shadow}),
     do: [%{label: "Run", value: "Evaluation", note: "checked, but never delivered"}]
 
+  # What a learning attempt saved, proposed or held back, linked to the topics
+  # it wrote, and how many of the messages it read are this page's.
+  defp decision_facts(%{source_kind: :learning, phase: :result, learning: %{facts: facts}}),
+    do: facts
+
   defp decision_facts(_request), do: []
 
   # Where the briefing that offered earlier work sits: above the decision on a
@@ -608,6 +644,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp reason_from_model?(%{source_kind: :admission, phase: :result} = request),
     do: is_binary((document(request, "candidate") || %{})["reason"])
+
+  defp reason_from_model?(%{source_kind: :learning, phase: :result, learning: %{reason: reason}}),
+    do: is_binary(reason)
 
   defp reason_from_model?(_request), do: false
 
@@ -701,6 +740,12 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp explanation(%{phase: :submission, source_kind: :admission}),
     do: "Use an AI model to classify this message and choose how to respond."
+
+  defp explanation(%{phase: :submission, source_kind: :learning}),
+    do:
+      "Use an AI model to learn from these messages and keep what Ryker knows up to date. Learning sends no reply."
+
+  defp explanation(%{source_kind: :learning, learning: learning}), do: learning[:reason]
 
   defp explanation(%{phase: :submission} = request) do
     case document(request, "context") do
