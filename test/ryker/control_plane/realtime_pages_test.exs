@@ -17,7 +17,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-  import Ryker.TestHelpers, only: [eventually: 1]
+  import Ryker.TestHelpers, only: [eventually: 2]
 
   alias Ryker.ControlPlane.{Actions, ConversationLab, Endpoint, Projection}
   alias Ryker.Delivery.PlatformActionCustody
@@ -82,7 +82,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
              )
 
     # A new row waits behind one button rather than moving the rows being read.
-    assert eventually(fn -> has_element?(view, "button.new-activity", "1 new") end)
+    assert shows?(fn -> has_element?(view, "button.new-activity", "1 new") end)
     view |> element("button.new-activity") |> render_click()
     assert render(view) =~ "Why did checkout fail?"
   end
@@ -99,7 +99,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
                "summary" => "Readiness probes fail after each deploy."
              })
 
-    assert eventually(fn -> render(view) =~ "Readiness probes fail after each deploy" end)
+    assert shows?(fn -> render(view) =~ "Readiness probes fail after each deploy" end)
   end
 
   test "a message sent to a conversation from another tab shows in the open conversation",
@@ -110,7 +110,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
 
     assert {:ok, _receipt} = ConversationLab.send_message(id, "Is checkout healthy?", profile)
 
-    assert eventually(fn ->
+    assert shows?(fn ->
              has_element?(view, "#lab-messages .chat-message-text", "Is checkout healthy?")
            end)
   end
@@ -143,7 +143,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
                ~s|{:slack_api_error, "channel_not_found"}|
              )
 
-    assert eventually(fn ->
+    assert shows?(fn ->
              not has_element?(view, ".kit-empty-title", "Nothing needs you") and
                has_element?(view, ".failures-page .entity-row")
            end)
@@ -156,7 +156,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     episode = episode!("working-copy")
     assert {:ok, _session} = Custody.pin_episode(episode.id, "policy:realtime", digest(), "ryker")
 
-    assert eventually(fn ->
+    assert shows?(fn ->
              not has_element?(view, ".kit-empty-title", "No working copies right now")
            end)
   end
@@ -168,7 +168,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
 
     assert {:ok, _rearmed} = IncidentRooms.rearm(room.ref)
 
-    assert eventually(fn ->
+    assert shows?(fn ->
              has_element?(view, ".entity-side .state-word", "Setting up") and
                not has_element?(view, ".entity-side .state-word", "Needs attention")
            end)
@@ -191,7 +191,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
                %{default_environment: nil, environments: []}
              )
 
-    assert eventually(fn -> has_element?(view, "#channel-T123-C987") end)
+    assert shows?(fn -> has_element?(view, "#channel-T123-C987") end)
   end
 
   test "a repository added in another tab shows on the open Repositories page" do
@@ -202,7 +202,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     assert {:ok, _saved} =
              Settings.put_repository(%{ref: "billing"}, snapshot.installation.revision, @actor)
 
-    assert eventually(fn -> has_element?(view, "#repository-billing") end)
+    assert shows?(fn -> has_element?(view, "#repository-billing") end)
   end
 
   test "a fact forgotten from Slack leaves the open Facts page" do
@@ -213,7 +213,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
 
     assert {:ok, _forgotten} = Memories.forget(fact.ref)
 
-    assert eventually(fn -> not (render(view) =~ "The payments team owns checkout.") end)
+    assert shows?(fn -> not (render(view) =~ "The payments team owns checkout.") end)
   end
 
   test "settings the running system applies stop reading as pending on the open Advanced page" do
@@ -223,12 +223,16 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
 
     assert :ok = Settings.record_application(snapshot.installation.revision, :ok)
 
-    assert eventually(fn ->
+    assert shows?(fn ->
              not has_element?(view, ".page-feedback", "Applying the saved settings")
            end)
   end
 
   defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+
+  # Well inside the five seconds the old poll took, so a page that caught up
+  # only on a timer fails here, and wide enough for a loaded host's reload.
+  defp shows?(check), do: eventually(check, 3_000)
 
   defp drain(message) do
     receive do

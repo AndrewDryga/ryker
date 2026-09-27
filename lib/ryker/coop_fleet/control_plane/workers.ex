@@ -9,11 +9,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   command acknowledgements and results, event batches, and command delivery.
 
   A poll that changes what a page shows about the worker (its state, what it
-  can run, its storage, or its return after going quiet) is announced after
-  the poll commits (`subscribe_workers/0`), and so is a worker that stops
-  polling (`announce_quiet/1`). A heartbeat that only moves `last_seen_at` is
-  not: a worker polls every few seconds. What a poll reports about a session
-  is announced on the session's request (`Ryker.Episodes`).
+  can run, whether it takes new copies, or its return after going quiet) is
+  announced after the poll commits (`subscribe_workers/0`), and so is a worker
+  that stops polling (`announce_quiet/1`). A heartbeat that only moves
+  `last_seen_at` or re-measures storage is not: a worker polls every few
+  seconds. What a poll reports about a session is announced on the session's
+  request (`Ryker.Episodes`).
   """
 
   import Ecto.Changeset
@@ -346,12 +347,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
   # What pages read from a worker row, and whether it had gone quiet: the
   # fleet counts a worker silent for a minute as stale.
-  @status_fields ~w(state capacity capabilities storage build_version sandbox_digest protocol_version drain_requested_at)a
+  @status_fields ~w(state capacity capabilities build_version sandbox_digest protocol_version drain_requested_at)a
   @quiet_seconds 60
 
   @doc """
   Subscribes the caller to Coop worker status: `{:coop_worker_updated,
-  worker_id}` once a poll changes a worker's state, capacity, repositories,
+  worker_id}` once a poll changes a worker's state, capacity, capabilities,
   storage or build, or brings it back after it stopped reporting, and that
   poll has committed; or once a worker stops reporting.
   """
@@ -384,10 +385,20 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   defp workers_topic, do: "coop:workers"
 
   defp status_changed?(previous, current, now) do
-    Map.take(previous, @status_fields) != Map.take(current, @status_fields) or
-      is_nil(previous.last_seen_at) or
+    status(previous) != status(current) or is_nil(previous.last_seen_at) or
       DateTime.diff(now, previous.last_seen_at, :second) > @quiet_seconds
   end
+
+  # A worker measures its storage as files come and go, so the bytes move on
+  # almost every poll; what a page decides on is whether the worker takes new
+  # copies and why not. The bytes are as of the page's last redraw.
+  defp status(worker),
+    do: worker |> Map.take(@status_fields) |> Map.put(:storage, storage_state(worker.storage))
+
+  defp storage_state(%{"allocation" => allocation} = storage),
+    do: {allocation, storage["refusal_reason"]}
+
+  defp storage_state(_unmeasured), do: nil
 
   defp broadcast_worker_updated(worker_id),
     do:

@@ -45,6 +45,40 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
     assert_received {:coop_worker_updated, ^worker_id}
   end
 
+  # A worker measures its storage as files come and go, so the bytes move on
+  # almost every poll; announcing them would redraw six pages every few
+  # seconds, the poll this replaced. Whether it takes new copies is what a
+  # page decides on.
+  test "a poll that re-measures storage is not announced, and one that refuses new copies is" do
+    worker_id = unique("worker")
+    :ok = Workers.subscribe_workers()
+
+    assert {:ok, _worker} =
+             ControlPlane.authorize_worker(worker_id, "workspace-main", digest(worker_id))
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(worker_id, poll(worker_id, "measured", storage: storage()))
+
+    assert_received {:coop_worker_updated, ^worker_id}
+
+    remeasured = storage(free_bytes: 3_221_225_472, measured_at: "2026-09-11T09:31:00Z")
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               worker_id,
+               poll(worker_id, "remeasured", storage: remeasured)
+             )
+
+    refute_received {:coop_worker_updated, ^worker_id}
+
+    refused = storage(allocation: "refused", refusal_reason: "reserve_exhausted")
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(worker_id, poll(worker_id, "refused", storage: refused))
+
+    assert_received {:coop_worker_updated, ^worker_id}
+  end
+
   test "what a worker reports about a session reaches the session's request" do
     worker_id = unique("worker")
 
@@ -198,9 +232,26 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
         "repositories" => [%{"ref" => "ryker", "revision" => "commit:abc123"}],
         "sandbox_digest" => @sandbox_digest,
         "state" => "eligible",
-        "storage" => nil,
+        "storage" => Keyword.get(options, :storage),
         "workspace_ref" => "workspace-main"
       }
+    }
+  end
+
+  defp storage(overrides \\ []) do
+    %{
+      "allocation" => Keyword.get(overrides, :allocation, "open"),
+      "capacity_bytes" => 536_870_912_000,
+      "disposable_bytes" => 9_663_676_416,
+      "free_bytes" => Keyword.get(overrides, :free_bytes, 4_294_967_296),
+      "high_watermark_bytes" => 64_424_509_440,
+      "low_watermark_bytes" => 48_318_382_080,
+      "measured_at" => Keyword.get(overrides, :measured_at, "2026-09-11T09:30:00Z"),
+      "protected_bytes" => 21_474_836_480,
+      "refusal_reason" => Keyword.get(overrides, :refusal_reason),
+      "reserve_bytes" => 5_368_709_120,
+      "unattributed_bytes" => 1_073_741_824,
+      "version" => 1
     }
   end
 
