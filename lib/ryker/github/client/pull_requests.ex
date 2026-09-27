@@ -75,11 +75,16 @@ defmodule Ryker.GitHub.Client.PullRequests do
     end
   end
 
+  # The lifecycle document holds exactly its own fields
+  # (`Ryker.Publication.LifecycleStatus`), so the pull request's author, which
+  # other callers read, stays out of it.
   def get_publication_status(client, repository, number) do
     with {:ok, pull} <- get_pull_request(client, repository, number),
          {:ok, checks} <- Checks.summary(client, repository, pull["head_sha"]) do
       {:ok,
-       Map.merge(pull, %{
+       pull
+       |> Map.drop(["author_id", "author_type"])
+       |> Map.merge(%{
          "checks_failed" => checks.failed,
          "checks_passed" => checks.passed,
          "checks_state" => checks.state,
