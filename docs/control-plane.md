@@ -1079,10 +1079,12 @@ the request's active inputs, not every message the request holds. A reply whose
 run answered a message that was edited afterwards says "Answered your earlier
 wording" in its byline, and an edit refreshes that earlier reply even when it
 is not on the latest page.
-Reactions sit in one row under a reply, as in Slack: compact pills showing each
-recorded emoji with the count of its current reactors and a pressed state for the
-operator's own, then an icon-only "Add reaction" button. Clicking a pill posts the
-real add or remove for that exact reply, and the button opens an anchored picker
+Reactions sit in one row under each of Ryker's messages, as in Slack: a Work
+reply, a quick reply routing sent by itself, or an update Work posted. Compact
+pills show each recorded emoji with the count of its current reactors and a
+pressed state for the operator's own, then an icon-only "Add reaction" button.
+Clicking a pill posts the real add or remove for that exact message, and the
+button opens an anchored picker
 with the five quick choices and a labelled custom-name field whose validation
 stays beside it. A
 submitted message is
@@ -1116,7 +1118,9 @@ tool names and schemas through a virtual workspace containing only the current c
 model-requested reactions and host-confirmed extra posts traverse the same durable action outbox and
 render in the conversation. Operator feedback reactions are ordered episode events: add/remove updates
 the current count without waking work, and a later message carries both current state and bounded event
-history into its frozen model context. Message edits and deletes retain one stable source identity with
+history into its frozen model context. A reaction on a quick reply or an update is feedback on its
+request alone (the message it answered, or the request that posted it), and its pills are read from that
+feedback, which names the exact message. Message edits and deletes retain one stable source identity with
 monotonic revisions. Search and source reads span the exact conversation across completed episode boundaries, and
 uploaded conversation files appear as bounded virtual file resources with the same `files` search and `document`
 read contract. An incident offer opens a linked policy-pinned local incident episode in the same timeline,

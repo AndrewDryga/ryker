@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.LiveTest do
   use Ryker.DataCase, async: false
 
+  import Ecto.Query
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Ryker.Admission.Attempts
@@ -16,7 +17,9 @@ defmodule Ryker.ControlPlane.LiveTest do
     WorkbenchLive
   }
 
-  alias Ryker.Fixtures.SavedEntities
+  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
+  alias Ryker.Feedback
+  alias Ryker.Fixtures.{Answers, SavedEntities}
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.EntryChangeset
   alias Ryker.Ingress.WorkProfile
@@ -1705,6 +1708,137 @@ defmodule Ryker.ControlPlane.LiveTest do
     refute has_element?(view, "##{heart_form_id}")
   end
 
+  # Live, 2026-09-27: most Chat answers are routing's quick replies, and they
+  # carried no reaction button, nor did an update Work posted while it
+  # worked: a thumbs up on "Hi! What can I help with?" could not be given, so
+  # the feedback it was meant to be was lost. Both take reactions as a Work
+  # reply does, each reaction shows under the message it was on, and each is
+  # kept as feedback on that message's own request.
+  test "a quick reply and a posted update take reactions like a Work reply, each on its own request" do
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    id = Ecto.UUID.generate()
+    {:ok, %{entry: greeting}} = ConversationLab.send_message(id, "hi", profile)
+    quick_ref = "control-plane-message:quick-#{id}"
+    Answers.quick_reply!(greeting, "Hi! What can I help with?", quick_ref, DateTime.utc_now())
+
+    {:ok, %{entry: question}} = ConversationLab.send_message(id, "Why is billing slow?", profile)
+    {episode, turn} = accepted_reply!(id, question, "The report query is slow.", profile)
+    update_ref = "control-plane-message:update-#{id}"
+
+    Answers.post!(
+      %{episode: episode, turn: turn},
+      "Still checking the replicas.",
+      update_ref,
+      DateTime.utc_now()
+    )
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, html} = live(conn, "/conversations/#{id}")
+
+    quick_picker = picker_id!(html, "Hi! What can I help with?")
+    update_picker = picker_id!(html, "Still checking the replicas.")
+
+    # Another tab on the conversation hears each reaction and redraws.
+    conversation = "control-plane:lab:" <> id
+    :ok = Ryker.Episodes.subscribe_conversation("control_plane", conversation)
+
+    view |> form("form[id='#{quick_picker}-+1']") |> render_submit()
+    assert_receive {:conversation_updated, ^conversation}
+
+    assert pills(render(view), "Hi! What can I help with?") == [{"+1", "remove", "true", "1"}]
+    assert pills(render(view), "Still checking the replicas.") == []
+
+    assert [%{kind: :reaction_added, value: "+1", message_ref: ^quick_ref}] =
+             Feedback.for_request({:input, greeting.id})
+
+    # Pressing the operator's own pill takes the reaction back.
+    view
+    |> form("form[id='#{pill_id!(render(view), "Hi! What can I help with?")}']")
+    |> render_submit()
+
+    assert pills(render(view), "Hi! What can I help with?") == []
+
+    assert Enum.map(Feedback.for_request({:input, greeting.id}), & &1.kind) ==
+             [:reaction_added, :reaction_removed]
+
+    view |> form("form[id='#{update_picker}-tada']") |> render_submit()
+    assert_receive {:conversation_updated, ^conversation}
+
+    assert pills(render(view), "Still checking the replicas.") == [
+             {"tada", "remove", "true", "1"}
+           ]
+
+    assert pills(render(view), "The report query is slow.") == []
+
+    assert [%{kind: :reaction_added, value: "tada", message_ref: ^update_ref}] =
+             Feedback.for_request({:episode, episode.id})
+
+    # An update's reaction is feedback, not the request's event: Work is not
+    # told about it the way it is told about a reaction on its reply.
+    refute Enum.any?(Ryker.Episodes.list_events(episode.key), &(&1.kind == :reaction_recorded))
+  end
+
+  # A live window patches its latest page and the rows changed since it last
+  # synced. A reaction on a quick reply or an update changes neither row, so a
+  # pill given in another tab reached a reader scrolled up to the message only
+  # if the window also asks which messages were reacted to.
+  test "a reaction on a quick reply or an update reaches a window scrolled past it" do
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    id = Ecto.UUID.generate()
+    {:ok, %{entry: greeting}} = ConversationLab.send_message(id, "hi", profile)
+    quick_ref = "control-plane-message:quick-#{id}"
+    Answers.quick_reply!(greeting, "Hi! What can I help with?", quick_ref, DateTime.utc_now())
+
+    {:ok, %{entry: question}} = ConversationLab.send_message(id, "Why is billing slow?", profile)
+    {episode, turn} = accepted_reply!(id, question, "The report query is slow.", profile)
+    update_ref = "control-plane-message:update-#{id}"
+
+    Answers.post!(
+      %{episode: episode, turn: turn},
+      "Still checking the replicas.",
+      update_ref,
+      DateTime.utc_now()
+    )
+
+    hour_ago = DateTime.add(DateTime.utc_now(), -3_600, :second)
+    conversation = "control-plane:lab:" <> id
+
+    Repo.update_all(from(r in RoutingResponse, where: r.conversation_ref == ^conversation),
+      set: [updated_at: hour_ago]
+    )
+
+    Repo.update_all(from(a in PlatformAction, where: a.conversation_ref == ^conversation),
+      set: [updated_at: hour_ago]
+    )
+
+    since = DateTime.add(DateTime.utc_now(), -60, :second)
+    ours = ["Hi! What can I help with?", "Still checking the replicas."]
+    assert {:ok, changed} = Projection.lab_changes(id, since)
+    refute Enum.any?(changed, &(&1.text in ours))
+
+    {:ok, _} = ConversationLab.react_to_message(id, quick_ref, :add, "+1")
+    {:ok, _} = ConversationLab.react_to_message(id, update_ref, :add, "tada")
+
+    assert {:ok, changed} = Projection.lab_changes(id, since)
+
+    assert changed
+           |> Enum.filter(&(&1.text in ours))
+           |> Enum.map(&{&1.text, Enum.map(&1.feedback_reactions, fn r -> r.emoji_name end)}) ==
+             [{"Hi! What can I help with?", ["+1"]}, {"Still checking the replicas.", ["tada"]}]
+  end
+
   test "an operator message edits in place through one hidden editor bound to that message" do
     # The Edit disclosure opened a second textarea under the message with an
     # "Edit message" heading and a full-width bar. The editor is now one hidden
@@ -2384,6 +2518,46 @@ defmodule Ryker.ControlPlane.LiveTest do
       )
 
     {episode, turn}
+  end
+
+  # The Ryker message in the Chat page that says `text`.
+  defp chat_message(html, text) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(".lab-chat-message.actor-ryker")
+    |> Enum.find(fn message -> LazyHTML.text(message) =~ text end)
+  end
+
+  defp picker_id!(html, text) do
+    assert message = chat_message(html, text), "no Ryker message says #{inspect(text)}"
+
+    [picker] =
+      message |> LazyHTML.query(".lab-reaction-toggle") |> LazyHTML.attribute("aria-controls")
+
+    picker
+  end
+
+  defp pill_id!(html, text) do
+    [pill] =
+      html
+      |> chat_message(text)
+      |> LazyHTML.query("form.lab-reaction-pill")
+      |> LazyHTML.attribute("id")
+
+    pill
+  end
+
+  # Each pill under the message as {emoji, what pressing it does, pressed, count}.
+  defp pills(html, text) do
+    for pill <- html |> chat_message(text) |> LazyHTML.query("form.lab-reaction-pill") do
+      value = fn selector, attribute ->
+        pill |> LazyHTML.query(selector) |> LazyHTML.attribute(attribute) |> List.first()
+      end
+
+      {value.("input[name=emoji]", "value"), value.("input[name=action]", "value"),
+       value.("button[type=submit]", "aria-pressed"),
+       pill |> LazyHTML.query(".lab-reaction-count") |> LazyHTML.text()}
+    end
   end
 
   defp accepted_reply!(conversation_id, %Ryker.Ingress.Inbox.Entry{} = entry, text, profile) do

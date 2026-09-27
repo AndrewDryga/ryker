@@ -221,6 +221,48 @@ defmodule Ryker.FeedbackTest do
     assert Feedback.for_request({:input, Ecto.UUID.generate()}) == []
   end
 
+  # Chat draws the pills of a quick reply or an update from these rows. A
+  # message's name is its platform's, and a Slack timestamp names a message
+  # only in its channel: the same name in another channel is another message,
+  # and its reactions are not this one's.
+  test "a message's reactions are read in its own conversation, a reaction taken back gone" do
+    here = input!("Is checkout up?", "1790000300.000100")
+    there = input!("Is billing up?", "1790000300.000200", "CFEEDBACKELSEWHERE")
+    reply = "1790000301.000100"
+
+    react = fn input, action, actor, emoji, second ->
+      assert {:ok, %{status: :recorded}} =
+               Feedback.record(%{
+                 kind: action,
+                 value: emoji,
+                 actor_ref: actor,
+                 source: "slack",
+                 source_ref: "slack-event:Ev-reactions-#{input.id}-#{second}",
+                 occurred_at: DateTime.add(@now, second, :second),
+                 message_ref: reply,
+                 request: {:input, input.id}
+               })
+    end
+
+    react.(here, :reaction_added, "UBOB", "eyes", 1)
+    react.(here, :reaction_added, "UALICE", "+1", 2)
+    react.(here, :reaction_removed, "UBOB", "eyes", 3)
+    react.(there, :reaction_added, "UALICE", "-1", 4)
+
+    assert %{^reply => [%{actor_ref: "UALICE", emoji_name: "+1"}]} =
+             Feedback.current_reactions(here.destination_conversation_ref, [reply])
+
+    assert %{^reply => [%{emoji_name: "-1"}]} =
+             Feedback.current_reactions(there.destination_conversation_ref, [reply])
+
+    # Which messages to draw again reads when Ryker recorded the reaction.
+    long_ago = ~U[2020-01-01 00:00:00Z]
+    later = DateTime.add(DateTime.utc_now(), 3_600, :second)
+    assert Feedback.reacted_messages(here.destination_conversation_ref, long_ago, 10) == [reply]
+    assert Feedback.reacted_messages(here.destination_conversation_ref, later, 10) == []
+    assert Feedback.reacted_messages("slack:#{@workspace}:CNOREACTIONS", long_ago, 10) == []
+  end
+
   defp episode! do
     episode_id = Ecto.UUID.generate()
 
@@ -238,11 +280,11 @@ defmodule Ryker.FeedbackTest do
     transition.episode
   end
 
-  defp input!(text, ts) do
+  defp input!(text, ts, channel \\ "CFEEDBACKSTORE") do
     {:ok, input} =
       SlackInput.new(%{
         actor: %{kind: :user, ref: "UALICE"},
-        channel_ref: "CFEEDBACKSTORE",
+        channel_ref: channel,
         content: %{"text" => text},
         event_kind: :message,
         event_ref: "Ev-#{ts}",
