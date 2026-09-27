@@ -341,7 +341,7 @@ the record they support, not a third peer memory type. Show change/source/expiry
 
 ### Repairing unavailable knowledge
 
-Provide one explicit **Relearn from current sources** action on the existing topic page. The
+Provide one explicit **Relearn this topic** section on the existing topic page. The
 operator selects 1–16 retained, currently authorized original messages in the topic's exact
 conversation/repository and one execution mode. Suggest the topic's former direct sources via
 their current source revisions first. Also allow explicit selection of other current originals
