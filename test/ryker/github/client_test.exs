@@ -784,6 +784,21 @@ defmodule Ryker.GitHub.ClientTest do
              Client.get_pull_request(client, "octo/example", 42)
   end
 
+  # Found live 2026-09-27: every publication follow-up poll was deferred with
+  # {:invalid_publication_lifecycle_status, :document} because the pull
+  # request's author fields (added 2026-09-04) rode along into a lifecycle
+  # document that must hold exactly its own fields. So since then Ryker never
+  # recorded a merge, a close or red checks on a pull request it opened.
+  test "a pull request's publication status is a lifecycle document the follow-up accepts" do
+    status =
+      publication_status([
+        response(200, %{"check_runs" => [], "total_count" => 0}),
+        response(200, %{"statuses" => []})
+      ])
+
+    assert {:ok, ^status} = Ryker.Publication.LifecycleStatus.prepare(status)
+  end
+
   test "check and commit status summaries distinguish none, passing, failing, and malformed pages" do
     none =
       publication_status([
