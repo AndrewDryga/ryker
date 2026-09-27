@@ -450,6 +450,7 @@ defmodule Ryker.ProductContractsTest do
                reconciler: %{name: :reconciler},
                task_card_worker: %{name: :task_card_worker},
                thread_status_worker: %{name: :thread_status_worker},
+               transcription_worker: %{name: :transcription_worker},
                workspace_admins: [workspace: "T1", lookup: fn _user -> {:ok, false} end]
              })
 
@@ -460,6 +461,8 @@ defmodule Ryker.ProductContractsTest do
              Ryker.Slack.ActionTokens,
              Ryker.Slack.WorkspaceAdmins,
              Ryker.Slack.Gateway,
+             # Voice messages the gateway recorded are transcribed after the ack.
+             Ryker.Transcription.Worker,
              Ryker.Slack.MembershipReconciler,
              Ryker.Slack.IncidentRoomWorker,
              Ryker.Slack.InteractionFeedbackWorker,

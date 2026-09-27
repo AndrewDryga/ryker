@@ -28,7 +28,17 @@ defmodule Ryker.EpisodesTest do
   # applied transition once it commits, and a duplicate, which changes nothing,
   # is not announced.
   test "an applied transition reaches its request, every request list and its conversation" do
-    command = EpisodeFixtures.admit_input()
+    # Its own episode: async suites apply the fixture's default episode too,
+    # and their announcements for that id reached this test's refute.
+    key = "episodes-test:announce:#{Ecto.UUID.generate()}"
+
+    command =
+      EpisodeFixtures.admit_input(%{
+        episode_id: Ecto.UUID.generate(),
+        episode_key: key,
+        native_input_id: "slack:event:#{key}"
+      })
+
     %{transport: transport, conversation_ref: conversation} = command.destination
     :ok = Episodes.subscribe_episodes()
     :ok = Episodes.subscribe_conversations(transport)
@@ -45,7 +55,9 @@ defmodule Ryker.EpisodesTest do
     assert {:ok, %{status: :duplicate}} = Episodes.apply(command)
     refute_received {:episode_updated, ^id}
 
-    assert {:ok, %{status: :applied}} = Episodes.apply(EpisodeFixtures.record_reaction())
+    assert {:ok, %{status: :applied}} =
+             Episodes.apply(EpisodeFixtures.record_reaction(%{episode_key: key}))
+
     assert_received {:episode_updated, ^id}
     assert_received {:episode_updated, ^id}
   end
