@@ -72,17 +72,6 @@ defmodule Ryker.Bootstrap do
     end
   end
 
-  def scan_secrets!(%__MODULE__{}, env \\ &System.fetch_env/1) do
-    @machine_secrets
-    |> Enum.flat_map(fn {_kind, name} ->
-      case env.(name) do
-        :error -> []
-        {:ok, value} -> [validate_secret!(value, name, 8)]
-      end
-    end)
-    |> Enum.uniq()
-  end
-
   defp database_url!(env) do
     value = value!(env, "DATABASE_URL")
     uri = URI.parse(value)
@@ -237,12 +226,6 @@ defmodule Ryker.Bootstrap do
           do: {:ok, value},
           else: {:error, {:invalid_environment_secret, name}}
     end
-  end
-
-  defp validate_secret!(value, name, minimum) do
-    if valid_secret?(value, minimum),
-      do: value,
-      else: invalid!(name, "contains invalid credential material")
   end
 
   defp valid_secret?(value, minimum) do

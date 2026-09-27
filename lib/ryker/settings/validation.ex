@@ -141,14 +141,6 @@ defmodule Ryker.Settings.Validation do
     end)
   end
 
-  def validate_absolute_path(changeset, field) do
-    validate_change(changeset, field, fn ^field, value ->
-      if Path.type(value) == :absolute and not String.contains?(value, [<<0>>, "\n"]),
-        do: [],
-        else: [{field, {"must be an absolute path", validation: :absolute_path}}]
-    end)
-  end
-
   def validate_known(changeset, field, known, reason) do
     validate_change(changeset, field, fn ^field, value ->
       if value in known, do: [], else: [{field, {"is unknown", validation: reason}}]
