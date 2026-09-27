@@ -21,16 +21,18 @@ defmodule Ryker.GitHub.OnboardingWorker do
     idle_interval = Map.get(options, :idle_interval_ms, PollingWorker.idle_interval_ms())
     api = Map.get(options, :api, Ryker.GitHub.Onboarding.Remote)
 
-    unless is_integer(interval) and interval in 100..60_000 and
-             is_integer(idle_interval) and idle_interval in 100..3_600_000 and
-             is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, :pin, 2) and
-             function_exported?(api, :scan, 3) and function_exported?(api, :publish, 4),
-           do: raise(ArgumentError, "GitHub onboarding worker configuration is invalid")
+    unless interval in 100..60_000 and idle_interval in 100..3_600_000 and remote?(api),
+      do: raise(ArgumentError, "GitHub onboarding worker configuration is invalid")
 
     %{api: api, idle_interval_ms: idle_interval, interval_ms: interval}
   end
 
   def options!(options) when is_list(options), do: options |> Map.new() |> options!()
+
+  defp remote?(api),
+    do:
+      is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, :pin, 2) and
+        function_exported?(api, :scan, 3) and function_exported?(api, :publish, 4)
 
   @impl PollingWorker
   def setup(options), do: {:ok, options!(options)}
