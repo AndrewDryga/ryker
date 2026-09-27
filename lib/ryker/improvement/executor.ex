@@ -320,15 +320,15 @@ defmodule Ryker.Improvement.Executor do
   defp complete(claim, run, turn) do
     with {:ok, _confirmed} <- Analyses.confirm_candidate(claim, run.id, turn),
          {:ok, _stopped} <- Analyses.record_stop(claim, run.id, turn) do
-      case Analyses.apply_result(claim, run.id) do
-        {:ok, candidate} ->
-          {:ok, {:applied, candidate}}
-
-        {:error, reason} ->
-          # The turn already stopped; the attempt simply gave no diagnosis.
-          with {:ok, _ended} <- Analyses.end_attempt(claim, run.id, reason), do: {:ok, :stopped}
-      end
+      claim |> Analyses.apply_result(run.id) |> applied(claim, run)
     end
+  end
+
+  defp applied({:ok, candidate}, _claim, _run), do: {:ok, {:applied, candidate}}
+
+  # The turn already stopped; the attempt simply gave no diagnosis.
+  defp applied({:error, reason}, claim, run) do
+    with {:ok, _ended} <- Analyses.end_attempt(claim, run.id, reason), do: {:ok, :stopped}
   end
 
   # -- Stopping ----------------------------------------------------------------------

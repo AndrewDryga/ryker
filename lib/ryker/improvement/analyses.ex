@@ -56,27 +56,43 @@ defmodule Ryker.Improvement.Analyses do
   defp next_candidate(now, quiet_seconds) do
     quiet = DateTime.add(now, -quiet_seconds, :second)
 
-    claimable =
-      dynamic(
-        [candidate: candidate],
-        (candidate.analysis == :running and candidate.lease_expires_at <= ^now) or
-          (candidate.analysis == :pending and
-             (is_nil(candidate.next_attempt_at) or candidate.next_attempt_at <= ^now) and
-             (exists(outstanding_parent_run()) or
-                (is_nil(candidate.forgotten_at) and candidate.status != :dismissed and
-                   candidate.last_signal_at <= ^quiet and ^at_rest())))
-      )
-
     Repo.one(
       from(candidate in Candidate,
         as: :candidate,
-        where: ^claimable,
+        where: ^claimable(now, quiet),
         order_by: [asc: candidate.last_signal_at, asc: candidate.id],
         limit: 1,
         lock: "FOR UPDATE SKIP LOCKED"
       )
     )
   end
+
+  # A worker stopped renewing its lease; or it is due, and either a run of it
+  # is still out at Coop, or it is still wanted, quiet and at rest.
+  defp claimable(now, quiet) do
+    dynamic(
+      [candidate: c],
+      ^stale_lease(now) or
+        (^due(now) and (exists(outstanding_parent_run()) or (^wanted(quiet) and ^at_rest())))
+    )
+  end
+
+  defp stale_lease(now),
+    do: dynamic([candidate: c], c.analysis == :running and c.lease_expires_at <= ^now)
+
+  defp due(now),
+    do:
+      dynamic(
+        [candidate: c],
+        c.analysis == :pending and (is_nil(c.next_attempt_at) or c.next_attempt_at <= ^now)
+      )
+
+  defp wanted(quiet),
+    do:
+      dynamic(
+        [candidate: c],
+        is_nil(c.forgotten_at) and c.status != :dismissed and c.last_signal_at <= ^quiet
+      )
 
   # The request has nothing still running: its Work has come to rest, or the
   # quick replies routing chose for the message were delivered or given up.
@@ -202,22 +218,9 @@ defmodule Ryker.Improvement.Analyses do
   def release(claim, reason, delay_seconds) when is_atom(reason) and delay_seconds >= 0 do
     Repo.transaction(fn ->
       candidate = owned!(claim)
-      exhausted = candidate.start_count >= candidate.start_limit
 
-      cond do
-        not is_nil(candidate.forgotten_at) ->
-          stop_analysis(candidate, "improvement_forgotten")
-
-        exhausted or reason in @stopping_reasons ->
-          stop_analysis(
-            candidate,
-            if(exhausted and reason not in @stopping_reasons,
-              do: "improvement_retry_exhausted",
-              else: Atom.to_string(reason)
-            )
-          )
-
-        true ->
+      case stop_code(candidate, reason) do
+        nil ->
           save(candidate,
             analysis: :pending,
             error_code: Atom.to_string(reason),
@@ -226,9 +229,26 @@ defmodule Ryker.Improvement.Analyses do
             lease_expires_at: nil,
             next_attempt_at: DateTime.add(Repo.now!(), delay_seconds)
           )
+
+        code ->
+          stop_analysis(candidate, code)
       end
     end)
   end
+
+  # Why the analysis stops for good, or nil when another start may follow. A
+  # cause that stops it by itself keeps its name even when it also spent the
+  # last start, as learning's do.
+  defp stop_code(%Candidate{forgotten_at: %DateTime{}}, _reason), do: "improvement_forgotten"
+
+  defp stop_code(_candidate, reason) when reason in @stopping_reasons,
+    do: Atom.to_string(reason)
+
+  defp stop_code(%Candidate{start_count: count, start_limit: limit}, _reason)
+       when count >= limit,
+       do: "improvement_retry_exhausted"
+
+  defp stop_code(_candidate, _reason), do: nil
 
   @doc "Stops analyzing a candidate for good, with the cause."
   def finish_failed(claim, reason) when is_atom(reason) do
@@ -456,37 +476,38 @@ defmodule Ryker.Improvement.Analyses do
       )
       when is_binary(result) and byte_size(result) <= 65_536 and is_integer(attempt) and
              attempt > 0 do
-    if sha256(result) == digest and CanonicalJSON.validate(producer, max_bytes: 4_096) == :ok do
-      run_transaction(claim, run_id, fn run ->
-        unless run.coop_turn_id == turn_id and owned_session?(run, session_id),
-          do: Repo.rollback(:improvement_remote_identity_conflict)
+    answer = %{
+      result: result,
+      result_sha256: digest,
+      producer: producer,
+      candidate_attempt: attempt
+    }
 
-        cond do
-          run.result == result and run.candidate_attempt == attempt ->
-            run
-
-          run.status in [:prepared, :responded] ->
-            run
-            |> Ecto.Changeset.change(
-              status: :responded,
-              result: result,
-              result_sha256: digest,
-              producer: producer,
-              candidate_attempt: attempt
-            )
-            |> Repo.update!()
-
-          true ->
-            Repo.rollback(:improvement_attempt_finished)
-        end
-      end)
-    else
-      {:error, :invalid_improvement_candidate}
-    end
+    if sha256(result) == digest and CanonicalJSON.validate(producer, max_bytes: 4_096) == :ok,
+      do: run_transaction(claim, run_id, &save_candidate(&1, turn_id, session_id, answer)),
+      else: {:error, :invalid_improvement_candidate}
   end
 
   def record_candidate(_claim, _run_id, _turn, _producer),
     do: {:error, :invalid_improvement_result}
+
+  defp save_candidate(run, turn_id, session_id, answer) do
+    unless run.coop_turn_id == turn_id and owned_session?(run, session_id),
+      do: Repo.rollback(:improvement_remote_identity_conflict)
+
+    cond do
+      run.result == answer.result and run.candidate_attempt == answer.candidate_attempt ->
+        run
+
+      run.status in [:prepared, :responded] ->
+        run
+        |> Ecto.Changeset.change(Map.put(answer, :status, :responded))
+        |> Repo.update!()
+
+      true ->
+        Repo.rollback(:improvement_attempt_finished)
+    end
+  end
 
   @doc "Keeps the proof that Coop accepted exactly this answer on exactly this turn."
   def confirm_candidate(claim, run_id, turn) do
@@ -497,21 +518,27 @@ defmodule Ryker.Improvement.Analyses do
           ~w(id session_id validation_attempt validation_candidate_sha256 validation_receipt)
         )
 
-      accepted? =
-        turn["state"] == "completed" and turn["id"] == run.coop_turn_id and
-          owned_session?(run, turn["session_id"]) and is_binary(run.result) and
-          turn["assistant_message"] == run.result and
-          turn["validation_attempt"] == run.candidate_attempt and
-          turn["validation_candidate_sha256"] == run.result_sha256 and
-          Reference.valid?(turn["validation_receipt"], 1_024)
-
       cond do
-        not accepted? -> Repo.rollback(:improvement_validation_unconfirmed)
+        not accepted?(run, turn) -> Repo.rollback(:improvement_validation_unconfirmed)
         run.validation_receipt == receipt -> run
         not is_nil(run.validation_receipt) -> Repo.rollback(:improvement_validation_conflict)
         true -> run |> Ecto.Changeset.change(validation_receipt: receipt) |> Repo.update!()
       end
     end)
+  end
+
+  # Coop completed exactly this turn with exactly the answer the run saved,
+  # at the attempt it was offered, and says so with a receipt.
+  defp accepted?(run, turn) do
+    turn["state"] == "completed" and turn["id"] == run.coop_turn_id and
+      owned_session?(run, turn["session_id"]) and accepted_answer?(run, turn)
+  end
+
+  defp accepted_answer?(run, turn) do
+    is_binary(run.result) and turn["assistant_message"] == run.result and
+      turn["validation_attempt"] == run.candidate_attempt and
+      turn["validation_candidate_sha256"] == run.result_sha256 and
+      Reference.valid?(turn["validation_receipt"], 1_024)
   end
 
   @doc """

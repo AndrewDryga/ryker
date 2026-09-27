@@ -9,7 +9,7 @@ defmodule Ryker.Improvement.AnalysesTest do
   alias Ryker.Fixtures.Answers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Improvement
-  alias Ryker.Improvement.{AnalysisRun, Analyses, Candidate, Dispatcher, Prompt}
+  alias Ryker.Improvement.{Analyses, AnalysisRun, Candidate, Dispatcher, Prompt}
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.TestSupport.FakeCoopAPI
   alias Ryker.Work.{Custody, Session}

@@ -220,17 +220,14 @@ defmodule Ryker.Improvement.Prompt do
   end
 
   defp until_fits(instructions, context, step) do
-    cond do
-      fits?(instructions, context) ->
-        context
-
-      true ->
-        case step.(context) do
-          ^context -> context
-          smaller -> until_fits(instructions, smaller, step)
-        end
-    end
+    if fits?(instructions, context),
+      do: context,
+      else: smaller(instructions, context, step, step.(context))
   end
+
+  # A step that changes nothing more is done, whether or not it fits.
+  defp smaller(_instructions, context, _step, context), do: context
+  defp smaller(instructions, _context, step, next), do: until_fits(instructions, next, step)
 
   defp fits?(instructions, context),
     do:
