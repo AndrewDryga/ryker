@@ -16,7 +16,7 @@ defmodule Ryker.RoutingExamples.MigrationTest do
   end
 
   @before_version 20_260_927_160_000
-  @version 20_260_927_170_000
+  @version 20_260_927_180_000
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @at ~N[2026-09-27 09:00:00.000000]
   @day 86_400
