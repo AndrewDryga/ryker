@@ -66,6 +66,7 @@ defmodule Ryker.GitHub.Onboarding.Remote do
   @impl true
   def publish(binding, repository, source_commit, content) do
     with {:ok, client} <- client(binding.name),
+         :ok <- writable(client, repository.github_repository),
          {:ok, owner} <- owner(repository.github_repository),
          {:ok, current} <- open_pull(client, repository.github_repository, owner) do
       case current do
@@ -120,6 +121,18 @@ defmodule Ryker.GitHub.Onboarding.Remote do
       {:ok, %{status: status} = response} when status in [401, 403] -> refused(response)
       {:ok, _other} -> branch_error()
       {:error, _reason} = error -> error
+    end
+  end
+
+  # An archived repository refuses every write, and GitHub's refusal of the
+  # setup branch does not always say why, so the repository's own flag does.
+  defp writable(client, repository) do
+    case request(client, :get, "/repos/#{repository}") do
+      {:ok, %{status: 200, body: %{"archived" => true}}} ->
+        {:error, {:github_onboarding, :archived}}
+
+      _writable_or_unknown ->
+        :ok
     end
   end
 
