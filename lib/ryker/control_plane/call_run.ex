@@ -4,7 +4,8 @@ defmodule Ryker.ControlPlane.CallRun do
   recorded: the model, the tokens the provider reported, the price (reported,
   or estimated from the price saved in Settings › Model prices for the day
   the call started when the provider sent none), whether Ryker's checks
-  passed, and the time from the call starting to its result being saved.
+  passed and on which attempt, each answer Ryker sent back on the way, and
+  the time from the call starting to its result being saved.
 
   Everything here was known when the call ended. Nothing reaches forward to
   work that came after it; the timeline's later cards say that.
@@ -13,11 +14,14 @@ defmodule Ryker.ControlPlane.CallRun do
   alias Ryker.Accounting.Pricing
 
   @type segment :: %{kind: :prepare | :model | :save, label: String.t(), ms: non_neg_integer()}
+  @typedoc "An answer Ryker sent back, and the card on the timeline that shows it."
+  @type correction :: %{attempt: pos_integer(), href: String.t()}
   @type t :: %{
           target: String.t() | nil,
           tokens: String.t() | nil,
           cost: String.t() | nil,
           checks: String.t() | nil,
+          corrections: [correction()],
           segments: [segment()],
           total_ms: non_neg_integer() | nil
         }
@@ -37,6 +41,8 @@ defmodule Ryker.ControlPlane.CallRun do
       tokens: tokens(usage),
       cost: cost(usage, target, attempt.inserted_at),
       checks: routing_checks(attempt.response),
+      # Routing's own corrections happen inside one call and have no card.
+      corrections: [],
       segments: segments(timing.before, timing.model, timing.after_model, "Checking and saving"),
       total_ms: timing.total_ms
     }
@@ -105,6 +111,7 @@ defmodule Ryker.ControlPlane.CallRun do
       tokens: tokens(usage),
       cost: cost(usage, turn.execution_target, turn.inserted_at),
       checks: work_checks(turn),
+      corrections: work_corrections(turn),
       segments: segments(before, model, after_model, "Checking the answer"),
       total_ms:
         if(turn.accepted_at, do: DateTime.diff(turn.accepted_at, turn.inserted_at, :millisecond))
@@ -136,6 +143,7 @@ defmodule Ryker.ControlPlane.CallRun do
       tokens: tokens(usage),
       cost: cost(usage, target, started),
       checks: learning_checks(run),
+      corrections: [],
       segments: learning_segments(execution, total, measured),
       # The attempt cannot have taken less than the parts its worker measured.
       total_ms: total && max(total, measured)
@@ -266,24 +274,20 @@ defmodule Ryker.ControlPlane.CallRun do
     value |> Decimal.round(places) |> Decimal.to_string(:normal)
   end
 
-  defp routing_checks(%{"state" => "completed", "validation_attempt" => 1}),
-    do: "passed first time"
-
-  defp routing_checks(%{"state" => "completed", "validation_attempt" => attempt})
-       when is_integer(attempt) and attempt > 1,
-       do: "passed after #{corrections(attempt - 1)}"
+  # Andrew, 2026-09-27, of "Checks · Passed first time": "it's unclear how
+  # that will look like if they did not pass first time?" A call that needed
+  # corrections says on which attempt it passed and how many corrections that
+  # took, in the same words whichever model made the call.
+  defp routing_checks(%{"state" => "completed", "validation_attempt" => attempt}),
+    do: passed(attempt)
 
   defp routing_checks(_response), do: nil
 
-  defp work_checks(%{accepted_at: %DateTime{}, candidate_attempt: 1}), do: "passed first time"
-
-  defp work_checks(%{accepted_at: %DateTime{}, candidate_attempt: attempt})
-       when is_integer(attempt) and attempt > 1,
-       do: "passed after #{corrections(attempt - 1)}"
+  defp work_checks(%{accepted_at: %DateTime{}, candidate_attempt: attempt}), do: passed(attempt)
 
   defp work_checks(%{validation_history: [_ | _] = history}) do
     case List.last(history) do
-      %{"verdict" => "reject"} -> "returned for correction"
+      %{"verdict" => "reject"} -> "Sent back to be fixed"
       _other -> nil
     end
   end
@@ -293,17 +297,37 @@ defmodule Ryker.ControlPlane.CallRun do
   # A learning result is checked by Ryker, confirmed by the worker, then
   # applied. Applied is the proof it passed; a rejected or stale attempt whose
   # answer came back did not.
-  defp learning_checks(%{status: :applied, candidate_attempt: 1}), do: "passed first time"
-  defp learning_checks(%{status: :applied}), do: "passed"
+  defp learning_checks(%{status: :applied, candidate_attempt: attempt}) when is_integer(attempt),
+    do: passed(attempt)
+
+  defp learning_checks(%{status: :applied}), do: "Passed"
 
   defp learning_checks(%{status: status, result_sha256: digest})
        when status in [:rejected, :stale] and is_binary(digest),
-       do: "did not pass"
+       do: "Did not pass"
 
   defp learning_checks(_run), do: nil
 
+  defp passed(1), do: "Passed first time"
+
+  defp passed(attempt) when is_integer(attempt) and attempt > 1,
+    do: "Passed on attempt #{attempt} · #{corrections(attempt - 1)}"
+
+  defp passed(_attempt), do: nil
+
   defp corrections(1), do: "1 correction"
   defp corrections(count), do: "#{count} corrections"
+
+  # Each answer a work turn sent back is its own card on the timeline, so the
+  # line that says a call needed corrections leads to each one.
+  defp work_corrections(%{id: id, validation_history: history})
+       when is_binary(id) and is_list(history) do
+    for %{"verdict" => "reject", "candidate_attempt" => attempt} <- history,
+        is_integer(attempt),
+        do: %{attempt: attempt, href: "#event-turn-#{id}-validation-#{attempt}"}
+  end
+
+  defp work_corrections(_turn), do: []
 
   defp time(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do

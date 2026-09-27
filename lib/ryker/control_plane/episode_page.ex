@@ -1281,15 +1281,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <span :if={@message[:status]}>{@message.status}</span>
       </:meta>
       <div>{message_text(@message)}</div>
-      <:footer :if={@message[:details] || @message[:response_reference]}>
-        <a
-          :if={@message[:response_reference]}
-          class="response-reference"
-          href={@message.response_reference}
-        >
-          View validated response ↑
-        </a>
-        <.input_details :if={@message[:details]} message={@message} />
+      <:footer :if={@message[:details]}>
+        <.input_details message={@message} />
       </:footer>
     </.message_block>
     <.input_details :if={@message[:provider] && @message[:details]} message={@message} />
@@ -1305,10 +1298,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   end
 
   defp message_title(%{title: title}) when is_binary(title), do: title
-
-  defp message_title(%{response_reference: reference}) when is_binary(reference),
-    do: "Sent response"
-
+  defp message_title(%{actor: "Ryker"}), do: "Sent response"
   defp message_title(%{event_kind: :edit}), do: "Message edited"
   defp message_title(%{event_kind: :delete}), do: "Message deleted"
   defp message_title(%{event_kind: :event}), do: "Incoming event"
@@ -1546,7 +1536,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
           response={@step.candidate_response.artifact}
           attempt={@step.candidate_response.attempt}
           prefix={@step.candidate_response.prefix}
-          sent_href={@step.candidate_response[:sent_href]}
+          sent={@step.candidate_response[:sent] || false}
+          title_update={@step.candidate_response[:title_update]}
         />
         <p :if={!@step.candidate_response.artifact}>
           <a href={@step.candidate_response.href}>Inspect response for attempt {@step.candidate_response.attempt} →</a>
@@ -1719,7 +1710,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           owner: message[:owner] || :episode,
           at: message.at,
           kind: :message,
-          message: Map.put(message, :response_reference, response_reference(message, requests)),
+          message: message,
           band: if(message.actor == "Ryker", do: :outcome, else: :input)
         }
       end)
@@ -1727,11 +1718,12 @@ defmodule Ryker.ControlPlane.EpisodePage do
     copies = visible_copies(snapshot.trace.steps, messages, timeline.items)
 
     # A reply sent exactly as checked is read once, in the conversation; the
-    # check keeps its verdict and points there instead of repeating the text.
+    # check keeps its verdict and does not repeat the text.
     sent =
-      for %{message: %{response_reference: "#" <> anchor} = message} <- messages,
-          into: %{},
-          do: {anchor, "#story-message-#{message.id}"}
+      for %{message: message} <- messages,
+          anchor = sent_as_checked(message, requests),
+          into: MapSet.new(),
+          do: anchor
 
     # The timeline also carries Ryker's own steps, such as the search for
     # earlier work; only model calls have response sections.
@@ -1761,10 +1753,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
   end
 
   defp sent_response(%{prefix: prefix, attempt: attempt} = response, sent) do
-    case sent["#{prefix}-response-#{attempt}-body"] do
-      nil -> response
-      href -> Map.put(response, :sent_href, href)
-    end
+    if MapSet.member?(sent, "#{prefix}-response-#{attempt}-body"),
+      do: Map.put(response, :sent, true),
+      else: response
   end
 
   defp sent_response(response, _sent), do: response
@@ -1785,9 +1776,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
     end)
   end
 
-  # A receipt may point back to this turn's exact response; a changed, missing or
-  # truncated candidate must never hide what actually reached the conversation.
-  defp response_reference(message, requests) do
+  # The checked answer a reply was sent exactly as, by the anchor of its
+  # response on the timeline. A changed, missing or truncated candidate is
+  # never one: its card must keep showing what the model wrote.
+  defp sent_as_checked(message, requests) do
     if delivered_message?(message) do
       id = "request-#{message.id}-result"
 
@@ -1795,18 +1787,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
            %{artifact: %{state: :retained, truncated: false, text: text}} <-
              Enum.find(sections, &(&1.id == "candidate")),
            {:ok, %{"message" => body}} when is_binary(body) <- Jason.decode(text),
-           true <- body == message.text do
-        response_anchor(RequestPage.latest_archived_response(sections), message.id, id)
+           true <- body == message.text,
+           %{attempt: attempt} <- RequestPage.latest_archived_response(sections) do
+        "turn-#{message.id}-response-#{attempt}-body"
       else
         _ -> nil
       end
     end
   end
-
-  defp response_anchor(%{attempt: attempt}, message_id, _request_id),
-    do: "#turn-#{message_id}-response-#{attempt}-body"
-
-  defp response_anchor(_archived, _message_id, request_id), do: "##{request_id}"
 
   defp visible_copies(steps, messages, requests) do
     input_ids = for %{message: message} <- messages, message.actor != "Ryker", do: message.id

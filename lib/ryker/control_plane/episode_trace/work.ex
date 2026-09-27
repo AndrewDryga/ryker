@@ -111,9 +111,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       attempt: attempt,
       candidate_sha256: entry["candidate_sha256"],
       intent_fingerprint: entry["intent_fingerprint"],
-      parse: entry["parse"],
       receipt: nil,
-      response_bytes: entry["response_bytes"],
       verdict: verdict,
       violations: violations
     )
@@ -128,9 +126,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       attempt: turn.candidate_attempt,
       candidate_sha256: turn.candidate_sha256,
       intent_fingerprint: turn.validation_intent_fingerprint,
-      parse: candidate_parse(turn.candidate),
       receipt: turn.validation_receipt,
-      response_bytes: if(is_binary(turn.candidate), do: byte_size(turn.candidate)),
       verdict: verdict,
       violations: violations
     )
@@ -151,12 +147,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       %{
         actor: "Ryker",
         owner: {:turn, turn.id},
-        details:
-          validation_details(
-            Keyword.fetch!(options, :parse),
-            Keyword.fetch!(options, :response_bytes),
-            violations
-          ),
+        details: validation_details(violations),
         stage: "Validation",
         state: state,
         summary: validation_summary(verdict, violations, attempt, turn),
@@ -454,13 +445,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   # The exact correction sent to the model is for inspection, under Details;
   # the step says why in a sentence (QA re-test, 2026-09-26: the step quoted
-  # "Call validate_final with this exact candidate…").
-  defp validation_details(parse, response_bytes, violations),
+  # "Call validate_final with this exact candidate…"). The response's shape
+  # and size are the raw response's own line (Andrew, 2026-09-27: "details not
+  # needed the duplicate whats already shown above nicely").
+  defp validation_details(violations),
     do:
       compact_details([
-        {"What Ryker told the model", if(violations != [], do: Enum.join(violations, " "))},
-        {"Parse", parse},
-        {"Response bytes", response_bytes}
+        {"What Ryker told the model", if(violations != [], do: Enum.join(violations, " "))}
       ])
 
   defp validation_summary("reject", [], _attempt, _turn),
@@ -470,11 +461,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     do:
       "Ryker sent this answer back for the model to fix. What it told the model is under Details."
 
+  # In the words the model call's Checks line uses: first time, or on
+  # which attempt.
   defp validation_summary("accept", _violations, 1, _turn),
-    do: "Ryker checked the answer and accepted it on the first try."
+    do: "Ryker checked the answer and accepted it the first time."
 
   defp validation_summary("accept", _violations, attempt, _turn) when is_integer(attempt),
-    do: "Ryker checked the answer and accepted it on try #{attempt}."
+    do: "Ryker checked the answer and accepted it on attempt #{attempt}."
 
   defp validation_summary("accept", _violations, _attempt, _turn),
     do: "Ryker checked the answer and accepted it."
@@ -518,16 +511,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       _other -> nil
     end
   end
-
-  defp candidate_parse(candidate) when is_binary(candidate) do
-    case Jason.decode(candidate) do
-      {:ok, value} when is_map(value) -> "JSON object"
-      {:ok, _value} -> "JSON value; object required"
-      {:error, _reason} -> "invalid JSON"
-    end
-  end
-
-  defp candidate_parse(_candidate), do: "not recorded"
 
   defp parsed_time(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do

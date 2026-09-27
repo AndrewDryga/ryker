@@ -374,10 +374,15 @@ defmodule Ryker.ControlPlane.RequestPage do
     end
   end
 
+  # An answer sent exactly as it was checked is read once, in the
+  # conversation, so its card keeps only what the conversation does not show
+  # (`sent`). A title is shown only where the answer changed the request's
+  # title (`title_update`); a title that stayed the same says nothing.
   def candidate_response(assigns) do
     assigns =
       assigns
-      |> assign_new(:sent_href, fn -> nil end)
+      |> assign_new(:sent, fn -> false end)
+      |> assign_new(:title_update, fn -> nil end)
       |> assign(:document, candidate_document(assigns.response))
       |> assign(:response_meta, candidate_response_meta(assigns.response))
 
@@ -389,26 +394,18 @@ defmodule Ryker.ControlPlane.RequestPage do
     >
       <div id={"#{@prefix}-response-#{@attempt}-body"} class="candidate-response-body" tabindex="-1">
         <.message_block
-          :if={@document && is_binary(@document["message"]) && !@sent_href}
+          :if={@document && is_binary(@document["message"]) && !@sent}
           sender="Ryker"
         >
           {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@document["message"]))}
         </.message_block>
-        <p :if={@document && is_binary(@document["message"]) && @sent_href} class="candidate-sent">
-          Sent as written. <a href={@sent_href}>Read the reply below ↓</a>
-        </p>
         <p
           :if={@document && is_binary(@document["decision_reason"])}
           class="candidate-decision-reason"
         >
           {@document["decision_reason"]}
         </p>
-        <dl :if={@document && is_binary(@document["title"])} class="request-decision response-title">
-          <div>
-            <dt>Request title</dt>
-            <dd><span>{@document["title"]}</span></dd>
-          </div>
-        </dl>
+        <.title_update :if={@title_update} title={@title_update} />
         <.disclosure
           id={"#{@prefix}-response-#{@attempt}-raw"}
           label="Raw response"

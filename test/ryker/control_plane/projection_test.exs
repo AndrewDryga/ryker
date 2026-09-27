@@ -519,10 +519,13 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Enum.any?(detail.trace.steps, &(&1.title == "Run 1 answer accepted"))
     assert Enum.any?(detail.trace.chapters, &(&1.title == "The answer"))
 
-    for {candidate, expected_parse} <- [
-          {Jason.encode!(%{"delivery" => "none"}), "JSON object"},
-          {Jason.encode!(["not", "an", "object"]), "JSON value; object required"},
-          {"not-json", "invalid JSON"}
+    # Andrew, 2026-09-27, of an accepted answer's Details (Parse · JSON
+    # object, Response bytes · 168): "details not needed the duplicate whats
+    # already shown above nicely." The raw response's own line says both.
+    for candidate <- [
+          Jason.encode!(%{"delivery" => "none"}),
+          Jason.encode!(["not", "an", "object"]),
+          "not-json"
         ] do
       candidate_sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
 
@@ -537,8 +540,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
       assert {:ok, legacy_detail} = Projection.episode(episode_key!(measured.episode_id))
       validation = Enum.find(legacy_detail.trace.steps, &(&1.title == "Answer validated"))
-      validation_details = Map.new(validation.details, &{&1.label, &1.value})
-      assert validation_details["Parse"] == expected_parse
+      assert validation.details == []
     end
 
     current = Repo.get!(Ryker.Work.Turn, measured.id)
@@ -589,13 +591,13 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     # It says why in a sentence; the exact correction is under Details.
     assert Enum.map(validation_steps, & &1.summary) == [
              "Ryker sent this answer back for the model to fix. What it told the model is under Details.",
-             "Ryker checked the answer and accepted it on try 3.",
+             "Ryker checked the answer and accepted it on attempt 3.",
              "Ryker rejected this answer and asked the model to correct it."
            ]
 
-    assert %{label: "What Ryker told the model", value: "Supply the missing evidence."} in hd(
-             validation_steps
-           ).details
+    assert hd(validation_steps).details == [
+             %{label: "What Ryker told the model", value: "Supply the missing evidence."}
+           ]
 
     for provider_ms <- [120_000, 7_200_000] do
       Repo.update_all(

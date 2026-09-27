@@ -146,12 +146,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@response["message"]))}
         </Components.message_block>
         <p :if={is_binary(@response["decision_reason"])}>{@response["decision_reason"]}</p>
-        <dl :if={is_binary(@response["title"])} class="request-decision response-title">
-          <div>
-            <dt>Request title</dt>
-            <dd><span>{@response["title"]}</span></dd>
-          </div>
-        </dl>
+        <Components.title_update :if={@request[:title_update]} title={@request.title_update} />
         <div :if={response_records(@response) != []} class="response-records">
           <h4>Supporting records</h4>
           <p>These records were created during the work and selected to support this response.</p>
@@ -163,11 +158,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           </ul>
         </div>
       </section>
-      <p :if={@archived_response} class="response-reference">
-        <a href={"#turn-#{String.replace_prefix(@request.id, "request-", "") |> String.replace_suffix("-result", "")}-response-#{@archived_response.attempt}-body"}>
-          View response with attempt {@archived_response.attempt}'s checks ↑
-        </a>
-      </p>
       <div
         :if={@result? && !@archived_response && @result_evidence != []}
         class="routing-evidence"
@@ -246,7 +236,14 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       </div>
       <div :if={@run.checks}>
         <dt>Checks</dt>
-        <dd>{String.capitalize(@run.checks)}</dd>
+        <dd>
+          {@run.checks}
+          <span :if={@run.corrections != []} class="call-run-corrections">
+            <a :for={correction <- @run.corrections} href={correction.href}>
+              Attempt {correction.attempt} was sent back to be fixed ↑
+            </a>
+          </span>
+        </dd>
       </div>
       <div :for={segment <- @run.segments}>
         <dt>{segment.label}</dt>
