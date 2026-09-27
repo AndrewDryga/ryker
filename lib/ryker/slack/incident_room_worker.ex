@@ -5,6 +5,12 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   Every provider operation is idempotent or searched by a deterministic
   receipt before mutation. A room does not become episode authority: it merely
   supplies a usable destination for the linked episode created at settlement.
+
+  A room, a request (an incident offer delivered, an investigation that
+  outlived its room) and a channel's alert policy that change are announced,
+  and each wakes the worker at once. Otherwise it sleeps until a retry, a
+  health check or a pinned card's check falls due, or for its safety-net
+  interval.
   """
 
   use Ryker.PollingWorker, lane: :slack_incidents, interval: :interval_ms
@@ -13,13 +19,14 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
   alias Ryker.Observability.Progress
   alias Ryker.Options
+  alias Ryker.PollingWorker
 
   alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
   alias Ryker.Delivery.HostNote
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Repo
-  alias Ryker.Slack.{IncidentRoomCard, IncidentRooms}
+  alias Ryker.Slack.{ChannelConfigurations, IncidentRoomCard, IncidentRooms}
   alias Ryker.Work.{Custody, Turn}
 
   @default_interval_ms 1_000
@@ -30,12 +37,27 @@ defmodule Ryker.Slack.IncidentRoomWorker do
     GenServer.start_link(__MODULE__, options, name: options.name)
   end
 
-  @impl Ryker.PollingWorker
+  @impl PollingWorker
+  def wake_on(_options),
+    do: [
+      &IncidentRooms.subscribe_rooms/0,
+      &Episodes.subscribe_episodes/0,
+      &ChannelConfigurations.subscribe_channels/0
+    ]
+
+  @impl PollingWorker
   def poll(options) do
     delay =
       case run_once(options) do
         {:ok, :idle} ->
-          options.interval_ms
+          PollingWorker.idle_delay(
+            &IncidentRooms.next_due_at(
+              &1,
+              options.health_check_seconds,
+              options.root_card_check_seconds
+            ),
+            Map.get(options, :idle_interval_ms, PollingWorker.idle_interval_ms())
+          )
 
         {:ok, _result} ->
           0
@@ -123,6 +145,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
     optional = [
       :automatic_request,
       :health_check_seconds,
+      :idle_interval_ms,
       :interval_ms,
       :name,
       :root_card_check_seconds,
@@ -161,6 +184,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
       Map.get(options, :health_check_seconds) in 1..86_400,
       Map.get(options, :root_card_check_seconds) in 1..86_400,
       Map.get(options, :interval_ms) in 50..3_600_000,
+      Map.get(options, :idle_interval_ms, 50) in 50..3_600_000,
       is_nil(automatic_request) or is_function(automatic_request, 0),
       is_nil(reserve_channel) or is_function(reserve_channel, 2),
       is_binary(Map.get(options, :worker_ref)),
