@@ -51,16 +51,17 @@ defmodule Ryker.ControlPlane.LearningSwitchTest do
     {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), "/memory/learning")
     refute has_element?(view, ".kit-status-line .state-word", "Learning is off")
 
+    # It asks over the page, so the page head never grows (Andrew, 2026-09-27).
     view |> element("button", "Turn off learning") |> render_click()
-    assert has_element?(view, ".learning-switch [role=group]", "Turn off learning?")
+    assert has_element?(view, "#learning-switch-question[role=alertdialog]", "Turn off learning?")
     assert enabled?()
 
-    view |> element(".learning-switch button", "Cancel") |> render_click()
-    refute has_element?(view, ".learning-switch [role=group]")
+    view |> element("#learning-switch-question button", "Cancel") |> render_click()
+    refute has_element?(view, "#learning-switch-question")
     assert enabled?()
 
     view |> element("button", "Turn off learning") |> render_click()
-    view |> element(".learning-switch [role=group] button.danger") |> render_click()
+    view |> element("#learning-switch-question button.danger") |> render_click()
 
     refute enabled?()
     assert has_element?(view, ".kit-status-line .state-word", "Learning is off")

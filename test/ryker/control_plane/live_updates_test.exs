@@ -36,6 +36,7 @@ defmodule Ryker.ControlPlane.LiveUpdatesTest do
     params = %{
       "channel" => "C456",
       "id" => Ecto.UUID.generate(),
+      "item" => "item-one",
       "kind" => "work",
       "ref" => episode.key,
       "workspace" => "T123"
