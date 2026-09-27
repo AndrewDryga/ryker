@@ -125,6 +125,23 @@ defmodule Ryker.ControlPlane.ToolCardTest do
     assert Enum.empty?(html |> LazyHTML.from_fragment() |> LazyHTML.query(".action-observation"))
   end
 
+  # Since 2026-09-27 Emisar's tools reach Work through Ryker's own server, so
+  # a call to one is narrated under that server's name.
+  test "an Emisar tool reached through Ryker's server is named as Emisar work" do
+    payload = %{
+      "input" => %{
+        "server" => "controller-tools",
+        "tool" => "run_action",
+        "arguments" => %{"action_id" => "linux.disk_usage", "reason" => "Is /srv full?"}
+      }
+    }
+
+    assert render_component(&ToolCard.render/1, step: %{step(payload) | state: "started"}) =~
+             "Ask Emisar to run an action"
+
+    assert render_component(&ToolCard.render/1, step: step(payload)) =~ "Emisar run requested"
+  end
+
   test "a finding tool shows the conclusion and reason with a meaningful action name" do
     payload = %{
       "input" => %{

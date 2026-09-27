@@ -53,7 +53,47 @@ defmodule Ryker.ControlPlane.ToolCard do
        "Prepares a recurring or event-triggered instruction for confirmation."},
     "record_emisar_approval" =>
       {"Record approval request", "Approval request recorded",
-       "Keeps the pending infrastructure approval so work can resume after a decision."}
+       "Keeps the pending infrastructure approval so work can resume after a decision."},
+    # Emisar's own tools, which Ryker's server has offered since 2026-09-27.
+    "find_actions" =>
+      {"Look up Emisar actions", "Emisar actions looked up",
+       "Searches the actions Emisar can run with this environment's account."},
+    "get_action" =>
+      {"Read an Emisar action", "Emisar action read",
+       "Reads one action's arguments, risk and runners."},
+    "run_action" =>
+      {"Ask Emisar to run an action", "Emisar run requested",
+       "Emisar's policy decides whether it runs now or waits for a person's approval."},
+    "wait_for_run" =>
+      {"Wait for an Emisar run", "Emisar run checked",
+       "Reads a run's state and output as Emisar reports it."},
+    "list_runners" =>
+      {"List Emisar runners", "Emisar runners listed",
+       "Reads the runners this environment's Emisar account can use."},
+    "list_packs" =>
+      {"List Emisar packs", "Emisar packs listed", "Reads the action packs Emisar trusts."},
+    "list_runbooks" =>
+      {"List Emisar runbooks", "Emisar runbooks listed", "Reads the runbooks saved in Emisar."},
+    "get_runbook" =>
+      {"Read an Emisar runbook", "Emisar runbook read", "Reads one runbook's steps."},
+    "recent_runs" =>
+      {"Read recent Emisar runs", "Recent Emisar runs read",
+       "Reads the runs Emisar carried out recently."},
+    "get_operation" =>
+      {"Look up an Emisar request", "Emisar request looked up",
+       "Reads what became of a request whose answer was lost."},
+    "cancel_run" =>
+      {"Ask Emisar to stop a run", "Emisar stop requested",
+       "Asks Emisar to cancel a run that has not finished."},
+    "execute_runbook" =>
+      {"Ask Emisar to run a runbook", "Emisar runbook requested",
+       "Emisar's policy decides whether it runs now or waits for a person's approval."},
+    "create_runbook_draft" =>
+      {"Draft an Emisar runbook", "Emisar runbook drafted",
+       "Saves a draft runbook in Emisar for a person to review."},
+    "update_runbook_draft" =>
+      {"Update an Emisar runbook draft", "Emisar runbook draft updated",
+       "Changes a draft runbook in Emisar for a person to review."}
   }
 
   def render(assigns) do
