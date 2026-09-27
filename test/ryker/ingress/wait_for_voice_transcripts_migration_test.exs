@@ -9,8 +9,8 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
       adapter: Ecto.Adapters.Postgres
   end
 
-  @before_version 20_260_927_172_000
-  @version 20_260_927_180_000
+  @before_version 20_260_927_191_000
+  @version 20_260_927_192_000
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @at ~N[2026-09-27 18:00:00.000000]
 
