@@ -740,6 +740,11 @@ records what is observed now and never revives the expired snapshot. Pruning run
 batches and short transactions so retention cannot monopolize a busy database. Every table has an executable retention
 class, and every age/lease comparison uses PostgreSQL time.
 
+Routing decisions copied for training (`routing_examples`) are the one deliberate exception: a
+redacted copy of the prompt, the answer and the outcome, kept under its own limit while a person
+keeps them on, and erased when a person forgets or deletes a message it quotes.
+[Training data](training-data.md) says what a copy holds, when it is taken and how to export it.
+
 One cleanup pass claims repeatedly under a bounded budget: at most `batch_limit` phases, at most
 `batch_seconds` of wall time, and at most one phase per session. Candidates are ordered by
 eligibility, the durable time the session became claimable — the owner's terminal time before
