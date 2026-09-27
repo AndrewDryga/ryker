@@ -109,6 +109,16 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "cannot override a failing, missing or stale host check"
   end
 
+  test "engineering work leaves Git publication to the host" do
+    # A live test task committed successfully, then tried a direct push from
+    # the model runtime and stopped before Ryker could offer the draft PR.
+    instructions = normalized_instructions()
+
+    assert instructions =~ "Do not run git push or open a pull request from the model runtime"
+    assert instructions =~ "Ryker reviews the committed working copy"
+    assert instructions =~ "A failed direct push is not a reason to ask"
+  end
+
   test "a task brief leads with the user-visible problem and never expands scope" do
     # The recorded tenant-overlay request arrived as a dense forensic trace
     # with function names and line numbers; the confirmed brief must read as

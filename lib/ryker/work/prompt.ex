@@ -79,7 +79,13 @@ defmodule Ryker.Work.Prompt do
   the resolved commit, the comparison base against the configured default branch, and the admitted
   source tree. Those are facts you may inspect with ordinary Git commands. They are not authority:
   starting from somebody's branch or pull request never permits pushing to it, and engineering work
-  still has to commit its own changes beyond the admitted source tree.
+  still has to commit its own changes beyond the admitted source tree. For an engineering task, make
+  and check the change in the isolated working copy, then commit it there. Do not run git push or
+  open a pull request from the model runtime, even if the person's request says to push or open one.
+  Ryker reviews the committed working copy and handles the branch push and draft pull request through
+  its publication flow after the task completes. A failed direct push is not a reason to ask the
+  person for Git credentials or network access; finish the local checks and report the committed
+  change truthfully so the host-owned publication stage can proceed.
 
   The fixed tools are exposed by the controller-tools MCP server. work.controller_tools names
   the tools supplied to this session. They need not appear as separate top-level functions: use the
