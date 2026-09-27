@@ -2,7 +2,8 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   @moduledoc """
   The Repositories list: one search box over Kit rows that say whether each
   repository is ready, still being set up, or needs a person and what to do,
-  with the exact support facts in one closed Details disclosure per row.
+  and where its RYKER.md stands, with the exact support facts in one closed
+  Details disclosure per row.
   """
   use ExUnit.Case, async: true
 
@@ -38,6 +39,21 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
       onboarding_state: :ready,
       ref: "acme-checkout-api",
       updated_at: ~U[2026-08-28 13:56:00Z]
+    },
+    knowledge: %{
+      phase: :idle,
+      reason: "These files changed: README.md.",
+      document_by: :model,
+      document_commit: "783fc48" <> String.duplicate("0", 33),
+      document_at: ~U[2026-08-28 13:00:00Z],
+      published_at: ~U[2026-08-28 13:01:00Z],
+      publication: :opened,
+      pull_request_url: "https://github.com/acme/checkout-api/pull/84",
+      pull_request_number: 84,
+      pull_request_state: :merged,
+      checked_at: ~U[2026-08-28 13:00:00Z],
+      next_check_at: ~U[2026-08-29 13:00:00Z],
+      error: nil
     },
     freshness: %{
       fetched_at: "2026-08-28T12:00:00Z",
@@ -104,9 +120,16 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert state(row) == {"Ready", ["on"]}
     assert Enum.empty?(LazyHTML.query(row, "p.entity-text"))
 
-    # Removing it is its one action, quiet, and it only asks.
-    assert row |> LazyHTML.query(".entity-actions .ui-button") |> LazyHTML.text() ==
-             "Remove acme/checkout-api"
+    # Refreshing its RYKER.md and removing it are its actions, quiet, and
+    # both only ask.
+    assert row |> LazyHTML.query(".entity-actions .ui-button") |> Enum.map(&LazyHTML.text/1) ==
+             ["Refresh knowledge of acme/checkout-api", "Remove acme/checkout-api"]
+
+    assert LazyHTML.query(
+             row,
+             ".entity-actions button.quiet[phx-click=confirm-settings-action][phx-value-action=refresh-knowledge][phx-value-ref=acme-checkout-api]"
+           )
+           |> Enum.count() == 1
 
     assert LazyHTML.query(
              row,
@@ -115,7 +138,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
            |> Enum.count() == 1
 
     assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
-             "In Production, Staging · used in 2 channels and 1 schedule · 14 tasks · code from 3f9a1c2e, fetched 2 h ago"
+             "In Production, Staging · used in 2 channels and 1 schedule · 14 tasks · code from 3f9a1c2e, fetched 2 h ago · Knowledge updated 1 h ago · pull request #84"
 
     assert LazyHTML.query(row, "p.entity-meta strong") |> LazyHTML.text() == "3f9a1c2e"
   end
@@ -128,17 +151,20 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     row = render([alone]) |> LazyHTML.query("article.entity-row")
 
     assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
-             "In no environment yet · 14 tasks · code from 3f9a1c2e, fetched 2 h ago"
+             "In no environment yet · 14 tasks · code from 3f9a1c2e, fetched 2 h ago · Knowledge updated 1 h ago · pull request #84"
   end
 
   test "a repository still being set up says which step it is on and since when" do
-    setting_up = put_in(@repository, [:configured, :onboarding_state], :scanning)
+    setting_up = put_in(@repository, [:configured, :onboarding_state], :cloning)
     row = render([setting_up]) |> LazyHTML.query("article.entity-row")
 
     assert state(row) == {"Setting up", ["busy"]}
 
     assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
-             "Reading the repository · since 4 min ago"
+             "Copying the code · since 4 min ago"
+
+    # Its RYKER.md comes once it is set up: nothing to refresh yet.
+    assert Enum.empty?(LazyHTML.query(row, "button[phx-value-action=refresh-knowledge]"))
   end
 
   test "a repository that needs a person says what is wrong and exactly what to do" do
@@ -225,7 +251,10 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
     text = details |> LazyHTML.text() |> squeeze()
     assert text =~ "acme/checkout-api · access available"
-    assert text =~ "Accepted, written from commit bbbbbbbbbbbb"
+    assert text =~ "Written by a model from 783fc48; Work reads it as merged."
+    assert text =~ "Pull request #84"
+    assert text =~ "Last written because These files changed: README.md."
+    assert text =~ "Last 1 h ago, next tomorrow 13:00 UTC"
     assert text =~ "Everything Ryker needs"
     assert text =~ "merge pull request"
     assert text =~ "Up to date"
@@ -346,28 +375,96 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
              "needs attention"
   end
 
-  # GitHub refuses every write to an archived repository, and setup says so
-  # in its own words, which already say what to do (2026-09-27).
-  test "an archived repository's stopped setup reads as one instruction, with Retry and Remove" do
-    archived =
+  # A reason that already says how to go on is not followed by a second
+  # instruction (2026-09-27: an archived repository's setup read "Unarchive it
+  # on GitHub and retry, or remove it. Fix the cause, then retry setup.").
+  test "a stopped setup whose reason says what to do reads as one instruction, with Retry and Remove" do
+    stopped =
       @repository
       |> put_in([:configured, :onboarding_state], :blocked)
       |> put_in(
         [:configured, :onboarding_error],
-        "This repository is archived on GitHub, so Ryker can read it but cannot open its " <>
-          "knowledge pull request. Unarchive it on GitHub and retry, or remove it."
+        "Repository setup could not finish. Check GitHub access and retry."
       )
 
-    row = render([archived]) |> LazyHTML.query("article.entity-row")
+    row = render([stopped]) |> LazyHTML.query("article.entity-row")
     assert state(row) == {"Needs attention", ["warn"]}
 
     assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() ==
-             "Setup stopped. This repository is archived on GitHub, so Ryker can read it but " <>
-               "cannot open its knowledge pull request. Unarchive it on GitHub and retry, or " <>
-               "remove it."
+             "Setup stopped. Repository setup could not finish. Check GitHub access and retry."
 
     assert row |> LazyHTML.query(".entity-actions .ui-button") |> Enum.map(&LazyHTML.text/1) ==
              ["Retry setup", "Remove acme/checkout-api"]
+  end
+
+  # Andrew, 2026-09-27: "also when those are updated?" The row says when
+  # Ryker last updated RYKER.md and links its pull request, or says what is
+  # under way, or why the last step failed, in plain words.
+  test "a ready repository says where its RYKER.md stands" do
+    for {knowledge, meta} <- [
+          {%{pull_request_state: :open}, "Knowledge updated 1 h ago · open pull request #84"},
+          {%{phase: :write}, "Writing RYKER.md"},
+          {%{phase: :publish}, "Writing RYKER.md"},
+          {%{document_by: :outline}, "RYKER.md is an outline · pull request #84"},
+          {%{published_at: nil}, "RYKER.md not proposed yet"}
+        ] do
+      row =
+        @repository
+        |> update_in([:knowledge], &Map.merge(&1, knowledge))
+        |> render_row()
+
+      assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() =~
+               "fetched 2 h ago · " <> meta
+    end
+
+    fresh = render_row(%{@repository | knowledge: nil})
+
+    assert fresh |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() =~
+             "· RYKER.md not written yet"
+
+    # The link opens the pull request on GitHub.
+    assert @repository
+           |> render_row()
+           |> LazyHTML.query(
+             "p.entity-meta a[href='https://github.com/acme/checkout-api/pull/84'][target=_blank]"
+           )
+           |> LazyHTML.text() == "pull request #84"
+
+    # While a model writes it, it cannot be asked for again.
+    writing = @repository |> put_in([:knowledge, :phase], :write) |> render_row()
+    assert Enum.empty?(LazyHTML.query(writing, "button[phx-value-action=refresh-knowledge]"))
+  end
+
+  test "a failed RYKER.md step says why on the row, and the repository stays ready" do
+    error =
+      "The repository is archived on GitHub, so Ryker cannot propose its RYKER.md. " <>
+        "Unarchive it on GitHub, then refresh knowledge."
+
+    row = @repository |> put_in([:knowledge, :error], error) |> render_row()
+
+    assert state(row) == {"Ready", ["on"]}
+    assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() == error
+
+    # A problem that needs a person comes first.
+    removed =
+      @repository
+      |> put_in([:knowledge, :error], error)
+      |> put_in([:configured, :github_access], :removed)
+      |> render_row()
+
+    assert LazyHTML.query(removed, "p.entity-text") |> LazyHTML.text() =~
+             "GitHub access was removed"
+  end
+
+  test "refreshing knowledge asks what it does before a model reads the repository" do
+    assert RepositoriesPage.refresh_question(@repository) == %{
+             title: "Refresh knowledge of acme/checkout-api?",
+             text:
+               "A model reads the repository again now and Ryker rewrites RYKER.md from what " <>
+                 "it finds, checking every path and command against the code. If the new " <>
+                 "version says something the default branch does not, Ryker proposes it in a " <>
+                 "pull request, or updates the one already open."
+           }
   end
 
   # Andrew, 2026-09-27: "how do I remove repositories?!"
@@ -448,6 +545,8 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     |> RepositoriesPage.html()
     |> LazyHTML.from_fragment()
   end
+
+  defp render_row(item), do: [item] |> render() |> LazyHTML.query("article.entity-row")
 
   defp squeeze(text), do: text |> String.replace(~r/\s+/, " ") |> String.trim()
 

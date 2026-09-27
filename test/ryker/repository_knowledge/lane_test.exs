@@ -399,7 +399,10 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     entry = RepositoryKnowledge.entry("emisar")
     assert entry.document_by == :outline
-    assert entry.error == "The model named nothing Ryker could find in the repository."
+
+    assert entry.error ==
+             "RYKER.md was not updated: the model named nothing Ryker could find in the " <>
+               "repository. Ryker tries again with the next daily check, or refresh knowledge."
   end
 
   test "a model's RYKER.md is kept when a rewrite names nothing real" do
@@ -413,7 +416,11 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     entry = RepositoryKnowledge.entry("emisar")
     assert {entry.phase, entry.document} == {:idle, written.document}
-    assert entry.error == "The model named nothing Ryker could find in the repository."
+
+    assert entry.error ==
+             "RYKER.md was not updated: the model named nothing Ryker could find in the " <>
+               "repository. Ryker tries again with the next daily check, or refresh knowledge."
+
     assert FakeGitHubRepository.state().open.document == written.document
   end
 
