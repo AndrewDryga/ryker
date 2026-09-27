@@ -1,6 +1,6 @@
 defmodule Ryker.Schedules.SchedulesTest do
   use Ryker.DataCase, async: false
-  import Ryker.TestHelpers, only: [digest: 1]
+  import Ryker.TestHelpers, only: [digest: 1, eventually: 2]
 
   import Ecto.Query
 
@@ -17,6 +17,7 @@ defmodule Ryker.Schedules.SchedulesTest do
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Schedules.ScheduleRecurrence
+  alias Ryker.Schedules.ScheduleWorker
 
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Submission, SubmissionBuilder}
 
@@ -437,6 +438,30 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert {:ok, nil} = Schedules.claim_due("schedule-worker:once-retry", 60)
   end
 
+  # On 2026-09-27 an idle install committed about 125 transactions a second;
+  # the schedule worker read its table every second. It now sleeps until a
+  # schedule is announced or its next occurrence falls due, so a schedule
+  # confirmed while it sleeps has to wake it, and its occurrence to run on
+  # time rather than at the end of a safety-net interval.
+  test "a schedule confirmed while the worker is idle runs at its occurrence" do
+    worker = start_supervised!({ScheduleWorker, sleeping_worker("schedule-worker:woken")})
+    # Its first poll found nothing, and its next timer is a minute away.
+    _state = :sys.get_state(worker)
+
+    confirmed = confirm_once!("worker-woken", 1_500)
+
+    refute ran?(confirmed.schedule)
+    assert eventually(fn -> ran?(confirmed.schedule) end, 2_500)
+  end
+
+  test "a schedule whose occurrence falls due runs then, not at the safety-net interval" do
+    confirmed = confirm_once!("worker-due", 1_500)
+    start_supervised!({ScheduleWorker, sleeping_worker("schedule-worker:due")})
+
+    refute eventually(fn -> ran?(confirmed.schedule) end, 500)
+    assert eventually(fn -> ran?(confirmed.schedule) end, 2_000)
+  end
+
   test "run now is audited once and never moves the recurring cadence" do
     fixture = delivered_offer!("run-now")
     assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "run-now"))
@@ -846,6 +871,42 @@ defmodule Ryker.Schedules.SchedulesTest do
              )
 
     %{episode: settled.episode, receipt: receipt, record: record}
+  end
+
+  # A one-time schedule whose only occurrence is `after_ms` from now.
+  defp confirm_once!(suffix, after_ms) do
+    now = DateTime.utc_now()
+    at = now |> DateTime.add(after_ms, :millisecond) |> DateTime.to_iso8601()
+    fixture = delivered_offer!(suffix, recurrence: %{"at" => at, "kind" => "once"})
+
+    {:ok, confirmed} =
+      fixture
+      |> confirmation(suffix)
+      |> Map.put(:occurred_at, DateTime.to_iso8601(now))
+      |> Schedules.confirm()
+
+    confirmed
+  end
+
+  defp ran?(schedule),
+    do:
+      Repo.exists?(
+        from(occurrence in ScheduleOccurrence, where: occurrence.schedule_id == ^schedule.id)
+      )
+
+  defp sleeping_worker(worker_ref) do
+    [
+      dispatcher_options: [
+        lease_seconds: 60,
+        misfire_grace_seconds: 900,
+        policy_resolver: &policy/1,
+        retry_base_seconds: 5,
+        retry_max_seconds: 60,
+        worker_ref: worker_ref
+      ],
+      idle_interval_ms: 60_000,
+      poll_interval_ms: 60_000
+    ]
   end
 
   defp confirmation(fixture, suffix) do

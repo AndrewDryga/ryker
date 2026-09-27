@@ -14,7 +14,7 @@ defmodule Ryker.Publication.FollowupWorker do
 
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
-  alias Ryker.Publication.{Custody, FollowupDispatcher, Followups}
+  alias Ryker.Publication.{Custody, FollowupDispatcher}
 
   def start_link(options), do: GenServer.start_link(__MODULE__, options)
 
@@ -45,7 +45,10 @@ defmodule Ryker.Publication.FollowupWorker do
     delay =
       case FollowupDispatcher.run_once(state.dispatcher_options) do
         {:ok, :idle} ->
-          PollingWorker.idle_delay(&Followups.next_due_at/1, state.idle_interval_ms)
+          PollingWorker.idle_delay(
+            &FollowupDispatcher.next_due_at(state.dispatcher_options, &1),
+            state.idle_interval_ms
+          )
 
         {:ok, {:executed, _result}} ->
           0

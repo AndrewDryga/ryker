@@ -50,6 +50,40 @@ defmodule Ryker.Schedules do
     end
   end
 
+  @doc """
+  The earliest moment after `since` at which an active schedule becomes
+  claimable by the clock alone: its next occurrence, the end of its retry's
+  backoff or the end of an unrenewed lease, whichever it waits on last. Nil
+  when no schedule waits on the clock.
+  """
+  @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(%DateTime{} = since) do
+    due =
+      from(schedule in Schedule,
+        where: schedule.status == :active and not is_nil(schedule.next_occurrence_at),
+        select: %{
+          due_at:
+            type(
+              fragment(
+                "GREATEST(?, ?, CASE WHEN ? IS NOT NULL THEN ? END)",
+                schedule.next_occurrence_at,
+                schedule.next_attempt_at,
+                schedule.lease_ref,
+                schedule.lease_expires_at
+              ),
+              :utc_datetime_usec
+            )
+        }
+      )
+
+    Repo.one(
+      from(schedule in subquery(due),
+        where: schedule.due_at > ^since,
+        select: min(schedule.due_at)
+      )
+    )
+  end
+
   @spec claim_due(String.t(), pos_integer()) :: {:ok, map() | nil} | {:error, term()}
   def claim_due(worker_ref, lease_seconds) do
     with :ok <- reference(worker_ref, :worker_ref),

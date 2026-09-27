@@ -17,6 +17,19 @@ defmodule Ryker.Schedules.ScheduleDispatcher do
     end
   end
 
+  @doc """
+  The earliest moment after `since` at which the configured schedule custody
+  has an occurrence, retry or unrenewed lease due, or nil; a custody that
+  cannot say has nothing the worker could sleep until.
+  """
+  @spec next_due_at(keyword(), DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(options, %DateTime{} = since) do
+    custody = Keyword.get(options, :custody, Schedules)
+
+    if callback?(custody, :next_due_at, 1),
+      do: custody.next_due_at(since)
+  end
+
   defp execute(claim, settings) do
     case settings.custody.dispatch(
            claim.schedule.ref,
