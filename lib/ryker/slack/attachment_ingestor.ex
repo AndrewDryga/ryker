@@ -5,12 +5,12 @@ defmodule Ryker.Slack.AttachmentIngestor do
   Raw private URLs exist only during this adapter call. The returned generic
   input contains safe metadata and an opaque artifact ref for the Work runtime.
 
-  A voice message or video is kept too, and its descriptor carries what was
-  said (`Ryker.Transcription`): Slack's own transcript when Slack finished
-  one, otherwise the configured transcriber's, taken here, before the input is
-  recorded, so routing reads a voice message as words. The transcriber's
-  result is kept beside the recording, so Slack's redelivery of the same file
-  does not transcribe it again.
+  A voice message or video is kept too, and routing reads it as the words it
+  says (`Ryker.Transcription`). Slack's own transcript is used when Slack
+  finished one. Otherwise the descriptor says the transcript is still to come,
+  and `Ryker.Transcription.Worker` fills it in after Slack has its
+  acknowledgement: nothing is transcribed here, while the Slack gateway holds
+  every later event behind this one.
   """
 
   alias Ryker.Artifacts
@@ -62,7 +62,7 @@ defmodule Ryker.Slack.AttachmentIngestor do
   defp ingest_file(input, %{} = file, _index, total, options) do
     case stored(input, file, total, options) do
       {:ok, artifact} ->
-        {:ok, available(artifact, file, options), total + artifact.byte_size}
+        {:ok, available(artifact, file), total + artifact.byte_size}
 
       {:unavailable, reason} ->
         {:ok, unavailable(reason, file), total}
@@ -198,7 +198,7 @@ defmodule Ryker.Slack.AttachmentIngestor do
 
   defp available_capacity(_file, _total), do: {:error, {:slack_file_rejected, :metadata}}
 
-  defp available(artifact, file, options) do
+  defp available(artifact, file) do
     descriptor = %{
       "artifact_ref" => artifact.ref,
       "bytes" => artifact.byte_size,
@@ -209,7 +209,7 @@ defmodule Ryker.Slack.AttachmentIngestor do
     }
 
     if Artifacts.recording?(artifact.media_type),
-      do: Map.merge(descriptor, transcript(artifact, file, options)),
+      do: Map.merge(descriptor, transcript(artifact, file)),
       else: descriptor
   end
 
@@ -232,14 +232,11 @@ defmodule Ryker.Slack.AttachmentIngestor do
   defp recording_label(%{"subtype" => "slack_video"}), do: "video/mp4"
   defp recording_label(_file), do: nil
 
-  defp transcript(artifact, file, options) do
-    words =
-      case slack_words(file) do
-        {:ok, words} -> {:ok, words}
-        :none -> transcribed(artifact, options)
-      end
-
-    Transcription.outcome(artifact.media_type, words)
+  defp transcript(artifact, file) do
+    case slack_words(file) do
+      {:ok, words} -> Transcription.outcome(artifact.media_type, {:ok, words})
+      :none -> Transcription.pending()
+    end
   end
 
   # Slack's finished transcript is the whole of what was said unless Slack
@@ -256,34 +253,6 @@ defmodule Ryker.Slack.AttachmentIngestor do
 
   defp slack_words(_file), do: :none
 
-  defp transcribed(artifact, options) do
-    kept = artifact.source_ref <> ":transcript"
-
-    case options.store.fetch_source("slack", kept) do
-      {:ok, %{data: words}} ->
-        {:ok, words}
-
-      {:error, :input_artifact_not_found} ->
-        result = options.transcriber.transcribe(artifact.data, [])
-        _kept = keep(options.store, kept, result)
-        result
-    end
-  end
-
-  defp keep(store, source_ref, {:ok, text}) do
-    with {:ok, words} <- Transcription.words(text) do
-      store.put(%{
-        data: words,
-        media_type: "text/plain",
-        name: "transcript.txt",
-        source_kind: "slack",
-        source_ref: source_ref
-      })
-    end
-  end
-
-  defp keep(_store, _source_ref, {:error, _failure}), do: :ok
-
   defp reason(:data), do: "content_mismatch"
   defp reason(:media_type), do: "unsupported_media_type"
   defp reason(:name), do: "invalid_name"
@@ -297,14 +266,10 @@ defmodule Ryker.Slack.AttachmentIngestor do
   defp failure("recording_too_large"), do: :too_large
   defp failure(_reason), do: :failed
 
-  defp options(
-         %{client: _client, downloader: downloader, store: store, transcriber: transcriber} =
-           settings
-       ) do
-    if implements?(downloader, download: 3) and implements?(store, fetch_source: 2, put: 1) and
-         implements?(transcriber, transcribe: 2),
-       do: {:ok, Map.take(settings, [:client, :downloader, :store, :transcriber])},
-       else: {:error, {:invalid_slack_attachment_ingestor, :settings}}
+  defp options(%{client: _client, downloader: downloader, store: store} = settings) do
+    if implements?(downloader, download: 3) and implements?(store, fetch_source: 2, put: 1),
+      do: {:ok, Map.take(settings, [:client, :downloader, :store])},
+      else: {:error, {:invalid_slack_attachment_ingestor, :settings}}
   end
 
   defp options(_settings), do: {:error, {:invalid_slack_attachment_ingestor, :settings}}

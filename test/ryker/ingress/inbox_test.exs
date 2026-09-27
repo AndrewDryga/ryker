@@ -3,6 +3,7 @@ defmodule Ryker.Ingress.InboxTest do
 
   import Ecto.Query
 
+  alias Ryker.Artifacts
   alias Ryker.ControlPlane.Projection
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
@@ -636,6 +637,46 @@ defmodule Ryker.Ingress.InboxTest do
     assert following.id == second.id
   end
 
+  # A voice message is recorded before its words are known. Words that never
+  # come must not hold its conversation for good: two minutes after it was
+  # recorded routing takes it and reads that Ryker could not transcribe it,
+  # and words that turn up afterwards change nothing routing read.
+  test "a voice message whose transcript never comes is routed after two minutes saying so" do
+    assert {:ok, %{entry: voice}} = Inbox.record(voice_input!("Ev-voice-deadline"))
+
+    # A later message in its conversation keeps its place behind it.
+    assert {:ok, %{entry: _later}} =
+             Inbox.record(input!(event_ref: "Ev-after-voice", message_ref: "1787832001.000100"))
+
+    deadline = DateTime.add(voice.inserted_at, 120, :second)
+    assert {:ok, nil} = Inbox.claim_next("routing:test", DateTime.add(deadline, -1, :second), 60)
+
+    # Routing sleeps until then. The due time is a database aggregate, which
+    # comes back without a zone.
+    assert Inbox.next_due_at(voice.inserted_at) == deadline
+
+    assert {:ok, %{entry: claimed}} = Inbox.claim_next("routing:test", deadline, 60)
+    assert claimed.id == voice.id
+    assert claimed.awaiting_transcript_until == nil
+
+    assert [%{"transcript_unavailable" => "a voice message Ryker could not transcribe"} = file] =
+             claimed.content["files"]
+
+    refute Map.has_key?(file, "transcript_pending")
+
+    assert %{rows: [["saved"], ["transcript_timed_out"], ["claimed"]]} =
+             Repo.query!(
+               "SELECT kind FROM input_custody_transitions WHERE input_id = $1 ORDER BY sequence",
+               [Ecto.UUID.dump!(voice.id)]
+             )
+
+    assert {:ok, :released} =
+             Inbox.transcribed(Inbox.ref(claimed), %{file["artifact_ref"] => {:ok, "Too late"}})
+
+    assert {:ok, %{content: content}} = Inbox.fetch(Inbox.ref(claimed))
+    assert content == claimed.content
+  end
+
   test "the named queue predecessor is the lane predicate the dispatcher claims by" do
     # The Input queue card names what an input is waiting for. It must name the
     # same input the dispatcher would actually claim first, and nothing outside
@@ -959,5 +1000,37 @@ defmodule Ryker.Ingress.InboxTest do
 
     assert {:ok, input} = SlackInput.new(attributes)
     input
+  end
+
+  # A Slack voice message as the gateway records it: the recording kept, its
+  # transcript still to come.
+  defp voice_input!(event_ref) do
+    assert {:ok, recording} =
+             Artifacts.put(%{
+               data: Ryker.TestTranscriber.recording("Roll back the payments deploy"),
+               media_type: "audio/mp4",
+               name: "audio_message.m4a",
+               source_kind: "slack",
+               source_ref: "T1C9FD29A9B6E:F" <> event_ref
+             })
+
+    input!(
+      actor: %{kind: :user, ref: "U123"},
+      content: %{
+        "files" => [
+          %{
+            "artifact_ref" => recording.ref,
+            "bytes" => recording.byte_size,
+            "media_type" => recording.media_type,
+            "name" => recording.name,
+            "sha256" => recording.sha256,
+            "status" => "available",
+            "transcript_pending" => true
+          }
+        ],
+        "text" => ""
+      },
+      event_ref: event_ref
+    )
   end
 end

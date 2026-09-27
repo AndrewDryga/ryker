@@ -1,8 +1,12 @@
 defmodule Ryker.Slack.GatewayTest do
   use Ryker.DataCase, async: true
 
+  alias Ryker.Artifacts
+  alias Ryker.Fixtures.SlackVoice
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Gateway
+  alias Ryker.TestTranscriber
+  alias Ryker.Transcription.Worker, as: TranscriptionWorker
 
   defmodule Directory do
     @behaviour Ryker.Slack.MemberDirectory
@@ -535,6 +539,86 @@ defmodule Ryker.Slack.GatewayTest do
     assert Map.get(entry, :slack_bot_user_ref) == "UBOT"
   end
 
+  # Andrew, 2026-09-27: a voice message was transcribed inside the gateway
+  # before its envelope was acknowledged, and the gateway takes one envelope at
+  # a time. A clip longer than about 25 s took more than Slack's 3 s, so Slack
+  # delivered it again, and every other event waited behind the transcription
+  # for up to a minute. The recording is kept and the message recorded first;
+  # its words come later, and routing waits for them.
+  test "a long voice message is acknowledged once its recording is kept, before any transcription" do
+    file = %{SlackVoice.file() | "duration_ms" => 95_000}
+    audio = TestTranscriber.recording("Roll back the payments deploy")
+
+    assert {:ack, {:recorded, ref}} =
+             Gateway.handle_envelope(
+               SlackVoice.envelope("Ev-voice-long", file: file),
+               voice_settings({:ok, file, audio})
+             )
+
+    refute_received {:transcribed, _data}
+
+    assert {:ok, entry} = Inbox.fetch(ref)
+
+    assert [%{"status" => "available", "transcript_pending" => true} = descriptor] =
+             entry.content["files"]
+
+    refute Map.has_key?(descriptor, "transcript")
+    assert {:ok, [recording]} = Artifacts.fetch_many([descriptor["artifact_ref"]])
+    assert recording.data == audio
+
+    # Routing waits for the words for two minutes at most.
+    assert DateTime.diff(entry.awaiting_transcript_until, entry.inserted_at, :second) == 120
+  end
+
+  # Slack delivers an envelope again when its acknowledgement is late. The
+  # words are filled in after the message is recorded, so the delivery before
+  # them and the one after are the same message, and it is transcribed once.
+  test "a redelivered voice message is the same message before and after its words, transcribed once" do
+    file = SlackVoice.file()
+    audio = TestTranscriber.recording("Please audit the checkout service")
+    envelope = SlackVoice.envelope("Ev-voice-again")
+    settings = voice_settings({:ok, file, audio})
+
+    assert {:ack, {:recorded, ref}} = Gateway.handle_envelope(envelope, settings)
+    assert {:ack, {:duplicate, ^ref}} = Gateway.handle_envelope(envelope, settings)
+
+    assert {:ok, :transcribed} = TranscriptionWorker.transcribe_next(transcriber: TestTranscriber)
+    assert_received {:transcribed, ^audio}
+
+    assert {:ack, {:duplicate, ^ref}} = Gateway.handle_envelope(envelope, settings)
+    assert TranscriptionWorker.transcribe_next(transcriber: TestTranscriber) == :idle
+    refute_received {:transcribed, _data}
+
+    assert {:ok, entry} = Inbox.fetch(ref)
+    assert [%{"transcript" => "Please audit the checkout service"}] = entry.content["files"]
+  end
+
+  # One Ryker will not transcribe is refused before download, as before, and
+  # routing reads why at once instead of waiting for words that never come.
+  test "a voice message too long to transcribe is refused plainly and routing takes it at once" do
+    file = %{SlackVoice.file() | "duration_ms" => 300_001}
+
+    assert {:ack, {:recorded, ref}} =
+             Gateway.handle_envelope(
+               SlackVoice.envelope("Ev-voice-too-long", file: file),
+               voice_settings({:error, :must_not_download})
+             )
+
+    refute_received {:download, _id, _maximum}
+    assert {:ok, entry} = Inbox.fetch(ref)
+
+    assert [
+             %{
+               "transcript_unavailable" =>
+                 "a voice message longer than 5 minutes, the most Ryker transcribes"
+             }
+           ] = entry.content["files"]
+
+    assert entry.awaiting_transcript_until == nil
+    id = entry.id
+    assert {:ok, %{entry: %{id: ^id}}} = Inbox.claim_next("routing:test", entry.inserted_at, 60)
+  end
+
   test "a host control is handled before acknowledgement and transient failure is retried" do
     settings =
       settings()
@@ -944,6 +1028,13 @@ defmodule Ryker.Slack.GatewayTest do
       interaction_options: %{},
       effective_settings: &participation(&1, &2, :mentions)
     }
+  end
+
+  # The gateway as the Slack runtime builds it for files, downloading `result`.
+  defp voice_settings(result) do
+    settings()
+    |> Map.put(:attachment_ingestor, Ryker.Slack.AttachmentIngestor)
+    |> Map.put(:attachment_options, SlackVoice.attachment_options(result))
   end
 
   # One installation default resolved for every channel, matching the

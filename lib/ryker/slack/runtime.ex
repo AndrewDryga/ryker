@@ -58,6 +58,7 @@ defmodule Ryker.Slack.Runtime do
 
   alias Ryker.Slack.Supervisor, as: SlackSupervisor
   alias Ryker.Transcription
+  alias Ryker.Transcription.Worker, as: TranscriptionWorker
 
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Automations
@@ -348,8 +349,7 @@ defmodule Ryker.Slack.Runtime do
       attachment_options: %{
         client: file_client,
         downloader: FileClient,
-        store: Artifacts,
-        transcriber: Transcription.transcriber()
+        store: Artifacts
       },
       client: bot_client,
       command_handler: CommandHandler,
@@ -549,6 +549,12 @@ defmodule Ryker.Slack.Runtime do
       reconciler: reconciler,
       task_card_worker: task_card_worker,
       thread_status_worker: thread_status_worker,
+      # The gateway records a voice message with its transcript pending and
+      # acknowledges it; this worker transcribes it afterwards.
+      transcription_worker: [
+        name: TranscriptionWorker,
+        transcriber: Transcription.transcriber()
+      ],
       workspace_admins: [
         workspace: identity.workspace_ref,
         lookup: &Client.workspace_admin(bot_client, &1, identity.workspace_ref)

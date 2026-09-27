@@ -13,18 +13,26 @@ defmodule Ryker.Transcription do
   `"transcript"` with the words, or `"transcript_unavailable"` saying plainly
   why there are none, so a voice message reaches routing as words or as a
   voice message Ryker could not transcribe, never as an unreadable file.
+
+  A Slack voice message is recorded before it is transcribed, so Slack hears
+  its acknowledgement at once: its descriptor says `"transcript_pending"`
+  until `Ryker.Transcription.Worker` settles it (`settle/2`), and routing
+  waits for that, for `wait_seconds/0` at most (`Ryker.Ingress.Inbox`).
   """
 
   @maximum_bytes 8 * 1_024 * 1_024
   @maximum_seconds 300
   # Five minutes of fast speech is about 5 KB of text.
   @maximum_transcript_bytes 8_192
+  # A transcription gives up after a minute, and a message holds at most two
+  # recordings; a transcript not ready in two minutes is not coming.
+  @wait_seconds 120
   @outcome_fields ~w(transcript transcript_pending transcript_unavailable)
 
   @type failure :: :too_large | :too_long | :no_speech | :timeout | :unavailable | :failed
+  @type result :: {:ok, String.t()} | {:error, failure()}
 
-  @callback transcribe(data :: binary(), options :: keyword()) ::
-              {:ok, String.t()} | {:error, failure()}
+  @callback transcribe(data :: binary(), options :: keyword()) :: result()
 
   @doc """
   The transcriber Slack and Chat use: the local one, or the stand-in the test
@@ -39,6 +47,47 @@ defmodule Ryker.Transcription do
   @spec maximum_seconds() :: pos_integer()
   def maximum_seconds, do: @maximum_seconds
 
+  @doc "How long routing waits for a recording's transcript before it reads that there is none."
+  @spec wait_seconds() :: pos_integer()
+  def wait_seconds, do: @wait_seconds
+
+  @doc "The descriptor field of a recording kept before it is transcribed."
+  @spec pending() :: map()
+  def pending, do: %{"transcript_pending" => true}
+
+  @doc "Whether any recording in a message's content is still waiting for its transcript."
+  @spec pending?(term()) :: boolean()
+  def pending?(content), do: pending_files(content) != []
+
+  @doc "The descriptors of the recordings in a message's content still waiting for a transcript."
+  @spec pending_files(term()) :: [map()]
+  def pending_files(%{"files" => files}) when is_list(files),
+    do: Enum.filter(files, &match?(%{"transcript_pending" => true}, &1))
+
+  def pending_files(_content), do: []
+
+  @doc """
+  A message's content with each recording still waiting for its transcript
+  given the outcome of `result`, called with that recording's descriptor.
+  """
+  @spec settle(map(), (map() -> result())) :: map()
+  def settle(%{"files" => files} = content, result) when is_list(files) do
+    settled =
+      Enum.map(files, fn
+        %{"transcript_pending" => true} = file ->
+          file
+          |> Map.delete("transcript_pending")
+          |> Map.merge(outcome(file["media_type"], result.(file)))
+
+        file ->
+          file
+      end)
+
+    %{content | "files" => settled}
+  end
+
+  def settle(content, _result), do: content
+
   @doc """
   A file descriptor without what Ryker made of its recording: the transcript,
   why there is none, or that it is still to come.
@@ -51,7 +100,7 @@ defmodule Ryker.Transcription do
   The descriptor fields for a recording's transcription outcome: its words,
   or why there are none.
   """
-  @spec outcome(String.t(), {:ok, String.t()} | {:error, failure()}) :: map()
+  @spec outcome(String.t(), result()) :: map()
   def outcome(media_type, {:ok, text}) do
     case words(text) do
       {:ok, words} -> %{"transcript" => words}

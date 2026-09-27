@@ -5,9 +5,16 @@ defmodule Ryker.Ingress.Inbox do
   Recording does not classify content and does not create an episode. It only
   proves which exact source occurrence a later model decision is about.
 
-  Every custody step a message takes (recorded, claimed for routing, retried,
-  blocked, rearmed, routed or superseded) is announced after its commit on the
-  topics this module owns (`subscribe_inputs/0`, `subscribe_input/1`).
+  A voice message is recorded before it is transcribed, so Slack hears its
+  acknowledgement at once. Routing does not take it until its words are
+  filled in (`transcribed/2`), or until it has waited
+  `Ryker.Transcription.wait_seconds/0`, when routing reads that Ryker could
+  not transcribe it.
+
+  Every custody step a message takes (recorded, transcribed, claimed for
+  routing, retried, blocked, rearmed, routed or superseded) is announced after
+  its commit on the topics this module owns (`subscribe_inputs/0`,
+  `subscribe_input/1`).
   """
 
   import Ecto.Query
@@ -26,6 +33,7 @@ defmodule Ryker.Ingress.Inbox do
   alias Ryker.Memories
   alias Ryker.Repo
   alias Ryker.RoutingExamples
+  alias Ryker.Transcription
   alias Ryker.UTCDateTime
 
   @ref_prefix "ingress-input:"
@@ -277,6 +285,100 @@ defmodule Ryker.Ingress.Inbox do
     end
   end
 
+  @doc """
+  The oldest voice message still waiting for its transcript, or nil.
+  `Ryker.Transcription.Worker` takes them in the order they arrived.
+  """
+  @spec waiting_for_transcript() :: Entry.t() | nil
+  def waiting_for_transcript do
+    Repo.one(
+      from(entry in Entry,
+        where: entry.status == :pending and not is_nil(entry.awaiting_transcript_until),
+        order_by: [asc: entry.inserted_at, asc: entry.id],
+        limit: 1
+      )
+    )
+  end
+
+  @doc """
+  Fills in the words of a voice message that was recorded without them and
+  lets routing take it; the announcement wakes routing. `results` holds each
+  recording's transcription result by its artifact ref, and a recording with
+  none reads as one Ryker could not transcribe.
+
+  A message routing stopped waiting for is `:released` and keeps what it was
+  routed with.
+  """
+  @spec transcribed(String.t(), %{String.t() => Transcription.result()}) ::
+          {:ok, :transcribed | :released} | {:error, term()}
+  def transcribed(input_ref, results) when is_map(results) do
+    with {:ok, id} <- input_id(input_ref) do
+      Repo.transaction(fn -> transcribed_locked(id, results) end)
+    end
+  end
+
+  def transcribed(_input_ref, _results), do: {:error, {:invalid_ingress_transcript, :results}}
+
+  defp transcribed_locked(id, results) do
+    case Repo.one(from(entry in Entry, where: entry.id == ^id, lock: "FOR UPDATE")) do
+      nil ->
+        Repo.rollback({:ingress_transcript_failed, :input_not_found})
+
+      %Entry{status: :pending, awaiting_transcript_until: %DateTime{}} = entry ->
+        content =
+          Transcription.settle(
+            entry.content,
+            &Map.get(results, &1["artifact_ref"], {:error, :failed})
+          )
+
+        entry
+        |> settle_transcripts!(content)
+        |> append_transition!(:transcribed, detail: unavailable_note(content))
+
+        :transcribed
+
+      %Entry{} ->
+        :released
+    end
+  end
+
+  # Routing's wait is over: every recording still without words reads as one
+  # Ryker could not transcribe, in the claim that takes the message.
+  defp release_transcript_wait(%Entry{awaiting_transcript_until: nil} = entry, _now), do: entry
+
+  defp release_transcript_wait(%Entry{} = entry, now) do
+    content = Transcription.settle(entry.content, fn _file -> {:error, :timeout} end)
+    released = settle_transcripts!(entry, content)
+
+    append_transition!(released, :transcript_timed_out,
+      occurred_at: now,
+      eligible_at: entry.awaiting_transcript_until,
+      detail: unavailable_note(content)
+    )
+
+    released
+  end
+
+  defp settle_transcripts!(entry, content) do
+    case entry |> EntryChangeset.settle_transcripts(content) |> Repo.update() do
+      {:ok, settled} ->
+        settled
+
+      {:error, changeset} ->
+        Repo.rollback({:persistence_failed, :ingress_transcript, changeset.errors})
+    end
+  end
+
+  # Why a recording has no words, for the message's queue history.
+  defp unavailable_note(%{"files" => files}) when is_list(files) do
+    case for(%{"transcript_unavailable" => note} <- files, do: note) do
+      [] -> nil
+      notes -> notes |> Enum.uniq() |> Enum.join("; ") |> String.slice(0, 1_000)
+    end
+  end
+
+  defp unavailable_note(_content), do: nil
+
   defp defer(input_ref, lease_ref, now, delay_ms, error_code, error_detail, generation) do
     with {:ok, id} <- input_id(input_ref),
          :ok <- bounded_reference(lease_ref, :lease_ref),
@@ -296,6 +398,7 @@ defmodule Ryker.Ingress.Inbox do
   defp claim_entry(nil, _worker_ref, _now, _lease_seconds), do: nil
 
   defp claim_entry(entry, worker_ref, now, lease_seconds) do
+    entry = release_transcript_wait(entry, now)
     lease_ref = "ingress-lease:#{Ecto.UUID.generate()}"
 
     attributes = %{
@@ -337,7 +440,8 @@ defmodule Ryker.Ingress.Inbox do
   def claimable_query(%DateTime{} = now) do
     # Admission's candidate generation covers the whole destination conversation,
     # including cross-thread history. Serialize that boundary, not the entire
-    # inbox. A backoff must not let a later message overtake its missing context.
+    # inbox. A backoff must not let a later message overtake its missing context,
+    # nor a voice message's transcript.
     predecessor = conversation_predecessor(now)
 
     from(entry in Entry,
@@ -345,14 +449,16 @@ defmodule Ryker.Ingress.Inbox do
       where: entry.status == :pending,
       where: is_nil(entry.next_attempt_at) or entry.next_attempt_at <= ^now,
       where: is_nil(entry.lease_ref) or entry.lease_expires_at <= ^now,
+      where: is_nil(entry.awaiting_transcript_until) or entry.awaiting_transcript_until <= ^now,
       where: not exists(subquery(predecessor))
     )
   end
 
   @doc """
   The earliest moment after `since` at which a pending input becomes claimable
-  by the clock alone: its retry's backoff ends, or the lease of a claim nobody
-  renewed runs out. Nil when no pending input waits on the clock.
+  by the clock alone: its retry's backoff ends, the lease of a claim nobody
+  renewed runs out, or routing stops waiting for a voice message's
+  transcript. Nil when no pending input waits on the clock.
 
   Admission sleeps until then; everything else that makes an input claimable
   is a change this module announces.
@@ -366,7 +472,8 @@ defmodule Ryker.Ingress.Inbox do
         filter(
           min(entry.lease_expires_at),
           not is_nil(entry.lease_ref) and entry.lease_expires_at > ^since
-        )
+        ),
+        filter(min(entry.awaiting_transcript_until), entry.awaiting_transcript_until > ^since)
       ]
     )
     |> Repo.one()
@@ -787,7 +894,11 @@ defmodule Ryker.Ingress.Inbox do
       source_envelope: settings.source_envelope,
       engagement_receipt: settings.engagement_receipt
     )
-    |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
+    |> Ecto.Changeset.change(
+      inserted_at: now,
+      updated_at: now,
+      awaiting_transcript_until: transcript_deadline(input, now)
+    )
     |> Repo.insert()
     |> case do
       {:ok, entry} ->
@@ -824,6 +935,12 @@ defmodule Ryker.Ingress.Inbox do
         stored_fingerprint: entry.event_fingerprint,
         submitted_fingerprint: submitted}}
     end
+  end
+
+  # A voice message recorded before its words holds routing off until then.
+  defp transcript_deadline(input, now) do
+    if Transcription.pending?(input.content),
+      do: DateTime.add(now, Transcription.wait_seconds(), :second)
   end
 
   @doc false

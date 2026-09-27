@@ -413,6 +413,55 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     refute card =~ "earlier input"
   end
 
+  # A voice message waits for its words before routing takes it
+  # (2026-09-27). Its card says so while it waits, then whether they came, so
+  # the minutes between saved and picked up are never an unexplained stall.
+  test "a voice message's queue card says it waits for its transcript, then whether the words came" do
+    {entry, _input} = pending!(text: "")
+    until = DateTime.add(DateTime.utc_now(), 90, :second)
+
+    Repo.update_all(from(saved in Entry, where: saved.id == ^entry.id),
+      set: [awaiting_transcript_until: until]
+    )
+
+    waiting = card(standalone(Repo.get!(Entry, entry.id)), entry)
+    assert waiting =~ "Waiting for the voice message's transcript"
+    assert waiting =~ Calendar.strftime(until, "%H:%M:%S")
+    refute waiting =~ "Waiting for a routing worker"
+
+    Repo.update_all(from(saved in Entry, where: saved.id == ^entry.id),
+      set: [awaiting_transcript_until: nil]
+    )
+
+    transition!(entry, :transcribed, DateTime.add(entry.inserted_at, 20, :second), [])
+
+    transcribed = card(standalone(Repo.get!(Entry, entry.id)), entry)
+    assert transcribed =~ "Transcribed"
+    assert transcribed =~ "Routing reads what the voice message says."
+    assert transcribed =~ "Waiting for a routing worker to pick it up."
+
+    {late, _input} = pending!(text: "")
+
+    transition!(late, :transcript_timed_out, DateTime.add(late.inserted_at, 120, :second),
+      detail: "a voice message Ryker could not transcribe"
+    )
+
+    transition!(late, :claimed, DateTime.add(late.inserted_at, 120, :second),
+      attempt: 1,
+      owner_ref: "routing:voice"
+    )
+
+    assert Enum.map(hd(queue_steps(late)).queue.events, & &1.label) == [
+             "Saved",
+             "Waiting for an earlier input",
+             "Transcript not ready",
+             "Picked up"
+           ]
+
+    assert card(standalone(late), late) =~
+             "Routing stopped waiting for the words and reads that it is a voice message Ryker could not transcribe."
+  end
+
   test "an older input without ledger evidence says its queue history is unavailable" do
     {entry, _input} = pending!()
 
