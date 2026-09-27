@@ -189,7 +189,9 @@ Coalesce only the same writable scope and execution mode. Use database time. Inp
 already assigned to an active or deferred batch cannot be claimed again under a different key.
 New inputs do not mutate an attempted batch. Quiet/max-delay timers start when admission makes
 an input eligible (`updated_at` on the decided Inbox entry), not its historical event or arrival
-time; delayed admission must not defeat coalescing. Edits invalidate old source custody and become
+time; delayed admission must not defeat coalescing. An input that started Work becomes eligible
+when that Work comes to rest, and its timers start then, so learning follows Ryker's answer
+instead of the question. Edits invalidate old source custody and become
 new eligible revisions. Deletions revoke derived content and are acknowledged without learning prose.
 
 Batch states: queued, running, applied, no_change, deferred, superseded. A batch table owns scope,

@@ -3,11 +3,16 @@ defmodule Ryker.Learning.WorkerTest do
 
   @moduletag isolation: "REPEATABLE READ"
 
+  import Ecto.Query
+
   alias Ryker.Admission
   alias Ryker.Admission.Decision
+  alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.Worker
   alias Ryker.Slack.Input
+  alias Ryker.Work.Custody
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -44,6 +49,38 @@ defmodule Ryker.Learning.WorkerTest do
     assert_receive :learning_batch_claimed, 1_500
   end
 
+  # A message is learned from once the Work it started comes to rest, and no
+  # clock says when that is: a slot asleep until its safety net would learn
+  # from a request up to that long after Ryker's answer. The rest is announced
+  # like every change to a request, and that announcement has to wake it.
+  test "learning wakes when the Work comes to rest, not only at its safety net" do
+    entry = routed_input!("Ev-learning-after-work", start_work: true)
+    # Routed two minutes ago: only the Work it started holds it back.
+    Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
+      set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
+    )
+
+    worker = start_supervised!({Worker, settings(quiet_seconds: 1)})
+    _state = :sys.get_state(worker)
+    refute_receive :learning_batch_claimed, 500
+
+    episode = Repo.get!(Episode, entry.episode_id)
+
+    assert {:ok, %{status: :settled}} =
+             Custody.request_cancel(
+               episode.id,
+               episode.key,
+               episode.owner_ref,
+               "cancel:#{entry.id}",
+               "Stopped by the person who asked."
+             )
+
+    # A second of quiet after the rest, then learning, a minute before the
+    # slot's safety net.
+    refute_receive :learning_batch_claimed, 500
+    assert_receive :learning_batch_claimed, 2_000
+  end
+
   defp settings(overrides) do
     Map.merge(
       %{
@@ -67,7 +104,7 @@ defmodule Ryker.Learning.WorkerTest do
     )
   end
 
-  defp routed_input!(event_ref) do
+  defp routed_input!(event_ref, options \\ []) do
     {:ok, input} =
       Input.new(%{
         actor: %{kind: :user, ref: "U123"},
@@ -93,20 +130,36 @@ defmodule Ryker.Learning.WorkerTest do
         lease_ref: nil
       )
 
+    {decision, options} =
+      if Keyword.get(options, :start_work, false),
+        do:
+          {%{
+             "action" => "start_episode",
+             "messages" => nil,
+             "reactions" => nil,
+             "reason" => "Check the deploy.",
+             "work_class" => "standard"
+           }, [work_policy: %{name: "work-read-only", digest: String.duplicate("a", 64)}]},
+        else:
+          {%{
+             "action" => "react",
+             "messages" => nil,
+             "reactions" => ["eyes"],
+             "reason" => "Acknowledge without starting work.",
+             "work_class" => nil
+           }, []}
+
     {:ok, decision} =
-      Decision.parse(%{
-        "action" => "react",
+      decision
+      |> Map.merge(%{
         "episode_ref" => nil,
-        "messages" => nil,
-        "reactions" => ["eyes"],
         "relation" => "unrelated",
         "repository" => nil,
-        "repository_source" => nil,
-        "reason" => "Acknowledge without starting work.",
-        "work_class" => nil
+        "repository_source" => nil
       })
+      |> Decision.parse()
 
-    {:ok, _result} = Admission.commit(context, decision, "decision:#{event_ref}")
+    {:ok, %{entry: entry}} = Admission.commit(context, decision, "decision:#{event_ref}", options)
     entry
   end
 end

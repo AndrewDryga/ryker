@@ -174,17 +174,51 @@ defmodule Ryker.Work.Custody.Claims do
 
     phase_filter = claim_phase_filter(phase, now)
 
-    from(episode in Episode,
-      left_join: turn in Turn,
-      on:
-        turn.episode_id == episode.id and
-          ((episode.owner_kind == :turn and turn.turn_ref == episode.owner_ref) or
-             (episode.owner_kind == :delivery and turn.delivery_ref == episode.owner_ref)),
+    from([episode, turn] in owning_turns(),
       where: episode.state == :working and episode.owner_kind in [:turn, :delivery],
       where: episode.id in subquery(pinned_episode_ids),
       where: ^phase_filter,
       where: episode.owner_kind == :delivery or episode.id not in subquery(reviewing_episode_ids),
       select: episode.id
+    )
+  end
+
+  @doc false
+  # Every episode Work was pinned to, with whether that Work is still running
+  # and when it last changed. Running is every state the pool claims from
+  # (`claimable_episode_ids_query/2`), whatever the clock says: a turn about
+  # to start, running, waiting to retry or stopping, or an accepted answer not
+  # yet delivered. Anything else is at rest, with nothing left for Work to do
+  # until something new arrives or a person acts: answered, waiting for a
+  # person or an event, blocked, cancelled or closed. For Work at rest the last
+  # change is when it came to rest, on the episode, or on the turn blocked
+  # under it. Learning waits for this (`Ryker.Learning.Batches`).
+  def work_rest_query do
+    from([episode, turn] in owning_turns(),
+      where:
+        exists(from(session in Session, where: session.episode_id == parent_as(:episode).id)),
+      select: %{
+        episode_id: episode.id,
+        running:
+          episode.state == :working and
+            ((episode.owner_kind == :turn and
+                (is_nil(turn.id) or turn.status in [:pending, :cancel_pending])) or
+               (episode.owner_kind == :delivery and turn.status == :delivery_pending)),
+        rested_at: fragment("GREATEST(?, ?)", episode.updated_at, turn.updated_at)
+      }
+    )
+  end
+
+  # Each episode with the turn that owns it: the one Work runs, or the one
+  # whose accepted answer is being delivered.
+  defp owning_turns do
+    from(episode in Episode,
+      as: :episode,
+      left_join: turn in Turn,
+      on:
+        turn.episode_id == episode.id and
+          ((episode.owner_kind == :turn and turn.turn_ref == episode.owner_ref) or
+             (episode.owner_kind == :delivery and turn.delivery_ref == episode.owner_ref))
     )
   end
 
