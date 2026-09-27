@@ -208,33 +208,43 @@ defmodule Ryker.Publication.FollowupsTest do
     assert %DateTime{} = verified.verified_at
   end
 
+  # This test once put the next check a day after a fixed date that has since
+  # passed, so the check was due without the webhook and the test proved
+  # nothing. The day now counts from the clock the run reads.
   test "GitHub webhook nudges only the exact recorded pull request and head" do
     %{publication: publication} = PublicationFixture.published!("nudge", pull_request_number: 92)
     head_sha = publication.commit_sha
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id == ^publication.id),
-      set: [next_poll_at: DateTime.add(@now, 1, :day)]
+      set: [next_poll_at: DateTime.add(Repo.now!(), 1, :day)]
     )
+
+    assert {:ok, nil} = Followups.claim_poll("publication-followup:webhook:early", 60)
 
     payload = %{
       "pull_request" => %{"head" => %{"sha" => head_sha}, "number" => 92}
     }
 
-    assert Followups.nudge_github_event("acme/ryker", "pull_request", "delivery:1", payload) ==
-             {:ok, :nudged}
-
-    assert {:ok, claim} = Followups.claim_poll("publication-followup:webhook", 60)
-    assert claim.publication.id == publication.id
-
     crossed = put_in(payload, ["pull_request", "head", "sha"], String.duplicate("c", 40))
 
+    # A head other than the one this publication recorded changes nothing.
     assert Followups.nudge_github_event(
              "acme/ryker",
              "pull_request",
              "delivery:2",
              crossed
            ) == {:ok, :ignored}
+
+    assert {:ok, nil} = Followups.claim_poll("publication-followup:webhook:crossed", 60)
+
+    assert Followups.nudge_github_event("acme/ryker", "pull_request", "delivery:1", payload) ==
+             {:ok, :nudged}
+
+    assert {:ok, %{publication: %{id: nudged}}} =
+             Followups.claim_poll("publication-followup:webhook", 60)
+
+    assert nudged == publication.id
   end
 
   # The live install listens on 127.0.0.1 only and had never received a GitHub
