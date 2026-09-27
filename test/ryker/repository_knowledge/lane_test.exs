@@ -370,6 +370,25 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
   end
 
+  # Setup saved a repository again when a step finished after Remove
+  # (2026-09-27). The knowledge lane saves Work's copy of RYKER.md on the same
+  # row, so a proposal that finishes after Remove must not bring it back.
+  test "a repository removed while its RYKER.md is proposed stays removed" do
+    remove = fn ->
+      {:ok, _removed} =
+        IntegrationSetup.remove_repository("emisar", storage_root: System.tmp_dir!())
+    end
+
+    github!(on_publish: remove)
+    ready!()
+    coop = coop!([answer_json()])
+
+    drain(settings(coop))
+
+    assert Settings.fetch!().repositories == []
+    assert Settings.fetch!().github_bindings == []
+  end
+
   # The model's answer is an input: one that names nothing the repository
   # holds is never accepted. A repository no model ever wrote gets the
   # outline instead, which says what it is.

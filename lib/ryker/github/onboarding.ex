@@ -78,18 +78,14 @@ defmodule Ryker.GitHub.Onboarding do
          do: {:ok, commit}
   end
 
-  # Set up, and its RYKER.md asked for in the same commit: the knowledge
-  # lane's first check reads the repository at once.
+  # Set up, then its RYKER.md asked for: the knowledge lane's first check
+  # reads the repository at once. The two commit apart, never one inside the
+  # other, because the lane saves Work's copy of RYKER.md holding its own row
+  # first; a setup that stops between them is checked when the lane next
+  # finds the repository without a row (`Ryker.RepositoryKnowledge.Custody.ensure/1`).
   defp ready(ref) do
-    Settings.atomically(fn ->
-      with :ok <- transition(ref, %{onboarding_state: :ready, onboarding_error: nil}),
-           :ok <- RepositoryKnowledge.check_soon(ref),
-           do: {:ok, :ready}
-    end)
-    |> case do
-      {:ok, :ready} -> :ok
-      {:error, _reason} = error -> error
-    end
+    with :ok <- transition(ref, %{onboarding_state: :ready, onboarding_error: nil}),
+         do: RepositoryKnowledge.check_soon(ref)
   end
 
   # A step writes only a repository that is still added, at the revision it

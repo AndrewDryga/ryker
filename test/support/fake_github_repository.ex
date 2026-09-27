@@ -33,6 +33,9 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
           open: nil,
           next_number: Keyword.get(options, :next_number, 84),
           errors: Keyword.get(options, :errors, %{}),
+          # Runs in the caller's process as a proposal is made, as a person
+          # removing the repository at that moment would.
+          on_publish: Keyword.get(options, :on_publish),
           calls: []
         }
       end,
@@ -105,6 +108,11 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
 
   @impl Ryker.RepositoryKnowledge.Remote
   def publish(_binding, repository, %{document: document, body: body}) do
+    case state().on_publish do
+      nil -> :ok
+      during -> during.()
+    end
+
     Agent.get_and_update(__MODULE__, fn state ->
       state = record(state, {:publish, document})
 
