@@ -262,16 +262,25 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
     id
   end
 
+  # The message and its backdated arrival commit together, so the page, which
+  # redraws on the announcement after the commit, never reads the message with
+  # the real clock's time: that sorted it after every other message, and the
+  # gate twice showed one of the burst at the end of the transcript.
   defp send!(id, text, index) do
-    {:ok, %{entry: entry}} =
-      ConversationLab.send_message(id, text, profile(),
-        id_generator: fn -> Ecto.UUID.generate() end,
-        now: fn -> DateTime.add(@epoch, index, :second) end
-      )
+    {:ok, entry} =
+      Repo.transaction(fn ->
+        {:ok, %{entry: entry}} =
+          ConversationLab.send_message(id, text, profile(),
+            id_generator: fn -> Ecto.UUID.generate() end,
+            now: fn -> DateTime.add(@epoch, index, :second) end
+          )
 
-    Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
-      set: [inserted_at: DateTime.add(@epoch, index, :second)]
-    )
+        Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
+          set: [inserted_at: DateTime.add(@epoch, index, :second)]
+        )
+
+        entry
+      end)
 
     {:ok, %{entry: entry}}
   end
