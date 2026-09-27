@@ -582,6 +582,83 @@ defmodule Ryker.Runtime.AssemblyTest do
              WorkProfile.prepare(docs)
   end
 
+  # Andrew, 2026-09-27: "can we here limit read or read/write access per
+  # repo?" The access chosen on an environment has to reach the workspace
+  # every session there mounts: a read-only repository is mounted beside the
+  # one work changes and is never the working copy itself, so no task is
+  # placed in it, routing is not offered it, and a GitHub event about it runs
+  # with the environment's default as the working copy. Made read and write
+  # again, it can be the working copy again.
+  test "a repository's access reaches the workspace every session in its environment mounts" do
+    settings = connected!()
+
+    {:ok, bound} = github_binding("docs-app", "docs", 2002, settings.installation.revision)
+    {:ok, alone} = Settings.delete_environment("docs", bound.installation.revision, @actor)
+
+    {:ok, limited} =
+      Settings.put_environment(
+        %{ref: "platform", access: %{"docs" => :read_only}},
+        alone.installation.revision,
+        @actor
+      )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), limited)
+    platform = configuration[:slack].environments["platform"]
+    assert {:ok, profile} = WorkProfile.prepare(platform.work_profile)
+
+    # Both repositories are mounted, the default first; only one may change.
+    assert profile.repositories == ["ryker", "docs"]
+    assert WorkProfile.repository_refs(profile) == ["ryker"]
+    assert WorkProfile.read_only_refs(profile) == ["docs"]
+    assert WorkProfile.repository_choices(profile) == []
+
+    assert {:error, {:invalid_work_profile, :repository_ref}} =
+             WorkProfile.policy_for(profile, :standard, "docs")
+
+    assert {:ok, placement} = WorkProfile.policy_for(profile, :standard, nil)
+    assert placement.repository_ref == "ryker"
+
+    assert placement.repository_context == %{
+             "context_ref" => "platform",
+             "parallel_goal_limit" => 2,
+             "primary_repository" => "ryker",
+             "read_only_repositories" => ["docs"]
+           }
+
+    # A task that changes code is placed only in the read and write one, from
+    # Slack, Chat and GitHub alike; GitHub still names both.
+    assert Map.keys(platform.contributor_policies) == ["ryker"]
+    assert Map.keys(configuration[:control_plane].task_policies["platform"]) == ["ryker"]
+    assert platform.github_repositories == %{"docs" => "ryker/docs", "ryker" => "ryker/ryker"}
+
+    github = configuration.github.server
+    refute Map.has_key?(github.confirmations.repositories, "docs")
+    assert github.bindings["docs-app"].work_profile.repositories == ["ryker", "docs"]
+
+    {:ok, opened} =
+      Settings.put_environment(
+        %{ref: "platform", access: %{"docs" => :read_write}},
+        limited.installation.revision,
+        @actor
+      )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), opened)
+
+    assert {:ok, profile} =
+             WorkProfile.prepare(configuration[:slack].environments["platform"].work_profile)
+
+    assert WorkProfile.repository_choices(profile) == ["ryker", "docs"]
+
+    assert {:ok, %{repository_ref: "docs", repository_context: context}} =
+             WorkProfile.policy_for(profile, :standard, "docs")
+
+    assert context["primary_repository"] == "docs"
+    assert context["read_only_repositories"] == ["ryker"]
+    github = configuration.github.server
+    assert Map.has_key?(github.confirmations.repositories, "docs")
+    assert github.bindings["docs-app"].work_profile.repositories == ["docs", "ryker"]
+  end
+
   test "a webhook source keeps the provider shape it was saved with" do
     settings = connected!()
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)

@@ -6,14 +6,17 @@ defmodule Ryker.Ingress.WorkProfile do
   trusted route binds the Coop policies and the environment before the input
   enters durable admission custody.
 
-  Work in an environment with repositories may change any one of them. The
-  profile names them in order (`repositories`, the first is the default
-  choice) and keeps each one's policies per work class (`policies`). Which
-  repository a piece of work changes is chosen per task: `policy_for/3` returns
-  the policy for the chosen repository and the repository context its session
-  mounts, the chosen one as the working copy and every other one read-only.
-  The environment's `parallel_goal_limit` and optional Emisar account travel
-  with it.
+  Work in an environment with repositories mounts all of them and may change
+  its read and write ones. The profile names every repository
+  (`repositories`, the default first) and keeps the policies per work class
+  of each one work may change (`policies`); a repository without policies of
+  its own is read only: it is only ever mounted read-only beside the one work
+  changes, never as the working copy. The default is always one work may
+  change. Which repository a piece of work changes is chosen per task among
+  those: `policy_for/3` returns the policy for the chosen repository and the
+  repository context its session mounts, the chosen one as the working copy
+  and every other one read-only. The environment's `parallel_goal_limit` and
+  optional Emisar account travel with it.
 
   `policy`, `policy_digest`, `authority_digest` and `repository_ref` are the
   default placement: in an environment with repositories they are derived from
@@ -85,22 +88,35 @@ defmodule Ryker.Ingress.WorkProfile do
   def prepare(attributes), do: new(attributes)
 
   @doc """
-  The repositories a routing decision chooses among: those of an environment
-  with more than one. With one repository or none there is nothing to choose.
+  The repositories a routing decision chooses among: those work may change in
+  an environment with more than one. With one or none there is nothing to
+  choose.
   """
   @spec repository_choices(t()) :: [String.t()]
-  def repository_choices(%__MODULE__{repositories: [_one, _another | _rest] = repositories}),
-    do: repositories
-
-  def repository_choices(%__MODULE__{}), do: []
+  def repository_choices(%__MODULE__{} = profile) do
+    case repository_refs(profile) do
+      [_one, _another | _rest] = repositories -> repositories
+      _nothing_to_choose -> []
+    end
+  end
 
   @doc """
-  Every repository work placed by this profile may change: an environment's
-  repositories, a single repository outside any environment, or none.
+  Every repository work placed by this profile may change, the default first:
+  an environment's read and write repositories, a single repository outside
+  any environment, or none.
   """
   @spec repository_refs(t()) :: [String.t()]
-  def repository_refs(%__MODULE__{policies: %{}, repositories: repositories}), do: repositories
+  def repository_refs(%__MODULE__{policies: %{} = policies, repositories: repositories}),
+    do: Enum.filter(repositories, &Map.has_key?(policies, &1))
+
   def repository_refs(%__MODULE__{repository_ref: repository_ref}), do: List.wrap(repository_ref)
+
+  @doc "The repositories work placed by this profile only reads: mounted, never changed."
+  @spec read_only_refs(t()) :: [String.t()]
+  def read_only_refs(%__MODULE__{policies: %{} = policies, repositories: repositories}),
+    do: Enum.reject(repositories, &Map.has_key?(policies, &1))
+
+  def read_only_refs(%__MODULE__{}), do: []
 
   @doc """
   The policy one work class runs under and the workspace its session mounts.
@@ -108,8 +124,9 @@ defmodule Ryker.Ingress.WorkProfile do
   `repository_ref` chooses which repository of an environment the work
   changes; nil is the default, the first. The chosen repository is the
   session's working copy and every other repository of the environment is
-  mounted read-only beside it. Work outside an environment, or in one without
-  repositories, has exactly one placement.
+  mounted read-only beside it. A read-only repository cannot be chosen. Work
+  outside an environment, or in one without repositories, has exactly one
+  placement.
   """
   @spec policy_for(t(), atom(), String.t() | nil) ::
           {:ok,
@@ -281,9 +298,10 @@ defmodule Ryker.Ingress.WorkProfile do
     end
   end
 
-  # An environment with repositories: each repository's class policies, the
-  # first repository the default. The default placement is derived, so a
-  # caller that also names one must name exactly the derived one.
+  # An environment with repositories: the class policies of each one work may
+  # change, the first repository the default, which work may always change.
+  # The default placement is derived, so a caller that also names one must
+  # name exactly the derived one.
   defp environment(attributes) do
     with :ok <- environment_repositories(attributes),
          :ok <- environment_placement(attributes),
@@ -323,9 +341,15 @@ defmodule Ryker.Ingress.WorkProfile do
     end
   end
 
-  defp environment_policies(%{} = policies, repositories) do
-    if Map.keys(policies) |> Enum.sort() == Enum.sort(repositories),
-      do: prepare_repository_policies(policies, repositories),
+  # Every repository with policies is one of the environment's, and the
+  # default is among them; the others are read only.
+  defp environment_policies(%{} = policies, [default | _rest] = repositories) do
+    if Map.has_key?(policies, default) and Enum.all?(Map.keys(policies), &(&1 in repositories)),
+      do:
+        prepare_repository_policies(
+          policies,
+          Enum.filter(repositories, &Map.has_key?(policies, &1))
+        ),
       else: {:error, {:invalid_work_profile, :policies}}
   end
 
@@ -359,7 +383,9 @@ defmodule Ryker.Ingress.WorkProfile do
   end
 
   defp repository_contexts(attributes) do
-    if Enum.all?(attributes.repositories, fn repository_ref ->
+    writable = Enum.filter(attributes.repositories, &Map.has_key?(attributes.policies, &1))
+
+    if Enum.all?(writable, fn repository_ref ->
          match?(
            {:ok, _context},
            RepositoryContext.prepare(

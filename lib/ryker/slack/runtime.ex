@@ -814,9 +814,9 @@ defmodule Ryker.Slack.Runtime do
 
   # Every environment that can run work, keyed by ref, exactly as the host
   # assembled it: its display name, the policy a confirmed task runs under for
-  # each repository it holds (none when it has no repository to change), the
-  # GitHub names of those repositories the host knows, and the Work profile
-  # its conversations run on.
+  # each repository it may change (none when it has no repository to change),
+  # the GitHub names of the repositories it holds that the host knows, and the
+  # Work profile its conversations run on.
   defp environments!(environments) when is_map(environments) do
     Map.new(environments, fn
       {ref,
@@ -832,13 +832,13 @@ defmodule Ryker.Slack.Runtime do
           do: raise(ArgumentError, "Slack environments must name each environment")
 
         profile = environment_profile!(work_profile, ref)
-        held = WorkProfile.repository_refs(profile)
 
         {ref,
          %{
-           contributor_policies: contributor_policies!(policies, held),
+           contributor_policies:
+             contributor_policies!(policies, WorkProfile.repository_refs(profile)),
            display_name: display_name,
-           github_repositories: github_repositories!(github_repositories, held),
+           github_repositories: github_repositories!(github_repositories, profile.repositories),
            work_profile: profile
          }}
 
@@ -867,7 +867,7 @@ defmodule Ryker.Slack.Runtime do
   end
 
   # A task changes exactly the repository its policy places it in, and only a
-  # repository the environment holds.
+  # repository the environment may change.
   defp contributor_policies!(policies, held) do
     Map.new(policies, fn
       {repository, %{repository_ref: repository} = policy} when is_binary(repository) ->

@@ -1141,6 +1141,21 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              nil
            ) == {:error, :conversation_lab_task_policy_not_configured}
 
+    # A repository the conversation's environment only reads is changed from
+    # no environment, not even one that may change it (Andrew, 2026-09-27:
+    # "can we here limit read or read/write access per repo?").
+    reading = %{
+      environments: %{"production" => reading_profile("production")},
+      fallback_work_profile: profile()
+    }
+
+    assert Actions.callbacks(reading, %{"a-staging" => %{"ryker" => task_policy("a-staging")}}).act_on_lab_record.(
+             @conversation_id,
+             task_offer.ref,
+             :confirm_task,
+             nil
+           ) == {:error, :conversation_lab_task_policy_not_configured}
+
     assert actions.act_on_lab_record.(
              @conversation_id,
              memory_offer.ref,
@@ -1855,6 +1870,21 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
         parallel_goal_limit: 3,
         policies: %{"ryker" => %{conversational: policy, deep: policy, standard: policy}},
         repositories: ["ryker"]
+      })
+
+    profile
+  end
+
+  # An environment whose work changes app and only reads ryker.
+  defp reading_profile(environment_ref) do
+    policy = %{policy: "conversation-read", policy_digest: String.duplicate("a", 64)}
+
+    {:ok, profile} =
+      WorkProfile.new(%{
+        environment_ref: environment_ref,
+        parallel_goal_limit: 3,
+        policies: %{"app" => %{conversational: policy, deep: policy, standard: policy}},
+        repositories: ["app", "ryker"]
       })
 
     profile

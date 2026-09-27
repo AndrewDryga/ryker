@@ -264,6 +264,55 @@ defmodule Ryker.ProductContractsTest do
     assert WorkProfile.restore(:invalid) == {:error, {:invalid_work_profile, :fields}}
   end
 
+  # Andrew, 2026-09-27: "can we here limit read or read/write access per
+  # repo?" A repository its environment only reads carries no policies of its
+  # own in the frozen profile: every session mounts it read-only beside the
+  # working copy, none opens it as the working copy, and routing never offers
+  # it as the one new work changes. The default is always one work may change.
+  test "a repository its environment only reads is mounted beside the working copy, never as it" do
+    attributes = %{
+      emisar_connection_ref: nil,
+      environment_ref: "platform",
+      parallel_goal_limit: 2,
+      policies: %{
+        "application" => class_policies("application"),
+        "infrastructure" => class_policies("infrastructure")
+      },
+      repositories: ["infrastructure", "application", "runbooks"]
+    }
+
+    assert {:ok, profile} = WorkProfile.new(attributes)
+    assert profile.repositories == ["infrastructure", "application", "runbooks"]
+    assert WorkProfile.repository_refs(profile) == ["infrastructure", "application"]
+    assert WorkProfile.read_only_refs(profile) == ["runbooks"]
+    assert WorkProfile.repository_choices(profile) == ["infrastructure", "application"]
+
+    assert {:ok, chosen} = WorkProfile.policy_for(profile, :standard, "application")
+
+    assert chosen.repository_context["read_only_repositories"] == ["infrastructure", "runbooks"]
+
+    assert WorkProfile.policy_for(profile, :standard, "runbooks") ==
+             {:error, {:invalid_work_profile, :repository_ref}}
+
+    assert {:ok, ^profile} = profile |> WorkProfile.document() |> WorkProfile.restore()
+
+    # With one repository work may change there is nothing to choose between.
+    assert {:ok, one} =
+             WorkProfile.new(%{
+               attributes
+               | policies: Map.take(attributes.policies, ["infrastructure"])
+             })
+
+    assert WorkProfile.repository_choices(one) == []
+    assert WorkProfile.read_only_refs(one) == ["application", "runbooks"]
+
+    # A read-only default would leave work nothing to change by default.
+    assert WorkProfile.new(%{
+             attributes
+             | repositories: ["runbooks", "infrastructure", "application"]
+           }) == {:error, {:invalid_work_profile, :policies}}
+  end
+
   test "repository contexts reject values outside their typed document contract" do
     assert RepositoryContext.prepare(:invalid, "ryker") == {:error, :invalid}
     assert RepositoryContext.restore(:invalid, "ryker") == {:error, :invalid}

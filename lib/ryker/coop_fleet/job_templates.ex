@@ -43,11 +43,16 @@ defmodule Ryker.CoopFleet.JobTemplates do
           purpose <- @repository,
           do: template(snapshot.work, purpose, :repository, repository.ref, "", [repository.ref])
 
+    # Work in an environment may change any of its read and write
+    # repositories, so each one is a working copy with every other repository
+    # mounted read-only beside it. A repository the environment only reads
+    # (Andrew, 2026-09-27: "can we here limit read or read/write access per
+    # repo?") is never a working copy: it is only ever such a companion.
     environment =
       for environment <- snapshot.environments,
           refs = Environment.repository_refs(environment),
           length(refs) > 1 and Enum.all?(refs, &MapSet.member?(available, &1)),
-          primary <- refs,
+          primary <- Environment.writable_refs(environment),
           purpose <- @environment do
         template(snapshot.work, purpose, :environment, environment.ref, primary, [
           primary | List.delete(refs, primary)

@@ -355,6 +355,7 @@ defmodule Ryker.IntegrationSetup do
 
   # An imported repository joins the default environment after the ones
   # already there, so the environment's default repository stays the first.
+  # It joins read and write; the environment is where it is made read only.
   defp join_default_environment(repository_ref) do
     with {:ok, snapshot, environment} <- ensure_default_environment(Settings.fetch!()) do
       refs = Environment.repository_refs(environment)
