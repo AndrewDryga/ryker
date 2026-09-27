@@ -21,7 +21,7 @@ defmodule Ryker.PollingWorker do
   functions (`Ryker.PubSub`). Every message they bring asks for a poll now; a
   burst of them, and all that arrive while a cycle runs, make one more poll.
   An idle install then polls only when a row falls due by the clock, which
-  `idle_delay/3` sleeps until, and on a long safety-net interval for anything
+  `idle_delay/2` sleeps until, and on a long safety-net interval for anything
   no announcement names.
   """
 
@@ -34,11 +34,13 @@ defmodule Ryker.PollingWorker do
 
   # An idle worker that wakes on announcements polls at least this often, to
   # catch a change nothing announced. Every row that falls due by time is
-  # slept until exactly (`idle_delay/3`), so this is only a safety net.
+  # slept until exactly (`idle_delay/2`), so this is only a safety net.
   @idle_interval_ms 10_000
 
-  # How far back `idle_delay/3` asks for rows falling due; see its doc.
+  # How far back `idle_delay/2` asks for rows falling due, and how soon it
+  # polls again for one that is due already; see its doc.
   @lookback_ms 1_000
+  @due_retry_ms 250
 
   @callback setup(argument :: term()) :: {:ok, state :: map()} | {:stop, reason :: term()}
   @callback poll(state :: map()) :: non_neg_integer()
@@ -103,13 +105,13 @@ defmodule Ryker.PollingWorker do
   after it at which a row of the worker's queue becomes claimable by the clock
   alone (a retry's backoff ending, a lease running out, a timer), or nil. A
   row that fell due between the cycle's claim and this read, or by a database
-  clock a little ahead of this one, is due already, so the worker polls again
-  after `floor_ms`, its old fixed interval; one that is due but still cannot
-  be claimed, waiting behind another, stops counting a second later.
+  clock a little behind this one, is due already, so the worker polls again
+  after #{@due_retry_ms} ms, the fastest any worker polled before it slept; one
+  that is due but still cannot be claimed, waiting behind another, stops
+  counting a second later.
   """
-  @spec idle_delay((DateTime.t() -> DateTime.t() | nil), non_neg_integer(), pos_integer()) ::
-          non_neg_integer()
-  def idle_delay(next_due_at, floor_ms, idle_ms) when is_function(next_due_at, 1) do
+  @spec idle_delay((DateTime.t() -> DateTime.t() | nil), pos_integer()) :: non_neg_integer()
+  def idle_delay(next_due_at, idle_ms) when is_function(next_due_at, 1) do
     now = DateTime.utc_now()
 
     case next_due_at.(DateTime.add(now, -@lookback_ms, :millisecond)) do
@@ -119,7 +121,7 @@ defmodule Ryker.PollingWorker do
       %DateTime{} = due_at ->
         case DateTime.diff(due_at, now, :microsecond) do
           wait when wait > 0 -> min(div(wait + 999, 1_000), idle_ms)
-          _due -> min(floor_ms, idle_ms)
+          _due -> min(@due_retry_ms, idle_ms)
         end
     end
   end

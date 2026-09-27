@@ -204,20 +204,19 @@ defmodule Ryker.PollingWorkerTest do
       end
     end
 
-    assert PollingWorker.idle_delay(asked.(nil), 250, 10_000) == 10_000
+    assert PollingWorker.idle_delay(asked.(nil), 10_000) == 10_000
     assert_receive {:since, since}
     # It asks from a second ago, so a row that fell due during the cycle counts.
     assert DateTime.diff(now, since, :millisecond) in 900..1_100
 
-    delay = PollingWorker.idle_delay(asked.(DateTime.add(now, 3, :second)), 250, 10_000)
+    delay = PollingWorker.idle_delay(asked.(DateTime.add(now, 3, :second)), 10_000)
     assert delay in 2_900..3_000
 
-    assert PollingWorker.idle_delay(asked.(DateTime.add(now, 60, :second)), 250, 10_000) ==
-             10_000
+    assert PollingWorker.idle_delay(asked.(DateTime.add(now, 60, :second)), 10_000) == 10_000
 
     # Due already: the claim missed it by a moment, or it waits behind another
-    # row. Either way it is polled for again at the old interval, not at once.
-    assert PollingWorker.idle_delay(asked.(DateTime.add(now, -500, :millisecond)), 250, 10_000) ==
+    # row. Either way it is polled for again soon, never in a tight loop.
+    assert PollingWorker.idle_delay(asked.(DateTime.add(now, -500, :millisecond)), 10_000) ==
              250
   end
 

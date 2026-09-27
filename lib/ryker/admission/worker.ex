@@ -59,7 +59,6 @@ defmodule Ryker.Admission.Worker do
       {:ok, :idle} ->
         PollingWorker.idle_delay(
           &Inbox.next_due_at/1,
-          state.poll_interval_ms,
           state.idle_interval_ms
         )
 
