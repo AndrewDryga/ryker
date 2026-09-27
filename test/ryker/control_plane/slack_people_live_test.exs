@@ -104,11 +104,12 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
 
     {:ok, view, _html} = open("/integrations/slack")
 
+    # One switch, saved as it changes (Andrew, 2026-09-27).
     view
     |> form("#{@managers} form#settings-slack-admins-form", %{
       "workspace_admins_manage" => "false"
     })
-    |> render_submit()
+    |> render_change()
 
     refute Settings.fetch!().slack.workspace_admins_manage
     assert eventually(fn -> not has_element?(view, "#{@switch}[checked]") end)

@@ -176,12 +176,12 @@ defmodule Ryker.ControlPlane.LabPageTest do
   # Andrew, 2026-09-25: "Chat picks its environment." Every conversation ran
   # in the default environment and nothing on the page said so, so a question
   # about staging was answered from production's repositories and Emisar
-  # account. The conversation's head now names its environment in one compact
-  # select beside its title, and one quiet line says where its messages work.
-  # Andrew, 2026-09-26: the head's title and its "Works without code" line
-  # "just duplicate the one on the side panel". The head is where a
-  # conversation picks its environment, and nothing else.
-  test "the conversation's head holds only its environment choice, never a second title" do
+  # account. The choice then sat in a head of its own above the messages, and
+  # on 2026-09-27 Andrew asked for it to move: "this can be cleanly and nicely
+  # moved to text input form or under it, so we don't waste space on top bar
+  # with huge dropdown". It is a compact choice under the message box now, and
+  # nothing sits above the messages.
+  test "a conversation chooses its environment under the message box, with no head above" do
     environments = [
       %{
         ref: "production",
@@ -204,14 +204,15 @@ defmodule Ryker.ControlPlane.LabPageTest do
         render_component(&LabPage.render/1, lab_assigns(directory(), "c") ++ assigns)
         |> LazyHTML.from_fragment()
 
-      [head] =
-        LazyHTML.query(document, ".lab-chat .lab-column > header.lab-chat-head") |> Enum.to_list()
+      assert Enum.empty?(LazyHTML.query(document, ".lab-column header, .lab-column h2"))
 
-      head
+      [foot] =
+        LazyHTML.query(document, ".lab-composer-dock > .lab-composer-foot") |> Enum.to_list()
+
+      foot
     end
 
     staging = head.(environments: environments, environment: "staging")
-    assert Enum.empty?(LazyHTML.query(staging, "h2, .lab-chat-title, .lab-chat-place"))
     refute LazyHTML.text(staging) =~ "Yesterday's thread"
 
     [form] = LazyHTML.query(staging, "form.lab-environment") |> Enum.to_list()
@@ -235,9 +236,9 @@ defmodule Ryker.ControlPlane.LabPageTest do
     assert LazyHTML.query(none, "option[selected]") |> LazyHTML.text() |> squish() ==
              "No environment"
 
-    # With no environment to choose, the head says so and where to add one,
-    # so the choice can be found at all ("how can I select which environment
-    # to use?", the same day).
+    # With no environment to choose, it says so and where to add one, so the
+    # choice can be found at all ("how can I select which environment to
+    # use?", 2026-09-26).
     bare = head.(environments: [], environment: nil)
     assert Enum.empty?(LazyHTML.query(bare, "form.lab-environment, select"))
     assert squish(LazyHTML.text(bare)) =~ "Environment None yet"
@@ -274,7 +275,7 @@ defmodule Ryker.ControlPlane.LabPageTest do
     assert Enum.count(links) == length(directory())
     assert Enum.empty?(LazyHTML.query(page, ".lab-directory-list a[aria-current=page]"))
 
-    assert LazyHTML.query(page, "header.lab-chat-head select#lab-environment option[selected]")
+    assert LazyHTML.query(page, ".lab-composer-foot select#lab-environment option[selected]")
            |> LazyHTML.text()
            |> squish() == "Production"
 
@@ -286,19 +287,7 @@ defmodule Ryker.ControlPlane.LabPageTest do
     refute LazyHTML.text(saved) =~ "New conversation"
   end
 
-  # The head is a header element, and the stylesheet's first rule dresses
-  # every header as the old application banner: sticky, raised, blurred.
-  # Chat's head inherited it and read as a highlighted row above the
-  # messages, and on a phone it slid over the examples as the page scrolled.
-  test "the conversation head cannot inherit the application banner" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-    [_, head] = Regex.run(~r/\n\.lab-chat-head \{([^}]+)\}/, css)
-    assert head =~ "position:static"
-    assert head =~ "background:transparent"
-    assert head =~ "backdrop-filter:none"
-  end
-
-  # Andrew, 2026-09-26: "Each conversation shows its environment." Chat picks
+  # Andrew, 2026-09-26: "Each conversation shows its environment." Chat picked
   # a conversation's environment in its head, but the list named none, so
   # finding the staging conversation meant opening each one.
   test "each conversation row names the environment it works in on its state line" do

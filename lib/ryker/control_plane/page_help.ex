@@ -190,7 +190,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"What Chat is",
        [
          "Chat is a direct conversation with Ryker, without Slack. Ryker can do the same things here as in a Slack channel: answer questions, investigate, change code, remember things and set up schedules.",
-         "Each conversation works in one environment, which sets the repositories and Emisar account its work may use. A new conversation starts in the default environment; you can choose another one for it, and work already started keeps the one it began in."
+         "Each conversation works in one environment, which sets the repositories and Emisar account its work may use. A new conversation starts in the default environment; you can choose another one under the message box, and work already started keeps the one it began in."
        ]},
       {"Start a conversation",
        [

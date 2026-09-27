@@ -150,6 +150,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        lab_window: nil,
        lab_draft_id: nil,
        lab_environment: nil,
+       lab_environment_saved: nil,
        lab_environments: [],
        readiness: nil
      )
@@ -183,7 +184,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        setup_failure: nil,
        settings_confirm: nil,
        channel_notice: nil,
-       welcome_pending: nil
+       welcome_pending: nil,
+       lab_environment_saved: nil
      )
      |> assign_conversation_draft(location.path)
      |> refresh(true)}
@@ -928,10 +930,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("filter-conversations", %{"q" => query}, socket),
     do: {:noreply, assign(socket, :lab_filter, String.slice(query, 0, 200))}
 
-  # A conversation's environment is its own choice, made in its head the way
-  # a channel's is made on its page: its messages from now on run there, and
-  # "" is no environment. A choice the conversation cannot take (the
-  # environment is gone) leaves the head saying what is true now.
+  # A conversation's environment is its own choice, made under its message
+  # box the way a channel's is made on its page: its messages from now on run
+  # there, "" is no environment, and a small Saved says it took. A choice the
+  # conversation cannot take (the environment is gone) leaves the choice
+  # saying what is true now.
   def handle_event("select-conversation-environment", %{"environment" => environment}, socket)
       when is_binary(environment) and socket.assigns.native == :lab and
              is_map(socket.assigns.lab) do
@@ -940,13 +943,18 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     case ConversationLab.select_environment(conversation_id, choice) do
       {:ok, environment_ref} ->
-        {:noreply, assign(socket, :lab_environment, environment_ref)}
+        {:noreply,
+         assign(socket,
+           lab_environment: environment_ref,
+           lab_environment_saved: System.unique_integer([:positive])
+         )}
 
       {:error, _reason} ->
         {:noreply,
          assign(socket,
            lab_environment: conversation_environment(conversation_id),
-           lab_environments: chat_environments()
+           lab_environments: chat_environments(),
+           lab_environment_saved: nil
          )}
     end
   end
@@ -1942,6 +1950,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             readiness={@readiness}
             environments={@lab_environments}
             environment={@lab_environment}
+            environment_saved={@lab_environment_saved}
             now={@observed_at || DateTime.utc_now()}
           />
           <SettingsPage.render

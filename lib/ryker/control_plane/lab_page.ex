@@ -84,6 +84,7 @@ defmodule Ryker.ControlPlane.LabPage do
       |> assign_new(:filter, fn -> "" end)
       |> assign_new(:environments, fn -> [] end)
       |> assign_new(:environment, fn -> nil end)
+      |> assign_new(:environment_saved, fn -> nil end)
       |> then(&assign(&1, :days, directory_days(filtered(&1.items, &1.filter), &1.now)))
       |> assign(:progress, progress_by_input(assigns.snapshot))
       |> assign_new(:readiness, fn ->
@@ -187,7 +188,6 @@ defmodule Ryker.ControlPlane.LabPage do
           {@announcement}
         </p>
         <div class="lab-column">
-          <.conversation_head environments={@environments} environment={@environment} />
           <div
             id="lab-history"
             phx-hook="ConversationHistory"
@@ -311,7 +311,14 @@ defmodule Ryker.ControlPlane.LabPage do
                 class="composer-status"
               />
             </form>
-            <p :if={@chat_ready} class="lab-chat-footer">⌘ / Ctrl + Enter to send</p>
+            <div class="lab-composer-foot">
+              <.environment_choice
+                environments={@environments}
+                environment={@environment}
+                saved={@environment_saved}
+              />
+              <p :if={@chat_ready} class="lab-chat-footer">⌘ / Ctrl + Enter to send</p>
+            </div>
           </div>
         </div>
       </section>
@@ -326,46 +333,49 @@ defmodule Ryker.ControlPlane.LabPage do
     doc: "The ref of the conversation's environment; nil is no environment"
   )
 
-  # The head of a conversation is where it picks its environment, and nothing
-  # else: its title and a "Works without code" line repeated the conversation
-  # list beside it (Andrew, 2026-09-26: "it just duplicates the one on the side
-  # panel"). With no environment to choose, it says so and where to add one,
-  # so the choice can be found at all (the same day: "how can I select which
-  # environment to use?").
-  defp conversation_head(assigns) do
+  attr(:saved, :any, default: nil, doc: "Which choice was just saved, for Kit.saved/1")
+
+  # Where the conversation works, chosen under the message box it applies to
+  # and saved as it changes. It sat in a head of its own above the messages
+  # until Andrew, 2026-09-27: "this can be cleanly and nicely moved to text
+  # input form or under it, so we don't waste space on top bar with huge
+  # dropdown". It stays outside the message form, which the page never
+  # redraws, so it always shows what is saved. With no environment to
+  # choose, it says so and where to add one, so the choice can be found at
+  # all (2026-09-26: "how can I select which environment to use?").
+  defp environment_choice(assigns) do
     ~H"""
-    <header class="lab-chat-head">
-      <form
-        :if={@environments != []}
-        id="lab-environment-form"
-        class="lab-environment"
-        phx-change="select-conversation-environment"
-        phx-submit="select-conversation-environment"
-      >
-        <label for="lab-environment">Environment</label>
-        <select id="lab-environment" name="environment">
-          <option
-            :for={choice <- @environments}
-            value={choice.ref}
-            selected={choice.ref == @environment}
-          >
-            {choice.name}
-          </option>
-          <option value="" selected={is_nil(@environment)}>No environment</option>
-        </select>
-      </form>
-      <p :if={@environments == []} class="lab-environment lab-environment-none">
-        <span class="lab-environment-label">Environment</span>
-        <span>None yet</span>
-        <span aria-hidden="true">·</span>
-        <.link navigate="/environments?edit=new">Add one</.link>
-      </p>
-    </header>
+    <form
+      :if={@environments != []}
+      id="lab-environment-form"
+      class="lab-environment"
+      phx-change="select-conversation-environment"
+      phx-submit="select-conversation-environment"
+    >
+      <label for="lab-environment">Environment</label>
+      <select id="lab-environment" name="environment">
+        <option
+          :for={choice <- @environments}
+          value={choice.ref}
+          selected={choice.ref == @environment}
+        >
+          {choice.name}
+        </option>
+        <option value="" selected={is_nil(@environment)}>No environment</option>
+      </select>
+      <Kit.saved id="lab-environment-saved" key={@saved} />
+    </form>
+    <p :if={@environments == []} class="lab-environment lab-environment-none">
+      <span class="lab-environment-label">Environment</span>
+      <span>None yet</span>
+      <span aria-hidden="true">·</span>
+      <.link navigate="/environments?edit=new">Add one</.link>
+    </p>
     """
   end
 
   @doc """
-  The environments the head offers, from a settings snapshot: the default
+  The environments Chat offers under its message box, from a settings snapshot: the default
   first, each with the repositories it holds as people know them and whether
   it has an Emisar account.
   """

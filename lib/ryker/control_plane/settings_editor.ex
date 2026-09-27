@@ -1,6 +1,9 @@
 defmodule Ryker.ControlPlane.SettingsEditor do
   @moduledoc """
-  One explicit Save/Cancel editor per settings section.
+  One explicit Save/Cancel editor per settings section, except a section that
+  is one choice, such as what new channels do: it saves as it changes and
+  says so with `Kit.saved/1` beside it (Andrew, 2026-09-27: "you can save on
+  change no need to add button").
 
   A live refresh never overwrites an unsaved draft, a rejected save keeps the
   draft and says which field was refused, and a revision that moved under the
@@ -236,7 +239,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     socket
     |> assign(:view, view)
     |> reset(if(next == :new, do: nil, else: saved_item_key(socket)))
-    |> assign(:message, if(next == :new, do: "Removed.", else: "Saved."))
+    |> assign(
+      message: if(next == :new, do: "Removed.", else: "Saved."),
+      saved_key: System.unique_integer([:positive])
+    )
   end
 
   defp write(socket, {:error, {:settings_conflict, current}}, _next) do
@@ -361,6 +367,14 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp saved_item_key(_socket), do: :keep
 
+  # A section that is one choice saves as it changes; every other section
+  # keeps its draft until Save changes.
+  defp autosave?(%{kind: :singleton, fields: [%{kind: kind}]})
+       when kind in [:choice, :boolean, :select],
+       do: true
+
+  defp autosave?(_section), do: false
+
   defp draft(socket, params) do
     draft = SettingsSections.submitted(socket.assigns.section, params)
     assign(socket, draft: draft, dirty: draft != socket.assigns.baseline)
@@ -380,7 +394,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         open?: open?,
         placement: placement(collection?, open?, assigns.item_key, rows),
         notices: notices(section, view),
-        noun: noun(section)
+        noun: noun(section),
+        autosave: autosave?(section),
+        saved_key: Map.get(assigns, :saved_key)
       )
 
     ~H"""
@@ -427,6 +443,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         conflict={@conflict}
         item_key={@item_key}
         message={@message}
+        saved_key={@saved_key}
+        autosave={@autosave}
         myself={@myself}
         collection?={@collection?}
         noun={@noun}
@@ -523,6 +541,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
               conflict={@conflict}
               item_key={@item_key}
               message={@message}
+              saved_key={@saved_key}
+              autosave={@autosave}
               myself={@myself}
               collection?={@collection?}
               noun={@noun}
@@ -558,6 +578,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         conflict={@conflict}
         item_key={@item_key}
         message={@message}
+        saved_key={@saved_key}
+        autosave={@autosave}
         myself={@myself}
         collection?={@collection?}
         noun={@noun}
@@ -594,7 +616,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       <p :if={@section[:help]} class="settings-form-help">{@section.help}</p>
       <form
         id={"#{@id}-form"}
-        phx-change="edit"
+        phx-change={if @autosave, do: "save", else: "edit"}
         phx-submit="save"
         phx-target={@myself}
         data-dirty={to_string(@dirty)}
@@ -654,7 +676,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
             phx-target={@myself}
           >Keep my changes and save over this</button>
         </div>
-        <div class="settings-actions">
+        <Kit.saved :if={@autosave} id={"#{@id}-saved"} key={@saved_key} />
+        <div :if={!@autosave} class="settings-actions">
           <button
             type="submit"
             class="ui-button primary"
