@@ -9,8 +9,8 @@ defmodule Ryker.LocalRouting.MigrationTest do
       adapter: Ecto.Adapters.Postgres
   end
 
-  @previous_version 20_260_927_172_000
-  @version 20_260_927_180_000
+  @previous_version 20_260_927_190_000
+  @version 20_260_927_191_000
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @digest String.duplicate("a", 64)
 
