@@ -17,6 +17,7 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
   """
   use Ryker.DataCase, async: false
 
+
   import Ecto.Query
   import Phoenix.LiveViewTest
 
@@ -27,7 +28,8 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
     LearningActivity,
     LearningPage,
     ModelRequests,
-    Projection
+    Projection,
+    WorkbenchLive
   }
 
   alias Ryker.Fixtures.Learning, as: Fixtures
@@ -168,6 +170,23 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
       )
 
     refute words =~ ~r/\b(episode|turn|host|admission|lease|digest|manifest|batch)\b/i
+  end
+
+  # The Learning chapter reads learning's passes, and learning announces them
+  # on a topic of its own that the Timeline did not listen to. Until setup is
+  # finished every page also hears the setup topics, which hid it; after that
+  # a pass finishing under an open Timeline never showed there.
+  test "a learning pass that finishes is heard by its request's open Timeline" do
+    [first, _second] = entries = inputs!()
+    key = episode_key(first)
+
+    for {module, function, arguments} <-
+          WorkbenchLive.page_subscriptions("/timeline/" <> key, %{"ref" => key}, nil),
+        do: :ok = apply(module, function, arguments)
+
+    learn!(entries, saved(entries))
+
+    assert_received {:learning_updated, _id}
   end
 
   # The chapter said "No change · Nothing new to save from these messages",

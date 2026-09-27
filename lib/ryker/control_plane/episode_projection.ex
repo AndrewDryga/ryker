@@ -3,8 +3,8 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   One episode's page: durable lifecycle metadata, its bounded event and record
   windows, the trace `EpisodeTrace` builds from them, its accounting and the
   episodes it is linked to. Raw ingress bodies, prompts and payloads never
-  cross this boundary. An open page redraws when the request or its
-  conversation changes (`subscriptions/1`).
+  cross this boundary. An open page redraws when the request, its
+  conversation or background learning changes (`subscriptions/1`).
   """
 
   import Ecto.Query
@@ -14,10 +14,15 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Learning
   alias Ryker.Records.Record
   alias Ryker.Repo
 
   @record_limit 500
+
+  # A request's page and a message's page show the learning passes over their
+  # messages; learning announces them on its own topic.
+  @learning {Learning, :subscribe_learning, []}
 
   @doc "The reader-facing key of an episode by id, or nil when there is no such episode."
   @spec key(Ecto.UUID.t() | nil) :: String.t() | nil
@@ -34,7 +39,8 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   it answers, whose messages its thread shows. A message no request has taken
   yet (`ingress-input:<id>`) listens to the message and its conversation; the
   message is announced when a request takes it, and the page listens to the
-  request from then on.
+  request from then on. Both show the learning passes over their messages,
+  which learning announces on its own topic.
   """
   @spec subscriptions(String.t() | nil) :: [{module(), atom(), list()}]
   def subscriptions("ingress-input:" <> id) do
@@ -53,7 +59,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
            )
          ) do
       {id, transport, conversation_ref} ->
-        [{Episodes, :subscribe_conversation, [transport, conversation_ref]}] ++
+        [{Episodes, :subscribe_conversation, [transport, conversation_ref]}, @learning] ++
           episode_subscriptions(id)
 
       nil ->
@@ -74,11 +80,12 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
       {episode_id, transport, conversation_ref} ->
         [
           {Inbox, :subscribe_input, [id]},
-          {Episodes, :subscribe_conversation, [transport, conversation_ref]}
+          {Episodes, :subscribe_conversation, [transport, conversation_ref]},
+          @learning
         ] ++ episode_subscriptions(episode_id)
 
       nil ->
-        [{Inbox, :subscribe_input, [id]}]
+        [{Inbox, :subscribe_input, [id]}, @learning]
     end
   end
 
