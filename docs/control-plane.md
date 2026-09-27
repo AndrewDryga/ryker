@@ -728,7 +728,12 @@ episode.
   so they share the Requests card and its Save with routing; contributor, scheduled,
   incident and learning work are the Other work card. Each list is a bordered box of
   numbered rows under the column names Model, Reasoning effort and Account, each row
-  with its move and remove buttons, and Add fallback as its last row
+  with its move and remove buttons, and Add fallback as its last row.
+  Model accounts is the same box: a row per account with its remove button and
+  Add account as its last row. A row says what is wrong with it as it is
+  typed, once it can no longer become `provider@name`, and removing an account
+  a saved model still runs on is refused with a sentence naming those models
+  and their kinds of work
 - Settings explain themselves in plain words: each kind of work says under its
   title where Ryker uses its models, as the code decides it; Advanced opens with what
   a worker is, and lets the operator choose an enrolled worker install. There is no local

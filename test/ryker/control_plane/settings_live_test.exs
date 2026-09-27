@@ -1248,8 +1248,10 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
            )
 
     # Listing the account keeps the unsaved models above and offers it there.
+    view |> element("button[phx-click=accounts][phx-value-action=add]") |> render_click()
+
     view
-    |> form("#settings-model_accounts-form", %{"model_accounts" => "codex@default, claude@work"})
+    |> form("#settings-model_accounts-form", %{"model_accounts" => %{"1" => "claude@work"}})
     |> render_submit()
 
     view
@@ -1312,16 +1314,18 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert Settings.fetch!().work.routing_models == ["codex:gpt-5.6-sol/medium@default"]
 
-    # An account a saved model still uses cannot be removed from the list.
+    # An account a saved model still uses cannot be renamed out of the list.
     view
-    |> form("#settings-model_accounts-form", %{"model_accounts" => "codex@personal"})
+    |> form("#settings-model_accounts-form", %{"model_accounts" => %{"0" => "codex@personal"}})
     |> render_submit()
 
     assert has_element?(
              view,
              "#settings-model_accounts .settings-error",
-             "A model above still uses an account you removed. Choose another account for it " <>
-               "first, then remove the account."
+             "codex@default still runs gpt-5.6-sol for Routing, Standard work, Deep work, " <>
+               "Contributor work, Scheduled work, Incident rooms and Learning, and gpt-5.6-terra " <>
+               "for Conversation. Choose another account for those models above first, then " <>
+               "remove codex@default."
            )
 
     assert Settings.fetch!().work.model_accounts == ["codex@default"]

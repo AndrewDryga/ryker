@@ -63,7 +63,22 @@ defmodule Ryker.Settings.Work do
   def providers, do: @providers
   def efforts, do: @efforts
   def most_models, do: @most_models
+  def most_accounts, do: @most_accounts
   def maximum_ready_routing_sessions, do: @maximum_ready_routing_sessions
+
+  @doc "Whether `value` is an account as Model accounts lists it: `provider@name`."
+  @spec account?(term()) :: boolean()
+  def account?(value), do: is_binary(value) and Regex.match?(@account, value)
+
+  @doc """
+  Whether typing more could still make `value` an account, so a form can say
+  what is wrong with one as it is typed without refusing it half-written.
+  """
+  @spec account_start?(String.t()) :: boolean()
+  def account_start?(value) when is_binary(value) do
+    account?(value) or account?(value <> "x") or
+      Enum.any?(@providers, &String.starts_with?(&1 <> "@", value))
+  end
 
   def changeset(current, attributes, snapshot) do
     current
@@ -100,7 +115,7 @@ defmodule Ryker.Settings.Work do
       reason =
         cond do
           length(accounts) not in 1..@most_accounts -> :length
-          not Enum.all?(accounts, &(is_binary(&1) and Regex.match?(@account, &1))) -> :format
+          not Enum.all?(accounts, &account?/1) -> :format
           Enum.uniq(accounts) != accounts -> :list
           stranded?(changeset, accounts) -> :in_use
           true -> nil

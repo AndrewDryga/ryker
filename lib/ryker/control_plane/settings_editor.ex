@@ -140,6 +140,37 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     end
   end
 
+  # Adding and removing an account row changes only the draft too. An
+  # account a saved model still runs on is not removed: its row stays and
+  # says which models run on it.
+  def handle_event("accounts", %{"field" => name, "action" => action} = params, socket) do
+    %{section: section, draft: draft, view: view} = socket.assigns
+    index = position(params["index"])
+
+    if Enum.any?(
+         section.fields,
+         &(&1.kind == :accounts and SettingsSections.field_name(&1) == name)
+       ) do
+      case SettingsSections.account_step(Map.get(draft, name, []), action, index, view) do
+        {:ok, entries} ->
+          draft = Map.put(draft, name, entries)
+
+          {:noreply,
+           assign(socket,
+             draft: draft,
+             dirty: draft != socket.assigns.baseline,
+             message: "",
+             refusal: nil
+           )}
+
+        {:refused, sentence} ->
+          {:noreply, assign(socket, message: "", refusal: {name, index, sentence})}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("ask-remove", %{"item" => key}, socket) when is_binary(key),
     do: {:noreply, assign(socket, removing: key, remove_error: nil, message: "")}
 
@@ -348,6 +379,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       impact: nil,
       item_key: item_key,
       message: "",
+      refusal: nil,
       removing: nil,
       remove_error: nil,
       saved_revision: view.revision,
@@ -377,7 +409,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp draft(socket, params) do
     draft = SettingsSections.submitted(socket.assigns.section, params)
-    assign(socket, draft: draft, dirty: draft != socket.assigns.baseline)
+    assign(socket, draft: draft, dirty: draft != socket.assigns.baseline, refusal: nil)
   end
 
   @impl true
@@ -447,6 +479,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         autosave={@autosave}
         myself={@myself}
         collection?={@collection?}
+        refusal={@refusal}
         noun={@noun}
       />
       <Kit.entity_list :if={@rows != []} label={@section.title}>
@@ -545,6 +578,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
               autosave={@autosave}
               myself={@myself}
               collection?={@collection?}
+              refusal={@refusal}
               noun={@noun}
             />
           </:details>
@@ -582,6 +616,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         autosave={@autosave}
         myself={@myself}
         collection?={@collection?}
+        refusal={@refusal}
         noun={@noun}
       />
     </section>
@@ -636,10 +671,11 @@ defmodule Ryker.ControlPlane.SettingsEditor do
             id={input_id(@id, field)}
             value={Map.get(@draft, SettingsSections.field_name(field), "")}
             options={options(field, @view)}
-            error={field_error(@errors, field, @draft)}
+            error={field_error(@errors, field, @draft, @view)}
             locked={field[:identity] && not is_nil(@item_key)}
             view={@view}
             myself={@myself}
+            refusal={@refusal}
           />
         </div>
         <div :if={@impact} class="settings-impact" role="alert">
@@ -710,6 +746,11 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   )
 
   attr(:myself, :any, default: nil, doc: "This editor, for a control's own buttons")
+
+  attr(:refusal, :any,
+    default: nil,
+    doc: "{field, row, sentence} for a list row whose removal was just refused"
+  )
 
   # A kind of work's models, in the order Coop tries them. Its help, under its
   # title, says where Ryker uses them. Each model is one numbered row of a
@@ -870,6 +911,108 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           phx-target={@myself}
           aria-label={"Add fallback for #{@field.label}"}
         ><Components.icon name={:plus} /><span>Add fallback</span></button>
+      </div>
+      <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
+    </fieldset>
+    """
+  end
+
+  # The accounts the worker has signed in, one numbered row each in the box
+  # the lists of models use, its remove button at its end and Add account as
+  # the last row (Andrew, 2026-09-27: "I need a way to add more accounts than
+  # one!"). A row says what is wrong with it while it is typed, once it can
+  # no longer become an account, and after a refused save also while it is
+  # unfinished. A row whose removal was refused says which models run on it.
+  defp field(%{field: %{kind: :accounts}} = assigns) do
+    %{field: field, value: entries, error: error, refusal: refusal} = assigns
+    name = SettingsSections.field_name(field)
+
+    rows =
+      entries
+      |> Enum.with_index()
+      |> Enum.map(fn {account, index} ->
+        problem = SettingsSections.account_problem(entries, index, not is_nil(error))
+
+        %{
+          index: index,
+          account: account,
+          name: if(String.trim(account) == "", do: "account #{index + 1}", else: account),
+          problem: problem,
+          message:
+            case refusal do
+              {^name, ^index, sentence} -> sentence
+              _other -> problem
+            end
+        }
+      end)
+
+    assigns =
+      assign(assigns,
+        name: name,
+        rows: rows,
+        count: length(entries),
+        most: Work.most_accounts(),
+        placeholder: SettingsSections.account_placeholder()
+      )
+
+    ~H"""
+    <fieldset
+      class="settings-field settings-ladder settings-accounts"
+      id={@id}
+      aria-describedby={help_id(@id, @field)}
+    >
+      <legend>{@field.label}</legend>
+      <p :if={@field[:help]} class="settings-help" id={"#{@id}-help"}>{@field.help}</p>
+      <div class="settings-ladder-box">
+        <ol class="settings-ladder-list">
+          <li :for={row <- @rows} id={"#{@id}-#{row.index}"} class="settings-ladder-entry">
+            <span class="settings-ladder-order" aria-hidden="true">{row.index + 1}</span>
+            <div class="settings-ladder-part">
+              <label for={"#{@id}-#{row.index}-account"}>Account {row.index + 1}</label>
+              <input
+                type="text"
+                id={"#{@id}-#{row.index}-account"}
+                name={"#{@name}[#{row.index}]"}
+                value={row.account}
+                placeholder={@placeholder}
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
+                aria-invalid={to_string(not is_nil(row.problem))}
+                aria-describedby={row.message && "#{@id}-#{row.index}-problem"}
+              />
+              <Components.form_feedback
+                :if={row.message}
+                id={"#{@id}-#{row.index}-problem"}
+                message={row.message}
+                tone={:error}
+              />
+            </div>
+            <div class="settings-ladder-actions">
+              <button
+                :if={@count > 1}
+                type="button"
+                class="ui-button quiet settings-ladder-remove"
+                phx-click="accounts"
+                phx-value-field={@name}
+                phx-value-action="remove"
+                phx-value-index={row.index}
+                phx-target={@myself}
+                title="Remove"
+                aria-label={"Remove #{row.name}"}
+              ><Components.icon name={:close} /></button>
+            </div>
+          </li>
+        </ol>
+        <button
+          :if={@count < @most}
+          type="button"
+          class="settings-ladder-add"
+          phx-click="accounts"
+          phx-value-field={@name}
+          phx-value-action="add"
+          phx-target={@myself}
+        ><Components.icon name={:plus} /><span>Add account</span></button>
       </div>
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
     </fieldset>
@@ -1301,16 +1444,22 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   # A field that knows what to ask for says it in its own words (the Slack
   # prefix says what a prefix may hold, a second price for a day names the
   # price already there); any other refusal names the field and the rule.
-  defp field_error(errors, field, draft) do
+  defp field_error(errors, field, draft, view) do
     case Enum.find(errors, fn {name, _reason} -> name == field.name end) do
-      {_name, reason} -> sentence(Map.get(field[:errors] || %{}, reason), field, reason, draft)
-      nil -> nil
+      {_name, reason} ->
+        sentence(Map.get(field[:errors] || %{}, reason), field, reason, {draft, view})
+
+      nil ->
+        nil
     end
   end
 
-  defp sentence(text, _field, _reason, _draft) when is_binary(text), do: text
-  defp sentence({module, function}, _field, _reason, draft), do: apply(module, function, [draft])
-  defp sentence(nil, field, reason, _draft), do: "#{field.label} #{phrase(reason)}"
+  defp sentence(text, _field, _reason, _values) when is_binary(text), do: text
+
+  defp sentence({module, function}, _field, _reason, {draft, view}),
+    do: apply(module, function, [draft, view])
+
+  defp sentence(nil, field, reason, _values), do: "#{field.label} #{phrase(reason)}"
 
   defp phrase(:required), do: "is required."
   defp phrase(:required_to_enable), do: "is required before this can be turned on."
