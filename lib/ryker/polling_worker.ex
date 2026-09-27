@@ -15,16 +15,41 @@ defmodule Ryker.PollingWorker do
   refuses to start; a worker without one keeps the argument as its state.
   `:lane` names the worker in the backoff warning, and `:interval` is the state
   key holding the configured interval, which a backoff never undercuts.
+
+  A worker whose rows another part of Ryker writes names the announcements of
+  those writes in `c:wake_on/1`: the owning contexts' own `subscribe_*`
+  functions (`Ryker.PubSub`). Every message they bring asks for a poll now; a
+  burst of them, and all that arrive while a cycle runs, make one more poll.
+  An idle install then polls only when a row falls due by the clock, which
+  `idle_delay/3` sleeps until, and on a long safety-net interval for anything
+  no announcement names.
   """
 
   require Logger
 
   @minimum_database_retry_ms 1_000
   @timer {__MODULE__, :timer}
+  @woken {__MODULE__, :woken}
+  @wakes {__MODULE__, :wakes}
+
+  # An idle worker that wakes on announcements polls at least this often, to
+  # catch a change nothing announced. Every row that falls due by time is
+  # slept until exactly (`idle_delay/3`), so this is only a safety net.
+  @idle_interval_ms 10_000
+
+  # How far back `idle_delay/3` asks for rows falling due; see its doc.
+  @lookback_ms 1_000
 
   @callback setup(argument :: term()) :: {:ok, state :: map()} | {:stop, reason :: term()}
   @callback poll(state :: map()) :: non_neg_integer()
-  @optional_callbacks setup: 1
+
+  @doc """
+  The announcements that wake this worker: functions that each subscribe the
+  calling process to one context's topic, such as
+  `&Ryker.Ingress.Inbox.subscribe_inputs/0`.
+  """
+  @callback wake_on(state :: map()) :: [(-> :ok | {:error, term()})]
+  @optional_callbacks setup: 1, wake_on: 1
 
   defmacro __using__(options) do
     lane = Keyword.fetch!(options, :lane)
@@ -39,8 +64,15 @@ defmodule Ryker.PollingWorker do
       def init(argument), do: Ryker.PollingWorker.init(__MODULE__, argument)
 
       @impl GenServer
-      def handle_info(:poll, state),
-        do: Ryker.PollingWorker.handle_poll(__MODULE__, unquote(lane), unquote(interval), state)
+      def handle_info(message, state),
+        do:
+          Ryker.PollingWorker.handle_info(
+            __MODULE__,
+            unquote(lane),
+            unquote(interval),
+            message,
+            state
+          )
     end
   end
 
@@ -56,22 +88,92 @@ defmodule Ryker.PollingWorker do
     :ok
   end
 
+  @doc """
+  The safety-net interval of a worker that wakes on announcements: how long it
+  sleeps when nothing woke it and nothing falls due sooner.
+  """
+  @spec idle_interval_ms() :: pos_integer()
+  def idle_interval_ms, do: @idle_interval_ms
+
+  @doc """
+  How long a worker that found nothing to do sleeps: until the earliest row
+  `next_due_at` names falls due, and never longer than `idle_ms`.
+
+  `next_due_at` is given a moment a second ago and answers the earliest time
+  after it at which a row of the worker's queue becomes claimable by the clock
+  alone (a retry's backoff ending, a lease running out, a timer), or nil. A
+  row that fell due between the cycle's claim and this read, or by a database
+  clock a little ahead of this one, is due already, so the worker polls again
+  after `floor_ms`, its old fixed interval; one that is due but still cannot
+  be claimed, waiting behind another, stops counting a second later.
+  """
+  @spec idle_delay((DateTime.t() -> DateTime.t() | nil), non_neg_integer(), pos_integer()) ::
+          non_neg_integer()
+  def idle_delay(next_due_at, floor_ms, idle_ms) when is_function(next_due_at, 1) do
+    now = DateTime.utc_now()
+
+    case next_due_at.(DateTime.add(now, -@lookback_ms, :millisecond)) do
+      nil ->
+        idle_ms
+
+      %DateTime{} = due_at ->
+        case DateTime.diff(due_at, now, :microsecond) do
+          wait when wait > 0 -> min(div(wait + 999, 1_000), idle_ms)
+          _due -> min(floor_ms, idle_ms)
+        end
+    end
+  end
+
   @doc false
   def init(module, argument) do
     result =
       if function_exported?(module, :setup, 1), do: module.setup(argument), else: {:ok, argument}
 
-    with {:ok, _state} <- result do
+    with {:ok, state} <- result do
+      subscribe(module, state)
       send(self(), :poll)
       result
     end
   end
 
+  # Subscribed before the first poll: anything committed before then, that
+  # poll reads, and anything committed after, its announcement wakes.
+  defp subscribe(module, state) do
+    if function_exported?(module, :wake_on, 1) do
+      subscriptions = module.wake_on(state)
+      Enum.each(subscriptions, fn subscribe -> :ok = subscribe.() end)
+      Process.put(@wakes, subscriptions != [])
+    end
+  end
+
   @doc false
-  def handle_poll(module, lane, interval, state) do
+  def handle_info(module, lane, interval, :poll, state) do
+    # A wake that arrives from here on may name a row this cycle's reads miss,
+    # so it asks for the poll after this one.
+    Process.delete(@woken)
     delay = run(lane, Map.fetch!(state, interval), fn -> module.poll(state) end)
     schedule_poll(delay)
     {:noreply, state}
+  end
+
+  def handle_info(module, _lane, _interval, message, state) do
+    if Process.get(@wakes) do
+      wake()
+    else
+      Logger.error("#{inspect(module)} received an unexpected message: #{inspect(message)}")
+    end
+
+    {:noreply, state}
+  end
+
+  # One poll per burst: every announcement already queued, and every one
+  # heard while that poll waits its turn, is answered by the same poll, which
+  # starts after each of them was received and so reads what they announced.
+  defp wake do
+    unless Process.get(@woken) do
+      Process.put(@woken, true)
+      send(self(), :poll)
+    end
   end
 
   # One pending poll at a time. A poll asked for early used to arm its own

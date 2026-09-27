@@ -42,6 +42,27 @@ defmodule Ryker.PollingWorkerTest do
     def run_pass(kind: :exit), do: exit(:invalid_polling_operation)
   end
 
+  defmodule OnboardingAPI do
+    def pin(_binding, _repository), do: {:error, :not_used}
+    def scan(_binding, _repository, _commit), do: {:error, :not_used}
+    def publish(_binding, _repository, _commit, _content), do: {:error, :not_used}
+  end
+
+  defmodule WokenWorker do
+    use Ryker.PollingWorker, lane: :woken_test, interval: :interval_ms
+
+    def start_link(options), do: GenServer.start_link(__MODULE__, Map.new(options))
+
+    @impl Ryker.PollingWorker
+    def wake_on(state), do: [fn -> Ryker.PubSub.subscribe(state.topic) end]
+
+    @impl Ryker.PollingWorker
+    def poll(state) do
+      send(state.parent, {:polled, self()})
+      state.interval_ms
+    end
+  end
+
   # Pool starvation killed 17 poller processes in 328 ms, spending the supervisor
   # restart budget and taking Ryker down. A failed cycle must wait, not crash
   # or report successful progress, then recover without a supervisor restart.
@@ -125,6 +146,79 @@ defmodule Ryker.PollingWorkerTest do
              :invalid_polling_operation
 
     refute_receive :poll
+  end
+
+  # On 2026-09-27 an idle install committed about 125 transactions a second:
+  # every worker polled its table on a 250 ms or 1 s timer whether or not
+  # anything had changed. A worker now sleeps until something it reads is
+  # announced, so an announcement has to reach it at once, and the many that
+  # one change can make (every row of a batch, every step of a claim) must
+  # cost one poll, not one each.
+  test "an announcement a worker names wakes it at once, and a burst makes one poll" do
+    topic = "polling-worker-test:#{System.unique_integer([:positive])}"
+
+    worker =
+      start_supervised!({WokenWorker, parent: self(), topic: topic, interval_ms: 60_000})
+
+    assert_receive {:polled, ^worker}, 1_000
+    refute_receive {:polled, ^worker}, 100
+
+    :ok = :sys.suspend(worker)
+    for change <- 1..5, do: Ryker.PubSub.broadcast(topic, {:changed, change})
+    :ok = :sys.resume(worker)
+
+    assert_receive {:polled, ^worker}, 500
+    refute_receive {:polled, ^worker}, 200
+
+    Ryker.PubSub.broadcast(topic, {:changed, 6})
+    assert_receive {:polled, ^worker}, 500
+  end
+
+  # Every worker now handles every message, to hear the announcements it
+  # names. One that names none, and is sent something anyway, says so and
+  # keeps polling, as a plain GenServer would.
+  test "a stray message to a worker that names no announcements is logged, not fatal" do
+    log =
+      capture_log(fn ->
+        worker =
+          start_supervised!(
+            {Ryker.GitHub.OnboardingWorker, api: OnboardingAPI, interval_ms: 60_000}
+          )
+
+        send(worker, {:changed, 1})
+        _state = :sys.get_state(worker)
+        assert Process.alive?(worker)
+      end)
+
+    assert log =~ "unexpected message"
+  end
+
+  test "an idle worker sleeps until its next row falls due, never past its safety net" do
+    now = DateTime.utc_now()
+    parent = self()
+
+    asked = fn due_at ->
+      fn since ->
+        send(parent, {:since, since})
+        due_at
+      end
+    end
+
+    assert PollingWorker.idle_delay(asked.(nil), 250, 10_000) == 10_000
+    assert_receive {:since, since}
+    # It asks from a second ago, so a row that fell due during the cycle counts.
+    assert DateTime.diff(now, since, :millisecond) in 900..1_100
+
+    delay = PollingWorker.idle_delay(asked.(DateTime.add(now, 3, :second)), 250, 10_000)
+    assert delay in 2_900..3_000
+
+    assert PollingWorker.idle_delay(asked.(DateTime.add(now, 60, :second)), 250, 10_000) ==
+             10_000
+
+    # Due already: the claim missed it by a moment, or it waits behind another
+    # row. Either way it is polled for again at the old interval, not at once.
+    assert PollingWorker.idle_delay(asked.(DateTime.add(now, -500, :millisecond)), 250, 10_000) ==
+             250
   end
 
   test "healthy polling preserves both immediate work and configured idle delays" do
