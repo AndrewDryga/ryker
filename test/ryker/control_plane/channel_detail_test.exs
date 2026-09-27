@@ -1376,6 +1376,21 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert pages(first) == %{"episodes" => "Page 1 of 2", "summaries" => "Page 1 of 2"}
     end
 
+    test "a channel's page leads back to all channels from above its title" do
+      # Andrew, 2026-09-27: the way back "should be standartized across app
+      # too". A channel's page had none but the sidebar.
+      membership!("T123", "C456", private: false, external_shared: false)
+
+      {:ok, view, _html} =
+        live(build_conn() |> Map.put(:host, "localhost"), "/channels/T123/C456")
+
+      assert has_element?(
+               view,
+               ".page-header > nav.kit-back:first-child a[href='/channels']",
+               "All channels"
+             )
+    end
+
     test "a channel's settings change in place and save as they change, the way Slack saves them" do
       # Andrew, 2026-09-27: "why all stuff like 'Joins relevant conversations'
       # cant be all dropdowns so I can edit settings in-place?" and "you can

@@ -76,9 +76,16 @@ defmodule Ryker.ControlPlane.RouteMapTest do
       assert get_resp_header(response, "location") == []
     end
 
-    # The retained record itself survives the route removal.
+    # The retained record itself survives the route removal, and leads back
+    # to Activity from above its title, as every sub-page leads back.
     assert {:ok, view, _html} = live(conn(), "/timeline/" <> encoded)
     assert has_element?(view, "#execution-timeline")
+
+    assert has_element?(
+             view,
+             ".episode-page-intro > nav.kit-back:first-child a[href=\"/\"]",
+             "Activity"
+           )
   end
 
   test "generated links name the approved routes" do
