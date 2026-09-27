@@ -453,8 +453,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert has_element?(view, ".entity-row .state-word[data-tone=off]", "Paused")
     assert has_element?(view, "button[phx-click=enable-emisar]", "Resume")
-    # The account's identifiers are support details, folded away from its row.
-    assert has_element?(view, ".entity-row details.settings-row-details dd", "account-production")
+    # The account's address is a support detail, folded away from its row.
+    assert has_element?(view, ".entity-row details.settings-row-details dd", "https://")
     refute has_element?(view, "form[phx-submit=rename-emisar]")
 
     view |> element("button[phx-click=enable-emisar]", "Resume") |> render_click()

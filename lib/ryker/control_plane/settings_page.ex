@@ -797,10 +797,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
               <summary>Details</summary>
               <dl>
                 <div>
-                  <dt>Account</dt>
-                  <dd><code>{account.account_ref}</code></dd>
-                </div>
-                <div>
                   <dt>Address</dt>
                   <dd><code>{account.rpc_url}</code></dd>
                 </div>

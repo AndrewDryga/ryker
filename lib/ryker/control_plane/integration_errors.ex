@@ -34,11 +34,6 @@ defmodule Ryker.ControlPlane.IntegrationErrors do
   def message({:invalid_credential, :display_name}),
     do: "Give the account a name of up to 120 characters."
 
-  def message({:invalid_credential, :account_ref}),
-    do:
-      "Emisar did not say which account this token belongs to. Check that you pasted an " <>
-        "API token and the right Emisar address, then try again."
-
   def message({:invalid_credential, :ref}),
     do: "That account no longer exists. Reload the page."
 
@@ -127,10 +122,18 @@ defmodule Ryker.ControlPlane.IntegrationErrors do
       "The Emisar address must start with https://, such as " <>
         "https://emisar.dev/api/mcp/rpc. Keep the default unless your Emisar is self-hosted."
 
-  def message({:emisar_verification_failed, :account_identity_unavailable}),
+  def message({:emisar_verification_failed, :token_refused}),
     do:
-      "Emisar did not say which account this token belongs to. Check that you pasted an " <>
-        "API token and the right Emisar address, then try again."
+      "Emisar refused this API key. Create an agent API key in Emisar under AI agents " <>
+        "› Connect, paste it here, and keep the address unless your Emisar is self-hosted."
+
+  def message({:emisar_verification_failed, :wrong_key_kind}),
+    do:
+      "This Emisar key cannot run agent tools. Create an agent API key in Emisar under AI " <>
+        "agents › Connect and paste that one."
+
+  def message({:emisar_key_already_connected, name}),
+    do: "This Emisar key is already connected as #{name}."
 
   def message({:emisar_verification_failed, _refused}),
     do:
@@ -163,9 +166,6 @@ defmodule Ryker.ControlPlane.IntegrationErrors do
 
   def message(:environment_not_found),
     do: "That environment no longer exists. Reload the page."
-
-  def message(:emisar_account_mismatch),
-    do: "That token belongs to a different Emisar account."
 
   def message({:invalid_settings, _errors}),
     do: "These values were refused. Check them and try again."

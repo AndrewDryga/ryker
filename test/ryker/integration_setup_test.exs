@@ -6,6 +6,7 @@ defmodule Ryker.IntegrationSetupTest do
   alias Ryker.ControlPlane.{IntegrationErrors, Integrations}
   alias Ryker.{Credentials, Episodes, IntegrationSetup, Settings}
   alias Ryker.Emisar.Connections
+  alias Ryker.TestSupport.EmisarMCP
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.GitHub.{Access, Binding}
   alias Ryker.Settings.Environment
@@ -26,7 +27,10 @@ defmodule Ryker.IntegrationSetupTest do
     def request(client, method, path, body, headers) do
       send(self(), {:provider_request, client.base_url, method, path, body, headers})
       {:ok, token} = client.token_provider.()
-      response_for(path, token)
+
+      if path == "/api/mcp/rpc",
+        do: EmisarMCP.answer(body, token),
+        else: response_for(path, token)
     end
 
     # Like GitHub: the App's own token answers only /app endpoints, and
@@ -147,34 +151,7 @@ defmodule Ryker.IntegrationSetupTest do
       })
     end
 
-    defp response_for("/api/mcp/rpc") do
-      response(%{
-        "jsonrpc" => "2.0",
-        "result" => %{
-          "account" => %{"id" => "account-acme", "name" => "Acme production"},
-          "capabilities" => %{}
-        }
-      })
-    end
-
     defp response(body), do: {:ok, %{body: body, headers: [], status: 200}}
-  end
-
-  defmodule OtherAccountRequester do
-    def request(_client, :post, "/api/mcp/rpc", _body, _headers) do
-      {:ok,
-       %{
-         body: %{
-           "jsonrpc" => "2.0",
-           "result" => %{
-             "account" => %{"id" => "account-other", "name" => "Other account"},
-             "capabilities" => %{}
-           }
-         },
-         headers: [],
-         status: 200
-       }}
-    end
   end
 
   # Slack answering for tokens of another workspace.
@@ -641,8 +618,8 @@ defmodule Ryker.IntegrationSetupTest do
     assert {:ok,
             %{
               ref: "production",
-              account_ref: "account-acme",
-              account_label: "Acme production",
+              account_ref: "key-" <> _fingerprint,
+              account_label: "emisar.example",
               status: :connected
             }} =
              IntegrationSetup.connect_emisar(
@@ -683,12 +660,14 @@ defmodule Ryker.IntegrationSetupTest do
                requester: Requester
              )
 
-    assert {:error, :emisar_account_mismatch} =
+    assert {:error, {:emisar_verification_failed, :token_refused}} =
              IntegrationSetup.rotate_emisar(
                "production",
-               "wrong-account-token-long-enough",
-               requester: OtherAccountRequester
+               "refused-replacement-token-long-enough",
+               requester: Requester
              )
+
+    assert Credentials.status(:emisar, "production").status == :configured
 
     assert {:ok, _snapshot} = IntegrationSetup.disable_emisar("production")
 
@@ -717,14 +696,20 @@ defmodule Ryker.IntegrationSetupTest do
              IntegrationSetup.delete_webhook_credential("alerts")
   end
 
-  test "Emisar derives internal identity and the visible account name from verification" do
+  # Found live 2026-09-27: Andrew's new Emisar key, which emisar.dev showed as
+  # "Agent connected", was refused with "Emisar did not say which account this
+  # token belongs to". Emisar's handshake names the server, never the account
+  # behind a key, and Ryker's double answered with an account Emisar never
+  # sends, so no real key could ever connect. A key proves itself by listing
+  # the agent tools, and the connection is known by the key's fingerprint.
+  test "an Emisar key connects under Emisar's address, since Emisar never names the account" do
     token = "emisar-token-that-is-long-enough"
 
     assert {:ok,
             %{
               ref: "account-" <> _digest,
-              account_ref: "account-acme",
-              account_label: "Acme production",
+              account_ref: "key-" <> _fingerprint,
+              account_label: "emisar.example",
               status: :connected
             }} =
              IntegrationSetup.connect_emisar(
@@ -736,8 +721,49 @@ defmodule Ryker.IntegrationSetupTest do
              )
 
     [connection] = Settings.fetch!().emisar_connections
-    assert connection.display_name == "Acme production"
+    assert connection.display_name == "emisar.example"
     assert connection.ref =~ ~r/\Aaccount-[a-f0-9]{16}\z/
+    refute inspect(Settings.fetch!()) =~ token
+  end
+
+  test "an Emisar key Emisar refuses says so, and nothing is saved" do
+    assert {:error, {:emisar_verification_failed, :token_refused}} =
+             IntegrationSetup.connect_emisar(
+               %{
+                 "rpc_url" => "https://emisar.example/api/mcp/rpc",
+                 "token" => "refused-emisar-token-long-enough"
+               },
+               requester: Requester
+             )
+
+    assert Settings.fetch!().emisar_connections == []
+  end
+
+  test "a key that cannot run agent tools says which key to make" do
+    assert {:error, {:emisar_verification_failed, :wrong_key_kind}} =
+             IntegrationSetup.connect_emisar(
+               %{
+                 "rpc_url" => "https://emisar.example/api/mcp/rpc",
+                 "token" => "audit-emisar-token-long-enough"
+               },
+               requester: Requester
+             )
+
+    assert Settings.fetch!().emisar_connections == []
+  end
+
+  test "the same Emisar key connected twice says it is already connected" do
+    params = %{
+      "rpc_url" => "https://emisar.example/api/mcp/rpc",
+      "token" => "emisar-token-that-is-long-enough"
+    }
+
+    assert {:ok, %{ref: ref}} = IntegrationSetup.connect_emisar(params, requester: Requester)
+
+    assert {:error, {:emisar_key_already_connected, "emisar.example"}} =
+             IntegrationSetup.connect_emisar(params, requester: Requester)
+
+    assert [%{ref: ^ref}] = Settings.fetch!().emisar_connections
   end
 
   # Connecting an account once saved it with approval monitoring off and no
@@ -800,7 +826,7 @@ defmodule Ryker.IntegrationSetupTest do
                  "rpc_url" => "https://emisar.example/api/mcp/rpc",
                  "token" => "other-emisar-token-long-enough"
                },
-               requester: OtherAccountRequester
+               requester: Requester
              )
 
     assert second != first
