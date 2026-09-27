@@ -1,0 +1,41 @@
+{
+  "name": "a file nobody can read after a quick answer",
+  "source": {
+    "database": "local Compose install, ryker-database-1, read on 2026-09-27",
+    "admission_attempt": "ef1234f4-1717-4cfd-a7be-4bffb20427ef",
+    "input": "671dba7f-d5a9-4d7f-ad99-ab564165252b",
+    "conversation": "slack:T0BHXKZJVDX:C0BLU1GACKC, thread 1790441855.847989",
+    "reshaped": "recorded_result is the routing model's answer byte for byte, already in the current contract; like every recorded answer, it has no sentiment. The message is the file share exactly as received; the quick reply is the one routing sent for \"Count to 10\" in the same thread."
+  },
+  "question": {
+    "actor": "U0BHTNFCW6S",
+    "ts": "1790496671.674079",
+    "thread": "1790441855.847989",
+    "text": "Count to 10"
+  },
+  "previous_answer": {
+    "kind": "quick_reply",
+    "ts": "1790496691.503839",
+    "at": "2026-09-27T08:11:31.516576Z",
+    "text": "1, 2, 3, 4, 5, 6, 7, 8, 9, 10."
+  },
+  "message": {
+    "actor": "U0BHTNFCW6S",
+    "ts": "1790502055.430169",
+    "thread": "1790441855.847989",
+    "content": {
+      "attachments": [],
+      "blocks": [],
+      "files": [
+        {
+          "reason": "unsupported_media_type",
+          "status": "unavailable"
+        }
+      ],
+      "slack_event_kind": "message",
+      "subtype": "file_share",
+      "text": ""
+    }
+  },
+  "recorded_result": "{\"action\":\"ignore\",\"episode_ref\":null,\"messages\":null,\"reactions\":null,\"relation\":\"unrelated\",\"reason\":\"The message shares an unavailable file with no text, request to Ryker, or identifiable operational event. The earlier reply and reaction request was already handled.\",\"repository\":null,\"repository_source\":null,\"work_class\":null}"
+}

@@ -270,6 +270,8 @@ The provider receives one bounded prompt containing:
 - the frozen local backdrop: the thread root, the messages that preceded this one in that exact
   place, and the thread's latest summary when Ryker saved one before this message arrived, with a
   manifest saying what the bundle actually contains;
+- when a person's message follows one of Ryker's answers there, when that answer was sent
+  (`previous_answer`), so routing can say how the sender feels about it;
 - up to twenty opaque candidate episodes from every conversation this source may correlate with;
 - each candidate's source-backed digest, lifecycle state, match evidence and allowed relations;
 - compact chronological first/latest input previews, which supplement the digest and never replace it.
@@ -382,6 +384,24 @@ repository_source_not_available`). A malformed selector is refused, never repair
 supplies `default` for a new repository-backed episode when the model chose nothing, and the chosen
 selector is frozen in the same transaction that pins the Work policy. See
 [elixir-work-runtime.md](elixir-work-runtime.md) for how Ryker resolves and Coop fetches and verifies it.
+
+### How the sender feels about the previous answer
+
+When a person writes a new message in Slack or Chat after one of Ryker's answers in the same place
+(the latest Work reply or quick reply among the frozen conversation's messages, not an update Work
+posted while it ran), the context carries `previous_answer` with the time that answer was sent, and
+routing may add `sentiment` beside its decision: how the sender feels about that answer, `feeling`
+one of `satisfied`, `neutral`, `frustrated` or `angry`, with a short `reason`, or null when the
+message does not react to it. The host keeps it as feedback on the request that answered
+(`Ryker.Feedback`), with the message as its source. An app, an alert, an edit, a first message and
+an answer the prompt's narrowing dropped are not asked about.
+
+Sentiment is an input, never a dependency. It is not in `required`, and the response format ends its
+shape with a branch that accepts anything, so Coop never asks the model to correct it. The host
+keeps a feeling it knows and a reason that is plain text of at most 280 characters, leaves out the
+rest without a word, and never rejects, repairs or changes a decision because of it: the stored
+decision document and its fingerprint do not include it. The routing result card shows it as
+"Felt about the last answer" when the host kept one.
 
 The model never returns a provider, model, effort, policy name, repository, credential, or write
 authority. Those remain trusted configuration. The three class policies for one route must carry
@@ -509,6 +529,9 @@ Fast deterministic tests cover:
   one kept when the setting is lowered;
 - lost asynchronous operation responses;
 - schema-valid but semantically invalid output repaired in the same turn;
+- recorded routing results with a sentiment, without one and with every malformed one committing the
+  same decision, a readable one kept as feedback on the request that answered, and no sentiment
+  asked of an app, an edit, a first message or an answer narrowed out of the prompt;
 - missing semantic-validation receipts being refused;
 - lease fencing, expiry recovery, simultaneous workers, and retry timing;
 - terminal operation generations, uncertain-result custody, and dynamic candidate-capacity recovery;

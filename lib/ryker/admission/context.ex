@@ -1,6 +1,13 @@
 defmodule Ryker.Admission.Context do
   @moduledoc """
   Frozen input and bounded candidate set supplied to one model decision.
+
+  `previous_answer` is set only for a person's message in Slack or Chat that
+  follows one of Ryker's answers in the same place: the latest answer in the
+  frozen conversation context, when it was sent and the request it belongs
+  to. The router is told when it was sent and asked how the sender feels
+  about it (`Ryker.Admission.Sentiment`); the host keeps what it says as
+  feedback on that request.
   """
 
   alias Ryker.Admission.Candidate
@@ -32,6 +39,7 @@ defmodule Ryker.Admission.Context do
                 continuation_window: nil,
                 repository_choices: [],
                 candidate_messages: [],
+                previous_answer: nil,
                 fitted?: false
               ]
 
@@ -63,7 +71,20 @@ defmodule Ryker.Admission.Context do
     |> put_model_person_asking(context.person_asking)
     |> put_repository_choices(context.repository_choices)
     |> put_repository_source_kinds(context.input_entry.repository_ref)
+    |> put_model_previous_answer(context.previous_answer)
   end
+
+  @doc "Whether routing is asked how the sender feels about Ryker's previous answer."
+  @spec sentiment_offered?(t()) :: boolean()
+  def sentiment_offered?(%__MODULE__{previous_answer: %{}}), do: true
+  def sentiment_offered?(%__MODULE__{}), do: false
+
+  # The router reads only when the answer was sent; the message itself is in
+  # conversation_context, and which request it belongs to is the host's.
+  defp put_model_previous_answer(document, %{"at" => at}),
+    do: Map.put(document, "previous_answer", %{"at" => Candidate.model_time(at)})
+
+  defp put_model_previous_answer(document, _none), do: document
 
   @doc "Whether the operator saved any instruction text for this request."
   @spec custom_instructions?(t()) :: boolean()
@@ -189,7 +210,13 @@ defmodule Ryker.Admission.Context do
     |> put_person_asking(context.person_asking)
     |> put_repository_choices(context.repository_choices)
     |> put_candidate_messages(context.candidate_messages)
+    |> put_previous_answer(context.previous_answer)
   end
+
+  defp put_previous_answer(document, nil), do: document
+
+  defp put_previous_answer(document, answer),
+    do: Map.put(document, "previous_answer", answer)
 
   @doc false
   @spec episode_ids(map()) :: {:ok, [Ecto.UUID.t()]} | {:error, term()}
@@ -227,7 +254,8 @@ defmodule Ryker.Admission.Context do
                    "custom_instructions",
                    "person_asking",
                    "repository_choices",
-                   "candidate_messages"
+                   "candidate_messages",
+                   "previous_answer"
                  ])
                )
              ) ==
@@ -237,6 +265,7 @@ defmodule Ryker.Admission.Context do
          {:ok, person_asking} <- restore_person_asking(snapshot),
          {:ok, repository_choices} <- restore_repository_choices(snapshot),
          {:ok, candidate_messages} <- restore_candidate_messages(snapshot),
+         {:ok, previous_answer} <- restore_previous_answer(snapshot),
          observations when is_list(observations) <-
            Map.get(snapshot, "conversation_observations", []),
          true <- length(observations) <= 5,
@@ -273,6 +302,7 @@ defmodule Ryker.Admission.Context do
          knowledge_omissions: omissions,
          repository_choices: repository_choices,
          candidate_messages: candidate_messages,
+         previous_answer: previous_answer,
          source_dependencies: snapshot["source_dependencies"]
        }}
     else
@@ -309,6 +339,33 @@ defmodule Ryker.Admission.Context do
 
   defp choice_ref(%{"ref" => ref}), do: ref
   defp choice_ref(_choice), do: nil
+
+  # A context frozen before routing read sentiment has none.
+  defp restore_previous_answer(snapshot) do
+    case Map.fetch(snapshot, "previous_answer") do
+      :error ->
+        {:ok, nil}
+
+      {:ok, %{"at" => at, "message_ref" => ref, "request" => request} = answer}
+      when map_size(answer) == 3 and is_binary(ref) and byte_size(ref) in 1..1_024 ->
+        if match?({:ok, _at, 0}, DateTime.from_iso8601(to_string(at))) and request?(request),
+          do: {:ok, answer},
+          else: {:error, {:invalid_admission_context_snapshot, :previous_answer}}
+
+      {:ok, _invalid} ->
+        {:error, {:invalid_admission_context_snapshot, :previous_answer}}
+    end
+  end
+
+  defp request?(%{} = request) when map_size(request) == 1 do
+    case request do
+      %{"episode_id" => id} when is_binary(id) -> match?({:ok, _id}, Ecto.UUID.cast(id))
+      %{"input_id" => id} when is_binary(id) -> match?({:ok, _id}, Ecto.UUID.cast(id))
+      _other -> false
+    end
+  end
+
+  defp request?(_request), do: false
 
   defp repository_choice?(%{"ref" => ref} = choice) when is_binary(ref) do
     String.trim(ref) != "" and byte_size(ref) <= 1_024 and

@@ -1,0 +1,31 @@
+{
+  "name": "a correction after an answer that went the wrong way",
+  "source": {
+    "database": "local Compose install, ryker-database-1, read on 2026-09-27",
+    "admission_attempt": "5c743ec2-29a7-4e42-b40f-31f563c7c5e0",
+    "input": "b9ecf31b-0c72-425e-897e-e2c493782de6",
+    "conversation": "slack:T0BHXKZJVDX:C0BLU1GACKC, thread 1790511333.759719",
+    "reshaped": "recorded_result is the routing model's answer byte for byte. To commit it against the seeded request, the test gives episode_ref the candidate reference of the request that answered and sets repository to null: the test route offers one repository, where the recorded route offered a choice. sentiment is the field the 2026-09-27 contract adds; no recorded answer carries one yet, so its value here is the reading the contract asks for, not a recorded one."
+  },
+  "question": {
+    "actor": "U0BHTNFCW6S",
+    "ts": "1790511333.759719",
+    "text": "<@U0C1LCVNF52> In AndrewDryga/test, add a short \"Workflow smoke test\" section to README.md saying this repository exercises Ryker and Coop. Commit the change, push it to a branch, and open a draft PR. Leave main unchanged."
+  },
+  "previous_answer": {
+    "kind": "work_reply",
+    "ts": "1790511881.645769",
+    "at": "2026-09-27T12:24:41.724351Z",
+    "text": "Added the exact section to README.md and committed the README-only change on `ryker/readme-workflow-smoke-test`. Pushing failed because the Git destination couldn’t be reached, so no draft PR was created. I haven’t changed main.\n\nCan you restore publication access for AndrewDryga/test so I can push the branch and open the draft PR against main?"
+  },
+  "message": {
+    "actor": "U0BHTNFCW6S",
+    "ts": "1790511976.252439",
+    "text": "The committed README change is in the isolated working copy. Do not push Git directly from the model sandbox; Ryker owns review and publication through the Coop API. Please finish the README-only checks and report the task complete so Ryker can offer and create the draft PR. No change to main."
+  },
+  "recorded_result": "{\"action\":\"start_episode\",\"episode_ref\":\"candidate:a1cbacc98a51\",\"messages\":null,\"reactions\":null,\"relation\":\"history_only\",\"reason\":\"Finish the README-only checks on the committed change in AndrewDryga/test and report completion, using the earlier commit report as background. Leave main unchanged and let Ryker handle review and draft PR publication through the Coop API without a direct Git push.\",\"repository\":\"andrewdryga-test\",\"repository_source\":null,\"work_class\":\"standard\"}",
+  "sentiment": {
+    "feeling": "frustrated",
+    "reason": "They correct Ryker: it tried to push from the sandbox instead of finishing the checks and leaving publication to Ryker."
+  }
+}

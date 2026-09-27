@@ -388,7 +388,8 @@ defmodule Ryker.Admission.Executor do
         Input.allowed_actions(context.input),
         Input.reaction_names(context.input),
         is_binary(entry.repository_ref),
-        Enum.map(context.repository_choices, & &1["ref"])
+        Enum.map(context.repository_choices, & &1["ref"]),
+        Context.sentiment_offered?(context)
       )
 
     with :ok <- renew_lease(settings),
