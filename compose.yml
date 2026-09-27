@@ -75,6 +75,11 @@ services:
     volumes:
       - ryker-state:/var/lib/ryker
       - ryker-coop-config:/var/lib/ryker-coop
+    # The local routing model runs on the host, such as Ollama on the Mac that
+    # runs Ryker (docs/operations.md). Docker Desktop and OrbStack name the host
+    # already; Docker on Linux needs this.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       default:
         ipv4_address: 172.30.42.10
