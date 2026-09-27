@@ -11,6 +11,7 @@ defmodule Ryker.Bootstrap do
   defstruct [
     :repo,
     :control_plane,
+    :control_public_url,
     :state_tools,
     :worker_gateway,
     :github_listener,
@@ -35,9 +36,16 @@ defmodule Ryker.Bootstrap do
   ]
 
   def load!(env \\ &System.fetch_env/1) do
+    control_plane = control_listener!(env)
+
     %__MODULE__{
       repo: [url: database_url!(env), pool_size: integer!(env, "POOL_SIZE", 10, 1..200)],
-      control_plane: control_listener!(env),
+      control_plane: control_plane,
+      # Where a person opens the console, for the links Ryker posts, such as
+      # the weekly report's. Compose publishes the console's port on the host,
+      # so the address Ryker listens on is not always the one people use.
+      control_public_url:
+        public_url!(env, "RYKER_CONTROL_PUBLIC_URL", "http://127.0.0.1:#{control_plane.port}"),
       state_tools: listener!(env, "RYKER_STATE_TOOLS", 4318, :loopback),
       worker_gateway: worker_gateway!(env),
       github_listener: listener!(env, "RYKER_GITHUB", 4319, :network),

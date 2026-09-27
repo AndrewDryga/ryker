@@ -89,7 +89,8 @@ defmodule Ryker.Retention.Policy do
     %{
       table: "report_settings",
       class: :kept,
-      why: "weekly self report choice; the managed schedule row carries the recurrence"
+      why:
+        "whether the weekly report posts, where, on which day and at which local time; each week it was sent for is kept in weekly_reports"
     },
     %{
       table: "learning_settings",
@@ -220,6 +221,12 @@ defmodule Ryker.Retention.Policy do
       class: :cascade,
       why:
         "each self-analysis turn's exact prompt and answer leave with their candidate; their words are erased at the operational horizon once the turn has stopped, and at once when a person forgets what they quote"
+    },
+    %{
+      table: "weekly_reports",
+      class: :operational,
+      why:
+        "each week's report, its channel and its post's delivery custody; one delivered or blocked leaves at the operational horizon, and never within two weeks of its send time, so no week is posted twice"
     },
     %{
       table: "local_routing_comparisons",

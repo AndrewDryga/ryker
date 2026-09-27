@@ -8,5 +8,6 @@ if config_env() == :prod do
   config :ryker, :credential_key, bootstrap.credential_key
   config :ryker, :github_public_url, bootstrap.github_public_url
   config :ryker, :webhook_public_url, bootstrap.webhook_public_url
+  config :ryker, :control_public_url, bootstrap.control_public_url
   config :logger, level: bootstrap.log_level
 end

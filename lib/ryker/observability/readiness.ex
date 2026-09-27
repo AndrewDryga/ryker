@@ -154,6 +154,7 @@ defmodule Ryker.Observability.Readiness do
       slack: {:named, Ryker.Slack.Supervisor},
       state_tools: {:supervised, Ryker.StateTools.Server},
       webhooks: {:supervised, Ryker.Webhooks.Server},
+      weekly_report: {:named, Ryker.WeeklyReport.Worker},
       work: {:named, Ryker.Work.Runtime}
     ]
     |> Enum.flat_map(fn {key, owner} ->

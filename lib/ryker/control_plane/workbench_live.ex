@@ -89,7 +89,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     platform_action_updated publication_updated record_updated routing_response_updated
     schedule_updated settings_applied settings_saved slack_channel_updated
     slack_connection_changed slack_interaction_updated slack_names_updated
-    task_card_updated thread_status_updated usage_recorded work_session_updated
+    task_card_updated thread_status_updated usage_recorded weekly_report_updated
+    work_session_updated
   )a
 
   @doc false

@@ -283,6 +283,16 @@ defmodule Ryker.Retention.Data do
     horizon: :operational_data_seconds
   }
 
+  # A week's report is the record that the week was sent, which the scheduler
+  # reads for the latest send time, at most a week old; it stays two weeks
+  # whatever the horizon. One still being posted is custody and never goes.
+  @finished_weekly_reports %{
+    table: "weekly_reports",
+    where: "status <> 'pending' AND due_at < clock_timestamp() - interval '14 days'",
+    age: "updated_at",
+    horizon: :operational_data_seconds
+  }
+
   # Feedback on an answer ages from when Ryker recorded it, not from when the
   # source says it happened: a redelivered old event is still recent news.
   @recorded_feedback %{
@@ -595,6 +605,7 @@ defmodule Ryker.Retention.Data do
     worker_events = prune_aged(@discarded_worker_events, settings)
     _non_work_sessions = execute_count(@prune_non_work_sessions, [cutoff])
     routing_responses = prune_aged(@delivered_routing_responses, settings)
+    _weekly_reports = prune_aged(@finished_weekly_reports, settings)
     feedback = prune_aged(@recorded_feedback, settings)
     _improvement_runs = execute_count(@prune_improvement_runs, [cutoff])
 

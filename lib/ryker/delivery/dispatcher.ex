@@ -1,6 +1,7 @@
 defmodule Ryker.Delivery.Dispatcher do
   @moduledoc """
-  Delivers one host-routed message, routing response, or model-requested action under durable custody.
+  Delivers one host-routed message, routing response, model-requested action,
+  or weekly report under durable custody.
 
   Platform publishers receive immutable requests without credentials or
   routing authority. Any ambiguous provider result releases the exact intent
@@ -12,17 +13,19 @@ defmodule Ryker.Delivery.Dispatcher do
   alias Ryker.Episodes
   alias Ryker.LeasedCall
   alias Ryker.Slack.ReplyRecords
+  alias Ryker.WeeklyReport.Custody, as: ReportCustody
   alias Ryker.Work.Custody
 
   @maximum_error_detail_bytes 4_096
   @options ~w(adapters kind lease_seconds max_attempts retry_base_seconds retry_max_seconds worker_ref)a
 
+  @type kind :: :message | :routing | :action | :report
   @type result ::
           {:ok,
            :idle
-           | {:delivered, :message | :routing | :action, String.t()}
-           | {:deferred, :message | :routing | :action, String.t(), term()}
-           | {:blocked, :message | :routing | :action, String.t(), term()}}
+           | {:delivered, kind(), String.t()}
+           | {:deferred, kind(), String.t(), term()}
+           | {:blocked, kind(), String.t(), term()}}
           | {:error, term()}
 
   @spec run_once(keyword()) :: result()
@@ -35,13 +38,14 @@ defmodule Ryker.Delivery.Dispatcher do
 
   @doc """
   The announcements that can make delivery of `kind` claimable: a Work reply
-  is a turn, announced on its request's topics; a routing response and a
-  model-requested action each have a topic of their own.
+  is a turn, announced on its request's topics; a routing response, a
+  model-requested action and a weekly report each have a topic of their own.
   """
   @spec subscriptions(atom()) :: [(-> :ok | {:error, term()})]
   def subscriptions(:message), do: [&Episodes.subscribe_episodes/0]
   def subscriptions(:routing), do: [&RoutingResponseCustody.subscribe_routing_responses/0]
   def subscriptions(:action), do: [&PlatformActionCustody.subscribe_platform_actions/0]
+  def subscriptions(:report), do: [&ReportCustody.subscribe_reports/0]
   def subscriptions(_kind), do: []
 
   @doc """
@@ -52,6 +56,7 @@ defmodule Ryker.Delivery.Dispatcher do
   def next_due_at(:message, since), do: Custody.next_due_at(since, :delivery)
   def next_due_at(:routing, since), do: RoutingResponseCustody.next_due_at(since)
   def next_due_at(:action, since), do: PlatformActionCustody.next_due_at(since)
+  def next_due_at(:report, since), do: ReportCustody.next_due_at(since)
   def next_due_at(_kind, _since), do: nil
 
   defp claim_next(%{kind: :message} = settings) do
@@ -64,6 +69,10 @@ defmodule Ryker.Delivery.Dispatcher do
 
   defp claim_next(%{kind: :action} = settings) do
     PlatformActionCustody.claim_next(settings.worker_ref, settings.lease_seconds)
+  end
+
+  defp claim_next(%{kind: :report} = settings) do
+    ReportCustody.claim_next(settings.worker_ref, settings.lease_seconds)
   end
 
   defp execute(nil, _settings), do: {:ok, :idle}
@@ -80,9 +89,9 @@ defmodule Ryker.Delivery.Dispatcher do
     end
   end
 
-  # The three custodies hold the same lease shape under different names; the
+  # The four custodies hold the same lease shape under different names; the
   # dispatcher talks to them through this one, so the retry policy, the lease
-  # renewal cadence and the give-up rule exist once rather than three times.
+  # renewal cadence and the give-up rule exist once rather than four times.
   defp custody(claim, %{kind: :message} = settings) do
     %{episode: episode, turn: turn, lease_ref: lease_ref} = claim
 
@@ -142,9 +151,27 @@ defmodule Ryker.Delivery.Dispatcher do
     }
   end
 
+  defp custody(%{report: report, lease_ref: lease_ref}, %{kind: :report} = settings) do
+    %{
+      attempt_count: report.attempt_count,
+      kind: :report,
+      ref: report.delivery_ref,
+      renew: fn ->
+        ReportCustody.renew(report.delivery_ref, lease_ref, settings.lease_seconds)
+      end,
+      defer: fn retry_seconds, code, detail ->
+        ReportCustody.defer(report.delivery_ref, lease_ref, retry_seconds, code, detail)
+      end,
+      block: fn code, detail ->
+        ReportCustody.block(report.delivery_ref, lease_ref, code, detail)
+      end
+    }
+  end
+
   defp request(claim, :message), do: message_request(claim)
   defp request(claim, :routing), do: RoutingResponseCustody.request(claim.response)
   defp request(claim, :action), do: PlatformActionCustody.request(claim.action)
+  defp request(claim, :report), do: ReportCustody.request(claim.report)
 
   defp confirm(claim, _request, receipt, :message) do
     Custody.confirm_delivery(
@@ -161,6 +188,9 @@ defmodule Ryker.Delivery.Dispatcher do
 
   defp confirm(claim, request, receipt, :action),
     do: PlatformActionCustody.confirm_delivery(request.ref, claim.lease_ref, receipt)
+
+  defp confirm(claim, request, receipt, :report),
+    do: ReportCustody.confirm_delivery(request.ref, claim.lease_ref, receipt)
 
   defp message_request(claim) do
     with {:ok, message, record_refs, artifact_refs} <-
@@ -327,6 +357,7 @@ defmodule Ryker.Delivery.Dispatcher do
   defp lease_error?(:work_lease_lost), do: true
   defp lease_error?(:routing_response_lease_lost), do: true
   defp lease_error?(:platform_action_lease_lost), do: true
+  defp lease_error?(:weekly_report_lease_lost), do: true
   defp lease_error?(_reason), do: false
 
   defp retry_delay(reason, attempt_count, settings) do
@@ -396,7 +427,7 @@ defmodule Ryker.Delivery.Dispatcher do
 
   defp validate_settings(settings) do
     with :ok <- setting(is_map(settings.adapters) and map_size(settings.adapters) > 0, :adapters),
-         :ok <- setting(settings.kind in [:message, :routing, :action], :kind),
+         :ok <- setting(settings.kind in [:message, :routing, :action, :report], :kind),
          :ok <- setting(positive?(settings.lease_seconds), :lease_seconds),
          :ok <- setting(positive?(settings.max_attempts), :max_attempts),
          :ok <- setting(positive?(settings.retry_base_seconds), :retry_base_seconds),

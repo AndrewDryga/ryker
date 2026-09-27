@@ -71,6 +71,9 @@ defmodule Ryker.Runtime.Assembly do
     {:github, Ryker.GitHub.Runtime},
     {:publication, Ryker.Publication.Runtime},
     {:delivery, Ryker.Delivery.Runtime},
+    # Its own key, so turning the weekly report on or off starts or stops
+    # only its schedule; delivery posts what it queues.
+    {:weekly_report, Ryker.WeeklyReport.Worker},
     {:emisar, Ryker.Emisar.Runtime},
     {:event_waits, Ryker.Waits.EventWaitWorker},
     {:schedules, Ryker.Schedules.ScheduleRuntime},
@@ -144,6 +147,7 @@ defmodule Ryker.Runtime.Assembly do
     control_plane = control_plane(bootstrap, settings, environments, work, schedules, outside)
     adapters = adapters(slack, github, control_plane)
     delivery = delivery(settings, adapters)
+    weekly_report = weekly_report(settings, slack, delivery)
     publication = publication(bootstrap, settings, work, repositories, github, adapters)
     {emisar, emisar_left_out} = emisar(bootstrap, settings, adapters, slack, github)
 
@@ -189,6 +193,7 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:slack_names, slack_names)
     |> put_optional(:state_tools, state_tools)
     |> put_optional(:webhooks, webhooks)
+    |> put_optional(:weekly_report, weekly_report)
     |> put_optional(
       :integrations_left_out,
       left_out(
@@ -1123,6 +1128,20 @@ defmodule Ryker.Runtime.Assembly do
       worker_ref: "#{settings.installation.host_ref}:delivery"
     })
   end
+
+  # The weekly report has a schedule only while it is on, names a channel, and
+  # Slack and delivery run to post it; otherwise nothing of it runs, writes or
+  # logs. Its day, time, zone and channel are read when it checks, and a save
+  # wakes it (`Ryker.WeeklyReport.Worker`), so changing them restarts nothing.
+  defp weekly_report(
+         %{report: %{weekly_self_report_enabled: true, channel_ref: channel}},
+         slack,
+         delivery
+       )
+       when is_binary(channel) and is_map(slack) and is_map(delivery),
+       do: %{}
+
+  defp weekly_report(_settings, _slack, _delivery), do: nil
 
   # Publication runs authorized readiness reviews through the same Coop
   # authority Work uses; without a Work lane there is nothing to review with.

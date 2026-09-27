@@ -16,6 +16,7 @@ else
   config :ryker, :runtime_owner, false
   config :ryker, :github_public_url, "http://127.0.0.1:4319/v1/github"
   config :ryker, :webhook_public_url, "http://127.0.0.1:4320"
+  config :ryker, :control_public_url, "http://127.0.0.1:4321"
 end
 
 config :ryker, Ryker.ControlPlane.Endpoint,
