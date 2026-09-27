@@ -13,9 +13,11 @@ defmodule Ryker.Improvement.Export do
     - `clock.start`: when the person's first message was sent.
     - `actors` and `events`: the person's messages in the request, up to the
       first negative feedback, word for word (credentials redacted), in
-      order, each an `input` to the same place. Slack people, the workspace
-      and channels are renamed (`U-person-1`, `TEVAL`, `CEVAL`), and so are
-      their mentions in the text; Ryker's own mention reads `U-ryker`.
+      order, each an `input` to the same place. An edited message is sent
+      once, when it was first sent, in its last words by then. Slack people,
+      the workspace and channels are renamed (`U-person-1`, `TEVAL`, `CEVAL`),
+      and so are their mentions in the text; Ryker's own mention reads
+      `U-ryker`.
     - `expect.quality_rubric`: the analysis's `expected`, weight 3.
     - `tags`: `model-world`, `feedback-harvested`, the step and the category.
   - `tool-catalog.json`: the standard catalog of
@@ -30,8 +32,8 @@ defmodule Ryker.Improvement.Export do
   `expect.hard` and `expect.trajectory` (what the host can prove, such as the
   delivery target or a required tool call), a recorded good answer under
   `host_replay` with the `host-replay` tag to run it in `make eval-replay`,
-  and the actors' `authority` (every person is an operator here). Edits and
-  files are not replayed: a world event is a message's text.
+  and the actors' `authority` (every person is an operator here). Files are
+  not replayed: a world event is a message's text.
   """
 
   import Ecto.Query
@@ -154,19 +156,22 @@ defmodule Ryker.Improvement.Export do
   end
 
   # The person's messages up to the first negative feedback: the conversation
-  # as it stood when Ryker let them down. A world event is a message.
+  # as it stood when Ryker let them down. A world event is a message, so an
+  # edit is not one of its own: each message is sent once, when it was
+  # first sent, in the words of its last revision by then.
   defp events(candidate, snapshot, names) do
-    messages = Enum.filter(snapshot["events"], &(&1["event_kind"] == "message"))
+    said = snapshot["events"]
 
     before =
-      Enum.filter(messages, fn event ->
+      Enum.filter(said, fn event ->
         case DateTime.from_iso8601(event["at"]) do
           {:ok, at, 0} -> DateTime.compare(at, candidate.first_signal_at) == :lt
           _invalid -> false
         end
       end)
 
-    if(before == [], do: messages, else: before)
+    if(before == [], do: said, else: before)
+    |> as_sent()
     |> Enum.map(fn event ->
       %{
         "actor_ref" => actor_ref(event, names),
@@ -176,6 +181,18 @@ defmodule Ryker.Improvement.Export do
         "payload" => %{"text" => rename_text(event["text"], names)}
       }
     end)
+  end
+
+  defp as_sent(revisions) do
+    revisions
+    |> Enum.with_index()
+    |> Enum.group_by(fn {event, _index} -> {event["source"], event["message_ref"]} end)
+    |> Enum.map(fn {_message, [{first, index} | _later] = all} ->
+      {last, _index} = List.last(all)
+      {Map.put(first, "text", last["text"]), index}
+    end)
+    |> Enum.sort_by(&elem(&1, 1))
+    |> Enum.map(&elem(&1, 0))
   end
 
   defp actors(events, snapshot, names) do
