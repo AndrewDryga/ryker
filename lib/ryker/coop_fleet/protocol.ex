@@ -2,38 +2,17 @@ defmodule Ryker.CoopFleet.Protocol do
   @moduledoc """
   Versioned, bounded wire contract for outbound Coop workers.
 
-  The protocol carries placement and operation identities plus the exact
-  bounded submission a selected worker must execute. It never carries provider
-  credentials, Slack/GitHub publication credentials, repository contents, or a
-  generic remote command. Unknown fields and unsupported versions fail before
+  The protocol carries placement and operation identities around generic private
+  Coop HTTP requests. Large request and response bodies use authenticated,
+  command-bound transfers. Unknown fields and unsupported versions fail before
   any durable command or event mutation can occur.
   """
 
-  @version 1
+  @version 2
   @maximum_document_bytes 1_048_576
   @maximum_batch 100
   @maximum_payload_bytes 768 * 1_024
-  @command_kinds ~w(
-    ensure_workspace
-    create_session
-    get_session
-    get_session_evidence
-    submit_turn
-    get_turn
-    get_output_artifact
-    get_changes
-    get_changes_page
-    run_review
-    plan_discard
-    discard_session
-    get_review_patch
-    validate_candidate
-    cancel_turn
-    fence_operation
-    checkpoint_workspace
-    close_session
-    reconcile_operation
-  )
+  @command_kinds ["api_request"]
   @worker_states ~w(eligible busy draining needs_auth)
   @capacity_states ~w(eligible busy cooldown needs_auth)
   @storage_allocations ~w(open refused)
@@ -57,7 +36,7 @@ defmodule Ryker.CoopFleet.Protocol do
   @reference ~r/\A[A-Za-z0-9_.:-]+\z/
   @digest ~r/\A[0-9a-f]{64}\z/
 
-  @spec version() :: 1
+  @spec version() :: 2
   def version, do: @version
 
   @doc """
@@ -78,14 +57,15 @@ defmodule Ryker.CoopFleet.Protocol do
   def digest?(value) when is_binary(value), do: Regex.match?(@digest, value)
   def digest?(_value), do: false
 
-  @doc """
-  Every command kind a placed worker can be asked to execute.
+  @doc false
+  def body_reference?(%{"sha256" => hash, "byte_size" => size} = reference),
+    do:
+      map_size(reference) == 2 and digest?(hash) and is_integer(size) and
+        size > 0 and size < 9_223_372_036_854_775_807
 
-  The enqueue authority reads this same list. A kind the wire contract can
-  carry but the control plane refuses to enqueue is a command no worker can
-  ever receive: session evidence sat unenqueueable behind a stale private copy
-  of this vocabulary while the production worker advertised it.
-  """
+  def body_reference?(_), do: false
+
+  @doc "The product-neutral operation carried by this wire version."
   @spec command_kinds() :: [String.t()]
   def command_kinds, do: @command_kinds
 
@@ -177,27 +157,18 @@ defmodule Ryker.CoopFleet.Protocol do
   end
 
   defp worker(%{} = document) do
-    document =
-      document
-      |> Map.put_new("policy_authority_digests", %{})
-      |> Map.put_new("storage", nil)
+    document = Map.put_new(document, "storage", nil)
 
     fields =
-      ~w(id workspace_ref protocol_version build_version clock_at sandbox_digest policy_digests policy_authority_digests repositories capabilities capacity storage state)
+      ~w(id workspace_ref protocol_version build_version clock_at sandbox_digest capabilities capacity storage state)
 
     with :ok <- exact_fields(document, fields, :worker),
          :ok <- reference(document["id"], 256, :worker_id),
          :ok <- reference(document["workspace_ref"], 256, :workspace_ref),
-         :ok <- reference(document["protocol_version"], 64, :protocol_version),
-         :ok <- reference(document["build_version"], 128, :build_version),
+         :ok <- enum(document["protocol_version"], ["2"], :protocol_version),
+         :ok <- reference(document["build_version"], 256, :build_version),
          {:ok, clock_at} <- timestamp(document["clock_at"], :clock_at),
          :ok <- digest(document["sandbox_digest"], :sandbox_digest),
-         {:ok, policies} <- policy_digests(document["policy_digests"]),
-         {:ok, policy_authorities} <-
-           policy_authority_digests(document["policy_authority_digests"]),
-         :ok <- policy_authority_contract(policies, policy_authorities),
-         {:ok, repositories} <-
-           unique_list(document["repositories"], :repositories, &repository/1, & &1["ref"]),
          {:ok, capabilities} <-
            unique_list(document["capabilities"], :capabilities, &capability/1, & &1["name"]),
          {:ok, capacity} <- capacity(document["capacity"]),
@@ -206,9 +177,6 @@ defmodule Ryker.CoopFleet.Protocol do
       {:ok,
        document
        |> Map.put("clock_at", clock_at)
-       |> Map.put("policy_digests", policies)
-       |> Map.put("policy_authority_digests", policy_authorities)
-       |> Map.put("repositories", repositories)
        |> Map.put("capabilities", capabilities)
        |> Map.put("capacity", capacity)
        |> Map.put("storage", storage)}
@@ -240,7 +208,7 @@ defmodule Ryker.CoopFleet.Protocol do
 
   defp storage(_document), do: {:error, {:invalid_coop_worker_poll, :storage}}
 
-  defp storage_version(@version), do: :ok
+  defp storage_version(1), do: :ok
   defp storage_version(_version), do: {:error, {:invalid_coop_worker_protocol, :storage_version}}
 
   defp storage_bytes(document, fields) do
@@ -310,44 +278,6 @@ defmodule Ryker.CoopFleet.Protocol do
   end
 
   defp capacity(_document), do: {:error, {:invalid_coop_worker_poll, :capacity}}
-
-  defp policy_digests(%{} = policies) when map_size(policies) <= @maximum_batch do
-    Enum.reduce_while(policies, {:ok, %{}}, fn {name, value}, {:ok, prepared} ->
-      with :ok <- reference(name, 256, :policy_name),
-           :ok <- digest(value, :policy_digest) do
-        {:cont, {:ok, Map.put(prepared, name, value)}}
-      else
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp policy_digests(_policies), do: {:error, {:invalid_coop_worker_poll, :policy_digests}}
-
-  defp policy_authority_digests(policies) do
-    case policy_digests(policies) do
-      {:ok, prepared} -> {:ok, prepared}
-      {:error, _reason} -> {:error, {:invalid_coop_worker_poll, :policy_authority_digests}}
-    end
-  end
-
-  defp policy_authority_contract(_policies, authorities) when map_size(authorities) == 0, do: :ok
-
-  defp policy_authority_contract(policies, authorities) do
-    if Map.keys(policies) |> Enum.sort() == Map.keys(authorities) |> Enum.sort(),
-      do: :ok,
-      else: {:error, {:invalid_coop_worker_poll, :policy_authority_digests}}
-  end
-
-  defp repository(%{} = document) do
-    with :ok <- exact_fields(document, ~w(ref revision), :repository),
-         :ok <- reference(document["ref"], 256, :repository_ref),
-         :ok <- reference(document["revision"], 256, :repository_revision) do
-      {:ok, document}
-    end
-  end
-
-  defp repository(_document), do: {:error, {:invalid_coop_worker_poll, :repository}}
 
   defp capability(%{} = document) do
     with :ok <- exact_fields(document, ~w(name version), :capability),
@@ -608,14 +538,41 @@ defmodule Ryker.CoopFleet.Protocol do
     do: {:error, {:invalid_coop_worker_protocol, :cooldown_until}}
 
   defp result_shape(%{"state" => "succeeded", "resource" => resource, "error" => nil})
-       when is_map(resource),
-       do: :ok
+       when is_map(resource) do
+    if api_response?(resource),
+      do: :ok,
+      else: {:error, {:invalid_coop_worker_poll, :command_result_shape}}
+  end
 
   defp result_shape(%{"state" => state, "resource" => nil, "error" => error})
        when state in ~w(failed uncertain) and is_map(error),
        do: :ok
 
   defp result_shape(_document), do: {:error, {:invalid_coop_worker_poll, :command_result_shape}}
+
+  defp api_response?(%{"status" => status} = response) do
+    Map.keys(response) -- ~w(status headers body body_ref) == [] and
+      is_integer(status) and status in 200..599 and
+      response_headers?(Map.get(response, "headers", %{})) and response_body?(response)
+  end
+
+  defp api_response?(_), do: false
+
+  defp response_headers?(headers) when is_map(headers) and map_size(headers) <= 16 do
+    Enum.all?(headers, fn {key, value} ->
+      key in ["Content-Type", "Content-Disposition", "Etag", "X-Coop-Workspace-Checkpoint"] and
+        is_binary(value) and not String.contains?(value, ["\r", "\n", <<0>>])
+    end) and byte_size(Jason.encode!(headers)) <= 256 * 1_024
+  end
+
+  defp response_headers?(_headers), do: false
+
+  defp response_body?(response) do
+    (not Map.has_key?(response, "body") or
+       byte_size(Jason.encode!(response["body"])) <= 256 * 1_024) and
+      (not Map.has_key?(response, "body_ref") or
+         (not Map.has_key?(response, "body") and body_reference?(response["body_ref"])))
+  end
 
   defp ordered_events([], _after_sequence), do: :ok
 

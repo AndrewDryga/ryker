@@ -15,6 +15,8 @@ defmodule Ryker.Learning.DispatcherTest do
     alias Ryker.Repo
     alias Ryker.TestSupport.FakeCoopAPI, as: Fake
 
+    defdelegate prepare_create_session(client, key, policy, ref, source), to: Fake
+
     def operation_by_key(client, key) do
       record_call(client, :operation_by_key)
 
@@ -503,6 +505,46 @@ defmodule Ryker.Learning.DispatcherTest do
     assert {:ok, :idle} = Dispatcher.run_once(Map.put(@settings, :client, nil))
   end
 
+  test "learning accepts a repository-free, tool-free normal job receipt" do
+    entries = inputs!()
+    {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
+
+    Agent.update(fake, fn state ->
+      %{
+        state
+        | session:
+            Map.merge(state.session, %{
+              "mode" => "normal",
+              "repository_read_only" => true,
+              "source" => nil
+            })
+      }
+    end)
+
+    assert %{status: :applied} = drive_to_applied!(Map.put(@settings, :client, fake), 5)
+    assert FakeCoopAPI.state(fake).submit_count == 1
+  end
+
+  test "a bare receipt cannot disguise repository access as repository-free learning" do
+    entries = inputs!()
+    {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
+
+    Agent.update(fake, fn state ->
+      %{
+        state
+        | session:
+            Map.merge(state.session, %{
+              "mode" => "bare",
+              "repository_read_only" => false,
+              "source" => %{"kind" => "default"}
+            })
+      }
+    end)
+
+    assert {:ok, %{status: :queued}} = Dispatcher.run_once(Map.put(@settings, :client, fake))
+    assert FakeCoopAPI.state(fake).submit_count == 0
+  end
+
   for {field, value} <- [project_env: true, project_mcp: true, repository_read_only: false] do
     test "learning refuses #{field}=#{value} before submitting any source text" do
       entries = inputs!()
@@ -521,7 +563,7 @@ defmodule Ryker.Learning.DispatcherTest do
     {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
 
     Agent.update(fake, fn state ->
-      put_in(state.session["responder_binding_digest"], String.duplicate("b", 64))
+      put_in(state.session["controller_tools_digest"], String.duplicate("b", 64))
     end)
 
     settings = Map.put(@settings, :client, fake)

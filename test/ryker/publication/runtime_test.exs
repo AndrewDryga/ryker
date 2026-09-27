@@ -5,18 +5,13 @@ defmodule Ryker.Publication.RuntimeTest do
 
   alias Ryker.Publication.{FollowupWorker, Runtime, Worker}
 
-  defmodule Publisher do
-    @behaviour Ryker.Publication.Publisher
-    def publish(_request, _binding), do: {:error, :not_used}
-  end
-
   defmodule StatusAPI do
     def get_publication_status(_client, _repository, _number), do: {:error, :not_used}
   end
 
   defmodule ReviewAPI do
     def get_session(_client, _session_id), do: {:error, :not_used}
-    def get_review_patch(_client, _artifact_id, _sha256, _bytes), do: {:error, :not_used}
+    def publish_review(_, _, _, _, _, _), do: {:error, :not_used}
     def run_review(_client, _session_id, _key, _revision), do: {:error, :not_used}
   end
 
@@ -109,13 +104,13 @@ defmodule Ryker.Publication.RuntimeTest do
       :invalid,
       [],
       [worker_ref: "one", worker_ref: "two"],
-      Map.delete(configuration(), :publisher),
+      Map.delete(configuration(), :repositories),
       Map.put(configuration(), :unknown, true),
       %{configuration() | concurrency: 17},
-      %{configuration() | receive_timeout_ms: 60_000},
+      %{configuration() | repositories: []},
       %{configuration() | worker_ref: ""},
-      %{configuration() | publisher: String},
-      %{configuration() | publisher_binding: %{}},
+      %{configuration() | status_api: String},
+      Map.delete(configuration(), :status_client),
       %{configuration() | delivery_adapters: %{}},
       %{configuration() | coop_api: StatusAPI}
     ]
@@ -158,9 +153,9 @@ defmodule Ryker.Publication.RuntimeTest do
       followup_interval_seconds: 30,
       lease_seconds: 60,
       poll_interval_ms: 20,
-      publisher: Publisher,
-      publisher_binding: %{api: StatusAPI, client: :status_client},
-      receive_timeout_ms: 1_000,
+      repositories: %{},
+      status_api: StatusAPI,
+      status_client: :status_client,
       retry_base_seconds: 1,
       retry_max_seconds: 30,
       worker_ref: "publication-worker:test"

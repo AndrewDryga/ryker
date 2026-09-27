@@ -1,0 +1,592 @@
+defmodule Ryker.CoopFleet.ManagedSources do
+  @moduledoc """
+  Resolve a Ryker-authorized GitHub source for a direct worker fetch.
+
+  Ryker pins refs and trees without copying the full working tree. The trusted
+  worker receives a separate, short-lived read grant only after command custody
+  has checked this immutable identity.
+  """
+
+  alias Ryker.CoopFleet.JobSpec
+  alias Ryker.CoopFleet.Protocol
+  alias Ryker.GitHub.InstallationTokens
+  alias Ryker.Settings
+  alias Ryker.Work.RepositorySource
+
+  @commit ~r/\A[0-9a-f]{40}\z/
+
+  @spec prepare(String.t(), String.t(), map() | nil) :: {:ok, map()} | {:error, atom()}
+  def prepare(storage_root, repository_ref, requested) do
+    with true <- is_binary(storage_root) and Path.type(storage_root) == :absolute,
+         true <- Protocol.reference?(repository_ref),
+         {:ok, requested} <- RepositorySource.parse_optional(requested),
+         {:ok, snapshot} <- Settings.fetch(),
+         %{
+           github_repository: github_repository,
+           base_branch: base_branch,
+           github_access: :available
+         } <-
+           Enum.find(snapshot.repositories, &(&1.ref == repository_ref)),
+         %{name: binding_name, repository_id: repository_id} <-
+           Enum.find(snapshot.github_bindings, &(&1.repository_ref == repository_ref)),
+         {:ok, token} <- InstallationTokens.token(binding_name, :source_read) do
+      prepare_from_remote(
+        storage_root,
+        %{
+          repository_ref: repository_ref,
+          github_repository: github_repository,
+          repository_id: repository_id,
+          token: token,
+          remote: "https://github.com/#{github_repository}.git"
+        },
+        base_branch,
+        requested,
+        &resolve_repository(snapshot, &1)
+      )
+    else
+      _unavailable -> {:error, :coop_worker_source_unavailable}
+    end
+  end
+
+  @doc false
+  @spec prepare_from_remote(
+          String.t(),
+          map(),
+          String.t(),
+          map() | nil,
+          (String.t() -> {:ok, map()} | {:error, atom()}) | nil
+        ) ::
+          {:ok, map()} | {:error, atom()}
+  def prepare_from_remote(
+        storage_root,
+        %{
+          repository_ref: repository_ref,
+          remote: remote,
+          github_repository: github_repository,
+          repository_id: repository_id
+        } = identity,
+        base_branch,
+        requested,
+        resolver \\ nil
+      ) do
+    with :ok <- validate_inputs(storage_root, repository_ref, remote, base_branch, requested),
+         true <-
+           JobSpec.github_repository?(github_repository),
+         true <- is_integer(repository_id) and repository_id > 0,
+         :ok <- private_mirror_root(storage_root),
+         {:ok, prepared, declarations} <-
+           with_mirror_lock(storage_root, repository_ref, fn ->
+             prepare_locked(storage_root, identity, base_branch, requested)
+           end),
+         {:ok, modules, _remaining} <-
+           resolve_submodules(
+             storage_root,
+             declarations,
+             resolver,
+             [{repository_id, prepared.binding["selected_commit"]}],
+             0,
+             1024
+           ) do
+      {:ok, put_in(prepared, [:source, "submodules"], modules)}
+    else
+      false -> {:error, :invalid_coop_worker_source}
+      {:error, :invalid_coop_worker_source} = invalid -> invalid
+      _unavailable -> {:error, :coop_worker_source_unavailable}
+    end
+  end
+
+  @doc false
+  def with_mirror_lock(storage_root, repository_ref, operation) do
+    # :global identifies a lock by {resource, requester}, not {module, key}.
+    :global.trans({{__MODULE__, Path.expand(storage_root), repository_ref}, self()}, operation)
+  end
+
+  defp validate_inputs(storage_root, repository_ref, remote, base_branch, requested) do
+    if valid_mirror_inputs?(storage_root, repository_ref, remote) and
+         valid_selection_inputs?(base_branch, requested),
+       do: :ok,
+       else: {:error, :invalid_coop_worker_source}
+  end
+
+  defp valid_mirror_inputs?(storage_root, repository_ref, remote) do
+    is_binary(storage_root) and Path.type(storage_root) == :absolute and
+      Protocol.reference?(repository_ref) and is_binary(remote) and remote != ""
+  end
+
+  defp valid_selection_inputs?(base_branch, requested) do
+    is_binary(base_branch) and
+      Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9._\/-]*\z/, base_branch) and
+      match?({:ok, _}, RepositorySource.parse(requested || RepositorySource.default()))
+  end
+
+  defp private_mirror_root(storage_root) do
+    root = Path.join(storage_root, "coop-source-mirrors")
+
+    with :ok <- File.mkdir_p(root),
+         :ok <- File.chmod(root, 0o700) do
+      :ok
+    else
+      _unavailable -> {:error, :coop_worker_source_unavailable}
+    end
+  end
+
+  defp prepare_locked(
+         storage_root,
+         %{
+           repository_ref: repository_ref,
+           remote: remote,
+           token: token,
+           github_repository: github_repository,
+           repository_id: repository_id
+         },
+         base_branch,
+         requested
+       ) do
+    mirror = Path.join([storage_root, "coop-source-mirrors", repository_ref <> ".git"])
+    requested = requested || RepositorySource.default()
+
+    with :ok <- ensure_mirror(mirror, remote),
+         :ok <- fetch_ref(mirror, "refs/heads/" <> base_branch, token),
+         {:ok, default_commit} <- commit_at(mirror, "refs/heads/" <> base_branch),
+         {:ok, selected_ref, selected_commit} <-
+           select(mirror, requested, default_commit, base_branch, token),
+         {:ok, base_commit} <- merge_base(mirror, default_commit, selected_commit),
+         {:ok, admitted_tree} <-
+           git_value(mirror, ["rev-parse", "--verify", selected_commit <> "^{tree}"], @commit),
+         {:ok, declarations} <-
+           submodule_declarations(mirror, selected_commit, github_repository, token) do
+      binding =
+        source_binding(
+          requested,
+          "refs/heads/" <> base_branch,
+          default_commit,
+          selected_ref,
+          selected_commit,
+          base_commit,
+          admitted_tree
+        )
+
+      {:ok,
+       %{
+         source: %{
+           "repository_ref" => repository_ref,
+           "github_repository" => github_repository,
+           "github_repository_id" => repository_id,
+           "binding" => binding,
+           "submodules" => []
+         },
+         binding: binding
+       }, declarations}
+    else
+      _failure -> {:error, :coop_worker_source_unavailable}
+    end
+  end
+
+  defp ensure_mirror(mirror, remote) do
+    case File.lstat(mirror) do
+      {:error, :enoent} ->
+        with :ok <- git(nil, ["init", "--quiet", "--bare", mirror], nil) do
+          git(mirror, ["remote", "add", "origin", remote], nil)
+        end
+
+      {:ok, %File.Stat{type: :directory}} ->
+        confirm_remote(mirror, remote)
+
+      _wrong ->
+        {:error, :mirror}
+    end
+  end
+
+  defp confirm_remote(mirror, remote) do
+    with {:ok, ^remote} <- git_output(mirror, ["remote", "get-url", "origin"], nil), do: :ok
+  end
+
+  defp fetch_ref(mirror, ref, token) do
+    git(
+      mirror,
+      [
+        "fetch",
+        "--quiet",
+        "--filter=blob:none",
+        "--no-tags",
+        "--force",
+        "origin",
+        "+#{ref}:#{ref}"
+      ],
+      token
+    )
+  end
+
+  defp commit_at(mirror, ref),
+    do: git_value(mirror, ["rev-parse", "--verify", ref <> "^{commit}"], @commit)
+
+  defp select(_mirror, %{"kind" => "default"}, default_commit, base_branch, _token),
+    do: {:ok, "refs/heads/" <> base_branch, default_commit}
+
+  defp select(mirror, %{"kind" => "branch", "name" => name}, _default, _base_branch, token) do
+    ref = "refs/heads/" <> name
+
+    with :ok <- fetch_ref(mirror, ref, token),
+         {:ok, commit} <- commit_at(mirror, ref),
+         do: {:ok, ref, commit}
+  end
+
+  defp select(mirror, %{"kind" => "pull_request", "number" => number}, _default, _branch, token) do
+    ref = "refs/pull/#{number}/head"
+
+    with :ok <- fetch_ref(mirror, ref, token),
+         {:ok, commit} <- commit_at(mirror, ref),
+         do: {:ok, ref, commit}
+  end
+
+  defp select(mirror, %{"kind" => "commit", "sha" => sha}, _default, _branch, token) do
+    with :ok <-
+           git(
+             mirror,
+             ["fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin", sha],
+             token
+           ),
+         {:ok, ^sha} <- commit_at(mirror, sha) do
+      {:ok, nil, sha}
+    end
+  end
+
+  defp merge_base(mirror, default_commit, selected_commit),
+    do: git_value(mirror, ["merge-base", default_commit, selected_commit], @commit)
+
+  defp resolve_repository(snapshot, slug) do
+    repositories =
+      Enum.filter(
+        snapshot.repositories,
+        &(String.downcase(&1.github_repository || "") == String.downcase(slug))
+      )
+
+    with [%{ref: ref, github_repository: repository, github_access: :available}] <- repositories,
+         [%{name: name, repository_id: id}] <-
+           Enum.filter(snapshot.github_bindings, &(&1.repository_ref == ref)),
+         {:ok, token} <- InstallationTokens.token(name, :source_read) do
+      {:ok,
+       %{
+         repository_ref: ref,
+         github_repository: repository,
+         repository_id: id,
+         remote: "https://github.com/#{repository}.git",
+         token: token
+       }}
+    else
+      _unavailable -> {:error, :submodule_not_authorized}
+    end
+  end
+
+  @doc false
+  def resolve_submodules(_root, [], _resolver, _ancestors, _depth, remaining)
+      when remaining >= 0,
+      do: {:ok, [], remaining}
+
+  def resolve_submodules(root, declarations, resolver, ancestors, depth, remaining)
+      when is_function(resolver, 1) and depth < 16 and length(declarations) <= remaining do
+    Enum.reduce_while(declarations, {:ok, [], remaining}, fn declaration, {:ok, modules, left} ->
+      with true <- left > 0,
+           {:ok, identity} <- resolver.(declaration.repository),
+           false <- {identity.repository_id, declaration.commit} in ancestors,
+           {:ok, tree, nested} <- pin_submodule(root, identity, declaration.commit),
+           {:ok, children, left} <-
+             resolve_submodules(
+               root,
+               nested,
+               resolver,
+               [{identity.repository_id, declaration.commit} | ancestors],
+               depth + 1,
+               left - 1
+             ) do
+        module = %{
+          "path" => declaration.path,
+          "commit" => declaration.commit,
+          "tree" => tree,
+          "repository_ref" => identity.repository_ref,
+          "github_repository" => identity.github_repository,
+          "github_repository_id" => identity.repository_id,
+          "submodules" => children
+        }
+
+        {:cont, {:ok, [module | modules], left}}
+      else
+        _unavailable -> {:halt, {:error, :submodule_not_authorized}}
+      end
+    end)
+    |> case do
+      {:ok, modules, left} -> {:ok, Enum.reverse(modules), left}
+      error -> error
+    end
+  end
+
+  def resolve_submodules(_root, _declarations, _resolver, _ancestors, _depth, _remaining),
+    do: {:error, :submodule_manifest_limit}
+
+  defp pin_submodule(root, identity, commit) do
+    with_mirror_lock(root, identity.repository_ref, fn ->
+      mirror = Path.join([root, "coop-source-mirrors", identity.repository_ref <> ".git"])
+
+      with :ok <- ensure_mirror(mirror, identity.remote),
+           {:ok, nil, ^commit} <-
+             select(mirror, %{"kind" => "commit", "sha" => commit}, nil, nil, identity.token),
+           {:ok, tree} <- git_value(mirror, ["rev-parse", commit <> "^{tree}"], @commit),
+           {:ok, children} <-
+             submodule_declarations(mirror, commit, identity.github_repository, identity.token) do
+        {:ok, tree, children}
+      end
+    end)
+  end
+
+  defp submodule_declarations(mirror, commit, repository, token) do
+    with {:ok, links} <- read_gitlinks(mirror, commit, token) do
+      if links == [],
+        do: {:ok, []},
+        else: declared_links(mirror, commit, repository, token, links)
+    end
+  end
+
+  # The primary tree can contain millions of ordinary files. Spool its metadata
+  # while retaining only bounded gitlink declarations, never the full listing.
+  defp read_gitlinks(mirror, commit, token) do
+    path = Path.join(mirror, ".coop-gitlinks-" <> Ecto.UUID.generate())
+
+    with {:ok, file} <- File.open(path, [:write, :exclusive]) do
+      try do
+        with {:ok, _stream} <-
+               git_raw(mirror, ["ls-tree", "-r", "-z", commit], token, IO.binstream(file, 65_536)),
+             :ok <- File.close(file) do
+          path
+          |> File.stream!(65_536)
+          |> Enum.reduce_while({:ok, [], ""}, fn chunk, {:ok, links, pending} ->
+            entries = String.split(pending <> chunk, <<0>>)
+            pending = List.last(entries)
+
+            with true <- byte_size(pending) <= 8192,
+                 {:ok, links} <- gitlinks(Enum.drop(entries, -1), links) do
+              {:cont, {:ok, links, pending}}
+            else
+              _invalid -> {:halt, {:error, :invalid_gitlink}}
+            end
+          end)
+          |> case do
+            {:ok, links, ""} -> {:ok, Enum.sort_by(links, & &1.path)}
+            _invalid -> {:error, :invalid_gitlink}
+          end
+        end
+      after
+        File.close(file)
+        File.rm(path)
+      end
+    end
+  end
+
+  defp gitlinks(entries, links) do
+    Enum.reduce_while(entries, {:ok, links}, fn entry, {:ok, links} ->
+      gitlink_entry(String.split(entry, "\t", parts: 2), links)
+    end)
+  end
+
+  defp gitlink_entry(["160000 commit " <> commit, path], links) do
+    if Regex.match?(@commit, commit) and JobSpec.submodule_path?(path) and length(links) < 1024,
+      do: {:cont, {:ok, [%{path: path, commit: commit} | links]}},
+      else: {:halt, {:error, :invalid_gitlink}}
+  end
+
+  defp gitlink_entry(_ordinary, links), do: {:cont, {:ok, links}}
+
+  defp declared_links(mirror, commit, repository, token, links) do
+    with {:ok, entry} <- git_raw(mirror, ["ls-tree", "-z", commit, "--", ".gitmodules"], token),
+         true <- Regex.match?(~r/\A100(?:644|755) blob [a-f0-9]{40}\t\.gitmodules\x00\z/, entry),
+         {:ok, size} <- git_output(mirror, ["cat-file", "-s", commit <> ":.gitmodules"], token),
+         {size, ""} when size <= 262_144 <- Integer.parse(size),
+         {:ok, config} <-
+           git_raw(
+             mirror,
+             ["config", "--no-includes", "--null", "--blob", commit <> ":.gitmodules", "--list"],
+             token
+           ),
+         {:ok, declarations} <- parse_modules(config) do
+      bind_declarations(links, declarations, repository)
+    else
+      _invalid -> {:error, :invalid_submodule_declaration}
+    end
+  end
+
+  defp bind_declarations(links, declarations, repository) do
+    Enum.reduce_while(links, {:ok, []}, fn link, {:ok, result} ->
+      with [%{"url" => url}] <-
+             Enum.filter(Map.values(declarations), &(&1["path"] == link.path)),
+           {:ok, slug} <- submodule_repository(repository, url) do
+        {:cont, {:ok, [Map.put(link, :repository, slug) | result]}}
+      else
+        _invalid -> {:halt, {:error, :invalid_submodule_declaration}}
+      end
+    end)
+    |> case do
+      {:ok, result} -> {:ok, Enum.reverse(result)}
+      error -> error
+    end
+  end
+
+  defp parse_modules(config) do
+    config
+    |> String.split(<<0>>, trim: true)
+    |> Enum.reduce_while({:ok, %{}}, fn entry, {:ok, modules} ->
+      parse_module_entry(String.split(entry, "\n", parts: 2), modules)
+    end)
+  end
+
+  defp parse_module_entry([key, value], modules) do
+    case Regex.run(~r/\Asubmodule\.(.+)\.(path|url)\z/, key) do
+      [_, name, field] ->
+        fields = Map.get(modules, name, %{})
+
+        if Map.has_key?(fields, field),
+          do: {:halt, {:error, :duplicate_submodule_declaration}},
+          else: {:cont, {:ok, Map.put(modules, name, Map.put(fields, field, value))}}
+
+      _unrelated ->
+        {:cont, {:ok, modules}}
+    end
+  end
+
+  defp parse_module_entry(_unrelated, modules), do: {:cont, {:ok, modules}}
+
+  defp submodule_repository(parent, "git@" <> address) do
+    case String.split(address, ":", parts: 2) do
+      [host, path] -> submodule_repository(parent, "ssh://git@#{host}/#{path}")
+      _invalid -> {:error, :submodule_not_github}
+    end
+  end
+
+  defp submodule_repository(parent, url) do
+    url =
+      if String.starts_with?(url, ["../", "./"]),
+        do: URI.merge("https://github.com/#{parent}.git/", url) |> URI.to_string(),
+        else: url
+
+    case URI.new(url) do
+      {:ok,
+       %URI{
+         scheme: scheme,
+         host: host,
+         port: port,
+         path: "/" <> path,
+         userinfo: userinfo,
+         query: nil,
+         fragment: nil
+       }}
+      when is_binary(host) ->
+        slug =
+          if String.ends_with?(path, ".git"),
+            do: binary_part(path, 0, byte_size(path) - 4),
+            else: path
+
+        if String.downcase(host) == "github.com" and
+             {scheme, port, userinfo} in [
+               {"https", 443, nil},
+               {"ssh", nil, "git"},
+               {"ssh", 22, "git"}
+             ] and
+             JobSpec.github_repository?(slug),
+           do: {:ok, slug},
+           else: {:error, :submodule_not_github}
+
+      _invalid ->
+        {:error, :submodule_not_github}
+    end
+  end
+
+  defp source_binding(
+         requested,
+         default_ref,
+         default_commit,
+         selected_ref,
+         selected_commit,
+         base_commit,
+         tree
+       ) do
+    %{
+      "version" => 1,
+      "kind" => requested["kind"],
+      "requested" => requested,
+      "remote_identity" => "origin",
+      "default_ref" => default_ref,
+      "default_commit" => default_commit,
+      "selected_ref" => selected_ref,
+      "selected_commit" => selected_commit,
+      "base_commit" => base_commit,
+      "admitted_tree" => tree,
+      "resolved_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    }
+    |> maybe_put_pull_request(requested)
+  end
+
+  defp maybe_put_pull_request(binding, %{"kind" => "pull_request", "number" => number}),
+    do: Map.put(binding, "pull_request_number", number)
+
+  defp maybe_put_pull_request(binding, _requested), do: binding
+
+  defp git_value(directory, arguments, pattern) do
+    with {:ok, value} <- git_output(directory, arguments, nil),
+         true <- Regex.match?(pattern, value) do
+      {:ok, value}
+    else
+      _failure -> {:error, :git}
+    end
+  end
+
+  defp git(directory, arguments, token) do
+    case git_output(directory, arguments, token) do
+      {:ok, _output} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp git_output(directory, arguments, token) do
+    with {:ok, output} <- git_raw(directory, arguments, token), do: {:ok, String.trim(output)}
+  end
+
+  defp git_raw(directory, arguments, token, into \\ "") do
+    options = [stderr_to_stdout: false, env: git_environment(token), into: into]
+    options = if directory, do: Keyword.put(options, :cd, directory), else: options
+
+    arguments = [
+      "--no-replace-objects",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "fetch.recurseSubmodules=false",
+      "-c",
+      "credential.helper=",
+      "-c",
+      "protocol.ext.allow=never" | arguments
+    ]
+
+    case System.cmd("git", arguments, options) do
+      {output, 0} -> {:ok, output}
+      {_output, _status} -> {:error, :git}
+    end
+  end
+
+  defp git_environment(token) do
+    cleared =
+      for {key, _value} <- System.get_env(),
+          String.starts_with?(key, ["GIT_", "GCM_"]),
+          do: {key, nil}
+
+    (cleared ++
+       [
+         {"GIT_CONFIG_GLOBAL", "/dev/null"},
+         {"GIT_CONFIG_NOSYSTEM", "1"},
+         {"GIT_TEMPLATE_DIR", "/dev/null"},
+         {"GIT_TERMINAL_PROMPT", "0"},
+         {"GIT_CONFIG_COUNT", if(token, do: "1", else: "0")},
+         {"GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader"},
+         {"GIT_CONFIG_VALUE_0", if(token, do: "Authorization: Bearer #{token}")}
+       ])
+    |> Map.new()
+    |> Map.to_list()
+  end
+end

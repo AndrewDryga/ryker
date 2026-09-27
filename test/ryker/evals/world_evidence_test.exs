@@ -9,12 +9,12 @@ defmodule Ryker.Evals.WorldEvidenceTest do
   test "state-call evidence keeps only tool identity and outcome" do
     claim = claim!()
 
-    event!(claim, 1, "responder-state", "remember_answer", nil, %{
+    event!(claim, 1, "controller-tools", "remember_answer", nil, %{
       "arguments" => %{"value" => "production secret"},
       "result" => %{"memory_ref" => "memory:secret"}
     })
 
-    event!(claim, 2, "responder-state", "complete_task", %{"message" => "denied"}, %{})
+    event!(claim, 2, "controller-tools", "complete_task", %{"message" => "denied"}, %{})
     event!(claim, 3, "github", "create_pull_request", nil, %{})
 
     assert WorldEvidence.state_calls(claim.episode.id) == [

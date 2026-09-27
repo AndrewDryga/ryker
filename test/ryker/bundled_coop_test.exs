@@ -1,699 +1,202 @@
 defmodule Ryker.BundledCoopTest do
   use Ryker.DataCase, async: false
+  import Ecto.Query
   import Ryker.TestHelpers, only: [eventually: 1]
 
-  import Ecto.Query
-
   alias Ryker.BundledCoop
-  alias Ryker.CoopFleet.{ControlPlane, Worker}
+  alias Ryker.CoopFleet.{ControlPlane, EnrollmentToken, Worker}
   alias Ryker.Settings
 
   @actor "control-plane:local"
   @digest String.duplicate("a", 64)
-  @authority String.duplicate("b", 64)
 
-  test "a clean distribution initializes settings and installs every default policy" do
-    configure_distribution_root!()
+  setup do
+    shared =
+      Path.join(System.tmp_dir!(), "ryker-enrollment-#{System.unique_integer([:positive])}")
 
-    assert :ok = BundledCoop.prepare_distribution!()
-    assert {:ok, _snapshot} = Settings.fetch()
-
-    policy_file =
-      File.read!(Path.join(System.fetch_env!("RYKER_BUNDLED_COOP_ROOT"), "session-policies.yaml"))
-
-    for policy <-
-          ~w(ryker-admission ryker-chat ryker-incident ryker-learning ryker-schedule-governed ryker-schedule-read-only) do
-      assert policy_file =~ "  #{policy}:"
-    end
-
-    assert {:ok, _worker} =
-             ControlPlane.authorize_worker("ryker-compose", "ryker-compose", @digest)
-
-    names =
-      ~w(ryker-admission ryker-chat ryker-incident ryker-learning ryker-schedule-governed ryker-schedule-read-only)
-
-    advertise_policies!(names)
-
-    assert :ok = BundledCoop.configure("ryker-compose")
-    assert BundledCoop.ready?()
-
-    snapshot = Settings.fetch!()
-    assert snapshot.work.workspace_ref == "ryker-compose"
-
-    assert MapSet.new(
-             for binding <- snapshot.policy_bindings,
-                 binding.scope_kind == :installation,
-                 do: binding.purpose
-           ) ==
-             MapSet.new([
-               :admission,
-               :conversational,
-               :incident,
-               :learning,
-               :schedule_governed,
-               :schedule_read_only
-             ])
-  end
-
-  test "the authenticated bundled worker selects its workspace and pins every ordinary policy" do
-    configured_repository!()
-
-    assert {:ok, _worker} =
-             ControlPlane.authorize_worker("ryker-compose", "ryker-compose", @digest)
-
-    names =
-      ~w(
-        ryker-admission ryker-chat ryker-incident ryker-learning ryker-schedule-governed
-        ryker-schedule-read-only ryker-repo-app-conversation ryker-repo-app-contributor
-        ryker-repo-app-deep ryker-repo-app-schedule ryker-repo-app-standard
-      )
-
-    advertise_policies!(names)
-
-    assert :ok = BundledCoop.configure("ryker-compose")
-
-    snapshot = Settings.fetch!()
-    assert snapshot.work.workspace_ref == "ryker-compose"
-    # Six installation policies and five for the repository.
-    assert length(snapshot.policy_bindings) == 11
-
-    assert Enum.any?(snapshot.policy_bindings, fn binding ->
-             binding.purpose == :admission and binding.scope_kind == :installation and
-               binding.policy_name == "ryker-admission" and binding.policy_digest == @digest
-           end)
-
-    assert Enum.any?(snapshot.policy_bindings, fn binding ->
-             binding.purpose == :contributor and binding.scope_kind == :repository and
-               binding.scope_ref == "app" and
-               binding.policy_name == "ryker-repo-app-contributor"
-           end)
-
-    # A one-repository environment runs on its repository's policies.
-    refute Enum.any?(snapshot.policy_bindings, &(&1.scope_kind == :environment))
-  end
-
-  # Coop mounts read-only repositories only for a policy that declares them, and
-  # work in an environment may change any of its repositories, so an
-  # environment with several gets policies per repository: that repository as
-  # the working copy and every other one mounted read-only under its ref, the
-  # name the Work executor checks. The first pass wrote one set with the first
-  # repository as the working copy, so a task about any other repository ran
-  # against the wrong checkout.
-  test "a shared environment gets policies per repository, the rest mounted read-only" do
-    {root, _shared} = configure_distribution_root!()
-    assert :ok = BundledCoop.prepare_distribution!()
-    snapshot = Settings.fetch!()
-
-    snapshot =
-      Enum.reduce(~w(app lib docs), snapshot, fn ref, current ->
-        {:ok, saved} = Settings.put_repository(%{ref: ref}, current.installation.revision, @actor)
-        saved
-      end)
-
-    {:ok, _snapshot} =
-      Settings.put_environment(
-        %{ref: "platform", display_name: "Platform", repositories: ["app", "lib", "docs"]},
-        snapshot.installation.revision,
-        @actor
-      )
-
-    # Nothing is written for an environment until every repository in it exists
-    # on the worker.
-    materialize!(root, "app")
-    materialize!(root, "lib")
-    assert :ok = BundledCoop.sync_policies()
-    refute Enum.any?(Map.keys(read_policies!(root)), &String.starts_with?(&1, "ryker-env-"))
-
-    materialize!(root, "docs")
-    assert :ok = BundledCoop.sync_policies()
-    policies = read_policies!(root)
-    checkout = &Path.join([root, "repositories", &1])
-
-    for {working, companions} <- [
-          {"app", ~w(lib docs)},
-          {"lib", ~w(app docs)},
-          {"docs", ~w(app lib)}
-        ],
-        suffix <- ~w(conversation standard deep contributor) do
-      policy = Map.fetch!(policies, "ryker-env-platform-#{working}-#{suffix}")
-      assert policy["repository"] == checkout.(working)
-
-      assert policy["companions"] ==
-               Enum.map(companions, &%{"name" => &1, "repository" => checkout.(&1)})
-    end
-
-    for working <- ~w(app lib docs) do
-      conversation = authority(policies["ryker-env-platform-#{working}-conversation"])
-      assert authority(policies["ryker-env-platform-#{working}-standard"]) == conversation
-      assert authority(policies["ryker-env-platform-#{working}-deep"]) == conversation
-      assert policies["ryker-env-platform-#{working}-conversation"]["repository_read_only"]
-
-      refute Map.get(
-               policies["ryker-env-platform-#{working}-contributor"],
-               "repository_read_only",
-               false
-             )
-    end
-
-    refute Map.has_key?(policies, "ryker-env-platform-conversation")
-
-    assert {:ok, _worker} =
-             ControlPlane.authorize_worker("ryker-compose", "ryker-compose", @digest)
-
-    environment_policies =
-      for working <- ~w(app lib docs),
-          suffix <- ~w(conversation standard deep contributor),
-          do: "ryker-env-platform-#{working}-#{suffix}"
-
-    advertise_policies!(
-      ~w(ryker-admission ryker-chat ryker-incident ryker-learning ryker-schedule-governed
-        ryker-schedule-read-only) ++ environment_policies
-    )
-
-    assert :ok = BundledCoop.configure("ryker-compose")
-
-    bindings =
-      Settings.fetch!().policy_bindings
-      |> Enum.filter(&(&1.scope_kind == :environment))
-      |> Enum.map(&{&1.purpose, &1.scope_ref, &1.repository_ref, &1.policy_name})
-      |> Enum.sort()
-
-    assert bindings ==
-             Enum.sort(
-               for working <- ~w(app lib docs),
-                   {purpose, suffix} <- [
-                     conversational: "conversation",
-                     standard: "standard",
-                     deep: "deep",
-                     contributor: "contributor"
-                   ],
-                   do: {purpose, "platform", working, "ryker-env-platform-#{working}-#{suffix}"}
-             )
-
-    assert BundledCoop.policy?("ryker-env-platform-docs-deep")
-  end
-
-  # A Work profile requires its conversation, standard and deep policies to
-  # share one Coop authority digest, and Coop hashes `repository_read_only`
-  # into it. The bundled standard and deep policies were writable while the
-  # conversation policy was read-only, so no bundled repository could ever form
-  # a Work profile, and a deeper model would have been permission to write.
-  test "a bundled repository's conversation, standard and deep policies share one read-only authority" do
-    {root, _shared} = configure_distribution_root!()
-    assert :ok = BundledCoop.prepare_distribution!()
-    snapshot = Settings.fetch!()
-
-    {:ok, _snapshot} =
-      Settings.put_repository(%{ref: "app"}, snapshot.installation.revision, @actor)
-
-    materialize!(root, "app")
-    assert :ok = BundledCoop.sync_policies()
-    policies = read_policies!(root)
-
-    for suffix <- ~w(standard deep) do
-      assert authority(policies["ryker-repo-app-#{suffix}"]) ==
-               authority(policies["ryker-repo-app-conversation"]),
-             suffix
-    end
-
-    assert policies["ryker-repo-app-conversation"]["repository_read_only"] == true
-    refute Map.get(policies["ryker-repo-app-contributor"], "repository_read_only", false)
-  end
-
-  test "distribution setup creates private seed policies and an enrollment file" do
-    configured_repository!()
-    {root, shared} = configure_distribution_root!()
-
-    assert :ok = BundledCoop.ensure_distribution!()
-    assert File.dir?(Path.join(root, "seed/.git"))
-    assert File.read!(Path.join(root, "session-policies.yaml")) =~ "ryker-admission"
-
-    assert File.stat!(Path.join(root, "session-policies.yaml")).mode |> Bitwise.band(0o777) ==
-             0o600
-
-    assert byte_size(File.read!(Path.join(shared, "enrollment-token"))) >= 32
-
-    occurred_at = ~U[2026-09-20 04:20:00.000000Z]
-    assert :ok = BundledCoop.request_materialization("app", occurred_at)
-
-    assert Enum.find(Settings.fetch!().repositories, &(&1.ref == "app")).last_github_event_at ==
-             occurred_at
-
-    assert :ok =
-             BundledCoop.request_materialization(
-               "app",
-               DateTime.add(occurred_at, -1, :second)
-             )
-
-    assert Enum.find(Settings.fetch!().repositories, &(&1.ref == "app")).last_github_event_at ==
-             occurred_at
-  end
-
-  test "each kind of work runs on the model saved for it, and a change applies without a restart" do
-    # The model used to come from one environment variable no page showed, for
-    # every kind of work at once; changing it meant editing the container and
-    # restarting Ryker.
-    {root, _shared} = configure_distribution_root!()
-    assert :ok = BundledCoop.prepare_distribution!()
-    policy_file = Path.join(root, "session-policies.yaml")
-
-    assert policy_targets(policy_file) == %{
-             "ryker-admission" => "codex:gpt-5.6-sol/medium@default",
-             "ryker-chat" => "codex:gpt-5.6-terra/medium@default",
-             "ryker-incident" => "codex:gpt-5.6-sol/medium@default",
-             "ryker-learning" => "codex:gpt-5.6-sol/medium@default",
-             "ryker-schedule-governed" => "codex:gpt-5.6-sol/medium@default",
-             "ryker-schedule-read-only" => "codex:gpt-5.6-sol/medium@default"
-           }
-
-    start_supervised!(
-      {BundledCoop.Reconciler, name: :bundled_model_reconciler, interval_ms: 60_000}
-    )
-
-    snapshot = Settings.fetch!()
-
-    {:ok, _snapshot} =
-      Settings.save_work(
-        %{learning_models: ["codex:gpt-5.6-luna/high@default"]},
-        snapshot.installation.revision,
-        @actor
-      )
-
-    assert eventually(fn ->
-             policy_targets(policy_file)["ryker-learning"] == "codex:gpt-5.6-luna/high@default"
-           end)
-
-    # Only learning changed.
-    assert policy_targets(policy_file)["ryker-admission"] == "codex:gpt-5.6-sol/medium@default"
-    assert policy_targets(policy_file)["ryker-chat"] == "codex:gpt-5.6-terra/medium@default"
-  end
-
-  test "a restart writes the saved models before any setting changes" do
-    # Only installation and a later settings save wrote the policy file, so a
-    # release that changed which model a kind of work runs on reached the
-    # worker only when someone happened to save Settings.
-    {root, _shared} = configure_distribution_root!()
-    assert :ok = BundledCoop.prepare_distribution!()
-    policy_file = Path.join(root, "session-policies.yaml")
-    snapshot = Settings.fetch!()
-
-    {:ok, _snapshot} =
-      Settings.save_work(
-        %{routing_models: ["codex:gpt-5.6-terra/low@default"]},
-        snapshot.installation.revision,
-        @actor
-      )
-
-    assert policy_targets(policy_file)["ryker-admission"] == "codex:gpt-5.6-sol/medium@default"
-
-    start_supervised!(
-      {BundledCoop.Reconciler, name: :bundled_restart_reconciler, interval_ms: 60_000}
-    )
-
-    assert eventually(fn ->
-             policy_targets(policy_file)["ryker-admission"] == "codex:gpt-5.6-terra/low@default"
-           end)
-  end
-
-  # Andrew, 2026-09-26: "Can I have fallbacks between models/providers like
-  # coop allows?" Coop moves down a policy's target list when a model hits a
-  # usage limit or its account's sign-in fails, but the bundled worker wrote
-  # one model per policy, so one exhausted account stopped that kind of work
-  # until the limit reset.
-  test "a fallback list reaches the worker's policy file in order" do
-    {root, _shared} = configure_distribution_root!()
-    assert :ok = BundledCoop.prepare_distribution!()
-    policy_file = Path.join(root, "session-policies.yaml")
-    snapshot = price!(Settings.fetch!(), "claude:claude-sonnet-4-6")
-
-    {:ok, snapshot} =
-      Settings.save_work(
-        %{model_accounts: ["codex@default", "codex@personal", "claude@work"]},
-        snapshot.installation.revision,
-        @actor
-      )
-
-    ladder = [
-      "codex:gpt-5.6-sol/medium@default",
-      "codex:gpt-5.6-sol/medium@personal",
-      "claude:claude-sonnet-4-6/high@work"
-    ]
-
-    {:ok, _snapshot} =
-      Settings.save_work(%{routing_models: ladder}, snapshot.installation.revision, @actor)
-
-    assert :ok = BundledCoop.sync_policies()
-    policies = read_policies!(root)
-    assert policies["ryker-admission"]["target"] == ladder
-
-    assert File.read!(policy_file) =~
-             ~s(    target: ["codex:gpt-5.6-sol/medium@default", ) <>
-               ~s("codex:gpt-5.6-sol/medium@personal", "claude:claude-sonnet-4-6/high@work"]\n)
-  end
-
-  # Coop reads one model and a one-model list alike, with the same policy
-  # digest. One model stays the plain string every worker has read, so an
-  # upgrade leaves the file byte for byte as it was, and the worker, which
-  # reloads when the file's checksum changes, sees nothing new.
-  test "a single model is still written as the one target the worker has always read" do
-    {root, _shared} = configure_distribution_root!()
-    assert :ok = BundledCoop.prepare_distribution!()
-    policy_file = Path.join(root, "session-policies.yaml")
-    single = File.read!(policy_file)
-
-    assert single =~
-             ~s(  ryker-admission:\n) <>
-               ~s(    repository: "#{Path.join(root, "seed")}"\n) <>
-               ~s(    target: "codex:gpt-5.6-sol/medium@default"\n)
-
-    assert read_policies!(root)["ryker-chat"]["target"] == "codex:gpt-5.6-terra/medium@default"
-    snapshot = Settings.fetch!()
-
-    {:ok, snapshot} =
-      Settings.save_work(
-        %{model_accounts: ["codex@default", "codex@personal"]},
-        snapshot.installation.revision,
-        @actor
-      )
-
-    {:ok, snapshot} =
-      Settings.save_work(
-        %{
-          routing_models: [
-            "codex:gpt-5.6-sol/medium@default",
-            "codex:gpt-5.6-sol/medium@personal"
-          ]
-        },
-        snapshot.installation.revision,
-        @actor
-      )
-
-    assert :ok = BundledCoop.sync_policies()
-    refute File.read!(policy_file) == single
-
-    {:ok, _snapshot} =
-      Settings.save_work(
-        %{routing_models: ["codex:gpt-5.6-sol/medium@default"]},
-        snapshot.installation.revision,
-        @actor
-      )
-
-    assert :ok = BundledCoop.sync_policies()
-    assert File.read!(policy_file) == single
-  end
-
-  # Coop counts the provider and account of every model a policy may run on
-  # as part of what the policy may do, and a Work profile needs one such
-  # authority across a repository's conversation, standard and deep policies.
-  test "conversation, standard and deep fallbacks keep one authority for a repository" do
-    {root, _shared} = configure_distribution_root!()
-    assert :ok = BundledCoop.prepare_distribution!()
-    snapshot = Settings.fetch!()
-
-    {:ok, snapshot} =
-      Settings.put_repository(%{ref: "app"}, snapshot.installation.revision, @actor)
-
-    {:ok, snapshot} =
-      Settings.save_work(
-        %{model_accounts: ["codex@default", "codex@personal"]},
-        snapshot.installation.revision,
-        @actor
-      )
-
-    ladder = fn model, effort ->
-      ["codex:#{model}/#{effort}@default", "codex:#{model}/#{effort}@personal"]
-    end
-
-    {:ok, _snapshot} =
-      Settings.save_work(
-        %{
-          conversation_models: ladder.("gpt-5.6-terra", "low"),
-          standard_models: ladder.("gpt-5.6-sol", "medium"),
-          deep_models: ladder.("gpt-5.6-sol", "xhigh")
-        },
-        snapshot.installation.revision,
-        @actor
-      )
-
-    materialize!(root, "app")
-    assert :ok = BundledCoop.sync_policies()
-    policies = read_policies!(root)
-    conversation = authority(policies["ryker-repo-app-conversation"])
-    assert conversation["accounts"] == ["codex@default", "codex@personal"]
-
-    for suffix <- ~w(standard deep) do
-      assert authority(policies["ryker-repo-app-#{suffix}"]) == conversation, suffix
-    end
-  end
-
-  # When Coop refuses Ryker's newest policies, the worker keeps what it last
-  # loaded and leaves Coop's words in the shared directory. Those name the
-  # policy, the model's place in its list and the account's bare name; the
-  # Models page needs the saved account that is and the command that signs
-  # it in, or it cannot say why a saved change never reached the worker.
-  test "a refused policy file reads as the account to sign in, and as nothing without one" do
-    {_root, shared} = configure_distribution_root!()
     File.mkdir_p!(shared)
-    problem = Path.join(shared, "policy-problem")
-    {:ok, snapshot} = Settings.initialize(@actor)
-    snapshot = price!(snapshot, "claude:claude-opus-4-6")
 
-    {:ok, snapshot} =
-      Settings.save_work(
-        %{model_accounts: ["codex@default", "claude@zzqa"]},
-        snapshot.installation.revision,
-        @actor
-      )
-
-    {:ok, _snapshot} =
-      Settings.save_work(
-        %{
-          routing_models: ["codex:gpt-5.6-sol/medium@default", "claude:claude-opus-4-6/high@zzqa"]
-        },
-        snapshot.installation.revision,
-        @actor
-      )
-
-    assert BundledCoop.policy_problem() == nil
-
-    File.write!(problem, File.read!("testdata/coop/policies-unsigned-account.stderr"))
-
-    assert BundledCoop.policy_problem() ==
-             "the claude@zzqa account is not signed in on the worker. Sign it in with " <>
-               "scripts/compose.sh model-login claude@zzqa, or choose another account."
-
-    # Anything else is Coop's own sentence, from where it names the policy.
-    File.write!(problem, File.read!("testdata/coop/policies-unsupported-effort.stderr"))
-
-    assert BundledCoop.policy_problem() ==
-             ~s(policy "ryker-admission": target Invalid agent target ) <>
-               ~s("gemini:gemini-3-pro/medium@emisar" — Gemini takes effort low or high, ) <>
-               ~s(not "medium": Gemini 3 has no other thinking level, and any Gemini target ) <>
-               ~s(can end up on a Gemini 3 model.)
-
-    File.rm!(problem)
-    assert BundledCoop.policy_problem() == nil
-  end
-
-  # The worker leaves its reason in a file. Open pages redraw on their own
-  # every few seconds; the watcher tells them as soon as the reason appears
-  # or clears, and only then.
-  test "a new or cleared policy problem reaches open pages without a reload" do
-    {_root, shared} = configure_distribution_root!()
-    File.mkdir_p!(shared)
-    problem = Path.join(shared, "policy-problem")
-    Phoenix.PubSub.subscribe(Ryker.PubSub, "control-plane")
-
-    start_supervised!(
-      {BundledCoop.ProblemWatcher, interval_ms: 10, name: :bundled_problem_watcher_test}
-    )
-
-    refute_receive :control_plane_changed, 100
-    File.write!(problem, File.read!("testdata/coop/policies-unsigned-account.stderr"))
-    assert_receive :control_plane_changed, 1_000
-    refute_receive :control_plane_changed, 100
-    File.rm!(problem)
-    assert_receive :control_plane_changed, 1_000
-  end
-
-  test "the bundled learning policy makes the isolated sessions background learning requires" do
-    # Coop grants a session the project environment and project MCP servers
-    # unless its policy says project_env: false and project_mcp: false. The
-    # generated ryker-learning policy never said so, the learner refused every
-    # session the bundled worker created for it, and background learning never
-    # once ran on the Compose install: seven batches retried every hour for up
-    # to four days (2026-09-21 to 09-24) while 25 messages waited.
-    {root, _shared} = configure_distribution_root!()
-    assert :ok = BundledCoop.prepare_distribution!()
-
-    policies =
-      root
-      |> Path.join("session-policies.yaml")
-      |> YamlElixir.read_from_file!()
-      |> Map.fetch!("policies")
-
-    learning = Map.fetch!(policies, "ryker-learning")
-    assert learning["project_env"] == false
-    assert learning["project_mcp"] == false
-    assert learning["repository_read_only"] == true
-    refute Map.has_key?(learning, "companions")
-
-    # Only learning sends retained messages to a session it must isolate.
-    assert Map.get(policies["ryker-chat"], "project_env", true)
-  end
-
-  test "an expired bundled identity gets one stable replacement enrollment token" do
-    {:ok, _snapshot} = Settings.initialize(@actor)
-    {_root, shared} = configure_distribution_root!()
-
-    assert :ok = BundledCoop.ensure_distribution!()
-    original = File.read!(Path.join(shared, "enrollment-token"))
-
-    File.touch!(Path.join(shared, "enrolled"))
-    File.rm!(Path.join(shared, "enrollment-token"))
-    assert :ok = BundledCoop.ensure_enrollment_file!()
-    refute File.exists?(Path.join(shared, "enrollment-token"))
-
-    File.rm!(Path.join(shared, "enrolled"))
-    assert :ok = BundledCoop.ensure_enrollment_file!()
-    replacement = File.read!(Path.join(shared, "enrollment-token"))
-    refute replacement == original
-
-    assert :ok = BundledCoop.ensure_enrollment_file!()
-    assert File.read!(Path.join(shared, "enrollment-token")) == replacement
-  end
-
-  defp configured_repository! do
-    {:ok, snapshot} = Settings.initialize(@actor)
-
-    {:ok, snapshot} =
-      Settings.put_repository(
-        %{ref: "app", display_name: "acme/app", github_repository: "acme/app"},
-        snapshot.installation.revision,
-        @actor
-      )
-
-    {:ok, _snapshot} =
-      Settings.put_environment(
-        %{ref: "app", display_name: "acme/app", repositories: ["app"], is_default: true},
-        snapshot.installation.revision,
-        @actor
-      )
-  end
-
-  defp materialize!(root, ref) do
-    checkout = Path.join([root, "repositories", ref])
-    File.mkdir_p!(checkout)
-
-    for arguments <- [
-          ["init", "--quiet"],
-          [
-            "-c",
-            "user.email=ryker@localhost",
-            "-c",
-            "user.name=Ryker",
-            "commit",
-            "--quiet",
-            "--allow-empty",
-            "-m",
-            "Initialize #{ref}"
-          ]
-        ] do
-      {_output, 0} = System.cmd("git", arguments, cd: checkout, stderr_to_stdout: true)
-    end
-  end
-
-  defp read_policies!(root) do
-    root
-    |> Path.join("session-policies.yaml")
-    |> YamlElixir.read_from_file!()
-    |> Map.fetch!("policies")
-  end
-
-  # The fields Coop hashes into a policy's authority digest. The model and its
-  # effort are not among them; the provider and account of each model, in
-  # order, are.
-  defp authority(policy) do
-    policy
-    |> Map.take(~w(repository companions repository_read_only project_env project_mcp egress))
-    |> Map.put("accounts", policy["target"] |> List.wrap() |> Enum.map(&account/1))
-  end
-
-  defp account(target) do
-    [head, account] = String.split(target, "@", parts: 2)
-    [provider | _model] = String.split(head, ":", parts: 2)
-    provider <> "@" <> account
-  end
-
-  defp price!(snapshot, execution_target) do
-    {:ok, snapshot} =
-      Settings.put_pricing_rate(
-        %{
-          execution_target: execution_target,
-          input_usd_per_million: "3",
-          cached_input_usd_per_million: "0.3",
-          output_usd_per_million: "15",
-          effective_from: ~D[2026-09-26],
-          provenance: "https://www.anthropic.com/pricing"
-        },
-        snapshot.installation.revision,
-        @actor
-      )
-
-    snapshot
-  end
-
-  defp configure_distribution_root! do
-    root =
-      Path.join(System.tmp_dir!(), "ryker-bundled-coop-#{System.unique_integer([:positive])}")
-
-    shared = root <> "-shared"
-    previous_root = System.get_env("RYKER_BUNDLED_COOP_ROOT")
-    previous_shared = System.get_env("RYKER_BUNDLED_COOP_SHARED")
-    System.put_env("RYKER_BUNDLED_COOP_ROOT", root)
-    System.put_env("RYKER_BUNDLED_COOP_SHARED", shared)
+    previous =
+      for {name, value} <- [
+            {"RYKER_BUNDLED_COOP_SHARED", shared},
+            {"RYKER_BUNDLED_COOP_WORKER_ID", "ryker-compose"},
+            {"RYKER_BUNDLED_COOP_WORKSPACE", "ryker-compose"}
+          ] do
+        previous = System.get_env(name)
+        System.put_env(name, value)
+        {name, previous}
+      end
 
     on_exit(fn ->
-      restore_env("RYKER_BUNDLED_COOP_ROOT", previous_root)
-      restore_env("RYKER_BUNDLED_COOP_SHARED", previous_shared)
-      File.rm_rf!(root)
+      for {name, value} <- previous do
+        if value, do: System.put_env(name, value), else: System.delete_env(name)
+      end
+
       File.rm_rf!(shared)
     end)
 
-    {root, shared}
+    %{shared: shared, token: Path.join(shared, "enrollment-token")}
   end
 
-  defp advertise_policies!(names) do
-    digests = Map.new(names, &{&1, @digest})
-    authorities = Map.new(names, &{&1, @authority})
+  test "installation selects the worker workspace without policies or checkouts", context do
+    assert BundledCoop.distribution?()
+    assert :ok = BundledCoop.prepare_distribution!()
+    assert Settings.fetch!().work.workspace_ref == "ryker-compose"
+    refute Map.has_key?(Settings.fetch!(), :policy_bindings)
+    assert File.ls!(context.shared) == ["enrollment-token"]
+    assert Bitwise.band(File.stat!(context.token).mode, 0o777) == 0o600
+    assert Bitwise.band(File.stat!(context.shared).mode, 0o777) == 0o700
 
-    Repo.update_all(
-      from(worker in Worker, where: worker.id == "ryker-compose"),
-      set: [
-        capabilities: [%{"name" => "responder-state", "version" => "1"}],
-        capacity: %{
-          "session_slots_free" => 4,
-          "session_slots_total" => 4,
-          "state" => "eligible",
-          "turn_slots_free" => 4,
-          "turn_slots_total" => 4,
-          "workspace_slots_free" => 3,
-          "workspace_slots_total" => 3
-        },
-        last_seen_at: DateTime.utc_now(),
-        policy_digests: digests,
-        policy_authority_digests: authorities,
-        state: :eligible
-      ]
+    revision = Settings.fetch!().installation.revision
+    original = File.read!(context.token)
+    assert :ok = BundledCoop.prepare_distribution!()
+    assert File.read!(context.token) == original
+    assert Settings.fetch!().installation.revision == revision
+    assert Repo.aggregate(EnrollmentToken, :count) == 1
+  end
+
+  test "readiness requires the exact current worker and real protocol support" do
+    assert :ok = BundledCoop.prepare_distribution!()
+    refute BundledCoop.ready?()
+    authorize!()
+    refute BundledCoop.ready?()
+    advertise!()
+    assert BundledCoop.ready?()
+
+    for attributes <- [
+          [workspace_ref: "other"],
+          [protocol_version: "1"],
+          [capabilities: [%{"name" => "controller-tools", "version" => "2"}]],
+          [last_seen_at: DateTime.add(DateTime.utc_now(), -61, :second)],
+          [state: :offline],
+          [capacity: %{"state" => "eligible", "session_slots_free" => 0}]
+        ] do
+      update_worker!(attributes)
+      refute BundledCoop.ready?(), inspect(attributes)
+      advertise!()
+    end
+  end
+
+  test "an expired or consumed token is replaced and the replacement stays stable", context do
+    assert :ok = BundledCoop.prepare_distribution!()
+
+    for attributes <- [
+          [expires_at: DateTime.add(Repo.now!(), -1, :second)],
+          [consumed_at: Repo.now!(), certificate_sha256: @digest]
+        ] do
+      original = File.read!(context.token)
+      record = Repo.get_by!(EnrollmentToken, token_sha256: hash(original))
+
+      Repo.update_all(from(token in EnrollmentToken, where: token.id == ^record.id),
+        set: attributes
+      )
+
+      assert :ok = BundledCoop.ensure_enrollment_file!()
+      replacement = File.read!(context.token)
+      refute replacement == original
+      assert :ok = BundledCoop.ensure_enrollment_file!()
+      assert File.read!(context.token) == replacement
+      assert Repo.get!(EnrollmentToken, record.id)
+    end
+  end
+
+  test "a token for a different worker or workspace is never reused", context do
+    assert :ok = BundledCoop.prepare_distribution!()
+
+    for attributes <- [[worker_id: "other"], [workspace_ref: "other"]] do
+      original = File.read!(context.token)
+      digest = hash(original)
+
+      Repo.update_all(from(token in EnrollmentToken, where: token.token_sha256 == ^digest),
+        set: attributes
+      )
+
+      assert :ok = BundledCoop.ensure_enrollment_file!()
+      refute File.read!(context.token) == original
+    end
+  end
+
+  test "a persisted identity retires a spare token without deleting enrollment history",
+       context do
+    assert :ok = BundledCoop.prepare_distribution!()
+    token = Repo.get_by!(EnrollmentToken, token_sha256: hash(File.read!(context.token)))
+    marker = Path.join(context.shared, "enrolled")
+    File.touch!(marker)
+    assert :ok = BundledCoop.ensure_enrollment_file!()
+    refute File.exists?(context.token)
+    assert DateTime.compare(Repo.get!(EnrollmentToken, token.id).expires_at, Repo.now!()) != :gt
+    assert :ok = BundledCoop.ensure_enrollment_file!()
+    assert Repo.aggregate(EnrollmentToken, :count) == 1
+
+    File.rm!(marker)
+    assert :ok = BundledCoop.ensure_enrollment_file!()
+    assert Repo.aggregate(EnrollmentToken, :count) == 2
+    assert File.exists?(context.token)
+  end
+
+  test "a revoked worker cannot get another enrollment token", context do
+    assert :ok = BundledCoop.prepare_distribution!()
+    authorize!()
+    update_worker!(state: :revoked, revoked_at: Repo.now!(), revoked_by: @actor)
+    assert :ok = BundledCoop.ensure_enrollment_file!()
+    refute File.exists?(context.token)
+    assert Repo.aggregate(EnrollmentToken, :count) == 1
+  end
+
+  test "nonprivate, oversized and symlink token files fail closed", context do
+    assert :ok = BundledCoop.prepare_distribution!()
+    File.chmod!(context.token, 0o644)
+    assert_raise RuntimeError, fn -> BundledCoop.ensure_enrollment_file!() end
+    File.chmod!(context.token, 0o600)
+    File.write!(context.token, String.duplicate("x", 130))
+    assert_raise RuntimeError, fn -> BundledCoop.ensure_enrollment_file!() end
+    File.rm!(context.token)
+    target = Path.join(context.shared, "untouched")
+    File.write!(target, String.duplicate("y", 43))
+    File.ln_s!(target, context.token)
+    assert_raise RuntimeError, fn -> BundledCoop.ensure_enrollment_file!() end
+    assert File.read!(target) == String.duplicate("y", 43)
+    assert Repo.aggregate(EnrollmentToken, :count) == 1
+  end
+
+  test "the reconciler repairs missing token delivery without waiting for certificate expiry",
+       context do
+    assert :ok = BundledCoop.prepare_distribution!()
+    File.rm!(context.token)
+    start_supervised!({BundledCoop.Reconciler, name: :bundled_identity_test, interval_ms: 10})
+    assert eventually(fn -> File.exists?(context.token) end)
+    assert Repo.aggregate(EnrollmentToken, :count) == 2
+  end
+
+  defp authorize! do
+    assert {:ok, _worker} =
+             ControlPlane.authorize_worker("ryker-compose", "ryker-compose", @digest)
+  end
+
+  defp advertise! do
+    update_worker!(
+      workspace_ref: "ryker-compose",
+      protocol_version: "2",
+      capabilities: [%{"name" => "controller-tools", "version" => "1"}],
+      capacity: %{
+        "state" => "eligible",
+        "session_slots_free" => 4,
+        "session_slots_total" => 4,
+        "turn_slots_free" => 4,
+        "turn_slots_total" => 4,
+        "workspace_slots_free" => 2,
+        "workspace_slots_total" => 2
+      },
+      last_seen_at: DateTime.utc_now(),
+      state: :eligible
     )
   end
 
-  defp policy_targets(path) do
-    ~r/^  ([a-z0-9-]+):\n(?:    .*\n)*?    target: "([^"]+)"/m
-    |> Regex.scan(File.read!(path), capture: :all_but_first)
-    |> Map.new(fn [name, target] -> {name, target} end)
-  end
+  defp update_worker!(attributes),
+    do:
+      Repo.update_all(from(worker in Worker, where: worker.id == "ryker-compose"),
+        set: attributes
+      )
 
-  defp restore_env(key, nil), do: System.delete_env(key)
-  defp restore_env(key, value), do: System.put_env(key, value)
+  defp hash(token), do: :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
 end

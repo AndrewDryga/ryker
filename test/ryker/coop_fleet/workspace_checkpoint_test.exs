@@ -20,7 +20,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
     assert checkpoint["task"]["queue_id"] == String.duplicate("4", 32)
     assert checkpoint["task"]["task_id"] == String.duplicate("5", 32)
     assert checkpoint["task"]["subtasks"] == [true, false]
-    assert checkpoint["bundle"]["media_type"] == WorkspaceCheckpoint.bundle_media_type()
+    assert checkpoint["bundle"]["media_type"] == WorkspaceCheckpoint.bundle_media_type(1)
     assert checkpoint["bundle"]["byte_size"] == 16_384
   end
 
@@ -219,7 +219,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
 
     assert {:error, {:invalid_workspace_checkpoint, :version}} =
              checkpoint
-             |> Map.put("version", 2)
+             |> Map.put("version", 3)
              |> WorkspaceCheckpointBundle.validate(bundle)
 
     <<name::binary-size(100), _mode::binary-size(8), rest::binary>> = bundle
@@ -312,7 +312,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
     {checkpoint, bundle} = WorkspaceCheckpointFixture.build(%{session_ref: "session-crypto"})
     key = :crypto.strong_rand_bytes(32)
 
-    assert {:ok, sealed} = CheckpointCrypto.seal(key, checkpoint, bundle)
+    sealed = WorkspaceCheckpointFixture.seal_historical(key, checkpoint, bundle)
 
     assert {:ok, ^bundle} =
              CheckpointCrypto.open(
@@ -343,9 +343,6 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
                sealed.encryption_tag,
                "wrong-length"
              )
-
-    assert {:error, :workspace_checkpoint_encryption_key_invalid} =
-             CheckpointCrypto.seal("short", checkpoint, bundle)
 
     assert {:error, :workspace_checkpoint_decryption_failed} =
              CheckpointCrypto.open(

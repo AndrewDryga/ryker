@@ -3,13 +3,14 @@ defmodule Ryker.Publication.Executor do
   Executes one leased publication phase without owning routing or authority.
 
   Review, notification, and publication are separate durable phases. Every
-  retry reuses the frozen Coop review key/revision or the exact reviewed patch;
+  retry reuses the frozen Coop review key/revision or the exact retained commit;
   an operator approval can therefore never drift to a newer workspace tree.
   """
 
+  alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Delivery.Adapters
   alias Ryker.LeasedCall
-  alias Ryker.Publication.{Custody, Request, Review}
+  alias Ryker.Publication.{Custody, Request}
   alias Ryker.Work.Session
 
   @review_states ~w(open exhausted)
@@ -46,14 +47,12 @@ defmodule Ryker.Publication.Executor do
          key <- review_key(frozen),
          {:ok, response} <- run_review(claim, frozen, key, settings),
          {:ok, dossier} <- exact_review_response(response, session.coop_session_id),
-         {:ok, patch} <- review_patch(dossier, claim, settings),
          {:ok, stored} <-
            settings.custody.store_review(
              publication.ref,
              claim.lease_ref,
              frozen.review_generation,
-             dossier,
-             patch
+             dossier
            ) do
       {:ok, %{phase: :reviewed, publication: stored}}
     end
@@ -75,9 +74,17 @@ defmodule Ryker.Publication.Executor do
 
   defp publish(claim, settings) do
     with {:ok, request} <- Request.new(claim.publication),
+         {:ok, body} <- Request.worker_body(request, settings.repositories),
          result <-
            leased_call(claim, settings, fn ->
-             settings.publisher.publish(request, settings.publisher_binding)
+             settings.api.publish_review(
+               settings.client,
+               claim.session.coop_session_id,
+               review_key(claim.publication),
+               request.review["operation_id"],
+               publish_key(claim.publication),
+               body
+             )
            end) do
       store_publish_result(result, claim, settings)
     end
@@ -129,8 +136,8 @@ defmodule Ryker.Publication.Executor do
          %{
            "external_ref" => _external_ref,
            "id" => _id,
-           "policy" => _policy,
-           "policy_digest" => _digest,
+           "job_ref" => _job_ref,
+           "job_digest" => _digest,
            "revision" => revision,
            "state" => state
          } = remote,
@@ -156,8 +163,7 @@ defmodule Ryker.Publication.Executor do
 
   defp same_review_session?(remote, session) do
     remote["id"] == session.coop_session_id and
-      remote["external_ref"] == Session.coop_task_ref(session) and
-      remote["policy"] == session.policy and remote["policy_digest"] == session.policy_digest
+      JobAuthority.exact_receipt(session, remote) == :ok
   end
 
   defp exact_review_response(
@@ -178,33 +184,6 @@ defmodule Ryker.Publication.Executor do
 
   defp exact_review_response(_response, _session_id),
     do: {:error, {:publication_coop_protocol_error, :review}}
-
-  defp review_patch(dossier, claim, settings) do
-    if Review.publishable?(dossier) do
-      leased_call(claim, settings, fn -> fetch_review_patch(dossier, claim, settings) end)
-    else
-      {:ok, nil}
-    end
-  end
-
-  defp fetch_review_patch(dossier, claim, settings) do
-    if function_exported?(settings.api, :get_session_review_patch, 5) do
-      settings.api.get_session_review_patch(
-        settings.client,
-        claim.session.coop_session_id,
-        dossier["patch_artifact_id"],
-        dossier["patch_digest"],
-        dossier["patch_bytes"]
-      )
-    else
-      settings.api.get_review_patch(
-        settings.client,
-        dossier["patch_artifact_id"],
-        dossier["patch_digest"],
-        dossier["patch_bytes"]
-      )
-    end
-  end
 
   defp run_review(claim, frozen, key, settings) do
     result =
@@ -233,8 +212,12 @@ defmodule Ryker.Publication.Executor do
     end
   end
 
-  defp review_key(publication) do
+  def review_key(publication) do
     "ryker:publication:review:#{publication.id}:g#{publication.review_generation}"
+  end
+
+  def publish_key(publication) do
+    "ryker:publication:publish:#{publication.id}:g#{publication.review_generation}"
   end
 
   defp leased_call(claim, settings, function) do
@@ -263,8 +246,7 @@ defmodule Ryker.Publication.Executor do
       :client,
       :custody,
       :lease_seconds,
-      :publisher,
-      :publisher_binding
+      :repositories
     ]
 
     if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options) and
@@ -275,8 +257,7 @@ defmodule Ryker.Publication.Executor do
         client: Keyword.fetch!(options, :client),
         custody: Keyword.get(options, :custody, Custody),
         lease_seconds: Keyword.get(options, :lease_seconds, 60),
-        publisher: Keyword.fetch!(options, :publisher),
-        publisher_binding: Keyword.fetch!(options, :publisher_binding)
+        repositories: Keyword.fetch!(options, :repositories)
       })
     else
       {:error, {:invalid_publication_executor, :options}}
@@ -287,7 +268,7 @@ defmodule Ryker.Publication.Executor do
 
   defp validate_settings(settings) do
     callbacks = [
-      {settings.api, [get_session: 2, get_review_patch: 4, run_review: 4], :api},
+      {settings.api, [get_session: 2, publish_review: 6, run_review: 4], :api},
       {
         settings.custody,
         [
@@ -297,11 +278,10 @@ defmodule Ryker.Publication.Executor do
           freeze_review_revision: 3,
           renew: 3,
           store_publication: 3,
-          store_review: 5
+          store_review: 4
         ],
         :custody
-      },
-      {settings.publisher, [publish: 2], :publisher}
+      }
     ]
 
     with :ok <- validate_callbacks(callbacks),

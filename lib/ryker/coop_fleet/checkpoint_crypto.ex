@@ -4,30 +4,6 @@ defmodule Ryker.CoopFleet.CheckpointCrypto do
   @nonce_bytes 12
   @tag_bytes 16
 
-  @spec seal(binary(), map(), binary()) :: {:ok, map()} | {:error, term()}
-  def seal(key, checkpoint, plaintext)
-      when is_binary(key) and byte_size(key) == 32 and is_map(checkpoint) and
-             is_binary(plaintext) do
-    nonce = :crypto.strong_rand_bytes(@nonce_bytes)
-    aad = associated_data(checkpoint)
-
-    {ciphertext, tag} =
-      :crypto.crypto_one_time_aead(:aes_256_gcm, key, nonce, plaintext, aad, @tag_bytes, true)
-
-    {:ok,
-     %{
-       ciphertext: ciphertext,
-       encryption_key_sha256: digest(key),
-       encryption_nonce: nonce,
-       encryption_tag: tag
-     }}
-  rescue
-    _error -> {:error, :workspace_checkpoint_encryption_failed}
-  end
-
-  def seal(_key, _checkpoint, _plaintext),
-    do: {:error, :workspace_checkpoint_encryption_key_invalid}
-
   @spec open(binary(), map(), binary(), binary(), binary(), binary()) ::
           {:ok, binary()} | {:error, term()}
   def open(key, checkpoint, ciphertext, nonce, tag, key_sha256)

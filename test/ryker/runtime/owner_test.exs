@@ -8,13 +8,20 @@ defmodule Ryker.Runtime.OwnerTest do
   alias Ryker.Slack.Names
 
   @actor "control-plane:local"
-  @digest String.duplicate("a", 64)
 
   setup do
     # The local MCP token is deployment-injected material, not a product
     # setting; assembly refuses to run the state tools without it.
     System.put_env("RYKER_STATE_TOOLS_TOKEN", "state-tools-token-for-tests")
     on_exit(fn -> System.delete_env("RYKER_STATE_TOOLS_TOKEN") end)
+    checkpoint_key = System.get_env("RYKER_CHECKPOINT_KEY")
+    System.put_env("RYKER_CHECKPOINT_KEY", Base.encode64(:binary.copy(<<91>>, 32)))
+
+    on_exit(fn ->
+      if checkpoint_key,
+        do: System.put_env("RYKER_CHECKPOINT_KEY", checkpoint_key),
+        else: System.delete_env("RYKER_CHECKPOINT_KEY")
+    end)
 
     # The product topology places Work on the enrolled fleet; the isolated test
     # topology has no Work lane to assemble at all.
@@ -167,20 +174,6 @@ defmodule Ryker.Runtime.OwnerTest do
     owner = start_owner(context)
     {:ok, saved} = initialize()
 
-    {:ok, saved} =
-      Settings.put_policy_binding(
-        %{
-          policy_digest: @digest,
-          policy_name: "ryker-incident-v1",
-          purpose: :incident,
-          scope_kind: :installation,
-          scope_ref: "",
-          verified_by: :import
-        },
-        saved.installation.revision,
-        @actor
-      )
-
     slack_tokens!()
 
     {:ok, connected} =
@@ -210,20 +203,6 @@ defmodule Ryker.Runtime.OwnerTest do
        context do
     owner = start_owner(context)
     {:ok, saved} = initialize()
-
-    {:ok, saved} =
-      Settings.put_policy_binding(
-        %{
-          policy_digest: @digest,
-          policy_name: "ryker-incident-v1",
-          purpose: :incident,
-          scope_kind: :installation,
-          scope_ref: "",
-          verified_by: :import
-        },
-        saved.installation.revision,
-        @actor
-      )
 
     slack_tokens!()
 
@@ -323,38 +302,33 @@ defmodule Ryker.Runtime.OwnerTest do
 
   defp initialize do
     {:ok, _} = Settings.initialize(@actor)
-    {:ok, _} = Settings.put_repository(%{ref: "ryker"}, 1, @actor)
 
     {:ok, saved} =
-      Settings.put_policy_binding(
+      Settings.put_repository(
         %{
-          purpose: :conversational,
-          scope_kind: :repository,
-          scope_ref: "ryker",
-          policy_name: "ryker-conversation-v1",
-          policy_digest: @digest,
-          verified_by: :import
+          ref: "ryker",
+          github_repository: "acme/ryker",
+          source_commit: String.duplicate("a", 40)
         },
-        2,
+        1,
+        @actor
+      )
+
+    {:ok, saved} =
+      Settings.put_github_binding(
+        %{
+          name: "ryker",
+          repository_ref: "ryker",
+          installation_id: 1001,
+          repository_id: 2001,
+          ryker_actor_id: 3001
+        },
+        saved.installation.revision,
         @actor
       )
 
     {:ok, saved} =
       Settings.save_work(%{workspace_ref: "ryker-main"}, saved.installation.revision, @actor)
-
-    {:ok, saved} =
-      Settings.put_policy_binding(
-        %{
-          purpose: :contributor,
-          scope_kind: :repository,
-          scope_ref: "ryker",
-          policy_name: "ryker-contributor-v1",
-          policy_digest: String.duplicate("b", 64),
-          verified_by: :import
-        },
-        saved.installation.revision,
-        @actor
-      )
 
     Settings.put_environment(
       %{ref: "ryker", display_name: "Ryker", repositories: ["ryker"]},

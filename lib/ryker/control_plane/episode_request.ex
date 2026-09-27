@@ -418,10 +418,8 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp preference_entries(_), do: []
 
-  # Why the call ran on its model, in terms of what the call was for. Ryker
-  # does not pick a model per call: the purpose selects a Coop policy, and the
-  # policy's worker decides the model. The bundled worker's model for each kind
-  # of work is chosen in Settings, so the card links there.
+  # New jobs freeze the purpose's model targets from Ryker's settings. Older
+  # calls without a settings link still describe their recorded selection.
   defp model_reason(%{model_choice: %{settings: true} = choice}),
     do: %{text: "#{purpose(choice) || "This call"} uses the model set for it in", settings?: true}
 
@@ -431,7 +429,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         nil
 
       purpose ->
-        %{text: "#{purpose} runs under a Coop policy set to this model", settings?: false}
+        %{text: "#{purpose} was assigned this model for its job", settings?: false}
     end
   end
 

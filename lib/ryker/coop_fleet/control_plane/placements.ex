@@ -2,8 +2,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   @moduledoc """
   Session placement and worker choice.
 
-  Places a session on one current worker with the policy, authority,
-  repository, capabilities, freshness and capacity it needs; recovers or
+  Places a frozen controller job on a worker with the capabilities,
+  freshness and capacity it needs; recovers or
   replaces a placement whose lease or authority ended; renews a worker's
   placement leases on each poll; and answers whether the fleet could take a
   session at all without taking a slot to find out.
@@ -13,7 +13,17 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Command, Placement, Worker, WorkspaceCheckpointTransfer}
+
+  alias Ryker.CoopFleet.{
+    Bodies,
+    Command,
+    JobAuthority,
+    Placement,
+    Worker,
+    WorkspaceCheckpoint,
+    WorkspaceCheckpointTransfer
+  }
+
   alias Ryker.CoopFleet.ControlPlane.{Commands, Shared}
   alias Ryker.Repo
   alias Ryker.Work.{RepositorySource, Session, Turn}
@@ -49,14 +59,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   @doc """
   Whether any current worker could take this session's next placement.
 
-  A recovery surface may only offer to move work when the fleet could actually
-  accept it. The learning lane sat unplaceable for twelve hours on 2026-09-11
-  because one worker advertised no digest for its policy, so this asks the same
-  question placement asks — policy, authority, repository, capabilities,
-  freshness and capacity — without taking a slot to find out.
+  Recovery is offered only when a worker has the required capabilities and
+  capacity. This is a preflight check; actual placement also validates the
+  session's frozen job without consulting current settings.
   """
   @spec worker_available?(Session.t(), map()) :: boolean()
-  def worker_available?(%Session{} = session, requirements) do
+  def worker_available?(%Session{}, requirements) do
     case requirements(requirements) do
       {:ok, prepared} ->
         now = Repo.now!()
@@ -65,7 +73,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         |> Repo.all()
         |> Enum.any?(fn worker ->
           worker_current?(worker, prepared.workspace_ref, now) and
-            worker_eligible?(worker, session, prepared, now) and worker_has_capacity?(worker)
+            worker_eligible?(worker, prepared, now) and
+            worker.capacity["state"] == "eligible" and worker_has_capacity?(worker)
         end)
 
       {:error, _reason} ->
@@ -83,24 +92,23 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   means the offer is a promise the fleet cannot keep, and the operator would
   lose the working copy by accepting it.
   """
-  @spec portable_workspace(Session.t(), map()) ::
+  @spec portable_workspace(Session.t(), map(), String.t() | nil) ::
           %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
           | nil
-  def portable_workspace(%Session{} = session, requirements) do
-    if worker_available?(session, requirements), do: portable_checkpoint(session)
+  def portable_workspace(%Session{} = session, requirements, body_root) do
+    if worker_available?(session, requirements), do: portable_checkpoint(session, body_root)
   end
 
-  def portable_workspace(_session, _requirements), do: nil
+  def portable_workspace(_session, _requirements, _body_root), do: nil
 
   # The newest checkpoint a rotation of this session would actually restore:
   # same episode and repository, taken by this generation or one before it, and
   # pinned to the same repository source. Client.restore_checkpoint/1 selects by
   # the same rule, so the offer and the restore cannot disagree.
-  # A checkpoint bundle is up to 64 MiB of ciphertext, and none of it belongs on
-  # a recovery page, so this reads identity only.
-  defp portable_checkpoint(%Session{repository_ref: nil}), do: nil
+  # Recovery pages inspect only metadata and local file custody, not bundle bytes.
+  defp portable_checkpoint(%Session{repository_ref: nil}, _root), do: nil
 
-  defp portable_checkpoint(%Session{} = session) do
+  defp portable_checkpoint(%Session{} = session, root) do
     from(transfer in WorkspaceCheckpointTransfer,
       join: command in Command,
       on: command.id == transfer.command_id,
@@ -109,22 +117,46 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       where:
         source.episode_id == ^session.episode_id and
           source.generation <= ^session.generation and
-          source.repository_ref == ^session.repository_ref and command.status == :succeeded,
+          source.repository_ref == ^session.repository_ref and command.status == :succeeded and
+          fragment("(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb", command.result),
       order_by: [desc: transfer.inserted_at, desc: transfer.id],
+      limit: 1,
       select: {
         %{
           byte_size: transfer.bundle_byte_size,
           checkpoint_ref: transfer.checkpoint_ref,
-          repository_ref: transfer.repository_ref
+          repository_ref: transfer.repository_ref,
+          sha256: transfer.bundle_sha256,
+          body_command_id: transfer.body_command_id,
+          descriptor: transfer.descriptor
         },
         source.repository_source
       }
     )
-    |> Repo.all()
-    |> Enum.find_value(fn {checkpoint, source} ->
-      RepositorySource.same?(source, session.repository_source) and checkpoint
-    end)
+    |> Repo.one()
+    |> checkpoint_offer(session.repository_source, root)
   end
+
+  defp checkpoint_offer(nil, _source, _root), do: nil
+
+  defp checkpoint_offer({checkpoint, source}, expected_source, root) do
+    if RepositorySource.same?(source, expected_source) and
+         WorkspaceCheckpoint.restorable?(checkpoint.descriptor) and
+         checkpoint_available?(root, checkpoint),
+       do: Map.take(checkpoint, [:byte_size, :checkpoint_ref, :repository_ref])
+  end
+
+  defp checkpoint_available?(_root, %{body_command_id: nil}), do: true
+
+  defp checkpoint_available?(root, checkpoint),
+    do:
+      match?(
+        {:ok, _, _},
+        Bodies.fetch(root, checkpoint.body_command_id, :response, %{
+          "sha256" => checkpoint.sha256,
+          "byte_size" => checkpoint.byte_size
+        })
+      )
 
   defp place_session_locked(session_id, requirements, lease_seconds) do
     session =
@@ -135,6 +167,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         )
       ) || Shared.rollback({:coop_session_not_found, session_id})
 
+    validate_job_for_placement!(session)
     now = Repo.now!()
 
     case current_placement(session_id) do
@@ -143,7 +176,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
           not current?(placement, now) ->
             replacement_required(placement, now)
 
-          # A placement on the holder's current policy only ever stops or cleans up.
+          # A holder placement only ever stops or cleans up.
           holder_placement?(placement) and not stopping_or_cleaning?(session) ->
             {:replacement_required, placement.generation}
 
@@ -187,6 +220,15 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     end
   end
 
+  defp validate_job_for_placement!(session) do
+    unless bound_session?(session) and stopping_or_cleaning?(session) do
+      case JobAuthority.validate(session) do
+        {:ok, _session} -> :ok
+        {:error, reason} -> Shared.rollback(reason)
+      end
+    end
+  end
+
   @doc "Whether this placement is active and its lease has not run out."
   @spec current?(Placement.t(), DateTime.t()) :: boolean()
   def current?(%Placement{state: :active, lease_expires_at: %DateTime{} = expires_at}, now),
@@ -204,10 +246,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     worker = Shared.locked_worker(previous.worker_id)
 
     eligible =
-      worker_current?(worker, requirements.workspace_ref, now) and
-        worker_eligible?(worker, session, requirements, now) and
-        placement_authority_current?(previous.requirements, worker) and
-        worker_has_capacity?(worker)
+      holder_reachable?(worker, requirements.workspace_ref, now) and
+        is_nil(worker.drain_requested_at) and worker.state in [:eligible, :busy] and
+        worker_eligible?(worker, requirements, now) and
+        placement_authority_current?(previous.requirements, worker)
 
     if eligible,
       do: {:ok, insert_placement_on_worker(session, worker, requirements, lease_seconds, now)},
@@ -333,26 +375,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     end
   end
 
-  # Stopping a run and cleaning up after one do no policy work: Coop's worker
-  # forwards get, cancel, close, discard planning and discard without naming a
-  # policy, and its daemon never reads one for them. So they go back to the
-  # worker that holds the session under whatever that worker runs now, and need
-  # only that it still reports. Requiring the exact version and setup the
-  # session started with stranded every cleanup and stop after a model change
-  # in Settings: on 2026-09-23 two cleanups blocked behind a retry that could
-  # never work, and a stop in the same place was deferred forever. The
-  # placement pins what the worker runs now, so its own heartbeat keeps it, and
-  # says what it is for so it never carries the session's next turn.
+  # Stop and cleanup return to the exact holder even after settings or sandbox
+  # changes. They need no new runtime slot and never authorize another turn.
   defp place_on_holder(session, previous, requirements, lease_seconds, now) do
     worker = Shared.locked_worker(previous.worker_id)
 
     if holder_reachable?(worker, requirements.workspace_ref, now) do
-      held = %{
-        session
-        | authority_digest: Map.get(worker.policy_authority_digests, session.policy),
-          policy_digest: Map.get(worker.policy_digests, session.policy)
-      }
-
       holder = %{
         requirements
         | capability_names: [],
@@ -362,7 +390,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
       {:ok,
        insert_placement_on_worker(
-         held,
+         session,
          worker,
          Map.put(holder, :purpose, @holder_purpose),
          lease_seconds,
@@ -481,7 +509,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       storage_refused?(worker, session) ->
         skip(session, requirements, now, cutoff, excluded_ids, worker, storage_refusal(worker))
 
-      worker_eligible?(worker, session, requirements, now) and worker_has_capacity?(worker) ->
+      worker_eligible?(worker, requirements, now) and
+        worker.capacity["state"] == "eligible" and worker_has_capacity?(worker) ->
         worker
 
       true ->
@@ -551,28 +580,43 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   end
 
   defp worker_has_capacity?(worker) do
-    reserved_slots = reserved_placement_slots(worker.id, worker.last_seen_at)
+    reserved_slots = reserved_placement_slots(worker.id)
 
+    # A heartbeat can precede execution of an assigned create. Keep that
+    # reservation until verified remote binding, not merely until the next poll.
+    # Bound sessions use measured worker capacity and may park without a child.
     Enum.all?(~w(session turn workspace), fn kind ->
       capacity_slot(worker, "#{kind}_slots_free") > reserved_slots
     end)
   end
 
-  defp reserved_placement_slots(worker_id, reported_at) do
+  defp reserved_placement_slots(worker_id) do
     closed =
       from(command in Command,
         where:
           command.placement_id == parent_as(:placement).id and
-            command.kind == "close_session" and command.status == :succeeded,
+            command.kind == "close_session" and command.status == :succeeded and
+            fragment(
+              "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
+              command.result
+            ) and
+            fragment("?::jsonb #>> '{body,session,state}' = 'closed'", command.result) and
+            fragment(
+              "(?::jsonb #>> '{body,session,id}') = (?::jsonb ->> 'coop_session_id')",
+              command.result,
+              command.payload
+            ),
         select: 1
       )
 
     Repo.aggregate(
       from(placement in Placement,
         as: :placement,
+        join: session in Session,
+        on: session.id == placement.session_id,
         where:
           placement.worker_id == ^worker_id and
-            placement.inserted_at > ^reported_at and
+            is_nil(session.coop_session_id) and
             placement.state in ^Placement.current_states() and
             not exists(subquery(closed))
       ),
@@ -580,23 +624,15 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     )
   end
 
-  defp worker_eligible?(worker, session, requirements, now) do
-    worker.policy_digests[session.policy] == session.policy_digest and
-      worker_authority_matches?(worker, session.policy, session.authority_digest) and
-      repository_available?(worker.repositories, requirements.repository_ref) and
+  defp worker_eligible?(worker, requirements, now) do
+    worker.protocol_version == "2" and
       capabilities_available?(
         worker.capabilities,
         requirements.capability_names,
         requirements.capability_versions
       ) and
-      worker.capacity["state"] == "eligible" and
+      match?(%DateTime{}, worker.clock_at) and
       DateTime.diff(now, worker.clock_at, :second) |> abs() <= Shared.maximum_clock_skew_seconds()
-  end
-
-  defp repository_available?(_repositories, nil), do: true
-
-  defp repository_available?(repositories, repository_ref) do
-    Enum.any?(repositories, &(&1["ref"] == repository_ref))
   end
 
   defp capabilities_available?(capabilities, required_names, required_versions) do
@@ -610,10 +646,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     document = %{
       "capability_names" => requirements.capability_names,
       "capability_versions" => requirements.capability_versions,
-      "authority_digest" => session.authority_digest,
-      "policy" => session.policy,
-      "policy_digest" => session.policy_digest,
-      "repository_ref" => requirements.repository_ref,
+      "job_ref" => session.external_ref,
+      "job_digest" => session.worker_job_digest,
       "sandbox_digest" => worker.sandbox_digest,
       "workspace_ref" => requirements.workspace_ref
     }
@@ -627,13 +661,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   defp placement_authority_current?(requirements, worker) do
     worker.workspace_ref == requirements["workspace_ref"] and
       worker.sandbox_digest == requirements["sandbox_digest"] and
-      worker.policy_digests[requirements["policy"]] == requirements["policy_digest"] and
-      worker_authority_matches?(
-        worker,
-        requirements["policy"],
-        requirements["authority_digest"]
-      ) and
-      repository_available?(worker.repositories, requirements["repository_ref"]) and
       capabilities_available?(
         worker.capabilities,
         requirements["capability_names"],
@@ -642,11 +669,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   end
 
   defp capacity_slot(worker, name), do: Map.get(worker.capacity, name, 0)
-
-  defp worker_authority_matches?(_worker, _policy, nil), do: true
-
-  defp worker_authority_matches?(worker, policy, authority_digest),
-    do: worker.policy_authority_digests[policy] == authority_digest
 
   defp next_placement_generation(session_id) do
     Repo.one(

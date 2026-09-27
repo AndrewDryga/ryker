@@ -26,7 +26,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   @working "is working…"
 
   # Ryker's own tools, which the worker names under this server.
-  @state_server "responder-state"
+  @state_servers ["controller-tools", "responder-state"]
   @state_tool_phrases [
     {"is searching what it knows…", ~w(search_memory)},
     {"is searching Slack…", ~w(search_slack list_slack_channels)},
@@ -236,8 +236,9 @@ defmodule Ryker.Slack.ThreadStatusProjection do
 
   # Only the server, the tool name and the kind are read, and only to choose
   # a phrase; a name no table knows says "is working…".
-  defp tool_phrase(%{"input" => %{"server" => @state_server, "tool" => tool}}),
-    do: phrase_for(@state_tool_phrases, tool)
+  defp tool_phrase(%{"input" => %{"server" => server, "tool" => tool}})
+       when server in @state_servers,
+       do: phrase_for(@state_tool_phrases, tool)
 
   defp tool_phrase(%{"input" => %{"server" => @emisar_server, "tool" => tool}}),
     do: phrase_for(@emisar_tool_phrases, tool)

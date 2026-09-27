@@ -1,10 +1,10 @@
 defmodule Ryker.Evals.CoopRunnerTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.Evals.{CoopRunner, WorldCase, WorldJudgeCase}
-  alias Ryker.TestSupport.FakeCoopAPI
+  @session_id "remote:ryker-eval:world-judge:run-eval-test:world-judge:va1-health-review-repairs-and-finishes"
 
-  @digest String.duplicate("a", 64)
+  alias Ryker.Evals.{CoopRunner, Job, WorldCase, WorldJudgeCase}
+  alias Ryker.TestSupport.FakeCoopAPI
 
   defmodule FaultAPI do
     @behaviour Ryker.Coop.API
@@ -126,7 +126,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
         exhaust_after_validation: true
       )
 
-    assert %{status: :passed, session_id: "remote_test", turn_id: "turn_test"} =
+    assert %{status: :passed, session_id: @session_id, turn_id: "turn_test"} =
              CoopRunner.run_case(eval, options(fake))
 
     state = FakeCoopAPI.state(fake)
@@ -260,7 +260,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
     assert %{decision: nil, reason: {:invalid_eval_runner, :run_ref}, status: :failed} =
              CoopRunner.run_case(eval, Keyword.put(options(fake), :id_generator, fn -> "" end))
 
-    duplicate_options = options(fake) ++ [policy: "other"]
+    duplicate_options = options(fake) ++ [job: nil]
 
     assert CoopRunner.run([eval], duplicate_options) ==
              {:error, {:invalid_eval_runner, :options}}
@@ -341,7 +341,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
           %{
             "turn" => %{
               "id" => "turn-test",
-              "session_id" => "remote_test",
+              "session_id" => @session_id,
               "state" => "invented"
             }
           }}}
@@ -358,7 +358,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
             "turn" => %{
               "candidate" => %{"attempt" => 0},
               "id" => "turn-test",
-              "session_id" => "remote_test",
+              "session_id" => @session_id,
               "state" => "awaiting_validation"
             }
           }}}
@@ -456,8 +456,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
       client: fake,
       id_generator: fn -> "run-eval-test" end,
       max_polls: 10,
-      policy: "world-judge-test",
-      policy_digest: @digest,
+      job: elem(Job.new(:judge, "codex:fixture/low@eval"), 1),
       poll_interval_ms: 0,
       sleep: fn 0 -> :ok end
     ]

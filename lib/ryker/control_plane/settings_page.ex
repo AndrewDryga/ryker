@@ -1178,7 +1178,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   defp editors(:model), do: [:model, :model_accounts]
   defp editors(:retention), do: [:retention]
   defp editors(:pricing), do: [:pricing]
-  defp editors(:system), do: [:work, :policies]
+  defp editors(:system), do: [:work]
   defp editors(_section), do: []
 
   # Model prices is one list, a page of its own like Channels. Models keeps
@@ -1285,8 +1285,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
               "run your own workers.",
           else:
             worker <>
-              " This installation uses workers you run yourself; choose their install and " <>
-              "what each kind of work may do below."
+              " This installation uses workers you run yourself; choose their install below. " <>
+              "Ryker supplies the code and settings for each job."
         )
     }
   end

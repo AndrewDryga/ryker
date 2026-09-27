@@ -1797,7 +1797,7 @@ defmodule Ryker.StateTools.RouterTest do
              "result" => %{
                "capabilities" => %{"tools" => %{"listChanged" => false}},
                "protocolVersion" => "2025-11-25",
-               "serverInfo" => %{"name" => "responder-state", "version" => "1"}
+               "serverInfo" => %{"name" => "controller-tools", "version" => "1"}
              }
            } = Jason.decode!(initialize.resp_body)
 

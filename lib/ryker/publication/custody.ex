@@ -30,7 +30,7 @@ defmodule Ryker.Publication.Custody do
   alias Ryker.Work.{DeliveryReceipt, Session, Turn}
 
   @claimable [:review_pending, :review_ready, :publish_pending, :published_ready]
-  @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
+  @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch publication_authorization_revoked)
   @request_fields [:actor_ref, :occurred_at, :record_ref, :request_ref, :target]
   @approval_fields [:actor_ref, :approval_ref, :occurred_at, :publication_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
@@ -236,12 +236,12 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
-  def store_review(publication_ref, lease_ref, generation, review, patch) do
+  def store_review(publication_ref, lease_ref, generation, review) do
     with :ok <- reference(publication_ref, :publication_ref),
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive(generation, :review_generation) do
       Repo.transaction(fn ->
-        store_review_locked(publication_ref, lease_ref, generation, review, patch)
+        store_review_locked(publication_ref, lease_ref, generation, review)
       end)
       |> transaction_result()
     end
@@ -658,7 +658,7 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
-  defp store_review_locked(publication_ref, lease_ref, generation, review, patch) do
+  defp store_review_locked(publication_ref, lease_ref, generation, review) do
     with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
          :ok <- status(publication, :review_pending),
          true <- publication.review_generation == generation,
@@ -668,9 +668,8 @@ defmodule Ryker.Publication.Custody do
              revision: publication.review_expected_revision,
              session_id: session.coop_session_id
            }),
-         :ok <- exact_review_policy(prepared, session),
-         {:ok, patch} <- exact_patch(prepared, patch) do
-      persist_review(publication, prepared, patch, now)
+         :ok <- exact_review_job(prepared, session) do
+      persist_review(publication, prepared, now)
     else
       false -> Repo.rollback(:publication_review_generation_stale)
       {:error, reason} -> Repo.rollback(reason)
@@ -680,13 +679,12 @@ defmodule Ryker.Publication.Custody do
   # A phase that completes clears the failure an earlier attempt recorded. The
   # stale code used to ride along into every later phase, so a publication that
   # had recovered on its own stayed on the Failures page as broken.
-  defp persist_review(publication, prepared, patch, now) do
+  defp persist_review(publication, prepared, now) do
     update!(
       publication,
       %{
         review_document: prepared,
         review_fingerprint: Review.fingerprint(prepared),
-        review_patch: patch,
         reviewed_at: now,
         last_error_code: nil,
         last_error_detail: nil,
@@ -1113,6 +1111,23 @@ defmodule Ryker.Publication.Custody do
 
   defp draft_grant(_publication), do: nil
 
+  @doc false
+  def publication_authorized?(%Publication{status: :publish_pending} = publication) do
+    approved =
+      is_binary(publication.approval_ref) and
+        is_binary(publication.approved_by_actor_ref) and
+        is_struct(publication.approved_at, DateTime)
+
+    if publication.approval_ref == "host:publication:draft:#{publication.id}" do
+      approved and Review.publishable?(publication.review_document) and
+        draft_grant(publication) == publication.approved_by_actor_ref
+    else
+      approved and Review.draft_shareable?(publication.review_document)
+    end
+  end
+
+  def publication_authorized?(_publication), do: false
+
   defp approve_locked(attributes) do
     case lock_publication(attributes.publication_ref) do
       nil ->
@@ -1252,27 +1267,11 @@ defmodule Ryker.Publication.Custody do
     })
   end
 
-  defp exact_review_policy(%{"policy_digest" => digest}, %{policy_digest: digest}), do: :ok
+  defp exact_review_job(%{"job_digest" => digest}, %{worker_job_digest: digest})
+       when is_binary(digest), do: :ok
 
-  defp exact_review_policy(_review, _session),
-    do: {:error, :publication_review_policy_mismatch}
-
-  # A snapshot that only a person may share still has to be exactly the change
-  # the review described. Retaining it is preservation, not a claim that any
-  # check passed.
-  defp exact_patch(review, patch) do
-    cond do
-      Review.draft_shareable?(review) and is_binary(patch) and patch != "" and
-        byte_size(patch) == review["patch_bytes"] and digest(patch) == review["patch_digest"] ->
-        {:ok, patch}
-
-      not Review.draft_shareable?(review) and is_nil(patch) ->
-        {:ok, nil}
-
-      true ->
-        {:error, :publication_review_patch_mismatch}
-    end
-  end
+  defp exact_review_job(_review, _session),
+    do: {:error, :publication_review_job_mismatch}
 
   defp session(session_id) do
     case Repo.get(Session, session_id) do
@@ -1376,7 +1375,6 @@ defmodule Ryker.Publication.Custody do
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp github_repository!(url) do
     %URI{host: "github.com", path: path} = URI.parse(url)

@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   import Ecto.Query
 
   alias Ryker.ControlPlane.{Activity, LearningActivity, ProductReadiness}
-  alias Ryker.CoopFleet.{Placement, Worker}
+  alias Ryker.CoopFleet.{JobAuthority, Placement, Worker}
   alias Ryker.Credentials
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
@@ -899,7 +899,6 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   defp session_worker(placement, session, %Worker{} = worker, now) do
     requirements = placement.requirements || %{}
-    digests = worker.policy_digests || %{}
 
     %{
       id: worker.id,
@@ -907,13 +906,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
       draining: worker.state == :draining or not is_nil(worker.drain_requested_at),
       reporting: reporting?(worker, now),
       last_seen_at: worker.last_seen_at,
-      policy: session.policy,
-      policy_offered: Map.has_key?(digests, session.policy),
-      policy_current: Map.get(digests, session.policy) == session.policy_digest,
-      setup_current:
-        worker.sandbox_digest == requirements["sandbox_digest"] and
-          authority_current?(worker, session) and
-          repository_offered?(worker, requirements["repository_ref"]),
+      job_valid: match?({:ok, _session}, JobAuthority.validate(session)),
+      setup_current: setup_current?(worker, requirements),
       free_slot:
         Enum.all?(~w(session turn workspace), fn kind ->
           Map.get(worker.capacity || %{}, "#{kind}_slots_free", 0) > 0
@@ -921,23 +915,24 @@ defmodule Ryker.ControlPlane.FailureProjection do
     }
   end
 
+  defp setup_current?(worker, requirements) do
+    capabilities = Map.new(worker.capabilities || [], &{&1["name"], &1["version"]})
+
+    worker.protocol_version == "2" and
+      worker.workspace_ref == requirements["workspace_ref"] and
+      worker.sandbox_digest == requirements["sandbox_digest"] and
+      Enum.all?(requirements["capability_names"] || [], &Map.has_key?(capabilities, &1)) and
+      Enum.all?(requirements["capability_versions"] || %{}, fn {name, version} ->
+        capabilities[name] == version
+      end)
+  end
+
   defp reporting?(%Worker{last_seen_at: %DateTime{} = seen} = worker, now) do
-    worker.state == :eligible and is_nil(worker.drain_requested_at) and
+    worker.state in [:eligible, :busy] and is_nil(worker.drain_requested_at) and
       is_nil(worker.revoked_at) and DateTime.diff(now, seen, :second) <= @heartbeat_stale_seconds
   end
 
   defp reporting?(_worker, _now), do: false
-
-  defp authority_current?(_worker, %Session{authority_digest: nil}), do: true
-
-  defp authority_current?(worker, session),
-    do:
-      Map.get(worker.policy_authority_digests || %{}, session.policy) == session.authority_digest
-
-  defp repository_offered?(_worker, nil), do: true
-
-  defp repository_offered?(worker, repository_ref),
-    do: Enum.any?(List.wrap(worker.repositories), &(&1["ref"] == repository_ref))
 
   defp decorate_failure(item), do: item |> List.wrap() |> decorate_failures() |> hd()
 
@@ -1207,7 +1202,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # The repositories the running configuration can publish to right now.
   defp publishing_repositories do
     case Application.get_env(:ryker, :publication) do
-      %{publisher_binding: %{repositories: repositories}} when is_map(repositories) ->
+      %{repositories: repositories} when is_map(repositories) ->
         MapSet.new(Map.keys(repositories))
 
       _none ->

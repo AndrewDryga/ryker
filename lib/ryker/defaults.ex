@@ -13,7 +13,7 @@ defmodule Ryker.Defaults do
 
   @coop %{receive_timeout_ms: 30_000}
   @admission %{concurrency: 4, decision_timeout_ms: 30_000, poll_interval_ms: 250}
-  @work %{capability_names: ["responder-state"], concurrency: 4, poll_interval_ms: 250}
+  @work %{capability_names: ["controller-tools"], concurrency: 4, poll_interval_ms: 250}
   @learning %{
     batch_size: 16,
     concurrency: 1,

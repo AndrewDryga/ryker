@@ -14,6 +14,20 @@ defmodule Ryker.CanonicalJSON do
     |> Base.encode16(case: :lower)
   end
 
+  @doc "SHA-256 over the sorted-key JSON representation used by Go's encoding/json."
+  @spec worker_digest(Jason.Encoder.t()) :: String.t()
+  def worker_digest(value) do
+    value
+    |> encode!()
+    |> String.replace("&", "\\u0026")
+    |> String.replace("<", "\\u003c")
+    |> String.replace(">", "\\u003e")
+    |> String.replace(<<0x2028::utf8>>, "\\u2028")
+    |> String.replace(<<0x2029::utf8>>, "\\u2029")
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
   @spec encode!(Jason.Encoder.t()) :: String.t()
   def encode!(value) do
     case encode(value) do

@@ -40,11 +40,12 @@ defmodule Ryker.ControlPlane.EvidenceLinks do
            coop_turn_id: coop_turn_id,
            admission_input_id: nil
          } = event,
-         %{"server" => "responder-state", "tool" => "cite_source", "arguments" => args},
+         %{"server" => server, "tool" => "cite_source", "arguments" => args},
          turns,
          records
        )
-       when is_binary(call_id) and call_id != "" and is_binary(coop_turn_id) and
+       when server in ["controller-tools", "responder-state"] and is_binary(call_id) and
+              call_id != "" and is_binary(coop_turn_id) and
               coop_turn_id != "" and is_map(args) do
     with [turn] <- turns[{event.episode_id, event.session_id, event.coop_turn_id}],
          [record] <-

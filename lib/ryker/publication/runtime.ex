@@ -20,9 +20,9 @@ defmodule Ryker.Publication.Runtime do
     :followup_interval_seconds,
     :lease_seconds,
     :poll_interval_ms,
-    :publisher,
-    :publisher_binding,
-    :receive_timeout_ms,
+    :repositories,
+    :status_api,
+    :status_client,
     :retry_base_seconds,
     :retry_max_seconds,
     :worker_ref
@@ -48,8 +48,7 @@ defmodule Ryker.Publication.Runtime do
             adapters: options.delivery_adapters,
             api: options.coop_api,
             client: options.coop_client,
-            publisher: options.publisher,
-            publisher_binding: options.publisher_binding
+            repositories: options.repositories
           ],
           lease_seconds: options.lease_seconds,
           retry_base_seconds: options.retry_base_seconds,
@@ -91,12 +90,10 @@ defmodule Ryker.Publication.Runtime do
   def options!(configuration) do
     configuration = normalize!(configuration)
     worker_ref = Map.fetch!(configuration, :worker_ref)
-    publisher = Map.fetch!(configuration, :publisher)
-    publisher_binding = Map.fetch!(configuration, :publisher_binding)
+    repositories = Map.fetch!(configuration, :repositories)
     concurrency = Map.get(configuration, :concurrency, 2)
     lease_seconds = Map.get(configuration, :lease_seconds, 60)
     poll_interval_ms = Map.get(configuration, :poll_interval_ms, 250)
-    receive_timeout_ms = Map.get(configuration, :receive_timeout_ms, 30_000)
     retry_base_seconds = Map.get(configuration, :retry_base_seconds, 1)
     retry_max_seconds = Map.get(configuration, :retry_max_seconds, 60)
     followup_interval_seconds = Map.get(configuration, :followup_interval_seconds, 120)
@@ -104,13 +101,15 @@ defmodule Ryker.Publication.Runtime do
     validate_integer!(concurrency, 1, @maximum_concurrency, :concurrency)
     validate_integer!(lease_seconds, 1, 86_400, :lease_seconds)
     validate_integer!(poll_interval_ms, 1, 60_000, :poll_interval_ms)
-    validate_integer!(receive_timeout_ms, 1, lease_seconds * 1_000 - 1, :receive_timeout_ms)
     validate_integer!(retry_base_seconds, 1, 86_400, :retry_base_seconds)
     validate_integer!(retry_max_seconds, retry_base_seconds, 86_400, :retry_max_seconds)
     validate_integer!(followup_interval_seconds, 30, 3_600, :followup_interval_seconds)
     validate_ref!(worker_ref)
-    validate_publisher!(publisher)
-    {status_api, status_client} = status_source!(publisher_binding)
+
+    unless is_map(repositories),
+      do: raise(ArgumentError, "publication repositories must be a map")
+
+    {status_api, status_client} = status_source!(configuration)
 
     delivery_adapters =
       case configuration |> Map.fetch!(:delivery_adapters) |> Adapters.new() do
@@ -131,9 +130,7 @@ defmodule Ryker.Publication.Runtime do
       followup_interval_seconds: followup_interval_seconds,
       lease_seconds: lease_seconds,
       poll_interval_ms: poll_interval_ms,
-      publisher: publisher,
-      publisher_binding: publisher_binding,
-      receive_timeout_ms: receive_timeout_ms,
+      repositories: repositories,
       retry_base_seconds: retry_base_seconds,
       retry_max_seconds: retry_max_seconds,
       status_api: status_api,
@@ -146,7 +143,15 @@ defmodule Ryker.Publication.Runtime do
     Options.normalize!(
       configuration,
       @fields,
-      [:coop_api, :coop_client, :delivery_adapters, :publisher, :publisher_binding, :worker_ref],
+      [
+        :coop_api,
+        :coop_client,
+        :delivery_adapters,
+        :repositories,
+        :status_api,
+        :status_client,
+        :worker_ref
+      ],
       list: "publication configuration must use unique known fields",
       map: "publication configuration has missing or unknown fields",
       other: "publication configuration must be a map or keyword list"
@@ -166,35 +171,30 @@ defmodule Ryker.Publication.Runtime do
            do: raise(ArgumentError, "publication worker_ref must be a bounded nonblank string")
   end
 
-  defp validate_publisher!(publisher) do
-    unless is_atom(publisher) and Code.ensure_loaded?(publisher) and
-             function_exported?(publisher, :publish, 2),
-           do: raise(ArgumentError, "publication publisher must implement publish/2")
-  end
-
   defp coop_adapter!(%{coop_api: api, coop_client: client})
        when is_atom(api) and not is_nil(api) and not is_nil(client) do
-    if Code.ensure_loaded?(api) and function_exported?(api, :run_review, 4),
-      do: {api, client},
-      else: raise(ArgumentError, "publication Coop API must implement review custody")
+    if Code.ensure_loaded?(api) and function_exported?(api, :run_review, 4) and
+         function_exported?(api, :publish_review, 6),
+       do: {api, client},
+       else: raise(ArgumentError, "publication Coop API must implement review custody")
   end
 
   defp coop_adapter!(_configuration),
     do: raise(ArgumentError, "publication requires a trusted Coop adapter")
 
-  defp status_source!(%{api: api, client: client}) do
+  defp status_source!(%{status_api: api, status_client: client}) do
     unless is_atom(api) and Code.ensure_loaded?(api) and
              function_exported?(api, :get_publication_status, 3),
            do:
              raise(
                ArgumentError,
-               "publication publisher binding must expose get_publication_status/3"
+               "publication status API must implement get_publication_status/3"
              )
 
     {api, client}
   end
 
   defp status_source!(_binding) do
-    raise ArgumentError, "publication publisher binding must expose a GitHub status source"
+    raise ArgumentError, "publication requires a GitHub status source"
   end
 end

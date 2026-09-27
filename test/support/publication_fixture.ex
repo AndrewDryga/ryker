@@ -4,6 +4,7 @@ defmodule Ryker.Fixtures.Publication do
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Records
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission}
@@ -141,28 +142,23 @@ defmodule Ryker.Fixtures.Publication do
     }
   end
 
-  def published!(suffix, options \\ []) do
+  def approved!(suffix, options \\ []) do
     %{claim: claim, publication: publication, repository: repository} =
       review_requested!(suffix, options)
-
-    github_repository = Keyword.get(options, :github_repository, "acme/ryker")
-    pull_request_number = Keyword.get(options, :pull_request_number, 91)
 
     {:ok, review_claim} = PublicationCustody.claim_next("publication:review:#{suffix}", 60)
 
     {:ok, frozen} =
       PublicationCustody.freeze_review_revision(publication.ref, review_claim.lease_ref, 7)
 
-    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-    review = review_document(claim, patch, options)
+    review = review_document(claim, options)
 
     {:ok, _reviewed} =
       PublicationCustody.store_review(
         publication.ref,
         review_claim.lease_ref,
         frozen.review_generation,
-        review,
-        patch
+        review
       )
 
     {:ok, review_delivery_claim} =
@@ -187,7 +183,7 @@ defmodule Ryker.Fixtures.Publication do
         review_receipt
       )
 
-    {:ok, %{publication: _approved}} =
+    {:ok, %{publication: approved}} =
       PublicationCustody.approve(%{
         actor_ref: "slack:user:U-operator",
         approval_ref: "interaction:publish:#{suffix}",
@@ -201,12 +197,22 @@ defmodule Ryker.Fixtures.Publication do
         }
       })
 
+    %{claim: claim, publication: approved, repository: repository, review: review}
+  end
+
+  def published!(suffix, options \\ []) do
+    %{claim: claim, publication: publication, repository: repository, review: review} =
+      approved!(suffix, options)
+
+    github_repository = Keyword.get(options, :github_repository, "acme/ryker")
+    pull_request_number = Keyword.get(options, :pull_request_number, 91)
+
     {:ok, publish_claim} = PublicationCustody.claim_next("publication:publish:#{suffix}", 60)
 
     receipt = %{
       "branch_ref" => "refs/heads/ryker/#{publication.id}",
       "candidate_tree" => review["candidate_tree"],
-      "commit_sha" => String.duplicate("9", 40),
+      "commit_sha" => review["candidate_head"],
       "pull_request_number" => pull_request_number,
       "pull_request_url" => "https://github.com/#{github_repository}/pull/#{pull_request_number}",
       "repository" => repository
@@ -263,6 +269,8 @@ defmodule Ryker.Fixtures.Publication do
   end
 
   defp bind_remote!(claim) do
+    WorkerJob.pin!(claim.session)
+
     {:ok, submission} =
       Submission.new(
         %{"input" => claim.episode.key},
@@ -305,7 +313,7 @@ defmodule Ryker.Fixtures.Publication do
   # A gate that could not start is the hosted-runner incident's own shape: the
   # review is never publishable, yet the snapshot stays exactly identified, so
   # custody carries it to a published draft only through an operator approval.
-  defp review_document(claim, patch, options) do
+  defp review_document(claim, options) do
     gate = Keyword.get(options, :gate, "passed")
     gate_error = Keyword.get(options, :gate_error)
 
@@ -328,11 +336,9 @@ defmodule Ryker.Fixtures.Publication do
         "operation_id" => "operation:review:#{claim.turn.id}",
         "parent_head" => String.duplicate("5", 40),
         "parent_tree" => String.duplicate("4", 40),
-        "patch_artifact_id" => "review-patch:#{claim.turn.id}",
-        "patch_bytes" => byte_size(patch),
-        "patch_digest" => digest(patch),
+        "candidate_retained" => true,
         "patch_truncated" => false,
-        "policy_digest" => claim.session.policy_digest,
+        "job_digest" => claim.session.worker_job_digest,
         "policy_findings" => [],
         "publishable" => true,
         "pull_request" => nil,

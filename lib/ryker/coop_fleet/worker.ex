@@ -12,9 +12,6 @@ defmodule Ryker.CoopFleet.Worker do
     field(:build_version, :string)
     field(:clock_at, :utc_datetime_usec)
     field(:sandbox_digest, :string)
-    field(:policy_digests, Ryker.CanonicalJSON.Type, default: %{})
-    field(:policy_authority_digests, Ryker.CanonicalJSON.Type, default: %{})
-    field(:repositories, Ryker.CanonicalJSON.Type, default: [])
     field(:capabilities, Ryker.CanonicalJSON.Type, default: [])
     field(:capacity, Ryker.CanonicalJSON.Type, default: %{})
     # Absent means the worker reported no measurement. Unknown is not zero.

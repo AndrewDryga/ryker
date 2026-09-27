@@ -142,6 +142,52 @@ defmodule Ryker.Learning.SessionCustodyTest do
     assert reply_rows() == replies
   end
 
+  for mismatch <- [:operation_resource, :task_reference, :missing_operation] do
+    test "historical cleanup rejects #{mismatch} without binding or running work" do
+      stuck = recorded_stuck_attempt!("placement_active")
+
+      remote =
+        Map.put(
+          stuck.recorded["remote_session"],
+          "external_ref",
+          FleetSession.external_ref(stuck.run)
+        )
+
+      remote =
+        if unquote(mismatch) == :task_reference,
+          do: Map.put(remote, "external_ref", "another-run"),
+          else: remote
+
+      fake = recorded_worker!(stuck, {:ok, remote})
+
+      Agent.update(fake, fn state ->
+        recorded =
+          case unquote(mismatch) do
+            :operation_resource ->
+              %{
+                state.recorded
+                | operation: Map.put(state.recorded.operation, "resource_id", "another-session")
+              }
+
+            :missing_operation ->
+              %{state.recorded | create_key: "another-key"}
+
+            :task_reference ->
+              state.recorded
+          end
+
+        %{state | recorded: recorded}
+      end)
+
+      assert {:ok, %Batch{status: :deferred}} =
+               Dispatcher.run_once(Map.put(@settings, :client, fake))
+
+      assert Repo.get!(Session, stuck.session.id).coop_session_id == nil
+      assert FakeCoopAPI.state(fake).submit_count == 0
+      assert FakeCoopAPI.state(fake).create_keys == []
+    end
+  end
+
   test "a session the worker made with project access is bound and closed before it hears a message" do
     # The other two sessions still answered, and still carried the project
     # environment and project MCP servers. Ryker refused them before binding,
@@ -195,7 +241,12 @@ defmodule Ryker.Learning.SessionCustodyTest do
              Dispatcher.run_once(settings)
 
     assert [refused] = Repo.all(LearningRun)
-    assert refused.stop_receipt == %{"kind" => "never_submitted", "session_id" => "remote_test"}
+
+    assert refused.stop_receipt == %{
+             "kind" => "never_submitted",
+             "session_id" => FakeCoopAPI.state(fake).session["id"]
+           }
+
     assert FakeCoopAPI.state(fake).submit_count == 0
     refute Map.has_key?(FakeCoopAPI.state(fake), :submitted_prompt)
 

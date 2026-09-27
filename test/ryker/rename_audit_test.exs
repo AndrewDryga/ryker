@@ -36,14 +36,13 @@ defmodule Ryker.RenameAuditTest do
   # the token is a deliberate reference; `~r//` on `path` means any file.
   @allowed_tokens [
     # --- contracts with another party
-    {~r//, ~r/responder-state(?![A-Za-z0-9_])|responder-state:v1/,
-     "co:op capability and MCP server name (and its contract version); renamed only with a coordinated co:op release"},
-    {~r//, ~r/responder_binding|responder_state_tools/,
-     "co:op command protocol JSON keys, and the functions and atoms that carry them"},
-    {~r{^deploy/compose/coop/entrypoint\.sh$}, ~r/responder_url|\bresponder\b/,
-     "co:op worker configuration field owned by the co:op wire contract"},
-    {~r//, ~r/x-responder-(artifact|checkpoint)-(name|sha256|descriptor)/,
-     "worker gateway headers read by the co:op worker"},
+    {~r{^(lib/ryker/(control_plane/(tool_card|evidence_links|episode_trace/tool_activity)|slack/(reply_records|thread_status_projection)|state_tools/record_writer)|evals/ryker/evals/(world_case|world_evidence)|test/ryker/slack/reply_records_test)\.exs?$},
+     ~r/responder-state(?![A-Za-z0-9_])|responder-state:v1/,
+     "read-only historical activity and immutable state-record idempotency namespace; new execution uses controller-tools"},
+    {~r{^(lib/ryker/control_plane/(model_requests|request_context_html)\.ex|test/ryker/control_plane/request_context_html_test\.exs)$},
+     ~r/responder_state_tools/, "read-only inspection of previously saved prompt context"},
+    {~r{^scripts/refresh-world-tool-catalogs\.exs$}, ~r/responder-state/,
+     "reading the old generated host catalog before writing the neutral server name"},
     {~r//, ~r/x-responder-(signature|timestamp|event-id|event-type|item-id|occurred-at|revision)/,
      "inbound webhook contract; configured external senders set these headers"},
     {~r//, ~r/responder\.publication_lifecycle\.v1/,
@@ -58,8 +57,6 @@ defmodule Ryker.RenameAuditTest do
      "Go-era SQLite tables named as the data source of the retained design notes"},
     {~r{^test/ryker/control_plane/subscription_presentation_test\.exs$}, ~r/responder_emisar/,
      "harvest provenance: the live database's name on the day the rows were taken"},
-    {~r{^test/ryker/coop_fleet/protocol_test\.exs$}, ~r/responder-read-only-v1/,
-     "policy name recorded in the frozen co:op worker protocol golden (testdata/protocol)"},
     # --- the one manifest assertion about the rename
     {~r{^docs/slack-app\.md$}, ~r{`/responder`},
      "the manifest update step names the command it replaces"},

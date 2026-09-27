@@ -4,6 +4,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
   alias Ryker.CoopFleet.{ControlPlane, SessionEvidence, SessionEvidenceCapture}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Repo
   alias Ryker.Work.Custody
 
@@ -75,6 +76,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
 
     {:ok, bound} =
       session
+      |> WorkerJob.pin!()
       |> Ecto.Changeset.change(coop_session_id: "remote_01j9zq3f8m0c7e6kq9y2s4x1nt")
       |> Repo.update()
 
@@ -91,7 +93,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
 
     capabilities =
       Keyword.get(options, :capabilities, [
-        %{"name" => "responder-state", "version" => "1"},
+        %{"name" => "controller-tools", "version" => "1"},
         %{"name" => "session-evidence", "version" => "1"}
       ])
 
@@ -108,7 +110,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
         "command_results" => [],
         "event_batches" => [],
         "poll_ref" => "poll:#{worker_id}:1",
-        "version" => 1,
+        "version" => 2,
         "worker" => %{
           "build_version" => "coop-evidence",
           "capabilities" => capabilities,
@@ -124,10 +126,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
           },
           "clock_at" => DateTime.to_iso8601(DateTime.utc_now()),
           "id" => worker_id,
-          "policy_authority_digests" => %{"work-read-only" => @authority_digest},
-          "policy_digests" => %{"work-read-only" => @policy_digest},
-          "protocol_version" => "1",
-          "repositories" => [%{"ref" => "ryker", "revision" => "commit:abc123"}],
+          "protocol_version" => "2",
           "sandbox_digest" => @sandbox_digest,
           "state" => "eligible",
           "storage" => nil,
@@ -139,7 +138,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
       ControlPlane.place_session(
         session.id,
         %{
-          capability_names: ["responder-state"],
+          capability_names: ["controller-tools"],
           repository_ref: "ryker",
           workspace_ref: "workspace-main"
         },
@@ -296,11 +295,11 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
   end
 
   test "a worker that stops advertising the export is not asked again" do
-    # Still a placeable worker -- it advertises responder-state -- but it no
+    # Still a placeable worker -- it advertises controller-tools -- but it no
     # longer advertises the export, which is the only thing that changes.
     {session, _placement} =
       placed_session!("unadvertised",
-        capabilities: [%{"name" => "responder-state", "version" => "1"}]
+        capabilities: [%{"name" => "controller-tools", "version" => "1"}]
       )
 
     assert SessionEvidenceCapture.capture(session, FailingAPI, evidence()) ==

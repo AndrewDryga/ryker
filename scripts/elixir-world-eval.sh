@@ -23,7 +23,7 @@ mix_command=${RYKER_WORLD_EVAL_MIX:-$root/scripts/elixir-mix.sh}
 
 if [[ $# -lt 1 || -z "$1" ]]; then
   echo "usage: scripts/elixir-world-eval.sh /absolute/results.json [world options]" >&2
-  echo "the dedicated evaluation policies come from RYKER_EVAL_* in the environment" >&2
+  echo "set evaluation targets with RYKER_EVAL_JUDGE_TARGET and RYKER_EVAL_WORLD_TARGET" >&2
   echo "RYKER_WORLD_EVAL_SHARDS (default 4) runs that many observation shards at once" >&2
   exit 2
 fi

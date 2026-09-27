@@ -2031,9 +2031,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       id: "operator-worker",
       workspace_ref: "workspace-operator",
       certificate_sha256: String.duplicate("e", 64),
-      policy_digests: %{},
-      policy_authority_digests: %{},
-      repositories: ["ignored", %{"ref" => "ryker", "revision" => "commit:operator"}],
       capabilities: [],
       capacity: %{},
       state: :eligible,
@@ -2173,10 +2170,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert repository.schedules == 1
     assert repository.sessions == 1
 
-    assert %{contributor_policy: "ryker-contributor", schedule_policy: "ryker-scheduled"} =
-             repository.configured
+    assert %{ref: "ryker", github_access: :available} = repository.configured
+    refute Map.has_key?(repository.configured, :contributor_policy)
+    refute Map.has_key?(repository.configured, :schedule_policy)
 
-    assert [%{revision: "commit:operator", worker_ref: "operator-worker"}] = repository.workers
+    refute Map.has_key?(repository, :workers)
     assert receipt.version == 2
     assert receipt.remote_identity == "origin"
     refute inspect(repository) =~ "must-not-render"
@@ -2532,8 +2530,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       certificate_sha256: String.duplicate("1", 64),
       id: "worker-measured",
       last_seen_at: DateTime.utc_now(),
-      policy_digests: %{},
-      repositories: [],
       state: :busy,
       storage: %{
         "allocation" => "refused",
@@ -2559,8 +2555,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       certificate_sha256: String.duplicate("2", 64),
       id: "worker-silent",
       last_seen_at: DateTime.utc_now(),
-      policy_digests: %{},
-      repositories: [],
       state: :eligible,
       workspace_ref: "workspace-main"
     })

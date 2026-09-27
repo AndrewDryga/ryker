@@ -6,14 +6,13 @@ defmodule Ryker.ControlPlane.SettingsSections do
   The catalog is deliberately explicit. A generic settings bag would let a form
   write a column nobody reviewed; here every control names a field that the
   settings changeset already validates, and anything the form cannot type
-  (a policy digest, a worker advertisement, a credential value) is not here.
+  (a worker identity or a credential value) is not here.
   """
 
   alias Ryker.Settings.{
     GitHub,
     GitHubBinding,
     Learning,
-    PolicyBinding,
     PricingRate,
     Publication,
     Report,
@@ -56,18 +55,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
     {"proactive", "Join relevant conversations", "Ryker also replies when it can clearly help."},
     {"shadow", "Watch quietly", "Ryker reads and learns, but never replies."}
   ]
-  @purposes [
-    {"admission", "Routing incoming messages"},
-    {"learning", "Learning"},
-    {"incident", "Incident rooms"},
-    {"schedule_read_only", "Scheduled read-only work"},
-    {"schedule_governed", "Scheduled approved operations"},
-    {"conversational", "Conversation"},
-    {"standard", "Standard work"},
-    {"deep", "Deep work"},
-    {"contributor", "Contributor work"},
-    {"schedule", "Scheduled work"}
-  ]
   # How a sender proves a request is theirs, each said the way it works for
   # them. A signed request's secret must be at least 32 characters: the
   # webhook listener refuses a shorter one, and the credential form now
@@ -107,11 +94,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
     "repositories" => "Ryker's names for the repositories",
     "targets" => "The services or stacks it deploys"
   }
-  @scope_kinds [
-    {"installation", "Everywhere"},
-    {"repository", "One repository"},
-    {"environment", "One environment"}
-  ]
   @weekdays [
     {"1", "Monday"},
     {"2", "Tuesday"},
@@ -222,9 +204,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :text,
           label: "Branch names start with",
           help: "Branches that already exist keep their names."
-        },
-        %{name: :commit_name, kind: :text, label: "Commit author name"},
-        %{name: :commit_email, kind: :text, label: "Commit author email"}
+        }
       ]
     },
     %{
@@ -269,9 +249,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
       item_key: :ref,
       title: "Repositories",
       description:
-        "The repositories this installation works in. A repository is a name plus the metadata " <>
-          "Ryker shows; the worker owns the checkout, and selecting one here never grants " <>
-          "access to a path the fleet does not already serve.",
+        "The repositories this installation works in. GitHub App access connects each repository; " <>
+          "Ryker selects its exact code for each job, and the worker fetches it into an isolated working copy.",
       fields: [
         %{name: :ref, kind: :text, label: "Reference", identity: true},
         %{name: :display_name, kind: :text, label: "Display name"},
@@ -282,15 +261,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           label: "GitHub repository",
           placeholder: "owner/name"
         },
-        %{name: :base_branch, kind: :text, label: "Base branch"},
-        %{
-          name: :publication_checkout_path,
-          kind: :text,
-          label: "Publication checkout",
-          help:
-            "Absolute path of the host checkout used to publish. A repository without one is " <>
-              "still a valid context; it simply cannot be published from."
-        }
+        %{name: :base_branch, kind: :text, label: "Base branch"}
       ]
     },
     %{
@@ -309,68 +280,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
         %{name: :installation_id, kind: :integer, label: "Installation ID"},
         %{name: :repository_id, kind: :integer, label: "Repository ID"},
         %{name: :ryker_actor_id, kind: :integer, label: "Ryker actor ID"}
-      ]
-    },
-    # A policy is what a worker's session may do: the Coop policy the bundled
-    # worker writes names the model (its target), whether the repository is
-    # read-only, the repositories mounted beside it and what else the session
-    # may reach. The page says that in those words.
-    %{
-      key: :policies,
-      domain: :policies,
-      kind: :collection,
-      schema: PolicyBinding,
-      item_key: :id,
-      item_label: "policy",
-      row_status: {Ryker.Settings.WorkerPolicies, :binding_status},
-      title: "What each kind of work may do",
-      description:
-        "A policy is a worker's rulebook for one kind of work: which model runs it, whether " <>
-          "it may change files, which repositories it sees and what it may run. " <>
-          "The bundled worker writes these for you.",
-      empty: {
-        :settings,
-        "No policies yet",
-        "The bundled worker writes these for you. Add one only for a worker you run yourself."
-      },
-      fields: [
-        %{
-          name: :purpose,
-          kind: :select,
-          label: "Kind of work",
-          options: @purposes,
-          help:
-            "Routing, learning, incident rooms and scheduled read-only or approved work apply " <>
-              "everywhere, and conversation may too; the others apply to one repository or " <>
-              "environment."
-        },
-        %{name: :scope_kind, kind: :select, label: "Applies to", options: @scope_kinds},
-        %{
-          name: :scope_ref,
-          kind: :select,
-          label: "Repository or environment",
-          options: :scopes,
-          blank: "",
-          help: "Leave empty when the policy applies everywhere."
-        },
-        # Work in an environment may change any of its repositories, so an
-        # environment binds each kind of work once per repository.
-        %{
-          name: :repository_ref,
-          kind: :select,
-          label: "Repository in that environment",
-          options: :repositories,
-          blank: "",
-          help: "Only for one environment: the repository its work is in. Leave empty otherwise."
-        },
-        %{
-          name: :policy_name,
-          kind: :select,
-          label: "Worker policy",
-          options: :advertised_policies,
-          help: "Only policies a connected worker offers can be chosen."
-        },
-        %{name: :policy_digest, kind: :evidence, label: "Reviewed version"}
       ]
     },
     # Every field says what it is for in plain words and, when refused, what
@@ -537,12 +446,12 @@ defmodule Ryker.ControlPlane.SettingsSections do
     # Each `used` sentence says where the bundled worker runs those models, as
     # the code decides it: routing (`Ryker.Admission.Decision`) answers a
     # reply on the conversational class and new or continued work on the
-    # standard or deep one; `Ryker.BundledCoop` writes each policy with the
-    # models saved for its purpose; `Ryker.Runtime.Assembly` runs work with no
+    # standard or deep one; `Ryker.CoopFleet.JobTemplates` uses the models
+    # saved for its purpose; `Ryker.Runtime.Assembly` runs work with no
     # repository (an environment without any, or no environment) on the
-    # installation's conversation policy for every class, a confirmed task on
+    # installation's conversation template for every class, a confirmed task on
     # the contributor, schedules on theirs, and a whole incident room on the
-    # incident policy. Change a sentence only with the code it describes.
+    # incident template. Change a sentence only with the code it describes.
     #
     # Each kind of work is an ordered list (Andrew, 2026-09-26: "Can I have
     # fallbacks between models/providers like coop allows?"): the first model
@@ -657,10 +566,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
       ]
     },
     # Ryker cannot see which accounts the worker has signed in, so they are
-    # listed here and every model above names one of them. Coop refuses the
-    # whole policy file while a model names an account that is not signed in;
-    # the worker then keeps running the models it loaded before
-    # (deploy/compose/coop/load-policies.sh), so the help says to sign in first.
+    # listed here and every model above names one of them. Each job freezes
+    # this selection; later settings changes apply to new jobs only.
     %{
       key: :model_accounts,
       domain: :work,
@@ -903,24 +810,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
   def options(%{options: :environments}, view),
     do: Enum.map(Environments.ordered(view.snapshot.environments), &{&1.ref, &1.display_name})
 
-  def options(%{options: :scopes}, view) do
-    Enum.map(view.snapshot.repositories, &{&1.ref, "Repository " <> display_name(&1)}) ++
-      Enum.map(view.snapshot.environments, &{&1.ref, "Environment " <> &1.display_name})
-  end
-
-  # A policy is chosen by name; its pinned version is copied from the worker
-  # that offers it. Two versions of one name are an ambiguity the write path
-  # refuses, so the option says so instead of showing digests.
-  def options(%{options: :advertised_policies}, view) do
-    view.workers.policies
-    |> Enum.group_by(& &1.name)
-    |> Enum.sort_by(fn {name, _advertisements} -> name end)
-    |> Enum.map(fn
-      {name, [_one]} -> {name, name}
-      {name, _several} -> {name, name <> " · workers offer different versions"}
-    end)
-  end
-
   def options(%{options: :webhook_presets}, _view),
     do: Enum.map(Presets.all(), &{Atom.to_string(&1.adapter_kind), &1.title, &1.description})
 
@@ -937,7 +826,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   def options(%{options: :workspaces}, view),
     do:
       Enum.map(
-        view.workers.workspaces,
+        view.worker_installs,
         &{&1.ref, "#{&1.ref} · #{&1.eligible} of #{&1.workers} #{workers(&1.workers)} ready"}
       )
 
@@ -1175,7 +1064,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
   def items(%{key: :pricing}, view), do: view.snapshot.pricing_rates
   def items(%{key: :repositories}, view), do: view.snapshot.repositories
   def items(%{key: :github_bindings}, view), do: view.snapshot.github_bindings
-  def items(%{key: :policies}, view), do: view.snapshot.policy_bindings
   def items(%{key: :webhooks}, view), do: view.snapshot.webhook_sources
   def items(_section, _view), do: []
 

@@ -189,7 +189,7 @@ defmodule Ryker.Work.SubmissionBuilder do
           }),
         "conversation_feedback" => Reactions.model_context(episode.id, episode.next_sequence),
         "episode_title" => RoutingDigests.titles([episode.id])[episode.id],
-        "responder_state_tools" => state_tools,
+        "controller_tools" => state_tools,
         "source_and_action_tools" => platform_tools
       }
 

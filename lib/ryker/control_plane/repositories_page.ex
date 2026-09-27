@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   repository. A row says whether the repository is ready, still being set up
   or needs a person, and what to do about it, and which environments it is
   in; access, permissions, GitHub events, RYKER.md, the last code Ryker used
-  and the workers holding it wait in one closed Details disclosure per row.
+  wait in one closed Details disclosure per row.
   """
   use Phoenix.Component
 
@@ -296,9 +296,6 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         prefix=", last received "
       />
     </.fact>
-    <.fact :if={policies(@repository) != []} label="Work policies">
-      {Enum.join(policies(@repository), " · ")}
-    </.fact>
     <.fact label="Last code used">
       <%= if @item.freshness do %>
         <code>{@item.freshness.resolved_revision}</code>
@@ -314,21 +311,6 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
       <code :if={@item.freshness.workspace_base_revision}>
         {@item.freshness.workspace_base_revision}
       </code>
-    </.fact>
-    <.fact label="Workers">
-      <%= if @item.workers == [] do %>
-        No worker reports this repository right now.
-      <% else %>
-        <span :for={worker <- @item.workers} class="entity-fact-line">
-          {worker.worker_ref}: {worker_state(worker.state)}, has
-          <code>{worker.revision || "no recorded revision"}</code><ShortTime.time
-            :if={worker.last_seen_at}
-            at={worker.last_seen_at}
-            now={@now}
-            prefix=", seen "
-          />
-        </span>
-      <% end %>
     </.fact>
     <.fact :if={@item.publications > 0} label="Pull requests">
       {plural(@item.publications, "pull request", "pull requests")} opened by Ryker
@@ -395,19 +377,6 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" · ")
   end
-
-  defp policies(repository) do
-    [
-      repository[:contributor_policy] && "tasks use #{repository.contributor_policy}",
-      repository[:schedule_policy] && "schedules use #{repository.schedule_policy}"
-    ]
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp worker_state(:eligible), do: "ready"
-  defp worker_state(:busy), do: "busy"
-  defp worker_state(:draining), do: "finishing its work"
-  defp worker_state(state), do: Words.label(state)
 
   defp plural(0, _one, _many), do: nil
   defp plural(1, one, _many), do: "1 #{one}"

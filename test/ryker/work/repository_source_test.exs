@@ -131,6 +131,35 @@ defmodule Ryker.Work.RepositorySourceTest do
   end
 
   describe "the version 1 binding" do
+    test "canonical proof timestamps retain exact bytes including nanoseconds" do
+      for timestamp <- [
+            "2026-09-26T12:00:00Z",
+            "2026-09-26T12:00:00.12345Z",
+            "2026-09-26T12:00:00.000001Z",
+            "2026-09-26T12:00:00.123456789Z"
+          ] do
+        binding = Map.put(branch_binding(), "resolved_at", timestamp)
+        assert {:ok, ^binding} = RepositorySource.parse_binding(binding)
+      end
+    end
+
+    test "noncanonical proof timestamps cannot change frozen authority during decoding" do
+      for timestamp <- [
+            "2026-09-26T12:00:00.123450Z",
+            "2026-09-26T12:00:00.120000Z",
+            "2026-09-26T12:00:00.000000Z",
+            "2026-09-26T12:00:00.1234567891Z",
+            "2026-09-26T12:00:00+00:00",
+            "2026-09-26T12:00:00,1Z",
+            "2026-02-30T12:00:00Z"
+          ] do
+        assert {:error, {:invalid_repository_source_binding, :resolved_at}} =
+                 RepositorySource.parse_binding(
+                   Map.put(branch_binding(), "resolved_at", timestamp)
+                 )
+      end
+    end
+
     test "a resolved branch binding carries the exact request, refs, commits and proof time" do
       assert {:ok, binding} = RepositorySource.parse_binding(branch_binding())
       assert binding == branch_binding()

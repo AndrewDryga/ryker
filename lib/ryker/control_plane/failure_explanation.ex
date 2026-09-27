@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   Ryker already tried and why it stopped trying on its own, what each option
   does, and whether a retry should work right now. The last answer comes from
   facts the projection read cheaply (is the worker that holds a session
-  reporting and still running its policy version, is Ryker back in the
+  reporting with the saved job's required capabilities, is Ryker back in the
   channel, was Slack reconnected since), and says what it depends on when
   those facts cannot settle it.
 
@@ -761,32 +761,19 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp replacement_cause(%{policy_offered: false} = worker, row, verb) do
-    policy = policy_name(row)
-
+  defp replacement_cause(%{job_valid: false}, _row, _verb) do
     cause(
-      "Its worker no longer offers the #{policy} policy, so it cannot take the session back.",
-      "Only the worker that holds a session can #{verb}, and only under the policy the session runs under. Worker #{worker.id} no longer offers #{policy}.",
+      "This session has no valid saved job, so execution cannot resume.",
+      "Ryker cannot reconstruct execution instructions from current settings. The existing session can still be inspected or cleaned up.",
       :stuck,
-      "It will stop the same way unless worker #{worker.id} offers #{policy} again."
-    )
-  end
-
-  defp replacement_cause(%{policy_current: false} = worker, row, verb) do
-    policy = policy_name(row)
-
-    cause(
-      "Its worker now runs a newer version of the #{policy} policy, and only the version the session started with can #{verb}.",
-      "The session is still on worker #{worker.id}. Since it started, that worker was updated to a newer version of the #{policy} policy. A session is only ever handled under the exact policy version it started with, so the worker cannot take it back.",
-      :stuck,
-      "It will stop the same way unless a worker runs the exact #{policy} version this session started with."
+      "Execution requires a new session with a saved job."
     )
   end
 
   defp replacement_cause(%{setup_current: false} = worker, _row, _verb) do
     cause(
       "Its worker’s setup changed since the session started, so it cannot take the session back.",
-      "The session is still on worker #{worker.id}, but the worker’s sandbox, permissions or repositories changed since it started. A session is only handled under the setup it started with.",
+      "The session is still on worker #{worker.id}, but its workspace, sandbox or required capabilities no longer match the saved placement.",
       :stuck,
       "It will stop the same way unless worker #{worker.id} gets its earlier setup back."
     )
@@ -822,21 +809,12 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp replacement_cause(%{free_slot: false} = worker, _row, verb) do
-    cause(
-      "Its worker #{worker.id} was full.",
-      "Only the worker that holds a session can #{verb}, and worker #{worker.id} had no free slot for it.",
-      :unknown,
-      "It should work once worker #{worker.id} has a free slot. It is still full now."
-    )
-  end
-
   defp replacement_cause(worker, _row, verb) do
     cause(
       "Its worker could not take the session back then, but it can now.",
-      "Only the worker that holds a session can #{verb}. When Ryker tried, worker #{worker.id} could not take it back; it is reporting now and still runs this session’s exact policy.",
+      "Only the worker that holds a session can #{verb}. When Ryker tried, worker #{worker.id} could not take it back; it is reporting now and matches the saved placement.",
       :ready,
-      "It should work: worker #{worker.id} is reporting and still runs this session’s exact policy version."
+      "It should work: worker #{worker.id} is reporting and matches the saved placement."
     )
   end
 
@@ -1121,7 +1099,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     fleet_cause(
       row,
       "No worker was free to take it, so it never started on one.",
-      "No reporting worker offered this task’s policy with a free slot when Ryker tried."
+      "No reporting worker had this job’s required capabilities and free capacity when Ryker tried."
     )
   end
 
@@ -1164,6 +1142,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp stop_words("coop_workspace_checkpoint_required"),
     do: "No saved copy of the working files was available to continue from."
+
+  defp stop_words("coop_workspace_checkpoint_read_only"),
+    do:
+      "The saved working copy uses an older format. It is preserved, but this worker cannot restore it."
 
   defp stop_words(_code), do: "The task stopped before Ryker could confirm why."
 
@@ -2324,11 +2306,8 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   # --- Pull requests ---------------------------------------------------------
 
-  # Publishing retries on its own about once a minute, with no limit, until it
-  # succeeds, so there is no retry button here. What a person can change is
-  # the cause: most of the time the repository setup. A worker session that
-  # closed for good is the one cause nothing can change: Ryker discards that
-  # publication itself, with the reason, and it leaves this page.
+  # Temporary failures retry, but remote conflicts and revoked approval wait
+  # for a person. The cause owns that distinction on every projection.
   defp publication(row, now) do
     cause = publication_cause(row)
 
@@ -2346,12 +2325,8 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "The person who asked has no pull request. The task card in the conversation says it needs attention.",
         "Until it is published, the worker keeps the task’s working copy."
       ],
-      tried: [
-        tried(row, now),
-        "Ryker keeps retrying on its own about once a minute, with no limit, and succeeds by itself once the cause is fixed. If the worker session that holds the change closes for good, Ryker stops and ends the pull request on its own, saying why."
-      ],
-      if_left:
-        cause[:left] || "Ryker keeps retrying about once a minute until the cause is fixed.",
+      tried: [tried(row, now)],
+      if_left: cause[:left] || cause.note,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -2361,8 +2336,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
             label: "Open the task",
             href: timeline(row.episode_ref),
             link: "Open the request",
-            effect:
-              "The task card in the conversation has Retry, Review latest state and Discard for this pull request."
+            effect: "Inspect the task's current state and available recovery actions."
           }
     }
   end
@@ -2378,7 +2352,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     else
       cause(
         "Pull requests are not set up for #{repository_words(row)}.",
-        "Ryker can only open pull requests in a repository with a connected GitHub App, pull requests turned on, and a checkout to publish from. #{sentence(repository_words(row))} is missing one of them.",
+        "Ryker needs a connected GitHub App with access to the repository and pull requests turned on. #{sentence(repository_words(row))} is missing one of them.",
         :fix_first,
         "It goes through on its own once the repository is set up; nothing else is needed.",
         %{
@@ -2416,6 +2390,15 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         effect:
           "Reconnect the GitHub App, or install it on this repository again. Ryker publishes on its next attempt."
       }
+    )
+  end
+
+  defp publication_cause(%{summary: "publication_authorization_revoked"}) do
+    cause(
+      "Ryker could not authorize this publication.",
+      "Ryker could not verify permission for this exact reviewed change, so it refused a new publication grant.",
+      :fix_first,
+      "Automatic retries have stopped. Open the task to inspect its current state and available recovery actions, or discard the change."
     )
   end
 
@@ -2662,18 +2645,12 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp worker_now(nil), do: nil
   defp worker_now(%{enrolled: false}), do: "Removed from Ryker"
 
-  defp worker_now(%{reporting: true} = worker),
-    do:
-      "Reporting" <>
-        if(worker[:policy_current] == false, do: "; its policy version changed", else: "")
+  defp worker_now(%{reporting: true}), do: "Reporting"
 
   defp worker_now(%{last_seen_at: %DateTime{} = at}),
     do: "Not reporting since #{ShortTime.full(at)}"
 
   defp worker_now(_worker), do: "Not reporting"
-
-  defp policy_name(%{policy: policy}) when is_binary(policy), do: policy
-  defp policy_name(_row), do: "session’s"
 
   defp words(code), do: String.replace(code, "_", " ")
 

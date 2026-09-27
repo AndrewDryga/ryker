@@ -3,12 +3,12 @@ defmodule Ryker.Runtime.AssemblyTest do
   # case here is about that boundary: what an installation's saved connections
   # turn on, what they may never turn on, and what a refusal has to name.
   use Ryker.DataCase, async: false
-  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
 
   alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
+  alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Runtime.Assembly
   alias Ryker.Slack.Runtime, as: SlackRuntime
@@ -60,8 +60,6 @@ defmodule Ryker.Runtime.AssemblyTest do
     end
 
     saves = [
-      &policy(:conversational, :installation, "", "ryker-chat", &1),
-      &policy(:incident, :installation, "", "ryker-incident", &1),
       &Settings.save_work(%{workspace_ref: "ryker-compose"}, &1, @actor),
       &Settings.save_slack(
         %{
@@ -82,33 +80,34 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), Settings.fetch!())
 
+    chat =
+      Enum.find(JobTemplates.from_settings(Settings.fetch!()), &(&1.policy_name == "ryker-chat"))
+
     assert configuration.control_plane.fallback_work_profile == %{
-             authority_digest: digest("authority"),
+             authority_digest: chat.authority_digest,
              class_policies: %{
                conversational: %{
-                 authority_digest: digest("authority"),
+                 authority_digest: chat.authority_digest,
                  policy: "ryker-chat",
-                 policy_digest: digest("ryker-chat")
+                 policy_digest: chat.policy_digest
                },
                deep: %{
-                 authority_digest: digest("authority"),
+                 authority_digest: chat.authority_digest,
                  policy: "ryker-chat",
-                 policy_digest: digest("ryker-chat")
+                 policy_digest: chat.policy_digest
                },
                standard: %{
-                 authority_digest: digest("authority"),
+                 authority_digest: chat.authority_digest,
                  policy: "ryker-chat",
-                 policy_digest: digest("ryker-chat")
+                 policy_digest: chat.policy_digest
                }
              },
              policy: "ryker-chat",
-             policy_digest: digest("ryker-chat"),
+             policy_digest: chat.policy_digest,
              repository_ref: nil
            }
 
-    assert Enum.any?(configuration.fleet_profiles, fn {_key, profile} ->
-             profile.policy == "ryker-chat" and profile.repository_ref == nil
-           end)
+    refute Map.has_key?(configuration, :fleet_profiles)
 
     slack = SlackRuntime.options!(configuration.slack)
 
@@ -135,7 +134,6 @@ defmodule Ryker.Runtime.AssemblyTest do
                :emisar,
                :event_waits,
                :execution_mode,
-               :fleet_profiles,
                :github,
                :learning,
                :publication,
@@ -164,7 +162,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert emisar.worker_ref == "#{host}:emisar:production"
 
     # The reviewed bindings decide the policies; a form never names one.
-    assert configuration[:admission].policy == "ryker-admission-v1"
+    assert configuration[:admission].policy == "ryker-admission"
 
     # Sessions kept ready are started with exactly the policy routing uses,
     # as many as the saved setting asks (one on a new installation).
@@ -172,10 +170,10 @@ defmodule Ryker.Runtime.AssemblyTest do
              Map.take(configuration[:admission], [:api, :client, :policy, :policy_digest])
 
     assert configuration[:admission_ready].target == 1
-    assert configuration[:learning].policy == "ryker-learning-v1"
-    assert configuration[:schedules].read_only_policy.name == "ryker-schedule-read-v1"
-    assert configuration[:schedules].governed_operation_policy.name == "ryker-schedule-gov-v1"
-    assert configuration[:schedules].repositories["ryker"].name == "ryker-standard-v1"
+    assert configuration[:learning].policy == "ryker-learning"
+    assert configuration[:schedules].read_only_policy.name == "ryker-schedule-read-only"
+    assert configuration[:schedules].governed_operation_policy.name == "ryker-schedule-governed"
+    assert configuration[:schedules].repositories["ryker"].name == "ryker-repo-ryker-schedule"
 
     # Retention horizons are the operator's saved numbers, not code defaults.
     assert configuration[:retention].audit_data_seconds == 60 * 86_400
@@ -191,7 +189,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert configuration[:slack].default_environment == "platform"
     assert emisar.presentation_timeout_ms > 0
     assert configuration[:github].server.bindings["ryker-app"].installation_id == 1001
-    assert configuration[:publication].publisher_binding.repositories["ryker"].path == "/srv"
+    assert configuration[:publication].repositories["ryker"].base_branch == "main"
   end
 
   test "changing how many routing sessions are kept ready leaves routing's lane as it was" do
@@ -266,7 +264,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     # GitHub out rather than publishing through nothing.
     assert configuration[:work]
     assert configuration[:control_plane]
-    assert configuration[:publication].publisher_binding.repositories == %{}
+    assert configuration[:publication].repositories == %{}
     assert Map.keys(configuration[:delivery].adapters) == ["control_plane"]
     assert configuration[:retention].learning_api == configuration[:work].api
   end
@@ -400,8 +398,13 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert profile.parallel_goal_limit == 2
     assert profile.emisar_connection_ref == "production"
     assert Map.keys(profile.policies) |> Enum.sort() == ["docs", "ryker"]
-    assert profile.policies["ryker"].conversational.policy == "platform-ryker-conversation-v1"
-    assert profile.policies["docs"].conversational.policy == "platform-docs-conversation-v1"
+
+    assert profile.policies["ryker"].conversational.policy ==
+             "ryker-env-platform-ryker-conversation"
+
+    assert profile.policies["docs"].conversational.policy ==
+             "ryker-env-platform-docs-conversation"
+
     refute Map.has_key?(profile, :policy)
     assert platform.github_repositories == %{"docs" => "ryker/docs", "ryker" => "ryker/ryker"}
 
@@ -409,7 +412,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     # changes, with the others mounted read-only.
     tasks = configuration[:control_plane].task_policies["platform"]
     assert Map.keys(tasks) |> Enum.sort() == ["docs", "ryker"]
-    assert tasks["ryker"].name == "platform-ryker-contributor-v1"
+    assert tasks["ryker"].name == "ryker-env-platform-ryker-contributor"
     assert tasks["ryker"].environment_ref == "platform"
     assert tasks["ryker"].repository_ref == "ryker"
 
@@ -420,23 +423,23 @@ defmodule Ryker.Runtime.AssemblyTest do
              "read_only_repositories" => ["docs"]
            }
 
-    assert tasks["docs"].name == "platform-docs-contributor-v1"
+    assert tasks["docs"].name == "ryker-env-platform-docs-contributor"
     assert tasks["docs"].repository_context["primary_repository"] == "docs"
     assert tasks["docs"].repository_context["read_only_repositories"] == ["ryker"]
 
     # One repository: that repository's own policies, mounted alone.
     docs = environments["docs"].work_profile
     assert docs.repositories == ["docs"]
-    assert docs.policies["docs"].conversational.policy == "docs-conversation-v1"
+    assert docs.policies["docs"].conversational.policy == "ryker-repo-docs-conversation"
 
     assert configuration[:control_plane].task_policies["docs"]["docs"].name ==
-             "docs-contributor-v1"
+             "ryker-repo-docs-contributor"
 
     # Without repositories an environment answers on the installation's own
     # policy, keeps its Emisar account and has nothing a task could change.
     ops = environments["ops"]
     assert ops.work_profile.repository_ref == nil
-    assert ops.work_profile.policy == "ryker-chat-v1"
+    assert ops.work_profile.policy == "ryker-chat"
     assert ops.work_profile.emisar_connection_ref == "production"
     refute Map.has_key?(configuration[:control_plane].task_policies, "ops")
 
@@ -444,47 +447,22 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert route.environment_ref == "platform"
     assert route.repositories == ["ryker", "docs"]
 
-    # Several repositories and no reviewed policies of its own: nothing runs.
+    # A new environment gets templates from its authorized repository list.
     {:ok, changed} =
       Settings.put_environment(
-        %{ref: "unreviewed", display_name: "Unreviewed", repositories: ["docs", "ryker"]},
+        %{ref: "combined", display_name: "Combined", repositories: ["docs", "ryker"]},
         settings.installation.revision,
         @actor
       )
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
-    refute Map.has_key?(configuration[:slack].environments, "unreviewed")
-    refute Map.has_key?(configuration[:control_plane].task_policies, "unreviewed")
 
-    # Policies for one of its repositories are not enough: every repository
-    # of the environment needs its own before any work runs there.
-    saves = [
-      &policy(
-        :conversational,
-        :environment,
-        "unreviewed",
-        "unreviewed-docs-conversation-v1",
-        &1,
-        "docs"
-      ),
-      &policy(
-        :contributor,
-        :environment,
-        "unreviewed",
-        "unreviewed-docs-contributor-v1",
-        &1,
-        "docs"
-      )
-    ]
+    assert configuration.slack.environments["combined"].work_profile.repositories == [
+             "docs",
+             "ryker"
+           ]
 
-    partly =
-      Enum.reduce(saves, changed, fn save, current ->
-        {:ok, saved} = save.(current.installation.revision)
-        saved
-      end)
-
-    assert {:ok, configuration} = Assembly.build(bootstrap(), partly)
-    refute Map.has_key?(configuration[:slack].environments, "unreviewed")
+    assert Map.has_key?(configuration.control_plane.task_policies, "combined")
   end
 
   # Each Chat conversation picks its environment, so the console receives
@@ -504,7 +482,7 @@ defmodule Ryker.Runtime.AssemblyTest do
              work_profile: configuration[:slack].environments["platform"].work_profile
            }
 
-    assert configuration.control_plane.fallback_work_profile.policy == "ryker-chat-v1"
+    assert configuration.control_plane.fallback_work_profile.policy == "ryker-chat"
     refute Map.has_key?(configuration.control_plane.fallback_work_profile, :environment_ref)
     assert configuration[:slack].default_environment == "platform"
 
@@ -524,8 +502,13 @@ defmodule Ryker.Runtime.AssemblyTest do
       )
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
+    assert Map.has_key?(configuration.control_plane.environments, "unreviewed")
+    # Losing source access makes every dependent environment unavailable.
+    repository = Repo.get_by!(Settings.Repository, ref: "docs")
+    repository |> Ecto.Changeset.change(github_access: :suspended) |> Repo.update!()
+    assert {:ok, configuration} = Assembly.build(bootstrap(), Settings.fetch!())
     refute Map.has_key?(configuration.control_plane.environments, "unreviewed")
-    assert configuration.control_plane.fallback_work_profile.policy == "ryker-chat-v1"
+    assert configuration.control_plane.fallback_work_profile.policy == "ryker-chat"
     # Slack still seeds joined channels with the saved default, so they work
     # in it once it can run work; until then their work runs outside any.
     assert configuration[:slack].default_environment == "unreviewed"
@@ -541,8 +524,6 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     saves = [
       &Settings.put_repository(%{ref: "tools", github_repository: "ryker/tools"}, &1, @actor),
-      &policy(:conversational, :repository, "tools", "tools-conversation-v1", &1),
-      &policy(:contributor, :repository, "tools", "tools-contributor-v1", &1),
       &github_binding("docs-app", "docs", 2002, &1),
       &github_binding("tools-app", "tools", 2003, &1)
     ]
@@ -597,7 +578,7 @@ defmodule Ryker.Runtime.AssemblyTest do
   end
 
   test "unreviewed repositories can receive metadata but cannot start work" do
-    # A repository row is metadata; the reviewed policy bindings are the grant.
+    # Metadata alone is insufficient: source identity and GitHub access are required.
     # Settings accepts each of these because the repository exists, and every
     # runtime that would act under its authority refuses before anything starts.
     settings = connected!()
@@ -674,17 +655,29 @@ defmodule Ryker.Runtime.AssemblyTest do
       )
 
   defp github_binding(name, repository_ref, repository_id, revision) do
-    Settings.put_github_binding(
-      %{
-        name: name,
-        repository_ref: repository_ref,
-        installation_id: 1001,
-        repository_id: repository_id,
-        ryker_actor_id: 3001
-      },
-      revision,
-      @actor
-    )
+    {:ok, _} =
+      Settings.put_github_binding(
+        %{
+          name: name,
+          repository_ref: repository_ref,
+          installation_id: 1001,
+          repository_id: repository_id,
+          ryker_actor_id: 3001
+        },
+        revision,
+        @actor
+      )
+
+    pin_repository!(repository_ref)
+    {:ok, Settings.fetch!()}
+  end
+
+  defp pin_repository!(ref) do
+    repository = Repo.get_by!(Settings.Repository, ref: ref)
+
+    repository
+    |> Ecto.Changeset.change(source_commit: String.duplicate("a", 40))
+    |> Repo.update!()
   end
 
   defp github_binding_naming(revision) do
@@ -881,7 +874,7 @@ defmodule Ryker.Runtime.AssemblyTest do
       assert configuration.integrations_left_out == %{github: reason}
       assert configuration[:github] == nil
       refute Map.has_key?(configuration.delivery.adapters, "github")
-      assert configuration.publication.publisher_binding.repositories == %{}
+      assert configuration.publication.repositories == %{}
       assert configuration.slack
       assert configuration.emisar
 
@@ -895,23 +888,8 @@ defmodule Ryker.Runtime.AssemblyTest do
   test "Slack switched on that cannot start is left out and named, never silently" do
     settings = connected!()
 
-    # Without a worker policy for incident rooms Slack quietly did not start,
-    # and nothing anywhere said so.
-    incident = Enum.find(settings.policy_bindings, &(&1.purpose == :incident))
-
-    {:ok, changed} =
-      Settings.delete_policy_binding(incident.id, settings.installation.revision, @actor)
-
-    assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
-    assert configuration[:slack] == nil
-
-    assert configuration.integrations_left_out == %{
-             slack: :incident_policy_missing,
-             webhooks: %{"alerts" => :slack_not_running}
-           }
-
-    {:ok, _} =
-      policy(:incident, :installation, "", "ryker-incident-v1", changed.installation.revision)
+    assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
+    assert configuration.slack
 
     # A saved value Slack's runtime refuses, such as an operator saved before
     # today's checks, refused every setting of every kind.
@@ -1132,26 +1110,12 @@ defmodule Ryker.Runtime.AssemblyTest do
       &Settings.put_repository(
         %{
           ref: "ryker",
-          github_repository: "ryker/ryker",
-          publication_checkout_path: "/srv"
+          github_repository: "ryker/ryker"
         },
         &1,
         @actor
       ),
       &Settings.put_repository(%{ref: "docs", github_repository: "ryker/docs"}, &1, @actor),
-      &policy(:conversational, :repository, "ryker", "ryker-conversation-v1", &1),
-      &policy(:contributor, :repository, "ryker", "ryker-contributor-v1", &1),
-      &policy(:standard, :repository, "ryker", "ryker-standard-v1", &1),
-      &policy(:deep, :repository, "ryker", "ryker-deep-v1", &1),
-      &policy(:schedule, :repository, "ryker", "ryker-standard-v1", &1),
-      &policy(:conversational, :repository, "docs", "docs-conversation-v1", &1),
-      &policy(:contributor, :repository, "docs", "docs-contributor-v1", &1),
-      &policy(:conversational, :installation, "", "ryker-chat-v1", &1),
-      &policy(:admission, :installation, "", "ryker-admission-v1", &1),
-      &policy(:incident, :installation, "", "ryker-incident-v1", &1),
-      &policy(:learning, :installation, "", "ryker-learning-v1", &1),
-      &policy(:schedule_read_only, :installation, "", "ryker-schedule-read-v1", &1),
-      &policy(:schedule_governed, :installation, "", "ryker-schedule-gov-v1", &1),
       &Settings.save_work(%{workspace_ref: "ryker-local-main"}, &1, @actor),
       &Settings.save_learning(%{enabled: true}, &1, @actor),
       &Settings.put_emisar_connection(
@@ -1180,31 +1144,6 @@ defmodule Ryker.Runtime.AssemblyTest do
         &1,
         @actor
       ),
-      &policy(
-        :conversational,
-        :environment,
-        "platform",
-        "platform-ryker-conversation-v1",
-        &1,
-        "ryker"
-      ),
-      &policy(
-        :contributor,
-        :environment,
-        "platform",
-        "platform-ryker-contributor-v1",
-        &1,
-        "ryker"
-      ),
-      &policy(
-        :conversational,
-        :environment,
-        "platform",
-        "platform-docs-conversation-v1",
-        &1,
-        "docs"
-      ),
-      &policy(:contributor, :environment, "platform", "platform-docs-contributor-v1", &1, "docs"),
       &Settings.put_environment(
         %{ref: "docs", display_name: "Docs", repositories: ["docs"]},
         &1,
@@ -1242,6 +1181,7 @@ defmodule Ryker.Runtime.AssemblyTest do
         &1,
         @actor
       ),
+      &github_binding("docs-app", "docs", 2002, &1),
       &Settings.save_publication(%{enabled: true}, &1, @actor),
       &Settings.put_webhook_source(
         source("alerts", %{
@@ -1283,6 +1223,7 @@ defmodule Ryker.Runtime.AssemblyTest do
         saved.installation.revision
       end)
 
+    Enum.each(["ryker", "docs"], &pin_repository!/1)
     settings = Settings.fetch!()
     assert settings.installation.revision == revision
     settings
@@ -1301,25 +1242,6 @@ defmodule Ryker.Runtime.AssemblyTest do
         environment_ref: "platform"
       },
       overrides
-    )
-  end
-
-  # An environment binding names the repository it is for; every other scope
-  # leaves it empty.
-  defp policy(purpose, scope_kind, scope_ref, name, revision, repository_ref \\ "") do
-    Settings.put_policy_binding(
-      %{
-        purpose: purpose,
-        scope_kind: scope_kind,
-        scope_ref: scope_ref,
-        repository_ref: repository_ref,
-        policy_name: name,
-        policy_digest: digest(name),
-        authority_digest: digest("authority"),
-        verified_by: :import
-      },
-      revision,
-      @actor
     )
   end
 

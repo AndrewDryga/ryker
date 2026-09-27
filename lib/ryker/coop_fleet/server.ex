@@ -7,6 +7,7 @@ defmodule Ryker.CoopFleet.Server do
   alias Ryker.Options
 
   @fields [
+    :body_root,
     :cacertfile,
     :ca_keyfile,
     :certificate_ttl_seconds,
@@ -67,6 +68,10 @@ defmodule Ryker.CoopFleet.Server do
     validate_state_tools!(Map.get(configuration, :state_tools))
     validate_checkpoint_custody!(configuration)
 
+    unless is_binary(configuration.body_root) and
+             Path.type(configuration.body_root) == :absolute,
+           do: raise(ArgumentError, "Coop worker body root must be an absolute path")
+
     configuration
     |> Map.put(:certificate_ttl_seconds, certificate_ttl_seconds)
     |> Map.put(:ip, ip)
@@ -92,6 +97,7 @@ defmodule Ryker.CoopFleet.Server do
 
   defp normalize!(configuration) do
     required = [
+      :body_root,
       :cacertfile,
       :ca_keyfile,
       :certfile,
@@ -126,6 +132,7 @@ defmodule Ryker.CoopFleet.Server do
     ]
     |> Keyword.put(:checkpoint_key, options.checkpoint_key)
     |> Keyword.put(:checkpoint_secrets, options.checkpoint_secrets)
+    |> Keyword.put(:body_root, options.body_root)
     |> maybe_put(:state_tools, Map.get(options, :state_tools))
   end
 

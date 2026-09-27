@@ -646,7 +646,7 @@ episode.
 
 - Editors for the product decisions: Slack, GitHub and Emisar connections,
   repositories, environments, GitHub repository bindings, what each kind of work
-  may do (worker policies), where work runs (the worker install), publication
+  may do, where work runs (the worker install), publication
   identity, the weekly report, learning, retention horizons and optional token
   rates. Each section saves explicitly at the revision it was read at, keeps its
   draft when a save is refused, and shows what is saved now when another writer
@@ -654,27 +654,20 @@ episode.
 - Models: each kind of work keeps an ordered list of up to four models, each a
   provider, model, reasoning effort and account. The first is used; Coop moves to
   the next when one hits a usage limit or its account's sign-in fails. The
-  bundled worker writes one model as the plain `target:` string it always was and
-  a longer list as a YAML list, which Coop reads as that ladder. Models are offered
+  controller freezes that ordered list into each new job. A save applies to new
+  jobs on bundled and remote workers, without rewriting worker configuration. Models are offered
   from Model prices, so a Claude model appears once its `claude:` price is saved.
   Ryker cannot see the worker's sign-ins, so Model accounts lists them
   (`provider@name`, from `scripts/compose.sh model-login claude@work`), and a
-  model may only name a listed account: Coop refuses the whole policy file while
-  any model names an account that is not signed in. The worker never stops for
-  that: `deploy/compose/coop/load-policies.sh` connects with the copy it last
-  loaded (`session-policies.loaded.yaml`) and leaves Coop's reason in the shared
-  `policy-problem` file, and Models then says the worker still runs the models
-  saved before, why, and which account to sign in (`BundledCoop.policy_problem/0`,
-  pushed to open pages by `BundledCoop.ProblemWatcher`). A new fallback starts as
+  model may only name a listed account. Signing in an account remains a worker
+  operation; a missing sign-in is reported for the affected job. A new fallback starts as
   the same model on the next listed account the list does not use yet, never as
   a copy Save would refuse. Conversation, standard and deep work must use the
-  same accounts in the same order, because Coop counts each model's provider
-  and account in the authority digest their policies share
+  same accounts in the same order so a rotation does not widen the job's authority
 - Settings explain themselves in plain words: each model says under its choice
   where Ryker uses it, as the code decides it; Advanced opens with what a worker
-  is, and says what a policy is; a policy row reads as the kind of work, where it
-  applies, whether it can change code when that is known and how many workers
-  offer it, with the worker's own policy name and pins under Details
+  is, and lets the operator choose an enrolled worker install. There is no local
+  policy catalog or policy editor: Ryker supplies each job's code and settings
 - Add opens its form under the button, above the list it adds to, and pressed
   again closes it, as Cancel does; a row's Edit opens its form under that row. A
   section whose only job is a form, such as the Slack tokens or the GitHub App
@@ -685,11 +678,11 @@ episode.
   integration pages open with a Connection card; on the Slack page New channels
   and Incident rooms are separate cards, each with its own Save. A channel's
   page is cards too, and Data retention is one card under the page title
-- Worker policies are chosen by name from what enrolled, unrevoked workers
-  advertise; the digest and authority digest are copied from that advertisement,
-  never typed, and a binding the fleet no longer advertises is shown as
-  unavailable with its pin intact rather than repointed. An environment binds
-  each kind of work once per repository, since its work may change any of them
+- Worker job settings belong to Ryker: model, execution mode, environment, tools,
+  networking and limits. Digests are derived, never typed. Each session freezes
+  those settings before placement; later edits do not repoint it. Workers are
+  eligible by capability and capacity, not advertised policy names. An environment
+  configures each kind of work once per repository, since its work may change any of them
 - Saved revision and running revision as two separate facts, with the reason a
   saved revision could not be applied
 - Which deployment credentials are configured, missing or unusable — presence
@@ -996,7 +989,7 @@ there is no second chat transcript or browser-owned recovery state.
 
 A conversation uses the work profile of its environment (the default one when
 it starts, or the one chosen for it), exactly as a Slack channel or webhook
-source does: that profile pins its Coop policy, digest and repositories. Browser content
+source does: that profile pins Ryker's execution settings, digest and repositories. Browser content
 cannot select a policy, mount another repository, or widen authority.
 
 One stable UUID identifies the local conversation and its exact destination

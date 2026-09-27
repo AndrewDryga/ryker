@@ -5,9 +5,11 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   alias Ryker.ControlPlane.ConversationLab
   alias Ryker.ControlPlane.{EpisodePage, EpisodeRequest, Projection}
   alias Ryker.ControlPlane.{ModelRequests, RequestPage}
+  alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.{InputCustodyTransition, WorkProfile}
   alias Ryker.InspectionRedactor
-  alias Ryker.Work.{Custody, Submission, Turn}
+  alias Ryker.Settings
+  alias Ryker.Work.{Custody, Session, Submission, Turn}
 
   test "inspection reads the frozen request and distinguishes instructions from provider-owned context" do
     {episode, turn, original} = frozen_turn!()
@@ -452,7 +454,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     visible = LazyHTML.from_document(html) |> LazyHTML.text()
     refute visible =~ "$.instructions"
     refute visible =~ "$.work.inputs"
-    refute visible =~ "$.work.responder_state_tools"
+    refute visible =~ "$.work.controller_tools"
     assert html =~ "data-source=\"inputs\""
     assert html =~ "source message &lt;script&gt;"
     refute html =~ "aria-label=\"Request contents\""
@@ -479,21 +481,14 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
            |> LazyHTML.attribute("id") == ["event-kernel-9", "event-kernel-10"]
   end
 
-  test "a model call carries the purpose its policy is bound to" do
-    # A briefing explains its model by what the call was for. The purpose is
-    # the settings binding that selected the Coop policy; the policy's own name
-    # stays in the request inspector.
+  test "only exact current template identity explains a retained model call" do
     {episode, turn, _prompt} = frozen_turn!()
+    {:ok, snapshot} = Settings.initialize("control-plane:local")
+    template = Enum.find(JobTemplates.from_settings(snapshot), &(&1.policy_name == "ryker-chat"))
 
-    Repo.insert!(%Ryker.Settings.PolicyBinding{
-      id: Ecto.UUID.generate(),
-      purpose: :conversational,
-      scope_kind: :installation,
-      scope_ref: "",
-      policy_name: "policy:inspection",
-      policy_digest: String.duplicate("a", 64),
-      verified_by: :import
-    })
+    Repo.get!(Session, turn.session_id)
+    |> Ecto.Changeset.change(policy: template.policy_name, policy_digest: template.policy_digest)
+    |> Repo.update!()
 
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
     request = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
@@ -502,8 +497,22 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
              purpose: :conversational,
              scope_kind: :installation,
              scope_ref: "",
-             settings: false
+             settings: true
            }
+
+    assert {:ok, _} =
+             Settings.save_work(
+               %{conversation_models: ["codex:gpt-5.6-terra/high@default"]},
+               snapshot.installation.revision,
+               "control-plane:local"
+             )
+
+    {:ok, changed} = ModelRequests.timeline(episode.key, %{})
+    historical = Enum.find(changed.items, &(&1.id == request.id))
+    assert historical.policy == request.policy
+    assert historical.policy_digest == request.policy_digest
+    refute historical.model_choice.settings
+    assert historical.model_choice.purpose == nil
   end
 
   test "a work result says where its time went before Ryker accepted it" do
@@ -908,7 +917,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
 
     context = %{
       "inputs" => [%{"text" => "source message <script>alert('x')</script>"}],
-      "responder_state_tools" => ["validate_final"],
+      "controller_tools" => ["validate_final"],
       "api_token" => "xoxb-recorded-credential"
     }
 

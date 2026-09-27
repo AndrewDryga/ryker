@@ -40,7 +40,7 @@ defmodule Ryker.Evals.WorldTools do
           |> Map.put(:answer_authorizer, WorldCase.answer_authorizer(scenario))
 
         catalog = %{
-          "servers" => [%{"name" => "responder-state", "tools" => all}],
+          "servers" => [%{"name" => "controller-tools", "tools" => all}],
           "version" => 1
         }
 

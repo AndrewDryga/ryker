@@ -4,9 +4,22 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
   import Ecto.Query
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias Ryker.CoopFleet.{ArtifactTransport, Client, ControlPlane, Placement, Worker}
+
+  alias Ryker.CoopFleet.{
+    Bodies,
+    Checkpoints,
+    Client,
+    Command,
+    ControlPlane,
+    JobSpec,
+    Placement,
+    Worker,
+    WorkspaceCheckpointTransfer
+  }
+
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
   alias Ryker.Repo
   alias Ryker.Work.{Custody, SessionChangeset}
@@ -53,31 +66,86 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
         placement_generation: source_placement.generation
       })
 
-    assert {:ok, transfer} =
-             ArtifactTransport.put_checkpoint(
-               worker_a.certificate,
-               checkpoint_command.id,
-               checkpoint["checkpoint_ref"],
-               %{bundle: bundle, checkpoint: checkpoint},
-               @checkpoint_key,
-               []
-             )
+    root = Path.join(System.tmp_dir!(), "failover-bodies-#{Ecto.UUID.generate()}")
+    on_exit(fn -> File.rm_rf!(root) end)
 
-    assert {:ok, checkpoint_result} =
+    descriptor = %{
+      "checkpoint" => checkpoint,
+      "operation" => %{
+        "id" => "op-checkpoint",
+        "method" => "CheckpointWorkspace",
+        "state" => "succeeded"
+      }
+    }
+
+    assert {:ok, _} =
              ControlPlane.handle_poll_certificate(
                worker_a.certificate,
                poll(worker_a.id, "checkpoint-result",
-                 command_results: [
-                   result(checkpoint_wire, %{
-                     "checkpoint_ref" => checkpoint["checkpoint_ref"],
-                     "state" => "stored",
-                     "transfer_id" => transfer.id
-                   })
-                 ]
+                 command_results: [result(checkpoint_wire, descriptor)]
                )
              )
 
-    assert checkpoint_result["acknowledged_result_command_ids"] == [checkpoint_command.id]
+    capture_options = [
+      body_root: root,
+      checkpoint_key: @checkpoint_key,
+      checkpoint_secrets: [],
+      workspace_ref: "workspace-main",
+      max_waits: 3,
+      poll_interval_ms: 1,
+      wait: fn ->
+        assert {:ok, %{"commands" => [get]}} =
+                 ControlPlane.handle_poll_certificate(
+                   worker_a.certificate,
+                   poll(worker_a.id, "get-bundle")
+                 )
+
+        assert get["payload"]["path"] == "/v1/operations/op-checkpoint/checkpoint-bundle"
+        reference = Map.take(checkpoint["bundle"], ~w(sha256 byte_size))
+
+        assert :ok =
+                 Bodies.put(
+                   root,
+                   get["command_id"],
+                   :response,
+                   reference,
+                   [bundle],
+                   @checkpoint_key
+                 )
+
+        response =
+          result(get, nil)
+          |> Map.put("resource", %{
+            "status" => 200,
+            "body_ref" => reference,
+            "headers" => %{
+              "Content-Type" => checkpoint["bundle"]["media_type"],
+              "Etag" => ~s("#{reference["sha256"]}")
+            }
+          })
+
+        assert {:ok, _} =
+                 ControlPlane.handle_poll_certificate(
+                   worker_a.certificate,
+                   poll(worker_a.id, "bundle-result", command_results: [response]),
+                   body_root: root
+                 )
+
+        :ok
+      end
+    ]
+
+    assert {:ok, receipt} =
+             Checkpoints.capture(
+               source.id,
+               checkpoint_command.idempotency_key,
+               descriptor,
+               capture_options
+             )
+
+    transfer = Repo.get!(WorkspaceCheckpointTransfer, receipt["transfer_id"])
+    assert transfer.body_command_id != nil
+    assert transfer.ciphertext == nil
 
     expire_and_drain!(source_placement, worker_a.id)
 
@@ -97,12 +165,22 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
              )
 
     assert rotated.session.generation == source.generation + 1
+    assert rotated.session.worker_job_document["job_ref"] == rotated.session.external_ref
+
+    assert Map.delete(rotated.session.worker_job_document, "job_ref") ==
+             Map.delete(source.worker_job_document, "job_ref")
+
+    assert {:ok, rotated_digest} = JobSpec.digest(rotated.session.worker_job_document)
+    assert rotated.session.worker_job_digest == rotated_digest
     assert rotated.session.workspace_task == source.workspace_task
     assert is_nil(rotated.session.coop_session_id)
 
     assert {:ok, client} =
              Client.new(
-               capability_names: ["responder-state"],
+               body_root: root,
+               checkpoint_key: @checkpoint_key,
+               checkpoint_secrets: [],
+               capability_names: ["controller-tools"],
                lease_seconds: 60,
                max_waits: 4,
                poll_interval_ms: 1,
@@ -137,7 +215,8 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
                poll(worker_b.id, "create")
              )
 
-    assert create_wire["kind"] == "create_session"
+    assert create_wire["kind"] == "api_request"
+    assert create_wire["payload"]["path"] == "/v1/sessions"
     assert create_wire["placement_generation"] == 1
     assert create_wire["worker_id"] == worker_b.id
 
@@ -147,9 +226,11 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
                poll(worker_b.id, "create-result",
                  command_results: [
                    result(create_wire, %{
-                     "id" => "coop-session-worker-b",
-                     "revision" => 1,
-                     "state" => "open"
+                     "session" => %{
+                       "id" => "coop-session-worker-b",
+                       "revision" => 1,
+                       "state" => "open"
+                     }
                    })
                  ]
                )
@@ -163,40 +244,25 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
     assert {:ok, %{"commands" => [restore_wire]}} =
              ControlPlane.handle_poll_certificate(
                worker_b.certificate,
-               poll(worker_b.id, "restore")
+               poll(worker_b.id, "restore"),
+               body_root: root,
+               checkpoint_key: @checkpoint_key
              )
 
-    assert restore_wire["kind"] == "ensure_workspace"
+    assert restore_wire["kind"] == "api_request"
 
-    assert restore_wire["payload"]["checkpoint"] == %{
-             "byte_size" => byte_size(bundle),
-             "checkpoint_ref" => checkpoint["checkpoint_ref"],
-             "sha256" => checkpoint["bundle"]["sha256"],
-             "source_placement_generation" => source_placement.generation,
-             "source_session_ref" => source.id,
-             "transfer_id" => transfer.id
-           }
+    assert restore_wire["payload"]["path"] ==
+             "/v1/sessions/coop-session-worker-b/workspace/restore"
 
-    assert {:error, :coop_worker_artifact_not_authorized} =
-             ArtifactTransport.fetch_checkpoint_for_restore(
-               worker_a.certificate,
-               restore_wire["command_id"],
-               transfer.id,
-               @checkpoint_key,
-               []
-             )
+    assert restore_wire["payload"]["body_ref"] ==
+             Map.take(checkpoint["bundle"], ~w(sha256 byte_size))
 
-    assert {:ok, restored} =
-             ArtifactTransport.fetch_checkpoint_for_restore(
-               worker_b.certificate,
-               restore_wire["command_id"],
-               transfer.id,
-               @checkpoint_key,
-               []
-             )
+    assert {:error, :body_not_authorized} =
+             Bodies.authorize(worker_a.certificate, restore_wire["command_id"])
 
-    assert restored.bundle == bundle
-    assert restored.checkpoint == checkpoint
+    assert {:ok, _} = Bodies.authorize(worker_b.certificate, restore_wire["command_id"])
+    assert {:ok, body, _} = Bodies.fetch(root, restore_wire["command_id"], :request)
+    assert {:ok, ^bundle} = Bodies.read(body, @checkpoint_key, byte_size(bundle))
 
     assert {:ok, restore_result} =
              ControlPlane.handle_poll_certificate(
@@ -204,9 +270,11 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
                poll(worker_b.id, "restore-result",
                  command_results: [
                    result(restore_wire, %{
-                     "id" => "coop-session-worker-b",
-                     "revision" => 2,
-                     "state" => "open"
+                     "session" => %{
+                       "id" => "coop-session-worker-b",
+                       "revision" => 2,
+                       "state" => "open"
+                     }
                    })
                  ]
                )
@@ -216,7 +284,10 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
     send(second_waiter, :bridge_continue)
 
     assert {:ok, remote} = Task.await(task)
-    assert remote == %{"id" => "coop-session-worker-b", "revision" => 2, "state" => "open"}
+
+    assert remote == %{
+             "session" => %{"id" => "coop-session-worker-b", "revision" => 2, "state" => "open"}
+           }
 
     assert Repo.get!(Placement, source_placement.id).state == :replaced
 
@@ -240,6 +311,14 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
 
     assert {:ok, session} =
              Custody.pin_episode(episode_id, @policy, @policy_digest, "ryker")
+
+    job = WorkerJob.build(session.external_ref, "ryker")
+    assert {:ok, job_digest} = JobSpec.digest(job)
+
+    session =
+      session
+      |> Ecto.Changeset.change(worker_job_document: job, worker_job_digest: job_digest)
+      |> Repo.update!()
 
     workspace_task = %{
       "authority_limits" => ["must not deploy"],
@@ -282,7 +361,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
     ControlPlane.place_session(
       session.id,
       %{
-        capability_names: ["responder-state"],
+        capability_names: ["controller-tools"],
         repository_ref: session.repository_ref,
         workspace_ref: "workspace-main"
       },
@@ -319,13 +398,13 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
       "command_id" => command["command_id"],
       "error" => nil,
       "operation_key" => command["idempotency_key"],
-      "resource" => resource,
+      "resource" => %{"status" => 200, "body" => resource},
       "state" => "succeeded"
     }
   end
 
   defp command_placement_id(command_id) do
-    Ryker.CoopFleet.Command |> Repo.get!(command_id) |> Map.fetch!(:placement_id)
+    Command |> Repo.get!(command_id) |> Map.fetch!(:placement_id)
   end
 
   defp poll(worker_id, suffix, options \\ []) do
@@ -336,10 +415,10 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
       "command_results" => Keyword.get(options, :command_results, []),
       "event_batches" => [],
       "poll_ref" => "poll:#{worker_id}:#{suffix}",
-      "version" => 1,
+      "version" => 2,
       "worker" => %{
         "build_version" => "coop-e2e",
-        "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+        "capabilities" => [%{"name" => "controller-tools", "version" => "1"}],
         "capacity" => %{
           "cooldown_until" => nil,
           "session_slots_free" => free_slots,
@@ -352,9 +431,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
         },
         "clock_at" => DateTime.to_iso8601(Repo.now!()),
         "id" => worker_id,
-        "policy_digests" => %{@policy => @policy_digest},
-        "protocol_version" => "1",
-        "repositories" => [%{"ref" => "ryker", "revision" => "commit:e2e"}],
+        "protocol_version" => "2",
         "sandbox_digest" => String.duplicate("a", 64),
         "state" => "eligible",
         "workspace_ref" => "workspace-main"

@@ -336,8 +336,7 @@ defmodule Ryker.Evals.WorldDriver do
         require_repository_read_only: true,
         platform_tools: settings.source_and_action_tools,
         state_tools_endpoint: settings.state_tools_endpoint,
-        state_tools_secret: settings.state_tools_secret,
-        workspace_requirements: WorldCase.repository_requirements(scenario)
+        state_tools_secret: settings.state_tools_secret
       ],
       lease_seconds: 300,
       max_attempts: 4,

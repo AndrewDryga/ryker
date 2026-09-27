@@ -526,9 +526,7 @@ defmodule Ryker.Work.TaskStagesTest do
           | review_document: %{
               "gate" => "startup_error",
               "gate_error" => "docker: command not found",
-              "patch_artifact_id" => "review-patch:1",
-              "patch_bytes" => 64,
-              "patch_digest" => String.duplicate("a", 64),
+              "candidate_retained" => true,
               "patch_truncated" => false,
               "policy_findings" => [],
               "publishable" => false,
@@ -573,9 +571,7 @@ defmodule Ryker.Work.TaskStagesTest do
           review_document: %{
             "gate" => "failed",
             "gate_error" => "2 tests failed in test/ryker/work/executor_test.exs",
-            "patch_artifact_id" => "review-patch:1",
-            "patch_bytes" => 64,
-            "patch_digest" => String.duplicate("a", 64),
+            "candidate_retained" => true,
             "patch_truncated" => false,
             "policy_findings" => [],
             "publishable" => false,

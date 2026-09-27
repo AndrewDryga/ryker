@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   alias Ryker.StateTools.{CallRecord, ErrorCode}
   alias Ryker.Work.{ActivityEvent, ActivityPaths}
 
-  @state_server "responder-state"
+  @state_servers ["controller-tools", "responder-state"]
   # Ryker receives a state-tool call between the worker's start and completion
   # frames. One host shares one clock; the margin covers a remote worker's
   # drift and stays well under the time a model takes to make its next call.
@@ -53,14 +53,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   defp join_state_call(
          %ActivityEvent{
            kind: "tool.started",
-           payload: %{"input" => %{"server" => @state_server, "tool" => tool}}
+           payload: %{"input" => %{"server" => server, "tool" => tool}}
          } = started,
          {joined, pending},
          completions,
          recorded_turns,
          causality
        )
-       when is_binary(tool) do
+       when server in @state_servers and is_binary(tool) do
     case EpisodeCausality.activity_owner(causality, started.id) do
       {:turn, turn_id} ->
         completed = completions[activity_tool_key(started)]

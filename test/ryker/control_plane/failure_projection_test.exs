@@ -29,6 +29,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Ingress.Inbox
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning
@@ -41,6 +42,20 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @sandbox String.duplicate("d", 64)
+
+  test "revoked publication approval never promises an automatic retry" do
+    row = %{
+      kind: "publication",
+      summary: "publication_authorization_revoked",
+      source: "ryker",
+      attempt_count: 1
+    }
+
+    explanation = FailureExplanation.explain(row)
+    assert explanation.outlook == :fix_first
+    assert explanation.summary =~ "could not authorize this publication"
+    refute inspect(explanation) =~ "keeps retrying"
+  end
 
   # A reaction is the one delivery that belongs to an input rather than an
   # episode. The failures page looked its conversation up through that input,
@@ -428,12 +443,25 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   # a page still saying "Retry won't help" would hide the one button that works.
   test "a cleanup its worker could not take back is offered as the retry that now works" do
     session = blocked_learning_cleanup!("coop_session_replacement_required")
-    worker = place_on_worker!(session, %{session.policy => String.duplicate("c", 64)})
+    worker = place_on_worker!(session)
+
+    worker
+    |> Ecto.Changeset.change(
+      state: :busy,
+      capacity: %{
+        "session_slots_free" => 0,
+        "turn_slots_free" => 0,
+        "workspace_slots_free" => 0,
+        "state" => "busy"
+      }
+    )
+    |> Repo.update!()
+
     encoded = URI.encode(session.external_ref, &URI.char_unreserved?/1)
 
     assert {:ok, failures} = Projection.failures(%{})
 
-    assert %{worker: %{reporting: true, policy_current: false}} =
+    assert %{worker: %{reporting: true, job_valid: false, free_slot: false}} =
              Enum.find(failures, &(&1.ref == session.external_ref))
 
     row = failure_row("retention", encoded)
@@ -458,6 +486,49 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert LazyHTML.text(row) =~ "was removed from Ryker"
   end
 
+  test "a busy holder can save its existing result without a new runtime slot" do
+    session = blocked_learning_cleanup!("coop_session_replacement_required") |> WorkerJob.pin!()
+    worker = place_on_worker!(session)
+
+    worker
+    |> Ecto.Changeset.change(
+      state: :busy,
+      capacity: %{
+        "session_slots_free" => 0,
+        "turn_slots_free" => 0,
+        "workspace_slots_free" => 0,
+        "state" => "busy"
+      }
+    )
+    |> Repo.update!()
+
+    assert {:ok, %{worker: projected}} =
+             FailureProjection.fetch("retention", session.external_ref)
+
+    assert %{reporting: true, job_valid: true, setup_current: true, free_slot: false} = projected
+
+    row = %{
+      kind: "work",
+      ref: "episode:one",
+      episode_ref: "episode:one",
+      action: :retry,
+      attempt_count: 1,
+      status: :blocked,
+      summary: "coop_session_replacement_required",
+      updated_at: nil,
+      worker: projected,
+      work_recovery: %{kind: :completion, action: :retry}
+    }
+
+    assert FailureExplanation.explain(row).outlook == :ready
+
+    for changed <- [%{projected | job_valid: false}, %{projected | setup_current: false}] do
+      explanation = FailureExplanation.explain(%{row | worker: changed})
+      assert explanation.outlook == :stuck
+      refute inspect(explanation) =~ "policy version"
+    end
+  end
+
   # Found reading Work cancellation on 2026-09-24: a stop whose worker stopped
   # reporting was deferred once a minute forever and listed nowhere, while its
   # task card read "stopping" and its request waited behind it. A stop still
@@ -465,7 +536,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   # and it leaves the page by itself once it does.
   test "a stop that cannot reach its worker is listed with what would let it finish" do
     work = stopping_turn!("unreported-stop")
-    worker = place_on_worker!(work.session, %{work.session.policy => work.session.policy_digest})
+    worker = place_on_worker!(work.session)
 
     worker
     |> Ecto.Changeset.change(last_seen_at: DateTime.add(DateTime.utc_now(), -600, :second))
@@ -660,7 +731,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
   # Structural fixture: the worker that held the session, reporting now, and
   # the placement that says so.
-  defp place_on_worker!(session, policy_digests) do
+  defp place_on_worker!(session) do
     worker_id = "failures-worker-#{System.unique_integer([:positive])}"
     certificate = :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower)
     assert {:ok, worker} = FleetControlPlane.authorize_worker(worker_id, "failures", certificate)
@@ -677,7 +748,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
         },
         clock_at: now,
         last_seen_at: now,
-        policy_digests: policy_digests,
+        protocol_version: "2",
         sandbox_digest: @sandbox,
         state: :eligible
       )

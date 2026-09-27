@@ -21,6 +21,8 @@ defmodule Ryker.Admission.ReadyPool do
   require Logger
 
   alias Ryker.Admission.ReadySessions
+  alias Ryker.Coop.API
+  alias Ryker.CoopFleet.JobAuthority
   alias Ryker.{Options, Repo}
   alias Ryker.Settings.Work
   alias Ryker.Work.Session
@@ -124,13 +126,26 @@ defmodule Ryker.Admission.ReadyPool do
   defp create(session, settings) do
     key = create_key(session)
 
-    case settings.api.create_session(
-           settings.client,
-           key,
-           session.policy,
-           session.external_ref,
-           nil
-         ) do
+    result =
+      with :ok <-
+             API.prepare_create_session(
+               settings.api,
+               settings.client,
+               key,
+               session.policy,
+               session.external_ref,
+               nil
+             ) do
+        settings.api.create_session(
+          settings.client,
+          key,
+          session.policy,
+          session.external_ref,
+          nil
+        )
+      end
+
+    case result do
       {:ok, %{"session" => remote}} when is_map(remote) ->
         open(session, remote, settings)
 
@@ -177,13 +192,11 @@ defmodule Ryker.Admission.ReadyPool do
     end
   end
 
-  # Only the exact session asked for can wait for a message: open, under the
-  # policy and digest routing uses, and named for this reservation.
+  # Only the exact frozen job can wait for a message under this reservation.
   defp open(session, %{"id" => coop_session_id} = remote, settings)
        when is_binary(coop_session_id) do
     exact? =
-      remote["state"] == "open" and remote["external_ref"] == session.external_ref and
-        remote["policy"] == session.policy and remote["policy_digest"] == session.policy_digest
+      remote["state"] == "open" and JobAuthority.exact_receipt(session, remote) == :ok
 
     with true <- exact?,
          {:ok, _ready} <- ReadySessions.mark_ready(session, coop_session_id) do

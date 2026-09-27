@@ -15,10 +15,8 @@ defmodule Ryker.ControlPlane.ProductReadinessTest do
     ready_fleet =
       {:ok,
        %{
-         available_policy_profiles: 2,
          eligible_workers: 1,
-         required: true,
-         required_policy_profiles: 2
+         required: true
        }}
 
     readiness =
@@ -36,10 +34,8 @@ defmodule Ryker.ControlPlane.ProductReadinessTest do
     snapshot = %{slack: %{enabled: true}}
 
     fleet = %{
-      available_policy_profiles: 0,
       eligible_workers: 0,
-      required: true,
-      required_policy_profiles: 2
+      required: true
     }
 
     no_worker = {:ok, fleet}
@@ -57,7 +53,7 @@ defmodule Ryker.ControlPlane.ProductReadinessTest do
     runtime_failed =
       ProductReadiness.from(
         snapshot,
-        {:ok, %{fleet | eligible_workers: 1, available_policy_profiles: 2}},
+        {:ok, %{fleet | eligible_workers: 1}},
         %{
           chat_profile: @profile,
           slack_configured: false,
@@ -66,5 +62,18 @@ defmodule Ryker.ControlPlane.ProductReadinessTest do
       )
 
     assert runtime_failed.slack.state == :runtime_unavailable
+  end
+
+  test "settings application does not wait for a worker policy catalog" do
+    readiness =
+      ProductReadiness.from(
+        %{slack: %{enabled: true}},
+        {:ok, %{eligible_workers: 1, required: true}},
+        %{chat_profile: nil}
+      )
+
+    assert readiness.chat.state == :setting_up
+    assert readiness.chat.detail =~ "applying the saved work settings"
+    refute readiness.chat.detail =~ "installing"
   end
 end

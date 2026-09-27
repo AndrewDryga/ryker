@@ -1,15 +1,16 @@
 defmodule Ryker.Evals.CoopRunner do
   @moduledoc """
-  Executes a tool-free model-world quality judgment against a real Coop policy.
+  Executes an isolated model-world quality judgment against a real Coop job.
 
   A judge case carries the sanitized evidence of one completed model-world run
-  and no tools. Each case gets a fresh session, exact output schema, and unique
+  and no controller or project tools. Each case gets a fresh empty-workspace
+  session, exact output schema, and unique
   operation identity. A judgment the host cannot read is rejected for repair in
   the same turn, and the accepted judgment is scored on its bounded rubric
   verdict, never on explanatory prose.
   """
 
-  alias Ryker.Evals.WorldJudgeCase
+  alias Ryker.Evals.{Job, WorldJudgeCase}
   alias Ryker.Reference
   alias Ryker.Retention.Plan
 
@@ -21,8 +22,7 @@ defmodule Ryker.Evals.CoopRunner do
     :client,
     :id_generator,
     :max_polls,
-    :policy,
-    :policy_digest,
+    :job,
     :poll_interval_ms,
     :sleep
   ]
@@ -85,7 +85,7 @@ defmodule Ryker.Evals.CoopRunner do
     case settings.api.create_session(
            settings.client,
            key,
-           settings.policy,
+           settings.job,
            external_ref,
            nil
          ) do
@@ -549,8 +549,8 @@ defmodule Ryker.Evals.CoopRunner do
          %{
            "external_ref" => external_ref,
            "id" => id,
-           "policy" => policy,
-           "policy_digest" => digest,
+           "job_ref" => job_ref,
+           "job_digest" => digest,
            "state" => state
          } = session,
          external_ref,
@@ -559,7 +559,7 @@ defmodule Ryker.Evals.CoopRunner do
          settings
        ) do
     with :ok <- validate_session_identity(id, expected_id),
-         :ok <- validate_session_authority(policy, digest, settings),
+         :ok <- validate_session_authority(job_ref, digest, external_ref, settings),
          :ok <- validate_session_repository_authority(session),
          :ok <- validate_session_project_authority(session),
          :ok <- validate_session_state(state, states) do
@@ -576,10 +576,13 @@ defmodule Ryker.Evals.CoopRunner do
       else: {:error, {:coop_protocol_error, :session_identity}}
   end
 
-  defp validate_session_authority(policy, digest, settings) do
-    if policy == settings.policy and digest == settings.policy_digest,
-      do: :ok,
-      else: {:error, {:coop_protocol_error, :session_authority}}
+  defp validate_session_authority(job_ref, digest, external_ref, settings) do
+    with true <- job_ref == external_ref,
+         {:ok, _job, ^digest} <- Job.bind(settings.job, external_ref) do
+      :ok
+    else
+      _mismatch -> {:error, {:coop_protocol_error, :session_authority}}
+    end
   end
 
   defp validate_session_repository_authority(%{"repository_read_only" => true}), do: :ok
@@ -633,8 +636,7 @@ defmodule Ryker.Evals.CoopRunner do
         client: Map.get(options, :client),
         id_generator: Map.get(options, :id_generator, &Ecto.UUID.generate/0),
         max_polls: Map.get(options, :max_polls, 2_400),
-        policy: Map.get(options, :policy),
-        policy_digest: Map.get(options, :policy_digest),
+        job: Map.get(options, :job),
         poll_interval_ms: Map.get(options, :poll_interval_ms, 250),
         sleep: Map.get(options, :sleep, &Process.sleep/1)
       }
@@ -643,8 +645,7 @@ defmodule Ryker.Evals.CoopRunner do
            true <- not is_nil(settings.client),
            true <- is_function(settings.id_generator, 0),
            true <- is_integer(settings.max_polls) and settings.max_polls > 0,
-           :ok <- reference(settings.policy, :policy),
-           true <- digest?(settings.policy_digest),
+           {:ok, _job, _digest} <- Job.bind(settings.job, "eval-validation"),
            true <- is_integer(settings.poll_interval_ms) and settings.poll_interval_ms >= 0,
            true <- is_function(settings.sleep, 1) do
         {:ok, settings}
@@ -663,9 +664,6 @@ defmodule Ryker.Evals.CoopRunner do
   end
 
   defp reference(_value, field), do: {:error, {:invalid_eval_runner, field}}
-
-  defp digest?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
 
   defp sha256(value),
     do: :sha256 |> :crypto.hash(value) |> Base.encode16(case: :lower)

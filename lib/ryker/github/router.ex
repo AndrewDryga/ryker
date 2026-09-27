@@ -9,7 +9,6 @@ defmodule Ryker.GitHub.Router do
 
   @behaviour Plug
 
-  alias Ryker.BundledCoop
   alias Ryker.GitHub.{Access, Auth, Binding, Confirmations, Engagement, Events}
   alias Ryker.HTTPConnection
   alias Ryker.Ingress.{Adapters, InboundHTTP, Inbox}
@@ -160,8 +159,6 @@ defmodule Ryker.GitHub.Router do
           InboundHTTP.respond(conn, 202, %{"status" => "duplicate"})
 
         {:ok, receipt} ->
-          :ok = BundledCoop.request_materialization(binding.name, receipt.occurred_at)
-
           response =
             admit_event(conn, binding, delivery_ref, event_ref, event_name, payload, options)
 

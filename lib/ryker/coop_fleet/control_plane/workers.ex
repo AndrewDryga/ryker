@@ -12,7 +12,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   import Ecto.Changeset
   import Ecto.Query
 
-  alias Ryker.BundledCoop
   alias Ryker.CoopFleet.{Certificate, Protocol, Worker}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Events, Placements, Shared}
   alias Ryker.Repo
@@ -87,19 +86,13 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
           poll,
           lease_seconds,
           certificate_sha256,
-          state_tools_secret
+          state_tools_secret,
+          Keyword.get(options, :body_root),
+          Keyword.get(options, :checkpoint_key)
         )
       end)
-      |> after_successful_poll(authenticated_worker_id)
     end
   end
-
-  defp after_successful_poll({:ok, _response} = result, worker_id) do
-    _ = BundledCoop.maybe_configure(worker_id)
-    result
-  end
-
-  defp after_successful_poll(result, _worker_id), do: result
 
   defp authorize_worker_locked(worker_id, workspace_ref, certificate_sha256) do
     worker =
@@ -135,7 +128,15 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     worker
   end
 
-  defp apply_poll(worker_id, poll, lease_seconds, certificate_sha256, state_tools_secret) do
+  defp apply_poll(
+         worker_id,
+         poll,
+         lease_seconds,
+         certificate_sha256,
+         state_tools_secret,
+         body_root,
+         checkpoint_key
+       ) do
     now = Repo.now!()
     hello = poll["worker"]
     worker = authenticated_worker!(worker_id, hello["workspace_ref"], certificate_sha256)
@@ -150,10 +151,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
         capacity: hello["capacity"],
         clock_at: clock_at,
         last_seen_at: now,
-        policy_authority_digests: hello["policy_authority_digests"],
-        policy_digests: hello["policy_digests"],
         protocol_version: hello["protocol_version"],
-        repositories: hello["repositories"],
         sandbox_digest: hello["sandbox_digest"],
         state: heartbeat_state(worker, hello["state"]),
         storage: hello["storage"],
@@ -165,10 +163,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
         :capacity,
         :clock_at,
         :last_seen_at,
-        :policy_authority_digests,
-        :policy_digests,
         :protocol_version,
-        :repositories,
         :sandbox_digest,
         :state
       ])
@@ -182,10 +177,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     Commands.acknowledge_commands(worker_id, poll["acknowledged_command_ids"], now)
 
     acknowledged_result_command_ids =
-      Commands.apply_command_results(worker_id, poll["command_results"], now)
+      Commands.apply_command_results(worker_id, poll["command_results"], now, body_root)
 
     event_acknowledgements = Events.apply_event_batches(worker_id, poll["event_batches"], now)
-    commands = Commands.deliver_commands(worker_id, now, state_tools_secret)
+
+    commands =
+      Commands.deliver_commands(worker_id, now, state_tools_secret, body_root, checkpoint_key)
 
     response = %{
       "acknowledged_result_command_ids" => acknowledged_result_command_ids,

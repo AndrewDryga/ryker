@@ -62,11 +62,11 @@ defmodule Ryker.ControlPlane.RunningSystem do
       <p class="settings-state-line">
         <Kit.state
           tone={if @supported, do: :on, else: :bad}
-          word={if @supported, do: "Ready", else: "Code changes are unavailable"}
+          word={if @supported, do: "Supported", else: "Code changes are unavailable"}
         />
       </p>
       <p :if={@supported} class="settings-lede">
-        Workers can save and restore the copy of the code a task works in. Each worker's health is on <a href="/working-copies">Working copies</a>.
+        This installation supports saving and restoring a task's working copy. Check each worker's health on <a href="/working-copies">Working copies</a>.
       </p>
       <div :if={!@supported} class="settings-problem">
         <p>
@@ -79,15 +79,20 @@ defmodule Ryker.ControlPlane.RunningSystem do
           <summary>If you run your own workers</summary>
           <p>
             Only installations with their own workers need this. Enrol a co:op worker install,
-            connect it to Ryker's worker gateway, and choose its policies under What each kind of
-            work may do above.
+            connect it to Ryker's worker gateway, and select its worker install above.
+            Ryker supplies the code and settings for each job; workers need no policy files.
           </p>
-          <p>Check the co:op session service and its policies:</p>
-          <pre><code>coop sessions doctor --socket /var/lib/coop-sessions/control.sock
-    coop sessions policies --policies /etc/coop/session-policies.yaml --json</code></pre>
           <p>
-            On the machine running Ryker, create a one-time enrolment token with <code>scripts/compose.sh worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF</code>. Store it on the worker in a private file with mode <code>0600</code>, then connect with <code>coop sessions connect --config /etc/coop/worker.json</code>.
+            On the machine running Ryker, create a one-time enrolment token with <code>scripts/compose.sh worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF</code>. Store it on the worker in a private file with mode <code>0600</code>, then connect to your reachable HTTPS gateway:
           </p>
+          <pre><code>coop sessions connect --controller https://ryker.example:4322 --token-file /etc/coop/enrollment-token --state /var/lib/coop-sessions</code></pre>
+          <p>
+            For a private certificate authority, also pass
+            <code>--ca-file /etc/coop/worker-ca.pem</code>
+            with the CA supplied by your Ryker installation. Do not disable certificate verification.
+          </p>
+          <p>Check the worker locally:</p>
+          <pre><code>coop sessions doctor --socket /var/lib/coop-sessions/control.sock</code></pre>
           <p>Confirm the saved settings were applied:</p>
           <pre><code>scripts/compose.sh doctor</code></pre>
           <p>

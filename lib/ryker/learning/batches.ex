@@ -146,11 +146,9 @@ defmodule Ryker.Learning.Batches do
   def authorize(claim), do: Repo.transaction(fn -> owned!(claim) end)
 
   @doc """
-  Pin a new attempt to the learning policy configured now. A worker places only
-  sessions whose policy digest it still advertises, so an attempt pinned to a
-  replaced digest could never start and would only spend the batch's starts.
-  An outstanding attempt still reconciles under its own policy, and spent
-  starts stay spent.
+  Pin a new attempt to Ryker's current learning template. Unstarted prepared
+  attempts under the previous template become stale; outstanding attempts keep
+  their frozen job authority, and spent starts stay spent.
   """
   def adopt_policy(claim, %{policy: policy, policy_digest: digest}) do
     with_lease(claim, fn ->

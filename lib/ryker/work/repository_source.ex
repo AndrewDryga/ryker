@@ -321,8 +321,13 @@ defmodule Ryker.Work.RepositorySource do
   end
 
   defp binding_timestamp(value) when is_binary(value) and byte_size(value) <= 64 do
-    case DateTime.from_iso8601(value) do
-      {:ok, timestamp, 0} -> {:ok, DateTime.to_iso8601(timestamp)}
+    # Go's canonical JSON trims zero fractions and retains nanoseconds; parsing through
+    # Elixir's microsecond DateTime must not rewrite frozen source authority.
+    with true <-
+           Regex.match?(~r/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{0,8}[1-9])?Z\z/, value),
+         {:ok, _timestamp, 0} <- DateTime.from_iso8601(value) do
+      {:ok, value}
+    else
       _invalid -> invalid_binding(:resolved_at)
     end
   end

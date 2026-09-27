@@ -42,7 +42,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "candidates" =>
       {"Candidate selection", "memory", nil,
        "How Ryker filtered earlier work for this routing decision."},
-    "responder_state_tools" =>
+    "controller_tools" =>
       {"Ryker state tools", "tools", "Host tool catalog",
        "Tools Ryker could use for this request. Listed here does not mean it used them."},
     "source_and_action_tools" =>
@@ -90,7 +90,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Repository knowledge", "memory", nil,
        "The saved knowledge document for the pinned repository."}
   }
-  @order ~w(custom_instructions input slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
+  # Historical inspection keeps the label of the saved tool catalog; no execution
+  # producer emits the old key.
+  @sources Map.put(@sources, "responder_state_tools", @sources["controller_tools"])
+  @order ~w(custom_instructions input slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
   @instruction_not_recorded :instruction_not_recorded
   # What each tool a request could use is for, in a line an on-call engineer
   # reads without the tool's contract. The name stays beside it: the
@@ -1703,7 +1706,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     do: candidates(value, %{}, prefix)
 
   defp body(key, tools, _path, _prefix)
-       when key in ~w(responder_state_tools source_and_action_tools) and is_list(tools) and
+       when key in ~w(controller_tools responder_state_tools source_and_action_tools) and
+              is_list(tools) and
               tools != [],
        do: tools(tools)
 

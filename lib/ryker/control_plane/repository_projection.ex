@@ -1,9 +1,8 @@
 defmodule Ryker.ControlPlane.RepositoryProjection do
   @moduledoc """
-  The repository directory: every repository the runtime configuration, an
-  environment, a schedule, a session, a publication or a worker names, with
-  the environments it is in, its counts, its policies, the workers that hold
-  it and the freshness receipt of its last recorded work.
+  The repository directory: every repository saved settings, an
+  environment, a schedule, a session, a publication names, with
+  the environments it is in, its counts, its configured work and the freshness receipt of its last recorded work.
 
   Channels choose environments, not repositories, so a repository's channels
   are the channels whose environment holds it.
@@ -12,7 +11,6 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   import Ecto.Query
 
   alias Ryker.ControlPlane.{Environments, Search}
-  alias Ryker.CoopFleet.Worker
   alias Ryker.GitHub.Events
   alias Ryker.Publication.Publication
   alias Ryker.Repo
@@ -36,10 +34,10 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     |> Map.new(fn {ref, name} -> {ref, name || ref} end)
   end
 
-  @doc "Every repository anything names, with its environments, counts, policies, workers and freshness."
+  @doc "Every repository anything names, with its environments, counts, configured work and freshness."
   def list(params) when is_map(params) do
     settings = settings()
-    runtime = runtime_repositories(settings)
+    configured = configured_repositories(settings)
     environments = repository_environments(settings)
     channel_counts = Environments.channel_counts()
 
@@ -51,17 +49,15 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     schedules = grouped_count(Schedule, :repository)
     sessions = grouped_count(Session, :repository_ref)
     publications = grouped_count(Publication, :repository)
-    workers = repository_workers()
     freshness = repository_freshness()
 
     names =
       [
-        Map.keys(runtime),
+        Map.keys(configured),
         Map.keys(channels),
         Map.keys(schedules),
         Map.keys(sessions),
         Map.keys(publications),
-        Map.keys(workers),
         Map.keys(freshness)
       ]
       |> List.flatten()
@@ -69,34 +65,33 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
       |> Enum.uniq()
 
     names
-    |> filter_repository_search(Search.term(params["q"]), runtime)
+    |> filter_repository_search(Search.term(params["q"]), configured)
     |> Enum.sort()
     |> Enum.take(@list_limit)
     |> Enum.map(fn repository_ref ->
       %{
         channels: Map.get(channels, repository_ref, 0),
-        configured: Map.get(runtime, repository_ref),
+        configured: Map.get(configured, repository_ref),
         environments: environments |> Map.get(repository_ref, []) |> Enum.map(& &1.display_name),
         freshness: Map.get(freshness, repository_ref),
         publications: Map.get(publications, repository_ref, 0),
         ref: repository_ref,
         schedules: Map.get(schedules, repository_ref, 0),
-        sessions: Map.get(sessions, repository_ref, 0),
-        workers: Map.get(workers, repository_ref, [])
+        sessions: Map.get(sessions, repository_ref, 0)
       }
     end)
   end
 
   def list(_params), do: list(%{})
 
-  defp filter_repository_search(names, nil, _runtime), do: names
+  defp filter_repository_search(names, nil, _configured), do: names
 
-  defp filter_repository_search(names, search, runtime) do
+  defp filter_repository_search(names, search, configured) do
     search = String.downcase(search)
 
     Enum.filter(names, fn ref ->
       Enum.any?(
-        [ref, get_in(runtime, [ref, :github_repository])],
+        [ref, get_in(configured, [ref, :github_repository])],
         &(is_binary(&1) and String.contains?(String.downcase(&1), search))
       )
     end)
@@ -128,107 +123,36 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     Map.new(snapshot.repositories, &{&1.ref, Environments.containing(snapshot, &1.ref)})
   end
 
-  # Task policies are the running configuration's, keyed by environment and
-  # then by the repository each places its task in. A repository several
-  # environments hold shows the first environment's policy.
-  defp runtime_repositories(snapshot) do
-    control_plane = Application.get_env(:ryker, :control_plane, %{})
-    schedules = Application.get_env(:ryker, :schedules, %{})
+  defp configured_repositories(snapshot) do
+    case snapshot do
+      %{} ->
+        bindings = Map.new(snapshot.github_bindings, &{&1.repository_ref, &1})
 
-    task_policies =
-      control_plane
-      |> safe_map(:task_policies)
-      |> Enum.sort_by(fn {environment_ref, _policies} -> to_string(environment_ref) end)
-      |> Enum.flat_map(fn {_environment_ref, policies} ->
-        policies
-        |> safe_policies()
-        |> Enum.map(fn {ref, policy} ->
-          {to_string(ref), %{contributor_policy: safe_policy_name(policy)}}
+        Map.new(snapshot.repositories, fn repository ->
+          binding = Map.get(bindings, repository.ref)
+
+          {repository.ref,
+           %{
+             action_grants: binding && binding.action_grants,
+             github_permissions: binding && binding.granted_permissions,
+             github_access: repository.github_access,
+             github_health: binding && Events.health(binding.name),
+             github_repository: repository.github_repository,
+             knowledge_sha256: repository.knowledge_sha256,
+             knowledge_source_commit: repository.knowledge_source_commit,
+             knowledge_status: repository.knowledge_status,
+             knowledge_pull_request_url: repository.knowledge_pull_request_url,
+             onboarding_error: repository.onboarding_error,
+             onboarding_state: repository.onboarding_state,
+             ref: repository.ref,
+             source_commit: repository.source_commit,
+             updated_at: repository.updated_at
+           }}
         end)
-      end)
-      |> Enum.uniq_by(&elem(&1, 0))
 
-    schedule_policies =
-      schedules
-      |> safe_map(:repositories)
-      |> Enum.map(fn {ref, policy} ->
-        {to_string(ref), %{schedule_policy: safe_policy_name(policy)}}
-      end)
-
-    configured =
-      Enum.reduce(task_policies ++ schedule_policies, %{}, fn {ref, value}, found ->
-        Map.update(found, ref, value, &Map.merge(&1, value))
-      end)
-
-    saved =
-      case snapshot do
-        %{} ->
-          bindings = Map.new(snapshot.github_bindings, &{&1.repository_ref, &1})
-
-          Map.new(snapshot.repositories, fn repository ->
-            binding = Map.get(bindings, repository.ref)
-
-            {repository.ref,
-             %{
-               action_grants: binding && binding.action_grants,
-               github_permissions: binding && binding.granted_permissions,
-               github_access: repository.github_access,
-               github_health: binding && Events.health(binding.name),
-               github_repository: repository.github_repository,
-               knowledge_sha256: repository.knowledge_sha256,
-               knowledge_source_commit: repository.knowledge_source_commit,
-               knowledge_status: repository.knowledge_status,
-               knowledge_pull_request_url: repository.knowledge_pull_request_url,
-               onboarding_error: repository.onboarding_error,
-               onboarding_state: repository.onboarding_state,
-               ref: repository.ref,
-               source_commit: repository.source_commit,
-               updated_at: repository.updated_at
-             }}
-          end)
-
-        nil ->
-          %{}
-      end
-
-    Map.merge(saved, configured, fn _ref, durable, runtime -> Map.merge(durable, runtime) end)
-  end
-
-  defp safe_policies(policies) when is_map(policies), do: policies
-  defp safe_policies(_policies), do: %{}
-
-  defp repository_workers do
-    Repo.all(
-      from(worker in Worker,
-        where: worker.state in [:eligible, :busy, :draining],
-        order_by: [asc: worker.id],
-        limit: 200,
-        select: %{
-          id: worker.id,
-          last_seen_at: worker.last_seen_at,
-          repositories: worker.repositories,
-          state: worker.state
-        }
-      )
-    )
-    |> Enum.reduce(%{}, fn worker, found ->
-      worker.repositories
-      |> List.wrap()
-      |> Enum.reduce(found, fn
-        %{"ref" => ref} = repository, acc when is_binary(ref) ->
-          item = %{
-            revision: Map.get(repository, "revision"),
-            state: worker.state,
-            worker_ref: worker.id,
-            last_seen_at: worker.last_seen_at
-          }
-
-          Map.update(acc, ref, [item], &[item | &1])
-
-        _invalid, acc ->
-          acc
-      end)
-    end)
+      nil ->
+        %{}
+    end
   end
 
   defp repository_freshness do
@@ -283,17 +207,4 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   end
 
   defp primary_freshness(_submission), do: nil
-
-  defp safe_map(value, key) when is_map(value) do
-    case Map.get(value, key, %{}) do
-      map when is_map(map) -> map
-      _other -> %{}
-    end
-  end
-
-  defp safe_map(_value, _key), do: %{}
-
-  defp safe_policy_name(%{name: name}) when is_binary(name), do: name
-  defp safe_policy_name(%{"name" => name}) when is_binary(name), do: name
-  defp safe_policy_name(_unknown), do: "configured"
 end

@@ -5,12 +5,11 @@ services:
     image: alpine:3.21.3
     restart: "no"
     user: root
-    command: ["sh", "-c", "chown -R 1000:1000 /var/lib/ryker /var/lib/coop /var/lib/ryker-coop /var/lib/ryker-workspaces"]
+    command: ["sh", "-c", "chown -R 1000:1000 /var/lib/ryker /var/lib/coop /var/lib/ryker-coop"]
     volumes:
       - ryker-state:/var/lib/ryker
       - ryker-coop-state:/var/lib/coop
       - ryker-coop-config:/var/lib/ryker-coop
-      - ryker-workspaces:/var/lib/ryker-workspaces
 
   database:
     image: postgres:18.4-bookworm
@@ -71,13 +70,11 @@ services:
       RYKER_WORKER_KEY_FILE: /var/lib/ryker/pki/server-key.pem
       RYKER_BUNDLED_COOP_WORKER_ID: ryker-compose
       RYKER_BUNDLED_COOP_WORKSPACE: ryker-compose
-      RYKER_BUNDLED_COOP_ROOT: /var/lib/ryker-workspaces
       RYKER_BUNDLED_COOP_SHARED: /var/lib/ryker-coop
       LOG_LEVEL: ${RYKER_LOG_LEVEL:-info}
     volumes:
       - ryker-state:/var/lib/ryker
       - ryker-coop-config:/var/lib/ryker-coop
-      - ryker-workspaces:/var/lib/ryker-workspaces
     networks:
       default:
         ipv4_address: 172.30.42.10
@@ -110,8 +107,6 @@ services:
     volumes:
       - ryker-coop-docker:/var/lib/docker
       - ryker-coop-state:/var/lib/coop
-      - ryker-coop-config:/var/lib/ryker-coop
-      - ryker-workspaces:/var/lib/ryker-workspaces
     healthcheck:
       test: ["CMD", "docker", "info"]
       interval: 2s
@@ -146,7 +141,6 @@ services:
     volumes:
       - ryker-coop-state:/var/lib/coop
       - ryker-coop-config:/var/lib/ryker-coop
-      - ryker-workspaces:/var/lib/ryker-workspaces
     healthcheck:
       test: ["CMD", "coop", "sessions", "doctor", "--socket", "/var/lib/coop/sessions/control.sock"]
       interval: 5s
@@ -165,7 +159,6 @@ volumes:
   ryker-coop-state:
   ryker-coop-config:
   ryker-coop-docker:
-  ryker-workspaces:
 
 networks:
   default:

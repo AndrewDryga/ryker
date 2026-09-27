@@ -1,8 +1,8 @@
 defmodule Ryker.GitHub.OnboardingWorkerTest do
   use Ryker.DataCase, async: false
 
-  alias Ryker.BundledCoop
   alias Ryker.GitHub.OnboardingWorker
+  alias Ryker.PollingWorker
 
   defmodule API do
     def pin(_binding, _repository), do: {:error, :not_used}
@@ -15,21 +15,12 @@ defmodule Ryker.GitHub.OnboardingWorkerTest do
   # 2026-09-20 left one more loop re-reading the whole settings snapshot every
   # two seconds for as long as Ryker ran. Found while merging the polling
   # loops, before it was measured in production.
-  test "a GitHub event makes the onboarding worker poll at once without adding a loop" do
-    previous_root = System.get_env("RYKER_BUNDLED_COOP_ROOT")
-    System.put_env("RYKER_BUNDLED_COOP_ROOT", Path.join(System.tmp_dir!(), "ryker-nudge-root"))
-
-    on_exit(fn ->
-      if previous_root,
-        do: System.put_env("RYKER_BUNDLED_COOP_ROOT", previous_root),
-        else: System.delete_env("RYKER_BUNDLED_COOP_ROOT")
-    end)
-
+  test "nudging the onboarding worker polls at once without adding a loop" do
     worker = start_supervised!({OnboardingWorker, api: API, interval_ms: 100})
     :ok = :sys.statistics(worker, true)
 
     for _event <- 1..5,
-        do: assert(:ok = BundledCoop.request_materialization("repo", DateTime.utc_now()))
+        do: assert(:ok = PollingWorker.poll_now(worker))
 
     Process.sleep(550)
     {:ok, statistics} = :sys.statistics(worker, :get)

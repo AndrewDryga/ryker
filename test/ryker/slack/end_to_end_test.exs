@@ -5,6 +5,8 @@ defmodule Ryker.Slack.EndToEndTest do
 
   @moduletag isolation: "REPEATABLE READ"
 
+  import Ecto.Query
+
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.Delivery.{Adapters, Dispatcher}
   alias Ryker.Ingress.Inbox
@@ -185,7 +187,12 @@ defmodule Ryker.Slack.EndToEndTest do
     assert continued.result.entry.id == followup_entry.id
     assert continued.result.episode.id == admitted.result.episode.id
     assert continued.result.episode.destination_thread_ref == "1787832001.000200"
-    assert Repo.aggregate(Session, :count, :id) == 1
+
+    assert Repo.aggregate(
+             from(session in Session, where: session.episode_id == ^admitted.result.episode.id),
+             :count,
+             :id
+           ) == 1
 
     assert {:ok, {:executed, continuation}} =
              Ryker.Work.Dispatcher.run_once(work_options(work))

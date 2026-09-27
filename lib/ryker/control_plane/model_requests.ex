@@ -4,7 +4,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
   require Ryker.ControlPlane.CurrentInputs
   alias Ryker.Accounting.Pricing
   alias Ryker.Admission.Attempt
-  alias Ryker.BundledCoop
 
   alias Ryker.ControlPlane.{
     Activity,
@@ -20,13 +19,14 @@ defmodule Ryker.ControlPlane.ModelRequests do
   }
 
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Step}
+  alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.{Inbox, InputCustodyTransition}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Repo
-  alias Ryker.Settings.PolicyBinding
+  alias Ryker.Settings
   alias Ryker.Slack.Names
   alias Ryker.Work.{ActivityEvent, ActivityRetention, CandidateResponse, Recovery, Session, Turn}
   alias Ryker.Work.FailureCause
@@ -239,34 +239,27 @@ defmodule Ryker.ControlPlane.ModelRequests do
      }}
   end
 
-  # Why each call ran on its model: the purpose its Coop policy is bound to,
-  # and whether that policy is one the bundled worker runs on the model saved
-  # for its purpose in Settings. The policy name stays in the request inspector.
+  # Current settings explain a retained request only when the exact template
+  # digest matches. A reused name must never rewrite historical model evidence.
   defp with_model_choice(items) do
-    names = items |> Enum.map(& &1[:policy]) |> Enum.filter(&is_binary/1) |> Enum.uniq()
-
     bindings =
-      from(binding in PolicyBinding,
-        where: binding.policy_name in ^names,
-        order_by: [binding.scope_kind, binding.purpose]
-      )
-      |> Repo.all()
-      |> Enum.group_by(& &1.policy_name)
+      case Settings.fetch() do
+        {:ok, snapshot} ->
+          Map.new(JobTemplates.from_settings(snapshot), &{{&1.policy_name, &1.policy_digest}, &1})
 
-    bundled? = BundledCoop.distribution?()
+        _unavailable ->
+          %{}
+      end
 
     Enum.map(items, fn
       %{kind: :request, policy: policy} = item when is_binary(policy) ->
-        binding =
-          bindings
-          |> Map.get(policy, [])
-          |> Enum.find(&(&1.purpose == :admission == (item.source_kind == :admission)))
+        binding = bindings[{policy, item[:policy_digest]}]
 
         Map.put(item, :model_choice, %{
           purpose: binding && binding.purpose,
           scope_kind: binding && binding.scope_kind,
           scope_ref: binding && binding.scope_ref,
-          settings: bundled? and BundledCoop.policy?(policy)
+          settings: not is_nil(binding)
         })
 
       item ->
@@ -527,6 +520,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       status: request.status,
       fingerprint: Map.get(request, :fingerprint),
       policy: Map.get(request, :policy),
+      policy_digest: Map.get(request, :policy_digest),
       request_id: request.id,
       generation: Map.get(request, :generation),
       generations: Map.get(request, :generations),
@@ -822,7 +816,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     tools =
       Map.take(
         if(is_map(context), do: context, else: %{}),
-        ~w(responder_state_tools source_and_action_tools workspace)
+        ~w(controller_tools responder_state_tools source_and_action_tools workspace)
       )
 
     sections = [
@@ -864,6 +858,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       status: turn.status,
       target: turn.execution_target || "Execution target not recorded",
       policy: session.policy,
+      policy_digest: session.policy_digest,
       fingerprint: turn.submission_fingerprint,
       execution_mode: options[:execution_mode],
       sections:
@@ -913,6 +908,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       status: entry.status,
       target: attempt_value(attempt, :execution_target) || "Execution target not recorded",
       policy: attempt_value(attempt, :policy) || "Admission",
+      policy_digest: attempt_value(attempt, :policy_digest),
       fingerprint:
         attempt_value(attempt, :submission_fingerprint) || entry.admission_context_fingerprint,
       coverage: admission_coverage(submission),

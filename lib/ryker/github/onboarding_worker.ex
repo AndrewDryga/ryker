@@ -2,8 +2,8 @@ defmodule Ryker.GitHub.OnboardingWorker do
   @moduledoc "Drains durable repository onboarding states without coupling repositories together."
   use Ryker.PollingWorker, lane: :github_onboarding, interval: :interval_ms
 
-  alias Ryker.{BundledCoop, Settings}
   alias Ryker.GitHub.Onboarding
+  alias Ryker.Settings
 
   @default_interval 2_000
 
@@ -34,7 +34,6 @@ defmodule Ryker.GitHub.OnboardingWorker do
     case next_repository() do
       nil -> :ok
       {:onboard, ref} -> _ = Onboarding.run(ref, api: state.api)
-      {:sync, ref} -> _ = BundledCoop.materialize_repository(ref)
     end
 
     state.interval_ms
@@ -57,22 +56,6 @@ defmodule Ryker.GitHub.OnboardingWorker do
       |> Enum.sort_by(&{&1.updated_at, &1.ref})
       |> List.first()
 
-    cond do
-      onboarding ->
-        {:onboard, onboarding.ref}
-
-      repository = Enum.find(snapshot.repositories, &materialization_due?/1) ->
-        {:sync, repository.ref}
-
-      true ->
-        nil
-    end
-  end
-
-  defp materialization_due?(repository) do
-    repository.github_access == :available and repository.onboarding_state == :ready and
-      match?(%DateTime{}, repository.last_github_event_at) and
-      (is_nil(repository.materialized_at) or
-         DateTime.compare(repository.last_github_event_at, repository.materialized_at) == :gt)
+    if onboarding, do: {:onboard, onboarding.ref}
   end
 end

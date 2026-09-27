@@ -11,14 +11,11 @@ defmodule Mix.Tasks.Ryker.Eval do
 
   `world-pack` emits one JSON object per scenario, with its exact tool catalog,
   without calling a model. `world` runs the same scenarios through the
-  dedicated evaluation policies named by the evaluation environment
-  (`RYKER_EVAL_SOCKET`, `RYKER_EVAL_NO_TOOLS_POLICY`,
-  `RYKER_EVAL_WORLD_POLICY`, `RYKER_EVAL_WORLD_BASELINE_POLICY` and their
-  `_DIGEST` companions): the subject and baseline lanes run under the
-  sandbox-only world policies, and the tool-free quality judge under the
-  no-tools policy. Eval authority is supplied explicitly and is refused if it
-  matches a reviewed production policy binding, so an evaluation cannot inherit
-  production repository or mutation authority.
+  dedicated worker named by `RYKER_EVAL_SOCKET`. `RYKER_EVAL_WORLD_TARGET`,
+  `RYKER_EVAL_JUDGE_TARGET` and optional `RYKER_EVAL_BASELINE_TARGET` select
+  models explicitly. Every job has an empty workspace and no project tools;
+  only subject turns receive the scenario's controller tools. No production
+  settings or operator-supplied policy digests are used.
 
   A world matrix is 31 scenarios × 3 repeats × 2 lanes, 186 observations at
   about 93 seconds each, so `scripts/elixir-world-eval.sh` runs it as shards:
@@ -39,7 +36,7 @@ defmodule Mix.Tasks.Ryker.Eval do
 
   alias Ryker.Evals.{
     CoopRunner,
-    Policy,
+    Job,
     WorldCase,
     WorldCassette,
     WorldCoverage,
@@ -92,7 +89,8 @@ defmodule Mix.Tasks.Ryker.Eval do
     with {:ok, world} <- world_arguments(arguments),
          %{results: results_path} <- world,
          :ok <- start_repo(),
-         {:ok, eval_policies} <- Policy.for_kind(:world),
+         {:ok, eval_policies} <- Job.world(),
+         :ok <- WorldDatabase.disposable_database(true),
          :ok <- baseline_configured(eval_policies, world.paired_baseline),
          :ok <- WorldCoverage.complete(),
          {:ok, runtime} <- EvalRuntime.world(),
@@ -340,7 +338,7 @@ defmodule Mix.Tasks.Ryker.Eval do
     with {:ok, cassette} <- WorldCassette.start_link(scenario),
          {:ok, gateway} <- start_world_gateway(runtime, scenario, cassette) do
       try do
-        eval_work = %{api: Client, client: eval_client}
+        eval_work = %{api: Client, client: %{eval_client | job: policy}}
 
         WorldRunner.run(scenario,
           api: eval_work.api,
@@ -404,8 +402,7 @@ defmodule Mix.Tasks.Ryker.Eval do
         result =
           CoopRunner.run_case(judge,
             client: judge_client,
-            policy: judge_policy.name,
-            policy_digest: judge_policy.digest
+            job: judge_policy
           )
 
         {:ok, result}
@@ -428,7 +425,7 @@ defmodule Mix.Tasks.Ryker.Eval do
   end
 
   defp eval_client(finch) do
-    with {:ok, socket} <- Policy.socket() do
+    with {:ok, socket} <- Job.socket() do
       Client.new(
         finch: finch,
         receive_timeout: EvalRuntime.receive_timeout_ms(),
@@ -662,7 +659,7 @@ defmodule Mix.Tasks.Ryker.Eval do
   end
 
   defp baseline_configured(%{baseline: nil}, true),
-    do: {:error, :world_baseline_policy_not_configured}
+    do: {:error, :world_baseline_target_not_configured}
 
   defp baseline_configured(_policies, _paired), do: :ok
 

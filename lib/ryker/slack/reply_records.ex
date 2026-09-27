@@ -322,7 +322,8 @@ defmodule Ryker.Slack.ReplyRecords do
       where: a.episode_id == ^episode_id and a.kind == "tool.completed",
       where: fragment("?::jsonb #>> '{status}' = 'completed'", a.payload),
       where:
-        fragment("?::jsonb #>> '{input,server}' IS DISTINCT FROM 'responder-state'", a.payload),
+        fragment("?::jsonb #>> '{input,server}' IS DISTINCT FROM 'responder-state'", a.payload) and
+          fragment("?::jsonb #>> '{input,server}' IS DISTINCT FROM 'controller-tools'", a.payload),
       select:
         fragment(
           "(SELECT coalesce(jsonb_agg(DISTINCT returned), '[]'::jsonb) FROM jsonb_path_query(?::jsonb #> '{output}', '$.**') AS returned WHERE jsonb_typeof(returned) = 'string' AND (returned #>> '{}') = ANY(?))",

@@ -54,7 +54,7 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
                to: @ready_sessions_version,
                prefix: prefix,
                log: false
-             ) == [@ready_sessions_version]
+             ) == [20_260_926_101_000, 20_260_926_111_000, @ready_sessions_version]
 
       # The saved settings keep every value and read one ready session.
       assert %{rows: [["workers", "codex:gpt-5.6-sol/medium@default", 1]]} =

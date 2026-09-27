@@ -25,6 +25,13 @@ defmodule Ryker.ControlPlane.PageHelpTest do
   @internal ~w(episode custody digest admission ingress projection coop co:op lease janitor
                manifest ledger subscription placement fleet liveview)
 
+  test "advanced help puts code and model setup in Ryker, not worker policy files" do
+    help = PageHelp.for_path("/settings/advanced") |> texts() |> Enum.join(" ")
+    assert help =~ "Ryker selects the code and settings for each job"
+    assert help =~ "Models page"
+    refute help =~ "add one only for a worker"
+  end
+
   test "every page the route map serves explains itself, and no help outlives its page" do
     routed = live_routes()
     assert length(routed) > 30

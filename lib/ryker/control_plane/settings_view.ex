@@ -11,14 +11,13 @@ defmodule Ryker.ControlPlane.SettingsView do
 
   import Ecto.Query
 
-  alias Ryker.BundledCoop
   alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, ProductReadiness}
+  alias Ryker.CoopFleet.Worker
   alias Ryker.Credentials
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.AppJWT
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Settings.WorkerPolicies
   alias Ryker.Slack.Names
   alias Ryker.Work.Turn
 
@@ -36,12 +35,13 @@ defmodule Ryker.ControlPlane.SettingsView do
           github_callback_url: String.t(),
           webhook_base_url: String.t(),
           webhook_secret_names: [String.t()] | :invalid,
-          workers: WorkerPolicies.catalog(),
+          worker_installs: [
+            %{ref: String.t(), workers: pos_integer(), eligible: non_neg_integer()}
+          ],
           github_connection: :ready | :missing | :invalid,
           environment_channels: %{(String.t() | nil) => non_neg_integer()},
           slack_channels: [%{workspace_ref: String.t(), channel_ref: String.t()}],
-          slack_managers: [%{name: String.t(), href: String.t() | nil}],
-          policy_problem: String.t() | nil
+          slack_managers: [%{name: String.t(), href: String.t() | nil}]
         }
 
   @typedoc """
@@ -117,14 +117,10 @@ defmodule Ryker.ControlPlane.SettingsView do
       github_callback_url: Application.fetch_env!(:ryker, :github_public_url),
       webhook_base_url: Application.fetch_env!(:ryker, :webhook_public_url),
       webhook_secret_names: registered_secret_names(),
-      workers: WorkerPolicies.catalog(snapshot.work.workspace_ref),
+      worker_installs: worker_installs(),
       # Channels choose an environment in the Slack tables, so how many use
       # each one is read beside the snapshot rather than from it.
-      environment_channels: Environments.channel_counts(),
-      # Why the bundled worker still runs the models it loaded before the
-      # newest ones, read on every refresh (`BundledCoop.ProblemWatcher`
-      # asks open pages for one the moment it changes).
-      policy_problem: BundledCoop.policy_problem(snapshot)
+      environment_channels: Environments.channel_counts()
     })
   end
 
@@ -152,6 +148,21 @@ defmodule Ryker.ControlPlane.SettingsView do
       {:error, _unavailable} ->
         %{done: nil, total: length(@setup_steps)}
     end
+  end
+
+  defp worker_installs do
+    Repo.all(
+      from(worker in Worker,
+        where: worker.state != :revoked and is_nil(worker.revoked_at),
+        group_by: worker.workspace_ref,
+        order_by: worker.workspace_ref,
+        select: %{
+          ref: worker.workspace_ref,
+          workers: count(worker.id),
+          eligible: filter(count(worker.id), worker.state == :eligible)
+        }
+      )
+    )
   end
 
   defp registered_secret_names do

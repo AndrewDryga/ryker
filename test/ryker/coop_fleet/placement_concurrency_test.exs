@@ -2,15 +2,154 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias Ryker.CoopFleet.{Certificate, ControlPlane, Placement, Worker}
+  alias Ryker.CoopFleet.{Certificate, Client, Command, ControlPlane, JobSpec, Placement, Worker}
+  alias Ryker.CoopFleet.ControlPlane.Commands
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.{Custody, Session, SessionChangeset}
 
   @policy_digest String.duplicate("b", 64)
   @sandbox_digest String.duplicate("a", 64)
+
+  test "cancellation during source preparation prevents a late creator consuming capacity" do
+    Sandbox.unboxed_run(Repo, fn ->
+      suffix = Ecto.UUID.generate()
+      workspace = "workspace-fence-#{suffix}"
+      worker = "worker-fence-#{suffix}"
+      session = session!("fence-#{suffix}")
+      key = "create:fence-#{suffix}"
+      parent = self()
+      authorize_and_poll!(worker, workspace)
+      {:ok, client} = Client.new(workspace_ref: workspace)
+
+      creator =
+        unboxed_task(fn ->
+          # The creator is already resolving code, outside any DB transaction.
+          # Resume at the actual post-resolution job pin and outbound create seam.
+          send(parent, :preparing_source)
+
+          receive do
+            :source_ready -> :ok
+          end
+
+          prepared = pin_job!(session)
+
+          Client.create_session(
+            client,
+            key,
+            prepared.policy,
+            prepared.external_ref,
+            prepared.repository_source
+          )
+        end)
+
+      try do
+        assert_receive :preparing_source, 5_000
+
+        assert {:ok, %{"error_code" => "operation_not_enqueued"}} =
+                 Client.fence_create_session(
+                   client,
+                   key,
+                   session.policy,
+                   session.external_ref,
+                   session.repository_source
+                 )
+
+        send(creator.pid, :source_ready)
+
+        assert {:error, {:coop_error, 409, "operation_not_enqueued", _}} =
+                 Task.await(creator, 5_000)
+
+        assert Repo.aggregate(from(p in Placement, where: p.session_id == ^session.id), :count) ==
+                 0
+
+        assert %Command{status: :failed, placement_id: nil} =
+                 Repo.get_by!(Command, idempotency_key: key)
+      after
+        send(creator.pid, :source_ready)
+        stop_tasks([creator])
+        cleanup!([session], [worker])
+      end
+    end)
+  end
+
+  test "a fence waits for an enqueue winner and returns its exact command" do
+    Sandbox.unboxed_run(Repo, fn ->
+      suffix = Ecto.UUID.generate()
+      workspace = "workspace-enqueue-#{suffix}"
+      worker = "worker-enqueue-#{suffix}"
+      session = session!("enqueue-#{suffix}") |> pin_job!()
+      key = "create:enqueue-#{suffix}"
+      parent = self()
+      authorize_and_poll!(worker, workspace)
+
+      {:ok, placement} =
+        ControlPlane.place_session(
+          session.id,
+          %{
+            workspace_ref: workspace,
+            repository_ref: "ryker",
+            capability_names: ["controller-tools"]
+          },
+          60
+        )
+
+      payload = %{
+        "external_ref" => session.external_ref,
+        "job" => session.worker_job_document,
+        "job_digest" => session.worker_job_digest
+      }
+
+      creator =
+        unboxed_task(fn ->
+          Repo.transaction(fn ->
+            {:ok, command} =
+              ControlPlane.enqueue_command(placement.id, "create_session", payload, key)
+
+            send(parent, {:enqueued, backend_pid(), command})
+
+            receive do
+              :commit -> command
+            end
+          end)
+        end)
+
+      try do
+        assert_receive {:enqueued, creator_backend, command}, 5_000
+
+        fencer =
+          unboxed_task(fn ->
+            send(parent, {:fencer, backend_pid()})
+
+            ControlPlane.fence_command(
+              session,
+              "create_session",
+              Commands.create_intent(session, session.external_ref),
+              key
+            )
+          end)
+
+        try do
+          assert_receive {:fencer, fencer_backend}, 5_000
+          await_blocked_by(fencer_backend, creator_backend)
+          send(creator.pid, :commit)
+          assert {:ok, ^command} = Task.await(creator, 5_000)
+          assert {:ok, ^command} = Task.await(fencer, 5_000)
+          assert command.status == :queued
+        after
+          send(creator.pid, :commit)
+          stop_tasks([fencer])
+        end
+      after
+        send(creator.pid, :commit)
+        stop_tasks([creator])
+        cleanup!([session], [worker])
+      end
+    end)
+  end
 
   test "one placement locks only the worker it selects" do
     # The fleet can receive several placements at once. Locking every eligible
@@ -19,13 +158,16 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
       suffix = Ecto.UUID.generate()
       workspace_ref = "workspace-placement-#{suffix}"
       worker_ids = ["worker-a-#{suffix}", "worker-b-#{suffix}"]
-      sessions = [session!("first-#{suffix}"), session!("second-#{suffix}")]
+
+      sessions =
+        Enum.map([session!("first-#{suffix}"), session!("second-#{suffix}")], &pin_job!/1)
+
       parent = self()
 
       Enum.each(worker_ids, &authorize_and_poll!(&1, workspace_ref))
 
       requirements = %{
-        capability_names: ["responder-state"],
+        capability_names: ["controller-tools"],
         repository_ref: "ryker",
         workspace_ref: workspace_ref
       }
@@ -73,7 +215,7 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
     end)
   end
 
-  test "a committed placement reserves the worker's last reported slot" do
+  test "a committed placement reserves capacity across heartbeats before execution" do
     # Placement and command delivery are separate transactions. Without a durable
     # reservation, several sessions could consume the same last heartbeat slot
     # before the worker had a chance to report reduced capacity.
@@ -81,12 +223,17 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
       suffix = Ecto.UUID.generate()
       workspace_ref = "workspace-reservation-#{suffix}"
       worker_id = "worker-reservation-#{suffix}"
-      sessions = [session!("reserved-first-#{suffix}"), session!("reserved-second-#{suffix}")]
+
+      sessions =
+        Enum.map(
+          [session!("reserved-first-#{suffix}"), session!("reserved-second-#{suffix}")],
+          &pin_job!/1
+        )
 
       authorize_and_poll!(worker_id, workspace_ref)
 
       requirements = %{
-        capability_names: ["responder-state"],
+        capability_names: ["controller-tools"],
         repository_ref: "ryker",
         workspace_ref: workspace_ref
       }
@@ -96,6 +243,10 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
                  ControlPlane.place_session(Enum.at(sessions, 0).id, requirements, 60)
 
         assert first.worker_id == worker_id
+
+        # The worker has not executed create yet, so it still reports its slot free.
+        # A newer heartbeat must not erase the controller's durable reservation.
+        poll_worker!(worker_id, workspace_ref)
 
         assert ControlPlane.place_session(Enum.at(sessions, 1).id, requirements, 60) ==
                  {:error, {:coop_worker_capacity_unavailable, Enum.at(sessions, 1).id}}
@@ -120,7 +271,7 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
       suffix = Ecto.UUID.generate()
       workspace_ref = "workspace-activity-#{suffix}"
       worker_id = "worker-activity-#{suffix}"
-      session = session!("activity-#{suffix}")
+      session = session!("activity-#{suffix}") |> pin_job!()
       parent = self()
 
       authorize_and_poll!(worker_id, workspace_ref)
@@ -151,7 +302,7 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
             ControlPlane.place_session(
               session.id,
               %{
-                capability_names: ["responder-state"],
+                capability_names: ["controller-tools"],
                 repository_ref: "ryker",
                 workspace_ref: workspace_ref
               },
@@ -189,16 +340,20 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
 
     assert {:ok, _worker} = ControlPlane.authorize_worker(worker_id, workspace_ref, digest)
 
+    poll_worker!(worker_id, workspace_ref)
+  end
+
+  defp poll_worker!(worker_id, workspace_ref) do
     assert {:ok, _response} =
              ControlPlane.handle_poll(worker_id, %{
                "acknowledged_command_ids" => [],
                "command_results" => [],
                "event_batches" => [],
-               "poll_ref" => "poll:#{worker_id}",
-               "version" => 1,
+               "poll_ref" => "poll:#{worker_id}:#{Ecto.UUID.generate()}",
+               "version" => 2,
                "worker" => %{
                  "build_version" => "coop-test",
-                 "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+                 "capabilities" => [%{"name" => "controller-tools", "version" => "1"}],
                  "capacity" => %{
                    "cooldown_until" => nil,
                    "session_slots_free" => 1,
@@ -211,9 +366,7 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
                  },
                  "clock_at" => DateTime.to_iso8601(Repo.now!()),
                  "id" => worker_id,
-                 "policy_digests" => %{"work-read-only" => @policy_digest},
-                 "protocol_version" => "1",
-                 "repositories" => [%{"ref" => "ryker", "revision" => "commit:test"}],
+                 "protocol_version" => "2",
                  "sandbox_digest" => @sandbox_digest,
                  "state" => "eligible",
                  "workspace_ref" => workspace_ref
@@ -244,10 +397,17 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
     session
   end
 
+  defp pin_job!(session) do
+    job = WorkerJob.build(session.external_ref, session.repository_ref)
+    {:ok, digest} = JobSpec.digest(job)
+    session |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update!()
+  end
+
   defp cleanup!(sessions, worker_ids) do
     session_ids = Enum.map(sessions, & &1.id)
     episode_ids = Enum.map(sessions, & &1.episode_id)
 
+    Repo.delete_all(from(command in Command, where: command.session_id in ^session_ids))
     Repo.delete_all(from(placement in Placement, where: placement.session_id in ^session_ids))
     Repo.delete_all(from(session in Session, where: session.id in ^session_ids))
     Repo.delete_all(from(event in Event, where: event.episode_id in ^episode_ids))

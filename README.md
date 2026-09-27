@@ -25,7 +25,7 @@ It runs on one trusted host and:
 - records source-attributed evidence, health-layer coverage, and an incident timeline separately
   from agent prose;
 - creates one Slack channel and one pinned investigation card per incident occurrence;
-- creates one Coop session and isolated fork under a predeclared repository policy;
+- creates one Coop session and isolated fork under a frozen, Ryker-supplied job;
 - lets active full workspace members start and collaborate on contributor tasks in their channel's
   environment;
 - keeps operator-capability tasks, incident steering, the publication and destructive controls, and
@@ -380,8 +380,8 @@ live on their cards, not in the command: the remediation timeline is derived fro
 runs, evidence, Emisar approvals, and draft-PR publication state instead of copying those facts
 into a second incident system, and the pinned card's **Postmortem draft** builds the
 evidence-grounded post-incident draft from the durable record at any time, including after close.
-When a session is exhausted, Ryker continues in a fresh one; the worker's own policy bounds a
-session (the bundled worker allows 100 turns), and operators do not estimate how many turns an
+When a session is exhausted, Ryker continues in a fresh one; its frozen job bounds each
+session (currently 100 turns), and operators do not estimate how many turns an
 investigation needs. Commands are deterministic, operator-authorized, durably processed,
 and never interpreted by the model.
 
@@ -401,7 +401,7 @@ incident controls or invent a repository, environment or policy. A member's engi
 stays inside the channel's environment: the task changes one of its repositories, chosen for that
 task, and reads the others. Which environment a channel works in is an operator-owned channel
 setting. Infrastructure access remains constrained by the environment's Emisar account and the
-selected Coop policies. Slack guests and external Slack Connect identities are denied. See
+frozen job's access settings. Slack guests and external Slack Connect identities are denied. See
 [`docs/slack-ux.md`](docs/slack-ux.md) for the complete interaction contract.
 
 ## Operations
@@ -488,8 +488,8 @@ V1 supports one Slack workspace. Work happens in an **environment**: a set of re
 every piece of work in it can read, and at most one Emisar account. Channels, webhook sources and
 Chat conversations each pick an environment; a task picks which repository of its environment it
 changes, and the others (at most 32) are mounted read-only beside it. Ryker never accepts host
-paths from Slack or model output; the local Coop policy is their only authority. It can publish an
-explicitly authorized reviewed tree as a draft GitHub pull request, but cannot publish changes to
+paths from Slack or model output; Ryker supplies each worker an immutable, repository-bound job.
+It can publish an explicitly authorized reviewed tree as a draft GitHub pull request, but cannot publish changes to
 the read-only repositories, merge, deploy from repository changes, or archive Slack channels.
 Anyone in a conversation Ryker serves may ask for one exact operational action; Ryker adds no
 operator check of its own and sends it to Emisar, which remains authoritative for target validation,

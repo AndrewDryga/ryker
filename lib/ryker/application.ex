@@ -34,9 +34,8 @@ defmodule Ryker.Application do
   end
 
   defp bundled_coop_reconciler do
-    if System.get_env("RYKER_BUNDLED_COOP_ROOT") &&
-         System.get_env("RYKER_BUNDLED_COOP_SHARED"),
-       do: [Ryker.BundledCoop.Reconciler, Ryker.BundledCoop.ProblemWatcher],
-       else: []
+    if Ryker.BundledCoop.distribution?(),
+      do: [Ryker.BundledCoop.Reconciler],
+      else: []
   end
 end

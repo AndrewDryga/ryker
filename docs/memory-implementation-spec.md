@@ -183,7 +183,7 @@ examples enable it; missing setup is visible as disabled, not silently advertise
 
 Defaults to evaluate: one worker, 16 inputs per batch, 10-second quiet delay, 60-second maximum
 delay, 300-second lease, 30-second heartbeat, and three host execution starts per frozen batch.
-Provider-internal contract attempts are bounded separately by the configured trusted Coop policy;
+Provider-internal contract attempts are bounded separately by the frozen job's limits;
 three host starts must never be presented as three actual model invocations.
 Coalesce only the same writable scope and execution mode. Use database time. Input revisions
 already assigned to an active or deferred batch cannot be claimed again under a different key.
@@ -220,10 +220,10 @@ remote turn lacks stop proof. A still-running remote operation requires custody 
 not permission to launch a duplicate.
 
 An explicit operator retry or rebuild reselection adopts the currently configured trusted
-learning policy and digest for the next attempt, and so does every new attempt a batch prepares
-on its own: a worker places only sessions whose digest it still advertises, so an attempt pinned
-to a replaced digest could never start. An outstanding attempt always reconciles under its own
-pinned policy, and spent starts stay spent. Record both former and selected policies in the
+learning settings for the next attempt, and so does every new attempt a batch prepares
+on its own. Ryker freezes a new immutable job before placement; workers advertise capabilities,
+not policy digests. An outstanding attempt always reconciles under its own
+pinned job, and spent starts stay spent. Record both former and selected policies in the
 operator audit, preserve every old LearningRun unchanged, and never resume an old-policy attempt
 as the new judgment. Reject a new
 grant when learning is disabled or misconfigured. Repeating an already accepted action returns
@@ -231,18 +231,18 @@ its original receipt even if configuration changes again; it grants no further s
 explains this current-policy selection. Account recovery is not permission to reset execution budgets.
 
 Use Coop sessions with no product checkout, project environment, MCP, or Ryker action tools.
-The current Coop runtime requires an execution fork even for a read-only model call; pin a
-dedicated empty scratch repository with `repository_read_only=true`, `project_env=false`, and
-`project_mcp=false`. Do not describe these flags as disabling provider built-in tools: they
+The Coop job has `source=null`, `repository_read_only=true`, `project_env=false`, and
+`project_mcp=false`; Coop owns the empty execution fork, with no host scratch checkout setup.
+Do not describe these fields as disabling provider built-in tools: they
 remove product capabilities and writable repository authority, not the provider's tool vocabulary.
 Check those public authority fields and absence of companion repositories before submitting
 any source text. Qualification must inspect the actual isolated execution and cleanup.
 Identity alone binds a session to its run, so cleanup can close a session that fails this check;
-the attempt then stops on never-submitted proof. A policy digest fixes that authority, so new
-attempts under a refused digest wait, spending no start, until the configured policy changes; the
-Learning page says learning is paused and what to change. The Compose distribution writes
-`project_env: false` and `project_mcp: false` into its `ryker-learning` policy.
-Reject any returned `responder_binding_digest`: the learner intentionally creates an unbound
+the attempt then stops on never-submitted proof. A settings digest fixes that authority, so new
+attempts under a refused digest wait, spending no start, until the configuration changes; the
+Learning page says learning is paused and directs the operator to inspect the job and worker version.
+Ryker freezes `project_env=false` and `project_mcp=false` in every learning job.
+Reject any returned `controller_tools_digest`: the learner intentionally creates an unbound
 session and must not receive Ryker state/action tools through an unexpected binding.
 
 The installed Coop runtime does not provide a no-native-tools or provider-only-network policy.

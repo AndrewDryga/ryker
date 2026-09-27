@@ -13,36 +13,43 @@ defmodule Ryker.CoopFleet.Client do
   alias Ryker.{Artifacts, CanonicalJSON}
 
   alias Ryker.CoopFleet.{
-    ArtifactTransport,
+    Bodies,
     Bridge,
+    Checkpoints,
     Command,
     ControlPlane,
+    JobAuthority,
     Placement,
     Worker,
+    WorkspaceCheckpoint,
     WorkspaceCheckpointTransfer
   }
 
+  alias Ryker.CoopFleet.ControlPlane.Commands
   alias Ryker.Repo
   alias Ryker.Work.{RepositorySource, Session, StateBinding}
 
-  @fields [:bridge, :bridge_options]
+  @fields [:bridge, :bridge_options, :source_root]
   @option_keys [
+    :body_root,
+    :checkpoint_key,
+    :checkpoint_secrets,
     :bridge,
     :capability_names,
     :capability_versions,
     :lease_seconds,
     :max_waits,
     :poll_interval_ms,
+    :source_root,
     :wait,
     :workspace_ref
   ]
-  @enforce_keys @fields
+  @enforce_keys [:bridge, :bridge_options]
   defstruct @fields
 
   @type t :: %__MODULE__{bridge: module(), bridge_options: keyword()}
 
   @repository_freshness_capability "repository-freshness"
-  @repository_source_selector_capability "repository-source-selector"
 
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
   def new(options) do
@@ -54,10 +61,11 @@ defmodule Ryker.CoopFleet.Client do
       {:ok,
        %__MODULE__{
          bridge: bridge,
+         source_root: Map.get(options, :source_root),
          bridge_options:
            options
-           |> Map.drop([:bridge])
-           |> Map.put_new(:capability_names, ["responder-state"])
+           |> Map.drop([:bridge, :source_root])
+           |> Map.put_new(:capability_names, ["controller-tools"])
            |> Map.put_new(:capability_versions, %{})
            |> Enum.to_list()
        }}
@@ -68,8 +76,16 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   @impl true
+  def prepare_create_session(client, key, policy, task, source) do
+    with {:ok, session} <- create_session_identity(key, task),
+         :ok <- exact_authority(session, policy, source),
+         {:ok, _session} <- JobAuthority.ensure_pinned(session, client.source_root),
+         do: :ok
+  end
+
+  @impl true
   def create_session(client, key, policy, task, source) do
-    with {:ok, session} <- session_by_task_ref(task),
+    with {:ok, session} <- create_session_identity(key, task),
          :ok <- exact_authority(session, policy, source),
          {:ok, payload} <- create_session_payload(session, policy, task, source),
          {:ok, remote} <- execute(client, session, "create_session", payload, key) do
@@ -105,7 +121,12 @@ defmodule Ryker.CoopFleet.Client do
   defp ensure_workspace(_client, %Session{workspace_task: nil}, remote, _create_key),
     do: {:ok, remote}
 
-  defp ensure_workspace(client, %Session{workspace_task: task} = session, remote, create_key)
+  defp ensure_workspace(
+         client,
+         %Session{workspace_task: task} = session,
+         %{"session" => remote},
+         create_key
+       )
        when is_map(task) do
     with coop_session_id when is_binary(coop_session_id) <- remote["id"],
          revision when is_integer(revision) and revision > 0 <- remote["revision"],
@@ -135,27 +156,37 @@ defmodule Ryker.CoopFleet.Client do
         key
       )
     else
+      {:error, _} = error -> error
       _invalid -> {:error, {:coop_protocol_error, :create_session_response}}
     end
   end
 
+  defp ensure_workspace(_client, _session, %{"operation" => operation} = response, _key)
+       when is_map(operation), do: {:ok, response}
+
+  defp ensure_workspace(_client, _session, _response, _key),
+    do: {:error, {:coop_protocol_error, :create_session_response}}
+
   @impl true
   def checkpoint_workspace(client, coop_session_id, key, expected_revision) do
     with {:ok, session} <- session_by_coop_id(coop_session_id),
-         repository_ref when is_binary(repository_ref) <- session.repository_ref do
-      execute(
-        client,
-        session,
-        "checkpoint_workspace",
-        %{
-          "coop_session_id" => coop_session_id,
-          "expected_revision" => expected_revision,
-          "repository_ref" => repository_ref,
-          "session_ref" => session.id
-        },
-        key
-      )
+         repository_ref when is_binary(repository_ref) <- session.repository_ref,
+         {:ok, response} <-
+           execute(
+             client,
+             session,
+             "checkpoint_workspace",
+             %{
+               "coop_session_id" => coop_session_id,
+               "expected_revision" => expected_revision,
+               "repository_ref" => repository_ref,
+               "session_ref" => session.id
+             },
+             key
+           ) do
+      Checkpoints.capture(session.id, key, response, client.bridge_options)
     else
+      {:error, _} = error -> error
       _invalid -> {:error, {:coop_workspace_checkpoint_unavailable, coop_session_id}}
     end
   end
@@ -166,12 +197,37 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def fence_create_session(client, key, policy, task, source) do
-    with {:ok, session} <- session_by_task_ref(task),
-         :ok <- exact_authority(session, policy, source),
-         {:ok, payload} <- create_session_payload(session, policy, task, source) do
-      fence_durable_operation(client, session, key, "create_session", payload)
+    with {:ok, session} <- create_session_identity(key, task),
+         :ok <- exact_authority(session, policy, source) do
+      fence_create_authority(client, session, key, policy, task, source)
     end
   end
+
+  defp fence_create_authority(
+         client,
+         session,
+         key,
+         policy,
+         task,
+         source
+       ) do
+    with {:ok, payload} <- fence_create_payload(session, policy, task, source),
+         {:ok, command} <-
+           ControlPlane.fence_command(
+             session,
+             "create_session",
+             Commands.create_intent(session, task),
+             key
+           ) do
+      fenced_command(client, command, key, "create_session", payload)
+    end
+  end
+
+  defp fence_create_payload(%Session{worker_job_document: nil, worker_job_digest: nil}, _, _, _),
+    do: {:ok, nil}
+
+  defp fence_create_payload(session, policy, task, source),
+    do: create_session_payload(session, policy, task, source)
 
   @impl true
   def get_session(client, coop_session_id) do
@@ -236,21 +292,14 @@ defmodule Ryker.CoopFleet.Client do
     {:ok,
      %{
        "repository_freshness_receipt_versions" =>
-         capability_versions(versions[@repository_freshness_capability] == "2", 2),
-       "repository_source_selector_versions" =>
-         capability_versions(versions[@repository_source_selector_capability] == "1", 1)
+         capability_versions(versions[@repository_freshness_capability] == "2", 2)
      }}
   end
 
   defp advertised_capability_document(capabilities) do
     %{
       "repository_freshness_receipt_versions" =>
-        capability_versions(advertised?(capabilities, @repository_freshness_capability, "2"), 2),
-      "repository_source_selector_versions" =>
-        capability_versions(
-          advertised?(capabilities, @repository_source_selector_capability, "1"),
-          1
-        )
+        capability_versions(advertised?(capabilities, @repository_freshness_capability, "2"), 2)
     }
   end
 
@@ -315,9 +364,41 @@ defmodule Ryker.CoopFleet.Client do
            ),
          {:ok, response} <-
            client.bridge.await_command(reconciliation.id, client.bridge_options) do
-      review_resource(response, coop_session_id, revision)
+      reconciled_review(client, command, response, coop_session_id, revision)
     end
   end
+
+  defp reconciled_review(
+         client,
+         command,
+         %{
+           "id" => operation_id,
+           "method" => "RunReview",
+           "state" => "succeeded",
+           "resource_type" => "review",
+           "resource_id" => coop_session_id
+         },
+         coop_session_id,
+         revision
+       ) do
+    with {:ok, lookup} <-
+           ControlPlane.enqueue_command(
+             command.placement_id,
+             "get_review",
+             %{"coop_session_id" => coop_session_id, "operation_id" => operation_id},
+             "ryker:fleet:review:#{command.id}:#{operation_id}"
+           ),
+         {:ok, %{"operation" => %{"id" => ^operation_id}} = review} <-
+           client.bridge.await_command(lookup.id, client.bridge_options) do
+      review_resource(review, coop_session_id, revision)
+    else
+      {:ok, _other} -> {:error, {:coop_protocol_error, :review_resource}}
+      error -> error
+    end
+  end
+
+  defp reconciled_review(_client, _command, response, coop_session_id, revision),
+    do: review_resource(response, coop_session_id, revision)
 
   defp review_resource(
          %{
@@ -339,21 +420,6 @@ defmodule Ryker.CoopFleet.Client do
        )
        when is_binary(operation_id) and operation_id != "",
        do: {:ok, response}
-
-  defp review_resource(
-         %{
-           "method" => "RunReview",
-           "state" => "succeeded",
-           "resource_type" => "review",
-           "resource_id" => session_id
-         },
-         session_id,
-         _revision
-       ),
-       do:
-         {:error,
-          {:coop_upgrade_required, :completed_review_lookup,
-           "Upgrade the Coop daemon and worker connector to recover this saved review."}}
 
   defp review_resource(%{"method" => "RunReview", "state" => state}, _session_id, _revision)
        when state in ["reserved", "running", "uncertain"],
@@ -380,32 +446,217 @@ defmodule Ryker.CoopFleet.Client do
     do: {:error, {:coop_protocol_error, :review_resource}}
 
   @impl true
-  def get_review_patch(_client, _artifact_id, _expected_sha256, _expected_bytes),
-    do: {:error, :coop_fleet_review_patch_session_required}
-
-  @impl true
-  def get_session_review_patch(
-        client,
-        coop_session_id,
-        artifact_id,
-        expected_sha256,
-        expected_bytes
-      ) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id),
-         {:ok, %{"transfer_id" => transfer_id}} <-
-           execute_read(client, session, "get_review_patch", %{
-             "artifact_id" => artifact_id,
-             "coop_session_id" => coop_session_id,
-             "expected_bytes" => expected_bytes,
-             "expected_sha256" => expected_sha256
-           }),
-         {:ok, patch} <- ArtifactTransport.fetch_review_patch(transfer_id) do
-      {:ok, patch}
+  def publish_review(client, coop_session_id, review_key, review_id, key, body) do
+    with {:ok, %Session{id: session_id}} <- session_by_coop_id(coop_session_id),
+         %Command{
+           session_id: ^session_id,
+           kind: "run_review",
+           payload: %{"coop_session_id" => ^coop_session_id},
+           placement_id: placement_id
+         } = owner
+         when not is_nil(placement_id) <- Repo.get_by(Command, idempotency_key: review_key),
+         path <- "/v1/sessions/#{coop_session_id}/reviews/#{review_id}/publish",
+         {:ok, command} <- publication_command(owner, key, path, body),
+         {:ok, response} <- publication_command_response(client, command) do
+      publication_result(client, command, coop_session_id, response)
     else
-      {:ok, _invalid} -> {:error, {:coop_protocol_error, :review_patch_transfer}}
       {:error, _reason} = error -> error
+      _unproven -> {:error, {:coop_protocol_error, :publication_owner}}
     end
   end
+
+  defp publication_command(owner, key, path, body) do
+    case Repo.get_by(Command, idempotency_key: key) do
+      %Command{
+        kind: "api_request",
+        payload: %{"method" => "POST", "path" => ^path, "body" => saved}
+      } = command ->
+        # Destination and prose freeze in the first durable command. A settings
+        # refresh cannot reroute its retry, but approval/candidate drift is refused.
+        identity =
+          ~w(authorization_ref candidate_head candidate_tree expected_head pull_request_number)
+
+        if command.placement_id == owner.placement_id and command.session_id == owner.session_id and
+             Map.take(saved, identity) == Map.take(body, identity),
+           do: {:ok, command},
+           else: {:error, {:coop_worker_command_conflict, key}}
+
+      nil ->
+        with :ok <- current_command_placement(owner) do
+          ControlPlane.enqueue_command(
+            owner.placement_id,
+            "api_request",
+            %{"method" => "POST", "path" => path, "body" => body},
+            key
+          )
+        end
+
+      _other ->
+        {:error, {:coop_worker_command_conflict, key}}
+    end
+  end
+
+  defp publication_command_response(client, command) do
+    # A completed result lookup is durable even if the original POST only
+    # acknowledged a background operation and its placement has since expired.
+    case Repo.get_by(Command, idempotency_key: publication_result_key(command)) do
+      %Command{status: :succeeded, session_id: session_id, placement_id: placement_id} = result
+      when session_id == command.session_id and placement_id == command.placement_id ->
+        Bridge.command_response(
+          result,
+          client.bridge_options[:body_root],
+          client.bridge_options[:checkpoint_key]
+        )
+
+      _pending ->
+        publication_post_response(client, command)
+    end
+  end
+
+  defp publication_post_response(client, %Command{status: :succeeded} = command),
+    do:
+      Bridge.command_response(
+        command,
+        client.bridge_options[:body_root],
+        client.bridge_options[:checkpoint_key]
+      )
+
+  defp publication_post_response(_client, %Command{status: :uncertain}), do: {:ok, :reconcile}
+
+  defp publication_post_response(client, command),
+    do: client.bridge.await_command(command.id, client.bridge_options)
+
+  defp publication_result(_client, _command, session_id, %{
+         "operation" => %{
+           "method" => "PublishReview",
+           "state" => "succeeded",
+           "resource_type" => "publication",
+           "resource_id" => session_id
+         },
+         "publication" => %{"status" => "published", "receipt" => receipt}
+       }),
+       do: {:ok, receipt}
+
+  defp publication_result(_client, _command, session_id, %{
+         "operation" => %{
+           "method" => "PublishReview",
+           "state" => "succeeded",
+           "resource_type" => "publication",
+           "resource_id" => session_id
+         },
+         "publication" => %{"status" => "conflict", "error_code" => code, "conflict" => receipt}
+       })
+       when is_map(receipt) and
+              code in ~w(publication_branch_changed publication_branch_already_exists) do
+    code =
+      if code == "publication_branch_changed",
+        do: :publication_branch_changed,
+        else: :publication_branch_already_exists
+
+    if is_integer(receipt["pull_request_number"]) and receipt["pull_request_number"] > 0 and
+         receipt["observed_head_sha"] != "",
+       do: {:error, {:publication_conflict, code, receipt}},
+       else: {:error, code}
+  end
+
+  defp publication_result(_client, _command, session_id, %{
+         "operation" => %{
+           "method" => "PublishReview",
+           "state" => "succeeded",
+           "resource_type" => "publication",
+           "resource_id" => session_id
+         },
+         "publication" => %{"status" => "refused", "error_code" => code}
+       }) do
+    case code do
+      "publication_branch_changed" ->
+        {:error, :publication_branch_changed}
+
+      "publication_branch_already_exists" ->
+        {:error, :publication_branch_already_exists}
+
+      "publication_existing_pull_request_changed" ->
+        {:error, :publication_existing_pull_request_changed}
+
+      "publication_pull_request_mismatch" ->
+        {:error, :publication_pull_request_mismatch}
+
+      "publication_authorization_revoked" ->
+        {:error, :publication_authorization_revoked}
+
+      _unknown ->
+        {:error, {:coop_protocol_error, :publication_refusal}}
+    end
+  end
+
+  defp publication_result(_client, _command, _session_id, %{
+         "operation" => %{"state" => "succeeded"}
+       }),
+       do: {:error, {:coop_protocol_error, :publication_resource}}
+
+  defp publication_result(client, command, session_id, response)
+       when response == :reconcile or is_map_key(response, "operation") do
+    with :ok <- current_command_placement(command),
+         {:ok, lookup} <-
+           ControlPlane.enqueue_command(
+             command.placement_id,
+             "reconcile_operation",
+             %{"operation_key" => command.idempotency_key},
+             "ryker:fleet:read:publication:#{Ecto.UUID.generate()}"
+           ),
+         {:ok, operation} <- client.bridge.await_command(lookup.id, client.bridge_options) do
+      publication_operation(client, command, session_id, operation)
+    end
+  end
+
+  defp publication_result(_client, _command, _session_id, _response),
+    do: {:error, {:coop_protocol_error, :publication_resource}}
+
+  defp publication_operation(client, command, session_id, %{
+         "id" => operation_id,
+         "method" => "PublishReview",
+         "state" => "succeeded",
+         "resource_type" => "publication",
+         "resource_id" => session_id
+       }) do
+    with {:ok, lookup} <-
+           ControlPlane.enqueue_command(
+             command.placement_id,
+             "api_request",
+             %{
+               "method" => "GET",
+               "path" => "/v1/sessions/#{session_id}/publications/#{operation_id}"
+             },
+             publication_result_key(command)
+           ),
+         {:ok, %{"operation" => %{"id" => ^operation_id}} = response} <-
+           client.bridge.await_command(lookup.id, client.bridge_options) do
+      publication_result(client, command, session_id, response)
+    else
+      {:ok, _other} -> {:error, {:coop_protocol_error, :publication_resource}}
+      error -> error
+    end
+  end
+
+  defp publication_operation(_client, _command, _session_id, %{
+         "method" => "PublishReview",
+         "state" => "failed",
+         "error_code" => code,
+         "error_detail" => detail
+       }),
+       do: {:error, {:coop_error, 0, code, detail}}
+
+  defp publication_operation(_client, _command, _session_id, %{
+         "method" => "PublishReview",
+         "state" => state
+       })
+       when state in ~w(reserved running uncertain),
+       do: {:error, {:coop_unavailable, "Publication has not completed on its owning worker."}}
+
+  defp publication_operation(_client, _command, _session_id, _response),
+    do: {:error, {:coop_protocol_error, :publication_operation}}
+
+  defp publication_result_key(command), do: "ryker:fleet:publication:#{command.id}"
 
   @impl true
   def submit_turn(client, session_id, key, revision, prompt, schema) do
@@ -427,17 +678,17 @@ defmodule Ryker.CoopFleet.Client do
         key,
         revision,
         submission,
-        responder_binding,
+        controller_tools,
         artifacts
       ) do
     with {:ok, _artifact_refs} <- exact_input_artifacts(submission, artifacts),
-         :ok <- optional_responder_binding(responder_binding),
+         :ok <- optional_controller_tools(controller_tools),
          {:ok, session} <- session_by_coop_id(coop_session_id) do
       execute(
         client,
         session,
         "submit_turn",
-        submit_turn_payload(coop_session_id, revision, submission, responder_binding),
+        submit_turn_payload(coop_session_id, revision, submission, controller_tools),
         key
       )
     end
@@ -450,18 +701,18 @@ defmodule Ryker.CoopFleet.Client do
         key,
         revision,
         submission,
-        responder_binding,
+        controller_tools,
         artifacts
       ) do
     with {:ok, _artifact_refs} <- exact_input_artifacts(submission, artifacts),
-         :ok <- optional_responder_binding(responder_binding),
+         :ok <- optional_controller_tools(controller_tools),
          {:ok, session} <- session_by_coop_id(coop_session_id) do
       fence_durable_operation(
         client,
         session,
         key,
         "submit_turn",
-        submit_turn_payload(coop_session_id, revision, submission, responder_binding)
+        submit_turn_payload(coop_session_id, revision, submission, controller_tools)
       )
     end
   end
@@ -589,8 +840,14 @@ defmodule Ryker.CoopFleet.Client do
       nil ->
         :not_found
 
-      %Command{status: :succeeded, result: result} = command ->
-        with {:ok, operation} <- operation_result(result),
+      %Command{status: :succeeded} = command ->
+        with {:ok, body} <-
+               Bridge.command_response(
+                 command,
+                 client.bridge_options[:body_root],
+                 client.bridge_options[:checkpoint_key]
+               ),
+             {:ok, operation} <- operation_result(body),
              {:ok, operation} <- reconcile_waiting_operation(client, command, operation, key),
              :ok <- ensure_reconciled_workspace(client, command, operation, key) do
           {:ok, operation}
@@ -605,6 +862,10 @@ defmodule Ryker.CoopFleet.Client do
 
       %Command{status: :failed, kind: kind, error: %{"code" => "invalid_command"}} = command
       when kind in ["create_session", "submit_turn"] ->
+        {:ok, worker_rejected_operation(command)}
+
+      %Command{placement_id: nil, status: :failed, error: %{"code" => "operation_not_enqueued"}} =
+          command ->
         {:ok, worker_rejected_operation(command)}
 
       %Command{} = command ->
@@ -624,15 +885,33 @@ defmodule Ryker.CoopFleet.Client do
   @impl true
   def get_output_artifact(client, coop_session_id, coop_turn_id, artifact_id) do
     with {:ok, session} <- session_by_coop_id(coop_session_id),
-         {:ok, %{"transfer_id" => transfer_id}} <-
+         {:ok, %{stored_body: stored, body_ref: reference, headers: headers}} <-
            execute_read(client, session, "get_output_artifact", %{
              "artifact_ref" => artifact_id,
              "coop_session_id" => coop_session_id,
              "coop_turn_id" => coop_turn_id
            }),
-         {:ok, artifact} <- ArtifactTransport.fetch_output(transfer_id) do
-      {:ok, artifact}
+         true <- reference["byte_size"] <= 8 * 1_024 * 1_024,
+         true <- headers["Etag"] == ~s("#{reference["sha256"]}"),
+         {:ok, bytes} <-
+           Bodies.read(
+             stored,
+             client.bridge_options[:checkpoint_key],
+             8 * 1_024 * 1_024
+           ),
+         true <-
+           byte_size(bytes) == reference["byte_size"] and
+             Base.encode16(:crypto.hash(:sha256, bytes), case: :lower) == reference["sha256"] do
+      {:ok,
+       %{
+         "id" => artifact_id,
+         "data" => bytes,
+         "bytes" => reference["byte_size"],
+         "sha256" => reference["sha256"],
+         "media_type" => headers["Content-Type"]
+       }}
     else
+      false -> {:error, {:coop_protocol_error, :output_artifact_transfer}}
       {:ok, _invalid} -> {:error, {:coop_protocol_error, :output_artifact_transfer}}
       {:error, _reason} = error -> error
     end
@@ -646,25 +925,16 @@ defmodule Ryker.CoopFleet.Client do
     execute(client, session, kind, payload, key)
   end
 
-  defp fence_durable_operation(client, %Session{id: session_id}, key, kind, payload) do
-    case Repo.get_by(Command, idempotency_key: key) do
-      %Command{session_id: ^session_id, kind: ^kind, payload: durable_payload} ->
-        if durable_payload_match?(kind, durable_payload, payload),
-          do: operation_by_key(client, key),
-          else: {:error, {:coop_worker_command_conflict, key}}
-
-      %Command{} ->
-        {:error, {:coop_worker_command_conflict, key}}
-
-      nil ->
-        {:ok,
-         failed_operation(
-           kind,
-           "fleet-fence:#{CanonicalJSON.digest(%{"key" => key, "kind" => kind})}",
-           "operation_not_enqueued",
-           "The fleet mutation was not enqueued and could not reach Coop."
-         )}
+  defp fence_durable_operation(client, session, key, kind, payload) do
+    with {:ok, command} <- ControlPlane.fence_command(session, kind, payload, key) do
+      fenced_command(client, command, key, kind, payload)
     end
+  end
+
+  defp fenced_command(client, command, key, kind, payload) do
+    if Commands.local_fence?(command) or durable_payload_match?(kind, command.payload, payload),
+      do: operation_by_key(client, key),
+      else: {:error, {:coop_worker_command_conflict, key}}
   end
 
   defp normalize_options(options) when is_list(options) do
@@ -692,18 +962,56 @@ defmodule Ryker.CoopFleet.Client do
 
   defp valid_workspace_ref?(_workspace_ref), do: false
 
+  # Task offers can span execution generations. A durable key keeps its original
+  # session; before enqueue the Work create key names that session and attempt.
+  defp create_session_identity(key, task) do
+    case Repo.get_by(Command, idempotency_key: key) do
+      %Command{kind: "create_session", session_id: id} ->
+        exact_create_task(Repo.get(Session, id), task)
+
+      nil ->
+        new_create_identity(key, task)
+
+      _other_kind ->
+        {:error, {:coop_worker_command_conflict, key}}
+    end
+  end
+
+  defp new_create_identity(key, task) do
+    case Regex.run(~r/\Aryker:work:create:([0-9a-f-]{36}):g([1-9]\d*)\z/, key) do
+      [_, id, generation] ->
+        with {:ok, id} <- Ecto.UUID.cast(id),
+             %Session{} = session <- Repo.get(Session, id),
+             true <- Integer.to_string(session.create_generation) == generation do
+          exact_create_task(session, task)
+        else
+          _stale -> {:error, {:coop_worker_command_conflict, key}}
+        end
+
+      nil ->
+        session_by_task_ref(task)
+    end
+  end
+
+  defp exact_create_task(%Session{} = session, task) do
+    if task in [session.external_ref, Session.coop_task_ref(session)],
+      do: {:ok, session},
+      else: {:error, {:coop_session_not_found, task}}
+  end
+
+  defp exact_create_task(_missing, task), do: {:error, {:coop_session_not_found, task}}
+
   defp session_by_task_ref(task_ref) do
-    case Repo.one(
+    case Repo.all(
            from(session in Session,
              where:
                session.external_ref == ^task_ref or
                  fragment("(?::jsonb ->> 'offer_ref') = ?", session.workspace_task, ^task_ref),
-             order_by: [desc: session.generation],
-             limit: 1
+             limit: 2
            )
          ) do
-      %Session{} = session -> {:ok, session}
-      nil -> {:error, {:coop_session_not_found, task_ref}}
+      [%Session{} = session] -> {:ok, session}
+      _missing_or_ambiguous -> {:error, {:coop_session_not_found, task_ref}}
     end
   end
 
@@ -732,7 +1040,11 @@ defmodule Ryker.CoopFleet.Client do
             source.episode_id == ^session.episode_id and
               source.generation < ^session.generation and
               source.repository_ref == ^session.repository_ref and
-              command.status == :succeeded,
+              command.status == :succeeded and
+              fragment(
+                "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
+                command.result
+              ),
           order_by: [desc: transfer.inserted_at, desc: transfer.id],
           limit: 1,
           select: {transfer, source}
@@ -750,18 +1062,23 @@ defmodule Ryker.CoopFleet.Client do
   # copies the selector verbatim; a mismatch is a custody violation, never a
   # reason to start from a different source.
   defp checkpoint_document(checkpoint, %Session{} = source, %Session{} = session) do
-    if RepositorySource.same?(source.repository_source, session.repository_source) do
-      {:ok,
-       %{
-         "byte_size" => checkpoint.bundle_byte_size,
-         "checkpoint_ref" => checkpoint.checkpoint_ref,
-         "sha256" => checkpoint.bundle_sha256,
-         "source_placement_generation" => checkpoint.placement_generation,
-         "source_session_ref" => checkpoint.session_ref,
-         "transfer_id" => checkpoint.id
-       }}
-    else
-      {:error, {:coop_workspace_checkpoint_source_mismatch, session.id, session.generation}}
+    cond do
+      not WorkspaceCheckpoint.restorable?(checkpoint.descriptor) ->
+        {:error, {:coop_workspace_checkpoint_read_only, checkpoint.checkpoint_ref}}
+
+      RepositorySource.same?(source.repository_source, session.repository_source) ->
+        {:ok,
+         %{
+           "byte_size" => checkpoint.bundle_byte_size,
+           "checkpoint_ref" => checkpoint.checkpoint_ref,
+           "sha256" => checkpoint.bundle_sha256,
+           "source_placement_generation" => checkpoint.placement_generation,
+           "source_session_ref" => checkpoint.session_ref,
+           "transfer_id" => checkpoint.id
+         }}
+
+      true ->
+        {:error, {:coop_workspace_checkpoint_source_mismatch, session.id, session.generation}}
     end
   end
 
@@ -829,19 +1146,29 @@ defmodule Ryker.CoopFleet.Client do
               reconciliation.payload,
               create.idempotency_key
             ),
+        where: is_nil(session.coop_session_id) and reconciliation.status == :succeeded,
         where:
-          is_nil(session.coop_session_id) and reconciliation.status == :succeeded and
-            fragment(
-              "(?::jsonb ->> 'resource_id') = ?",
-              reconciliation.result,
-              ^coop_session_id
-            ) and
-            fragment("(?::jsonb ->> 'resource_type') = 'session'", reconciliation.result) and
-            fragment(
-              "(?::jsonb ->> 'method') = 'CreateRemoteSession'",
-              reconciliation.result
-            ) and
-            fragment("(?::jsonb ->> 'state') = 'succeeded'", reconciliation.result),
+          fragment(
+            "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
+            reconciliation.result
+          ),
+        where:
+          fragment(
+            "(?::jsonb -> 'body' ->> 'resource_id') = ?",
+            reconciliation.result,
+            ^coop_session_id
+          ),
+        where:
+          fragment(
+            "(?::jsonb -> 'body' ->> 'resource_type') = 'session'",
+            reconciliation.result
+          ),
+        where:
+          fragment(
+            "(?::jsonb -> 'body' ->> 'method') = 'CreateRemoteSession'",
+            reconciliation.result
+          ),
+        where: fragment("(?::jsonb -> 'body' ->> 'state') = 'succeeded'", reconciliation.result),
         distinct: true,
         select: session,
         limit: 2
@@ -930,7 +1257,7 @@ defmodule Ryker.CoopFleet.Client do
            execute_read(client, session, "get_session", %{
              "coop_session_id" => coop_session_id
            }),
-         {:ok, _ensured} <- ensure_workspace(client, session, remote, create_key) do
+         {:ok, _ensured} <- ensure_workspace(client, session, %{"session" => remote}, create_key) do
       :ok
     end
   end
@@ -945,12 +1272,16 @@ defmodule Ryker.CoopFleet.Client do
               reconciliation.kind == "reconcile_operation" and
               reconciliation.status == :succeeded and
               fragment(
+                "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
+                reconciliation.result
+              ) and
+              fragment(
                 "(?::jsonb ->> 'operation_key') = ?",
                 reconciliation.payload,
                 ^operation_key
               ) and
               fragment(
-                "(?::jsonb ->> 'state') IN ('succeeded', 'failed')",
+                "(?::jsonb -> 'body' ->> 'state') IN ('succeeded', 'failed')",
                 reconciliation.result
               ),
           order_by: [desc: reconciliation.completed_at, desc: reconciliation.id],
@@ -959,7 +1290,8 @@ defmodule Ryker.CoopFleet.Client do
       )
 
     with %Command{result: result} <- candidate,
-         {:ok, terminal} <- operation_result(result),
+         {:ok, body} <- Bridge.response(result),
+         {:ok, terminal} <- operation_result(body),
          true <- same_operation?(operation, terminal) do
       {:ok, terminal}
     else
@@ -1005,6 +1337,10 @@ defmodule Ryker.CoopFleet.Client do
           command.session_id == ^session_id and command.kind == "ensure_workspace" and
             command.status == :succeeded and
             fragment(
+              "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
+              command.result
+            ) and
+            fragment(
               "(?::jsonb ->> 'coop_session_id') = ?",
               command.payload,
               ^coop_session_id
@@ -1028,11 +1364,13 @@ defmodule Ryker.CoopFleet.Client do
       %Command{
         payload: %{"task" => ^workspace_task},
         result: %{
-          "session" =>
-            %{
-              "id" => ^coop_session_id,
-              "workspace_task" => %{"offer_ref" => ^offer_ref}
-            } = remote_session
+          "body" => %{
+            "session" =>
+              %{
+                "id" => ^coop_session_id,
+                "workspace_task" => %{"offer_ref" => ^offer_ref}
+              } = remote_session
+          }
         }
       } ->
         {:ok, remote_session}
@@ -1086,9 +1424,9 @@ defmodule Ryker.CoopFleet.Client do
   defp exact_input_artifacts(_submission, _artifacts),
     do: {:error, :coop_fleet_input_artifact_mismatch}
 
-  defp optional_responder_binding(nil), do: :ok
+  defp optional_controller_tools(nil), do: :ok
 
-  defp optional_responder_binding(%{"endpoint" => endpoint, "token" => token} = binding)
+  defp optional_controller_tools(%{"endpoint" => endpoint, "token" => token} = binding)
        when map_size(binding) == 2 and is_binary(endpoint) and is_binary(token) do
     case URI.parse(endpoint) do
       %URI{
@@ -1102,43 +1440,44 @@ defmodule Ryker.CoopFleet.Client do
       when is_binary(host) and host != "" and byte_size(endpoint) <= 2_048 ->
         if Regex.match?(~r/\A[0-9a-f]{64}[A-Za-z0-9_-]{43}\z/, token),
           do: :ok,
-          else: {:error, {:invalid_coop_responder_binding, :fields}}
+          else: {:error, {:invalid_coop_controller_tools, :fields}}
 
       _invalid ->
-        {:error, {:invalid_coop_responder_binding, :fields}}
+        {:error, {:invalid_coop_controller_tools, :fields}}
     end
   end
 
-  defp optional_responder_binding(_binding),
-    do: {:error, {:invalid_coop_responder_binding, :fields}}
+  defp optional_controller_tools(_binding),
+    do: {:error, {:invalid_coop_controller_tools, :fields}}
 
-  defp maybe_put_responder_binding(document, nil), do: document
+  defp maybe_put_controller_tools(document, nil), do: document
 
-  defp maybe_put_responder_binding(document, binding),
-    do: Map.put(document, "responder_binding", responder_binding_descriptor(binding))
+  defp maybe_put_controller_tools(document, binding),
+    do: Map.put(document, "controller_tools", controller_tools_descriptor(binding))
 
   # Create and fence build the identical payload, so a fence request hashes the
   # exact selector create would have sent.
   defp create_session_payload(session, policy, task, source) do
     with {:ok, source} <- repository_source(source) do
-      payload =
-        %{
-          "authority_digest" => session.authority_digest,
-          "external_ref" => task,
-          "policy" => policy,
-          "policy_digest" => session.policy_digest
-        }
-        |> maybe_put_repository_source(source)
-
-      {:ok, payload}
+      create_payload_for_authority(session, policy, task, source)
     end
   end
 
-  defp maybe_put_repository_source(payload, nil), do: payload
+  defp create_payload_for_authority(
+         %Session{worker_job_document: %{} = job, worker_job_digest: digest} = session,
+         _policy,
+         task,
+         _source
+       ) do
+    with {:ok, _session} <- JobAuthority.validate(session) do
+      {:ok, %{"external_ref" => task, "job" => job, "job_digest" => digest}}
+    end
+  end
 
-  defp maybe_put_repository_source(payload, source), do: Map.put(payload, "source", source)
+  defp create_payload_for_authority(_session, _policy, _task, _source),
+    do: {:error, {:coop_fleet_authority_mismatch, :worker_job}}
 
-  defp submit_turn_payload(coop_session_id, revision, submission, responder_binding) do
+  defp submit_turn_payload(coop_session_id, revision, submission, controller_tools) do
     %{
       "coop_session_id" => coop_session_id,
       "expected_revision" => revision,
@@ -1146,7 +1485,7 @@ defmodule Ryker.CoopFleet.Client do
       "submission_sha256" => worker_submission_digest(submission),
       "turn_ref" => submission["context"]["turn_ref"] || "logical-turn"
     }
-    |> maybe_put_responder_binding(responder_binding)
+    |> maybe_put_controller_tools(controller_tools)
   end
 
   defp durable_payload_match?("submit_turn", durable, expected)
@@ -1163,15 +1502,7 @@ defmodule Ryker.CoopFleet.Client do
   defp durable_payload_match?(_kind, durable, expected), do: durable == expected
 
   defp worker_submission_digest(submission) do
-    submission
-    |> CanonicalJSON.encode!()
-    |> String.replace("&", "\\u0026")
-    |> String.replace("<", "\\u003c")
-    |> String.replace(">", "\\u003e")
-    |> String.replace(<<0x2028::utf8>>, "\\u2028")
-    |> String.replace(<<0x2029::utf8>>, "\\u2029")
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
+    CanonicalJSON.worker_digest(submission)
   end
 
   defp worker_rejected_operation(command) do
@@ -1196,7 +1527,7 @@ defmodule Ryker.CoopFleet.Client do
   defp operation_method("create_session"), do: "CreateRemoteSession"
   defp operation_method("submit_turn"), do: "SubmitTurn"
 
-  defp responder_binding_descriptor(%{"endpoint" => endpoint, "token" => token}) do
+  defp controller_tools_descriptor(%{"endpoint" => endpoint, "token" => token}) do
     %{"endpoint" => endpoint, "token_sha256" => StateBinding.sha256(token)}
   end
 end

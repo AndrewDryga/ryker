@@ -3,7 +3,7 @@ defmodule Ryker.CoopFleet.ProtocolTest do
 
   alias Ryker.CoopFleet.Protocol
 
-  @fixture Path.expand("../../../testdata/protocol/coop-worker-v1.json", __DIR__)
+  @fixture Path.expand("../../../testdata/protocol/coop-worker-v2.json", __DIR__)
   @storage_fixture Path.expand(
                      "../../../testdata/protocol/coop-worker-storage-v1.json",
                      __DIR__
@@ -101,21 +101,38 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     assert {:ok, poll} = Protocol.poll(fixture["poll"])
     assert poll["worker"]["id"] == "worker-a"
 
-    assert poll["worker"]["policy_authority_digests"] == %{
-             "responder-read-only-v1" => String.duplicate("d", 64)
-           }
+    refute Map.has_key?(poll["worker"], "policy_digests")
 
     assert Enum.map(hd(poll["event_batches"])["events"], & &1["sequence"]) == [1, 2]
 
     assert {:ok, response} = Protocol.response(fixture["response"])
     assert [command] = response["commands"]
-    assert command["kind"] == "submit_turn"
-    assert command["payload"]["submission"]["prompt"] == "Continue the selected episode."
+    assert command["kind"] == "api_request"
+    assert command["payload"]["body"]["prompt"] == "Continue the selected episode."
     assert response["acknowledged_result_command_ids"] == ["command:create:1"]
 
     assert {:ok, encoded} = Protocol.encode_response(response)
     assert Jason.decode!(encoded) == response
-    assert Protocol.version() == 1
+    assert Protocol.version() == 2
+  end
+
+  test "retired policy and repository advertisements are rejected even when empty" do
+    poll = @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
+
+    for field <- ~w(policy_digests policy_authority_digests repositories) do
+      assert {:error, {:invalid_coop_worker_poll, :worker}} =
+               Protocol.poll(put_in(poll, ["worker", field], %{}))
+    end
+  end
+
+  test "worker build identity has the same 256-byte bound as Coop" do
+    poll = @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
+
+    assert {:ok, _} =
+             Protocol.poll(put_in(poll, ["worker", "build_version"], String.duplicate("b", 256)))
+
+    assert {:error, {:invalid_coop_worker_protocol, :build_version}} =
+             Protocol.poll(put_in(poll, ["worker", "build_version"], String.duplicate("b", 257)))
   end
 
   test "unknown versions fields command kinds and sequence gaps fail before mutation" do
@@ -123,7 +140,7 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     poll = fixture["poll"]
     response = fixture["response"]
 
-    assert Protocol.poll(%{poll | "version" => 2}) ==
+    assert Protocol.poll(%{poll | "version" => 1}) ==
              {:error, {:unsupported_coop_worker_protocol, :version}}
 
     assert {:error, {:invalid_coop_worker_poll, :poll}} =
@@ -199,19 +216,43 @@ defmodule Ryker.CoopFleet.ProtocolTest do
              {:error, {:invalid_coop_worker_poll, :command_result_shape}}
   end
 
-  test "response bounds and worker authority advertisements are unambiguous" do
+  test "successful transport results carry only a bounded unambiguous API response" do
+    poll = @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
+    [result] = poll["command_results"]
+
+    for response <- [
+          %{"id" => "legacy"},
+          %{"status" => "200", "body" => %{}},
+          %{
+            "status" => 200,
+            "body" => %{},
+            "body_ref" => %{"sha256" => String.duplicate("a", 64), "byte_size" => 1}
+          },
+          %{"status" => 200, "body_ref" => %{"sha256" => "wrong", "byte_size" => 1}},
+          %{"status" => 200, "headers" => %{"Content-Type" => "bad\r\nheader"}},
+          %{"status" => 200, "body" => String.duplicate("x", 256 * 1_024 + 1)}
+        ] do
+      assert {:error, {:invalid_coop_worker_poll, :command_result_shape}} =
+               Protocol.poll(%{poll | "command_results" => [%{result | "resource" => response}]})
+    end
+
+    for response <- [
+          %{"status" => 204},
+          %{"status" => 200, "body" => [1, 2]},
+          %{"status" => 409, "body" => %{"error" => %{"code" => "revision_conflict"}}}
+        ] do
+      assert {:ok, _} =
+               Protocol.poll(%{poll | "command_results" => [%{result | "resource" => response}]})
+    end
+  end
+
+  test "response bounds and worker capabilities are unambiguous" do
     fixture = @fixture |> File.read!() |> Jason.decode!()
     poll = fixture["poll"]
     response = fixture["response"]
 
     assert Protocol.response(%{response | "commands" => List.duplicate(%{}, 101)}) ==
              {:error, {:invalid_coop_worker_response, :commands}}
-
-    repository = hd(poll["worker"]["repositories"])
-    duplicate_repositories = put_in(poll, ["worker", "repositories"], [repository, repository])
-
-    assert Protocol.poll(duplicate_repositories) ==
-             {:error, {:invalid_coop_worker_poll, :repositories}}
 
     capability = hd(poll["worker"]["capabilities"])
     duplicate_capabilities = put_in(poll, ["worker", "capabilities"], [capability, capability])
@@ -223,14 +264,6 @@ defmodule Ryker.CoopFleet.ProtocolTest do
 
     assert Protocol.poll(invalid_digest) ==
              {:error, {:invalid_coop_worker_protocol, :sandbox_digest}}
-
-    mismatched_authority =
-      put_in(poll, ["worker", "policy_authority_digests"], %{
-        "another-policy" => String.duplicate("d", 64)
-      })
-
-    assert Protocol.poll(mismatched_authority) ==
-             {:error, {:invalid_coop_worker_poll, :policy_authority_digests}}
   end
 
   test "a real Coop-sized frozen prompt fits while an oversized command does not" do
@@ -239,23 +272,23 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     [command] = response["commands"]
 
     prompt = String.duplicate("p", 200 * 1_024)
-    large = put_in(command, ["payload", "submission", "prompt"], prompt)
+    large = put_in(command, ["payload", "body", "prompt"], prompt)
     assert {:ok, _response} = Protocol.response(%{response | "commands" => [large]})
 
     oversized =
-      put_in(command, ["payload", "submission", "prompt"], String.duplicate("p", 769 * 1_024))
+      put_in(command, ["payload", "body", "prompt"], String.duplicate("p", 769 * 1_024))
 
     assert Protocol.response(%{response | "commands" => [oversized]}) ==
              {:error, {:invalid_coop_worker_protocol, :command_payload}}
   end
 
-  test "only named semantic validation and operation fence mutations cross the wire" do
+  test "product-specific command names no longer cross the generic wire" do
     fixture = @fixture |> File.read!() |> Jason.decode!()
     response = fixture["response"]
     [command] = response["commands"]
 
     for kind <- ~w(get_session get_turn validate_candidate fence_operation) do
-      assert {:ok, _response} =
+      assert {:error, {:invalid_coop_worker_protocol, :command_kind}} =
                Protocol.response(%{response | "commands" => [%{command | "kind" => kind}]})
     end
   end
@@ -270,8 +303,7 @@ defmodule Ryker.CoopFleet.ProtocolTest do
       {put_in(poll, ["worker", "capacity", "state"], "cooldown"), :cooldown_until},
       {put_in(poll, ["worker", "state"], "offline"), :worker_state},
       {put_in(poll, ["worker", "clock_at"], "now"), :clock_at},
-      {put_in(poll, ["worker", "repositories", Access.at(0), "revision"], "bad revision"),
-       :repository_revision},
+      {put_in(poll, ["worker", "protocol_version"], "1"), :protocol_version},
       {put_in(poll, ["worker", "capabilities", Access.at(0), "version"], nil),
        :capability_version},
       {put_in(poll, ["event_batches", Access.at(0), "placement_generation"], 0),
@@ -284,9 +316,6 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     Enum.each(invalid_polls, fn {invalid, field} ->
       assert {:error, {:invalid_coop_worker_protocol, ^field}} = Protocol.poll(invalid)
     end)
-
-    assert {:error, {:invalid_coop_worker_poll, :policy_digests}} =
-             Protocol.poll(put_in(poll, ["worker", "policy_digests"], []))
 
     cooldown =
       poll
@@ -343,7 +372,6 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     invalid_polls = [
       {Map.put(poll, "worker", []), :worker},
       {put_in(poll, ["worker", "capacity"], []), :capacity},
-      {put_in(poll, ["worker", "repositories"], [nil]), :repository},
       {put_in(poll, ["worker", "capabilities"], [nil]), :capability},
       {Map.put(poll, "command_results", [nil]), :command_result},
       {Map.put(poll, "event_batches", [nil]), :event_batch},

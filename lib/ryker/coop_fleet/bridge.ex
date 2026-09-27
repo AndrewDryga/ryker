@@ -3,18 +3,22 @@ defmodule Ryker.CoopFleet.Bridge do
   Synchronous Ryker-side adapter over durable worker commands.
 
   Work remains the caller-facing state machine. This bridge places its exact
-  immutable session, enqueues one idempotent typed command, and waits only on
+  immutable session, enqueues one idempotent API request, and waits only on
   the durable command row. Network delivery and worker retries happen through
   the outbound poll protocol.
   """
 
   import Ecto.Query
 
-  alias Ryker.CoopFleet.{Command, ControlPlane, Placement}
+  alias Ryker.CoopFleet.{Bodies, Checkpoints, Command, ControlPlane, Placement}
+  alias Ryker.CoopFleet.ControlPlane.Commands
   alias Ryker.Repo
   alias Ryker.Work.Session
 
   @option_keys [
+    :body_root,
+    :checkpoint_key,
+    :checkpoint_secrets,
     :capability_names,
     :capability_versions,
     :lease_seconds,
@@ -28,20 +32,70 @@ defmodule Ryker.CoopFleet.Bridge do
           {:ok, map()} | {:error, term()}
   def execute(%Session{} = session, kind, payload, idempotency_key, options) do
     with {:ok, settings} <- settings(options),
-         {:ok, placement} <-
-           ControlPlane.place_session(
-             session.id,
-             requirements(session, settings),
-             settings.lease_seconds
-           ),
          {:ok, command} <-
-           ControlPlane.enqueue_command(placement.id, kind, payload, idempotency_key) do
+           enqueue(session, kind, payload, idempotency_key, settings),
+         :ok <- Checkpoints.prepare_restore(command, options) do
       await(command.id, settings, settings.max_waits)
     end
   end
 
   def execute(_session, _kind, _payload, _idempotency_key, _options),
     do: {:error, {:invalid_coop_worker_bridge, :session}}
+
+  defp enqueue(session, kind, payload, key, settings) do
+    result =
+      Commands.with_session_command(session.id, key, fn current, command ->
+        enqueue_locked(command, current, session, kind, payload, key, settings)
+      end)
+
+    case result do
+      {:ok, {:placement_ended, reason}} -> {:error, reason}
+      result -> result
+    end
+  end
+
+  defp enqueue_locked(%Command{} = command, current, _original, kind, payload, key, _settings) do
+    expected =
+      if Commands.local_fence?(command) and kind == "create_session",
+        do: Commands.create_intent(current, payload["external_ref"]),
+        else: payload
+
+    if command.session_id == current.id and command.kind == kind and command.payload == expected,
+      do: command,
+      else: Repo.rollback({:coop_worker_command_conflict, key})
+  end
+
+  defp enqueue_locked(nil, current, original, kind, payload, key, settings) do
+    validate_new_create(current, original, kind)
+
+    with {:ok, placement} <-
+           ControlPlane.place_session(
+             current.id,
+             requirements(current, settings),
+             settings.lease_seconds
+           ),
+         {:ok, command} <- ControlPlane.enqueue_command(placement.id, kind, payload, key) do
+      command
+    else
+      # Retiring an expired placement must commit even when no command was
+      # enqueued. Rolling it back makes every recovery retry retire it again.
+      {:error, {:coop_session_replacement_required, _, _} = reason} ->
+        {:placement_ended, reason}
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  defp validate_new_create(current, original, "create_session") do
+    unless current.cleanup_status == :active and is_nil(current.coop_session_id) and
+             current.create_generation == original.create_generation and
+             Commands.create_intent(current) == Commands.create_intent(original) and
+             current.worker_job_digest == original.worker_job_digest,
+           do: Repo.rollback({:coop_fleet_authority_mismatch, :worker_job})
+  end
+
+  defp validate_new_create(_current, _original, _kind), do: :ok
 
   @doc "Whether a worker would take this session's placement now, without taking a slot."
   @spec accepts?(Session.t(), keyword()) :: boolean()
@@ -69,6 +123,10 @@ defmodule Ryker.CoopFleet.Bridge do
 
   defp await(command_id, settings, left) when left > 0 do
     case Repo.get(Command, command_id) do
+      %Command{placement_id: nil, status: :failed, error: %{"code" => "operation_not_enqueued"}} =
+          command ->
+        await_result(command, command_id, settings, left)
+
       %Command{} = command ->
         with :ok <- current_placement(command) do
           await_result(command, command_id, settings, left)
@@ -82,9 +140,8 @@ defmodule Ryker.CoopFleet.Bridge do
   defp await(command_id, _settings, 0),
     do: {:error, {:coop_worker_command_timeout, command_id}}
 
-  defp await_result(%Command{status: :succeeded, result: result}, _id, _settings, _left)
-       when is_map(result),
-       do: {:ok, result}
+  defp await_result(%Command{status: :succeeded} = command, _id, settings, _left),
+    do: command_response(command, settings.body_root, settings.checkpoint_key)
 
   defp await_result(%Command{status: :failed, error: error}, _id, _settings, _left)
        when is_map(error) do
@@ -111,6 +168,63 @@ defmodule Ryker.CoopFleet.Bridge do
 
   defp await_result(%Command{}, _command_id, _settings, _left),
     do: {:error, {:invalid_coop_worker_bridge, :command_state}}
+
+  @doc false
+  def command_response(%Command{id: id, result: %{"body_ref" => reference} = result}, root, key) do
+    with {:ok, stored, ^reference} <- Bodies.fetch(root, id, :response, reference) do
+      headers = Map.get(result, "headers", %{})
+      streamed_response(result, stored, reference, key, headers)
+    end
+  end
+
+  def command_response(%Command{result: result}, _root, _key), do: response(result)
+
+  defp streamed_response(result, stored, reference, key, headers) do
+    if json_body?(headers) do
+      json_response(result, stored, key)
+    else
+      with {:ok, nil} <- response(Map.delete(result, "body_ref")) do
+        {:ok, %{stored_body: stored, body_ref: reference, headers: headers}}
+      end
+    end
+  end
+
+  defp json_response(result, stored, key) do
+    with {:ok, bytes} <- Bodies.read(stored, key, 8 * 1_024 * 1_024),
+         {:ok, body} <- Jason.decode(bytes) do
+      response(result |> Map.delete("body_ref") |> Map.put("body", body))
+    else
+      _ -> {:error, {:coop_protocol_error, :response_body}}
+    end
+  end
+
+  defp json_body?(headers) do
+    Enum.any?(headers, fn {name, value} ->
+      String.downcase(name) == "content-type" and
+        value |> String.split(";", parts: 2) |> hd() |> String.trim() |> String.downcase() ==
+          "application/json"
+    end)
+  end
+
+  @doc false
+  def response(%{"status" => status, "body" => body}) when status in 200..299,
+    do: {:ok, body}
+
+  def response(%{"status" => status} = result) when status in 400..599 do
+    problem = result["body"] || %{}
+    nested = if is_map(problem), do: problem["error"] || problem, else: %{}
+    error = if is_map(nested), do: nested, else: %{}
+
+    {:error,
+     {:coop_error, status, error["code"] || "coop_request_failed",
+      error["detail"] || "Coop API request failed"}}
+  end
+
+  def response(%{"status" => status} = result)
+      when status in 200..299 and map_size(result) <= 2 and not is_map_key(result, "body_ref"),
+      do: {:ok, nil}
+
+  def response(_response), do: {:error, {:invalid_coop_worker_bridge, :response}}
 
   defp current_placement(command) do
     placement = Repo.one(from(value in Placement, where: value.id == ^command.placement_id))
@@ -152,6 +266,9 @@ defmodule Ryker.CoopFleet.Bridge do
     poll_interval_ms = Keyword.get(options, :poll_interval_ms, 100)
 
     %{
+      body_root: Keyword.get(options, :body_root),
+      checkpoint_key: Keyword.get(options, :checkpoint_key),
+      checkpoint_secrets: Keyword.get(options, :checkpoint_secrets, []),
       capability_names: Keyword.get(options, :capability_names, []),
       capability_versions: Keyword.get(options, :capability_versions, %{}),
       lease_seconds: Keyword.get(options, :lease_seconds, 60),
@@ -172,6 +289,8 @@ defmodule Ryker.CoopFleet.Bridge do
 
   defp valid_settings?(settings) do
     Enum.all?([
+      is_nil(settings.body_root) or
+        (is_binary(settings.body_root) and Path.type(settings.body_root) == :absolute),
       valid_capability_names?(settings.capability_names),
       valid_capability_versions?(settings.capability_versions),
       is_integer(settings.lease_seconds),

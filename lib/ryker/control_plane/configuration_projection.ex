@@ -36,7 +36,6 @@ defmodule Ryker.ControlPlane.ConfigurationProjection do
     details =
       []
       |> maybe_config("runtime.mode", Application.get_env(:ryker, :runtime_mode), source)
-      |> maybe_config("admission.policy", safe_value(admission, :policy), source)
       |> maybe_config(
         "admission.decision_timeout_ms",
         safe_value(admission, :decision_timeout_ms),

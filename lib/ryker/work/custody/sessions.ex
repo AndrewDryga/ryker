@@ -11,10 +11,10 @@ defmodule Ryker.Work.Custody.Sessions do
   import Ecto.Query
   import Ryker.Work.Custody.Locks
 
+  alias Ryker.CoopFleet.JobSpec
   alias Ryker.Emisar.Connections, as: EmisarConnections
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
-  alias Ryker.Settings.PolicyBinding
   alias Ryker.Work.Custody.Turns
 
   alias Ryker.Work.{
@@ -558,6 +558,8 @@ defmodule Ryker.Work.Custody.Sessions do
           session_external_ref(episode.id, 1),
           %{
             authority_digest: authority.authority_digest,
+            worker_job_document: Map.get(authority, :worker_job_document),
+            worker_job_digest: Map.get(authority, :worker_job_digest),
             environment_ref: authority.environment_ref,
             repository_context: authority.repository_context,
             repository_source: authority.repository_source,
@@ -664,7 +666,6 @@ defmodule Ryker.Work.Custody.Sessions do
       nil ->
         with {:ok, session} <- current_session(episode),
              {:ok, session} <- isolate_transferred_owner(episode, session),
-             session = follow_policy(session),
              {:ok, turn} <- insert_turn(episode, session) do
           {:ok, session, turn}
         end
@@ -672,7 +673,7 @@ defmodule Ryker.Work.Custody.Sessions do
       %Turn{} = identity ->
         with {:ok, session} <- lock_session(episode.id, identity.session_id),
              {:ok, turn} <- lock_turn(episode.id, episode.owner_ref) do
-          {:ok, follow_policy(session), turn}
+          {:ok, session, turn}
         end
     end
   end
@@ -693,47 +694,6 @@ defmodule Ryker.Work.Custody.Sessions do
         end
     end
   end
-
-  @doc """
-  The digest a session's policy runs under now.
-
-  Choosing another model in Settings changes a policy's digest but not its
-  authority, and a session pinned to the old digest could no longer be placed
-  on any worker. A session keeps its policy and authority and follows the
-  digest when only the model changed; a changed authority keeps the pin.
-  """
-  @spec current_policy_digest(Session.t()) :: String.t()
-  def current_policy_digest(
-        %Session{policy: policy, policy_digest: pinned, authority_digest: authority} = _session
-      )
-      when is_binary(policy) and is_binary(authority) do
-    from(binding in PolicyBinding,
-      where: binding.policy_name == ^policy,
-      distinct: true,
-      select: {binding.policy_digest, binding.authority_digest}
-    )
-    |> Repo.all()
-    |> case do
-      [{current, ^authority}] -> current
-      _none_or_changed -> pinned
-    end
-  end
-
-  def current_policy_digest(%Session{policy_digest: pinned}), do: pinned
-
-  # A session no worker has created yet takes the current digest in place; a
-  # created one moves to a new generation instead (see the executor).
-  defp follow_policy(%Session{coop_session_id: nil, cleanup_status: :active} = session) do
-    case current_policy_digest(session) do
-      digest when digest == session.policy_digest ->
-        session
-
-      digest ->
-        session |> Ecto.Changeset.change(%{policy_digest: digest}) |> Repo.update!()
-    end
-  end
-
-  defp follow_policy(session), do: session
 
   @doc false
   def insert_turn(episode, session) do
@@ -801,9 +761,11 @@ defmodule Ryker.Work.Custody.Sessions do
   def session_authority(%Session{} = session) do
     %{
       authority_digest: session.authority_digest,
+      worker_job_document: session.worker_job_document,
+      worker_job_digest: session.worker_job_digest,
       environment_ref: session.environment_ref,
       policy: session.policy,
-      policy_digest: current_policy_digest(session),
+      policy_digest: session.policy_digest,
       repository_context: session.repository_context,
       repository_ref: session.repository_ref,
       repository_source: session.repository_source,
@@ -819,26 +781,38 @@ defmodule Ryker.Work.Custody.Sessions do
   @doc false
   def insert_session(episode_id, generation, authority) do
     session_id = Ecto.UUID.generate()
+    external_ref = session_external_ref(episode_id, generation)
 
-    session_id
-    |> SessionChangeset.insert_with_authority(
-      episode_id,
-      generation,
-      authority.policy,
-      authority.policy_digest,
-      authority.repository_ref,
-      session_external_ref(episode_id, generation),
-      %{
-        authority_digest: authority.authority_digest,
-        environment_ref: authority.environment_ref,
-        repository_context: authority.repository_context,
-        repository_source: authority.repository_source,
-        emisar: present_emisar(authority.emisar),
-        workspace_task: authority.workspace_task
-      }
-    )
-    |> Repo.insert()
-    |> persistence_result(:work_session)
+    # A replacement gets a new request identity, not newly resolved authority.
+    # Verify the predecessor's digest before rebinding only its job reference.
+    with {:ok, job, job_digest} <-
+           JobSpec.rebind(
+             Map.get(authority, :worker_job_document),
+             Map.get(authority, :worker_job_digest),
+             external_ref
+           ) do
+      session_id
+      |> SessionChangeset.insert_with_authority(
+        episode_id,
+        generation,
+        authority.policy,
+        authority.policy_digest,
+        authority.repository_ref,
+        external_ref,
+        %{
+          authority_digest: authority.authority_digest,
+          worker_job_document: job,
+          worker_job_digest: job_digest,
+          environment_ref: authority.environment_ref,
+          repository_context: authority.repository_context,
+          repository_source: authority.repository_source,
+          emisar: present_emisar(authority.emisar),
+          workspace_task: authority.workspace_task
+        }
+      )
+      |> Repo.insert()
+      |> persistence_result(:work_session)
+    end
   end
 
   # The account belongs to the environment the session runs in; work outside

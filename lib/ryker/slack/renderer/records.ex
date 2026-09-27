@@ -249,7 +249,6 @@ defmodule Ryker.Slack.Renderer.Records do
         "Repository: `#{escape(payload["repository"])}`",
         "Gate: `#{escape(payload["gate"])}` · Rebase: `#{escape(payload["rebase"])}`",
         "Candidate tree: `#{payload["candidate_tree"]}`",
-        "Patch: #{payload["patch_bytes"]} bytes",
         publication_findings(findings)
       ]
       |> compact_lines()

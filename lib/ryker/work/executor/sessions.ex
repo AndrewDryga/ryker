@@ -9,19 +9,15 @@ defmodule Ryker.Work.Executor.Sessions do
   through the operation so a lost response never creates a second session.
   """
 
+  alias Ryker.Coop.API
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Work.{Custody, Session}
   alias Ryker.Work.Executor.Remote
 
   @doc false
-  def ensure_session(%{session: %{coop_session_id: id} = session} = claim, settings)
+  def ensure_session(%{session: %{coop_session_id: id}} = claim, settings)
       when is_binary(id) do
-    # The model for this kind of work changed in Settings: the created session
-    # still runs the old one, and no worker offers its digest any more. The
-    # next generation follows the policy's current digest, same authority.
-    if Custody.current_policy_digest(session) != session.policy_digest,
-      do: rotate_session(claim, settings),
-      else: use_bound_session(claim, id, settings)
+    use_bound_session(claim, id, settings)
   end
 
   def ensure_session(claim, settings), do: create_or_bind_session(claim, settings)
@@ -122,30 +118,14 @@ defmodule Ryker.Work.Executor.Sessions do
   defp use_or_rotate_session(_claim, _remote, _settings),
     do: {:error, {:coop_protocol_error, :session_state}}
 
-  # Selector-bound work is never dispatched to a worker that cannot resolve a
-  # selector, and no session is created on a worker without version-2 freshness
-  # receipts: an old or partially upgraded worker is ineligible before any
-  # session exists, so every bound session already carries version-2 receipts.
+  # Every bound session must provide version-2 source freshness receipts.
   defp repository_capabilities(claim, settings) do
-    with {:ok, capability_call} <- repository_freshness_capability_call(claim, settings),
-         capabilities <- Remote.api_call(settings, capability_call),
-         :ok <- validate_repository_freshness_capability(capabilities) do
-      validate_repository_source_capability(capabilities, claim.session.repository_source)
+    with {:ok, capability_call} <- repository_freshness_capability_call(claim, settings) do
+      settings
+      |> Remote.api_call(capability_call)
+      |> validate_repository_freshness_capability()
     end
   end
-
-  defp validate_repository_source_capability(_capabilities, nil), do: :ok
-
-  defp validate_repository_source_capability({:ok, capabilities}, _source) do
-    versions = Map.get(capabilities, "repository_source_selector_versions")
-
-    if capability_versions?(versions) and 1 in versions,
-      do: :ok,
-      else: {:error, {:coop_upgrade_required, :repository_source_selector_v1}}
-  end
-
-  defp validate_repository_source_capability(_capabilities, _source),
-    do: {:error, {:coop_upgrade_required, :repository_source_selector_v1}}
 
   defp repository_freshness_capability_call(claim, settings) do
     cond do
@@ -188,9 +168,22 @@ defmodule Ryker.Work.Executor.Sessions do
   defp create_session(claim, key, settings) do
     task = Session.coop_task_ref(claim.session)
 
-    case Remote.mutation_call(settings, :create_session, key, fn ->
-           Remote.create_remote_session(settings, claim, key, task)
-         end) do
+    result =
+      with :ok <-
+             API.prepare_create_session(
+               settings.api,
+               settings.client,
+               key,
+               claim.session.policy,
+               task,
+               claim.session.repository_source
+             ) do
+        Remote.mutation_call(settings, :create_session, key, fn ->
+          Remote.create_remote_session(settings, claim, key, task)
+        end)
+      end
+
+    case result do
       {:ok, %{"session" => remote_session}} when is_map(remote_session) ->
         case bind_session(claim, remote_session) do
           {:ok, _claim} = success -> success

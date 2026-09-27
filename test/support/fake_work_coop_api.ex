@@ -4,6 +4,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   import Ryker.TestHelpers, only: [digest: 1]
   @behaviour Ryker.Coop.API
 
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Work.StateBinding
 
   def start_link(candidates, options \\ []) do
@@ -54,7 +55,6 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
         operation_calls: %{},
         session: %{
           "base_commit" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
-          "authority_digest" => Keyword.get(options, :authority_digest),
           "companions" => Keyword.get(options, :companions, []),
           "external_ref" => nil,
           # A remote session ID is unique across the whole store, and async
@@ -64,8 +64,8 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
             Keyword.get_lazy(options, :session_id, fn ->
               "remote_work_#{System.unique_integer([:positive])}"
             end),
-          "policy" => nil,
-          "policy_digest" => String.duplicate("a", 64),
+          "job_ref" => nil,
+          "job_digest" => nil,
           "project_env" => Keyword.get(options, :project_env, false),
           "project_mcp" => Keyword.get(options, :project_mcp, false),
           "repository_read_only" => is_nil(Keyword.get(options, :workspace_task)),
@@ -144,8 +144,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
     do:
       {:ok,
        %{
-         "repository_freshness_receipt_versions" => [2],
-         "repository_source_selector_versions" => [1]
+         "repository_freshness_receipt_versions" => [2]
        }}
 
   def update(agent, function) when is_function(function, 1),
@@ -183,13 +182,20 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
-  def create_session(agent, key, policy, task, source) do
-    {result, on_create_session} = create_session_state(agent, key, policy, task, source)
+  def prepare_create_session(_agent, key, _policy, task, _source) do
+    WorkerJob.for_task!(task, key)
+    :ok
+  end
+
+  @impl true
+  def create_session(agent, key, _policy, task, source) do
+    receipt = task |> WorkerJob.for_task!(key) |> WorkerJob.receipt()
+    {result, on_create_session} = create_session_state(agent, key, receipt, task, source)
     if is_function(on_create_session, 1), do: on_create_session.(task)
     result
   end
 
-  defp create_session_state(agent, key, policy, task, source) do
+  defp create_session_state(agent, key, receipt, task, source) do
     Agent.get_and_update(agent, fn state ->
       session_id =
         if state.session["state"] in ~w(exhausted closed discarded),
@@ -197,10 +203,11 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
           else: state.session["id"]
 
       session =
-        Map.merge(state.session, %{
+        state.session
+        |> Map.merge(receipt)
+        |> Map.merge(%{
           "external_ref" => task,
           "id" => session_id,
-          "policy" => policy,
           "revision" => 1,
           "state" => "open"
         })
@@ -437,7 +444,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
     submission = %{
       expected_revision: expected_revision,
       artifacts: artifacts,
-      responder_binding: binding,
+      controller_tools: binding,
       key: key,
       prompt: prompt,
       schema: schema
@@ -574,7 +581,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
           session_id
           |> awaiting_turn(turn_id, candidate, attempt)
           |> Map.put("output_artifacts", Map.get(state.turn, "output_artifacts", []))
-          |> maybe_put("responder_binding_digest", state.turn["responder_binding_digest"])
+          |> maybe_put("controller_tools_digest", state.turn["controller_tools_digest"])
 
         operation =
           succeeded_operation("ValidateTurnCandidate", "turn_validation", current["id"])
@@ -651,7 +658,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
 
     Map.put(
       turn,
-      "responder_binding_digest",
+      "controller_tools_digest",
       StateBinding.sha256(binding["endpoint"] <> <<0>> <> token_sha256)
     )
   end

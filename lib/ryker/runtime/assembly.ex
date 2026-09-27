@@ -5,7 +5,7 @@ defmodule Ryker.Runtime.Assembly do
 
   This is the only place product settings become runtime bindings. It performs
   no database writes and no network calls: credentials stay behind lazy
-  providers, policy digests come from reviewed bindings rather than from a form,
+  providers, execution templates come from the controller's saved settings,
   and a domain whose required settings are absent is simply not started. An
   integration is enabled by its saved connection, never by the presence of a
   credential in the environment.
@@ -16,6 +16,7 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Bootstrap
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.ControlPlane.ConversationLab
+  alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Credentials
   alias Ryker.Defaults
   alias Ryker.Delivery.{JSONClient, Request}
@@ -34,7 +35,7 @@ defmodule Ryker.Runtime.Assembly do
 
   alias Ryker.GitHub.CapabilityTools, as: GitHubCapabilityTools
   alias Ryker.Ingress.WorkProfile
-  alias Ryker.Publication.{Git, GitCommand, GitHubPublisher}
+  alias Ryker.Publication.GitHubStatus
   alias Ryker.Settings.Environment
   alias Ryker.Slack.ActionTokens
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
@@ -73,7 +74,7 @@ defmodule Ryker.Runtime.Assembly do
   # `integrations_left_out` names each enabled integration, Emisar account and
   # webhook source this configuration could not start, with why, for the
   # Integrations state.
-  @published_facts [:execution_mode, :fleet_profiles, :integrations_left_out]
+  @published_facts [:execution_mode, :integrations_left_out]
   @managed_keys Enum.sort(Keyword.keys(@runtimes) ++ @published_facts)
 
   @spec runtimes() :: [{atom(), module()}]
@@ -112,11 +113,11 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp assemble(bootstrap, settings) do
-    policies = index_policies(settings.policy_bindings)
+    policies = index_policies(JobTemplates.from_settings(settings))
     repositories = repositories(settings, policies)
     outside = outside_profile(policies)
     environments = environments(settings, repositories, policies, outside)
-    work = work(settings)
+    work = work(settings, bootstrap.storage_root)
     admission = admission(settings, policies, work)
     admission_ready = admission_ready(settings, admission)
     learning = learning(settings, policies, work)
@@ -154,8 +155,7 @@ defmodule Ryker.Runtime.Assembly do
       work && Map.put(work, :connected, %{github: not is_nil(github), slack: not is_nil(slack)})
 
     %{
-      execution_mode: Defaults.execution(),
-      fleet_profiles: fleet_profiles(repositories, environments, admission, outside)
+      execution_mode: Defaults.execution()
     }
     |> put_optional(:work, work)
     |> put_optional(:admission, admission)
@@ -228,7 +228,6 @@ defmodule Ryker.Runtime.Assembly do
              deep_policy: deep,
              github_binding: bindings[repository.ref] && bindings[repository.ref].name,
              github_repository: repository.github_repository,
-             path: repository.publication_checkout_path,
              schedule_policy: policy(policies, :schedule, :repository, repository.ref),
              standard_policy: standard
            }}
@@ -469,54 +468,9 @@ defmodule Ryker.Runtime.Assembly do
     end)
   end
 
-  defp fleet_profiles(repositories, environments, admission, outside) do
-    repository_profiles =
-      Enum.flat_map(repositories, fn {ref, repository} ->
-        [
-          {{"read_only", ref}, profile_entry(repository.conversation_policy, ref)},
-          {{"repository_write", ref}, profile_entry(repository.contributor_policy, ref)}
-        ]
-      end)
-
-    environment_profiles =
-      Enum.flat_map(environments, fn {ref, entry} ->
-        Enum.flat_map(entry.contributor_policies, fn {repository_ref, contributor} ->
-          classes = Map.fetch!(entry.work_profile.policies, repository_ref)
-
-          [
-            {{"environment_read_only", {ref, repository_ref}},
-             Map.put(classes.conversational, :repository_ref, repository_ref)},
-            {{"environment_write", {ref, repository_ref}},
-             profile_entry(contributor, repository_ref)}
-          ]
-        end)
-      end)
-
-    base =
-      []
-      |> maybe_profile("admission", admission)
-      |> maybe_profile("conversation", outside)
-
-    Map.new(base ++ repository_profiles ++ environment_profiles)
-  end
-
-  defp maybe_profile(profiles, _kind, nil), do: profiles
-
-  defp maybe_profile(profiles, kind, profile) do
-    [
-      {kind, Map.take(profile, [:authority_digest, :policy, :policy_digest, :repository_ref])}
-      | profiles
-    ]
-  end
-
   # A reviewed binding names the policy; a Work profile pins it per work class.
   defp class_policy(policy) do
     %{policy: policy.name, policy_digest: policy.digest}
-    |> put_optional(:authority_digest, Map.get(policy, :authority_digest))
-  end
-
-  defp profile_entry(policy, ref) do
-    %{policy: policy.name, policy_digest: policy.digest, repository_ref: ref}
     |> put_optional(:authority_digest, Map.get(policy, :authority_digest))
   end
 
@@ -525,7 +479,7 @@ defmodule Ryker.Runtime.Assembly do
   # Work is placeable only when the build uses the fleet and an operator has
   # selected an enrolled workspace. An isolated topology has no Work lane to
   # assemble, and an unselected workspace is unconfigured, not a failure.
-  defp work(settings) do
+  defp work(settings, storage_root) do
     if Defaults.execution() == :fleet and is_binary(settings.work.workspace_ref) do
       defaults = Defaults.fetch!(:work)
       coop = Defaults.fetch!(:coop)
@@ -535,7 +489,8 @@ defmodule Ryker.Runtime.Assembly do
           settings.work.workspace_ref,
           defaults.capability_names,
           coop.receive_timeout_ms,
-          defaults.poll_interval_ms
+          defaults.poll_interval_ms,
+          Path.join(storage_root, "worker-bodies")
         )
 
       %{
@@ -651,10 +606,11 @@ defmodule Ryker.Runtime.Assembly do
 
   defp worker_gateway(%Bootstrap{worker_gateway: nil}), do: nil
 
-  defp worker_gateway(%Bootstrap{worker_gateway: gateway}) do
+  defp worker_gateway(%Bootstrap{worker_gateway: gateway, storage_root: storage_root}) do
     gateway
     |> Map.take([:cacertfile, :ca_keyfile, :certfile, :keyfile, :ip, :port, :public_url])
     |> Map.merge(Defaults.fetch!(:coop_worker_gateway))
+    |> Map.put(:body_root, Path.join(storage_root, "worker-bodies"))
     |> Map.put(:checkpoint_key, Bootstrap.checkpoint_key!())
     |> Map.put(:checkpoint_secrets, credential_redaction_values())
   end
@@ -901,9 +857,6 @@ defmodule Ryker.Runtime.Assembly do
       publication_client: github_client!(publication_http),
       repository: repository,
       repository_alias: binding.repository_ref,
-      repository_write_token_provider: fn ->
-        InstallationTokens.token(binding.name, :repository_write)
-      end,
       trusted_binding: trusted_binding
     }
   end
@@ -918,17 +871,13 @@ defmodule Ryker.Runtime.Assembly do
        ),
        do: {nil, nil}
 
-  # Slack runs incident rooms under the installation's incident policy, so it
-  # cannot start without one; until 2026-09-26 it then quietly did not start.
   defp slack(_bootstrap, settings, environments, schedules, policies, outside) do
-    with %{} = incident_policy <-
-           installation_policy(policies, :incident) || {:error, :incident_policy_missing},
-         {:ok, slack} <-
-           isolated(:slack, fn ->
-             slack_runtime(settings, environments, schedules, outside, incident_policy)
-           end) do
-      {slack, nil}
-    else
+    incident_policy = installation_policy(policies, :incident)
+
+    case isolated(:slack, fn ->
+           slack_runtime(settings, environments, schedules, outside, incident_policy)
+         end) do
+      {:ok, slack} -> {slack, nil}
       {:error, reason} -> {nil, reason}
     end
   end
@@ -1095,10 +1044,10 @@ defmodule Ryker.Runtime.Assembly do
        when map_size(adapters) == 0,
        do: nil
 
-  defp publication(bootstrap, settings, work, repositories, github, adapters) do
+  defp publication(_bootstrap, settings, work, repositories, github, adapters) do
     repositories =
       if settings.publication.enabled and github,
-        do: publication_repositories(bootstrap, settings, repositories, github),
+        do: publication_repositories(settings, repositories, github),
         else: %{}
 
     status_client = %{repositories: repositories}
@@ -1108,43 +1057,27 @@ defmodule Ryker.Runtime.Assembly do
       coop_api: work.api,
       coop_client: work.client,
       delivery_adapters: adapters,
-      publisher: GitHubPublisher,
-      publisher_binding: %{
-        api: GitHubPublisher,
-        client: status_client,
-        git: Git,
-        repositories: repositories
-      },
-      receive_timeout_ms: Defaults.fetch!(:coop).receive_timeout_ms,
+      repositories: repositories,
+      status_api: GitHubStatus,
+      status_client: status_client,
       worker_ref: "#{settings.installation.host_ref}:publication"
     })
   end
 
-  defp publication_repositories(bootstrap, settings, repositories, github) do
-    common = %{
-      branch_prefix: settings.publication.branch_prefix,
-      command: GitCommand,
-      commit_email: settings.publication.commit_email,
-      commit_name: settings.publication.commit_name,
-      secrets: [],
-      state_dir: Path.join(bootstrap.storage_root, "publications")
-    }
-
+  defp publication_repositories(settings, repositories, github) do
     repositories
     |> Enum.flat_map(fn {ref, repository} ->
       binding = repository.github_binding && Map.get(github.bindings, repository.github_binding)
 
-      if binding && repository.path && repository.github_repository do
+      if binding && repository.github_repository do
         [
           {ref,
            %{
              api: Client,
              base_branch: repository.base_branch,
              client: binding.publication_client,
-             git_binding:
-               Map.put(common, :token_provider, binding.repository_write_token_provider),
+             branch_prefix: settings.publication.branch_prefix,
              github_repository: repository.github_repository,
-             path: repository.path,
              ryker_actor_id: binding.trusted_binding.ryker_actor_id
            }}
         ]
@@ -1587,7 +1520,7 @@ defmodule Ryker.Runtime.Assembly do
     client
   end
 
-  defp fleet_client!(workspace_ref, capabilities, receive_timeout_ms, poll_interval_ms) do
+  defp fleet_client!(workspace_ref, capabilities, receive_timeout_ms, poll_interval_ms, body_root) do
     unless is_binary(workspace_ref),
       do: raise(ArgumentError, "no worker workspace is selected for Work placement")
 
@@ -1595,10 +1528,13 @@ defmodule Ryker.Runtime.Assembly do
 
     {:ok, client} =
       Ryker.CoopFleet.Client.new(
+        body_root: body_root,
+        source_root: Path.dirname(body_root),
+        checkpoint_key: Bootstrap.checkpoint_key!(),
+        checkpoint_secrets: credential_redaction_values(),
         capability_names: capabilities,
         capability_versions: %{
-          "repository-freshness" => "2",
-          "repository-source-selector" => "1"
+          "repository-freshness" => "2"
         },
         max_waits: max_waits,
         poll_interval_ms: poll_interval_ms,

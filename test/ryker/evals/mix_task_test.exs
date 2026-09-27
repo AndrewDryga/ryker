@@ -23,7 +23,7 @@ defmodule Ryker.Evals.MixTaskTest do
       Eval.run(["world", "--results", "relative.json"])
     end
 
-    assert_raise Mix.Error, ~r/world eval failed: :model_eval_policies_not_configured/, fn ->
+    assert_raise Mix.Error, ~r/world eval failed: :model_eval_targets_not_configured/, fn ->
       Eval.run(["world", "--results", "/absolute/world.json"])
     end
 
@@ -46,7 +46,7 @@ defmodule Ryker.Evals.MixTaskTest do
 
     # A well-formed shard passes argument validation and stops at the next
     # gate, the unconfigured evaluation authority, without reaching a model.
-    assert_raise Mix.Error, ~r/world eval failed: :model_eval_policies_not_configured/, fn ->
+    assert_raise Mix.Error, ~r/world eval failed: :model_eval_targets_not_configured/, fn ->
       Eval.run(["world", "--results", "/absolute/world.json", "--shard", "2/4"])
     end
   end

@@ -7,6 +7,7 @@ defmodule Ryker.Retention.Executor do
   an unsafe discard plan fails closed without touching another workspace.
   """
 
+  alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Reference
   alias Ryker.Retention.{Custody, Plan}
   alias Ryker.Work.Session
@@ -355,12 +356,9 @@ defmodule Ryker.Retention.Executor do
   defp exact_session(
          expected,
          %{
-           "external_ref" => external_ref,
            "id" => id,
-           "policy" => policy,
-           "policy_digest" => policy_digest,
            "state" => state
-         },
+         } = remote,
          allowed_states
        ) do
     cond do
@@ -370,8 +368,7 @@ defmodule Ryker.Retention.Executor do
       state not in allowed_states ->
         {:error, {:coop_protocol_error, :session_state}}
 
-      policy != expected.policy or policy_digest != expected.policy_digest or
-          external_ref != Session.coop_task_ref(expected) ->
+      JobAuthority.exact_cleanup_receipt(expected, remote) != :ok ->
         {:error, {:coop_protocol_error, :session_authority}}
 
       true ->

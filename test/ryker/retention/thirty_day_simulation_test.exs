@@ -129,6 +129,29 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
     %{state | day_rows: state.day_rows ++ [row]}
   end
 
+  test "a delayed publication releases its job-bound session for cleanup" do
+    {:ok, api} = FakeAPI.start_link(sessions: [])
+    install_clock!()
+    Enum.each(@workers, &create_worker!/1)
+    [session] = publication_delayed!(api)
+    state = %{api: api, worker_ref: "cleanup:publication"}
+
+    {:ok, _pass} = run_pass(state)
+    refute Repo.get!(Session, session.id).cleanup_status == :discarded
+
+    publish_delayed(state, @publish_day)
+
+    for step <- 0..6 do
+      advance!(step * 1_000)
+      {:ok, _pass} = run_pass(state)
+    end
+
+    stored = Repo.get!(Session, session.id)
+
+    assert stored.cleanup_status == :discarded,
+           inspect({stored.cleanup_last_error_code, stored.cleanup_last_error_detail})
+  end
+
   # One burst window: cleanup passes while there is work, then the clock jumps
   # to the next durable due time instead of to the next wall-clock minute.
   defp drain_window(state, remaining) when remaining <= 0, do: state
@@ -721,10 +744,10 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
       FakeAPI.add_session(
         api,
         %{
-          "external_ref" => session.external_ref,
+          "external_ref" => Session.coop_task_ref(session),
           "id" => remote_id,
-          "policy" => session.policy,
-          "policy_digest" => session.policy_digest,
+          "job_ref" => session.worker_job_document["job_ref"],
+          "job_digest" => session.worker_job_digest,
           "revision" => 7,
           "state" => "open"
         },
@@ -742,8 +765,6 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
       certificate_sha256: :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower),
       id: worker_id,
       last_seen_at: DateTime.utc_now(),
-      policy_digests: %{},
-      repositories: [],
       state: :eligible,
       workspace_ref: "workspace-simulation"
     })

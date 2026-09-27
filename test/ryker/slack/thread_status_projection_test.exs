@@ -222,7 +222,7 @@ defmodule Ryker.Slack.ThreadStatusProjectionTest do
       {%{
          "input" => %{
            "arguments" => %{"query" => "prod password hunter2"},
-           "server" => "responder-state",
+           "server" => "controller-tools",
            "tool" => "search_memory"
          },
          "kind" => "execute"
@@ -323,7 +323,7 @@ defmodule Ryker.Slack.ThreadStatusProjectionTest do
 
   defp state_tool(call, tool) do
     %{
-      "input" => %{"server" => "responder-state", "tool" => tool},
+      "input" => %{"server" => "controller-tools", "tool" => tool},
       "kind" => "execute",
       "tool_call_id" => call
     }

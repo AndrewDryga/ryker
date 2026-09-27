@@ -22,7 +22,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
           row("admission", "enabled"),
           row("slack", "disabled"),
           row("runtime.mode", "product"),
-          row("admission.policy", "ryker-admission-v1"),
+          row("admission.decision_timeout_ms", "30000"),
           row("work.concurrency", "4"),
           row("retention.audit_data_seconds", "2592000"),
           %{key: "future.option", value: "42", source: "/etc/override.yaml"}
@@ -59,8 +59,11 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
 
     admission = LazyHTML.query(values, ".configuration-group[data-group='admission']")
 
-    assert LazyHTML.query(admission, "[data-setting='admission.policy'] .entity-name")
-           |> LazyHTML.text() == "Routing policy"
+    assert LazyHTML.query(
+             admission,
+             "[data-setting='admission.decision_timeout_ms'] .entity-name"
+           )
+           |> LazyHTML.text() == "Routing time limit"
 
     subsystems = LazyHTML.query(values, ".configuration-group[data-group='subsystems']")
 
@@ -84,7 +87,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
 
     # The key and the raw value are support details, folded under the setting.
     assert LazyHTML.query(admission, ".entity-body > details.settings-row-details dd code")
-           |> Enum.map(&LazyHTML.text/1) == ["admission.policy", "ryker-admission-v1"]
+           |> Enum.map(&LazyHTML.text/1) == ["admission.decision_timeout_ms", "30000"]
 
     other = LazyHTML.query(values, ".configuration-group[data-group='other']")
     assert LazyHTML.text(other) =~ "Explanation unavailable"
@@ -118,6 +121,13 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
 
     assert LazyHTML.query(section, ".state-word[data-tone=bad]") |> LazyHTML.text() ==
              "Code changes are unavailable"
+
+    help = text(section)
+    assert help =~ "select its worker install above"
+    assert help =~ "coop sessions connect --controller https://ryker.example:4322 --token-file"
+    assert help =~ "--ca-file /etc/coop/worker-ca.pem"
+    refute help =~ "sessions policies"
+    refute help =~ "worker.json"
   end
 
   test "tool grants are an inventory with their source, distinct from health and permission" do
@@ -127,7 +137,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
         rows: [],
         grants: [
           %{kind: "MCP tool", name: "search_slack", source: "/etc/ryker.yaml"},
-          %{kind: "Capability", name: "responder-state", source: @source}
+          %{kind: "Capability", name: "controller-tools", source: @source}
         ],
         source: @source
       })
@@ -139,7 +149,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
     assert text(grants) =~ "does not give permission to use it"
 
     assert LazyHTML.query(grants, ".entity-row .entity-name")
-           |> Enum.map(&String.trim(LazyHTML.text(&1))) == ["search_slack", "responder-state"]
+           |> Enum.map(&String.trim(LazyHTML.text(&1))) == ["search_slack", "controller-tools"]
 
     assert LazyHTML.query(grants, ".entity-row .entity-meta")
            |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" "))) ==

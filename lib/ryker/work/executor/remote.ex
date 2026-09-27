@@ -11,6 +11,7 @@ defmodule Ryker.Work.Executor.Remote do
   """
 
   alias Ryker.Artifacts
+  alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Work.{Custody, Session, StateBinding}
 
@@ -246,27 +247,20 @@ defmodule Ryker.Work.Executor.Remote do
   @doc false
   def exact_remote_session_state(expected, remote_session, allowed_states \\ @session_states)
 
-  def exact_remote_session_state(
-        expected,
-        %{
-          "external_ref" => external_ref,
-          "id" => id,
-          "policy" => policy,
-          "policy_digest" => policy_digest,
-          "state" => state
-        } = remote_session,
-        allowed_states
-      ) do
-    remote_authority = {policy, policy_digest, external_ref}
+  def exact_remote_session_state(expected, remote, allowed_states) do
+    with :ok <- JobAuthority.exact_receipt(expected, remote),
+         do: exact_session_state(expected, remote, allowed_states)
+  end
 
-    expected_authority =
-      {expected.policy, expected.policy_digest, Session.coop_task_ref(expected)}
+  def exact_cleanup_session(expected, remote, allowed_states \\ @session_states) do
+    with :ok <- JobAuthority.exact_cleanup_receipt(expected, remote),
+         do: exact_session_state(expected, remote, allowed_states)
+  end
 
+  defp exact_session_state(expected, %{"id" => id, "state" => state} = remote, allowed_states) do
     with :ok <- exact_remote_session_identity(expected, id),
          :ok <- exact_remote_session_allowed_state(state, allowed_states),
-         true <- remote_authority == expected_authority,
-         true <- session_authority_digest_matches?(expected, remote_session),
-         true <- is_nil(Map.get(remote_session, "responder_binding_digest")) do
+         true <- is_nil(Map.get(remote, "controller_tools_digest")) do
       :ok
     else
       false -> {:error, {:coop_protocol_error, :session_authority}}
@@ -274,7 +268,7 @@ defmodule Ryker.Work.Executor.Remote do
     end
   end
 
-  def exact_remote_session_state(_expected, _remote_session, _allowed_states),
+  defp exact_session_state(_expected, _remote, _allowed_states),
     do: {:error, {:coop_protocol_error, :session_resource}}
 
   defp exact_remote_session_identity(expected, id) do
@@ -288,11 +282,6 @@ defmodule Ryker.Work.Executor.Remote do
       do: :ok,
       else: {:error, {:coop_protocol_error, :session_state}}
   end
-
-  defp session_authority_digest_matches?(%{authority_digest: nil}, _remote_session), do: true
-
-  defp session_authority_digest_matches?(expected, remote_session),
-    do: remote_session["authority_digest"] == expected.authority_digest
 
   @doc false
   def exact_remote_turn(
@@ -312,7 +301,7 @@ defmodule Ryker.Work.Executor.Remote do
       not reference?(id) ->
         {:error, {:coop_protocol_error, :turn_identity}}
 
-      Map.get(remote_turn, "responder_binding_digest") != expected_binding_digest ->
+      Map.get(remote_turn, "controller_tools_digest") != expected_binding_digest ->
         {:error, {:coop_protocol_error, :turn_authority}}
 
       true ->

@@ -145,16 +145,19 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "generic MCP caller"
     assert instructions =~ "Read the tool's input schema before choosing other arguments"
     assert [_, example] = Regex.run(~r/Generic MCP call example: (.+)/, instructions)
-    assert Jason.decode!(example) == recorded["generic_list_call"]
-    refute instructions =~ "Use the named tools in\nwork.responder_state_tools directly"
+
+    assert Jason.decode!(example) ==
+             Map.put(recorded["generic_list_call"], "server", "controller-tools")
+
+    refute instructions =~ "Use the named tools in\nwork.controller_tools directly"
   end
 
   test "an automation offer has an explicit tool path and a complete final-call example" do
     # The Sep 9 Terraform request searched MCP resources, claimed its tools were
     # missing, and then spent two corrections guessing the final-call shape.
     instructions = Prompt.build(%{}) |> Jason.decode!() |> Map.fetch!("instructions")
-    assert instructions =~ "responder-state"
-    assert instructions =~ "work.responder_state_tools"
+    assert instructions =~ "controller-tools"
+    assert instructions =~ "work.controller_tools"
     assert instructions =~ "Resources and resource templates are not the tool catalog"
     assert instructions =~ "propose_automation"
     assert instructions =~ "propose_preference"

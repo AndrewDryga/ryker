@@ -4,8 +4,8 @@ defmodule Mix.Tasks.Ryker.LearningEval do
 
       MIX_ENV=test PGDATABASE=ryker_learning_eval_example mix ryker.learning_eval \
         --database ryker_learning_eval_example --socket /absolute/coop.sock \
-        --scratch /absolute/empty-git-repository --policy learning-eval-only \
-        --policy-digest <sha256> --results /absolute/new-report.json --scenario haproxy
+        --target <provider:model/effort@account> \
+        --results /absolute/new-report.json --scenario haproxy
 
   Scenarios: haproxy (default), auth-memory-recurrence, draft-keep, unoffered-draft-match,
   starfall-correction, chatter, one-off-request.
@@ -18,7 +18,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
   """
   use Mix.Task
   alias Ryker.Coop.Client
-  alias Ryker.Evals.LearningRunner
+  alias Ryker.Evals.{Job, LearningRunner}
   alias Ryker.Repo
 
   @shortdoc "Runs isolated longitudinal learning; never publishes messages"
@@ -34,11 +34,9 @@ defmodule Mix.Tasks.Ryker.LearningEval do
 
     settings = %{
       database: options[:database],
-      scratch_repository: options[:scratch],
       api: Client,
       client: client,
-      policy: options[:policy],
-      policy_digest: options[:policy_digest],
+      job: client.job,
       probe_question: if(options[:probe], do: probe_question(scenario))
     }
 
@@ -46,7 +44,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
   end
 
   defp parse_options!(arguments) do
-    keys = [:database, :socket, :scratch, :policy, :policy_digest, :results]
+    keys = [:database, :socket, :target, :results]
 
     {options, rest, invalid} =
       OptionParser.parse(arguments,
@@ -61,7 +59,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
              keys -- supplied == [] and length(Enum.uniq(supplied)) == length(supplied),
            do:
              Mix.raise(
-               "provide each required flag once: --database --socket --scratch --policy --policy-digest --results; optional --scenario haproxy|auth-memory-recurrence|draft-keep|unoffered-draft-match|starfall-correction|chatter|one-off-request --probe"
+               "provide each required flag once: --database --socket --target --results; optional --scenario haproxy|auth-memory-recurrence|draft-keep|unoffered-draft-match|starfall-correction|chatter|one-off-request --probe"
              )
 
     options
@@ -108,10 +106,12 @@ defmodule Mix.Tasks.Ryker.LearningEval do
     {:ok, _} = Application.ensure_all_started(:finch)
     {:ok, _} = Repo.start_link()
     {:ok, _} = Finch.start_link(name: Ryker.LearningEvalFinch)
+    {:ok, job} = Job.new(:learning, options[:target])
 
     {:ok, client} =
       Client.new(
         socket: options[:socket],
+        job: job,
         finch: Ryker.LearningEvalFinch,
         receive_timeout: 30_000
       )

@@ -8,7 +8,7 @@ defmodule Ryker.Admission.ExecutorTest do
 
   alias Ryker.ControlPlane.{EpisodePage, ModelRequests}
 
-  alias Ryker.Admission.{Executor, Runtime}
+  alias Ryker.Admission.{Executor, FleetSession, Runtime}
   alias Ryker.FakeRetentionCoopAPI, as: RetentionAPI
   alias Ryker.Ingress.Inbox
   alias Ryker.Repo
@@ -155,8 +155,8 @@ defmodule Ryker.Admission.ExecutorTest do
           %{
             "external_ref" => session.external_ref,
             "id" => session.coop_session_id,
-            "policy" => session.policy,
-            "policy_digest" => session.policy_digest,
+            "job_ref" => session.external_ref,
+            "job_digest" => session.worker_job_digest,
             "revision" => 2,
             "state" => "open"
           }
@@ -194,15 +194,15 @@ defmodule Ryker.Admission.ExecutorTest do
         [
           prepare_execution_session: fn prepared_entry, policy ->
             send(caller, {:fleet_prepared, prepared_entry.id, policy})
-            :ok
+            FleetSession.ensure(prepared_entry, policy)
           end,
           bind_execution_session: fn bound_entry, session_id ->
             send(caller, {:fleet_bound, bound_entry.id, session_id})
-            :ok
+            FleetSession.bind(bound_entry, session_id)
           end,
           settle_execution_session: fn settled_entry, session_id ->
             send(caller, {:fleet_settled, settled_entry.id, session_id})
-            :ok
+            FleetSession.settle(settled_entry, session_id)
           end
         ]
 
@@ -212,8 +212,9 @@ defmodule Ryker.Admission.ExecutorTest do
     assert_receive {:fleet_prepared, ^entry_id, %{name: "admission-read-only", digest: digest}}
 
     assert digest == String.duplicate("a", 64)
-    assert_receive {:fleet_bound, ^entry_id, "remote_test"}
-    assert_receive {:fleet_settled, ^entry_id, "remote_test"}
+    session_id = execution.session_id
+    assert_receive {:fleet_bound, ^entry_id, ^session_id}
+    assert_receive {:fleet_settled, ^entry_id, ^session_id}
   end
 
   test "admission pins adapter-owned work placement instead of its classifier policy" do

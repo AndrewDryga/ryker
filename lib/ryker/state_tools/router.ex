@@ -108,7 +108,7 @@ defmodule Ryker.StateTools.Router do
     rpc_result(conn, id, %{
       "capabilities" => %{"tools" => %{"listChanged" => false}},
       "protocolVersion" => version,
-      "serverInfo" => %{"name" => "responder-state", "version" => "1"}
+      "serverInfo" => %{"name" => "controller-tools", "version" => "1"}
     })
   end
 

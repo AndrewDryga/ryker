@@ -11,7 +11,7 @@ for path <- Path.wildcard("testdata/scenarios/*/tool-catalog.json") do
       :ok
 
     %{"version" => 1, "servers" => servers} ->
-      unless Enum.count(servers, &(&1["name"] == "responder-state")) == 1,
+      unless Enum.count(servers, &(&1["name"] in ["controller-tools", "responder-state"])) == 1,
         do: raise("expected one Ryker schema owner in #{path}")
 
       updated =
@@ -19,8 +19,11 @@ for path <- Path.wildcard("testdata/scenarios/*/tool-catalog.json") do
           catalog,
           "servers",
           Enum.map(servers, fn
-            %{"name" => "responder-state"} = server -> Map.put(server, "tools", tools)
-            server -> server
+            %{"name" => name} = server when name in ["controller-tools", "responder-state"] ->
+              server |> Map.put("name", "controller-tools") |> Map.put("tools", tools)
+
+            server ->
+              server
           end)
         )
 
