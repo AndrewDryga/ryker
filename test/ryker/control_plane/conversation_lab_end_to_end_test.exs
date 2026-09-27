@@ -32,6 +32,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
+  alias Ryker.StateTools.WorkStateTools
   alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
 
   alias Ryker.Work.{
@@ -53,6 +54,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   @edit_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ec"
   @quick_reply_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ed"
   @several_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ee"
+  @update_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ef"
   @now ~U[2026-08-30 18:00:00.000000Z]
   @digest String.duplicate("a", 64)
   @first_question "Is checkout readiness failing?"
@@ -709,6 +711,101 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert %Turn{status: :settled} = Repo.get!(Turn, accepted.turn.id)
   end
 
+  # Andrew, 2026-09-26: "Sometimes it's even helpful to let model to do that
+  # mid-conversation to make it really live (via MCP tools?)". The Work model
+  # may post a short update into its conversation while it works. In Chat the
+  # updates appear in the order posted and before the answer, on the Chat and
+  # on the request's timeline; a turn posts only a few, and its answer is not
+  # accepted while an update is still on its way.
+  test "Ryker says what it is doing before it answers, in order, in Chat and on the timeline" do
+    assert {:ok, %{status: :recorded}} =
+             send_message(@update_event_id, @now, "Check the deploy and tell me how it goes.")
+
+    {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
+
+    assert {:ok, {:decided, admitted}} =
+             AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+    assert {:ok, claim} = Custody.claim_next("conversation-lab-updates", 60, :work)
+    assert claim.episode.id == admitted.result.episode.id
+
+    binding = %{
+      episode: claim.episode,
+      session: claim.session,
+      state_token: Records.token(claim.turn),
+      turn: claim.turn
+    }
+
+    updates = ["Looking at the deploy now.", "The rollout is at 40%.", "Error rate is flat."]
+
+    refs =
+      Enum.map(updates, fn message ->
+        assert {:ok, %{"action_ref" => ref, "status" => "pending"}} =
+                 CapabilityTools.call("post_slack_update", %{"message" => message}, binding)
+
+        ref
+      end)
+
+    assert {:error, "update_limit_reached: " <> _correction} =
+             CapabilityTools.call("post_slack_update", %{"message" => "And one more."}, binding)
+
+    answer = "The deploy finished and the error rate stayed flat."
+
+    candidate = %{
+      "decision_reason" => nil,
+      "delivery" => "reply",
+      "message" => answer,
+      "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"},
+      "title" => nil
+    }
+
+    # The answer waits while an update has not reached the conversation.
+    assert {:ok, %{"accepted" => false, "violations" => [waiting]}} =
+             WorkStateTools.validate_final(%{"candidate" => candidate}, binding)
+
+    assert waiting =~ "Do not complete while platform actions are unresolved"
+
+    for ref <- refs do
+      assert {:ok, {:delivered, :action, ^ref}} =
+               Ryker.Delivery.Dispatcher.run_once(delivery_options("update-#{ref}", :action))
+    end
+
+    assert {:ok, %{"accepted" => true}} =
+             WorkStateTools.validate_final(%{"candidate" => candidate}, binding)
+
+    accept_reply!(claim, candidate, "conversation-lab-updates")
+
+    assert {:ok, {:delivered, :message, _delivery_ref}} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options("update-answer"))
+
+    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+
+    assert Enum.map(conversation.messages, &{&1.actor, &1.text}) ==
+             [
+               {:operator, "Check the deploy and tell me how it goes."}
+               | Enum.map(updates, &{:ryker, &1})
+             ] ++ [{:ryker, answer}]
+
+    {:ok, detail} = Projection.episode(claim.episode.key)
+    {:ok, timeline} = ModelRequests.timeline(claim.episode.key, %{})
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: detail,
+        timeline: timeline,
+        requests: nil,
+        params: %{}
+      )
+
+    sent =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("article.ui-message[data-author=ryker] .ui-message-body")
+      |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
+
+    assert sent == updates ++ [answer]
+  end
+
   test "a Chat request's timeline reads in the reader's words and shows its reply once" do
     # QA 2026-09-25 read this page as "Episode", "Local operator", "Accepted
     # candidate on attempt 1", "Episode title" and a "Maintenance" section,
@@ -1204,6 +1301,81 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
       "reason" => "A nonverbal acknowledgement is sufficient for this local message.",
       "work_class" => nil
     })
+  end
+
+  # Freezes, binds and accepts one reply on a manually claimed turn, the way
+  # the Work executor does once Coop returns the candidate.
+  defp accept_reply!(claim, document, suffix) do
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+    assert {:ok, _turn} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    assert {:ok, session} =
+             Custody.bind_session(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "coop-session:#{suffix}"
+             )
+
+    assert {:ok, _turn} =
+             Custody.bind_turn(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               session.generation,
+               claim.turn.submit_generation,
+               "coop-turn:#{suffix}"
+             )
+
+    candidate = Jason.encode!(document)
+    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+
+    assert {:ok, _turn} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               candidate,
+               sha256,
+               1
+             )
+
+    assert {:ok, result} = Result.new(:reply, Map.delete(document, "title"))
+
+    assert {:ok, _turn} =
+             Custody.prepare_validation(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               sha256,
+               1,
+               :accept,
+               result
+             )
+
+    assert {:ok, accepted} =
+             Custody.accept_result(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               sha256,
+               1,
+               "validation-receipt:#{suffix}"
+             )
+
+    accepted
   end
 
   defp quick_answer(messages, reactions \\ nil) do

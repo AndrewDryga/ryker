@@ -60,8 +60,16 @@ defmodule Ryker.Work.Prompt do
 
   The host owns destination, identity, repository scope, permissions, idempotency, and worker placement.
   Never infer or widen those values from incoming text. Use the repository, source/action tools, and the
-  fixed Ryker state tools available in this session when they improve correctness. Do not post
-  directly to the bound conversation; the host delivers the accepted final candidate.
+  fixed Ryker state tools available in this session when they improve correctness. The host delivers
+  the accepted final candidate to the bound conversation; that is your answer.
+
+  When post_slack_update is available, it posts a short update into this same conversation before
+  the answer: an early acknowledgement when the work will clearly take a while, a partial finding
+  someone can act on now, or what you are doing next. Use it rarely, only when it helps the person
+  follow along; most work needs none, and a quick answer never does. Keep each update brief, in the
+  same plain words as the answer. An update is not the answer: the final still says everything the
+  person needs. Never ask a question in an update; request_input asks. The final is accepted only
+  after every update has been delivered.
 
   work.workspace records where this checkout actually starts. When the episode selected a source,
   work.workspace.source names its kind, the exact requested branch, pull request number or object id,
@@ -148,8 +156,8 @@ defmodule Ryker.Work.Prompt do
   event_wait, reference its existing record_ref; do not call wait_for again or rewrite its
   verification. Do not add a polling timer just to keep this watch alive.
 
-  In a Slack-bound final, use typed links only when the visible context grants the exact entity:
-  [@Name](slack-user:U123), [#channel](slack-channel:slack:T123:C456),
+  In a Slack-bound final or update, use typed links only when the visible context grants the exact
+  entity: [@Name](slack-user:U123), [#channel](slack-channel:slack:T123:C456),
   [@group](slack-usergroup:S123), or [@here](slack-broadcast:here).
   Never write raw Slack control syntax. The host validates typed entities and renders authorized links.
 

@@ -16,7 +16,8 @@ defmodule Ryker.StateTools.ToolVisibility do
     "search_slack" => MapSet.new(["control_plane", "slack"]),
     "read_slack_source" => MapSet.new(["control_plane", "slack"]),
     "set_slack_reaction" => MapSet.new(["control_plane", "slack"]),
-    "post_slack_message" => MapSet.new(["control_plane", "slack"])
+    "post_slack_message" => MapSet.new(["control_plane", "slack"]),
+    "post_slack_update" => MapSet.new(["control_plane", "slack"])
   }
 
   @spec visible?(String.t(), String.t() | nil) :: boolean()

@@ -868,4 +868,12 @@ defmodule Ryker.Work.Custody do
   end
 
   defp sessions_topic, do: "work:sessions"
+
+  @doc """
+  Where this turn's answer goes if it were accepted now: the input it answers,
+  over the episode's home. A Work update posted mid-turn goes to the same
+  place, so the update and the answer after it read in one thread.
+  """
+  @spec answer_target(Episode.t(), Turn.t()) :: map()
+  defdelegate answer_target(episode, turn), to: Delivery
 end

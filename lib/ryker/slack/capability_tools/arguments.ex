@@ -13,6 +13,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   @read_fields ~w(after anchor_ref before cursor limit source_ref view)
   @reaction_fields ~w(action emoji message_ref)
   @post_fields ~w(destination_ref instruction_ref message)
+  @maximum_update 2_000
   @emoji_name ~r/\A[a-z0-9_+\-]{1,100}\z/
 
   @doc "The exact content kinds search_slack can ask for."
@@ -166,6 +167,23 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   end
 
   def post_document(_arguments, _workspace_ref), do: {:error, :invalid_arguments}
+
+  @doc """
+  The words of one Work update: a short message the Work model posts into its
+  own conversation while it works. Slack and Chat read the same arguments.
+  """
+  @spec update_message(term()) :: {:ok, String.t()} | {:error, :invalid_arguments}
+  def update_message(%{"message" => message} = arguments) when map_size(arguments) == 1 do
+    if is_binary(message) and String.valid?(message) and String.trim(message) != "" and
+         String.length(message) <= @maximum_update and :binary.match(message, <<0>>) == :nomatch,
+       do: {:ok, message},
+       else: {:error, :invalid_arguments}
+  end
+
+  def update_message(_arguments), do: {:error, :invalid_arguments}
+
+  @doc false
+  def maximum_update, do: @maximum_update
 
   defp source_view("metadata", _kind), do: {:ok, :metadata}
   defp source_view("channel", :channel), do: {:ok, :channel}

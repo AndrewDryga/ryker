@@ -69,6 +69,12 @@ defmodule Ryker.Slack.Renderer do
   def render(%{"message" => message} = document) when map_size(document) == 1,
     do: render(%{"message" => message, "records" => []})
 
+  # A message without cards that names someone: the publisher added the
+  # delivery's mention authority to it.
+  def render(%{"message" => message, "slack_mentions" => authority} = document)
+      when map_size(document) == 2,
+      do: render(%{"message" => message, "records" => [], "slack_mentions" => authority})
+
   def render(
         %{
           "message" => message,

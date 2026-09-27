@@ -1006,7 +1006,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
             episode.destination_transport == "control_plane" and
             episode.destination_conversation_ref == ^ref and
             action.kind == :message and action.status == :delivered and
-            action.tool == :post_slack_message and not is_nil(action.delivered_at),
+            action.tool in [:post_slack_message, :post_slack_update] and
+            not is_nil(action.delivered_at),
         where: ^filter,
         order_by: [desc: action.delivered_at, desc: action.id],
         limit: ^limit,

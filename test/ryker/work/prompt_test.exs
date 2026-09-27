@@ -305,8 +305,25 @@ defmodule Ryker.Work.PromptTest do
 
     refute instructions =~ "working in Slack"
     assert instructions =~ "host owns destination"
-    assert instructions =~ "Do not post"
+    assert instructions =~ "that is your answer"
     assert instructions =~ "bound conversation"
+  end
+
+  # Andrew, 2026-09-26: the Work model may post into its own conversation
+  # mid-work "to make it really live". Posted too often it is noise in the
+  # thread, and an update read as the answer leaves the person without one;
+  # a count of words would be a quota the model writes toward (2026-08-16:
+  # the alert-reply word limit and its checker were removed).
+  test "an update is posted rarely and briefly, is never the answer, and is asked for without a count" do
+    instructions = normalized_instructions()
+
+    assert instructions =~ "When post_slack_update is available"
+    assert instructions =~ "Use it rarely, only when it helps the person follow along"
+    assert instructions =~ "Keep each update brief"
+    assert instructions =~ "An update is not the answer"
+    assert instructions =~ "The final is accepted only after every update has been delivered"
+    assert instructions =~ "In a Slack-bound final or update, use typed links"
+    refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?)\b/i
   end
 
   test "universal instructions explain the typed Slack entity boundary" do

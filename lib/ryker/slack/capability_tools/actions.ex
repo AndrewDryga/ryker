@@ -1,8 +1,9 @@
 defmodule Ryker.Slack.CapabilityTools.Actions do
   @moduledoc """
-  The two Slack tools that change something: a reaction frozen into platform
-  custody, and an additional post offered for human confirmation. Neither
-  reaches Slack from here; both leave an exact durable intent behind.
+  The Slack tools that change something: a reaction or a Work update frozen
+  into platform custody, and an additional post offered for human
+  confirmation. None reaches Slack from here; each leaves an exact durable
+  intent behind.
   """
 
   alias Ryker.CanonicalJSON
@@ -21,6 +22,23 @@ defmodule Ryker.Slack.CapabilityTools.Actions do
       thread_ref: input["destination"]["thread_ref"],
       tool: :set_slack_reaction,
       transport: "slack"
+    }
+  end
+
+  @doc """
+  The platform action a Work update freezes: a message into the conversation
+  and thread this turn's answer goes to.
+  """
+  @spec update_attributes(map(), String.t()) :: map()
+  def update_attributes(destination, message) do
+    %{
+      conversation_ref: destination["conversation_ref"],
+      document: %{"message" => message},
+      kind: :message,
+      source_item_ref: nil,
+      thread_ref: destination["thread_ref"],
+      tool: :post_slack_update,
+      transport: destination["transport"]
     }
   end
 

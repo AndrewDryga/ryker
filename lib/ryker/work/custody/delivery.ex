@@ -628,6 +628,15 @@ defmodule Ryker.Work.Custody.Delivery do
     }
   end
 
+  @doc """
+  Where this turn's answer goes, as its delivery target will name it: the
+  conversation and thread of the input it answers, over the episode's home.
+  A Work update posted before the answer goes to the same place.
+  """
+  @spec answer_target(Episode.t(), Turn.t()) :: map()
+  def answer_target(%Episode{} = episode, %Turn{} = turn),
+    do: Map.merge(home_target(episode), reply_target(episode, turn) || %{})
+
   @doc false
   @spec reply_target(Episode.t(), Turn.t()) :: map() | nil
   def reply_target(%Episode{} = episode, %Turn{} = turn) do

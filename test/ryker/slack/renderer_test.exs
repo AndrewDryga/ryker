@@ -227,6 +227,30 @@ defmodule Ryker.Slack.RendererTest do
     assert hd(rendered["blocks"])["text"] == rendered["text"]
   end
 
+  # The publisher adds the delivery's mention authority to a message it posts.
+  # A message with no cards is then `message` and `slack_mentions` alone, and
+  # no clause rendered that: a reply or a Work update naming a person could
+  # never be posted, and every retry failed the same way until it was blocked
+  # (found 2026-09-27 while adding Work updates, which name people like replies).
+  test "a message naming a person renders without cards" do
+    authority = %{
+      "broadcasts" => [],
+      "channels" => [],
+      "user_groups" => [],
+      "users" => ["slack-user:U123"],
+      "workspace_ref" => "T123"
+    }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "On it, [@Bruno](slack-user:U123).",
+               "slack_mentions" => authority
+             })
+
+    assert rendered["text"] == "On it, <@U123>."
+    assert hd(rendered["blocks"])["text"] == rendered["text"]
+  end
+
   # Until 2026-09-11 the welcome was static system copy ("Configure Emisar for
   # this channel. Nothing is saved until an operator confirms it.") with a
   # 30-minute expiry; a channel that never clicked had no readable description

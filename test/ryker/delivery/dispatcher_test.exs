@@ -30,6 +30,9 @@ defmodule Ryker.Delivery.DispatcherTest do
   alias Ryker.PollingWorker
   alias Ryker.Records
   alias Ryker.Slack.Input
+  alias Ryker.Slack.Mentions
+  alias Ryker.Slack.Publisher, as: SlackPublisher
+  alias Ryker.TestSupport.FakeSlackAPI
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -297,6 +300,73 @@ defmodule Ryker.Delivery.DispatcherTest do
     delivered = Repo.get_by!(PlatformAction, action_ref: action_ref)
     assert delivered.status == :delivered
     assert delivered.external_receipt["delivery_ref"] == action_ref
+  end
+
+  # Andrew, 2026-09-26: the Work model may post into its thread while it works
+  # "to make it really live". An update reaches Slack as the answer does: in
+  # the answer's thread, rendered with the people its answer may name, and
+  # once, even when Slack took the post but its answer was lost. Without its
+  # own mention authority a named person stopped the update for good, and the
+  # answer that waits for it with it.
+  test "a Work update reaches the answer's thread once, naming whom the answer may" do
+    claim = work_claim!("update-delivery")
+
+    assert {:ok, %{action: update, status: :created}} =
+             PlatformActionCustody.enqueue_update(claim, %{
+               conversation_ref: "slack:T123:C456",
+               document: %{"message" => "On it, [@Uno](slack-user:U1): checking the deploy."},
+               kind: :message,
+               source_item_ref: nil,
+               thread_ref: "1787832000.000100",
+               tool: :post_slack_update,
+               transport: "slack"
+             })
+
+    {:ok, slack} =
+      FakeSlackAPI.start_link(
+        lose: [:post_message],
+        render: true,
+        message_ref: fn _n -> "1787832000.000900" end
+      )
+
+    assert {:ok, adapters} =
+             Adapters.new(%{
+               "slack" => %{
+                 binding: %{
+                   mention_authority: &Mentions.authority_for_delivery/1,
+                   workspaces: %{"T123" => %{api: FakeSlackAPI, client: slack}}
+                 },
+                 message_publisher: SlackPublisher,
+                 reaction_publisher: SlackPublisher
+               }
+             })
+
+    options = [
+      adapters: adapters,
+      kind: :action,
+      lease_seconds: 60,
+      retry_base_seconds: 1,
+      retry_max_seconds: 60,
+      worker_ref: "delivery:action:update"
+    ]
+
+    action_ref = update.action_ref
+
+    assert {:ok, {:deferred, :action, ^action_ref, {:delivery_uncertain, _lost}}} =
+             Dispatcher.run_once(options)
+
+    Repo.update_all(PlatformAction, set: [next_attempt_at: DateTime.add(@now, -1, :second)])
+    assert {:ok, {:delivered, :action, ^action_ref}} = Dispatcher.run_once(options)
+
+    assert [%{channel: "C456", thread: "1787832000.000100", delivery_ref: ^action_ref} = post] =
+             FakeSlackAPI.state(slack).posts
+
+    assert post.document["text"] == "On it, <@U1>: checking the deploy."
+
+    assert %PlatformAction{status: :delivered, external_receipt: receipt} =
+             Repo.get!(PlatformAction, update.id)
+
+    assert receipt["message_ref"] == "1787832000.000900"
   end
 
   test "a blocked model-requested action is visible and rearmed through delivery recovery" do
@@ -1051,6 +1121,29 @@ defmodule Ryker.Delivery.DispatcherTest do
 
     assert {:ok, _result} = Admission.commit(context, decision, "decision:#{suffix}")
     Repo.get_by!(RoutingResponse, input_id: entry.id)
+  end
+
+  defp work_claim!(suffix) do
+    id = Ecto.UUID.generate()
+
+    command =
+      EpisodeFixtures.admit_input(%{
+        destination: %{
+          conversation_ref: "slack:T123:C456",
+          thread_ref: "1787832000.000100",
+          transport: "slack"
+        },
+        episode_id: id,
+        episode_key: "platform-action-dispatcher:#{suffix}:#{id}",
+        native_input_id: "platform-action-dispatcher:input:#{suffix}:#{id}",
+        occurred_at: @now,
+        turn_ref: "platform-action-dispatcher:turn:#{suffix}:#{id}"
+      })
+
+    assert {:ok, _transition} = Episodes.apply(command)
+    assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+    assert {:ok, claim} = Custody.claim_next("work:platform-action:#{suffix}", 60, :work)
+    claim
   end
 
   defp platform_action_pending!(suffix) do

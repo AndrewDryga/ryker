@@ -16,6 +16,7 @@ defmodule Ryker.Work.Contract do
   @effectful_platform_tools MapSet.new(~w(
     cancel_github_ci
     post_slack_message
+    post_slack_update
     rerun_github_ci
     set_github_reaction
     set_slack_reaction

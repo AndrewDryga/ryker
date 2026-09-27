@@ -2,8 +2,9 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   @moduledoc """
   The rows of one direct conversation as the messages a reader sees: inputs
   with their revisions, reactions and attachments; accepted replies with their
-  cards and generated files; delivered platform messages; publications; and
-  the quick replies routing sent without Work.
+  cards and generated files; delivered platform messages, among them the
+  updates Work posted before its answer; publications; and the quick replies
+  routing sent without Work.
 
   `ConversationProjection` decides which rows are on a page; this module says
   what each row shows, with the sort key and cursor that place it.
@@ -538,6 +539,9 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp marker_component(_value, fallback), do: fallback
 
+  # A delivered platform message: a post a person confirmed, or an update the
+  # Work model posted while it worked, placed where it arrived, which for an
+  # update is always before the answer that follows it.
   defp action_message(
          %{
            action_ref: action_ref,
@@ -545,10 +549,11 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
            document: %{"message" => message},
            kind: :message,
            status: :delivered,
-           tool: :post_slack_message
+           tool: tool
          } = action
        )
-       when is_binary(action_ref) and is_binary(message) do
+       when is_binary(action_ref) and is_binary(message) and
+              tool in [:post_slack_message, :post_slack_update] do
     [
       %{
         actor: :ryker,

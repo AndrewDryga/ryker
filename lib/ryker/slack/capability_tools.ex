@@ -12,8 +12,8 @@ defmodule Ryker.Slack.CapabilityTools do
   under `Ryker.Slack.CapabilityTools`: `Arguments` validates each tool's
   arguments into a provider document, `Authority` decides what the binding may
   touch, `ChannelListing`, `Search` and `SourceReader` read, `Resources`
-  shape bookmarks, canvases and files, and `Actions` freeze a reaction or an
-  offered post into durable custody.
+  shape bookmarks, canvases and files, and `Actions` freeze a reaction, a Work
+  update or an offered post into durable custody.
   """
 
   alias Ryker.Delivery.PlatformActionCustody
@@ -28,7 +28,7 @@ defmodule Ryker.Slack.CapabilityTools do
     SourceReader
   }
 
-  alias Ryker.Slack.{ChannelConfigurations, SourceAudits, SourceRef}
+  alias Ryker.Slack.{ChannelConfigurations, Mentions, SourceAudits, SourceRef}
 
   @spec list(map() | keyword()) :: [map()]
   def list(options) do
@@ -172,6 +172,24 @@ defmodule Ryker.Slack.CapabilityTools do
           "type" => "object"
         },
         "name" => "post_slack_message"
+      },
+      %{
+        "description" =>
+          "Post one short message in this conversation right away, before your final answer: an early acknowledgement when the work will take a while, a partial finding someone can act on now, or what you are doing next. It goes at once to the thread your answer goes to, at most 3 per turn, in the order posted. It never replaces the final answer, and the final answer is accepted only once every update has been delivered.",
+        "inputSchema" => %{
+          "additionalProperties" => false,
+          "properties" => %{
+            "message" => %{
+              "description" => "The words to post, written like the final answer.",
+              "maxLength" => Arguments.maximum_update(),
+              "minLength" => 1,
+              "type" => "string"
+            }
+          },
+          "required" => ["message"],
+          "type" => "object"
+        },
+        "name" => "post_slack_update"
       }
     ]
   end
@@ -332,7 +350,37 @@ defmodule Ryker.Slack.CapabilityTools do
     _error -> {:error, "temporarily_unavailable"}
   end
 
+  def call("post_slack_update", arguments, binding, options) do
+    options = options!(options)
+
+    with {:ok, _current_channel_ref} <- Authority.binding(binding, options.workspace_ref),
+         {:ok, message} <- Arguments.update_message(arguments),
+         :ok <- update_mentions(message, options.mention_authority.(binding)),
+         {:ok, destination} <- options.update_destination.(binding),
+         {:ok, %{action: frozen}} <-
+           options.enqueue_update.(binding, Actions.update_attributes(destination, message)) do
+      {:ok, %{"action_ref" => frozen.action_ref, "status" => Atom.to_string(frozen.status)}}
+    else
+      {:error, reason} -> {:error, error_code(reason)}
+    end
+  rescue
+    _error -> {:error, "temporarily_unavailable"}
+  end
+
   def call(_name, _arguments, _binding, _options), do: {:error, "unknown_tool"}
+
+  @doc """
+  Whether a Work update's typed Slack entities are ones its answer may name:
+  the same check the final reply passes, so an update can mention no one the
+  answer could not.
+  """
+  @spec update_mentions(String.t(), map() | nil) :: :ok | {:error, term()}
+  def update_mentions(message, authority) do
+    case Mentions.violations(message, authority) do
+      [] -> :ok
+      violations -> {:error, {:invalid_update_mentions, violations}}
+    end
+  end
 
   @doc false
   defdelegate authorized_post_instruction?(input, destination_ref), to: Authority
@@ -349,10 +397,13 @@ defmodule Ryker.Slack.CapabilityTools do
       :current_input,
       :current_instruction,
       :enqueue_action,
+      :enqueue_update,
       :event_ref,
+      :mention_authority,
       :propose_post,
       :reaction_added,
       :requester_ref,
+      :update_destination,
       :workspace_ref
     ]
 
@@ -375,6 +426,9 @@ defmodule Ryker.Slack.CapabilityTools do
       Map.get(options, :current_instruction, &Authority.current_slack_instruction/3)
 
     enqueue_action = Map.get(options, :enqueue_action, &PlatformActionCustody.enqueue/2)
+    enqueue_update = Map.get(options, :enqueue_update, &PlatformActionCustody.enqueue_update/2)
+    mention_authority = Map.get(options, :mention_authority, &Authority.mention_authority/1)
+    update_destination = Map.get(options, :update_destination, &Authority.update_destination/1)
     propose_post = Map.get(options, :propose_post, &Actions.propose_slack_post/2)
 
     reaction_added =
@@ -389,10 +443,13 @@ defmodule Ryker.Slack.CapabilityTools do
       current_input: current_input,
       current_instruction: current_instruction,
       enqueue_action: enqueue_action,
+      enqueue_update: enqueue_update,
       event_ref: event_ref,
+      mention_authority: mention_authority,
       propose_post: propose_post,
       reaction_added: reaction_added,
-      requester_ref: requester_ref
+      requester_ref: requester_ref,
+      update_destination: update_destination
     }
 
     unless valid_authority?(api, action_tokens, callbacks, options.workspace_ref),
@@ -404,10 +461,13 @@ defmodule Ryker.Slack.CapabilityTools do
     |> Map.put(:current_input, current_input)
     |> Map.put(:current_instruction, current_instruction)
     |> Map.put(:enqueue_action, enqueue_action)
+    |> Map.put(:enqueue_update, enqueue_update)
     |> Map.put(:event_ref, event_ref)
+    |> Map.put(:mention_authority, mention_authority)
     |> Map.put(:propose_post, propose_post)
     |> Map.put(:reaction_added, reaction_added)
     |> Map.put(:requester_ref, requester_ref)
+    |> Map.put(:update_destination, update_destination)
   end
 
   defp valid_authority?(api, action_tokens, callbacks, workspace_ref) do
@@ -425,6 +485,9 @@ defmodule Ryker.Slack.CapabilityTools do
       is_function(callbacks.current_input, 2),
       is_function(callbacks.current_instruction, 3),
       is_function(callbacks.enqueue_action, 2),
+      is_function(callbacks.enqueue_update, 2),
+      is_function(callbacks.mention_authority, 1),
+      is_function(callbacks.update_destination, 1),
       is_function(callbacks.propose_post, 2),
       is_function(callbacks.reaction_added, 4),
       is_function(callbacks.configuration, 2),
@@ -523,10 +586,24 @@ defmodule Ryker.Slack.CapabilityTools do
         function_exported?(module, function, arity)
 
   defp error_code(:invalid_arguments), do: "invalid_arguments"
+
+  defp error_code({:invalid_update_mentions, violations}),
+    do: "invalid_arguments: " <> Enum.join(violations, " ") <> " Nothing was posted."
+
+  defp error_code(:update_limit_reached), do: update_limit_error()
   defp error_code(:invalid_source_cursor), do: "invalid_source_cursor"
   defp error_code(:unauthorized), do: "unauthorized"
   defp error_code(:slack_action_token_not_authorized), do: "unauthorized"
   defp error_code(:slack_search_budget_exhausted), do: "search_budget_exhausted"
   defp error_code(:slack_source_not_found), do: "not_found"
   defp error_code(_reason), do: "temporarily_unavailable"
+
+  @doc """
+  The refusal a Work update past the turn's bound gets, the same in Slack and
+  Chat: what happened and what to do instead.
+  """
+  @spec update_limit_error() :: String.t()
+  def update_limit_error,
+    do:
+      "update_limit_reached: this turn has already posted its 3 updates. Nothing was posted; say anything more in the final answer."
 end

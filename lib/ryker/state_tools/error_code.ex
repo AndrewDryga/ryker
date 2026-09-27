@@ -161,6 +161,9 @@ defmodule Ryker.StateTools.ErrorCode do
 
   defp explanation("memory_capacity_reached"), do: "Ryker's saved knowledge is full."
 
+  defp explanation("update_limit_reached"),
+    do: "The run had already posted as many updates as it may before its answer."
+
   defp explanation("memory_source_capacity_exceeded"),
     do: "The run had already read as many saved sources as it may."
 

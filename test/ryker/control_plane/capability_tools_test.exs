@@ -30,7 +30,8 @@ defmodule Ryker.ControlPlane.CapabilityToolsTest do
              "search_slack",
              "read_slack_source",
              "set_slack_reaction",
-             "post_slack_message"
+             "post_slack_message",
+             "post_slack_update"
            ]
 
     assert {:ok, listed} =

@@ -9,6 +9,12 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   Each action queued, claimed, retried, blocked or delivered is announced after
   the outermost commit (`subscribe_platform_actions/0`), on its request's and
   its conversation's topics too.
+
+  A Work update (`post_slack_update`) is a short message the Work model posts
+  into its own conversation while it works. A turn posts at most three, in
+  slots `update:1` to `update:3`, and each is sent only after every earlier
+  update of its turn is delivered, so they arrive in the order they were
+  written.
   """
 
   import Ecto.Query
@@ -30,8 +36,10 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     :tool,
     :transport
   ]
-  @tools [:set_slack_reaction, :post_slack_message, :set_github_reaction]
+  @tools [:set_slack_reaction, :post_slack_message, :post_slack_update, :set_github_reaction]
   @kinds [:message, :reaction]
+  # Single digits: the slots `update:1` to `update:N` order by their text.
+  @maximum_updates 3
 
   @type claim :: %{action: PlatformAction.t(), lease_ref: Ecto.UUID.t()}
 
@@ -44,6 +52,37 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       Repo.transaction(fn -> enqueue_locked(binding, attributes, request) end)
     end
   end
+
+  @doc """
+  Freezes one Work update: a message into the turn's own conversation, in the
+  next free update slot of the turn. The same words asked for again return the
+  update already frozen, and a turn that has posted its
+  #{@maximum_updates} updates is refused with `:update_limit_reached`.
+  """
+  @spec enqueue_update(map(), map() | keyword()) ::
+          {:ok, %{action: PlatformAction.t(), status: :created | :duplicate}} | {:error, term()}
+  def enqueue_update(binding, attributes) do
+    with {:ok, attributes} <- attributes |> with_update_slot() |> exact_attributes(),
+         :ok <- update_kind(attributes),
+         {:ok, _request} <- request_attributes(attributes),
+         :ok <- live_binding_shape(binding) do
+      # A refusal writes nothing, so it returns rather than rolls back: Chat
+      # calls this inside its own transaction, which a rollback would end.
+      case Repo.transaction(fn -> enqueue_update_locked(binding, attributes) end) do
+        {:ok, {:refused, reason}} -> {:error, reason}
+        result -> result
+      end
+    end
+  end
+
+  defp update_kind(%{tool: :post_slack_update, kind: :message}), do: :ok
+  defp update_kind(_attributes), do: {:error, {:invalid_platform_action, :kind}}
+
+  defp with_update_slot(attributes) when is_list(attributes),
+    do: attributes |> Map.new() |> with_update_slot()
+
+  defp with_update_slot(%{} = attributes), do: Map.put(attributes, :host_slot, "update:1")
+  defp with_update_slot(attributes), do: attributes
 
   @doc false
   @spec enqueue_confirmed_record_in_transaction(Record.t(), map() | keyword()) ::
@@ -311,7 +350,44 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp enqueue_locked(binding, attributes, request) do
     now = Repo.now!()
+    {episode, turn} = lock_binding(binding)
 
+    case live_binding(episode, turn, binding, now) do
+      :ok -> enqueue_for_ids(episode.id, turn.id, attributes, request)
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp enqueue_update_locked(binding, attributes) do
+    {episode, turn} = lock_binding(binding)
+
+    with :ok <- live_binding(episode, turn, binding, Repo.now!()) do
+      updates =
+        Repo.all(
+          from(action in PlatformAction,
+            where: action.turn_id == ^turn.id and action.tool == :post_slack_update,
+            order_by: [asc: action.host_slot]
+          )
+        )
+
+      case Enum.find(updates, &(&1.document == attributes.document)) do
+        %PlatformAction{} = same ->
+          %{action: same, status: :duplicate}
+
+        nil when length(updates) >= @maximum_updates ->
+          {:refused, :update_limit_reached}
+
+        nil ->
+          attributes = %{attributes | host_slot: "update:#{length(updates) + 1}"}
+          {:ok, request} = request_attributes(attributes)
+          enqueue_for_ids(episode.id, turn.id, attributes, request)
+      end
+    else
+      {:error, reason} -> {:refused, reason}
+    end
+  end
+
+  defp lock_binding(binding) do
     episode =
       Repo.one(
         from(episode in Episode,
@@ -328,10 +404,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
         )
       )
 
-    case live_binding(episode, turn, binding, now) do
-      :ok -> enqueue_for_ids(episode.id, turn.id, attributes, request)
-      {:error, reason} -> Repo.rollback(reason)
-    end
+    {episode, turn}
   end
 
   defp enqueue_for_ids(episode_id, turn_id, attributes, request) do
@@ -384,10 +457,23 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
     case Repo.one(
            from(action in PlatformAction,
+             as: :action,
              where:
                action.status == :pending and
                  (is_nil(action.next_attempt_at) or action.next_attempt_at <= ^now) and
                  (is_nil(action.lease_expires_at) or action.lease_expires_at <= ^now),
+             where:
+               action.tool != :post_slack_update or
+                 not exists(
+                   from(earlier in PlatformAction,
+                     where:
+                       earlier.turn_id == parent_as(:action).turn_id and
+                         earlier.tool == :post_slack_update and
+                         earlier.host_slot < parent_as(:action).host_slot and
+                         earlier.status != :delivered,
+                     select: 1
+                   )
+                 ),
              order_by: [asc: action.inserted_at, asc: action.id],
              limit: 1,
              lock: "FOR UPDATE SKIP LOCKED"

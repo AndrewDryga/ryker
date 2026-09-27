@@ -10,6 +10,7 @@ defmodule Ryker.Slack.Mentions do
   import Ecto.Query
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
 
+  alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Repo
   alias Ryker.Work.Turn
@@ -48,7 +49,9 @@ defmodule Ryker.Slack.Mentions do
   def authority(%Episode{}), do: nil
 
   @doc """
-  Resolves the Slack mention authority for one immutable delivery intent.
+  Resolves the Slack mention authority for one immutable delivery intent: a
+  Work answer, or a Work update posted before it, which may name exactly whom
+  the answer may.
 
   The delivery reference is host-owned and unique. Platform publishers use
   this lookup instead of accepting mention authority from model output or a
@@ -65,7 +68,15 @@ defmodule Ryker.Slack.Mentions do
           where: turn.delivery_ref == ^delivery_ref,
           select: episode
         )
-      )
+      ) ||
+        Repo.one(
+          from(episode in Episode,
+            join: action in PlatformAction,
+            on: action.episode_id == episode.id,
+            where: action.action_ref == ^delivery_ref and action.tool == :post_slack_update,
+            select: episode
+          )
+        )
 
     case episode do
       %Episode{} = episode ->

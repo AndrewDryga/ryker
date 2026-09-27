@@ -133,6 +133,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "set_slack_reaction" => "Adds or removes an emoji reaction on a Slack message.",
     "post_slack_message" =>
       "Drafts an extra Slack message that a person confirms before it is posted.",
+    "post_slack_update" =>
+      "Posts a short update in this conversation right away, before the answer.",
     "read_github_conversation" => "Reads the GitHub issue or pull request this work is about.",
     "search_github" => "Searches issues and pull requests in a repository of this environment.",
     "read_github_pull_request" => "Reads one pull request in a repository of this environment.",

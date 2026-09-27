@@ -33,6 +33,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
     {"is reading Slack messages…", ~w(read_slack_source)},
     {"is reacting to a message…", ~w(set_slack_reaction set_github_reaction)},
     {"is drafting a Slack message…", ~w(post_slack_message)},
+    {"is posting an update…", ~w(post_slack_update)},
     {"is reading GitHub…", ~w(read_github_conversation)},
     {"is reading a pull request…", ~w(read_github_pull_request)},
     {"is searching GitHub…", ~w(search_github)},
