@@ -26,6 +26,35 @@ defmodule Ryker.Slack.TaskCards do
     |> transaction_result()
   end
 
+  @doc """
+  The earliest moment after `since` at which an active card becomes due by the
+  clock alone: its next check `check_interval_seconds` after the last, the end
+  of a retry's backoff, or the end of an unrenewed lease, whichever it waits
+  on last. Nil when no card waits on the clock.
+  """
+  @spec next_due_at(DateTime.t(), pos_integer()) :: DateTime.t() | nil
+  def next_due_at(%DateTime{} = since, check_interval_seconds)
+      when is_integer(check_interval_seconds) do
+    due =
+      from(card in TaskCard,
+        where: card.status == :active,
+        select: %{
+          due_at:
+            type(
+              fragment(
+                "GREATEST(?, ?, ?)",
+                datetime_add(card.card_checked_at, ^check_interval_seconds, "second"),
+                card.next_attempt_at,
+                card.lease_expires_at
+              ),
+              :utc_datetime_usec
+            )
+        }
+      )
+
+    Repo.one(from(card in subquery(due), where: card.due_at > ^since, select: min(card.due_at)))
+  end
+
   @spec claim_next(String.t(), pos_integer(), pos_integer()) ::
           {:ok, TaskCard.t() | nil} | {:error, term()}
   def claim_next(worker_ref, lease_seconds, check_interval_seconds) do
@@ -61,6 +90,9 @@ defmodule Ryker.Slack.TaskCards do
     end
   end
 
+  # A claim only takes the lease, which no page shows. Every active card is
+  # claimed every few seconds; announcing each claim woke every worker that
+  # listens to requests as often.
   defp lease_card(card, worker_ref, lease_seconds, now) do
     update!(
       card,
@@ -71,7 +103,8 @@ defmodule Ryker.Slack.TaskCards do
         lease_ref: Ecto.UUID.generate(),
         next_attempt_at: nil
       },
-      now
+      now,
+      :quiet
     )
   end
 
@@ -99,7 +132,8 @@ defmodule Ryker.Slack.TaskCards do
             lease_ref: nil,
             next_attempt_at: nil
           },
-          now
+          now,
+          if(unchanged?(card, fingerprint, ui_revision), do: :quiet, else: :announce)
         )
       end)
     end
@@ -282,10 +316,18 @@ defmodule Ryker.Slack.TaskCards do
     |> transaction_result()
   end
 
-  defp update!(card, attributes, now) do
+  # A check that found the card as it was, with nothing to clear, changed
+  # nothing anyone sees.
+  defp unchanged?(card, fingerprint, ui_revision),
+    do:
+      card.card_fingerprint == fingerprint and card.card_ui_revision == ui_revision and
+        is_nil(card.last_error_code)
+
+  defp update!(card, attributes, now, announce \\ :announce) do
     case card
          |> TaskCardChangeset.update(Map.put(attributes, :updated_at, now))
          |> Repo.update() do
+      {:ok, card} when announce == :quiet -> card
       {:ok, card} -> tap(card, &broadcast_task_card_updated/1)
       {:error, changeset} -> Repo.rollback({:task_card_persistence_failed, changeset.errors})
     end

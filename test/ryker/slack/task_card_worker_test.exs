@@ -2,6 +2,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
   use Ryker.DataCase, async: false
 
   import Ecto.Query
+  import Ryker.TestHelpers, only: [eventually: 2]
 
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
   alias Ryker.{Episodes, Repo}
@@ -124,6 +125,62 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     assert {:ok, {:updated, _ref}} = TaskCardWorker.run_once(options)
     assert Repo.get!(TaskCard, card.id).attempt_count == 0
   end
+
+  # On 2026-09-27 an idle install committed about 125 transactions a second;
+  # the task-card worker polled every second. It now sleeps until a task or a
+  # card is announced, so a person rearming a card has to wake it.
+  test "a card a person rearms is refreshed at once, not at the next timer" do
+    card = card!("rearmed")
+    client = client!({:error, {:slack_api_error, "message_not_found"}})
+    assert {:ok, {:blocked, _ref}} = TaskCardWorker.run_once(options(client))
+    Agent.update(client, &%{&1 | result: :ok})
+
+    worker = start_supervised!({TaskCardWorker, sleeping_options(client)})
+    # Its first poll found nothing, and its next timer is five minutes away.
+    _state = :sys.get_state(worker)
+
+    assert {:ok, _rearmed} = TaskCards.rearm(card.ref)
+    assert eventually(fn -> Agent.get(client, & &1.updates) == 2 end, 500)
+  end
+
+  # Every active card is checked again every few seconds, and only the clock
+  # says when: a worker sleeping its safety-net interval would leave a card
+  # showing stale progress for up to ten seconds.
+  test "a card whose next check falls due is refreshed then, not at the safety-net interval" do
+    card = card!("due")
+    client = client!(:ok)
+
+    Repo.update_all(from(stored in TaskCard, where: stored.id == ^card.id),
+      set: [card_checked_at: Repo.now!()]
+    )
+
+    start_supervised!({TaskCardWorker, sleeping_options(client)})
+
+    refute eventually(fn -> Agent.get(client, & &1.updates) == 1 end, 500)
+    assert eventually(fn -> Agent.get(client, & &1.updates) == 1 end, 1_500)
+  end
+
+  # A card is checked every two seconds for as long as its task exists, and
+  # each check announced its claim and its result on the task's topics even
+  # when the card had not changed. Once a dozen workers woke on those topics,
+  # every such check woke all of them.
+  test "a check that finds a card unchanged is not announced" do
+    card = card!("unchanged")
+    client = client!(:ok)
+    episode_id = card.episode.id
+    assert {:ok, {:updated, _ref}} = TaskCardWorker.run_once(options(client))
+
+    make_due!(card.id)
+    :ok = TaskCards.subscribe_task_cards()
+    :ok = Episodes.subscribe_episode(episode_id)
+    assert {:ok, {:updated, _ref}} = TaskCardWorker.run_once(options(client))
+
+    refute_received {:task_card_updated, _card_id}
+    refute_received {:episode_updated, ^episode_id}
+  end
+
+  defp sleeping_options(client),
+    do: options(client, idle_interval_ms: 300_000, interval_ms: 300_000)
 
   defp client!(result),
     do: start_supervised!({Agent, fn -> %{result: result, updates: 0} end})
