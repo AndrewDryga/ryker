@@ -882,6 +882,13 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              Enum.zip_with(refs, ~w(eyes rocket white_check_mark), fn ref, emoji ->
                %{delivery_ref: ref, emoji_name: emoji, status: :delivered}
              end)
+
+    # Live 2026-09-27: they read ":eyes:" in Chat instead of the emoji.
+    chips = message |> Ryker.ControlPlane.HTML.lab_message_extras() |> IO.iodata_to_binary()
+    assert chips =~ "👀"
+    assert chips =~ "🚀"
+    assert chips =~ "✅"
+    refute chips =~ ">:eyes:<"
   end
 
   test "a Chat request's timeline reads in the reader's words and shows its reply once" do
