@@ -97,7 +97,11 @@ defmodule Ryker.Publication.Followups do
   """
   defdelegate store_poll(publication_ref, lease_ref, status), to: Polls
 
-  @doc "Settles a pending verification, or checks it again after `interval_seconds`."
+  @doc """
+  Ends the wait for a woken task once its turn finishes, ends another way or
+  has held the task an hour, making the next GitHub check due at once;
+  otherwise looks again after `interval_seconds`.
+  """
   defdelegate reconcile_verification(publication_ref, lease_ref, interval_seconds), to: Polls
 
   @doc """

@@ -684,6 +684,23 @@ defmodule Ryker.Work.Custody do
   defdelegate recovery_fingerprint(turn), to: Cancellation
 
   @doc """
+  Whether an episode's turn may still finish: Work has not started it yet, or
+  it is running. A turn that is stopping, blocked, replaced or settled will not.
+  """
+  @spec turn_in_progress?(Ecto.UUID.t(), String.t()) :: boolean()
+  def turn_in_progress?(episode_id, turn_ref) do
+    status =
+      Ryker.Repo.one(
+        from(turn in Turn,
+          where: turn.episode_id == ^episode_id and turn.turn_ref == ^turn_ref,
+          select: turn.status
+        )
+      )
+
+    status in [nil, :pending]
+  end
+
+  @doc """
   Spends one confirmed failed Coop cancellation mutation.
 
   A lost or uncertain response must keep the same generation and reconcile the

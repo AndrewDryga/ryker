@@ -7,27 +7,35 @@ defmodule Ryker.Publication.Followups.Polls do
   this publication, and the hard deadline each become one event, and a
   person's check request is answered with the current state. Only failing
   checks on the reviewed head wake the source task, because only they are its
-  own work to finish. After a wakeup other than review feedback, the poll
-  instead settles whether the woken task has accepted a result for it.
+  own work to finish.
 
   An open pull request is checked again every ten minutes until it merges,
   closes, goes stale or reaches its deadline, so Ryker keeps tracking it when
   no GitHub webhook reaches it. A webhook or a person's check request makes
   the next check due at once.
+
+  After a wakeup other than review feedback, the poll waits for the woken turn
+  instead of asking GitHub, until that turn accepts a result, ends another way
+  or has held the task for an hour. Then the pull request is checked at once,
+  so a webhook or check request that came during the wait is not lost.
   """
 
   import Ecto.Query
 
-  alias Ryker.Episodes.Event
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Publication.Changeset, as: PublicationChangeset
   alias Ryker.Publication.Custody
   alias Ryker.Publication.Followups.{Leases, Store}
   alias Ryker.Publication.LifecycleStatus
   alias Ryker.Repo
+  alias Ryker.Work.Custody, as: WorkCustody
 
   # How often an open pull request is checked when no webhook arrives. Slow on
   # purpose: each check spends GitHub API calls, for up to 30 days.
   @recheck_seconds 10 * 60
+  # Coop stops any turn after an hour, so a woken turn still holding the task
+  # by then is stuck or starting over; GitHub checks resume either way.
+  @task_wait_seconds 60 * 60
   @far_future ~U[9999-01-01 00:00:00.000000Z]
 
   def store_poll(publication_ref, lease_ref, status) do
@@ -255,16 +263,14 @@ defmodule Ryker.Publication.Followups.Polls do
     datetime
   end
 
-  # --- verification ---------------------------------------------------------
+  # --- the wait for a woken task --------------------------------------------
 
   defp reconcile_verification_locked(publication_ref, lease_ref, interval_seconds) do
     with {:ok, followup, _publication, now} <- Leases.lock_poll(publication_ref, lease_ref),
          true <- verification_pending?(followup) do
-      verified = verification_recorded?(followup)
-
       Store.update_followup!(
         followup,
-        verification_attributes(followup, verified, now, interval_seconds),
+        wait_attributes(followup, woken_turn(followup, now), now, interval_seconds),
         now
       )
     else
@@ -275,6 +281,45 @@ defmodule Ryker.Publication.Followups.Polls do
 
   defp verification_pending?(followup) do
     is_binary(followup.verification_event_ref) and is_integer(followup.verification_sequence)
+  end
+
+  # Where the turn the wakeup handed the task to stands: it accepted a result
+  # for the wakeup, it is still working on it, or it ended another way. A newer
+  # turn took the task (as one does when the wakeup found the task busy), the
+  # task was cancelled, the turn was blocked, or it has held the task longer
+  # than Coop lets a turn run.
+  defp woken_turn(followup, now) do
+    cond do
+      verification_recorded?(followup) -> :finished
+      still_working?(followup, now) -> :working
+      true -> :ended
+    end
+  end
+
+  defp still_working?(followup, now) do
+    case Repo.get(Episode, followup.episode_id) do
+      %Episode{state: :working, owner_kind: :turn, owner_ref: owner} ->
+        owner == followup.verification_turn_ref and within_wait?(followup, now) and
+          WorkCustody.turn_in_progress?(followup.episode_id, owner)
+
+      _other ->
+        false
+    end
+  end
+
+  # Counted from when the wakeup was admitted into the task.
+  defp within_wait?(followup, now) do
+    admitted_at =
+      Repo.one(
+        from(event in Event,
+          where:
+            event.episode_id == ^followup.episode_id and
+              event.sequence == ^followup.verification_sequence,
+          select: event.inserted_at
+        )
+      )
+
+    is_struct(admitted_at, DateTime) and DateTime.diff(now, admitted_at) < @task_wait_seconds
   end
 
   defp verification_recorded?(followup) do
@@ -292,17 +337,31 @@ defmodule Ryker.Publication.Followups.Polls do
     )
   end
 
-  defp verification_attributes(followup, verified, now, interval_seconds) do
-    %{
-      lease_expires_at: nil,
-      lease_owner: nil,
-      lease_ref: nil,
-      next_poll_at:
-        if(verified,
-          do: next_check(followup.pr_state, now),
-          else: DateTime.add(now, interval_seconds, :second)
-        ),
-      verified_at: if(verified, do: now, else: nil)
-    }
+  defp wait_attributes(_followup, :working, now, interval_seconds),
+    do: released(%{next_poll_at: DateTime.add(now, interval_seconds, :second)})
+
+  defp wait_attributes(followup, :finished, now, _interval_seconds),
+    do: released(%{next_poll_at: after_wait(followup, now), verified_at: now})
+
+  defp wait_attributes(followup, :ended, now, _interval_seconds) do
+    released(%{
+      next_poll_at: after_wait(followup, now),
+      verification_event_ref: nil,
+      verification_sequence: nil,
+      verification_turn_ref: nil
+    })
+  end
+
+  defp released(attributes),
+    do: Map.merge(attributes, %{lease_expires_at: nil, lease_owner: nil, lease_ref: nil})
+
+  # GitHub was not asked during the wait, so an open pull request is checked at
+  # once: a webhook or check request that came meanwhile gets its check, and
+  # the ten-minute timer resumes from there. A check request on a pull request
+  # that has ended is answered too.
+  defp after_wait(followup, now) do
+    if followup.pr_state == "open" or is_binary(followup.manual_check_ref),
+      do: now,
+      else: @far_future
   end
 end
