@@ -1,6 +1,10 @@
 defmodule Ryker.Slack.InteractionFeedbackWorker do
   @moduledoc """
   Reconciles stale Slack controls by repainting their exact source message.
+
+  A press recorded for repainting is announced, and that wakes the worker at
+  once. Otherwise it sleeps until a retry or an unrenewed lease falls due, or
+  for its safety-net interval.
   """
 
   use Ryker.PollingWorker, lane: :slack_interactions, interval: :interval_ms
@@ -9,6 +13,7 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
 
   alias Ryker.Observability.Progress
   alias Ryker.Options
+  alias Ryker.PollingWorker
 
   alias Ryker.Slack.{InteractionAudits, InteractionRepaint}
 
@@ -19,12 +24,18 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
     GenServer.start_link(__MODULE__, options, name: options.name)
   end
 
-  @impl Ryker.PollingWorker
+  @impl PollingWorker
+  def wake_on(_options), do: [&InteractionAudits.subscribe_interactions/0]
+
+  @impl PollingWorker
   def poll(options) do
     delay =
       case run_once(options) do
         {:ok, :idle} ->
-          options.interval_ms
+          PollingWorker.idle_delay(
+            &InteractionAudits.next_due_at/1,
+            Map.get(options, :idle_interval_ms, PollingWorker.idle_interval_ms())
+          )
 
         {:ok, _result} ->
           0
@@ -124,7 +135,7 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
   @doc false
   def options!(options) do
     required = [:api, :client, :lease_seconds, :max_attempts, :retry_base_seconds, :worker_ref]
-    optional = [:interval_ms, :name, :repaint]
+    optional = [:idle_interval_ms, :interval_ms, :name, :repaint]
 
     options =
       Options.normalize!(options, required ++ optional, required,
@@ -149,6 +160,7 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
       is_atom(options.api),
       is_function(options.repaint, 2),
       is_integer(options.interval_ms) and options.interval_ms in 1..300_000,
+      Map.get(options, :idle_interval_ms, 1) in 1..3_600_000,
       is_integer(options.lease_seconds) and options.lease_seconds in 5..3_600,
       is_integer(options.max_attempts) and options.max_attempts in 1..100,
       is_integer(options.retry_base_seconds) and options.retry_base_seconds in 1..3_600,
