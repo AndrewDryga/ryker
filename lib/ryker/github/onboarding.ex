@@ -141,6 +141,8 @@ defmodule Ryker.GitHub.Onboarding do
   # where the worker takes it up again. That used to be swallowed whole, so a
   # repository read "cloning" forever and the log said nothing.
   defp block(ref, reason) do
+    Logger.warning("repository #{ref} setup stopped: #{inspect(reason)}")
+
     case transition(ref, %{onboarding_error: failure(reason), onboarding_state: :blocked}) do
       :ok -> :ok
       {:error, error} -> unblocked(ref, inspect(error))

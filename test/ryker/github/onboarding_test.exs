@@ -50,6 +50,12 @@ defmodule Ryker.GitHub.OnboardingTest do
     def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
   end
 
+  defmodule UnknownFailureAPI do
+    def pin(_binding, _repository), do: {:error, {:github_status, 502}}
+    def scan(_binding, _repository, _commit), do: flunk("must not scan")
+    def publish(_binding, _repository, _commit, _content), do: flunk("must not publish")
+  end
+
   setup do
     {:ok, snapshot} = Settings.initialize(@actor)
 
@@ -109,6 +115,18 @@ defmodule Ryker.GitHub.OnboardingTest do
     Repo.query!("ALTER TABLE installation_settings_broken RENAME TO installation_settings")
     assert log =~ "database polling unavailable"
     assert log =~ "github_onboarding"
+  end
+
+  # Found live 2026-09-27: five repositories stopped in setup on a sentence
+  # that named nothing, and the log said nothing either.
+  test "a setup failure Ryker has no sentence for is logged with its reason" do
+    log =
+      capture_log(fn ->
+        assert {:error, {:github_status, 502}} = Onboarding.run("repo", api: UnknownFailureAPI)
+      end)
+
+    assert log =~ "repository repo setup stopped"
+    assert log =~ "github_status"
   end
 
   test "pins, scans and publishes one resumable repository knowledge proposal" do
