@@ -4,6 +4,11 @@ defmodule Ryker.Delivery.Worker do
 
   PostgreSQL leases remain the durable owner. This process can crash or restart
   without changing the frozen platform request.
+
+  Whatever queues or releases a delivery of its kind is announced, and that
+  wakes the worker at once (`Ryker.Delivery.Dispatcher.subscriptions/1`). With
+  nothing to send it sleeps until the next retry or unrenewed lease falls due,
+  or for its safety-net interval.
   """
 
   use Ryker.PollingWorker, lane: :delivery, interval: :poll_interval_ms
@@ -12,6 +17,7 @@ defmodule Ryker.Delivery.Worker do
 
   alias Ryker.Delivery.Dispatcher
   alias Ryker.Observability.Progress
+  alias Ryker.PollingWorker
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
@@ -19,42 +25,61 @@ defmodule Ryker.Delivery.Worker do
     GenServer.start_link(__MODULE__, options, name: name)
   end
 
-  @impl Ryker.PollingWorker
+  @impl PollingWorker
   def setup(options) do
     poll_interval_ms = Keyword.get(options, :poll_interval_ms, 250)
+    idle_interval_ms = Keyword.get(options, :idle_interval_ms, PollingWorker.idle_interval_ms())
     dispatcher_options = Keyword.get(options, :dispatcher_options)
 
-    if is_integer(poll_interval_ms) and poll_interval_ms > 0 and
+    if positive?(poll_interval_ms) and positive?(idle_interval_ms) and
          is_list(dispatcher_options) and Keyword.keyword?(dispatcher_options) do
-      {:ok, %{dispatcher_options: dispatcher_options, poll_interval_ms: poll_interval_ms}}
+      {:ok,
+       %{
+         dispatcher_options: dispatcher_options,
+         idle_interval_ms: idle_interval_ms,
+         kind: Keyword.get(dispatcher_options, :kind),
+         poll_interval_ms: poll_interval_ms
+       }}
     else
       {:stop, {:invalid_delivery_worker, :options}}
     end
   end
 
-  @impl Ryker.PollingWorker
+  @impl PollingWorker
+  def wake_on(state), do: Dispatcher.subscriptions(state.kind)
+
+  @impl PollingWorker
   def poll(state) do
-    process_once(state.dispatcher_options)
+    delay = process_once(state)
     _ = Progress.beat(:delivery)
-    state.poll_interval_ms
+    delay
   end
 
-  defp process_once(options) do
-    case Dispatcher.run_once(options) do
+  defp process_once(state) do
+    case Dispatcher.run_once(state.dispatcher_options) do
       {:ok, :idle} ->
-        :ok
+        PollingWorker.idle_delay(
+          &Dispatcher.next_due_at(state.kind, &1),
+          state.poll_interval_ms,
+          state.idle_interval_ms
+        )
 
       {:ok, {:delivered, _kind, _delivery_ref}} ->
-        :ok
+        0
 
       {:ok, {:deferred, kind, delivery_ref, reason}} ->
         Logger.warning("#{kind} delivery #{delivery_ref} deferred: #{inspect(reason)}")
+        0
 
       {:ok, {:blocked, kind, delivery_ref, reason}} ->
         Logger.error("#{kind} delivery #{delivery_ref} blocked: #{inspect(reason)}")
+        0
 
       {:error, reason} ->
         Logger.error("delivery dispatcher failed: #{inspect(reason)}")
+        state.poll_interval_ms
     end
   end
+
+  defp positive?(value), do: is_integer(value) and value > 0
 end

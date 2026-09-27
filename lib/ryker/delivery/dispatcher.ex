@@ -9,6 +9,7 @@ defmodule Ryker.Delivery.Dispatcher do
 
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, RoutingResponseCustody}
+  alias Ryker.Episodes
   alias Ryker.LeasedCall
   alias Ryker.Slack.ReplyRecords
   alias Ryker.Work.Custody
@@ -31,6 +32,27 @@ defmodule Ryker.Delivery.Dispatcher do
       execute(claim, settings)
     end
   end
+
+  @doc """
+  The announcements that can make delivery of `kind` claimable: a Work reply
+  is a turn, announced on its request's topics; a routing response and a
+  model-requested action each have a topic of their own.
+  """
+  @spec subscriptions(atom()) :: [(-> :ok | {:error, term()})]
+  def subscriptions(:message), do: [&Episodes.subscribe_episodes/0]
+  def subscriptions(:routing), do: [&RoutingResponseCustody.subscribe_routing_responses/0]
+  def subscriptions(:action), do: [&PlatformActionCustody.subscribe_platform_actions/0]
+  def subscriptions(_kind), do: []
+
+  @doc """
+  The earliest moment after `since` at which delivery of `kind` becomes
+  claimable by the clock alone, or nil.
+  """
+  @spec next_due_at(atom(), DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(:message, since), do: Custody.next_due_at(since, :delivery)
+  def next_due_at(:routing, since), do: RoutingResponseCustody.next_due_at(since)
+  def next_due_at(:action, since), do: PlatformActionCustody.next_due_at(since)
+  def next_due_at(_kind, _since), do: nil
 
   defp claim_next(%{kind: :message} = settings) do
     Custody.claim_next(settings.worker_ref, settings.lease_seconds, :delivery)
