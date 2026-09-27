@@ -139,7 +139,7 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
           {"$.context.conversation_context.thread_summary", "Thread summary"},
           {"$.context.conversation_observations", "Conversation notes"},
           {"$.context.conversation_knowledge", "Learned topics"},
-          {"$.context.slack_addressing", "Who this Slack message addresses"},
+          {"$.context.slack_addressing", "How the message reached Ryker"},
           {"$.context.repository_source_kinds", "Permitted actions"},
           {"$.context.candidates[0]", "Background matches"},
           {"$.context.allowed_actions", "Permitted actions"}
