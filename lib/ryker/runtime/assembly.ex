@@ -762,10 +762,7 @@ defmodule Ryker.Runtime.Assembly do
           confirmations: confirmations,
           ip: bootstrap.github_listener.ip,
           port: bootstrap.github_listener.port,
-          repository_access: fn binding, payload ->
-            item = Map.fetch!(prepared, binding.name)
-            RepositoryAccess.authorize(binding, payload, item.access_http)
-          end,
+          repository_access: repository_access(prepared),
           secret: webhook_secret
         },
         tokens: %{
@@ -790,6 +787,18 @@ defmodule Ryker.Runtime.Assembly do
     case Base.decode64(encoded) do
       {:ok, key} when byte_size(key) in 16..4_096 -> key
       _invalid -> encoded
+    end
+  end
+
+  # Captures only each binding's access client. Capturing the prepared
+  # bindings captured their repositories' setup progress too, so every setup
+  # step changed this closure and the owner restarted GitHub mid-setup
+  # (2026-09-27: every added repository cycled "cloning"/"scanning" for an hour).
+  defp repository_access(prepared) do
+    clients = Map.new(prepared, fn {name, item} -> {name, item.access_http} end)
+
+    fn binding, payload ->
+      RepositoryAccess.authorize(binding, payload, Map.fetch!(clients, binding.name))
     end
   end
 
@@ -1404,36 +1413,32 @@ defmodule Ryker.Runtime.Assembly do
     if tools == [] do
       configuration
     else
+      # The closure keeps only the tools' own options. Capturing the whole
+      # assembled GitHub and Slack parts captured repositories' setup progress
+      # too, and the owner restarted every runtime holding it at each setup
+      # step (2026-09-27).
+      slack_tools = slack && slack.capability_tools
+      github_tools = github && github.capability_tools
+      control_plane? = not is_nil(control_plane)
+
       configuration
       |> Map.put(:additional_tools, tools)
       |> Map.put(:additional_call, fn name, arguments, binding ->
-        call_platform_tool(slack, github, control_plane, name, arguments, binding)
+        call_platform_tool(slack_tools, github_tools, control_plane?, name, arguments, binding)
       end)
     end
   end
 
-  defp call_platform_tool(slack, github, control_plane, name, arguments, binding) do
+  defp call_platform_tool(slack_tools, github_tools, control_plane?, name, arguments, binding) do
     cond do
-      not is_nil(github) and
-          Enum.any?(GitHubCapabilityTools.list(github.capability_tools), &(&1["name"] == name)) ->
-        call_platform_package(
-          GitHubCapabilityTools,
-          github.capability_tools,
-          name,
-          arguments,
-          binding
-        )
+      not is_nil(github_tools) and
+          Enum.any?(GitHubCapabilityTools.list(github_tools), &(&1["name"] == name)) ->
+        call_platform_package(GitHubCapabilityTools, github_tools, name, arguments, binding)
 
-      binding_transport(binding) == "slack" and not is_nil(slack) ->
-        call_platform_package(
-          SlackCapabilityTools,
-          slack.capability_tools,
-          name,
-          arguments,
-          binding
-        )
+      binding_transport(binding) == "slack" and not is_nil(slack_tools) ->
+        call_platform_package(SlackCapabilityTools, slack_tools, name, arguments, binding)
 
-      binding_transport(binding) == "control_plane" and not is_nil(control_plane) ->
+      binding_transport(binding) == "control_plane" and control_plane? ->
         if Enum.any?(ControlPlaneCapabilityTools.list(), &(&1["name"] == name)),
           do: ControlPlaneCapabilityTools.call(name, arguments, binding),
           else: {:error, "unknown_tool"}
