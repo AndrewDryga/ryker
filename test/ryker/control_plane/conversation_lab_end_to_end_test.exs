@@ -884,7 +884,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              end)
 
     # Live 2026-09-27: they read ":eyes:" in Chat instead of the emoji.
-    chips = message |> Ryker.ControlPlane.HTML.lab_message_extras() |> IO.iodata_to_binary()
+    chips = message |> HTML.lab_message_extras() |> IO.iodata_to_binary()
     assert chips =~ "👀"
     assert chips =~ "🚀"
     assert chips =~ "✅"

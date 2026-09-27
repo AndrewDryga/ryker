@@ -227,6 +227,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                    updated_at: ~U[2026-08-28 12:00:00Z]
                  },
                  configuration: %{
+                   id: "00000000-0000-4000-8000-000000000123",
                    actor_ref: "U123",
                    alert_policy: :offer,
                    invite_user_group_refs: [],

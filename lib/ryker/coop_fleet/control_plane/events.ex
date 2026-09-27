@@ -24,16 +24,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   end
 
   defp apply_event_batch(worker_id, batch, now) do
-    placement =
-      Repo.one(
-        from(placement in Placement,
-          where:
-            placement.worker_id == ^worker_id and
-              placement.session_id == ^batch["session_ref"] and
-              placement.generation == ^batch["placement_generation"],
-          lock: "FOR UPDATE"
-        )
-      ) || Shared.rollback({:coop_session_placement_not_found, batch["session_ref"]})
+    placement = placement_for_batch(worker_id, batch)
 
     after_sequence = batch["after_sequence"]
     events = batch["events"]
@@ -72,6 +63,18 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
       "sequence" => max(last_sequence, cursor),
       "session_ref" => placement.session_id
     }
+  end
+
+  defp placement_for_batch(worker_id, batch) do
+    Repo.one(
+      from(placement in Placement,
+        where:
+          placement.worker_id == ^worker_id and
+            placement.session_id == ^batch["session_ref"] and
+            placement.generation == ^batch["placement_generation"],
+        lock: "FOR UPDATE"
+      )
+    ) || Shared.rollback({:coop_session_placement_not_found, batch["session_ref"]})
   end
 
   defp last_event_sequence([], after_sequence), do: after_sequence
