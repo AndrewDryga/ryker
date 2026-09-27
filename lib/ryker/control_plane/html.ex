@@ -359,15 +359,19 @@ defmodule Ryker.ControlPlane.HTML do
     :crypto.hash(:sha256, value) |> Base.encode16(case: :lower) |> binary_part(0, 16)
   end
 
+  # Ryker's reactions on a person's message read as the emoji, as in Slack;
+  # they printed ":thumbsup:" until 2026-09-27.
   defp lab_reaction(reaction) do
     [
       "<span class=\"reaction-chip\" data-reaction-status=\"",
       escape(reaction.status),
-      "\" title=\"Ryker reaction · ",
-      escape(reaction.status),
-      "\">:",
+      "\" title=\":",
       escape(reaction.emoji_name),
-      ":</span>"
+      ": · Ryker reaction · ",
+      escape(reaction.status),
+      "\">",
+      escape(lab_emoji_glyph(reaction.emoji_name)),
+      "</span>"
     ]
   end
 
