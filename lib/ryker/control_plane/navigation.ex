@@ -32,7 +32,8 @@ defmodule Ryker.ControlPlane.Navigation do
        {"Facts", "/memory"},
        {"Learned", "/memory/learned"},
        {"Findings", "/memory/findings"},
-       {"Learning", "/memory/learning"}
+       {"Learning", "/memory/learning"},
+       {"Feedback", "/memory/feedback"}
      ]}
   ]
   # At the bottom, apart from the everyday places: the services Ryker is

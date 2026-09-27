@@ -9,7 +9,14 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Activity, EpisodeTrace, ModelRequests, UsageProjection}
+  alias Ryker.ControlPlane.{
+    Activity,
+    EpisodeTrace,
+    FeedbackProjection,
+    ModelRequests,
+    UsageProjection
+  }
+
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox
@@ -183,6 +190,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
            records: records,
            related_episodes: related_episodes(episode),
            accounting: accounting,
+           feedback: FeedbackProjection.for_request({:episode, episode.id}),
            trace: trace
          }}
     end

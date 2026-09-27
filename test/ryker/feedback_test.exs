@@ -164,13 +164,15 @@ defmodule Ryker.FeedbackTest do
       request: {:episode, episode.id}
     }
 
-    assert {:error, :rolled_back} =
+    # The topic is shared by every test that records feedback, so each
+    # announcement is looked for by the signal it names.
+    assert {:error, {:rolled_back, rolled_back}} =
              Repo.transaction(fn ->
-               {:ok, _recorded} = Feedback.record_in_transaction(attributes)
-               Repo.rollback(:rolled_back)
+               {:ok, %{signal: %{id: id}}} = Feedback.record_in_transaction(attributes)
+               Repo.rollback({:rolled_back, id})
              end)
 
-    refute_received {:feedback_recorded, _id}
+    refute_received {:feedback_recorded, ^rolled_back}
     refute_received {:episode_updated, _id}
 
     assert {:ok, %{signal: %{id: id}}} = Feedback.record(attributes)
@@ -180,7 +182,7 @@ defmodule Ryker.FeedbackTest do
 
     # A duplicate changes nothing and says nothing.
     assert {:ok, %{status: :duplicate}} = Feedback.record(attributes)
-    refute_received {:feedback_recorded, _id}
+    refute_received {:feedback_recorded, ^id}
 
     assert {:ok, %{signal: %{id: input_signal}}} =
              Feedback.record(%{

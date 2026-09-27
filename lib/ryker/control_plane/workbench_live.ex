@@ -82,7 +82,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # it declared, so any of these redraws it.
   @page_events ~w(
     behavior_updated conversation_updated continuity_updated coop_worker_updated
-    credentials_changed emisar_approval_updated episode_updated follow_up_updated
+    credentials_changed emisar_approval_updated episode_updated feedback_recorded follow_up_updated
     github_delivery_updated history_pruned incident_room_updated input_updated instructions_saved
     knowledge_updated learning_updated memory_updated operator_action_recorded
     platform_action_updated publication_updated record_updated routing_response_updated

@@ -204,6 +204,57 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     assert shows?(fn -> has_element?(view, "#repository-billing") end)
   end
 
+  # Feedback is recorded by whatever saw it (a reaction, a message, routing,
+  # a review) and announced once it commits; the open Feedback page and the
+  # request's Timeline redraw from that, with no poll.
+  #
+  # A Chat request: until setup is done every page also hears Slack's
+  # conversations, which would redraw this one for the wrong reason.
+  test "feedback recorded while the Feedback page and the request are open shows on both" do
+    id = Ecto.UUID.generate()
+    conversation = "control-plane:lab:#{Ecto.UUID.generate()}"
+
+    {:ok, %{episode: episode}} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          destination: %{
+            conversation_ref: conversation,
+            thread_ref: conversation,
+            transport: "control_plane"
+          },
+          episode_id: id,
+          episode_key: "realtime-feedback:#{id}",
+          native_input_id: "realtime-feedback:#{id}",
+          turn_ref: "turn:realtime-feedback:#{id}"
+        })
+      )
+
+    {:ok, page, _html} = open("/memory/feedback")
+    assert has_element?(page, ".kit-empty-title", "No feedback yet")
+    {:ok, timeline, _html} = open("/timeline/" <> URI.encode_www_form(episode.key))
+    refute has_element?(timeline, "#feedback")
+
+    assert {:ok, %{status: :recorded}} =
+             Ryker.Feedback.record(%{
+               kind: :sentiment,
+               value: "frustrated",
+               note: "They had to ask twice.",
+               actor_ref: "control-plane:user:local-operator",
+               source: "control_plane",
+               source_ref: "realtime-feedback",
+               occurred_at: DateTime.utc_now(),
+               request: {:episode, episode.id}
+             })
+
+    assert shows?(fn ->
+             has_element?(page, "#feedback-frustrated .entity-row", "They had to ask twice.")
+           end)
+
+    assert shows?(fn ->
+             has_element?(timeline, "#feedback .feedback-card", "They had to ask twice.")
+           end)
+  end
+
   test "a fact forgotten from Slack leaves the open Facts page" do
     source = SavedEntities.source!("slack:T123:C456")
     fact = SavedEntities.memory!(source, "checkout owner", "The payments team owns checkout.")
