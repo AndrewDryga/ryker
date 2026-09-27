@@ -187,7 +187,7 @@ defmodule Ryker.ControlPlane.MemoryFormat do
   attr(:id, :string, default: nil)
   attr(:name, :any, required: true, doc: "The row's name: text or safe inline HTML")
   attr(:href, :string, default: nil)
-  attr(:state, :any, default: nil, doc: "{tone, word}, as Kit.state/1")
+  attr(:state, :any, default: nil, doc: "{tone, word} or {tone, word, hint}, as Kit.state/1")
   attr(:icon, :atom, default: nil, doc: "What kind of thing the row is, as Kit.entity_row/1")
   attr(:meta, :list, default: [])
   attr(:class, :any, default: nil)
@@ -217,7 +217,11 @@ defmodule Ryker.ControlPlane.MemoryFormat do
         {render_slot(@notes)}
       </div>
       <div :if={@state} class="entity-side">
-        <Kit.state tone={elem(@state, 0)} word={elem(@state, 1)} />
+        <Kit.state
+          tone={elem(@state, 0)}
+          word={elem(@state, 1)}
+          hint={if tuple_size(@state) == 3, do: elem(@state, 2)}
+        />
       </div>
       <div :if={@actions != []} class="entity-actions">{render_slot(@actions)}</div>
     </article>

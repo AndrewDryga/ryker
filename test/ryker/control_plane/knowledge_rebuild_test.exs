@@ -91,13 +91,12 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
       |> Safe.to_iodata()
       |> IO.iodata_to_binary()
 
-    assert html =~ "Relearn from current sources"
+    assert html =~ "Relearn this topic"
     assert html =~ "Choose up to 16 messages"
     assert html =~ ~s(method="post")
     assert html =~ ~s(name="sources[]")
-    assert html =~ "Keep the saved history"
+    assert html =~ "keeps its update history"
     assert html =~ "draft-ai-suggestions"
-    refute html =~ ~r/<details[^>]*class="knowledge-rebuild"[^>]*\bopen\b/
     assert ConversationMemory.project(%{"kind" => "knowledge", "item" => id}).history == before
   end
 
@@ -132,7 +131,7 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
 
     page = learned(%{"kind" => "knowledge", "item" => id})
     refute LazyHTML.text(page) =~ "draft-ai-suggestions"
-    refute LazyHTML.text(page) =~ "Relearn from current sources"
+    refute LazyHTML.text(page) =~ "Relearn this topic"
     assert LazyHTML.text(page) =~ "Ryker no longer uses it and does not learn from the messages"
   end
 
@@ -231,9 +230,15 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
     end
   end
 
-  test "returning from source search or pagination keeps the selector open" do
-    html = render(Map.put(preview(), :expanded?, true))
-    assert html =~ ~r/<details[^>]*class="knowledge-rebuild"[^>]*\bopen\b/
+  test "relearning is a section of the topic's page, never a form behind a collapsed summary" do
+    # The picker was a <details> closed by default, a primary input hidden
+    # behind a click on the one page whose topic needed it (Andrew's rules,
+    # 2026-09-25: no collapsible over primary inputs).
+    document = preview() |> render() |> LazyHTML.from_fragment()
+    section = LazyHTML.query(document, "section#relearn.knowledge-rebuild")
+    assert LazyHTML.query(section, ".section-head h2") |> LazyHTML.text() == "Relearn this topic"
+    assert Enum.count(LazyHTML.query(section, "form[method=post]")) == 1
+    assert Enum.empty?(LazyHTML.query(document, "details.knowledge-rebuild, details#relearn"))
   end
 
   test "the source search is the shared toolbar bound to this topic, not the page's own search" do
@@ -245,7 +250,7 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
     document = preview |> Map.put(:q, "decision") |> render() |> LazyHTML.from_fragment()
 
     toolbar =
-      LazyHTML.query(document, "details.knowledge-rebuild form.filter-toolbar[method=get]")
+      LazyHTML.query(document, "section.knowledge-rebuild form.filter-toolbar[method=get]")
 
     assert LazyHTML.attribute(toolbar, "action") == ["/memory/learned#relearn"]
 
@@ -263,7 +268,7 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
 
     assert Enum.empty?(LazyHTML.query(document, "form.search-form, .filter-field"))
     # The submission that acts is still the separate POST with the CSRF token.
-    assert Enum.count(LazyHTML.query(document, "details.knowledge-rebuild form[method=post]")) ==
+    assert Enum.count(LazyHTML.query(document, "section.knowledge-rebuild form[method=post]")) ==
              1
   end
 
@@ -337,7 +342,6 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
       ConversationMemory.project(%{"kind" => "knowledge", "item" => id, "rebuild_q" => "keep"})
 
     assert view.rebuild.eligible?
-    assert view.rebuild.expanded?
     assert [source] = view.rebuild.entries
     assert source.input_id == current.id
     before = view.history

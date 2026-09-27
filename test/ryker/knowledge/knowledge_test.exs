@@ -710,13 +710,12 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     # Inspection removes URL queries, but must preserve the readable linked summary.
     assert item.text == String.replace(@resolved["summary"], "?orgId=1", "")
 
-    html =
-      Projection.learned(%{"item" => item.id})
-      |> LearnedPage.html("test-secret")
-      |> IO.iodata_to_binary()
+    topic = Projection.learned(%{"item" => item.id})
+    html = topic |> LearnedPage.html("test-secret") |> IO.iodata_to_binary()
 
-    assert html =~ "All topics"
-    assert html =~ ">2 sources</a>"
+    # A topic is a page of its own, leading back to all topics above its title.
+    assert LearnedPage.heading(topic).back == {"All topics", "/memory/learned"}
+    assert html =~ ">2 messages</a>"
     assert html =~ "Update history"
     assert html =~ @firing["summary"] |> String.split(" [Alert]") |> hd()
     refute html =~ "Source result ref"

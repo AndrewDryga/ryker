@@ -8,15 +8,17 @@ defmodule Ryker.ControlPlane.Kit do
   One list language for all of them: rows sit on the page with faint
   separators, an icon tile for what kind of thing each one is, a name, then
   what it does, then one line of facts; its state, its time and its own
-  controls sit at the far edge. A list ordered by time opens each day with a
-  heading. State is a dot and a word, and tone lives only there and in the
-  tile. A long page of several parts, such as a channel's page or an
-  integration's, gives each part its own card, and a list that is one part
-  of such a page keeps its rows inside that card. Anything with nothing to
-  show says so with `empty/1`. A sub-page, such as one topic or one failure,
-  leads back to the page it belongs to with `back/1`, above its title.
-  String-rendered pages call these through `Phoenix.HTML.Safe.to_iodata/1`
-  with `__changed__: nil`.
+  controls sit at the far edge. A list whose rows carry their own buttons
+  shows each state beside its name instead, so a state never reads as one
+  of the buttons. A list ordered by time opens each day with a heading.
+  State is a dot and a word, and tone lives only there and in the tile; what
+  a state means is a hint on the word, not a sentence under the row. A long
+  page of several parts, such as a channel's page or an integration's, gives
+  each part its own card, and a list that is one part of such a page keeps
+  its rows inside that card. Anything with nothing to show says so with
+  `empty/1`. A sub-page, such as one topic or one failure, leads back to the
+  page it belongs to with `back/1`, above its title. String-rendered pages
+  call these through `Phoenix.HTML.Safe.to_iodata/1` with `__changed__: nil`.
   """
   use Phoenix.Component
 
@@ -52,7 +54,14 @@ defmodule Ryker.ControlPlane.Kit do
     doc: "The whole row opens href, for lists whose rows are a way into the item"
   )
 
-  attr(:state, :any, default: nil, doc: "{tone, word}, see state/1")
+  attr(:state, :any, default: nil, doc: "{tone, word} or {tone, word, hint}, see state/1")
+
+  attr(:state_by_name, :boolean,
+    default: false,
+    doc:
+      "The state sits beside the name, not at the far edge: for a list whose rows carry " <>
+        "their own buttons, so a state never reads as one of them"
+  )
 
   attr(:tag, :string,
     default: nil,
@@ -93,9 +102,18 @@ defmodule Ryker.ControlPlane.Kit do
   an empty fact is dropped rather than shown as a placeholder. A row that is
   only a way into its item (`link_row`) opens it from anywhere on the row,
   while the name stays the one link assistive technology announces.
+
+  Andrew, 2026-09-27, of a learned topic's row: its "Not used" sat against
+  its Forget button, and the sentence saying why sat under the row. The
+  sentence is the state's hint now, and a list of rows with buttons keeps
+  its states beside their names (`state_by_name`).
   """
   def entity_row(assigns) do
-    assigns = assign(assigns, :meta, Enum.reject(assigns.meta, &(&1 in [nil, "", []])))
+    assigns =
+      assigns
+      |> assign(:meta, Enum.reject(assigns.meta, &(&1 in [nil, "", []])))
+      |> assign(:side_state, if(assigns.state_by_name, do: nil, else: assigns.state))
+      |> assign(:name_state, if(assigns.state_by_name, do: assigns.state))
 
     ~H"""
     <article
@@ -119,6 +137,12 @@ defmodule Ryker.ControlPlane.Kit do
             href={@href}
           >{@name}</a><span :if={!@href}>{@name}</span>
           <span :if={@tag} class="entity-tag">{@tag}</span>
+          <.state
+            :if={@name_state}
+            tone={elem(@name_state, 0)}
+            word={elem(@name_state, 1)}
+            hint={hint(@name_state)}
+          />
         </h3>
         <p :if={@text} class="entity-text">{@text}</p>
         <p :if={@meta != []} class="entity-meta">
@@ -128,8 +152,13 @@ defmodule Ryker.ControlPlane.Kit do
         </p>
         {render_slot(@details)}
       </div>
-      <div :if={@state || @at} class="entity-side">
-        <.state :if={@state} tone={elem(@state, 0)} word={elem(@state, 1)} />
+      <div :if={@side_state || @at} class="entity-side">
+        <.state
+          :if={@side_state}
+          tone={elem(@side_state, 0)}
+          word={elem(@side_state, 1)}
+          hint={hint(@side_state)}
+        />
         <time
           :if={@at}
           class="entity-at"
@@ -246,16 +275,36 @@ defmodule Ryker.ControlPlane.Kit do
   attr(:tone, :atom, values: [:on, :busy, :off, :warn, :bad], default: :off)
   attr(:word, :string, required: true)
 
+  attr(:hint, :string,
+    default: nil,
+    doc: "What the state means, shown the moment the pointer or keyboard focus reaches it"
+  )
+
   @doc """
   A dot and a word. `:on` is working as intended, `:busy` is doing something
   right now, `:off` is paused or finished, `:warn` needs a person and `:bad`
   failed. Only warn and bad colour the word itself.
+
+  A state that needs saying why, such as a topic Ryker stopped using, carries
+  the reason as its hint: the app's own tooltip (`tooltips.mjs`) shows it on
+  hover and on keyboard focus, and the word is underlined so it reads as
+  having more to say.
   """
   def state(assigns) do
     ~H"""
-    <span class="state-word" data-tone={@tone}>{@word}</span>
+    <span
+      class="state-word"
+      data-tone={@tone}
+      data-hint={@hint && "true"}
+      title={@hint}
+      tabindex={@hint && "0"}
+    >{@word}</span>
     """
   end
+
+  # The hint of a {tone, word, hint} state; a {tone, word} state has none.
+  defp hint({_tone, _word, hint}), do: hint
+  defp hint(_state), do: nil
 
   attr(:href, :string, required: true, doc: "The page this sub-page belongs to")
   attr(:label, :string, required: true, doc: "That page's name, such as All topics or Activity")
@@ -344,7 +393,7 @@ defmodule Ryker.ControlPlane.Kit do
     """
   end
 
-  attr(:state, :any, required: true, doc: "{tone, word}, see state/1")
+  attr(:state, :any, required: true, doc: "{tone, word} or {tone, word, hint}, see state/1")
   attr(:id, :string, default: nil)
   slot(:inner_block, doc: "A few short facts on the same line, such as when it opened")
 
@@ -355,7 +404,9 @@ defmodule Ryker.ControlPlane.Kit do
   def status_line(assigns) do
     ~H"""
     <p id={@id} class="kit-status-line">
-      <.state tone={elem(@state, 0)} word={elem(@state, 1)} />{render_slot(@inner_block)}
+      <.state tone={elem(@state, 0)} word={elem(@state, 1)} hint={hint(@state)} />{render_slot(
+        @inner_block
+      )}
     </p>
     """
   end
