@@ -20,9 +20,11 @@ defmodule Ryker.PollingWorker do
   those writes in `c:wake_on/1`: the owning contexts' own `subscribe_*`
   functions (`Ryker.PubSub`). Every message they bring asks for a poll now; a
   burst of them, and all that arrive while a cycle runs, make one more poll.
-  An idle install then polls only when a row falls due by the clock, which
-  `idle_delay/2` sleeps until, and on a long safety-net interval for anything
-  no announcement names.
+  A steady stream never makes a worker poll more than four times a second,
+  the fastest any worker polled on its timer before it slept: the first few
+  are answered at once, the rest a moment later. An idle install then polls
+  only when a row falls due by the clock, which `idle_delay/2` sleeps until,
+  and on a long safety-net interval for anything no announcement names.
   """
 
   require Logger
@@ -31,6 +33,13 @@ defmodule Ryker.PollingWorker do
   @timer {__MODULE__, :timer}
   @woken {__MODULE__, :woken}
   @wakes {__MODULE__, :wakes}
+  @wake_credit {__MODULE__, :wake_credit}
+
+  # Polls on announcements are paced by a bucket of four, refilled one every
+  # 250 ms: a burst is answered at once, a stream no faster than the old
+  # fastest timer.
+  @wake_burst 4
+  @wake_refill_ms 250
 
   # An idle worker that wakes on announcements polls at least this often, to
   # catch a change nothing announced. Every row that falls due by time is
@@ -174,7 +183,32 @@ defmodule Ryker.PollingWorker do
   defp wake do
     unless Process.get(@woken) do
       Process.put(@woken, true)
-      send(self(), :poll)
+
+      case wake_wait() do
+        0 -> send(self(), :poll)
+        wait -> poll_within(wait)
+      end
+    end
+  end
+
+  # The bucket, kept as milliseconds of credit: each wake spends one refill
+  # period, and a wake that finds too little waits until it would have been
+  # refilled.
+  defp wake_wait do
+    now = System.monotonic_time(:millisecond)
+    full = @wake_burst * @wake_refill_ms
+    {credit, at} = Process.get(@wake_credit, {full, now})
+    credit = min(credit + now - at, full) - @wake_refill_ms
+    Process.put(@wake_credit, {credit, now})
+    max(-credit, 0)
+  end
+
+  # A timer that fires sooner, or has fired already, answers the wake itself.
+  defp poll_within(wait) do
+    case Process.get(@timer) && Process.read_timer(Process.get(@timer)) do
+      remaining when is_integer(remaining) and remaining <= wait -> :ok
+      false -> :ok
+      _later_or_none -> schedule_poll(wait)
     end
   end
 
