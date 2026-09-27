@@ -17,6 +17,9 @@ defmodule Ryker.Feedback.Signal do
   - `actor_ref` is who gave it, as its `source` names people (a Slack user,
     or the person using this console), and `source_ref` the event it came
     from: one event gives at most one signal of a kind.
+  - `message_ref` is, for a reaction, the one message of Ryker's it was on,
+    as its platform names it: a quick reply can be several messages, and a
+    request holds its updates beside its replies.
   """
 
   use Ecto.Schema
@@ -49,6 +52,7 @@ defmodule Ryker.Feedback.Signal do
     field(:source, :string)
     field(:source_ref, :string)
     field(:occurred_at, :utc_datetime_usec)
+    field(:message_ref, :string)
     belongs_to(:episode, Episode)
     belongs_to(:input, Entry)
     # When Ryker recorded it, by the database's clock; retention ages it.
@@ -75,6 +79,7 @@ defmodule Ryker.Feedback.Signal do
     :source,
     :source_ref,
     :occurred_at,
+    :message_ref,
     :episode_id,
     :input_id
   ]
@@ -97,8 +102,10 @@ defmodule Ryker.Feedback.Signal do
     |> validate_length(:source_ref, min: 1, max: 1_024)
     |> validate_format(:source, ~r/\A[a-z0-9_.-]{1,64}\z/)
     |> validate_length(:note, min: 1, max: 2_048, count: :bytes)
+    |> validate_length(:message_ref, min: 1, max: 1_024)
     |> validate_request()
     |> validate_value()
+    |> validate_message()
     |> check_constraint(:kind, name: :answer_feedback_valid)
   end
 
@@ -131,4 +138,13 @@ defmodule Ryker.Feedback.Signal do
   end
 
   defp emoji?(value), do: is_binary(value) and Regex.match?(@emoji, value)
+
+  # Only a reaction is on one message.
+  defp validate_message(changeset) do
+    case {get_field(changeset, :kind), get_field(changeset, :message_ref)} do
+      {_kind, nil} -> changeset
+      {kind, _ref} when kind in [:reaction_added, :reaction_removed] -> changeset
+      _other -> add_error(changeset, :message_ref, "names a message only for a reaction")
+    end
+  end
 end

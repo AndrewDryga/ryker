@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   alias Ryker.ControlPlane.TranscriptCursor
   alias Ryker.Delivery.{ChatCard, PlatformAction, RoutingResponse}
   alias Ryker.Episodes.{Episode, Event, Reactions}
+  alias Ryker.Feedback
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Publication.Publication
   alias Ryker.Records.Record
@@ -46,17 +47,26 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
         fn _item_ref, delivered, acted -> delivered ++ acted end
       )
 
+    # A quick reply or an update is no request's own reply, so its reactions
+    # are read from the feedback that names it rather than a request's events.
+    message_reactions =
+      Feedback.current_reactions(
+        "control-plane:lab:" <> conversation_id,
+        (actions ++ quick_replies) |> Enum.map(&chat_message_ref/1) |> Enum.filter(&is_binary/1)
+      )
+
     messages =
       compose(
         inputs,
         replies,
         cards(replies),
         output_artifacts(replies, conversation_id),
-        actions,
         reactions,
         Reactions.current_for_episodes(Enum.uniq(Enum.map(replies, & &1.episode_id)))
       ) ++
-        publication_messages(publications) ++ Enum.flat_map(quick_replies, &quick_reply_message/1)
+        Enum.flat_map(actions, &action_message(&1, message_reactions)) ++
+        publication_messages(publications) ++
+        Enum.flat_map(quick_replies, &quick_reply_message(&1, message_reactions))
 
     messages
     |> attach_execution()
@@ -404,7 +414,6 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
          replies,
          cards,
          artifacts,
-         actions,
          reactions,
          feedback_reactions
        ) do
@@ -452,9 +461,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     reply_messages =
       Enum.flat_map(replies, &reply_message(&1, cards, artifacts, feedback_reactions))
 
-    action_messages = Enum.flat_map(actions, &action_message/1)
-
-    sort_messages(input_messages ++ reply_messages ++ action_messages)
+    sort_messages(input_messages ++ reply_messages)
   end
 
   # Position, identity and sort key of one logical input: where its first
@@ -550,17 +557,22 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
            kind: :message,
            status: :delivered,
            tool: tool
-         } = action
+         } = action,
+         message_reactions
        )
        when is_binary(action_ref) and is_binary(message) and
               tool in [:post_slack_message, :post_slack_update] do
+    message_ref = chat_message_ref(action)
+
     [
       %{
         actor: :ryker,
         attachments: [],
         cards: [],
         episode_ref: action.episode_ref,
+        feedback_reactions: Map.get(message_reactions, message_ref, []),
         identity: "action:" <> action.id,
+        message_ref: message_ref,
         occurred_at: delivered_at,
         reactions: [],
         ref: action_ref,
@@ -573,20 +585,24 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     ]
   end
 
-  defp action_message(_action), do: []
+  defp action_message(_action, _message_reactions), do: []
 
   # Routing answered the message itself, without Work: no request to open, so
   # the message links the input it answered.
-  defp quick_reply_message(%{document: %{"message" => message}} = response)
+  defp quick_reply_message(%{document: %{"message" => message}} = response, message_reactions)
        when is_binary(message) do
+    message_ref = chat_message_ref(response)
+
     [
       %{
         actor: :ryker,
         attachments: [],
         cards: [],
         episode_ref: nil,
+        feedback_reactions: Map.get(message_reactions, message_ref, []),
         identity: "quick-reply:" <> response.id,
         input_id: response.input_id,
+        message_ref: message_ref,
         occurred_at: response.delivered_at,
         reactions: [],
         ref: response.delivery_ref,
@@ -600,7 +616,18 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     ]
   end
 
-  defp quick_reply_message(_response), do: []
+  defp quick_reply_message(_response, _message_reactions), do: []
+
+  # The message a delivered quick reply or update is in Chat, which is what a
+  # reaction on it names.
+  defp chat_message_ref(%{
+         status: :delivered,
+         external_receipt: %{"message_ref" => message_ref, "transport" => "control_plane"}
+       })
+       when is_binary(message_ref),
+       do: message_ref
+
+  defp chat_message_ref(_message), do: nil
 
   defp publication_messages(publications) do
     Enum.flat_map(publications, &publication_message/1)

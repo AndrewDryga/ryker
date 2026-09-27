@@ -136,6 +136,84 @@ defmodule Ryker.Feedback do
     |> Enum.reverse()
   end
 
+  @doc """
+  The reactions on each of `message_refs` in one conversation as they stand
+  now, from the feedback that names the message: `%{message_ref =>
+  [%{actor_ref, emoji_name, occurred_at}]}`, each list by emoji and then
+  person. Adds and removals are read in the order they happened, and in the
+  order Ryker recorded them at the same moment.
+
+  This is the state of a message no request's reaction events hold: a quick
+  reply routing sent by itself, or an update Work posted. A Work reply's
+  state is its request's own (`Ryker.Episodes.Reactions.current_for_episodes/1`).
+  """
+  @spec current_reactions(String.t(), [String.t()]) :: %{optional(String.t()) => [map()]}
+  def current_reactions(_conversation_ref, []), do: %{}
+
+  def current_reactions(conversation_ref, message_refs)
+      when is_binary(conversation_ref) and is_list(message_refs) do
+    from([signal] in reactions_in(conversation_ref),
+      where: signal.message_ref in ^Enum.uniq(message_refs),
+      order_by: [asc: signal.occurred_at, asc: signal.inserted_at, asc: signal.id],
+      select:
+        {signal.message_ref, signal.kind, signal.actor_ref, signal.value, signal.occurred_at}
+    )
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn
+      {message, :reaction_added, actor, emoji, at}, current ->
+        Map.put(current, {message, actor, emoji}, at)
+
+      {message, :reaction_removed, actor, emoji, _at}, current ->
+        Map.delete(current, {message, actor, emoji})
+    end)
+    |> Enum.group_by(
+      fn {{message, _actor, _emoji}, _at} -> message end,
+      fn {{_message, actor, emoji}, at} ->
+        %{actor_ref: actor, emoji_name: emoji, occurred_at: at}
+      end
+    )
+    |> Map.new(fn {message, reactions} ->
+      {message, Enum.sort_by(reactions, &{&1.emoji_name, &1.actor_ref})}
+    end)
+  end
+
+  def current_reactions(_conversation_ref, _message_refs), do: %{}
+
+  @doc """
+  The messages in one conversation whose reactions Ryker recorded at or after
+  `since`, at most `limit`: what a live window that last looked at `since`
+  must draw again, wherever the messages sit in its history.
+  """
+  @spec reacted_messages(String.t(), DateTime.t(), pos_integer()) :: [String.t()]
+  def reacted_messages(conversation_ref, %DateTime{} = since, limit)
+      when is_binary(conversation_ref) and is_integer(limit) and limit > 0 do
+    Repo.all(
+      from([signal] in reactions_in(conversation_ref),
+        where: signal.inserted_at >= ^since,
+        distinct: true,
+        select: signal.message_ref,
+        limit: ^limit
+      )
+    )
+  end
+
+  # A message's name is its platform's, unique only within its conversation
+  # (a Slack timestamp), so a reaction is read through its request's
+  # conversation.
+  defp reactions_in(conversation_ref) do
+    from(signal in Signal,
+      left_join: input in Entry,
+      on: input.id == signal.input_id,
+      left_join: episode in Episode,
+      on: episode.id == signal.episode_id,
+      where:
+        signal.kind in [:reaction_added, :reaction_removed] and not is_nil(signal.message_ref),
+      where:
+        input.destination_conversation_ref == ^conversation_ref or
+          episode.destination_conversation_ref == ^conversation_ref
+    )
+  end
+
   # -- Recording ---------------------------------------------------------------
 
   defp request_ids({:episode, id}) when is_binary(id),
@@ -158,7 +236,16 @@ defmodule Ryker.Feedback do
     value = Map.get(attributes, :value)
 
     attributes
-    |> Map.take([:kind, :value, :note, :actor_ref, :source, :source_ref, :occurred_at])
+    |> Map.take([
+      :kind,
+      :value,
+      :note,
+      :actor_ref,
+      :source,
+      :source_ref,
+      :occurred_at,
+      :message_ref
+    ])
     |> Map.merge(request_ids)
     |> Map.merge(%{id: Ecto.UUID.generate(), category: category_of(kind, value)})
     |> Signal.changeset()
@@ -201,6 +288,7 @@ defmodule Ryker.Feedback do
     :source,
     :source_ref,
     :occurred_at,
+    :message_ref,
     :episode_id,
     :input_id
   ]

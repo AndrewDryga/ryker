@@ -132,6 +132,7 @@ defmodule Ryker.Episodes.Reactions do
       source: attributes.source.kind,
       source_ref: attributes.event_ref,
       occurred_at: attributes.occurred_at,
+      message_ref: attributes.target.message_ref,
       request: request
     }
   end

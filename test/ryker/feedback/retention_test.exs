@@ -21,8 +21,12 @@ defmodule Ryker.Feedback.RetentionTest do
   @old ~U[2020-01-01 00:00:00.000000Z]
 
   @version 20_260_927_190_000
-  @migration Ryker.Repo.Migrations.AddAnswerFeedback
-  @file_name "20260927190000_add_answer_feedback.exs"
+  @migration {Ryker.Repo.Migrations.AddAnswerFeedback, "20260927190000_add_answer_feedback.exs"}
+  # A later migration that changes the table rolls back before it, as a
+  # rollback of the release does.
+  @message_ref_version 20_260_927_193_000
+  @message_ref_migration {Ryker.Repo.Migrations.AddAnswerFeedbackMessageRef,
+                          "20260927193000_add_answer_feedback_message_ref.exs"}
   @options [log: false, migration_lock: false]
 
   test "feedback expires at the operational horizon, and with its request" do
@@ -53,15 +57,32 @@ defmodule Ryker.Feedback.RetentionTest do
     signal = signal!(input, "slack-event:Ev-kept")
 
     assert_raise Postgrex.Error, ~r/feedback on Ryker's answers is kept/, fn ->
-      Ecto.Migrator.down(Repo, @version, migration(), @options)
+      Ecto.Migrator.down(Repo, @version, migration(@migration), @options)
     end
 
     assert Repo.get(Signal, signal.id)
     Repo.delete_all(Signal)
 
-    assert :ok = Ecto.Migrator.down(Repo, @version, migration(), @options)
+    assert :ok =
+             Ecto.Migrator.down(
+               Repo,
+               @message_ref_version,
+               migration(@message_ref_migration),
+               @options
+             )
+
+    assert :ok = Ecto.Migrator.down(Repo, @version, migration(@migration), @options)
     refute table?("answer_feedback")
-    assert :ok = Ecto.Migrator.up(Repo, @version, migration(), @options)
+    assert :ok = Ecto.Migrator.up(Repo, @version, migration(@migration), @options)
+
+    assert :ok =
+             Ecto.Migrator.up(
+               Repo,
+               @message_ref_version,
+               migration(@message_ref_migration),
+               @options
+             )
+
     assert table?("answer_feedback")
     assert {:ok, %{status: :recorded}} = Feedback.record(attributes(input, "slack-event:Ev-back"))
   end
@@ -128,13 +149,13 @@ defmodule Ryker.Feedback.RetentionTest do
 
   # `ecto.migrate` loads a migration only while it is pending, so a database
   # migrated by an earlier run leaves it for this test to load.
-  defp migration do
-    unless Code.ensure_loaded?(@migration) do
+  defp migration({module, file_name}) do
+    unless Code.ensure_loaded?(module) do
       :ryker
-      |> Application.app_dir(Path.join("priv/repo/migrations", @file_name))
+      |> Application.app_dir(Path.join("priv/repo/migrations", file_name))
       |> Code.compile_file()
     end
 
-    @migration
+    module
   end
 end

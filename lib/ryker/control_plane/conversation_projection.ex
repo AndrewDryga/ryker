@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
   alias Ryker.Episodes.{Episode, Event, RoutingDigest}
+  alias Ryker.Feedback
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Publication.Publication
@@ -450,6 +451,9 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       {:ok, conversation_id} ->
         ref = @prefix <> conversation_id
         revised = revised_input_ids(ref, since, limit)
+        # A reaction on a quick reply or an update is feedback on its
+        # request, never an event of the message's own row.
+        reacted = Feedback.reacted_messages(ref, since, limit)
 
         candidates =
           candidates(
@@ -457,9 +461,9 @@ defmodule Ryker.ControlPlane.ConversationProjection do
             %{
               input: changed_inputs(ref, revised, since, limit),
               reply: changed_replies(ref, revised, since, limit),
-              action: changed_actions(ref, since, limit),
+              action: changed_actions(ref, since, limit, reacted),
               publication: changed_publications(ref, since, limit),
-              quick_reply: changed_quick_replies(ref, since, limit)
+              quick_reply: changed_quick_replies(ref, since, limit, reacted)
             },
             limit * 2
           )
@@ -605,12 +609,15 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     |> Enum.filter(&is_binary/1)
   end
 
-  defp changed_actions(ref, since, limit) do
+  defp changed_actions(ref, since, limit, reacted) do
     case Repo.all(
            from(action in PlatformAction,
              where:
                action.transport == "control_plane" and action.conversation_ref == ^ref and
-                 action.kind == :message and action.updated_at >= ^since,
+                 action.kind == :message,
+             where:
+               action.updated_at >= ^since or
+                 fragment("(?::jsonb ->> 'message_ref')", action.external_receipt) in ^reacted,
              select: action.id,
              limit: ^limit
            )
@@ -637,12 +644,15 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     end
   end
 
-  defp changed_quick_replies(ref, since, limit) do
+  defp changed_quick_replies(ref, since, limit, reacted) do
     case Repo.all(
            from(response in RoutingResponse,
              where:
                response.kind == :message and response.transport == "control_plane" and
-                 response.conversation_ref == ^ref and response.updated_at >= ^since,
+                 response.conversation_ref == ^ref,
+             where:
+               response.updated_at >= ^since or
+                 fragment("(?::jsonb ->> 'message_ref')", response.external_receipt) in ^reacted,
              select: response.id,
              limit: ^limit
            )
@@ -1016,6 +1026,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
           delivered_at: action.delivered_at,
           document: action.document,
           episode_ref: episode.key,
+          external_receipt: action.external_receipt,
           id: action.id,
           kind: action.kind,
           status: action.status,
@@ -1052,8 +1063,10 @@ defmodule Ryker.ControlPlane.ConversationProjection do
           delivered_at: response.delivered_at,
           delivery_ref: response.delivery_ref,
           document: response.document,
+          external_receipt: response.external_receipt,
           id: response.id,
-          input_id: response.input_id
+          input_id: response.input_id,
+          status: response.status
         }
       )
     )
