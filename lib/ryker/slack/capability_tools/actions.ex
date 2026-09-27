@@ -10,13 +10,15 @@ defmodule Ryker.Slack.CapabilityTools.Actions do
   alias Ryker.Records
   alias Ryker.Slack.SourceRef
 
-  @doc "The platform action a reaction request freezes on the current human input."
+  @doc """
+  The platform action a reaction request freezes on the current human input;
+  custody gives it the turn's next reaction place.
+  """
   @spec reaction_attributes(map(), map(), String.t(), String.t()) :: map()
   def reaction_attributes(input, source, action, emoji_name) do
     %{
       conversation_ref: input["destination"]["conversation_ref"],
       document: %{"action" => action, "emoji_name" => emoji_name},
-      host_slot: "reaction",
       kind: :reaction,
       source_item_ref: source.message_ref,
       thread_ref: input["destination"]["thread_ref"],

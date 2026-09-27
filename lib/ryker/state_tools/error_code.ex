@@ -164,6 +164,9 @@ defmodule Ryker.StateTools.ErrorCode do
   defp explanation("update_limit_reached"),
     do: "The run had already posted as many updates as it may before its answer."
 
+  defp explanation("reaction_limit_reached"),
+    do: "The run had already made as many reactions as it may."
+
   defp explanation("memory_source_capacity_exceeded"),
     do: "The run had already read as many saved sources as it may."
 

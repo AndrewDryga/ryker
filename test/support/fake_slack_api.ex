@@ -6,8 +6,9 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
   It keeps every message and file share it accepts under the channel, thread
   and delivery ref (or filenames) it was sent with, so a retry finds what an
   earlier attempt posted, the way the real client walks history. `state/1`
-  holds every accepted write in order, and when an `:observer` is given each
-  one is also sent to it:
+  holds every accepted write in order (reactions in `reacted`, as well as the
+  set of emoji each message carries in `reactions`), and when an `:observer`
+  is given each message write is also sent to it:
 
     * `{:slack_posted, channel, thread, document, delivery_ref, message_ref}`
     * `{:slack_updated, channel, message_ref, document, delivery_ref}`
@@ -65,6 +66,7 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
         finds: 0,
         messages: %{},
         posts: [],
+        reacted: [],
         reactions: MapSet.new(),
         updates: [],
         uploads: []
@@ -175,7 +177,11 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
   @impl true
   def add_reaction(agent, channel, message_ref, emoji_name) do
     Agent.update(agent, fn state ->
-      %{state | reactions: MapSet.put(state.reactions, {channel, message_ref, emoji_name})}
+      %{
+        state
+        | reacted: state.reacted ++ [{channel, message_ref, emoji_name}],
+          reactions: MapSet.put(state.reactions, {channel, message_ref, emoji_name})
+      }
     end)
   end
 

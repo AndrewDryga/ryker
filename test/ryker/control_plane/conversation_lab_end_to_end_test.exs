@@ -55,6 +55,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   @quick_reply_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ed"
   @several_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ee"
   @update_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ef"
+  @reactions_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2f0"
   @now ~U[2026-08-30 18:00:00.000000Z]
   @digest String.duplicate("a", 64)
   @first_question "Is checkout readiness failing?"
@@ -804,6 +805,83 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
       |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
 
     assert sent == updates ++ [answer]
+  end
+
+  # Andrew, 2026-09-26: "allow even quick model to send multiple reply
+  # events, some messages, some emojis (and normal model should be able to do
+  # that too)". In Chat a second reaction from the Work model came back
+  # "temporarily_unavailable". A turn now adds up to three, each shown on the
+  # person's message in the order asked; the same one again is the same
+  # reaction, a fourth is refused in words the model can act on, and the
+  # answer waits until every reaction is delivered.
+  test "Ryker's several reactions in one turn each show on the person's message in Chat" do
+    assert {:ok, %{status: :recorded}} =
+             send_message(@reactions_event_id, @now, "Ship it! 🚀 Can you check the deploy?")
+
+    {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
+
+    assert {:ok, {:decided, admitted}} =
+             AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+    assert {:ok, claim} = Custody.claim_next("conversation-lab-reactions", 60, :work)
+    assert claim.episode.id == admitted.result.episode.id
+
+    binding = %{
+      episode: claim.episode,
+      session: claim.session,
+      state_token: Records.token(claim.turn),
+      turn: claim.turn
+    }
+
+    [input_ref] = claim.episode.active_input_refs
+
+    react = fn emoji ->
+      CapabilityTools.call(
+        "set_slack_reaction",
+        %{"action" => "add", "emoji" => emoji, "message_ref" => input_ref},
+        binding
+      )
+    end
+
+    refs =
+      for emoji <- ~w(eyes rocket white_check_mark) do
+        assert {:ok, %{"action_ref" => ref, "status" => "pending"}} = react.(emoji)
+        ref
+      end
+
+    assert {:ok, %{"action_ref" => same}} = react.("eyes")
+    assert same == hd(refs)
+
+    assert {:error, "reaction_limit_reached: " <> _correction} = react.("tada")
+
+    candidate = %{
+      "decision_reason" => nil,
+      "delivery" => "reply",
+      "message" => "The deploy is healthy.",
+      "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"},
+      "title" => nil
+    }
+
+    assert {:ok, %{"accepted" => false, "violations" => [waiting]}} =
+             WorkStateTools.validate_final(%{"candidate" => candidate}, binding)
+
+    assert waiting =~ "Do not complete while platform actions are unresolved"
+
+    for ref <- refs do
+      assert {:ok, {:delivered, :action, ^ref}} =
+               Ryker.Delivery.Dispatcher.run_once(delivery_options("reaction-#{ref}", :action))
+    end
+
+    assert {:ok, %{"accepted" => true}} =
+             WorkStateTools.validate_final(%{"candidate" => candidate}, binding)
+
+    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert [message] = Enum.filter(conversation.messages, &(&1.actor == :operator))
+
+    assert message.reactions ==
+             Enum.zip_with(refs, ~w(eyes rocket white_check_mark), fn ref, emoji ->
+               %{delivery_ref: ref, emoji_name: emoji, status: :delivered}
+             end)
   end
 
   test "a Chat request's timeline reads in the reader's words and shows its reply once" do

@@ -51,10 +51,9 @@ defmodule Ryker.Delivery.PresentationTest do
     claim = claim!("cited-reaction", "slack")
 
     assert {:ok, %{action: action}} =
-             PlatformActionCustody.enqueue(claim, %{
+             PlatformActionCustody.enqueue_in_turn(claim, %{
                conversation_ref: claim.episode.destination_conversation_ref,
                document: %{"action" => "add", "emoji_name" => "thumbsup"},
-               host_slot: "reaction",
                kind: :reaction,
                source_item_ref: "1787832000.000100",
                thread_ref: "1787832000.000100",

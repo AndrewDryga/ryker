@@ -312,7 +312,7 @@ defmodule Ryker.Delivery.DispatcherTest do
     claim = work_claim!("update-delivery")
 
     assert {:ok, %{action: update, status: :created}} =
-             PlatformActionCustody.enqueue_update(claim, %{
+             PlatformActionCustody.enqueue_in_turn(claim, %{
                conversation_ref: "slack:T123:C456",
                document: %{"message" => "On it, [@Uno](slack-user:U1): checking the deploy."},
                kind: :message,
@@ -367,6 +367,67 @@ defmodule Ryker.Delivery.DispatcherTest do
              Repo.get!(PlatformAction, update.id)
 
     assert receipt["message_ref"] == "1787832000.000900"
+  end
+
+  # Andrew, 2026-09-26: the Work model should send "some emojis" too, not
+  # only one: a second reaction in a turn was refused as temporarily
+  # unavailable. Two reactions in one turn now both reach Slack, each once,
+  # in the order the model asked for them.
+  test "two different emoji in one turn both reach Slack, once each, in order" do
+    claim = work_claim!("two-reactions")
+
+    for emoji <- ~w(eyes white_check_mark) do
+      assert {:ok, %{status: :created}} =
+               PlatformActionCustody.enqueue_in_turn(claim, %{
+                 conversation_ref: "slack:T123:C456",
+                 document: %{"action" => "add", "emoji_name" => emoji},
+                 kind: :reaction,
+                 source_item_ref: "1787832000.000100",
+                 thread_ref: "1787832000.000100",
+                 tool: :set_slack_reaction,
+                 transport: "slack"
+               })
+    end
+
+    {:ok, slack} = FakeSlackAPI.start_link()
+
+    assert {:ok, adapters} =
+             Adapters.new(%{
+               "slack" => %{
+                 binding: %{workspaces: %{"T123" => %{api: FakeSlackAPI, client: slack}}},
+                 message_publisher: SlackPublisher,
+                 reaction_publisher: SlackPublisher
+               }
+             })
+
+    options = [
+      adapters: adapters,
+      kind: :action,
+      lease_seconds: 60,
+      retry_base_seconds: 1,
+      retry_max_seconds: 60,
+      worker_ref: "delivery:action:reactions"
+    ]
+
+    assert {:ok, {:delivered, :action, first_ref}} = Dispatcher.run_once(options)
+    assert {:ok, {:delivered, :action, second_ref}} = Dispatcher.run_once(options)
+    assert {:ok, :idle} = Dispatcher.run_once(options)
+    refute first_ref == second_ref
+
+    assert FakeSlackAPI.state(slack).reacted == [
+             {"C456", "1787832000.000100", "eyes"},
+             {"C456", "1787832000.000100", "white_check_mark"}
+           ]
+
+    assert Enum.map(
+             Repo.all(
+               from(action in PlatformAction,
+                 where: action.turn_id == ^claim.turn.id,
+                 order_by: action.host_slot
+               )
+             ),
+             &{&1.action_ref, &1.status}
+           ) == [{first_ref, :delivered}, {second_ref, :delivered}]
   end
 
   test "a blocked model-requested action is visible and rearmed through delivery recovery" do
@@ -1060,10 +1121,9 @@ defmodule Ryker.Delivery.DispatcherTest do
   defp cited_reaction!(claim, options) do
     if Keyword.get(options, :cited_reaction) do
       assert {:ok, %{action: action, status: :created}} =
-               PlatformActionCustody.enqueue(claim, %{
+               PlatformActionCustody.enqueue_in_turn(claim, %{
                  conversation_ref: "slack:T123:C456",
                  document: %{"action" => "add", "emoji_name" => "thumbsup"},
-                 host_slot: "reaction",
                  kind: :reaction,
                  source_item_ref: "1787832000.000100",
                  thread_ref: "1787832000.000100",
@@ -1168,10 +1228,9 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert {:ok, claim} = Custody.claim_next("work:platform-action:#{suffix}", 60, :work)
 
     assert {:ok, %{action: action, status: :created}} =
-             PlatformActionCustody.enqueue(claim, %{
+             PlatformActionCustody.enqueue_in_turn(claim, %{
                conversation_ref: "slack:T123:C456",
                document: %{"action" => "add", "emoji_name" => "eyes"},
-               host_slot: "reaction",
                kind: :reaction,
                source_item_ref: "1787832000.000100",
                thread_ref: "1787832000.000100",

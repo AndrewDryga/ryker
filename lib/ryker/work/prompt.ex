@@ -63,6 +63,9 @@ defmodule Ryker.Work.Prompt do
   fixed Ryker state tools available in this session when they improve correctness. The host delivers
   the accepted final candidate to the bound conversation; that is your answer.
 
+  When set_slack_reaction is available, each call adds one emoji to a person's message; a turn may
+  add a few when that helps, but one is usually enough.
+
   When post_slack_update is available, it posts a short update into this same conversation before
   the answer: an early acknowledgement when the work will clearly take a while, a partial finding
   someone can act on now, or what you are doing next. Use it rarely, only when it helps the person

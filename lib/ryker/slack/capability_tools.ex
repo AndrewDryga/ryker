@@ -127,7 +127,7 @@ defmodule Ryker.Slack.CapabilityTools do
       },
       %{
         "description" =>
-          "Add or remove one deliberate reaction on an exact current human Slack message. Removal is limited to a reaction previously added by Ryker.",
+          "Add or remove one deliberate reaction on an exact current human Slack message. Each call is one reaction: a turn makes at most #{PlatformActionCustody.maximum_per_turn()}, delivered in the order called, and the same call again is the same reaction. Removal is limited to a reaction previously added by Ryker.",
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{
@@ -175,7 +175,7 @@ defmodule Ryker.Slack.CapabilityTools do
       },
       %{
         "description" =>
-          "Post one short message in this conversation right away, before your final answer: an early acknowledgement when the work will take a while, a partial finding someone can act on now, or what you are doing next. It goes at once to the thread your answer goes to, at most #{PlatformActionCustody.maximum_updates()} per turn, in the order posted. It never replaces the final answer, and the final answer is accepted only once every update has been delivered.",
+          "Post one short message in this conversation right away, before your final answer: an early acknowledgement when the work will take a while, a partial finding someone can act on now, or what you are doing next. It goes at once to the thread your answer goes to, at most #{PlatformActionCustody.maximum_per_turn()} per turn, in the order posted. It never replaces the final answer, and the final answer is accepted only once every update has been delivered.",
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{
@@ -358,7 +358,7 @@ defmodule Ryker.Slack.CapabilityTools do
          :ok <- update_mentions(message, options.mention_authority.(binding)),
          {:ok, destination} <- options.update_destination.(binding),
          {:ok, %{action: frozen}} <-
-           options.enqueue_update.(binding, Actions.update_attributes(destination, message)) do
+           options.enqueue_action.(binding, Actions.update_attributes(destination, message)) do
       {:ok, %{"action_ref" => frozen.action_ref, "status" => Atom.to_string(frozen.status)}}
     else
       {:error, reason} -> {:error, error_code(reason)}
@@ -397,7 +397,6 @@ defmodule Ryker.Slack.CapabilityTools do
       :current_input,
       :current_instruction,
       :enqueue_action,
-      :enqueue_update,
       :event_ref,
       :mention_authority,
       :propose_post,
@@ -425,8 +424,7 @@ defmodule Ryker.Slack.CapabilityTools do
     current_instruction =
       Map.get(options, :current_instruction, &Authority.current_slack_instruction/3)
 
-    enqueue_action = Map.get(options, :enqueue_action, &PlatformActionCustody.enqueue/2)
-    enqueue_update = Map.get(options, :enqueue_update, &PlatformActionCustody.enqueue_update/2)
+    enqueue_action = Map.get(options, :enqueue_action, &PlatformActionCustody.enqueue_in_turn/2)
     mention_authority = Map.get(options, :mention_authority, &Authority.mention_authority/1)
     update_destination = Map.get(options, :update_destination, &Authority.update_destination/1)
     propose_post = Map.get(options, :propose_post, &Actions.propose_slack_post/2)
@@ -443,7 +441,6 @@ defmodule Ryker.Slack.CapabilityTools do
       current_input: current_input,
       current_instruction: current_instruction,
       enqueue_action: enqueue_action,
-      enqueue_update: enqueue_update,
       event_ref: event_ref,
       mention_authority: mention_authority,
       propose_post: propose_post,
@@ -461,7 +458,6 @@ defmodule Ryker.Slack.CapabilityTools do
     |> Map.put(:current_input, current_input)
     |> Map.put(:current_instruction, current_instruction)
     |> Map.put(:enqueue_action, enqueue_action)
-    |> Map.put(:enqueue_update, enqueue_update)
     |> Map.put(:event_ref, event_ref)
     |> Map.put(:mention_authority, mention_authority)
     |> Map.put(:propose_post, propose_post)
@@ -485,7 +481,6 @@ defmodule Ryker.Slack.CapabilityTools do
       is_function(callbacks.current_input, 2),
       is_function(callbacks.current_instruction, 3),
       is_function(callbacks.enqueue_action, 2),
-      is_function(callbacks.enqueue_update, 2),
       is_function(callbacks.mention_authority, 1),
       is_function(callbacks.update_destination, 1),
       is_function(callbacks.propose_post, 2),
@@ -587,10 +582,9 @@ defmodule Ryker.Slack.CapabilityTools do
 
   defp error_code(:invalid_arguments), do: "invalid_arguments"
 
-  defp error_code({:invalid_update_mentions, _violations} = reason),
-    do: update_error_code(reason)
-
-  defp error_code(:update_limit_reached), do: update_error_code(:update_limit_reached)
+  defp error_code({:invalid_update_mentions, _violations} = reason), do: refusal_code(reason)
+  defp error_code(:update_limit_reached), do: refusal_code(:update_limit_reached)
+  defp error_code(:reaction_limit_reached), do: refusal_code(:reaction_limit_reached)
   defp error_code(:invalid_source_cursor), do: "invalid_source_cursor"
   defp error_code(:unauthorized), do: "unauthorized"
   defp error_code(:slack_action_token_not_authorized), do: "unauthorized"
@@ -599,16 +593,21 @@ defmodule Ryker.Slack.CapabilityTools do
   defp error_code(_reason), do: "temporarily_unavailable"
 
   @doc """
-  What a refused Work update reads, the same in Slack and Chat: what happened
-  and what to do instead. Nil for a refusal every tool shares.
+  What a refused reaction or Work update reads, the same in Slack and Chat:
+  what happened and what to do instead, never a code the model reads as "try
+  the same call again". Nil for a refusal every tool shares.
   """
-  @spec update_error_code(term()) :: String.t() | nil
-  def update_error_code({:invalid_update_mentions, violations}),
+  @spec refusal_code(term()) :: String.t() | nil
+  def refusal_code({:invalid_update_mentions, violations}),
     do: "invalid_arguments: " <> Enum.join(violations, " ") <> " Nothing was posted."
 
-  def update_error_code(:update_limit_reached),
+  def refusal_code(:update_limit_reached),
     do:
-      "update_limit_reached: this turn has already posted its #{PlatformActionCustody.maximum_updates()} updates. Nothing was posted; say anything more in the final answer."
+      "update_limit_reached: this turn has already posted its #{PlatformActionCustody.maximum_per_turn()} updates. Nothing was posted; say anything more in the final answer."
 
-  def update_error_code(_reason), do: nil
+  def refusal_code(:reaction_limit_reached),
+    do:
+      "reaction_limit_reached: at most #{PlatformActionCustody.maximum_per_turn()} reactions per turn, and this turn has made them. Nothing was changed; say anything more in the final answer."
+
+  def refusal_code(_reason), do: nil
 end

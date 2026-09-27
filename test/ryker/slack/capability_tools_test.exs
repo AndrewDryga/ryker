@@ -1515,10 +1515,17 @@ defmodule Ryker.Slack.CapabilityToolsTest do
              )
 
     assert_received {:enqueue_action, attributes}
-    assert attributes.host_slot == "reaction"
-    assert attributes.document == %{"action" => "add", "emoji_name" => "eyes"}
-    assert attributes.source_item_ref == "1787832001.000200"
-    assert attributes.conversation_ref == "slack:T123:G123"
+
+    # Custody numbers the turn's reactions itself; the tool names no slot.
+    assert attributes == %{
+             conversation_ref: "slack:T123:G123",
+             document: %{"action" => "add", "emoji_name" => "eyes"},
+             kind: :reaction,
+             source_item_ref: "1787832001.000200",
+             thread_ref: "1787832001.000200",
+             tool: :set_slack_reaction,
+             transport: "slack"
+           }
 
     assert CapabilityTools.call(
              "set_slack_reaction",
@@ -1565,7 +1572,7 @@ defmodule Ryker.Slack.CapabilityToolsTest do
           "workspace_ref" => "T123"
         }
       end)
-      |> Map.put(:enqueue_update, fn _binding, attributes ->
+      |> Map.put(:enqueue_action, fn _binding, attributes ->
         send(self(), {:enqueue_update, attributes})
 
         {:ok,
@@ -1617,7 +1624,7 @@ defmodule Ryker.Slack.CapabilityToolsTest do
     refute_received {:enqueue_update, _attributes}
 
     full =
-      Map.put(options, :enqueue_update, fn _binding, _attributes ->
+      Map.put(options, :enqueue_action, fn _binding, _attributes ->
         {:error, :update_limit_reached}
       end)
 
@@ -1634,6 +1641,32 @@ defmodule Ryker.Slack.CapabilityToolsTest do
     # Only a live Slack turn may post.
     assert CapabilityTools.call("post_slack_update", %{"message" => "Hi"}, %{}, options) ==
              {:error, "unauthorized"}
+  end
+
+  # A second reaction in one turn came back "temporarily_unavailable", which
+  # the model reads as "retry the same call" (Andrew, 2026-09-26: the normal
+  # model should send some emojis too). Past the turn's bound the refusal
+  # says what happened and what to do instead, so no call repeats into it.
+  test "a reaction past the turn's bound is refused in words the model can act on" do
+    full =
+      Map.put(options(), :enqueue_action, fn _binding, _attributes ->
+        {:error, :reaction_limit_reached}
+      end)
+
+    assert {:error, "reaction_limit_reached: " <> correction} =
+             CapabilityTools.call(
+               "set_slack_reaction",
+               %{
+                 "action" => "add",
+                 "emoji" => "rocket",
+                 "message_ref" => SourceRef.message("T123", "G123", "1787832001.000200")
+               },
+               work_binding(),
+               full
+             )
+
+    assert correction =~ "at most 3 reactions per turn"
+    assert correction =~ "Nothing was changed"
   end
 
   test "post_slack_message creates an inert exact offer without treating prose as authority" do

@@ -35,17 +35,32 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
     attributes = reaction_attributes()
 
     assert {:ok, %{action: first, status: :created}} =
-             PlatformActionCustody.enqueue(claim, attributes)
+             PlatformActionCustody.enqueue_in_turn(claim, attributes)
 
     assert {:ok, %{action: duplicate, status: :duplicate}} =
-             PlatformActionCustody.enqueue(claim, attributes)
+             PlatformActionCustody.enqueue_in_turn(claim, attributes)
 
     assert duplicate.id == first.id
 
+    # An action in a natural slot of its own keeps that slot for one intent.
+    github = %{
+      conversation_ref: "github:example/ryker:pull:42",
+      document: %{"action" => "add", "emoji_name" => "eyes"},
+      host_slot: "reaction",
+      kind: :reaction,
+      source_item_ref: "github:issue_comment:1",
+      thread_ref: nil,
+      tool: :set_github_reaction,
+      transport: "github"
+    }
+
+    assert {:ok, %{status: :created}} = PlatformActionCustody.enqueue(claim, github)
+
     assert PlatformActionCustody.enqueue(
              claim,
-             put_in(attributes, [:document, "emoji_name"], "heart")
-           ) == {:error, :platform_action_slot_conflict}
+             put_in(github, [:document, "emoji_name"], "heart")
+           ) ==
+             {:error, :platform_action_slot_conflict}
 
     assert {:ok, %{action: claimed, lease_ref: lease_ref}} =
              PlatformActionCustody.claim_next("platform-action-worker", 60)
@@ -99,7 +114,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
     claim = claim_with_two_human_inputs!()
 
     assert {:ok, %{action: action}} =
-             PlatformActionCustody.enqueue(claim, reaction_attributes())
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes())
 
     [first_input_ref, second_input_ref] = claim.episode.active_input_refs
 
@@ -118,7 +133,9 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
     # Derived-context review checked this sibling read path: adding request or
     # response text here would need the same producer-source custody as records.
     claim = claim!()
-    assert {:ok, %{action: action}} = PlatformActionCustody.enqueue(claim, reaction_attributes())
+
+    assert {:ok, %{action: action}} =
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes())
 
     assert PlatformActionCustody.model_actions(claim.episode.id) == [
              %{
@@ -135,7 +152,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
     # reaction that the final claims answered it, despite every host operation succeeding.
     claim = claim!()
     attributes = put_in(reaction_attributes(), [:document, "action"], "remove")
-    assert {:ok, %{action: action}} = PlatformActionCustody.enqueue(claim, attributes)
+    assert {:ok, %{action: action}} = PlatformActionCustody.enqueue_in_turn(claim, attributes)
 
     assert {:ok, %{action: claimed, lease_ref: lease_ref}} =
              PlatformActionCustody.claim_next("platform-action-worker", 60)
@@ -192,14 +209,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
              "eyes"
            )
 
-    # A turn holds one reaction slot; the second slot here stands in for the
-    # later turn that would remove it.
-    removal =
-      reaction_attributes()
-      |> put_in([:document, "action"], "remove")
-      |> Map.put(:host_slot, "reaction-later-turn")
-
-    deliver!(first, removal)
+    deliver!(first, put_in(reaction_attributes(), [:document, "action"], "remove"))
 
     refute PlatformActionCustody.delivered_reaction_added?(
              first.episode.id,
@@ -207,6 +217,124 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
              "1787832000.000100",
              "eyes"
            )
+  end
+
+  # Andrew, 2026-09-26: "allow even quick model to send multiple reply
+  # events, some messages, some emojis (and normal model should be able to do
+  # that too)". A second reaction in one Work turn came back
+  # "temporarily_unavailable", which the model reads as "try the same call
+  # again". A turn now adds up to three: each frozen once, sent in the order
+  # asked, the same emoji again the same reaction, and the answer refused
+  # while any is still on its way.
+  test "a turn adds a few reactions, each once and in the order asked, and the answer waits for them" do
+    claim = claim!()
+
+    assert {:ok, %{action: eyes, status: :created}} =
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes("eyes"))
+
+    assert {:ok, %{action: thumbsup, status: :created}} =
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes("thumbsup"))
+
+    # The same emoji again is the same reaction, not another one.
+    assert {:ok, %{action: ^eyes, status: :duplicate}} =
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes("eyes"))
+
+    assert {:ok, %{action: tada, status: :created}} =
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes("tada"))
+
+    assert Enum.map([eyes, thumbsup, tada], & &1.host_slot) ==
+             ~w(reaction:1 reaction:2 reaction:3)
+
+    assert PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes("rocket")) ==
+             {:error, :reaction_limit_reached}
+
+    # The second waits while the first is out, even after the first is put
+    # back for a retry.
+    assert {:ok, %{action: out, lease_ref: lease_ref}} =
+             PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+    assert out.id == eyes.id
+    assert {:ok, nil} = PlatformActionCustody.claim_next("platform-action-worker-2", 60)
+
+    assert {:ok, _deferred} =
+             PlatformActionCustody.defer(
+               out.action_ref,
+               lease_ref,
+               1,
+               "delivery_uncertain",
+               "Slack's answer was lost."
+             )
+
+    Repo.update_all(Ryker.Delivery.PlatformAction, set: [next_attempt_at: @now])
+
+    assert {:ok, %{action: retried, lease_ref: lease_ref}} =
+             PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+    assert retried.id == eyes.id
+    deliver_claimed!(retried, lease_ref, retried.source_item_ref)
+
+    assert {:ok, %{action: next, lease_ref: lease_ref}} =
+             PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+    assert next.id == thumbsup.id
+    deliver_claimed!(next, lease_ref, next.source_item_ref)
+
+    answer =
+      Jason.encode!(%{
+        "decision_reason" => nil,
+        "delivery" => "reply",
+        "message" => "Done.",
+        "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+      })
+
+    records = PlatformActionCustody.validation_records(claim.episode.id, claim.turn.id)
+    assert {:reject, [violation]} = Validator.validate(answer, validation_context(records), @now)
+
+    assert violation =~
+             "Do not complete while platform actions are unresolved: #{tada.action_ref}"
+
+    assert {:ok, %{action: last, lease_ref: lease_ref}} =
+             PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+    assert last.id == tada.id
+    deliver_claimed!(last, lease_ref, last.source_item_ref)
+
+    records = PlatformActionCustody.validation_records(claim.episode.id, claim.turn.id)
+    assert {:accept, _accepted} = Validator.validate(answer, validation_context(records), @now)
+  end
+
+  # Taking a reaction back stays what it was: one call for one emoji on one
+  # message, allowed only for a reaction Ryker added. Put back after that, it
+  # is a new reaction; answered as a repeat of the first add, it would leave
+  # the emoji off while telling the model it was on.
+  test "a reaction taken back and put on again in one turn is three reactions, not one" do
+    claim = claim!()
+
+    assert {:ok, %{action: added, status: :created}} =
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes("eyes"))
+
+    assert {:ok, %{action: removed, status: :created}} =
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes("eyes", "remove"))
+
+    assert {:ok, %{action: ^removed, status: :duplicate}} =
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes("eyes", "remove"))
+
+    assert {:ok, %{action: again, status: :created}} =
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes("eyes"))
+
+    assert Enum.map([added, removed, again], &{&1.host_slot, &1.document["action"]}) == [
+             {"reaction:1", "add"},
+             {"reaction:2", "remove"},
+             {"reaction:3", "add"}
+           ]
+
+    # A reaction or an update always takes the turn's next place; nothing
+    # reaches either through a slot of its own choosing.
+    assert PlatformActionCustody.enqueue(
+             claim,
+             Map.put(reaction_attributes("heart"), :host_slot, "x")
+           ) ==
+             {:error, {:invalid_platform_action, :host_slot}}
   end
 
   # Andrew, 2026-09-26: "Sometimes it's even helpful to let model to do that
@@ -219,26 +347,26 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
     claim = claim!()
 
     assert {:ok, %{action: first, status: :created}} =
-             PlatformActionCustody.enqueue_update(
+             PlatformActionCustody.enqueue_in_turn(
                claim,
                update_attributes("Looking at the deploy now.")
              )
 
     assert {:ok, %{action: second, status: :created}} =
-             PlatformActionCustody.enqueue_update(
+             PlatformActionCustody.enqueue_in_turn(
                claim,
                update_attributes("The rollout is at 40%.")
              )
 
     # The same update asked for again is the same update, not a second post.
     assert {:ok, %{action: ^second, status: :duplicate}} =
-             PlatformActionCustody.enqueue_update(
+             PlatformActionCustody.enqueue_in_turn(
                claim,
                update_attributes("The rollout is at 40%.")
              )
 
     assert {:ok, %{action: third, status: :created}} =
-             PlatformActionCustody.enqueue_update(
+             PlatformActionCustody.enqueue_in_turn(
                claim,
                update_attributes("Checking the error rate.")
              )
@@ -246,7 +374,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
     assert Enum.map([first, second, third], & &1.host_slot) == ~w(update:1 update:2 update:3)
     assert Enum.all?([first, second, third], &(&1.thread_ref == "1787832000.000100"))
 
-    assert PlatformActionCustody.enqueue_update(claim, update_attributes("One more thing.")) ==
+    assert PlatformActionCustody.enqueue_in_turn(claim, update_attributes("One more thing.")) ==
              {:error, :update_limit_reached}
 
     # The second waits while the first is out.
@@ -298,7 +426,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
       [Ecto.UUID.dump!(claim.episode.id)]
     )
 
-    assert PlatformActionCustody.enqueue(claim, reaction_attributes()) ==
+    assert PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes()) ==
              {:error, :platform_action_not_authorized}
   end
 
@@ -312,7 +440,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
       ]
     )
 
-    assert PlatformActionCustody.enqueue(claim, reaction_attributes()) ==
+    assert PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes()) ==
              {:error, :platform_action_not_authorized}
   end
 
@@ -324,7 +452,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
 
   # Enqueues one action on the claim's turn and settles it as delivered.
   defp deliver!(claim, attributes) do
-    assert {:ok, %{action: action}} = PlatformActionCustody.enqueue(claim, attributes)
+    assert {:ok, %{action: action}} = PlatformActionCustody.enqueue_in_turn(claim, attributes)
 
     assert {:ok, %{action: claimed, lease_ref: lease_ref}} =
              PlatformActionCustody.claim_next("platform-action-worker", 60)
@@ -449,11 +577,12 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
              PlatformActionCustody.confirm_delivery(action.action_ref, lease_ref, receipt)
   end
 
-  defp reaction_attributes do
+  # A Slack reaction as the tool asks for it; custody gives it the turn's
+  # next reaction place.
+  defp reaction_attributes(emoji_name \\ "eyes", action \\ "add") do
     %{
       conversation_ref: "slack:T123:C123",
-      document: %{"action" => "add", "emoji_name" => "eyes"},
-      host_slot: "reaction",
+      document: %{"action" => action, "emoji_name" => emoji_name},
       kind: :reaction,
       source_item_ref: "1787832000.000100",
       thread_ref: "1787832000.000100",
