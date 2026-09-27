@@ -173,6 +173,41 @@ defmodule Ryker.Slack.InputTest do
     refute Input.fingerprint(first) == Input.fingerprint(changed)
   end
 
+  # A voice message is recorded before its words are known and they are
+  # filled in later. Slack's redelivery of the event and routing's commit both
+  # compare fingerprints, so what Ryker made of the recording cannot count as
+  # what the sender sent; the recording itself, and anything else, still does.
+  test "a recording's transcript is not part of the event's fingerprint, the recording is" do
+    recording = %{
+      "artifact_ref" => "artifact:input:voice",
+      "bytes" => 109_145,
+      "media_type" => "audio/mp4",
+      "name" => "audio_message.m4a",
+      "sha256" => String.duplicate("a", 64),
+      "status" => "available"
+    }
+
+    fingerprint = fn file ->
+      assert {:ok, input} =
+               SlackInput.new(valid_attributes(content: %{"files" => [file], "text" => ""}))
+
+      Input.fingerprint(input)
+    end
+
+    pending = fingerprint.(Map.put(recording, "transcript_pending", true))
+    assert fingerprint.(Map.put(recording, "transcript", "Roll back the deploy")) == pending
+
+    assert fingerprint.(
+             Map.put(
+               recording,
+               "transcript_unavailable",
+               "a voice message Ryker could not transcribe"
+             )
+           ) == pending
+
+    refute fingerprint.(%{recording | "sha256" => String.duplicate("b", 64)}) == pending
+  end
+
   test "rejects malformed trusted fields and unbounded content without raising" do
     assert {:error, {:invalid_input, :revision}} = SlackInput.new(valid_attributes(revision: 0))
 

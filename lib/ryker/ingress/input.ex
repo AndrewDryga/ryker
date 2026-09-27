@@ -9,6 +9,7 @@ defmodule Ryker.Ingress.Input do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Command
+  alias Ryker.Transcription
 
   @content_limit 49_152
   @maximum_revision 9_223_372_036_854_775_807
@@ -95,6 +96,7 @@ defmodule Ryker.Ingress.Input do
   def fingerprint(%__MODULE__{} = input) do
     input
     |> fingerprint_document()
+    |> without_transcripts()
     |> CanonicalJSON.digest()
   end
 
@@ -294,6 +296,21 @@ defmodule Ryker.Ingress.Input do
   end
 
   defp fingerprint_document(input), do: document(input)
+
+  # A recording's transcript, or why it has none, is what Ryker made of it,
+  # not what the sender sent, and a Slack voice message's words are filled in
+  # after it is recorded. Slack's redelivery and routing's commit both compare
+  # fingerprints, so they read one before the words and after. The recording
+  # itself, its artifact and digest, still counts.
+  defp without_transcripts(%{"content" => %{"files" => files} = content} = document)
+       when is_list(files) do
+    %{
+      document
+      | "content" => %{content | "files" => Enum.map(files, &Transcription.without_outcome/1)}
+    }
+  end
+
+  defp without_transcripts(document), do: document
 
   defp validate_fields(fields) do
     Enum.reduce_while(fields, :ok, fn

@@ -19,6 +19,7 @@ defmodule Ryker.Transcription do
   @maximum_seconds 300
   # Five minutes of fast speech is about 5 KB of text.
   @maximum_transcript_bytes 8_192
+  @outcome_fields ~w(transcript transcript_pending transcript_unavailable)
 
   @type failure :: :too_large | :too_long | :no_speech | :timeout | :unavailable | :failed
 
@@ -37,6 +38,14 @@ defmodule Ryker.Transcription do
 
   @spec maximum_seconds() :: pos_integer()
   def maximum_seconds, do: @maximum_seconds
+
+  @doc """
+  A file descriptor without what Ryker made of its recording: the transcript,
+  why there is none, or that it is still to come.
+  """
+  @spec without_outcome(term()) :: term()
+  def without_outcome(%{} = file), do: Map.drop(file, @outcome_fields)
+  def without_outcome(file), do: file
 
   @doc """
   The descriptor fields for a recording's transcription outcome: its words,
