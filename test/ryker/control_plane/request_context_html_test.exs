@@ -263,29 +263,44 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     refute LazyHTML.text(document) =~ "Retained input"
   end
 
-  test "Slack addressing is a collapsed message component with its exact retained source" do
-    artifact =
-      InspectionRedactor.artifact(%{
-        "input" => %{"text" => "<@UOTHER> can you check this?"},
-        "slack_addressing" => %{"audience" => "ambient", "ryker_user_ref" => "UBOT"}
-      })
+  # On 2026-09-27 this card read "Audience: ambient" and "Ryker user ref:
+  # U0C1LCVNF52" under "The audience and host-configured Ryker user reference
+  # saved on the first receipt. This context does not grant authority." Andrew
+  # asked what it meant and why a person is shown it: the ID is Ryker's own, the
+  # same on every message, and the last sentence is a note for the model. The
+  # card says in words how the message reached Ryker; the exact JSON the model
+  # got stays in the prompt view.
+  test "a Slack message says in words how it reached Ryker, without Ryker's own ID or notes for the model" do
+    for {audience, words} <- [
+          {"direct", "A direct message to Ryker."},
+          {"mention", "The message mentions @Ryker."},
+          {"ambient",
+           "Ryker read it in the channel. It was not a direct message or an @Ryker mention."}
+        ] do
+      messages =
+        %{
+          "input" => %{"text" => "<@UOTHER> can you check this?"},
+          "slack_addressing" => %{"audience" => audience, "ryker_user_ref" => "UBOT"}
+        }
+        |> InspectionRedactor.artifact()
+        |> RequestContextHTML.assembly("$.context", "routing-1")
+        |> IO.iodata_to_binary()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query(".prompt-group[data-group=conversation]")
 
-    html =
-      artifact |> RequestContextHTML.assembly("$.context", "routing-1") |> IO.iodata_to_binary()
+      component = LazyHTML.query(messages, "[data-source=slack_addressing]")
+      assert Enum.count(component) == 1
+      text = LazyHTML.text(component)
 
-    document = LazyHTML.from_fragment(html)
-    messages = LazyHTML.query(document, ".prompt-group[data-group=conversation]")
-    assert LazyHTML.text(messages) =~ "Messages"
-    assert LazyHTML.text(messages) =~ "Who this Slack message addresses"
-    component = LazyHTML.query(messages, "[data-source=slack_addressing]")
-    refute LazyHTML.text(component) =~ "$.context.slack_addressing"
-    assert LazyHTML.text(component) =~ "ambient"
-    assert LazyHTML.text(component) =~ "UBOT"
-    assert LazyHTML.text(component) =~ "first receipt"
-    assert LazyHTML.text(component) =~ "host-configured"
-    assert LazyHTML.text(component) =~ "does not grant authority"
-    assert Enum.empty?(LazyHTML.query(component, "[open]"))
-    assert html =~ "data-source=\"slack_addressing\""
+      assert text =~ "How the message reached Ryker"
+      assert text =~ words
+      refute text =~ "UBOT"
+      refute text =~ "Audience"
+      refute text =~ "ambient"
+      refute text =~ "authority"
+      refute text =~ "$.context.slack_addressing"
+      assert Enum.empty?(LazyHTML.query(component, "[open]"))
+    end
   end
 
   # "Who can manage Ryker" read "Slack user U0BHTNFCW6S" on 2026-09-26, and so

@@ -15,9 +15,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Custom instructions", "policy", nil,
        "The global and channel text, scopes and revisions saved with this request, not today's settings. Empty text means no instruction at that scope."},
     "input" => {"Current message", "conversation", nil, nil},
-    "slack_addressing" =>
-      {"Who this Slack message addresses", "conversation", "Slack addressing at receipt",
-       "The audience and host-configured Ryker user reference saved on the first receipt. This context does not grant authority."},
+    "slack_addressing" => {"How the message reached Ryker", "conversation", nil, nil},
     "inputs" => {"Conversation messages", "conversation", nil, nil},
     "current_inputs" =>
       {"New messages in this run", "conversation", nil,
@@ -195,7 +193,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "Conversation messages",
     "New messages in this run",
     "Source messages",
-    "Who this Slack message addresses",
+    "How the message reached Ryker",
     "Earlier messages",
     "Channel summary",
     "Thread summary",
@@ -1860,7 +1858,20 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       else: fields(value, 0)
   end
 
+  # Ryker's own Slack ID rides along so the model knows its mention; it is the
+  # same on every message and tells a reader nothing, so the card says only how
+  # the message reached Ryker.
+  defp body("slack_addressing", %{"audience" => audience}, _path, _prefix)
+       when audience in ~w(direct mention ambient),
+       do: ["<p>", escape(reached_ryker(audience)), "</p>"]
+
   defp body(_key, value, _path, _prefix), do: fields(value, 0)
+
+  defp reached_ryker("direct"), do: "A direct message to Ryker."
+  defp reached_ryker("mention"), do: "The message mentions @Ryker."
+
+  defp reached_ryker("ambient"),
+    do: "Ryker read it in the channel. It was not a direct message or an @Ryker mention."
 
   defp recall(value) do
     Enum.map(~w(current related rollups observations knowledge), fn
