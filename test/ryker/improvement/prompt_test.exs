@@ -198,7 +198,7 @@ defmodule Ryker.Improvement.PromptTest do
             "model" => reply["model"],
             "outcome" => "complete",
             "answer" => reply["text"],
-            "tools" => [%{"tool" => "mcp_startup.responder-state", "status" => "failed"}]
+            "tools" => [%{"tool" => "mcp_startup.controller-tools", "status" => "failed"}]
           }
         end),
       feedback: [
