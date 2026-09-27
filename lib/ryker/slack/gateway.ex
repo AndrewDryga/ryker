@@ -78,7 +78,8 @@ defmodule Ryker.Slack.Gateway do
      Map.merge(options, %{
        connection: nil,
        idle_ref: nil,
-       reconnect_scheduled: false
+       reconnect_timer: nil,
+       reconnect_failures: 0
      })}
   end
 
@@ -86,20 +87,34 @@ defmodule Ryker.Slack.Gateway do
   def handle_call(:connected?, _from, state), do: {:reply, not is_nil(state.connection), state}
 
   @impl GenServer
+  # Every attempt clears the retry it came from, or one a direct `:connect`
+  # overtook, so a failure always leaves exactly one retry waiting. Until
+  # 2026-09-27 a retry that also failed scheduled nothing, and Slack stayed
+  # disconnected until Ryker was restarted.
   def handle_info(:connect, %{connection: nil} = state) do
+    state = cancel_reconnect(state)
+
     case state.transport.connect(state.transport_options) do
       {:ok, connection} ->
+        if state.reconnect_failures > 0,
+          do:
+            Logger.info("Slack Socket Mode connected after #{state.reconnect_failures} failures")
+
         broadcast_connection_changed(true)
 
         {:noreply,
          state
          |> Map.put(:connection, connection)
-         |> Map.put(:reconnect_scheduled, false)
+         |> Map.put(:reconnect_failures, 0)
          |> arm_idle()}
 
       {:error, reason} ->
         Logger.warning("Slack Socket Mode connection failed: #{inspect(reason)}")
-        {:noreply, schedule_reconnect(state)}
+
+        {:noreply,
+         state
+         |> Map.update!(:reconnect_failures, &(&1 + 1))
+         |> schedule_reconnect()}
     end
   end
 
@@ -851,12 +866,25 @@ defmodule Ryker.Slack.Gateway do
     |> schedule_reconnect()
   end
 
-  defp schedule_reconnect(%{reconnect_scheduled: true} = state), do: state
+  @maximum_reconnect_ms 60_000
+
+  # One retry waits at a time. Repeated failures wait twice as long each time,
+  # up to a minute, so an app token Slack keeps refusing is not asked every
+  # second.
+  defp schedule_reconnect(%{reconnect_timer: timer} = state) when is_reference(timer), do: state
 
   defp schedule_reconnect(state) do
-    Process.send_after(self(), :connect, state.reconnect_ms)
-    %{state | reconnect_scheduled: true}
+    doublings = min(max(state.reconnect_failures - 1, 0), 16)
+    delay = min(state.reconnect_ms * Integer.pow(2, doublings), @maximum_reconnect_ms)
+    %{state | reconnect_timer: Process.send_after(self(), :connect, delay)}
   end
+
+  defp cancel_reconnect(%{reconnect_timer: timer} = state) when is_reference(timer) do
+    _remaining = Process.cancel_timer(timer)
+    %{state | reconnect_timer: nil}
+  end
+
+  defp cancel_reconnect(state), do: state
 
   defp arm_idle(state) do
     idle_ref = make_ref()
