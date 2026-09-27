@@ -530,6 +530,26 @@ defmodule Ryker.ObservabilityTest do
     assert metrics =~ ~s(ryker_runtime_progress_cycles{lane="work"} 2)
   end
 
+  # An idle worker polls about every ten seconds. A heartbeat on each of
+  # those polls was a quarter of everything an idle install still committed
+  # on 2026-09-27, where readiness needs one in fifteen minutes.
+  test "a lane polled every ten seconds writes its heartbeat once a minute" do
+    assert :ok = Progress.beat(:learning)
+    # The next idle poll, ten seconds on.
+    Process.put({Progress, :learning}, System.monotonic_time(:millisecond) - 10_000)
+    assert :ok = Progress.beat(:learning)
+
+    assert Repo.query!("SELECT cycle_count FROM ryker_runtime_progress WHERE lane = 'learning'").rows ==
+             [[1]]
+
+    # A minute on, it beats again.
+    Process.put({Progress, :learning}, System.monotonic_time(:millisecond) - 60_000)
+    assert :ok = Progress.beat(:learning)
+
+    assert Repo.query!("SELECT cycle_count FROM ryker_runtime_progress WHERE lane = 'learning'").rows ==
+             [[2]]
+  end
+
   test "fleet execution requires fresh compatible worker capacity" do
     workspace_ref = "workspace-observability"
     previous_work = Application.get_env(:ryker, :work, :missing)
