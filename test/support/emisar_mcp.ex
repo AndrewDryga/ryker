@@ -21,7 +21,8 @@ defmodule Ryker.TestSupport.EmisarMCP do
   requester (config/test.exs), so no test reaches Emisar. It tells the calling
   process what it was sent. A host named unreachable.example refuses every
   connection, so nothing reaches it; one named silent.example lists its tools
-  but never answers a call, which times out after the call was sent.
+  but never answers a call, which times out after the call was sent; one named
+  hanging.example holds every request for a second before it answers.
   """
 
   alias Ryker.Delivery.JSONClient
@@ -39,15 +40,18 @@ defmodule Ryker.TestSupport.EmisarMCP do
 
     with false <- host == "unreachable.example",
          {:ok, token} <- client.token_provider.() do
-      send(self(), {:emisar_mcp, %{body: body, headers: headers, path: path, token: token}})
+      # A request made from a task is still the test's to see.
+      recipient = List.first(Process.get(:"$callers", [])) || self()
+      send(recipient, {:emisar_mcp, %{body: body, headers: headers, path: path, token: token}})
+
+      if host == "hanging.example", do: Process.sleep(1_000)
 
       if host == "silent.example" and body["method"] == "tools/call",
         do: {:error, {:delivery_transport_unavailable, %Mint.TransportError{reason: :timeout}}},
         else: answer(body, token)
     else
       true ->
-        {:error,
-         {:delivery_transport_unavailable, %Mint.TransportError{reason: :econnrefused}}}
+        {:error, {:delivery_transport_unavailable, %Mint.TransportError{reason: :econnrefused}}}
 
       {:error, reason} ->
         {:error, {:delivery_credentials_unavailable, reason}}
@@ -132,8 +136,11 @@ defmodule Ryker.TestSupport.EmisarMCP do
     fixed_result(%{answer | "runs" => runs}, false)
   end
 
-  defp tool_answer("find_actions", _arguments, _token), do: fixed_result(json(@find_actions), false)
-  defp tool_answer("wait_for_run", _arguments, _token), do: fixed_result(json(@wait_for_run), false)
+  defp tool_answer("find_actions", _arguments, _token),
+    do: fixed_result(json(@find_actions), false)
+
+  defp tool_answer("wait_for_run", _arguments, _token),
+    do: fixed_result(json(@wait_for_run), false)
 
   # The portal's answer to a name that is not one of its fixed tools.
   defp tool_answer(_name, _arguments, _token) do
