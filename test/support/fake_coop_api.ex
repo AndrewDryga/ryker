@@ -142,6 +142,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
     if String.starts_with?(task, [
          "ryker-admission:",
          "ryker-admission-ready:",
+         "ryker-improvement:",
          "ryker-learning:",
          "ryker-work:"
        ]),

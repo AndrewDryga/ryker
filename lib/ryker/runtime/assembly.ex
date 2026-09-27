@@ -61,6 +61,9 @@ defmodule Ryker.Runtime.Assembly do
     {:local_routing, Ryker.LocalRouting.Worker},
     {:work, Ryker.Work.Runtime},
     {:learning, Ryker.Learning.Runtime},
+    # Self-analysis runs on learning's policy and models, only where learning
+    # runs, in a pool of its own so its restarts never touch learning's.
+    {:improvement, Ryker.Improvement.Runtime},
     {:retention, Ryker.Retention.Runtime},
     # Its own key, so turning keeping routing examples on or off, or a stored
     # credential changing, restarts only the copy, never cleanup.
@@ -128,6 +131,7 @@ defmodule Ryker.Runtime.Assembly do
     admission_ready = admission_ready(settings, admission)
     local_routing = local_routing(settings)
     learning = learning(settings, policies, work)
+    improvement = improvement(settings, learning)
     schedules = schedules(settings, repositories, policies)
     gateway = worker_gateway(bootstrap)
     {github, github_left_out} = github(bootstrap, settings, repositories, environments)
@@ -174,6 +178,7 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:emisar, emisar)
     |> put_optional(:event_waits, Defaults.fetch!(:event_waits))
     |> put_optional(:github, github && github.runtime)
+    |> put_optional(:improvement, improvement)
     |> put_optional(:learning, learning)
     |> put_optional(:local_routing, local_routing)
     |> put_optional(:publication, publication)
@@ -589,6 +594,22 @@ defmodule Ryker.Runtime.Assembly do
     else
       _disabled -> nil
     end
+  end
+
+  # Diagnosing what went wrong with a request people were unhappy with is
+  # learning from feedback: it uses learning's policy and models, and stops
+  # when learning is turned off (`Ryker.Improvement`).
+  defp improvement(_settings, nil), do: nil
+
+  defp improvement(settings, learning) do
+    Defaults.fetch!(:improvement)
+    |> Map.merge(%{
+      api: learning.api,
+      client: learning.client,
+      policy: learning.policy,
+      policy_digest: learning.policy_digest,
+      worker_ref: "#{settings.installation.host_ref}:improvement"
+    })
   end
 
   defp schedules(settings, repositories, policies) do

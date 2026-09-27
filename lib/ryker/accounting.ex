@@ -106,6 +106,45 @@ defmodule Ryker.Accounting do
      )}
   end
 
+  @doc """
+  The caller already owns the candidate's analysis lease; one ledger row per
+  frozen analysis attempt (`Ryker.Improvement`). It belongs to no request:
+  the request it analyzes did not spend it.
+  """
+  def observe_improvement_in_transaction(
+        candidate,
+        run,
+        session_id,
+        remote_turn,
+        remote_session,
+        now
+      ) do
+    measurement = Measurement.prepare(remote_turn, remote_session)
+
+    measurement =
+      if remote_turn["state"] == "completed",
+        do: Measurement.acceptance_attributes(measurement, now),
+        else: measurement
+
+    {:ok,
+     record(
+       %{
+         kind: "improvement",
+         source_id: run.id,
+         generation: to_string(run.generation),
+         episode_id: nil,
+         session_id: session_id,
+         transport: candidate.transport,
+         conversation_ref: candidate.conversation_ref,
+         repository_ref: nil,
+         execution_mode: "live"
+       },
+       remote_turn,
+       measurement,
+       now
+     )}
+  end
+
   @doc "Records host acceptance timing in the same transaction as result acceptance."
   def accepted_in_transaction(episode, session, turn) do
     record(
