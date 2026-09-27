@@ -130,9 +130,10 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   attr(:now, :any, default: nil)
 
   @doc """
-  The /instructions sections under the global editor: the channels that add
+  The /instructions cards under the global editor's: the channels that add
   instructions of their own, then the preferences and guidance people
-  confirmed in conversations.
+  confirmed in conversations. Each part of the page is a card, as on a
+  channel's page and in Settings.
   """
   def instructions(assigns) do
     assigns =
@@ -143,12 +144,15 @@ defmodule Ryker.ControlPlane.BehaviorPage do
 
     ~H"""
     <div class="behavior-page">
-      <section class="instructions-channels" aria-labelledby="channels">
-        <Kit.section_head
-          id="channels"
-          title="For specific channels"
-          lede="Added to the instructions above, in that channel only."
-        />
+      <Kit.section_card
+        class="instructions-channels"
+        anchor="channels"
+        title="For specific channels"
+        lede="Added to the instructions above, in that channel only."
+      >
+        <:actions>
+          <a class="ui-button secondary behavior-add" href="/channels"><Components.icon name={:plus} />Add for a channel</a>
+        </:actions>
         <Kit.entity_list :if={@channel_rows != []} label="Channel instructions">
           <Kit.entity_row
             :for={row <- @channel_rows}
@@ -169,14 +173,13 @@ defmodule Ryker.ControlPlane.BehaviorPage do
           title="No channel has its own instructions yet"
           text="When something should apply in one channel only, open that channel and add instructions there."
         />
-        <a class="ui-button secondary behavior-add" href="/channels"><Components.icon name={:plus} />Add for a channel</a>
-      </section>
-      <section class="instructions-saved" aria-labelledby="saved">
-        <Kit.section_head
-          id="saved"
-          title="Saved from conversations"
-          lede="Preferences and guidance people confirmed in chat or Slack."
-        />
+      </Kit.section_card>
+      <Kit.section_card
+        class="instructions-saved"
+        anchor="saved"
+        title="Saved from conversations"
+        lede="Preferences and guidance people confirmed in chat or Slack."
+      >
         <Kit.toolbar>
           <Kit.segmented
             label="Show preferences, guidance or both"
@@ -212,7 +215,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
           label="Saved entry pages"
           summary={count(@saved.total, "entry", "entries")}
         />
-      </section>
+      </Kit.section_card>
     </div>
     """
   end

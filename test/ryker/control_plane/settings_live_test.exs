@@ -749,6 +749,12 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   # settings. New channels and Incident rooms shared one Save under both;
   # each card saves its own now. The Channels page links to New channels by
   # its anchor.
+  #
+  # Andrew, 2026-09-27: "why some pages like this have islands while others
+  # dont". Data retention and Advanced were cards while Models, Model prices
+  # and both overviews sat bare on the page, and Instructions was bare while
+  # a channel's page showed the same editor in a card. Every page here now
+  # keeps every part, form and list in a card.
   test "each part of a long settings page is its own card with its own actions" do
     initialize!()
     connect_slack!()
@@ -782,9 +788,12 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     end
 
     for path <-
-          ~w(/integrations/slack /integrations/github /integrations/emisar /integrations/webhooks /settings/retention /settings/advanced) do
+          ~w(/integrations /integrations/slack /integrations/github /integrations/emisar /integrations/webhooks /settings /settings/models /settings/retention /settings/prices /settings/advanced /instructions) do
       {:ok, _view, html} = open(path)
       document = LazyHTML.from_document(html)
+
+      assert LazyHTML.query(document, "main .kit-card") |> Enum.count() > 0,
+             "#{path} has no card"
 
       assert LazyHTML.query(document, "main .section-head") |> Enum.count() ==
                LazyHTML.query(document, "main .kit-card > .section-head") |> Enum.count(),
@@ -793,6 +802,24 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
       assert LazyHTML.query(document, "main form") |> Enum.count() ==
                LazyHTML.query(document, "main .kit-card form") |> Enum.count(),
              "#{path} has a form outside a card"
+
+      assert LazyHTML.query(document, "main .entity-list") |> Enum.count() ==
+               LazyHTML.query(document, "main .kit-card .entity-list") |> Enum.count(),
+             "#{path} has a list outside a card"
+    end
+
+    # Models saves each of its cards on its own.
+    {:ok, _view, html} = open("/settings/models")
+    models = LazyHTML.from_document(html)
+
+    assert LazyHTML.query(models, "main section.kit-card > header.section-head h2") |> texts() ==
+             ["Requests", "Other work", "Model accounts"]
+
+    for card <- ["Requests", "Other work", "Model accounts"] do
+      assert models
+             |> LazyHTML.query("section.kit-card[aria-label='#{card}'] form button[type=submit]")
+             |> texts() == ["Save changes"],
+             card
     end
   end
 
@@ -823,23 +850,24 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, view, _html} = open("/settings/models")
     refute has_element?(view, ".settings-notice")
 
-    for group <- ["Routing and replies", "Work", "Other work", "Model accounts"] do
-      assert has_element?(view, ".section-head h2", group)
-    end
-
-    for name <-
-          ~w(routing_models conversation_models standard_models deep_models contributor_models schedule_models incident_models learning_models),
+    for {form, names} <- [
+          {"#settings-request_models-form",
+           ~w(routing_models conversation_models standard_models deep_models)},
+          {"#settings-other_models-form",
+           ~w(contributor_models schedule_models incident_models learning_models)}
+        ],
+        name <- names,
         part <- ~w(model effort account) do
-      assert has_element?(view, "#settings-model-form select[name='#{name}[0][#{part}]']")
+      assert has_element?(view, "#{form} select[name='#{name}[0][#{part}]']")
     end
 
-    deep = "#settings-model-form select[name='deep_models[0]"
+    deep = "#settings-request_models-form select[name='deep_models[0]"
     assert has_element?(view, deep <> "[model]'] option[value='codex:gpt-5.6-sol'][selected]")
     assert has_element?(view, deep <> "[effort]'] option[value=xhigh][selected]", "Extra high")
     assert has_element?(view, deep <> "[account]'] option[value=default][selected]", "default")
 
     view
-    |> form("#settings-model-form", %{
+    |> form("#settings-request_models-form", %{
       "deep_models" => %{"0" => %{"model" => "codex:gpt-5.6-luna", "effort" => "high"}}
     })
     |> render_submit()
@@ -866,7 +894,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
            )
   end
 
-  test "each model says under its choice where Ryker uses it" do
+  test "each kind of work says under its title where Ryker uses its models" do
     # Andrew, 2026-09-25: eight choices with a few words each ("Investigations
     # and tool-backed work.") left nobody able to tell which one moves which
     # cost. Each sentence was checked against the code that picks the model:
@@ -875,6 +903,10 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     # incident-room and learning lanes, and the policies the bundled worker
     # writes (work with no repository runs every class on the installation's
     # conversation policy).
+    #
+    # Andrew, 2026-09-27: the sentences sat under the list of models, where
+    # they read as a footnote to the last one: "move texts like: > Runs first
+    # on every message ... to be under title not below table".
     initialize!()
     {:ok, view, _html} = open("/settings/models")
 
@@ -909,14 +941,23 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "answer, and notes what is worth remembering about each conversation. It never " <>
              "replies, and runs only while learning is on."}
         ] do
-      id = "settings-model-#{name}-used"
+      card =
+        if name in ~w(routing_models conversation_models standard_models deep_models),
+          do: "request_models",
+          else: "other_models"
 
-      # Under the models it explains, and read out with them.
+      fieldset = "settings-#{card}-#{name}"
+      id = fieldset <> "-help"
+
+      # Straight under its title, above the models it explains, and read out
+      # with them.
       assert has_element?(
                view,
-               "fieldset#settings-model-#{name}[aria-describedby~='#{id}'] p##{id}.settings-help"
+               "fieldset##{fieldset}[aria-describedby='#{id}'] > legend + p##{id}.settings-help"
              ),
              name
+
+      assert has_element?(view, "fieldset##{fieldset} > p##{id} + .settings-ladder-box"), name
 
       assert view
              |> element("##{id}")
@@ -943,7 +984,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     {:ok, _view, html} = open("/settings/models")
     document = LazyHTML.from_document(html)
-    selects = LazyHTML.query(document, "#settings-model-form select[name$='[model]']")
+    selects = LazyHTML.query(document, ".settings-ladder select[name$='[model]']")
     assert Enum.count(selects) == 8
 
     orders =
@@ -953,7 +994,12 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert orders |> Enum.uniq() |> length() == 1
     assert hd(orders) == ~w(codex:gpt-5.6-luna codex:gpt-5.6-sol codex:gpt-5.6-terra)
 
-    deep = LazyHTML.query(document, "#settings-model-form select[name='deep_models[0][model]']")
+    deep =
+      LazyHTML.query(
+        document,
+        "#settings-request_models-form select[name='deep_models[0][model]']"
+      )
+
     assert deep |> LazyHTML.query("optgroup") |> LazyHTML.attribute("label") == ["Codex"]
 
     assert deep |> LazyHTML.query("option[selected]") |> LazyHTML.attribute("value") == [
@@ -963,7 +1009,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     efforts =
       LazyHTML.query(
         document,
-        "#settings-model-form select[name='deep_models[0][effort]'] option"
+        "#settings-request_models-form select[name='deep_models[0][effort]'] option"
       )
 
     assert LazyHTML.attribute(efforts, "value") == ~w(low medium high xhigh)
@@ -985,26 +1031,40 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
         @actor
       )
 
-    {:ok, view, _html} = open("/settings/models")
+    {:ok, view, html} = open("/settings/models")
 
-    assert has_element?(
-             view,
-             "#settings-model .settings-form-help",
-             "A fallback is used only when the one above it hits a usage limit or its sign-in " <>
-               "stops working."
-           )
+    # The rows no longer name the first choice and each fallback (Andrew,
+    # 2026-09-27: "no need to say "First choice" and "Fallback 1""), so the
+    # page says how a list is used, and each row shows its place in it.
+    assert page_description(html) =~
+             "Ryker uses the first model on each list, and the next only when the one above it " <>
+               "hits a usage limit or its sign-in stops working."
 
     ladder = "button[phx-click=ladder][phx-value-field=routing_models]"
+    routing = "#settings-request_models-routing_models"
+    requests = "#settings-request_models-form"
 
     click = fn action, index ->
       view |> element(button(ladder, action, index)) |> render_click()
     end
 
-    refute has_element?(view, button(ladder, "remove", 0))
+    places = fn ->
+      view
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#{routing} li.settings-ladder-entry .settings-ladder-order")
+      |> texts()
+    end
 
-    # A fallback starts as the same model on the next account.
+    refute has_element?(view, button(ladder, "remove", 0))
+    assert places.() == ["1"]
+
+    # A fallback starts as the same model on the next account, as the row
+    # under the first, where Add fallback was.
     click.("add", nil)
-    assert has_element?(view, "#settings-model-routing_models-1 legend", "Fallback 1")
+    assert places.() == ["1", "2"]
+    refute render(view) =~ "First choice"
+    refute render(view) =~ "Fallback 1"
 
     assert has_element?(
              view,
@@ -1012,20 +1072,19 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
            )
 
     view
-    |> form("#settings-model-form", %{
+    |> form(requests, %{
       "routing_models" => %{"1" => %{"model" => "codex:gpt-5.6-terra", "effort" => "low"}}
     })
     |> render_change()
 
     click.("up", 1)
-    assert has_element?(view, "#settings-model-routing_models-0 legend", "First choice")
 
     assert has_element?(
              view,
              "select[name='routing_models[0][model]'] option[value='codex:gpt-5.6-terra'][selected]"
            )
 
-    view |> form("#settings-model-form") |> render_submit()
+    view |> form(requests) |> render_submit()
 
     assert Settings.fetch!().work.routing_models == [
              "codex:gpt-5.6-terra/low@personal",
@@ -1036,13 +1095,13 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     # new fallback waits for its model to be chosen, and saving says so.
     click.("add", nil)
     click.("add", nil)
-    assert has_element?(view, "#settings-model-routing_models-3 legend", "Fallback 3")
+    assert places.() == ["1", "2", "3", "4"]
     refute has_element?(view, button(ladder, "add", nil))
-    view |> form("#settings-model-form") |> render_submit()
+    view |> form(requests) |> render_submit()
 
     assert has_element?(
              view,
-             "#settings-model-routing_models .settings-error",
+             "#{routing} .settings-error",
              "Choose a model, a reasoning effort and an account for each one."
            )
 
@@ -1051,24 +1110,24 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     luna = %{"model" => "codex:gpt-5.6-luna", "effort" => "low"}
 
     view
-    |> form("#settings-model-form", %{"routing_models" => %{"2" => luna, "3" => luna}})
+    |> form(requests, %{"routing_models" => %{"2" => luna, "3" => luna}})
     |> render_change()
 
     default = %{"account" => "default"}
 
     view
-    |> form("#settings-model-form", %{"routing_models" => %{"2" => default, "3" => default}})
+    |> form(requests, %{"routing_models" => %{"2" => default, "3" => default}})
     |> render_submit()
 
     assert has_element?(
              view,
-             "#settings-model-routing_models .settings-error",
+             "#{routing} .settings-error",
              "The same model, effort and account is listed twice. Change one or remove it."
            )
 
     click.("remove", 3)
     click.("remove", 0)
-    view |> form("#settings-model-form") |> render_submit()
+    view |> form(requests) |> render_submit()
 
     assert Settings.fetch!().work.routing_models == [
              "codex:gpt-5.6-sol/medium@default",
@@ -1122,8 +1181,14 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     initialize!()
     {:ok, view, _html} = open("/settings/models")
     model = "select[name='routing_models[0][model]']"
+    requests = "#settings-request_models-form"
     refute has_element?(view, model <> " optgroup[label=Claude]")
-    assert has_element?(view, "#settings-model .settings-form-help", "add its price")
+
+    assert has_element?(
+             view,
+             "#page-help",
+             "a Claude model appears once its price is saved there"
+           )
 
     snapshot = Settings.fetch!()
 
@@ -1154,7 +1219,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     |> render_click()
 
     view
-    |> form("#settings-model-form", %{
+    |> form(requests, %{
       "routing_models" => %{"1" => %{"model" => "claude:claude-opus-4-6"}}
     })
     |> render_change()
@@ -1166,11 +1231,11 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "No Claude account yet"
            )
 
-    view |> form("#settings-model-form") |> render_submit()
+    view |> form(requests) |> render_submit()
 
     assert has_element?(
              view,
-             "#settings-model-routing_models .settings-error",
+             "#settings-request_models-routing_models .settings-error",
              "Choose a model, a reasoning effort and an account for each one."
            )
 
@@ -1180,7 +1245,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     |> render_submit()
 
     view
-    |> form("#settings-model-form", %{"routing_models" => %{"1" => %{"account" => "work"}}})
+    |> form(requests, %{"routing_models" => %{"1" => %{"account" => "work"}}})
     |> render_submit()
 
     assert Settings.fetch!().work.routing_models == [
@@ -1227,12 +1292,12 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     # A form sent from a page that still offered an account since removed.
     view
-    |> element("#settings-model-form")
+    |> element("#settings-request_models-form")
     |> render_submit(%{"routing_models" => %{"0" => %{"account" => "personal"}}})
 
     assert has_element?(
              view,
-             "#settings-model-routing_models .settings-error",
+             "#settings-request_models-routing_models .settings-error",
              "Choose an account listed under Model accounts. To use another account, sign it " <>
                "in on the worker, then add it there."
            )

@@ -443,8 +443,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
         }
       ]
     },
-    # Each `used` sentence says where the bundled worker runs those models, as
-    # the code decides it: routing (`Ryker.Admission.Decision`) answers a
+    # Each kind of work's help says, under its title, where the bundled worker
+    # runs those models, as the code decides it: routing (`Ryker.Admission.Decision`) answers a
     # reply on the conversational class and new or continued work on the
     # standard or deep one; `Ryker.CoopFleet.JobTemplates` uses the models
     # saved for its purpose; `Ryker.Runtime.Assembly` runs work with no
@@ -457,33 +457,27 @@ defmodule Ryker.ControlPlane.SettingsSections do
     # fallbacks between models/providers like coop allows?"): the first model
     # is used, and Coop moves to the next when one hits a usage limit or its
     # account's sign-in fails.
+    #
+    # The Models page is a card per part, each saving on its own like every
+    # other settings page (Andrew, 2026-09-27: "why some pages like this have
+    # islands while others dont"). Conversation, Standard and Deep work must
+    # keep the same accounts in the same order, so they share a card, and a
+    # Save, with the routing that picks between them.
     %{
-      key: :model,
+      key: :request_models,
       domain: :work,
       kind: :singleton,
       schema: Work,
-      title: "Models",
+      title: "Requests",
       description:
-        "The model, reasoning effort and account for each kind of work, and its fallbacks. " <>
-          "A saved change reaches new work within seconds.",
-      help:
-        "Ryker uses the first model of each kind of work. A fallback is used only when the " <>
-          "one above it hits a usage limit or its sign-in stops working. Models come from " <>
-          "Model prices: to offer a Claude model here, add its price.",
-      groups: %{
-        "Work" => %{
-          lede:
-            "A request can move between Conversation, Standard and Deep work, so these " <>
-              "three use the same accounts in the same order. Their models and efforts can differ."
-        }
-      },
+        "A request can move between Conversation, Standard and Deep work, so these three " <>
+          "use the same accounts in the same order. Their models and efforts can differ.",
       fields: [
         %{
           name: :routing_models,
           kind: :ladder,
           label: "Routing",
-          group: "Routing and replies",
-          used:
+          help:
             "Runs first on every message and event Ryker picks up, from Slack, Chat, GitHub " <>
               "and webhooks. It decides whether to answer, start work, add it to earlier work " <>
               "or stay quiet, and picks Conversation, Standard or Deep work for it. It runs " <>
@@ -494,8 +488,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :conversation_models,
           kind: :ladder,
           label: "Conversation",
-          group: "Routing and replies",
-          used:
+          help:
             "Writes the replies Ryker can give straight away, without a longer investigation: " <>
               "answers from what it already knows, quick questions and small lookups. Where " <>
               "there is no repository to work in, it does the standard and deep work too.",
@@ -505,8 +498,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :standard_models,
           kind: :ladder,
           label: "Standard work",
-          group: "Work",
-          used:
+          help:
             "Investigations that use tools: reading code, checking logs, running read-only " <>
               "commands and asking Emisar to run something. Routing picks it for most work " <>
               "that needs more than a quick answer.",
@@ -516,17 +508,26 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :deep_models,
           kind: :ladder,
           label: "Deep work",
-          group: "Work",
-          used:
+          help:
             "The same kind of work, when routing judges the request hard, ambiguous or risky.",
           errors: @ladder_errors
-        },
+        }
+      ]
+    },
+    %{
+      key: :other_models,
+      domain: :work,
+      kind: :singleton,
+      schema: Work,
+      title: "Other work",
+      description:
+        "Code changes, schedules, incident rooms and learning each have their own models.",
+      fields: [
         %{
           name: :contributor_models,
           kind: :ladder,
           label: "Contributor work",
-          group: "Work",
-          used:
+          help:
             "Tasks that change code, once a person confirms them. When pull requests are on, " <>
               "Ryker opens one for the change.",
           errors: @ladder_errors
@@ -535,8 +536,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :schedule_models,
           kind: :ladder,
           label: "Scheduled work",
-          group: "Other work",
-          used:
+          help:
             "Work that starts on its own when a schedule is due: the reminders and recurring " <>
               "checks people set up by asking Ryker.",
           errors: @ladder_errors
@@ -545,8 +545,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :incident_models,
           kind: :ladder,
           label: "Incident rooms",
-          group: "Other work",
-          used:
+          help:
             "Everything Ryker does in an incident room, the Slack channel it opens for an " <>
               "incident: the investigation and every reply there. It also runs an incident " <>
               "investigated in its own thread instead of a room.",
@@ -556,8 +555,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :learning_models,
           kind: :ladder,
           label: "Learning",
-          group: "Other work",
-          used:
+          help:
             "Reads the messages Ryker picks up in the background, including ones it did not " <>
               "answer, and notes what is worth remembering about each conversation. It never " <>
               "replies, and runs only while learning is on.",
@@ -574,20 +572,14 @@ defmodule Ryker.ControlPlane.SettingsSections do
       kind: :singleton,
       schema: Work,
       title: "Model accounts",
-      description: "The accounts the worker has signed in, for each provider.",
-      groups: %{
-        "Model accounts" => %{
-          lede:
-            "Ryker cannot see which accounts the worker has signed in, so list them here. " <>
-              "Each model above runs on one of them."
-        }
-      },
+      description:
+        "Ryker cannot see which accounts the worker has signed in, so list them here. " <>
+          "Each model above runs on one of them.",
       fields: [
         %{
           name: :model_accounts,
           kind: :list,
           label: "Accounts",
-          group: "Model accounts",
           help:
             "Each as provider@name, such as codex@default or claude@work. Sign an account in " <>
               "first with scripts/compose.sh model-login claude@work. If a model uses an " <>
@@ -773,12 +765,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
     |> Enum.map(fn fields -> {Map.get(hd(fields), :group), fields} end)
   end
 
-  @doc """
-  What a group of fields says about itself when the form is a page of its
-  own sections: an optional anchor other pages link to and one sentence.
-  """
-  @spec group_details(map(), String.t() | nil) :: map()
-  def group_details(section, group), do: Map.get(Map.get(section, :groups, %{}), group, %{})
+  @doc "Every kind of work's list of models, in the order the Models page shows them."
+  @spec ladder_fields() :: [map()]
+  def ladder_fields,
+    do: for(section <- @sections, field <- section.fields, field.kind == :ladder, do: field)
 
   @doc "The words a composite control shows for one of its parts."
   @spec subfield_label(String.t()) :: String.t()
@@ -872,11 +862,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
         [^provider, name] <- [String.split(account, "@", parts: 2)],
         do: name
   end
-
-  @doc "What one entry of a list of models is called: the first choice, then each fallback."
-  @spec ladder_rung(non_neg_integer()) :: String.t()
-  def ladder_rung(0), do: "First choice"
-  def ladder_rung(index), do: "Fallback #{index}"
 
   @doc """
   One step on a list of models in a draft: add a fallback, remove an entry,

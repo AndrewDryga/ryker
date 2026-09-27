@@ -718,21 +718,28 @@ episode.
   operation; a missing sign-in is reported for the affected job. A new fallback starts as
   the same model on the next listed account the list does not use yet, never as
   a copy Save would refuse. Conversation, standard and deep work must use the
-  same accounts in the same order so a rotation does not widen the job's authority
-- Settings explain themselves in plain words: each model says under its choice
-  where Ryker uses it, as the code decides it; Advanced opens with what a worker
-  is, and lets the operator choose an enrolled worker install. There is no local
+  same accounts in the same order so a rotation does not widen the job's authority,
+  so they share the Requests card and its Save with routing; contributor, scheduled,
+  incident and learning work are the Other work card. Each list is a bordered box of
+  numbered rows under the column names Model, Reasoning effort and Account, each row
+  with its move and remove buttons, and Add fallback as its last row
+- Settings explain themselves in plain words: each kind of work says under its
+  title where Ryker uses its models, as the code decides it; Advanced opens with what
+  a worker is, and lets the operator choose an enrolled worker install. There is no local
   policy catalog or policy editor: Ryker supplies each job's code and settings
 - Add opens its form under the button, above the list it adds to, and pressed
   again closes it, as Cancel does; a row's Edit opens its form under that row. A
   section whose only job is a form, such as the Slack tokens or the GitHub App
   credentials, shows its fields rather than a disclosure
-- A long page gives each part its own card (`Kit.section_card/1`), as the Emisar
-  portal's settings do: its title, one sentence, its controls, and the button
-  that saves them under a hairline, with the same space between cards. The
-  integration pages open with a Connection card; on the Slack page New channels
-  and Incident rooms are separate cards, each with its own Save. A channel's
-  page is cards too, and Data retention is one card under the page title
+- Every Integrations and Settings page, and Instructions, gives each part its
+  own card (`Kit.section_card/1`), as the Emisar portal's settings do: its
+  title, one sentence, its controls, and the button that saves them under a
+  hairline, with the same space between cards. The integration pages open with
+  a Connection card; on the Slack page New channels and Incident rooms are
+  separate cards, each with its own Save, and Models is the Requests, Other
+  work and Model accounts cards. A channel's page is cards too. A page that is
+  one part, such as Data retention, Model prices or either overview, is one
+  card without a title under the page title
 - Worker job settings belong to Ryker: model, execution mode, environment, tools,
   networking and limits. Digests are derived, never typed. Each session freezes
   those settings before placement; later edits do not repoint it. Workers are
@@ -961,7 +968,7 @@ replacement, not the older dashboard or the intended final design above.
 | Memory | Three pages beside Findings. Facts: what people asked Ryker to remember, where each applies and how often it was used, with confirmed forget and a Needs review section (keep, merge, edit, forget) for stale or repeated facts. Learned: topics and conversation summaries with their source messages, update history with each update linked to the Timeline learning card that wrote it, and relearning for a topic whose sources are gone. Learning: whether background learning runs here, what waits, batches that need attention with one more start or, when a learned topic lost its sources, the topic to relearn first, recent passes by outcome, a batch's attempts each linked to its Timeline learning card, handovers that were not saved, and learning worker sessions, with the on/off switch opposite the title (turning it off asks first) |
 | Setup | Live onboarding at `/setup`: the six required steps as an ordered list with one open step (why it matters, what it needs, about how long, one action), the Slack-side steps checked off when Ryker notices them, the channel's environment chosen on the channel's page (done once a joined channel has one; adding a repository creates the Default environment, so there is no step for that), Emisar as the one recommended step with its own panel that never blocks ready, and a calm ready state; the sidebar keeps a way back while required steps are open |
 | Integrations | Live: an overview of Slack, GitHub, Emisar and webhooks, each with its state in words, what it gives Ryker, what is connected and one action, and a page per integration to connect, repair, manage or disconnect it (disconnects and removals ask first); each Emisar account says which environments use it, and the environments without one are counted with a link to Environments |
-| Settings | Live: an overview of Models, Data retention, Model prices and Advanced, each with what it sets and what it is set to now (the models in use, how many days data is kept, how many prices, where work runs), and each page's live editors for every product decision, each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; each model says where Ryker uses it; Add opens its form above the list and a row's Edit under that row; Advanced says in plain words where work runs, what each kind of work may do and whether tasks that change code can run, then an allowlist of effective runtime values, MCP/host/tool grant names, and repository-topology linkage. Secrets, endpoints, callbacks, and raw policy documents are omitted, and credentials appear only as configured, missing or unusable |
+| Settings | Live: an overview of Models, Data retention, Model prices and Advanced, each with what it sets and what it is set to now (the models in use, how many days data is kept, how many prices, where work runs), and each page's live editors for every product decision, each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; each kind of work says under its title where Ryker uses its models; Add opens its form above the list and a row's Edit under that row; Advanced says in plain words where work runs, what each kind of work may do and whether tasks that change code can run, then an allowlist of effective runtime values, MCP/host/tool grant names, and repository-topology linkage. Secrets, endpoints, callbacks, and raw policy documents are omitted, and credentials appear only as configured, missing or unusable |
 
 Every administrative action is a POST behind a native two-step confirm and
 writes its store transition and audit row in the same act, attributed to

@@ -1742,9 +1742,7 @@
 .ryker-app .behavior-menu-items > a, .ryker-app .behavior-menu-items .ui-button { display:flex; align-items:center; justify-content:flex-start; box-sizing:border-box; width:100%; min-height:36px; padding:8px 10px; border:0; border-radius:6px; background:none; box-shadow:none; font-size:13px; line-height:18px; font-weight:500; color:var(--ryker-text); text-decoration:none; }
 .ryker-app .behavior-menu-items .ui-button.danger { color:var(--ryker-error); }
 .ryker-app .behavior-menu-items > a:hover, .ryker-app .behavior-menu-items .ui-button:hover { background:var(--ryker-hover-bg); }
-.ryker-app .behavior-add { margin-top:16px; min-height:36px; padding:6px 14px; font-size:13px; line-height:18px; }
-.instructions-editor { max-width:720px; }
-.instructions-page > .page-header + .instructions-editor > .section-head { margin-top:8px; }
+.ryker-app .behavior-add { min-height:36px; padding:6px 14px; font-size:13px; line-height:18px; }
 .ryker-app .instructions-editor textarea { display:block; box-sizing:border-box; width:100%; min-height:96px; margin:0; padding:12px 14px; resize:vertical; border:1px solid var(--ryker-control-border); border-radius:8px; background:var(--ryker-control-bg); color:var(--ryker-text); font:inherit; font-size:14px; line-height:20px; }
 .ryker-app .instructions-editor textarea:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; }
 .ryker-app .instructions-editor textarea[aria-invalid=true] { border-color:var(--ryker-error); }
@@ -1988,20 +1986,46 @@
 .settings-composite > div { display:grid; gap:4px; min-width:0; }
 .settings-composite label { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .settings-field .settings-composite input { max-width:none; }
-.settings-ladder { gap:10px; }
-.settings-ladder-list { display:grid; gap:12px; margin:0; padding:0; list-style:none; }
-.settings-ladder-entry { display:grid; grid-template-columns:minmax(0, 584px) 116px; align-items:end; gap:8px 12px; }
-.settings-ladder-choice { min-width:0; margin:0; padding:0; border:0; }
-.settings-ladder-choice > legend { margin:0 0 4px; padding:0; font-size:13px; line-height:18px; font-weight:600; color:var(--ryker-text-secondary); }
-.settings-ladder-choice .settings-composite { grid-template-columns:minmax(0, 240px) minmax(0, 140px) minmax(0, 180px); gap:4px 12px; }
-.settings-field .settings-ladder-choice select { max-width:none; }
-.settings-ladder-actions { display:grid; grid-template-columns:repeat(3, 36px); gap:4px; }
-.ryker-app .settings-ladder-actions .ui-button { width:36px; min-width:36px; padding:0; }
+/* A kind of work's models (Andrew, 2026-09-27: "design properly so we see
+   where items start and finish"): one bordered list with the column names
+   once at its top, as a Kit table heads its columns, then a row per model:
+   its place in the order, its three choices, and its move and remove
+   buttons in fixed slots, so every row lines up whichever buttons it has. */
+.settings-ladder { --ladder-columns:20px minmax(0, 5fr) minmax(0, 3fr) minmax(0, 4fr) 104px; gap:12px; }
+.settings-ladder-box { box-sizing:border-box; max-width:800px; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface); }
+.settings-ladder-columns, .settings-ladder-entry { display:grid; grid-template-columns:var(--ladder-columns); align-items:center; column-gap:10px; padding:0 12px; }
+.settings-ladder-columns { padding-top:8px; padding-bottom:8px; border-bottom:1px solid var(--ryker-stroke); font-size:12px; line-height:16px; font-weight:500; color:var(--ryker-text-secondary); }
+.settings-ladder-columns > span:first-child { grid-column:2; }
+.settings-ladder-list { margin:0; padding:0; list-style:none; }
+.settings-ladder-entry { padding-top:10px; padding-bottom:10px; }
+.settings-ladder-entry + .settings-ladder-entry { border-top:1px solid var(--ryker-stroke); }
+.settings-ladder-order { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; background:var(--ryker-surface-emphasis); font-size:12px; line-height:1; font-weight:600; font-variant-numeric:tabular-nums; color:var(--ryker-text-secondary); }
+.settings-ladder-part { display:grid; gap:4px; min-width:0; }
+/* The column names say what each choice is; its own label is read out with
+   it, and shown once a narrow screen stacks the row. */
+.settings-ladder-part > label { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.settings-field .settings-ladder-part select { max-width:none; min-height:36px; padding:6px 28px 6px 10px; font-size:13px; line-height:20px; }
+.settings-ladder-actions { display:grid; grid-template-columns:repeat(3, 32px); gap:4px; }
+.ryker-app .settings-page .settings-ladder-actions .ui-button { width:32px; min-width:32px; min-height:32px; padding:0; }
 .settings-ladder-up { grid-column:1; }
 .settings-ladder-down { grid-column:2; }
 .settings-ladder-remove { grid-column:3; }
-@media (max-width:800px) { .settings-ladder-entry, .settings-ladder-choice .settings-composite { grid-template-columns:minmax(0, 1fr); } }
-.settings-ladder-add { justify-self:start; }
+/* Add fallback is the list's last row, where the new model lands: its plus
+   in the column of the numbers, quiet until pointed at. */
+.ryker-app .settings-ladder-add { display:grid; grid-template-columns:20px auto; align-items:center; justify-items:center; column-gap:10px; box-sizing:border-box; width:100%; min-height:40px; margin:0; padding:8px 12px; border:0; border-top:1px solid var(--ryker-stroke); border-radius:0 0 7px 7px; background:none; color:var(--ryker-text-secondary); font:inherit; font-size:13px; line-height:20px; font-weight:500; text-align:left; cursor:pointer; }
+.settings-ladder-add > span { justify-self:start; }
+.ryker-app .settings-ladder-add .ui-icon { width:14px; height:14px; }
+.ryker-app .settings-ladder-add:hover { background:var(--ryker-hover-bg); color:var(--ryker-text); }
+.ryker-app .settings-ladder-add:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:-2px; }
+/* Kinds of work sit further apart than a field's own parts. */
+.settings-ladder + .settings-ladder { margin-top:12px; }
+@media (max-width:800px) {
+  .settings-ladder-columns { display:none; }
+  .settings-ladder-entry { grid-template-columns:20px minmax(0, 1fr); row-gap:10px; align-items:start; }
+  .settings-ladder-order { margin-top:1px; }
+  .settings-ladder-part, .settings-ladder-actions { grid-column:2; }
+  .settings-ladder-part > label { position:static; width:auto; height:auto; margin:0; overflow:visible; clip:auto; white-space:normal; }
+}
 .settings-evidence { font:12px/18px var(--ryker-font-mono); color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
 .settings-optional-field > summary { width:fit-content; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); cursor:pointer; }
 .settings-optional-field > summary span { margin-left:6px; font-size:13px; font-weight:400; color:var(--ryker-text-secondary); }
@@ -2010,8 +2034,6 @@
 .settings-saved { font-size:13px; line-height:18px; color:var(--ryker-success); }
 
 .settings-group { display:grid; gap:20px; min-width:0; }
-.settings-group > .section-head { margin:12px 0 -8px; }
-.settings-editor > form > .settings-group:first-of-type > .section-head { margin-top:32px; }
 .settings-group-title { margin:8px 0 -8px; font-size:13px; line-height:18px; font-weight:600; color:var(--ryker-text-secondary); }
 /* Several prices read as one row of short fields, not a tall stack. */
 .settings-group-row { grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); column-gap:16px; }
@@ -2265,6 +2287,9 @@
 .ryker-app .kit-card > .section-head p { font-size:14px; line-height:20px; }
 .kit-card > :first-child { margin-top:0; }
 .kit-card > :last-child { margin-bottom:0; }
+/* A list that opens or closes a card sits on the card's padding, not on its rows' own too. */
+.kit-card > .entity-list:first-child { margin-top:-14px; }
+.kit-card > .entity-list:last-child { margin-bottom:-14px; }
 .kit-card :is(.settings-form, .settings-editor, .settings-editor > form), .kit-card > :is(.settings-notice, .settings-confirm) { max-width:none; }
 .kit-card form > .settings-actions:last-child { padding-top:20px; border-top:1px solid var(--ryker-stroke); }
 /* Facts in a card keep the head's rhythm from whatever follows them, such as a setting's form. */
@@ -2369,7 +2394,6 @@
 .ryker-app .setup-emisar-actions p { margin:0; font-size:12px; line-height:17px; color:var(--ryker-text-secondary); }
 .ryker-app .setup-emisar-facts { margin:6px 0 16px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 
-.settings-page > :is(.integrations-list, .settings-list) { margin-top:20px; }
 @media (max-width:1180px) {
   .setup { grid-template-columns:minmax(0, 1fr); gap:36px; }
   .setup-aside { position:static; max-width:640px; }

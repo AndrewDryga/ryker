@@ -176,12 +176,12 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
   @impl true
   def render(assigns) do
     ~H"""
-    <%!-- On /instructions this is the "For every conversation" section. On a
+    <%!-- On /instructions this is the "For every conversation" card. On a
     channel's page it is that page's Instructions card (a live component's
     root must be a plain tag, so the root carries the Kit card). --%>
     <section
       id={@id}
-      class={[@scope != :global && "kit-card", "instructions-editor"]}
+      class="kit-card instructions-editor"
       aria-labelledby={if @scope == :global, do: @id <> "-head"}
       aria-label={if @scope != :global, do: label(@scope)}
     >
