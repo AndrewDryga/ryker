@@ -261,15 +261,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
             "The first report goes out at the next day and time below, never the moment " <>
               "you turn it on."
         },
-        %{
-          name: :channel_ref,
-          kind: :text,
-          label: "Channel ID",
-          placeholder: "C0123456789",
-          help:
-            "The channel's ID from Slack, under its name's details. Invite Ryker to the " <>
-              "channel first."
-        },
+        %{name: :channel_ref, kind: :text, label: "Slack channel"},
         %{name: :weekday, kind: :select, label: "Day", options: @weekdays},
         %{name: :local_time, kind: :time, label: "Time"},
         %{

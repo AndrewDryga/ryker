@@ -1317,6 +1317,40 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         )
   end
 
+  # The weekly report's channel is chosen the same way, by name, from the
+  # channels Ryker is in. A text box asked for "the channel's ID from Slack,
+  # under its name's details" (2026-09-28). The report keeps a bare channel
+  # ID, so the choices do too.
+  defp adapt(%{key: :report}, %{name: :channel_ref} = field, view, draft) do
+    channels =
+      for {"slack:" <> ref, name} <- SettingsSections.options(%{options: :slack_channels}, view),
+          [_workspace, channel] <- [String.split(ref, ":", parts: 2)],
+          do: {channel, name}
+
+    chosen = Map.get(draft, "channel_ref") || ""
+
+    saved =
+      if chosen == "" or List.keymember?(channels, chosen, 0),
+        do: [],
+        else: [{chosen, chosen}]
+
+    field
+    |> Map.delete(:placeholder)
+    |> Map.merge(%{
+      kind: :select,
+      label: "Slack channel",
+      options: channels ++ saved,
+      prompt: "Choose a channel",
+      help:
+        if(channels == [],
+          do:
+            "Ryker is not in any Slack channel yet. Invite it to one with /invite, then " <>
+              "choose it here.",
+          else: "One of the Slack channels Ryker is in."
+        )
+    })
+  end
+
   defp adapt(_section, field, _view, _draft), do: field
 
   defp slack_channel(field, view, chosen) do

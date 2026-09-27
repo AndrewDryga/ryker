@@ -240,7 +240,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     document = LazyHTML.from_document(html)
     assert LazyHTML.query(document, "main h1") |> LazyHTML.text() == "Weekly report"
     assert has_element?(view, "#settings-report form input[name='weekly_self_report_enabled']")
-    assert has_element?(view, "#settings-report form input[name='channel_ref']")
+    assert has_element?(view, "#settings-report form select[name='channel_ref']")
     refute has_element?(view, "#weekly-report-text")
 
     view |> element("#preview-weekly-report") |> render_click()
@@ -270,6 +270,24 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     reloaded |> element("#weekly-report-preview a", "Hide the preview") |> render_click()
     refute has_element?(reloaded, "#weekly-report-text")
+  end
+
+  # The report asked for "the channel's ID from Slack, under its name's
+  # details" (2026-09-28), an ID nobody has to hand. It is chosen by name from
+  # the channels Ryker is in, as a webhook source's channel is, and one saved
+  # before Ryker left it stays on offer.
+  test "the weekly report's channel is chosen from the channels Ryker is in" do
+    initialize!()
+    joined!("CREPORT", nil)
+
+    {:ok, view, _html} = open("/settings/report")
+
+    refute has_element?(view, "#settings-report form input[name='channel_ref']")
+
+    assert has_element?(
+             view,
+             "#settings-report form select[name='channel_ref'] option[value='CREPORT']"
+           )
   end
 
   test "the sidebar leads back into setup until every required step is done" do
