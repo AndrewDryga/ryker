@@ -225,7 +225,8 @@ async function discover(page) {
               composerBottom: document.querySelector('.lab-native-composer')?.getBoundingClientRect().bottom,
               transcriptBottom: document.querySelector('.lab-transcript')?.getBoundingClientRect().bottom
             }));
-            assert.equal(result.status, 200);
+            // A record that is not there reads "Not found" with a real 404 (2026-09-26).
+            assert.equal(result.status, name === 'missing-episode' ? 404 : 200);
             assert.equal(await page.locator(removedNavigation).count(), 0, 'Removed pages must not return to navigation');
             assert.equal(await page.locator('a[href^="/actions/"]').count(), 0, 'Operator actions must be native buttons, not navigation links');
             for (const label of await page.locator('form[action^="/actions/"] button').allTextContents()) {

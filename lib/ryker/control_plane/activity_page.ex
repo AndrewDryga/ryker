@@ -98,7 +98,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
         <.live_filter_toolbar
           id="activity-filters"
           label="Filter activity"
-          placeholder="Search activity or repositories…"
+          placeholder="Search requests"
           query={@params["q"] || ""}
           disabled={!@activity.searchable}
           event="search-activity"
