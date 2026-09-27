@@ -15,6 +15,7 @@ defmodule Ryker.Work.Custody.Claims do
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.Publication
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.Sessions
   alias Ryker.Work.{Session, Turn, TurnChangeset}
@@ -91,6 +92,40 @@ defmodule Ryker.Work.Custody.Claims do
       end)
     end
   end
+
+  @doc false
+  def next_due_at(%DateTime{} = since, phase) when phase in [:work, :delivery] do
+    statuses = if phase == :work, do: [:pending, :cancel_pending], else: [:delivery_pending]
+
+    turns =
+      Repo.one(
+        from(turn in Turn,
+          where: turn.status in ^statuses,
+          select: [
+            filter(min(turn.next_attempt_at), turn.next_attempt_at > ^since),
+            filter(
+              min(turn.lease_expires_at),
+              not is_nil(turn.lease_ref) and turn.lease_expires_at > ^since
+            )
+          ]
+        )
+      )
+
+    UTCDateTime.earliest(turns ++ reviews_due(since, phase))
+  end
+
+  defp reviews_due(since, :work) do
+    [
+      Repo.one(
+        from(publication in Publication,
+          where: publication.status == :review_pending and publication.lease_expires_at > ^since,
+          select: min(publication.lease_expires_at)
+        )
+      )
+    ]
+  end
+
+  defp reviews_due(_since, :delivery), do: []
 
   defp claim_locked(worker_ref, lease_seconds, phase) do
     now = Repo.now!()
