@@ -227,6 +227,32 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
            end)
   end
 
+  # Andrew, 2026-09-27, on Integrations › Emisar: "blue thing on top of this
+  # page appears and disappears in cycles". Repository setup saves a settings
+  # revision per step, twice a second while it ran, and every settings page
+  # announced each one as "Applying the saved settings…" until the runtime
+  # caught up, so the notice blinked for as long as setup ran.
+  test "setup recording its progress never reads as a save being applied" do
+    assert {:ok, snapshot} = Settings.initialize(@actor)
+    assert :ok = Settings.record_application(snapshot.installation.revision, :ok)
+    {:ok, view, _html} = open("/integrations/emisar")
+    refute has_element?(view, ".page-feedback", "Applying the saved settings")
+
+    assert {:ok, _saved} =
+             Settings.put_repository(
+               %{ref: "billing"},
+               snapshot.installation.revision,
+               "github:onboarding"
+             )
+
+    # The open page redraws on the announcement within a few hundred
+    # milliseconds; the notice must not come with it.
+    refute eventually(
+             fn -> has_element?(view, ".page-feedback", "Applying the saved settings") end,
+             1_000
+           )
+  end
+
   defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
 
   # Well inside the five seconds the old poll took, so a page that caught up

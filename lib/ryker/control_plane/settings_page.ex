@@ -126,7 +126,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         class="page-feedback"
       />
       <Components.form_feedback
-        :if={@view.application == :pending}
+        :if={@view.applying}
         message="Applying the saved settings…"
         tone={:info}
         class="page-feedback"
