@@ -2,6 +2,7 @@ defmodule Ryker.Learning.BatchesTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1]
+  alias Ryker.Defaults
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
@@ -197,6 +198,39 @@ defmodule Ryker.Learning.BatchesTest do
     )
 
     assert {:ok, %{inputs: [_, _]}} = Batches.claim("worker", %{@settings | quiet_seconds: 10})
+  end
+
+  # Until 2026-09-27 learning waited ten quiet seconds and one minute at most,
+  # so in any conversation slower than that every message bought a pass of its
+  # own, each paying for the whole learning prompt: 75 of that week's 78 passes
+  # read a single message and 64 of 75 kept nothing. One of them learned a
+  # Chat "hi, reply with one word please" alone, ten seconds after the reply.
+  test "a conversation is learned in one pass once it has been quiet for minutes" do
+    settings = production_timing()
+    [first, second] = inputs!()
+
+    # Two minutes after the last message, people may still be answering.
+    routed!([first, second], 2 * 60)
+    assert {:ok, :idle} = Batches.claim("worker", settings)
+
+    # A conversation still going twenty minutes after it began keeps waiting.
+    routed!([first], 20 * 60)
+    routed!([second], 60)
+    assert {:ok, :idle} = Batches.claim("worker", settings)
+
+    routed!([first, second], 5 * 60)
+    assert {:ok, claim} = Batches.claim("worker", settings)
+    assert Enum.sort(Enum.map(claim.inputs, & &1.id)) == Enum.sort([first.id, second.id])
+  end
+
+  test "a conversation that never goes quiet is still learned within half an hour" do
+    settings = production_timing()
+    [first, second] = inputs!()
+    routed!([first], 30 * 60)
+    routed!([second], 60)
+
+    assert {:ok, claim} = Batches.claim("worker", settings)
+    assert Enum.sort(Enum.map(claim.inputs, & &1.id)) == Enum.sort([first.id, second.id])
   end
 
   test "an unavailable target defers immediately without buying another identical judgment" do
@@ -505,6 +539,14 @@ defmodule Ryker.Learning.BatchesTest do
   defp inputs! do
     entries = Fixtures.inputs!()
     Fixtures.normalize_queue_timestamps!(entries)
+  end
+
+  # The waits the running product learns with.
+  defp production_timing do
+    Map.merge(
+      @settings,
+      Map.take(Defaults.fetch!(:learning), [:quiet_seconds, :maximum_delay_seconds])
+    )
   end
 
   # When routing decided the messages, on the database clock learning reads.

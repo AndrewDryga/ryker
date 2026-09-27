@@ -14,13 +14,17 @@ defmodule Ryker.Defaults do
   @coop %{receive_timeout_ms: 30_000}
   @admission %{concurrency: 4, decision_timeout_ms: 30_000, poll_interval_ms: 250}
   @work %{capability_names: ["controller-tools"], concurrency: 4, poll_interval_ms: 250}
+  # Learning reads a conversation once it has been quiet for five minutes, or
+  # half an hour after its oldest unlearned message if it never goes quiet;
+  # sixteen waiting messages start a pass at once. Ten quiet seconds made
+  # nearly every message a pass of its own (2026-09-27).
   @learning %{
     batch_size: 16,
     concurrency: 1,
     execution_timeout_seconds: 600,
-    maximum_delay_seconds: 60,
+    maximum_delay_seconds: 1_800,
     poll_interval_ms: 1_000,
-    quiet_seconds: 10
+    quiet_seconds: 300
   }
   # Self-analysis of requests people were unhappy with (`Ryker.Improvement`):
   # one slot, and a request is read once no new negative feedback has come

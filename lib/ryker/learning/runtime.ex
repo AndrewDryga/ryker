@@ -52,8 +52,8 @@ defmodule Ryker.Learning.Runtime do
 
     integer!(config, :receive_timeout_ms, 30_000, 1..30_000)
     {api, client} = adapter!(config)
-    quiet = integer!(config, :quiet_seconds, 10, 0..300)
-    maximum_delay = integer!(config, :maximum_delay_seconds, 60, 1..600)
+    quiet = integer!(config, :quiet_seconds, 300, 0..300)
+    maximum_delay = integer!(config, :maximum_delay_seconds, 1_800, 1..3_600)
 
     if quiet > maximum_delay,
       do: raise(ArgumentError, "learning quiet_seconds must fit maximum_delay_seconds")
