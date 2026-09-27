@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.CallRun
   alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.ConversationMemory
   alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.MemoryFormat
   alias Ryker.ControlPlane.PromptDocument
@@ -219,6 +220,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "Permitted actions",
     "Run details",
     "Previous attempt error",
+    "Topic being relearned",
     "Other fields"
   ]
   # Titles a dedicated row renders whether or not they carry anything; an empty
@@ -305,7 +307,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   def briefing(sections, kind, prefix, counts \\ %{}) do
     instructions = Enum.find(sections, &(&1.id == "instructions"))
     context = Enum.find(sections, &(&1.id == "context"))
-    root = if kind == :admission, do: "$.context", else: "$.work"
+    root = briefing_root(kind)
 
     [
       if(instructions,
@@ -313,7 +315,13 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           group(
             "Instructions",
             "How Ryker asked the model to work.",
-            assembly_instructions(instructions.artifact, prefix)
+            [
+              assembly_instructions(instructions.artifact, prefix),
+              if(kind == :learning and context,
+                do: learning_instructions(context.artifact, prefix),
+                else: []
+              )
+            ]
           ),
         else: []
       ),
@@ -323,6 +331,72 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       []
     ]
   end
+
+  # Routing and work nest what they sent under one key; a learning pass sends
+  # its parts at the top of the document.
+  defp briefing_root(:admission), do: "$.context"
+  defp briefing_root(:learning), do: "$"
+  defp briefing_root(_work), do: "$.work"
+
+  # What a retry was told about the attempt before it, and the topic a
+  # relearning pass rebuilds: instructions Ryker added for this attempt.
+  defp learning_instructions(%{state: :retained, truncated: false, text: text}, prefix) do
+    case Jason.decode(text) do
+      {:ok, %{} = context} ->
+        [
+          learning_part(
+            "previous_attempt_error",
+            context["previous_attempt_error"],
+            {"Previous attempt error", "policy", nil,
+             "What went wrong with the attempt before this one, as Ryker told the model."},
+            prefix
+          ),
+          learning_part(
+            "rebuild_target",
+            context["rebuild_target"],
+            {"Topic being relearned", "policy", nil,
+             "The topic a person asked Ryker to relearn from messages they chose."},
+            prefix
+          )
+        ]
+
+      _unreadable ->
+        []
+    end
+  end
+
+  defp learning_instructions(_artifact, _prefix), do: []
+
+  defp learning_part(_key, value, _metadata, _prefix) when value in [nil, %{}], do: []
+
+  defp learning_part(key, value, metadata, prefix),
+    do: source(key, "$." <> key, value, metadata, learning_part_body(key, value), prefix)
+
+  defp learning_part_body("previous_attempt_error", %{"instruction" => instruction} = value)
+       when is_binary(instruction) do
+    [
+      "<pre class=\"model-document-text\">",
+      escape(instruction),
+      "</pre>",
+      if(is_binary(value["code"]),
+        do: ["<p class=\"context-note\">Code <code>", escape(value["code"]), "</code></p>"],
+        else: []
+      )
+    ]
+  end
+
+  defp learning_part_body("rebuild_target", %{"topic_id" => id} = value) when is_binary(id) do
+    [
+      "<dl class=\"context-rows\">",
+      context_row("Version", value["version"]),
+      "</dl>",
+      "<p><a href=\"",
+      escape(ConversationMemory.topic_path(id)),
+      "\">Open the topic →</a></p>"
+    ]
+  end
+
+  defp learning_part_body(_key, value), do: fields(value, 0)
 
   @doc "The retained prompt and separately supplied output format, without rebuilding either."
   def submitted(sections, prefix, artifact_id \\ nil) do
@@ -562,7 +636,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp row_group(_key, parent)
-       when parent in ["$.work.custom_instructions", "$.context.custom_instructions"],
+       when parent in [
+              "$.work.custom_instructions",
+              "$.context.custom_instructions",
+              "$.custom_instructions"
+            ],
        do: "policy"
 
   defp row_group(key, _parent)
@@ -705,7 +783,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp part_section("knowledge", "$"), do: {"Prior knowledge", "memory", "memory"}
 
   defp part_section("previous_attempt_error", "$"),
-    do: {"Previous attempt error", "runtime", "runtime"}
+    do: {"Previous attempt error", "instructions", "policy"}
+
+  defp part_section("rebuild_target", "$"),
+    do: {"Topic being relearned", "instructions", "policy"}
 
   defp part_section(key, parent) do
     case metadata(key, parent) do
@@ -861,6 +942,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp default_count("conversation_knowledge", items) when is_list(items),
     do: %{label: count(length(items), "topic"), known?: true}
 
+  defp default_count("knowledge", items) when is_list(items),
+    do: %{label: count(length(items), "topic"), known?: true}
+
   defp default_count(key, %{"items" => items}) when key in ~w(inputs current_inputs),
     do: default_count(key, items)
 
@@ -952,7 +1036,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp instruction_parent?(parent),
-    do: parent in ["$.work.custom_instructions", "$.context.custom_instructions"]
+    do:
+      parent in [
+        "$.work.custom_instructions",
+        "$.context.custom_instructions",
+        "$.custom_instructions"
+      ]
 
   defp conversation_sources(context, {bundle, manifest, bundle_path}, parts, routing?, prefix) do
     shown? = routing? or Enum.any?(parts, &(&1.title == "Earlier messages"))
@@ -1558,7 +1647,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp metadata(key, root)
-       when root in ["$.work.custom_instructions", "$.context.custom_instructions"] do
+       when root in [
+              "$.work.custom_instructions",
+              "$.context.custom_instructions",
+              "$.custom_instructions"
+            ] do
     case key do
       "global" ->
         {"Global instructions", "policy", "Configured in Settings", nil}
@@ -1595,6 +1688,21 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         metadata(key, nil)
     end
   end
+
+  # A learning pass's parts, at the top of its prompt.
+  defp metadata("inputs", "$"),
+    do:
+      {"Source messages", "conversation", nil,
+       "The messages this learning pass read, in the order they were sent."}
+
+  defp metadata("knowledge", "$"),
+    do:
+      {"Prior knowledge", "memory", nil,
+       "Topics Ryker already kept that these messages might change, as they stood then."}
+
+  # Shown with the instructions, never as a row of what the model was given.
+  defp metadata(key, "$") when key in ~w(previous_attempt_error rebuild_target),
+    do: {human(key), "instructions", nil, nil}
 
   defp metadata(key, _root),
     do:
@@ -1692,6 +1800,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp source_body(key, value, path, prefix, _context), do: body(key, value, path, prefix)
 
+  defp body("inputs", value, "$.inputs", _prefix) when is_list(value),
+    do: messages(%{"inputs" => value}, :learning)
+
+  defp body("knowledge", items, "$.knowledge", _prefix) when is_list(items),
+    do: topics(items)
+
   defp body(key, value, _path, _prefix)
        when key in ~w(input inputs current_inputs) and (is_map(value) or is_list(value)),
        do: messages(%{key => value})
@@ -1779,6 +1893,55 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         end)
     end)
   end
+
+  # The topics a learning pass was offered: what each said then, its version,
+  # and where it is kept now.
+  defp topics([]), do: []
+
+  defp topics(items) do
+    [
+      "<ol class=\"context-notes\">",
+      items
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn item ->
+        path = topic_path(item["source_ref"])
+
+        [
+          "<li class=\"context-note\" data-memory-kind=\"knowledge\" title=\"",
+          escape(item["source_ref"]),
+          "\"><p class=\"context-note-text\"><strong>",
+          escape(present(item["title"]) || present(item["topic_key"]) || "Topic"),
+          "</strong></p><p class=\"context-note-text\">",
+          escape(present(item["summary"]) || "No summary was recorded."),
+          "</p><p class=\"context-note-meta\">",
+          if(is_integer(item["version"]),
+            do: ["Version ", escape(item["version"])],
+            else: []
+          ),
+          if(path,
+            do: [
+              if(is_integer(item["version"]), do: " · ", else: []),
+              "<a href=\"",
+              escape(path),
+              "\">Open the topic →</a>"
+            ],
+            else: []
+          ),
+          "</p></li>"
+        ]
+      end),
+      "</ol>"
+    ]
+  end
+
+  defp topic_path("knowledge:" <> id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> ConversationMemory.topic_path(id)
+      :error -> nil
+    end
+  end
+
+  defp topic_path(_ref), do: nil
 
   # One entry per note: what was noted, then who and when. The row already says
   # these are source notes; a heading and a "Summary" label on each repeated it
@@ -2060,7 +2223,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     body = message_text(input["content"] || input)
     context = message_context(input, kind)
     raw = Jason.encode!(input, pretty: true)
-    title = if(total > 1 and kind != :history, do: context)
+    title = if(total > 1 and kind not in [:history, :learning], do: context)
 
     Components.message_block_html(
       actor,
@@ -2113,6 +2276,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp message_at(input), do: input["occurred_at"] || input["at"]
 
   defp message_context(_input, :history), do: "Earlier context"
+  defp message_context(_input, :learning), do: "Source message"
   defp message_context(%{"current" => false}, _kind), do: "Earlier context"
   defp message_context(_input, _kind), do: "Current message"
 

@@ -111,6 +111,73 @@ defmodule Ryker.ControlPlane.CallRun do
     }
   end
 
+  @doc """
+  A learning attempt's run, from the attempt and the execution ledger row its
+  worker's report was metered into. The ledger outlives retention, so a pruned
+  attempt still says what it spent.
+
+  The worker measures how long the turn waited in its queue and how long the
+  model ran; Ryker's clock measures the attempt from its start to the moment
+  it applied the result or recorded that the worker's run stopped. What is
+  left of that is Ryker's own share. The two clocks are never subtracted from
+  each other.
+  """
+  @spec from_learning(map(), map() | nil) :: t()
+  def from_learning(run, execution) do
+    execution = ledger_row(execution)
+    started = run.started_at || run.inserted_at
+    target = execution[:execution_target] || get_in(run.producer || %{}, ["target"])
+    usage = ledger_usage(execution)
+    total = attempt_ms(started, run.applied_at || run.remote_stopped_at)
+    measured = worker_ms(execution)
+
+    %{
+      target: target,
+      tokens: tokens(usage),
+      cost: cost(usage, target, started),
+      checks: learning_checks(run),
+      segments: learning_segments(execution, total, measured),
+      # The attempt cannot have taken less than the parts its worker measured.
+      total_ms: total && max(total, measured)
+    }
+  end
+
+  defp ledger_row(nil), do: %{}
+  defp ledger_row(execution) when is_struct(execution), do: Map.from_struct(execution)
+  defp ledger_row(execution), do: execution
+
+  defp attempt_ms(_started, nil), do: nil
+  defp attempt_ms(started, ended), do: max(DateTime.diff(ended, started, :millisecond), 0)
+
+  defp worker_ms(execution),
+    do: (execution[:usage_queued_ms] || 0) + (execution[:usage_provider_ms] || 0)
+
+  defp ledger_usage(execution) do
+    %{
+      recorded: execution[:usage_recorded] == true,
+      input: execution[:usage_input_tokens],
+      cached: execution[:usage_cached_input_tokens],
+      output: execution[:usage_output_tokens],
+      reasoning: execution[:usage_reasoning_tokens],
+      cost_recorded: execution[:usage_cost_recorded] == true,
+      cost: execution[:usage_cost_usd]
+    }
+  end
+
+  defp learning_segments(execution, total, measured) do
+    ryker = if total && measured > 0 && total > measured, do: total - measured
+
+    [
+      {:prepare, "Waiting in the worker's queue", execution[:usage_queued_ms]},
+      {:model, "Model", execution[:usage_provider_ms]},
+      {:save, "Ryker preparing, checking and saving", ryker}
+    ]
+    |> Enum.flat_map(fn
+      {kind, label, ms} when is_integer(ms) -> [%{kind: kind, label: label, ms: ms}]
+      _unmeasured -> []
+    end)
+  end
+
   @doc "A duration in the words the cards use: 850 ms, 16.5 s, 4 min 10 s, 2 h 5 min."
   @spec duration(non_neg_integer()) :: String.t()
   def duration(ms) when ms < 1_000, do: "#{ms} ms"
@@ -222,6 +289,18 @@ defmodule Ryker.ControlPlane.CallRun do
   end
 
   defp work_checks(_turn), do: nil
+
+  # A learning result is checked by Ryker, confirmed by the worker, then
+  # applied. Applied is the proof it passed; a rejected or stale attempt whose
+  # answer came back did not.
+  defp learning_checks(%{status: :applied, candidate_attempt: 1}), do: "passed first time"
+  defp learning_checks(%{status: :applied}), do: "passed"
+
+  defp learning_checks(%{status: status, result_sha256: digest})
+       when status in [:rejected, :stale] and is_binary(digest),
+       do: "did not pass"
+
+  defp learning_checks(_run), do: nil
 
   defp corrections(1), do: "1 correction"
   defp corrections(count), do: "#{count} corrections"

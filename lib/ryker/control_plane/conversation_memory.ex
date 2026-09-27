@@ -1,13 +1,14 @@
 defmodule Ryker.ControlPlane.ConversationMemory do
   @moduledoc """
   The Learned page's read model: searchable, source-linked topics and
-  conversation summaries, one topic's update history and how each update was
-  learned, the source messages behind a record, and the relearning picker
-  for a topic whose sources are gone.
+  conversation summaries, one topic's update history with each update linked
+  to the learning card on the Timeline that wrote it, the source messages
+  behind a record, and the relearning picker for a topic whose sources are
+  gone.
   """
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Activity, LearningActivity, LearningReceipt, PagedRelation}
+  alias Ryker.ControlPlane.{Activity, LearningActivity, LearningRequests, PagedRelation}
 
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
@@ -24,6 +25,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Knowledge.KnowledgeSource
   alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
@@ -32,7 +34,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   @history_size 50
   @expired_text "Saved text expired under the conversation memory retention policy."
   @forgotten_text "Forgotten. Ryker no longer uses it and does not learn from the messages it came from."
-  @query_keys ~w(kind q page item update history_page related_to rebuild_q rebuild_page)
+  @query_keys ~w(kind q page item history_page related_to rebuild_q rebuild_page)
 
   @doc "The query keys the Learned page reads."
   def query_keys, do: @query_keys
@@ -144,7 +146,6 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       history: history.items,
       history_page: history.page,
       history_pages: history.pages,
-      learning: learning_receipt(kind, selected, params, secrets),
       items:
         Enum.map(items, fn row ->
           rendered = item(row, episodes, secrets)
@@ -250,13 +251,6 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       Repo.exists?(
         from(k in ConversationKnowledge, where: k.id == ^id and not is_nil(k.forgotten_at))
       )
-
-  # How one update of the open topic was learned; the Learning page owns the
-  # receipts of attempts that belong to a batch.
-  defp learning_receipt("knowledge", selected, params, secrets) when is_binary(selected),
-    do: LearningReceipt.project(selected, params["update"], secrets)
-
-  defp learning_receipt(_kind, _selected, _params, _secrets), do: nil
 
   # The operator can inspect withdrawn history, but its recall label must apply
   # the same inherited-source visibility and retention fences as model recall.
@@ -518,6 +512,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         page_size: @history_size
       )
 
+    learned = learning_paths(Enum.map(page.items, &elem(&1, 0)))
+
     items =
       Enum.map(page.items, fn {revision, transport, conversation, message} ->
         state = InspectionRedactor.document(revision.state, secrets)
@@ -528,7 +524,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
           source_at: revision.source_at,
           text: knowledge_text(state, erased_text),
           source_input_id: revision.source_input_id,
-          learning_path: LearningReceipt.path(revision),
+          learning_path: Map.get(learned, revision.source_result_ref),
           source:
             source_message(%{
               transport: transport,
@@ -542,6 +538,56 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   end
 
   defp history(_, _, _, _), do: %{items: [], page: 1, pages: 1}
+
+  # How each update was learned: the learning card of the attempt whose exact
+  # applied response wrote it, by the reference the update recorded. A
+  # reference to any other attempt, or to a response that is not the one
+  # applied, links nowhere.
+  defp learning_paths(revisions) do
+    references =
+      for %{source_result_ref: ref} <- revisions,
+          [_, id, digest] <- [learning_reference(ref)],
+          into: %{},
+          do: {ref, {id, digest}}
+
+    ids = references |> Map.values() |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+    runs =
+      if ids == [],
+        do: [],
+        else:
+          Repo.all(
+            from(run in LearningRun,
+              where: run.id in ^ids and run.status == :applied,
+              select: %{
+                id: run.id,
+                status: run.status,
+                inputs: run.inputs,
+                remote_stopped_at: run.remote_stopped_at,
+                result_sha256: run.result_sha256
+              }
+            )
+          )
+
+    paths = LearningRequests.paths(runs)
+    digests = Map.new(runs, &{&1.id, &1.result_sha256})
+
+    for {ref, {id, digest}} <- references,
+        digests[id] == digest,
+        path = paths[id],
+        is_binary(path),
+        into: %{},
+        do: {ref, path}
+  end
+
+  defp learning_reference(value) when is_binary(value),
+    do:
+      Regex.run(
+        ~r/\Alearning:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):([0-9a-f]{64})\z/,
+        value
+      )
+
+  defp learning_reference(_value), do: nil
 
   defp knowledge_text(state, erased_text \\ @expired_text)
   defp knowledge_text(%{"retention" => "pruned"}, erased_text), do: erased_text

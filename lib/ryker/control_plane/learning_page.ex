@@ -4,18 +4,19 @@ defmodule Ryker.ControlPlane.LearningPage do
   what it has not read yet, the batches that need a person, what it did
   recently, the handovers it could not save and the worker sessions it holds.
 
-  One batch opens in place with its attempts, the way to grant it one more
-  model start, and, for a chosen attempt, exactly how it was learned. The
-  switch that turns learning on or off is the page's one action, rendered by
-  the shell opposite the title. An open page redraws when learning, the
-  messages waiting for it or its sessions change (`subscriptions/0`).
+  One batch opens in place with its attempts and the way to grant it one more
+  model start; each attempt opens on its learning card on the Timeline, which
+  shows exactly how it was learned. The switch that turns learning on or off
+  is the page's one action, rendered by the shell opposite the title. An open
+  page redraws when learning, the messages waiting for it or its sessions
+  change (`subscriptions/0`).
   """
   use Phoenix.Component
 
   import Ryker.ControlPlane.Components, only: [action_button: 1, pager: 1]
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{CSRF, Kit, LearningActivity, LearningReceipt, MemoryFormat}
+  alias Ryker.ControlPlane.{CSRF, Kit, LearningActivity, MemoryFormat}
   alias Ryker.Ingress.Inbox
   alias Ryker.{Knowledge, Learning, Settings}
   alias Ryker.Work.Custody, as: WorkCustody
@@ -60,7 +61,7 @@ defmodule Ryker.ControlPlane.LearningPage do
     ~H"""
     <div class="memory-view memory-learning">
       <%= if @activity.selected do %>
-        <.batch batch={@activity.selected} receipt={@activity.receipt} csrf_secret={@csrf_secret} />
+        <.batch batch={@activity.selected} csrf_secret={@csrf_secret} />
       <% else %>
         <.status activity={@activity} />
         <section :if={@activity.attention.total > 0} id="needs-attention" class="memory-section">
@@ -234,7 +235,6 @@ defmodule Ryker.ControlPlane.LearningPage do
   end
 
   attr(:batch, :map, required: true)
-  attr(:receipt, :map, default: nil)
   attr(:csrf_secret, :string, default: nil)
 
   defp batch(assigns) do
@@ -303,14 +303,14 @@ defmodule Ryker.ControlPlane.LearningPage do
     <section id="attempts" class="memory-section">
       <Kit.section_head
         title="Attempts"
-        lede="Each attempt keeps the exact request Ryker sent and the answer it got back."
+        lede="Each attempt opens on the Timeline beside the messages it read, with the exact request Ryker sent and the answer it got back."
       />
       <Kit.entity_list :if={@batch.attempts != []} label="Attempts">
         <Kit.entity_row
           :for={attempt <- @batch.attempts}
           id={"attempt-" <> attempt.id}
           name={"Attempt #{attempt.number}"}
-          href={LearningActivity.attempt_path(@batch.id, attempt.id)}
+          href={attempt.path}
           state={attempt_state(attempt)}
           text={attempt.error}
           meta={[
@@ -339,7 +339,6 @@ defmodule Ryker.ControlPlane.LearningPage do
       <summary>Details</summary>
       <p>Diagnostic code <code>{@batch.error_code}</code></p>
     </details>
-    <LearningReceipt.render :if={@receipt} receipt={@receipt} />
     """
   end
 

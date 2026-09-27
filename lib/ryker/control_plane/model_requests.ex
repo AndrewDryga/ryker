@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     ContextSelection,
     CurrentInputs,
     EpisodeTrace,
+    LearningRequests,
     PagedRelation,
     RoutingReason,
     ThreadContext,
@@ -225,9 +226,26 @@ defmodule Ryker.ControlPlane.ModelRequests do
         Enum.flat_map(Map.get(by_input, entry.id, missing), &admission_events(entry, &1, options))
       end)
 
+    # Background learning over this request's messages: the same model-request
+    # cards, filed in the Learning chapter.
+    learning =
+      Repo.all(
+        from(e in Entry,
+          where: e.episode_id == ^episode.id,
+          order_by: [asc: e.occurred_at, asc: e.id],
+          limit: 200,
+          select: e.id
+        )
+      )
+      |> LearningRequests.entries(
+        secrets: options[:secrets],
+        disclosed: disclosed,
+        scope: :request
+      )
+
     {:ok,
      %{
-       items: with_model_choice(work ++ admission),
+       items: with_model_choice(work ++ admission ++ learning),
        truncated: truncated,
        call_history: %{
          page: page,
@@ -564,8 +582,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
   @doc """
   The page of one message that has no request of its own: what it says and
   who sent it, what routing decided and what Ryker sent, the cards that show
-  how routing got there, and the thread around it. A message that became
-  part of a request answers with that request's reference instead.
+  how routing got there, the thread around it, and the background learning
+  that read it. A message that became part of a request answers with that
+  request's reference instead.
   """
   def project_input(id, params) when is_map(params) do
     with {:ok, id} <- Ecto.UUID.cast(id), %Entry{} = entry <- Repo.get(Entry, id) do
@@ -605,6 +624,14 @@ defmodule Ryker.ControlPlane.ModelRequests do
          preparation: EpisodeTrace.input_preparation(entry),
          timeline: input_request_events(entry, params, options),
          answer: routing_answer(entry, response, message),
+         learning:
+           [entry.id]
+           |> LearningRequests.entries(
+             secrets: options[:secrets],
+             disclosed: disclosed(params),
+             scope: :message
+           )
+           |> with_model_choice(),
          thread: ThreadContext.around(entry, now),
          selected: inspect_row(entry, params, options),
          names: Names.revision()

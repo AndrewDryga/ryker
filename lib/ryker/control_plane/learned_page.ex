@@ -4,11 +4,12 @@ defmodule Ryker.ControlPlane.LearnedPage do
   conversations, and the summaries it saves when work in a conversation ends,
   each with the messages it learned from.
 
-  One topic opens in place with its full text, its update history, how each
-  update was learned and, when its sources are gone, the picker that relearns
-  it from messages a person chooses. A record's source messages open the same
-  way, under the record they support. An open page redraws when a topic, a
-  summary or what they were learned from changes (`subscriptions/0`).
+  One topic opens in place with its full text, its update history with each
+  update linked to the learning card on the Timeline that wrote it, and, when
+  its sources are gone, the picker that relearns it from messages a person
+  chooses. A record's source messages open the same way, under the record
+  they support. An open page redraws when a topic, a summary or what they
+  were learned from changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
@@ -19,7 +20,6 @@ defmodule Ryker.ControlPlane.LearnedPage do
   alias Ryker.ControlPlane.{
     ConversationMemory,
     Kit,
-    LearningReceipt,
     MemoryFormat,
     RelearnPanel
   }
@@ -218,7 +218,6 @@ defmodule Ryker.ControlPlane.LearnedPage do
           later="Older updates →"
         />
       </section>
-      <LearningReceipt.render :if={@view.learning} receipt={@view.learning} />
     <% else %>
       <Kit.empty
         icon={:book}

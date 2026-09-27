@@ -247,17 +247,37 @@ page exists, the corresponding affordance is absent.
 
 Two background sections follow the answer in reading order while keeping their
 own recorded times, because learning routinely overlaps the work and reading it
-later must not make it look like it happened later. **Learning** appears only
-when one of this request's own inputs is a recorded member of a learning batch
-(`conversation_learning_inputs`); sharing a channel is not membership. A batch
-that also read other requests says "1 of 3 from this request" rather than
-claiming the rest, an all-defer judgment says nothing was saved instead of
-reporting a failure, and a rejected or stale result says nothing was saved and
-why. **Cleanup** reads the session's own cleanup fields: closing a session
-is not removing its workspace, a workspace kept for uncommitted or unpublished
-work is not a failure, a session that never bound a remote one had no remote
-workspace to delete, and blocked cleanup states that the delivered answer is
-unaffected.
+later must not make it look like it happened later. **Learning** shows every
+learning attempt whose frozen selection names one of this request's own inputs,
+reached through the batch that holds them (`conversation_learning_inputs`), a
+relearning batch that chose them, or an attempt's own selection; sharing a
+channel is not membership. Each attempt is a model call drawn like routing and
+work (`ControlPlane.LearningRequests`, rendered by `EpisodeRequest`): a
+**Learning briefing** with the model, the briefing sources (system prompt, the
+custom instructions saved with the attempt, the source messages, the prior
+topics it could update with links to them, and on a retry the previous attempt's
+error) and the Full submitted request (prompt text, loaded when opened, and
+response format); then a result card headed with the Learning page's own label
+for the attempt, the model's reason, what it saved (each topic linked to the
+update it wrote), proposed, deferred or why nothing changed, how many of the
+messages it read are this request's ("1 of 3 from this request"), the tokens,
+cost and timings from the execution ledger, whether Ryker's checks passed, the
+raw model response, and Details with the exact identities, fingerprints and
+validation and stop receipts. A retry names the attempt it followed and why that
+one ended. Retention says what it removed and when instead of drawing empty
+briefing rows; the outcome, topics, tokens and cost stay. A message with no
+request of its own draws the same Learning chapter on its own page.
+**Cleanup** reads the session's own cleanup fields: closing a session is not
+removing its workspace, a workspace kept for uncommitted or unpublished work is
+not a failure, a session that never bound a remote one had no remote workspace
+to delete, and blocked cleanup states that the delivered answer is unaffected.
+Each card says what happened in words, and its Details hold the record: the
+worker the session was last placed on, the worker and local session ids and
+generation, the close request and the revision it closed at, what the removal
+plan found (branch, commit, uncommitted changes, unpublished commits, the
+working copy's and the plan's fingerprints, the plan request), the receipt, its
+fingerprint and the removal request, and the tries, next try and error, with the
+error in words on the card and its code and detail in Details.
 
 The **Incident rooms** page at `/incident-rooms` lists the Slack channels Ryker
 opens to work on an incident: one row per room with its state in words (Setting
@@ -937,7 +957,7 @@ replacement, not the older dashboard or the intended final design above.
 | Findings | Live, read-only: how many findings there are and how many are not explained yet, a search over what each concluded, why and its scope, then each saved conclusion with its state in words (Not explained yet, Explained, Expected, Out of scope), why it holds, its evidence in a closed disclosure and a link into the investigation, paged |
 | Rules | Live, with search and Current/Past views (`?view=past`, as on Schedules and Follow-ups), paginated confirmed rules in plain words (when a rule acts, who can set it off, repository, expiry, usage), event conditions in a closed disclosure, original conversation, recent matches, and confirmed pause/resume/delete |
 | Instructions | Live global editor, the channels that add their own instructions, and the preferences and guidance confirmed in conversations (All/Preferences/Guidance and Current/Past views, where each applies, expiry, usage) with confirmed pause/resume/delete |
-| Memory | Three pages beside Findings. Facts: what people asked Ryker to remember, where each applies and how often it was used, with confirmed forget and a Needs review section (keep, merge, edit, forget) for stale or repeated facts. Learned: topics and conversation summaries with their source messages, update history, how each update was learned, and relearning for a topic whose sources are gone. Learning: whether background learning runs here, what waits, batches that need attention with one more start or, when a learned topic lost its sources, the topic to relearn first, recent passes by outcome, handovers that were not saved, and learning worker sessions, with the on/off switch opposite the title (turning it off asks first) |
+| Memory | Three pages beside Findings. Facts: what people asked Ryker to remember, where each applies and how often it was used, with confirmed forget and a Needs review section (keep, merge, edit, forget) for stale or repeated facts. Learned: topics and conversation summaries with their source messages, update history with each update linked to the Timeline learning card that wrote it, and relearning for a topic whose sources are gone. Learning: whether background learning runs here, what waits, batches that need attention with one more start or, when a learned topic lost its sources, the topic to relearn first, recent passes by outcome, a batch's attempts each linked to its Timeline learning card, handovers that were not saved, and learning worker sessions, with the on/off switch opposite the title (turning it off asks first) |
 | Setup | Live onboarding at `/setup`: the six required steps as an ordered list with one open step (why it matters, what it needs, about how long, one action), the Slack-side steps checked off when Ryker notices them, the channel's environment chosen on the channel's page (done once a joined channel has one; adding a repository creates the Default environment, so there is no step for that), Emisar as the one recommended step with its own panel that never blocks ready, and a calm ready state; the sidebar keeps a way back while required steps are open |
 | Integrations | Live: an overview of Slack, GitHub, Emisar and webhooks, each with its state in words, what it gives Ryker, what is connected and one action, and a page per integration to connect, repair, manage or disconnect it (disconnects and removals ask first); each Emisar account says which environments use it, and the environments without one are counted with a link to Environments |
 | Settings | Live: an overview of Models, Data retention, Model prices and Advanced, each with what it sets and what it is set to now (the models in use, how many days data is kept, how many prices, where work runs), and each page's live editors for every product decision, each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; each model says where Ryker uses it; Add opens its form above the list and a row's Edit under that row; Advanced says in plain words where work runs, what each kind of work may do and whether tasks that change code can run, then an allowlist of effective runtime values, MCP/host/tool grant names, and repository-topology linkage. Secrets, endpoints, callbacks, and raw policy documents are omitted, and credentials appear only as configured, missing or unusable |
