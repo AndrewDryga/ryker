@@ -64,6 +64,91 @@ defmodule Ryker.Admission.ReadySessionsTest do
     assert ready_sessions() == []
   end
 
+  # Live install, 2026-09-27: with a session kept ready a plain "hi" still took
+  # 22–29 s to route, and the first message after a restart 61 s. Coop spent
+  # most of each 12–18 s turn starting the box and the agent before the model
+  # read a word. The pool now has Coop start the agent while the session
+  # waits, so the message's turn starts on an agent already running.
+  test "a ready routing session is prepared before a message claims it" do
+    {:ok, fake} = FakeAPI.start_link(replies(1), async_create: true)
+    assert {:ok, %{started: 1, prepared: 1}} = keep(fake, 1)
+    assert [ready] = ready_sessions()
+    assert FakeAPI.state(fake).prepared_sessions == [ready.coop_session_id]
+    assert %DateTime{} = ready.warm_until
+
+    execution = route!(fake, "Ev-ready-warm", "C150")
+
+    assert execution.session_id == ready.coop_session_id
+    assert FakeAPI.state(fake).warm_turn_sessions == [ready.coop_session_id]
+  end
+
+  # Coop starts the agent while the prepare request waits, and the worker
+  # runs one command at a time: a prepare sent while the worker has other work
+  # would hold that work's commands until the agent is up. The session stays
+  # ready, cold, and is prepared once the worker has nothing else to do.
+  test "a busy worker is asked to prepare only once it has nothing else to do" do
+    {:ok, fake} = FakeAPI.start_link(replies(1), async_create: true, worker_busy: true)
+    assert {:ok, %{started: 1, prepared: 0}} = keep(fake, 1)
+    assert {:ok, %{started: 0, prepared: 0}} = keep(fake, 1)
+    assert [ready] = ready_sessions()
+    assert is_nil(ready.warm_until)
+    assert FakeAPI.state(fake).prepare_keys == []
+
+    FakeAPI.worker_idle(fake)
+    assert {:ok, %{started: 0, prepared: 1}} = keep(fake, 1)
+    assert FakeAPI.state(fake).prepared_sessions == [ready.coop_session_id]
+  end
+
+  # The pool runs every second while the worker is idle, so a session Coop
+  # will not prepare would be asked again every second. It is asked once and
+  # stays ready: a message still skips the create, it just starts cold. The
+  # next session kept ready is asked afresh.
+  test "a session Coop cannot prepare is asked once and still spares a message the create" do
+    {:ok, fake} = FakeAPI.start_link(replies(1), async_create: true, fail_prepare: :always)
+    assert {:ok, %{started: 1, prepared: 0}} = keep(fake, 1)
+    assert {:ok, %{started: 0, prepared: 0, retired: 0}} = keep(fake, 1)
+    assert [ready] = ready_sessions()
+    assert length(FakeAPI.state(fake).prepare_keys) == 1
+
+    execution = route!(fake, "Ev-ready-cold", "C160")
+
+    assert execution.session_id == ready.coop_session_id
+    state = FakeAPI.state(fake)
+    assert routing_creates(state) == []
+    assert state.warm_turn_sessions == []
+
+    assert {:ok, %{started: 1}} = keep(fake, 1)
+    assert length(FakeAPI.state(fake).prepare_keys) == 2
+  end
+
+  # Only a prepared session starts its turn on a running agent, so a message
+  # takes one of those first, even when a cold one has waited longer.
+  test "a message takes a prepared session before an older one Coop could not prepare" do
+    {:ok, fake} = FakeAPI.start_link(replies(1), async_create: true, fail_prepare: :first)
+    assert {:ok, %{started: 2, prepared: 0}} = keep(fake, 2)
+    assert {:ok, %{started: 0, prepared: 1}} = keep(fake, 2)
+    assert [cold, warm] = ready_sessions()
+    assert FakeAPI.state(fake).prepared_sessions == [warm.coop_session_id]
+
+    assert route!(fake, "Ev-ready-prefer-warm", "C170").session_id == warm.coop_session_id
+    assert FakeAPI.state(fake).warm_turn_sessions == [warm.coop_session_id]
+    assert Repo.get!(Session, cold.id).ready_state == :ready
+  end
+
+  # Lowering the setting retires the sessions beyond it. Retiring the oldest
+  # would throw away the one Coop already prepared and keep one the next
+  # message would start cold.
+  test "lowering the setting keeps the prepared session and retires a cold one" do
+    {:ok, fake} = FakeAPI.start_link(replies(1), async_create: true)
+    assert {:ok, %{started: 2, prepared: 1}} = keep(fake, 2)
+    assert [warm, cold] = ready_sessions()
+    assert FakeAPI.state(fake).prepared_sessions == [warm.coop_session_id]
+
+    assert {:ok, %{retired: 1, started: 0}} = keep(fake, 1)
+    assert Enum.map(ready_sessions(), & &1.id) == [warm.id]
+    assert Repo.get!(Session, cold.id).ready_state == :retired
+  end
+
   # Every ready session is shared by every channel and conversation, so the
   # one thing it must never do is carry two messages: the second would run in
   # a session that already holds the first one's conversation.

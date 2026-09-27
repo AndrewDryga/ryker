@@ -40,6 +40,10 @@ defmodule Ryker.Work.Session do
     # routing generation, or `retired` when it is given up unused
     # (`Ryker.Admission.ReadySessions`).
     field(:ready_state, Ecto.Enum, values: [:starting, :ready, :claimed, :retired])
+    # When Coop stops the agent it started for a session kept ready: unset
+    # until the pool asks, and a time already past when Coop could not start
+    # it.
+    field(:warm_until, :utc_datetime_usec)
 
     field(:cleanup_status, Ecto.Enum,
       values: [
@@ -112,6 +116,7 @@ defmodule Ryker.Work.Session do
           source_exposure_count: non_neg_integer() | nil,
           knowledge_exposure_count: non_neg_integer() | nil,
           ready_state: :starting | :ready | :claimed | :retired | nil,
+          warm_until: DateTime.t() | nil,
           cleanup_status:
             :active
             | :close_pending

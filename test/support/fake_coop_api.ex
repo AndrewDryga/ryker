@@ -56,6 +56,18 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         omit_validation_receipt: Keyword.get(options, :omit_validation_receipt, false),
         operation_calls: %{},
         operation_mode: Keyword.get(options, :operation_mode, :succeeded),
+        # Prepares sent to the worker, by key, and each one's answer: the
+        # fleet answers a repeated key from its record without asking again.
+        prepare_keys: [],
+        prepare_results: %{},
+        # `:first` refuses the first prepare, `:always` every one.
+        fail_prepare: Keyword.get(options, :fail_prepare, false),
+        # Sessions whose agent Coop started ahead of their first turn.
+        prepared_sessions: [],
+        # A worker with other work refuses a prepare before sending it.
+        worker_busy: Keyword.get(options, :worker_busy, false),
+        # Sessions whose turn arrived on an agent already running.
+        warm_turn_sessions: [],
         resume_operations: resume_operations,
         schema: nil,
         # Routing sessions kept ready, by id, beside the one session routing
@@ -88,6 +100,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
 
   def state(agent), do: Agent.get(agent, & &1)
   def allow_create(agent), do: Agent.update(agent, &%{&1 | fail_create: false})
+  def worker_idle(agent), do: Agent.update(agent, &%{&1 | worker_busy: false})
 
   @doc "Every session this Coop started, by id: routing's own and those kept ready."
   def sessions(agent) do
@@ -270,11 +283,17 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
   @impl true
   def submit_turn(agent, session_id, key, _revision, prompt, schema) do
     Agent.get_and_update(agent, fn state ->
+      warm_turn_sessions =
+        if session_id in state.prepared_sessions,
+          do: state.warm_turn_sessions ++ [session_id],
+          else: state.warm_turn_sessions
+
       state =
         state
         |> Map.put(:submitted_prompt, prompt)
         |> Map.put(:turn_keys, state.turn_keys ++ [key])
         |> Map.put(:turn_sessions, state.turn_sessions ++ [session_id])
+        |> Map.put(:warm_turn_sessions, warm_turn_sessions)
 
       terminal_state =
         cond do
@@ -309,6 +328,40 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
   # Not part of `Ryker.Coop.API`; tests fence a prompt-shaped turn directly.
   def fence_submit_turn(agent, _session_id, key, _revision, _prompt, _schema),
     do: fence_operation(agent, key, "SubmitTurn")
+
+  # Like the fleet: a key already sent is answered from its record, a busy
+  # worker is not asked at all, and Coop answers with the session.
+  @impl true
+  def prepare_session(agent, session_id, key) do
+    Agent.get_and_update(agent, fn state ->
+      cond do
+        Map.has_key?(state.prepare_results, key) -> {state.prepare_results[key], state}
+        state.worker_busy -> {{:error, :coop_worker_busy}, state}
+        true -> send_prepare(state, session_id, key)
+      end
+    end)
+  end
+
+  defp send_prepare(state, session_id, key) do
+    refused? =
+      state.fail_prepare == :always or
+        (state.fail_prepare == :first and state.prepare_keys == [])
+
+    {result, prepared} =
+      if refused?,
+        do:
+          {{:error, {:coop_error, 503, "acp_process_error", "the agent did not start"}},
+           state.prepared_sessions},
+        else: {{:ok, session_for(state, session_id)}, state.prepared_sessions ++ [session_id]}
+
+    {result,
+     %{
+       state
+       | prepare_keys: state.prepare_keys ++ [key],
+         prepare_results: Map.put(state.prepare_results, key, result),
+         prepared_sessions: prepared
+     }}
+  end
 
   defp maybe_lose_turn_response(state, next, key, response) do
     if state.fail_first_turn_response and is_nil(state.lost_turn_response_key) do

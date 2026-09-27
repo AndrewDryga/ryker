@@ -401,10 +401,22 @@ for good and carries at most one turn: routing closes it after the decision, a l
 generation that finds it unused closes it and routes on another session, and cleanup closes it if the
 generation ends any other way. It never becomes ready again. `Ryker.Admission.ReadyPool` keeps the
 count: it starts replacements and retires sessions started under an older routing policy, older than
-half an hour, or beyond the setting, and retention cleanup closes and removes what it retires. Nothing
-in Coop or the fleet expires an open session that was never prompted (its placement lease is renewed
-on every worker poll), so the half hour is a choice that stays well inside Coop's one-hour
-warm-runtime idle limit and the worker's 24-hour certificate.
+half an hour, or beyond the setting, and retention cleanup closes and removes what it retires.
+
+A session that exists still left most of the wait: on 2026-09-27 a "hi" routed on one took 22–29 s,
+and Coop spent most of each 12–18 s turn starting the box and the agent. So the pool also has Coop
+prepare a ready session (`POST /v1/sessions/<id>/prepare`), which starts its agent ahead of any
+message, and a message takes a prepared session before any other. Only the routing job keeps a
+prepared agent running (`warm_idle_timeout_ms`, 35 minutes); every other job still stops its agent
+after each turn. Coop answers a prepare only once the agent runs, after waiting for a free runtime
+slot, and a worker runs one command at a time, so a prepare is sent only while the worker holding the
+session is idle: every slot free, no session being created, no command waiting. A running agent holds
+one of the worker's slots, so a worker keeps at most one prepared routing session, and the others
+stay ready unprepared, still sparing a message the create. A session Coop refuses to prepare is not
+asked again. Nothing in Coop or the fleet expires an open session that was never prompted (its
+placement lease is renewed on every worker poll), so the half hour is derived from the agent's
+lifetime: five minutes less than 35, so a message that claims a prepared session reaches its turn
+while the agent still runs, and well inside the worker's 24-hour certificate.
 
 Coop validates the JSON Schema. It then holds the exact bytes unpublished for host semantic review.
 Ryker checks the action against the frozen candidate set and source capabilities. If that check
@@ -466,7 +478,9 @@ Fast deterministic tests cover:
 - one fleet admission session per input generation, converging under simultaneous preparation;
 - routing sessions kept ready: taken without creating one, never shared by two messages (also when
   claimed at the same moment), refilled to the setting, closed at 0, past their age or under an older
-  routing policy, and never reused when a run stops between its claim and its turn;
+  routing policy, and never reused when a run stops between its claim and its turn; prepared before a
+  message claims one, only on an idle worker and only once, taken prepared-first, and the prepared
+  one kept when the setting is lowered;
 - lost asynchronous operation responses;
 - schema-valid but semantically invalid output repaired in the same turn;
 - missing semantic-validation receipts being refused;

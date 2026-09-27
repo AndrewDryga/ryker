@@ -17,11 +17,20 @@ defmodule Ryker.Admission.ReadySessions do
   and cleanup closes it if the generation ends without doing so. Nothing moves
   a session back to `ready`, so no session ever carries two messages. Cleanup
   closes and removes a retired one (`Ryker.Retention.Custody`).
+
+  Creating the session was only part of the wait: on 2026-09-27 Coop still
+  spent most of a 12–18 s routing turn starting the box and the agent. A
+  ready session is therefore also prepared: Coop starts its agent ahead of
+  any message and keeps it running until `warm_until`. A message takes a
+  prepared session first, and one that is not (still waiting for an idle
+  worker, or refused by Coop) only when none is, since it still spares the
+  create.
   """
 
   import Ecto.Query
 
   alias Ryker.Admission.FleetSession
+  alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Session}
@@ -30,12 +39,15 @@ defmodule Ryker.Admission.ReadySessions do
 
   # Nothing in Coop or the fleet ends an open session that was never
   # prompted: its placement lease (60 s) is renewed on every worker poll, and
-  # Coop keeps an idle session open until someone closes it. The nearest
-  # clocks are Coop's warm-runtime idle limit (`warm_idle_timeout`, at most an
-  # hour, and unset for routing) and the worker's 24-hour certificate. Half an
-  # hour stays well inside both; a replacement costs one session start and no
-  # model tokens.
-  @maximum_age_seconds 30 * 60
+  # Coop keeps an idle session open until someone closes it. What does run
+  # out is the agent Coop started for it, after the routing job's warm idle
+  # timeout (`Ryker.CoopFleet.JobTemplates`, 35 minutes). A session is handed
+  # out for five minutes less than that: the time a message may take from its
+  # claim to its turn reaching Coop. Its agent is then still running for the
+  # whole time a message can take it, the maximum age stays half an hour, well
+  # inside the worker's 24-hour certificate, and a replacement costs one
+  # session start and no model tokens.
+  @claim_margin_seconds 5 * 60
 
   @type policy :: %{name: String.t(), digest: String.t()}
 
@@ -43,16 +55,22 @@ defmodule Ryker.Admission.ReadySessions do
   @spec external_ref(Ecto.UUID.t()) :: String.t()
   def external_ref(id), do: @external_ref_prefix <> id
 
+  @doc "How long Coop keeps a prepared routing agent running."
+  @spec warm_seconds() :: pos_integer()
+  def warm_seconds, do: div(JobTemplates.warm_idle_timeout_ms(:admission), 1_000)
+
+  @doc "How long a session kept ready may wait for a message: its agent outlasts it by the claim margin."
   @spec maximum_age_seconds() :: pos_integer()
-  def maximum_age_seconds, do: @maximum_age_seconds
+  def maximum_age_seconds, do: warm_seconds() - @claim_margin_seconds
 
   @doc """
   Gives this message's routing generation a session kept ready, exactly once.
 
-  `{:ok, session, :claimed}` takes the oldest open one for this routing policy
-  that is younger than the maximum age. `{:ok, session, :resumed}` is the one
-  this generation claimed on an earlier run. `:none` leaves routing to create
-  its own: nothing usable is ready, or this generation already has a session
+  `{:ok, session, :claimed}` takes an open one for this routing policy that is
+  younger than the maximum age: the oldest prepared one, or the oldest of the
+  rest when none is prepared. `{:ok, session, :resumed}` is the one this
+  generation claimed on an earlier run. `:none` leaves routing to create its
+  own: nothing usable is ready, or this generation already has a session
   routing created.
   """
   @spec claim(Entry.t(), policy()) ::
@@ -124,15 +142,23 @@ defmodule Ryker.Admission.ReadySessions do
 
   # The oldest open session kept ready for this policy and younger than the
   # maximum age, locked so no other claim can take it at the same moment.
+  # Prepared ones come first: those whose agent will still be running when a
+  # message claiming it now reaches its turn.
   defp ready_query(policy, digest) do
-    cutoff = DateTime.add(Repo.now!(), -@maximum_age_seconds, :second)
+    now = Repo.now!()
+    cutoff = DateTime.add(now, -maximum_age_seconds(), :second)
+    running_past = DateTime.add(now, @claim_margin_seconds, :second)
 
     from(session in Session,
       where: session.execution_kind == :admission and session.ready_state == :ready,
       where: is_nil(session.admission_input_id) and session.cleanup_status == :active,
       where: session.policy == ^policy and session.policy_digest == ^digest,
       where: session.inserted_at > ^cutoff,
-      order_by: [asc: session.inserted_at, asc: session.id],
+      order_by: [
+        desc: fragment("coalesce(? > ?, false)", session.warm_until, ^running_past),
+        asc: session.inserted_at,
+        asc: session.id
+      ],
       limit: 1,
       lock: "FOR UPDATE SKIP LOCKED"
     )
@@ -179,7 +205,7 @@ defmodule Ryker.Admission.ReadySessions do
   end
 
   defp kept_count(policy, digest) do
-    cutoff = DateTime.add(Repo.now!(), -@maximum_age_seconds, :second)
+    cutoff = DateTime.add(Repo.now!(), -maximum_age_seconds(), :second)
 
     Repo.aggregate(
       from(session in Session,
@@ -202,6 +228,53 @@ defmodule Ryker.Admission.ReadySessions do
           ready_state: :ready,
           updated_at: Repo.now!()
         })
+
+      _other ->
+        Repo.rollback(:ready_routing_session_conflict)
+    end)
+  end
+
+  @doc """
+  The open sessions kept ready for this policy that Coop has not been asked
+  to prepare yet, oldest first: the order messages take them in.
+  """
+  @spec unprepared(policy()) :: [Session.t()]
+  def unprepared(%{name: policy, digest: digest}) do
+    cutoff = DateTime.add(Repo.now!(), -maximum_age_seconds(), :second)
+
+    Repo.all(
+      from(session in Session,
+        where: session.ready_state == :ready and is_nil(session.warm_until),
+        where: session.policy == ^policy and session.policy_digest == ^digest,
+        where: session.inserted_at > ^cutoff,
+        order_by: [asc: session.inserted_at, asc: session.id]
+      )
+    )
+  end
+
+  @doc """
+  Records that Coop started this ready session's agent when asked at
+  `asked_at`: it keeps it running for the routing job's warm idle timeout
+  from then at the latest.
+  """
+  @spec mark_warm(Session.t(), DateTime.t()) :: {:ok, Session.t()} | {:error, term()}
+  def mark_warm(%Session{} = session, %DateTime{} = asked_at),
+    do: record_warm(session, DateTime.add(asked_at, warm_seconds(), :second))
+
+  @doc """
+  Records that Coop could not start this ready session's agent, so it is not
+  asked again. The session stays ready: a message takes it only when no
+  prepared one is, and it still spares that message the create.
+  """
+  @spec mark_cold(Session.t()) :: {:ok, Session.t()} | {:error, term()}
+  def mark_cold(%Session{} = session), do: record_warm(session, Repo.now!())
+
+  # Only a session still waiting, unclaimed, on the Coop session that was
+  # prepared; one a message took in the meantime is that message's now.
+  defp record_warm(%Session{id: id, coop_session_id: coop_session_id}, warm_until) do
+    transition(id, fn
+      %Session{ready_state: :ready, coop_session_id: ^coop_session_id, warm_until: nil} = session ->
+        Ecto.Changeset.change(session, %{warm_until: warm_until, updated_at: Repo.now!()})
 
       _other ->
         Repo.rollback(:ready_routing_session_conflict)
@@ -257,12 +330,15 @@ defmodule Ryker.Admission.ReadySessions do
   @doc """
   The open sessions kept ready that can no longer serve a message under this
   policy and target: every one pinned to another routing policy, every one
-  past the maximum age, and the oldest of those beyond the target.
+  past the maximum age, and those beyond the target. Within the target the
+  prepared ones stay first, then the newest.
   """
   @spec unusable(policy(), non_neg_integer()) :: [Session.t()]
   def unusable(%{name: policy, digest: digest}, target)
       when is_integer(target) and target >= 0 do
-    cutoff = DateTime.add(Repo.now!(), -@maximum_age_seconds, :second)
+    now = Repo.now!()
+    cutoff = DateTime.add(now, -maximum_age_seconds(), :second)
+    running_past = DateTime.add(now, @claim_margin_seconds, :second)
 
     {usable, unusable} =
       from(session in Session,
@@ -275,7 +351,13 @@ defmodule Ryker.Admission.ReadySessions do
           DateTime.compare(session.inserted_at, cutoff) == :gt
       end)
 
-    unusable ++ Enum.drop(usable, target)
+    kept_first =
+      Enum.sort_by(usable, fn session ->
+        not (is_struct(session.warm_until, DateTime) and
+               DateTime.compare(session.warm_until, running_past) == :gt)
+      end)
+
+    unusable ++ Enum.drop(kept_first, target)
   end
 
   @doc "Sessions left `starting` for longer than `seconds`: a pass stopped while creating them."
