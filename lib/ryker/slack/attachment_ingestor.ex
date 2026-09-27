@@ -58,10 +58,11 @@ defmodule Ryker.Slack.AttachmentIngestor do
          :ok <- available_capacity(file, total),
          {:ok, resolved, data} <-
            options.downloader.download(options.client, file, @maximum_bytes - total),
+         {:ok, media_type} <- readable(resolved["mimetype"], data),
          {:ok, artifact} <-
            options.store.put(%{
              data: data,
-             media_type: resolved["mimetype"],
+             media_type: media_type,
              name: resolved["name"],
              source_kind: "slack",
              source_ref: source_ref
@@ -109,13 +110,39 @@ defmodule Ryker.Slack.AttachmentIngestor do
 
   defp source_ref(_input, _file), do: {:error, {:slack_file_rejected, :metadata}}
 
-  defp supported(%{"mimetype" => media_type}) do
-    if Artifacts.supported_media_type?(media_type),
+  # Slack labels a script or a log by its own kind (text/x-sh,
+  # application/octet-stream), so a label need not be a supported type for the
+  # file to be readable text: a deploy.sh shared in Slack never reached the
+  # model. A label that may hide text is downloaded and its bytes decide, as in
+  # Chat; one that plainly is not text is refused without the download.
+  defp supported(%{"mimetype" => media_type}) when is_binary(media_type) do
+    if Artifacts.supported_media_type?(media_type) or text_label?(media_type),
       do: :ok,
       else: {:error, :unsupported_media_type}
   end
 
   defp supported(_file), do: {:error, {:slack_file_rejected, :metadata}}
+
+  defp text_label?("text/" <> _kind), do: true
+
+  defp text_label?(label),
+    do: label in ~w(application/octet-stream application/x-sh application/x-shellscript
+                  application/javascript application/xml application/toml application/sql)
+
+  # A file that says it is an image or a PDF must be one: the store checks its
+  # bytes against that and refuses a mismatch. Only a text-like or unknown
+  # label falls back to reading the bytes as text.
+  defp readable("image/" <> _kind = declared, _data), do: {:ok, declared}
+  defp readable("application/pdf" = declared, _data), do: {:ok, declared}
+
+  defp readable(declared, data) when is_binary(declared) do
+    case Artifacts.readable_media_type(declared, data) do
+      {:ok, media_type} -> {:ok, media_type}
+      :error -> {:error, :unsupported_media_type}
+    end
+  end
+
+  defp readable(_declared, _data), do: {:error, :unsupported_media_type}
 
   defp available_capacity(%{"size" => size}, total)
        when is_integer(size) and size > 0 and total <= @maximum_bytes - size,

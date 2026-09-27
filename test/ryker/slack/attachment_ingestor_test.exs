@@ -48,6 +48,54 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
     assert retried.input.content["files"] == enriched.input.content["files"]
   end
 
+  # Chat reads any text file by its bytes, since a browser labels a .log or a
+  # script application/octet-stream, but Slack's refused one before download
+  # whenever its label was not exactly a supported type: a deploy.sh shared
+  # in Slack (text/x-sh) never reached the model. The bytes decide here too.
+  test "a script Slack labels by its own type is read as text, and bytes that are not text are refused" do
+    script = "#!/bin/sh\nset -eu\necho deploy\n"
+
+    shell = %{
+      file()
+      | "id" => "F301",
+        "mimetype" => "text/x-sh",
+        "name" => "deploy.sh",
+        "size" => byte_size(script)
+    }
+
+    assert {:ok, enriched} =
+             AttachmentIngestor.ingest(%{audience: :mention, input: input!([shell])}, %{
+               client: %{observer: self(), result: {:ok, shell, script}},
+               downloader: Downloader,
+               store: Artifacts
+             })
+
+    assert_received {:download, "F301", _maximum}
+    [descriptor] = enriched.input.content["files"]
+    assert descriptor["status"] == "available"
+    assert {:ok, [artifact]} = Artifacts.fetch_many([descriptor["artifact_ref"]])
+    assert artifact.media_type == "text/plain"
+    assert artifact.data == script
+
+    binary = %{
+      file()
+      | "id" => "F302",
+        "mimetype" => "application/octet-stream",
+        "name" => "core.dump",
+        "size" => byte_size(@png)
+    }
+
+    assert {:ok, refused} =
+             AttachmentIngestor.ingest(%{audience: :mention, input: input!([binary])}, %{
+               client: %{observer: self(), result: {:ok, binary, <<0, 159, 146, 150>> <> @png}},
+               downloader: Downloader,
+               store: Artifacts
+             })
+
+    assert [%{"reason" => "unsupported_media_type", "status" => "unavailable"}] =
+             refused.input.content["files"]
+  end
+
   test "unsafe metadata is retained as a bounded omission while transient download failure retries" do
     unsupported = %{file() | "id" => "F124", "mimetype" => "application/zip"}
 
