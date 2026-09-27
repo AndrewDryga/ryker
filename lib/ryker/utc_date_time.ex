@@ -24,4 +24,12 @@ defmodule Ryker.UTCDateTime do
   end
 
   def parse(value), do: exact(value)
+
+  @doc "The earliest of `values`, skipping nils; nil when every one is nil."
+  @spec earliest([DateTime.t() | nil]) :: DateTime.t() | nil
+  def earliest(values) when is_list(values) do
+    values
+    |> Enum.reject(&is_nil/1)
+    |> Enum.min(DateTime, fn -> nil end)
+  end
 end
