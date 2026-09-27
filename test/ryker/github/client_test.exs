@@ -2,6 +2,7 @@ defmodule Ryker.GitHub.ClientTest do
   use ExUnit.Case, async: true
 
   alias Ryker.GitHub.Client
+  alias Ryker.Publication.LifecycleStatus
 
   defmodule FakeRequester do
     def start(responses), do: Agent.start_link(fn -> %{requests: [], responses: responses} end)
@@ -796,7 +797,7 @@ defmodule Ryker.GitHub.ClientTest do
         response(200, %{"statuses" => []})
       ])
 
-    assert {:ok, ^status} = Ryker.Publication.LifecycleStatus.prepare(status)
+    assert {:ok, ^status} = LifecycleStatus.prepare(status)
   end
 
   test "check and commit status summaries distinguish none, passing, failing, and malformed pages" do
