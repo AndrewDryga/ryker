@@ -9,9 +9,9 @@ defmodule Ryker.Improvement.Evidence do
   Everything is read, never paraphrased, and every stored credential is
   redacted from it (`Ryker.InspectionRedactor`). What a person took back is
   left out: the words of a message they deleted, and any routing prompt that
-  quoted it unless its routing example (which forgetting keeps honest) is
-  still kept. Expired words are left out too, and each gap is named in
-  `omitted`, so the analysis never mistakes a missing piece for an empty one.
+  quoted something a person deleted or forgot. Expired words are left out
+  too, and each gap is named in `omitted`, so the analysis never mistakes a
+  missing piece for an empty one.
 
   The analysis reads it through `Ryker.Improvement.Prompt`; accepting a
   candidate freezes part of it as the case's evidence (`case_snapshot/1`).
@@ -336,9 +336,11 @@ defmodule Ryker.Improvement.Evidence do
 
   # Each routing decision about the request's messages: the exact prompt and
   # answer from its routing example when one is kept, else from the routing
-  # attempt itself unless a person deleted one of the request's messages
-  # (an example is erased with a deleted message it quoted; an attempt is
-  # not).
+  # attempt itself. An example is erased with anything it quoted that a
+  # person forgot or deleted; an attempt is not, so its prompt is read only
+  # when nothing it quotes (the message, its thread and channel, learned
+  # notes and topics) was forgotten or deleted, by the test an example's copy
+  # passes (`Ryker.RoutingExamples.quotes_forgotten?/1`).
   defp routing(entries, deleted, secrets) do
     decided = entries |> Enum.filter(&(&1.status == :decided)) |> Enum.take(-@routing_limit)
     ids = Enum.map(decided, & &1.id)
@@ -346,8 +348,6 @@ defmodule Ryker.Improvement.Evidence do
     examples =
       Repo.all(from(example in Example, where: example.input_id in ^ids))
       |> Map.new(&{&1.input_id, &1})
-
-    fallback? = MapSet.size(deleted) == 0
 
     decided
     |> Enum.map(fn entry ->
@@ -359,11 +359,11 @@ defmodule Ryker.Improvement.Evidence do
         %Example{} ->
           {routing_item(entry, nil, nil, nil, "forgotten"), %{keys: [], conversations: []}}
 
-        nil when fallback? ->
-          attempt_routing(entry, secrets)
-
         nil ->
-          {routing_item(entry, nil, nil, nil, "withheld"), %{keys: [], conversations: []}}
+          if MapSet.size(deleted) == 0 and not RoutingExamples.quotes_forgotten?(entry),
+            do: attempt_routing(entry, secrets),
+            else:
+              {routing_item(entry, nil, nil, nil, "forgotten"), %{keys: [], conversations: []}}
       end
     end)
     |> then(fn items ->
@@ -536,7 +536,7 @@ defmodule Ryker.Improvement.Evidence do
         "The words of messages older than Ryker keeps them.",
       Enum.any?(routing, &(&1["kept"] == "forgotten")) &&
         "Routing prompts that quoted something a person forgot or deleted.",
-      Enum.any?(routing, &(&1["kept"] in ["expired", "withheld"])) &&
+      Enum.any?(routing, &(&1["kept"] == "expired")) &&
         "Routing prompts that were no longer kept.",
       length(entries) >= @message_limit && "Messages after the first #{@message_limit}."
     ]

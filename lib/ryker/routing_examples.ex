@@ -334,6 +334,21 @@ defmodule Ryker.RoutingExamples do
   defp list(values) when is_list(values), do: values
   defp list(_absent), do: []
 
+  @doc false
+  # Whether a person already forgot or deleted anything a routing prompt for
+  # `entry` quotes, by the same test a copy passes before it keeps one. The
+  # analysis of a request people were unhappy with reads a routing attempt's
+  # own prompt only when this says no (`Ryker.Improvement.Evidence`).
+  @spec quotes_forgotten?(Entry.t()) :: boolean()
+  def quotes_forgotten?(%Entry{} = entry) do
+    quoted = quoted(entry)
+
+    forgotten?(
+      %{source_identity: Observations.source_identity(entry), message_keys: quoted.keys},
+      quoted
+    )
+  end
+
   # Whether a person already removed anything the prompt quotes: the message
   # or one it quotes forgotten or deleted, a topic forgotten, or a Slack
   # channel it came from deleted.
