@@ -28,8 +28,10 @@ defmodule Ryker.Fixtures.Knowledge do
       Decision.parse(%{
         "action" => "ignore",
         "episode_ref" => nil,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "unrelated",
+        "repository" => nil,
         "repository_source" => nil,
         "reason" => "No reply is useful.",
         "work_class" => nil

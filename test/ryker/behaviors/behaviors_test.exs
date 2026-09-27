@@ -912,8 +912,10 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              Decision.parse(%{
                "action" => "start_episode",
                "episode_ref" => nil,
-               "reaction" => nil,
+               "messages" => nil,
+               "reactions" => nil,
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" =>
                  "This exact standing assignment event deserves its own bounded review.",

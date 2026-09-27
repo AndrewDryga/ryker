@@ -676,8 +676,10 @@ defmodule Ryker.Admission.DispatcherTest do
       Jason.encode!(%{
         "action" => "start_episode",
         "episode_ref" => candidate.ref,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "history_only",
+        "repository" => nil,
         "repository_source" => nil,
         "reason" => "This looks like a new request related to earlier work.",
         "work_class" => "standard"
@@ -812,8 +814,10 @@ defmodule Ryker.Admission.DispatcherTest do
       Jason.encode!(%{
         "action" => "start_episode",
         "episode_ref" => candidate.ref,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "history_only",
+        "repository" => nil,
         "repository_source" => nil,
         "reason" => "This is new work with useful history.",
         "work_class" => "standard"
@@ -823,8 +827,10 @@ defmodule Ryker.Admission.DispatcherTest do
       Jason.encode!(%{
         "action" => "continue_episode",
         "episode_ref" => candidate.ref,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "same_work",
+        "repository" => nil,
         "repository_source" => nil,
         "reason" => "This belongs to the reopened work.",
         "work_class" => "standard"
@@ -1002,8 +1008,10 @@ defmodule Ryker.Admission.DispatcherTest do
     Jason.encode!(%{
       "action" => action,
       "episode_ref" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "The incoming request can receive an immediate answer.",
       "work_class" => if(action == "reply", do: "conversational", else: "standard")
@@ -1049,8 +1057,10 @@ defmodule Ryker.Admission.DispatcherTest do
       Decision.parse(%{
         "action" => "reply",
         "episode_ref" => nil,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "unrelated",
+        "repository" => nil,
         "repository_source" => nil,
         "reason" => "The incoming request can receive an immediate answer.",
         "work_class" => "conversational"

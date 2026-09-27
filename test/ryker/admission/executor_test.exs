@@ -473,6 +473,50 @@ defmodule Ryker.Admission.ExecutorTest do
     assert hd(state.validations).violations |> hd() =~ "repository_source is unavailable"
   end
 
+  # Routing may now add up to three emoji beside a quick answer, and a source
+  # that cannot take a reaction is offered its words only. A model that adds
+  # emoji anyway must be told, in the same turn, which field to fix and how;
+  # "The decision field reactions does not satisfy the attached response
+  # schema" names the field but not what would satisfy it.
+  test "emoji a source cannot take are refused in the same turn, in words the model can act on" do
+    entry = record_slack_input!("Ev-executor-emoji-event", :event)
+    lease_ref = claim!(entry)
+
+    quick = fn reactions ->
+      Jason.encode!(%{
+        "action" => "quick_reply",
+        "episode_ref" => nil,
+        "messages" => ["Noted, thanks."],
+        "reactions" => reactions,
+        "relation" => "unrelated",
+        "repository" => nil,
+        "repository_source" => nil,
+        "reason" => "A short acknowledgement is the whole answer.",
+        "work_class" => nil
+      })
+    end
+
+    {:ok, fake} = FakeAPI.start_link([quick.(["eyes"]), quick.(nil)])
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+
+    assert execution.result.entry.decision_action == :quick_reply
+    assert execution.result.entry.decision_document["reactions"] == nil
+
+    state = FakeAPI.state(fake)
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
+
+    assert hd(state.validations).violations == [
+             "This source cannot take a reaction. Set reactions to null; a quick_reply answers with its messages alone."
+           ]
+
+    [quick_reply] =
+      Enum.filter(state.schema["oneOf"], &(&1["properties"]["action"]["const"] == "quick_reply"))
+
+    assert quick_reply["properties"]["reactions"] == %{"type" => "null"}
+  end
+
   test "each abstract work class selects only its host-owned policy" do
     work_profile = %{
       authority_digest: String.duplicate("e", 64),
@@ -959,13 +1003,13 @@ defmodule Ryker.Admission.ExecutorTest do
     lease_ref
   end
 
-  defp record_slack_input!(event_ref) do
+  defp record_slack_input!(event_ref, event_kind \\ :message) do
     assert {:ok, input} =
              SlackInput.new(%{
                actor: %{kind: :user, ref: "U123"},
                channel_ref: "C456",
                content: %{"text" => "Please answer"},
-               event_kind: :message,
+               event_kind: event_kind,
                event_ref: event_ref,
                message_ref: "1787832001.000100",
                occurred_at: @now,
@@ -1015,12 +1059,14 @@ defmodule Ryker.Admission.ExecutorTest do
     ]
   end
 
-  defp decision(action, reaction \\ nil, work_class \\ :default) do
+  defp decision(action, reactions \\ nil, work_class \\ :default) do
     %{
       "action" => action,
       "episode_ref" => nil,
-      "reaction" => reaction,
+      "messages" => nil,
+      "reactions" => reactions,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "This is the best action for the supplied event and candidates.",
       "work_class" => admission_work_class(action, work_class)
@@ -1032,8 +1078,10 @@ defmodule Ryker.Admission.ExecutorTest do
     %{
       "action" => action,
       "episode_ref" => episode_ref,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => relation,
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "This candidate appears related to the incoming event.",
       "work_class" => admission_work_class(action, :default)

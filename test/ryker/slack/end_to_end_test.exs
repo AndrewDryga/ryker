@@ -352,8 +352,10 @@ defmodule Ryker.Slack.EndToEndTest do
     Jason.encode!(%{
       "action" => "start_episode",
       "episode_ref" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "The direct mention requests an investigation.",
       "work_class" => "standard"
@@ -364,8 +366,10 @@ defmodule Ryker.Slack.EndToEndTest do
     Jason.encode!(%{
       "action" => "continue_episode",
       "episode_ref" => candidate_ref,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "same_work",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "This unmentioned reply belongs to the exact existing Slack thread.",
       "work_class" => "standard"

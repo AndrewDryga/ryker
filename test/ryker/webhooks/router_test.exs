@@ -51,8 +51,10 @@ defmodule Ryker.Webhooks.RouterTest do
              Decision.parse(%{
                "action" => "start_episode",
                "episode_ref" => nil,
-               "reaction" => nil,
+               "messages" => nil,
+               "reactions" => nil,
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "This unfamiliar event needs investigation.",
                "work_class" => "standard"
@@ -378,8 +380,10 @@ defmodule Ryker.Webhooks.RouterTest do
              Decision.parse(%{
                "action" => Atom.to_string(action),
                "episode_ref" => episode_ref,
-               "reaction" => nil,
+               "messages" => nil,
+               "reactions" => nil,
                "relation" => Atom.to_string(relation),
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "This webhook occurrence belongs to the supplied lifecycle.",
                "work_class" => if(action == :reply, do: "conversational", else: "standard")

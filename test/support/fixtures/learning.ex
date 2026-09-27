@@ -67,8 +67,10 @@ defmodule Ryker.Fixtures.Learning do
       Decision.parse(%{
         "action" => "ignore",
         "episode_ref" => nil,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "unrelated",
+        "repository" => nil,
         "repository_source" => nil,
         "reason" => "Silent shadow learning test.",
         "work_class" => nil

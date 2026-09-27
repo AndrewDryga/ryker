@@ -1,6 +1,7 @@
 {
   "name": "a broad evidence-heavy health assessment uses deep work",
   "source": {
+    "reshaped": "2026-09-27: the recorded routing decision was rewritten into the current contract, as the live-replies migration rewrote stored decisions: reaction became reactions, and messages and repository were added as null. The recorded choice is unchanged.",
     "path": "testdata/eval/evidence.jsonl",
     "case": "broad production health is independently supported",
     "reason": "The exact checked-in evaluation requires repository and live evidence across every material layer."
@@ -24,9 +25,11 @@
   "decision": {
     "action": "start_episode",
     "episode_ref": null,
-    "reaction": null,
+    "messages": null,
+    "reactions": null,
     "work_class": "deep",
     "relation": "unrelated",
+    "repository": null,
     "repository_source": null,
     "reason": "This broad, consequential assessment requires multi-source evidence and careful coverage reasoning."
   },

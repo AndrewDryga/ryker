@@ -408,8 +408,10 @@ defmodule Ryker.Admission.ReadySessionsTest do
       Jason.encode!(%{
         "action" => "reply",
         "episode_ref" => nil,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "unrelated",
+        "repository" => nil,
         "repository_source" => nil,
         "reason" => "Message #{index} asks for a short answer.",
         "work_class" => "conversational"

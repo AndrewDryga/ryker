@@ -112,9 +112,11 @@ defmodule Ryker.Admission.OccurrenceClaimTest do
       Decision.parse(%{
         "action" => "start_episode",
         "episode_ref" => nil,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "unrelated",
         "reason" => "This pull request needs a review.",
+        "repository" => nil,
         "repository_source" => nil,
         "work_class" => "standard"
       })
@@ -138,9 +140,11 @@ defmodule Ryker.Admission.OccurrenceClaimTest do
       Decision.parse(%{
         "action" => "continue_episode",
         "episode_ref" => candidate.ref,
-        "reaction" => nil,
+        "messages" => nil,
+        "reactions" => nil,
         "relation" => "same_work",
         "reason" => "This run belongs to the rollout already being tracked.",
+        "repository" => nil,
         "repository_source" => nil,
         "work_class" => "standard"
       })

@@ -1,6 +1,7 @@
 {
   "name": "a new lifecycle starts under its own card with old history",
   "source": {
+    "reshaped": "2026-09-27: the recorded routing decision was rewritten into the current contract, as the live-replies migration rewrote stored decisions: reaction became reactions, and messages and repository were added as null. The recorded choice is unchanged.",
     "database": "tenant responder.db",
     "slack_input_ids": [
       "slack_message_0fd6cbc19792cb7a7cc32d8bef15b51b",
@@ -50,9 +51,11 @@
   "decision": {
     "action": "start_episode",
     "episode_ref": "$seed",
-    "reaction": null,
+    "messages": null,
+    "reactions": null,
     "work_class": "standard",
     "relation": "history_only",
+    "repository": null,
     "repository_source": null,
     "reason": "The start identity changed, so this is a new cycle with related history."
   },

@@ -565,8 +565,10 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
              Decision.parse(%{
                "action" => "react",
                "episode_ref" => nil,
-               "reaction" => %{"emoji_name" => "eyes"},
+               "messages" => nil,
+               "reactions" => ["eyes"],
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "A nonverbal acknowledgement is sufficient.",
                "work_class" => nil

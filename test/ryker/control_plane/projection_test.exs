@@ -187,8 +187,10 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     decision = %{
       "action" => "start_episode",
       "episode_ref" => target.episode.key,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "Material work is required.",
       "work_class" => "standard"
@@ -318,8 +320,10 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         decision_document: %{
           "action" => "start_episode",
           "episode_ref" => transition.episode.key,
-          "reaction" => nil,
+          "messages" => nil,
+          "reactions" => nil,
           "relation" => "unrelated",
+          "repository" => nil,
           "repository_source" => nil,
           "reason" => "Material work is required.",
           "work_class" => "standard"
@@ -328,8 +332,10 @@ defmodule Ryker.ControlPlane.ProjectionTest do
           CanonicalJSON.digest(%{
             "action" => "start_episode",
             "episode_ref" => transition.episode.key,
-            "reaction" => nil,
+            "messages" => nil,
+            "reactions" => nil,
             "relation" => "unrelated",
+            "repository" => nil,
             "repository_source" => nil,
             "reason" => "Material work is required.",
             "work_class" => "standard"
@@ -2272,8 +2278,10 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     decision = %{
       "action" => "start_episode",
       "episode_ref" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "Requires evidence.",
       "work_class" => "standard"

@@ -679,9 +679,9 @@ defmodule Ryker.Admission.CommitTest do
       assert result.entry.episode_id == nil
 
       if action == :react do
-        assert result.entry.decision_document["reaction"] == %{"emoji_name" => "eyes"}
+        assert result.entry.decision_document["reactions"] == ["eyes"]
       else
-        assert result.entry.decision_document["reaction"] == nil
+        assert result.entry.decision_document["reactions"] == nil
       end
     end
   end
@@ -689,7 +689,9 @@ defmodule Ryker.Admission.CommitTest do
   test "a quick reply is sent as routing wrote it and starts no work" do
     # Andrew, 2026-09-26: routing may answer a simple message itself, without
     # starting the work model; "hi" gets "hi" back. It still decides every
-    # time whether a message starts or continues work.
+    # time whether a message starts or continues work. The same day he wrote
+    # "Now both reply and add a reaction" and routing, able to send one
+    # message or one emoji but not both, started a 1 min 22 s work run.
     entry = record_input!(event_ref: "Ev-quick-reply", content: %{"text" => "hi"})
     context = context!(entry)
 
@@ -697,9 +699,10 @@ defmodule Ryker.Admission.CommitTest do
              Decision.parse(%{
                "action" => "quick_reply",
                "episode_ref" => nil,
-               "message" => "Hi! What can I help with?",
-               "reaction" => nil,
+               "messages" => ["Hi again!", "What can I help with?"],
+               "reactions" => ["thumbsup", "wave"],
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "A greeting needs only a greeting back.",
                "work_class" => nil
@@ -712,11 +715,89 @@ defmodule Ryker.Admission.CommitTest do
     assert result.entry.episode_id == nil
     assert Repo.aggregate(Ryker.Work.Turn, :count) == 0
 
-    assert [response] = Repo.all(Ryker.Delivery.RoutingResponse)
-    assert response.kind == :message
-    assert response.document == %{"message" => "Hi! What can I help with?"}
-    assert response.status == :pending
-    assert response.input_id == entry.id
+    # The words go first, in order, then the emoji on the person's message:
+    # one frozen delivery each, with its own reference.
+    responses =
+      Repo.all(
+        from(response in Ryker.Delivery.RoutingResponse,
+          where: response.input_id == ^entry.id,
+          order_by: response.position
+        )
+      )
+
+    assert Enum.map(responses, &{&1.position, &1.kind, &1.document}) == [
+             {1, :message, %{"message" => "Hi again!"}},
+             {2, :message, %{"message" => "What can I help with?"}},
+             {3, :reaction, %{"emoji_name" => "thumbsup"}},
+             {4, :reaction, %{"emoji_name" => "wave"}}
+           ]
+
+    assert Enum.all?(responses, &(&1.status == :pending))
+    assert responses |> Enum.map(& &1.delivery_ref) |> Enum.uniq() |> length() == 4
+  end
+
+  # Routing may now put up to three emoji on the person's message, with or
+  # without words. Each has to be one the source can take: an emoji the
+  # platform refuses would be frozen into delivery and blocked there, after
+  # routing had already settled the message and started nothing else.
+  test "every emoji routing adds is one the source can take" do
+    entry = record_input!(event_ref: "Ev-emoji-offered")
+    context = context!(entry)
+
+    named = %{
+      context
+      | input: %{
+          context.input
+          | source_capabilities: %{"react" => %{"emoji_names" => ~w(+1 eyes)}}
+        }
+    }
+
+    react = fn reactions ->
+      assert {:ok, decision} =
+               Decision.parse(%{
+                 "action" => "react",
+                 "episode_ref" => nil,
+                 "messages" => nil,
+                 "reactions" => reactions,
+                 "relation" => "unrelated",
+                 "repository" => nil,
+                 "repository_source" => nil,
+                 "reason" => "Acknowledge without words.",
+                 "work_class" => nil
+               })
+
+      decision
+    end
+
+    assert {:ok, _selection} = Admission.validate(named, react.(["+1", "eyes"]))
+
+    assert Admission.validate(named, react.(["+1", "thumbsup"])) ==
+             {:error,
+              {:admission_rejected, :reaction_not_allowed,
+               allowed: ~w(+1 eyes), submitted: ["thumbsup"]}}
+
+    # A Slack event, not a message, takes no reaction: a quick answer to it
+    # is words alone.
+    event = record_input!(event_ref: "Ev-emoji-event", event_kind: :event)
+    assert Input.reaction_names(context!(event).input) == nil
+
+    assert {:ok, quick} =
+             Decision.parse(%{
+               "action" => "quick_reply",
+               "episode_ref" => nil,
+               "messages" => ["Noted."],
+               "reactions" => ["eyes"],
+               "relation" => "unrelated",
+               "repository" => nil,
+               "repository_source" => nil,
+               "reason" => "A short answer is enough.",
+               "work_class" => nil
+             })
+
+    assert Admission.commit(context!(event), quick, "decision-emoji-event") ==
+             {:error, {:admission_rejected, :reactions_not_available}}
+
+    assert Repo.aggregate(Ryker.Delivery.RoutingResponse, :count) == 0
   end
 
   # A quick reply is sent exactly as routing wrote it, without review, so the
@@ -737,9 +818,10 @@ defmodule Ryker.Admission.CommitTest do
              Decision.parse(%{
                "action" => "quick_reply",
                "episode_ref" => nil,
-               "message" => "Thanks for the heads-up!",
-               "reaction" => nil,
+               "messages" => ["Thanks for the heads-up!"],
+               "reactions" => nil,
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "An alert that needs no work.",
                "work_class" => nil
@@ -1528,7 +1610,8 @@ defmodule Ryker.Admission.CommitTest do
              Decision.parse(%{
                "action" => Atom.to_string(action),
                "episode_ref" => nil,
-               "reaction" => nil,
+               "messages" => nil,
+               "reactions" => nil,
                "relation" => "unrelated",
                "reason" => "Recorded model admission decision for this test.",
                "repository" => repository,
@@ -1561,7 +1644,7 @@ defmodule Ryker.Admission.CommitTest do
   end
 
   defp decision!(action, episode_ref, relation, selected_work_class \\ :default) do
-    reaction = if action == :react, do: %{"emoji_name" => "eyes"}, else: nil
+    reactions = if action == :react, do: ["eyes"], else: nil
 
     selected_work_class =
       if selected_work_class == :default, do: work_class(action), else: selected_work_class
@@ -1570,8 +1653,10 @@ defmodule Ryker.Admission.CommitTest do
              Decision.parse(%{
                "action" => Atom.to_string(action),
                "episode_ref" => episode_ref,
-               "reaction" => reaction,
+               "messages" => nil,
+               "reactions" => reactions,
                "relation" => Atom.to_string(relation),
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "Recorded model admission decision for this test.",
                "work_class" => selected_work_class

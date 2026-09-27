@@ -226,7 +226,7 @@ defmodule Ryker.Admission do
   def validate(%Context{} = context, decision) do
     with {:ok, decision} <- Decision.prepare(decision),
          :ok <- allowed_action(context.input, decision.action),
-         :ok <- allowed_reaction(context.input, decision),
+         :ok <- allowed_reactions(context.input, decision),
          {:ok, candidate} <- selected_candidate(context, decision.episode_ref),
          :ok <- allowed_relation(candidate, decision.relation),
          :ok <- allowed_repository(context, decision),
@@ -1249,26 +1249,30 @@ defmodule Ryker.Admission do
       else: {:error, {:admission_rejected, :action_not_allowed, submitted: action}}
   end
 
-  defp allowed_reaction(input, %{action: :react, reaction: %{emoji_name: emoji_name}}) do
+  # Every emoji routing adds, whether as a reaction or beside a quick reply,
+  # must be one the source can take: the adapter's own names when it issues
+  # them, any standard name when it does not, and none when it cannot react.
+  defp allowed_reactions(_input, %{reactions: nil}), do: :ok
+
+  defp allowed_reactions(input, %{reactions: reactions}) do
     case Input.reaction_names(input) do
       :any ->
         :ok
 
       names when is_list(names) ->
-        if emoji_name in names do
-          :ok
-        else
-          {:error,
-           {:admission_rejected, :reaction_not_allowed, allowed: names, submitted: emoji_name}}
+        case Enum.reject(reactions, &(&1 in names)) do
+          [] ->
+            :ok
+
+          refused ->
+            {:error,
+             {:admission_rejected, :reaction_not_allowed, allowed: names, submitted: refused}}
         end
 
-      names ->
-        {:error,
-         {:admission_rejected, :reaction_not_allowed, allowed: names || [], submitted: emoji_name}}
+      nil ->
+        {:error, {:admission_rejected, :reactions_not_available}}
     end
   end
-
-  defp allowed_reaction(_input, _decision), do: :ok
 
   defp allowed_relation(nil, :unrelated), do: :ok
 

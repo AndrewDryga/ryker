@@ -184,19 +184,15 @@ defmodule Ryker.Admission.ReplayTest do
 
   defp decision!(document, context, seed) do
     document =
-      document
-      |> Map.put_new("reaction", nil)
-      |> then(fn document ->
-        if document["episode_ref"] == "$seed" do
-          candidate =
-            Enum.find(context.candidates, &(&1.episode.id == seed.id)) ||
-              flunk("seed episode was not offered to the model")
+      if document["episode_ref"] == "$seed" do
+        candidate =
+          Enum.find(context.candidates, &(&1.episode.id == seed.id)) ||
+            flunk("seed episode was not offered to the model")
 
-          Map.put(document, "episode_ref", candidate.ref)
-        else
-          document
-        end
-      end)
+        Map.put(document, "episode_ref", candidate.ref)
+      else
+        document
+      end
 
     assert {:ok, decision} = Decision.parse(document)
     decision

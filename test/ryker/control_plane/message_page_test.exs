@@ -197,10 +197,10 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     refute has_element?(view, ".episode-metrics .metric-response")
 
     reacted = message!("1788562400.000200", nil, "shipped it", at(60))
-    decision = %{"action" => "react", "reaction" => %{"emoji_name" => "eyes"}}
+    decision = %{"action" => "react", "reactions" => ["eyes"]}
     decide!(reacted, :react, decision, nil)
 
-    {:ok, {:ok, response}} =
+    {:ok, {:ok, [response]}} =
       Repo.transaction(fn ->
         RoutingResponseCustody.enqueue_in_transaction(Repo.get!(Entry, reacted.id))
       end)
@@ -214,6 +214,95 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     assert has_element?(view, ".episode-metrics .metric-response", "2s")
   end
 
+  # Andrew, 2026-09-26: "Now both reply and add a reaction". Routing now
+  # answers such a message itself with its words and its emoji, and the page
+  # of that message has to show everything it sent, in the order it went out:
+  # a page that showed one reply would say the rest never happened.
+  test "a quick answer of several messages and emoji shows each on the message's page, in order" do
+    greeting = message!(@root, nil, "Hi <@#{@ryker}>, now both reply and add a reaction", @sent)
+
+    decision = %{
+      "action" => "quick_reply",
+      "episode_ref" => nil,
+      "messages" => ["Hi again!", "Want me to check the deploy too?"],
+      "reactions" => ["thumbsup"],
+      "reason" => "A greeting that asked for a reply and a reaction.",
+      "relation" => "unrelated",
+      "repository" => nil,
+      "repository_source" => nil,
+      "work_class" => nil
+    }
+
+    greeting
+    |> routed!(decision, at(2))
+    |> Enum.with_index(3)
+    |> Enum.each(fn {response, seconds} -> delivered!(response, at(seconds)) end)
+
+    {:ok, view, _html} = open(greeting)
+    page = view |> render() |> LazyHTML.from_document()
+
+    assert text(page, ".episode-location .ui-status") == "Answered right away"
+
+    # The response time is to the first thing that reached the thread.
+    assert text(page, ".episode-metrics .metric-response") =~ "3s"
+
+    answer = LazyHTML.query(page, ".phase-answer")
+
+    assert answer
+           |> LazyHTML.query(".ui-message[data-author=ryker] .ui-message-body")
+           |> Enum.map(&(&1 |> LazyHTML.text() |> squish())) ==
+             ["Hi again!", "Want me to check the deploy too?"]
+
+    assert text(answer, ".case-event") =~ ":thumbsup:"
+    assert text(answer, ".case-event .event-state") == "Sent"
+
+    # Routing's own card lists each message and the emoji it chose.
+    facts = decision_facts(page)
+    assert {"Reaction", ":thumbsup:"} in facts
+    assert {"First message", "Hi again!"} in facts
+    assert {"Second message", "Want me to check the deploy too?"} in facts
+  end
+
+  # The migration of 2026-09-27 rewrote every stored decision into the new
+  # shape and kept each response routing had already sent, under the delivery
+  # reference it was sent with, as the first of its message. Those pages must
+  # read exactly as they did.
+  test "an answer sent before routing could send several still reads on its page" do
+    greeting = message!(@root, nil, "Hi <@#{@ryker}>", @sent)
+
+    [response] =
+      routed!(
+        greeting,
+        %{
+          "action" => "quick_reply",
+          "episode_ref" => nil,
+          "messages" => ["Hi! How can I help?"],
+          "reactions" => nil,
+          "reason" => "A greeting needs a short answer, not work.",
+          "relation" => "unrelated",
+          "repository" => nil,
+          "repository_source" => nil,
+          "work_class" => nil
+        },
+        at(26)
+      )
+
+    Repo.update_all(from(sent in RoutingResponse, where: sent.id == ^response.id),
+      set: [delivery_ref: "ingress-message:#{greeting.id}"]
+    )
+
+    delivered!(response, at(27))
+
+    {:ok, view, _html} = open(greeting)
+    page = view |> render() |> LazyHTML.from_document()
+
+    assert text(page, ".phase-answer .ui-message[data-author=ryker] .ui-message-body") ==
+             "Hi! How can I help?"
+
+    assert {"Answer", "Hi! How can I help?"} in decision_facts(page)
+    assert text(page, ".episode-metrics .metric-response") =~ "27s"
+  end
+
   defp open(entry) do
     live(
       build_conn() |> Map.put(:host, "localhost"),
@@ -222,6 +311,15 @@ defmodule Ryker.ControlPlane.MessagePageTest do
   end
 
   defp at(seconds), do: DateTime.add(@sent, seconds, :second)
+
+  defp decision_facts(page) do
+    page
+    |> LazyHTML.query(".phase-routing .request-decision > div")
+    |> Enum.map(fn fact ->
+      {fact |> LazyHTML.query("dt") |> LazyHTML.text() |> squish(),
+       fact |> LazyHTML.query("dd") |> LazyHTML.text() |> squish()}
+    end)
+  end
 
   defp text(document, selector),
     do: document |> LazyHTML.query(selector) |> LazyHTML.text() |> squish()
@@ -255,15 +353,23 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     decision = %{
       "action" => "quick_reply",
       "episode_ref" => nil,
-      "message" => reply,
-      "reaction" => nil,
+      "messages" => [reply],
+      "reactions" => nil,
       "reason" => "A greeting needs a short answer, not work.",
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "work_class" => nil
     }
 
-    committed = DateTime.to_iso8601(DateTime.add(delivered_at, -1, :second))
+    [response] = routed!(entry, decision, DateTime.add(delivered_at, -1, :second))
+    delivered!(response, delivered_at)
+  end
+
+  # The committed routing call and its decision, and the responses it froze
+  # for delivery, in the order they are sent.
+  defp routed!(entry, decision, committed_at) do
+    committed = DateTime.to_iso8601(committed_at)
 
     Repo.insert!(%Attempt{
       input_id: entry.id,
@@ -279,13 +385,13 @@ defmodule Ryker.ControlPlane.MessagePageTest do
       response: %{"state" => "completed", "validation_attempt" => 1}
     })
 
-    decide!(entry, :quick_reply, decision, nil)
+    decide!(entry, String.to_existing_atom(decision["action"]), decision, nil)
     decided = Repo.get!(Entry, entry.id)
 
-    {:ok, {:ok, response}} =
+    {:ok, {:ok, responses}} =
       Repo.transaction(fn -> RoutingResponseCustody.enqueue_in_transaction(decided) end)
 
-    delivered!(response, delivered_at)
+    responses
   end
 
   defp delivered!(response, delivered_at) do

@@ -1,6 +1,7 @@
 {
   "name": "a lifecycle resolution continues the active episode",
   "source": {
+    "reshaped": "2026-09-27: the recorded routing decision was rewritten into the current contract, as the live-replies migration rewrote stored decisions: reaction became reactions, and messages and repository were added as null. The recorded choice is unchanged.",
     "database": "tenant responder.db",
     "slack_input_ids": [
       "slack_message_6a8d30c5d13a52accb36ce0c7264bc13",
@@ -45,9 +46,11 @@
   "decision": {
     "action": "continue_episode",
     "episode_ref": "$seed",
-    "reaction": null,
+    "messages": null,
+    "reactions": null,
     "work_class": "standard",
     "relation": "same_work",
+    "repository": null,
     "repository_source": null,
     "reason": "The newer card is another lifecycle revision of the active work."
   },

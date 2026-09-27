@@ -91,8 +91,10 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
              Decision.parse(%{
                "action" => "react",
                "episode_ref" => nil,
-               "reaction" => %{"emoji_name" => "eyes"},
+               "messages" => nil,
+               "reactions" => ["eyes"],
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "Acknowledge the source item without starting work.",
                "work_class" => nil

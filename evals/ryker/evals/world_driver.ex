@@ -210,7 +210,6 @@ defmodule Ryker.Evals.WorldDriver do
      %Decision{
        action: :start_episode,
        episode_ref: nil,
-       reaction: nil,
        relation: :unrelated,
        reason: "Start the scenario's first work episode.",
        repository_source: nil,
@@ -234,7 +233,6 @@ defmodule Ryker.Evals.WorldDriver do
          %Decision{
            action: :continue_episode,
            episode_ref: candidate.ref,
-           reaction: nil,
            relation: :same_work,
            reason: "Continue the scenario's existing work episode.",
            repository_source: nil,

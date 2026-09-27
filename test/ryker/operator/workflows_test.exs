@@ -229,8 +229,10 @@ defmodule Ryker.Operator.WorkflowsTest do
              Decision.parse(%{
                "action" => "react",
                "episode_ref" => nil,
-               "reaction" => %{"emoji_name" => "eyes"},
+               "messages" => nil,
+               "reactions" => ["eyes"],
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "Acknowledge without starting an episode.",
                "work_class" => nil
@@ -359,8 +361,10 @@ defmodule Ryker.Operator.WorkflowsTest do
              Decision.parse(%{
                "action" => "start_episode",
                "episode_ref" => nil,
-               "reaction" => nil,
+               "messages" => nil,
+               "reactions" => nil,
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "Evaluate the retained Slack input privately.",
                "work_class" => "standard"

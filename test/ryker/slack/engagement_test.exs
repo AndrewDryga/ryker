@@ -73,9 +73,10 @@ defmodule Ryker.Slack.EngagementTest do
              Decision.parse(%{
                "action" => "quick_reply",
                "episode_ref" => nil,
-               "message" => "Hi! What can I help with?",
-               "reaction" => nil,
+               "messages" => ["Hi! What can I help with?"],
+               "reactions" => nil,
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "A greeting needs a short answer, not work.",
                "work_class" => nil

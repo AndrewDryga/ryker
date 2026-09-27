@@ -41,12 +41,12 @@ defmodule Ryker.Knowledge.KnowledgeUpdateTest do
     decision = %{
       "action" => "ignore",
       "episode_ref" => nil,
-      "message" => nil,
+      "messages" => nil,
       "relation" => "unrelated",
       "repository" => nil,
       "repository_source" => nil,
       "reason" => "Learn without responding.",
-      "reaction" => nil,
+      "reactions" => nil,
       "work_class" => nil,
       "knowledge" => proposal
     }

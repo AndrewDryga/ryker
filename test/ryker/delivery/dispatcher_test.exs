@@ -1040,8 +1040,10 @@ defmodule Ryker.Delivery.DispatcherTest do
              Decision.parse(%{
                "action" => "react",
                "episode_ref" => nil,
-               "reaction" => %{"emoji_name" => emoji_name},
+               "messages" => nil,
+               "reactions" => [emoji_name],
                "relation" => "unrelated",
+               "repository" => nil,
                "repository_source" => nil,
                "reason" => "Acknowledge without starting an episode.",
                "work_class" => nil

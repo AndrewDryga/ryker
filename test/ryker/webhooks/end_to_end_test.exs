@@ -384,8 +384,10 @@ defmodule Ryker.Webhooks.EndToEndTest do
     Jason.encode!(%{
       "action" => action,
       "episode_ref" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "This unknown event needs a new episode so Ryker can inspect it.",
       "work_class" => "standard"

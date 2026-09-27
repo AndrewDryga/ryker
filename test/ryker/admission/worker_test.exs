@@ -133,8 +133,10 @@ defmodule Ryker.Admission.WorkerTest do
     Jason.encode!(%{
       "action" => action,
       "episode_ref" => nil,
-      "reaction" => nil,
+      "messages" => nil,
+      "reactions" => nil,
       "relation" => "unrelated",
+      "repository" => nil,
       "repository_source" => nil,
       "reason" => "The incoming request can receive an immediate answer.",
       "work_class" => if(action == "reply", do: "conversational", else: "standard")
