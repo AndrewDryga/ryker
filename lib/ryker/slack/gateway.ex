@@ -7,6 +7,11 @@ defmodule Ryker.Slack.Gateway do
   authority-checked transition has completed. Transient failures deliberately
   leave the envelope unacknowledged for Slack to retry.
 
+  Envelopes are handled one at a time, so nothing slow runs here: a voice
+  message's recording is kept and its message recorded with the transcript
+  pending, and `Ryker.Transcription.Worker` transcribes it after the
+  acknowledgement.
+
   The connection coming up or going down is announced
   (`subscribe_connection/0`): it is process state, not a row, so no commit
   says it.

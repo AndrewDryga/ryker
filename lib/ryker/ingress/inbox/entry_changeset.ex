@@ -207,6 +207,23 @@ defmodule Ryker.Ingress.Inbox.EntryChangeset do
     |> validate_length(:last_error_detail, max: 4_096)
   end
 
+  @doc """
+  Fills in the transcripts a voice message was recorded without and stops
+  routing from waiting for them. Nothing else about the input changes.
+  """
+  @spec settle_transcripts(Entry.t(), map()) :: Ecto.Changeset.t()
+  def settle_transcripts(%Entry{} = entry, content) do
+    entry
+    |> cast(%{content: content, awaiting_transcript_until: nil}, [
+      :content,
+      :awaiting_transcript_until
+    ])
+    |> validate_required([:content])
+    |> check_constraint(:awaiting_transcript_until,
+      name: :ingress_inbox_transcript_wait_valid
+    )
+  end
+
   @spec claim(Entry.t(), map()) :: Ecto.Changeset.t()
   def claim(%Entry{} = entry, attributes) do
     entry

@@ -139,8 +139,8 @@ defmodule Ryker.Transcription.Local do
 
   # Closing the port does not stop a program that is busy computing, so the
   # program is killed by its exact process id, never by a name or a pattern.
-  # The caller may be the Slack gateway, so nothing the port sent is left in
-  # its mailbox.
+  # The caller is a long-lived process, the transcription worker or Chat's
+  # upload, so nothing the port sent is left in its mailbox.
   defp stop(port, os_pid) do
     if is_integer(os_pid),
       do: System.cmd("sh", ["-c", "kill -KILL #{os_pid} 2>/dev/null"], stderr_to_stdout: true)

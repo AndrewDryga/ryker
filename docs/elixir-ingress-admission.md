@@ -232,6 +232,13 @@ creating work. An ignored self/unlisted-actor event returns `200` and creates no
 normalized input before any model call. Workers claim the oldest eligible row with `FOR UPDATE SKIP
 LOCKED`; an opaque expiring lease fences the eventual decision and retry update.
 
+A voice message is recorded before its words are known, so Slack's acknowledgement never waits for
+a transcription. It is not eligible until the transcription worker fills in its transcript, or until
+two minutes after it arrived, when the claim that takes it records that Ryker could not transcribe
+it. Later messages in its conversation keep their place behind it. The event fingerprint leaves out
+what Ryker derives from a recording (its transcript, why it has none, or that it is still to come),
+so a redelivery before or after the words, and the decision's commit, all read the same event.
+
 A process crash leaves the input claimable after lease expiry. A transient Coop failure releases it
 with bounded exponential backoff measured from the time the failure occurred. It does not consume the
 episode's model-attempt budget because no episode turn has started yet.

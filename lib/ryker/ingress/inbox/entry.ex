@@ -2,8 +2,11 @@ defmodule Ryker.Ingress.Inbox.Entry do
   @moduledoc """
   One immutable source input plus its eventual admission decision.
 
-  The input columns never change. Admission fills the decision columns and
-  optional episode link exactly once in a later transaction.
+  The input columns never change, with one exception: a voice message
+  recorded before its transcript has the words, or why there are none, filled
+  into its content once, while `awaiting_transcript_until` holds routing off
+  (`Ryker.Transcription`). Admission fills the decision columns and optional
+  episode link exactly once in a later transaction.
   """
 
   use Ecto.Schema
@@ -65,6 +68,7 @@ defmodule Ryker.Ingress.Inbox.Entry do
     field(:lease_owner, :string)
     field(:lease_expires_at, :utc_datetime_usec)
     field(:next_attempt_at, :utc_datetime_usec)
+    field(:awaiting_transcript_until, :utc_datetime_usec)
     field(:last_error_code, :string)
     field(:last_error_detail, :string)
     field(:operational_pruned_at, :utc_datetime_usec)

@@ -1,9 +1,14 @@
 defmodule Ryker.Slack.GatewayRuntimeTest do
   use Ryker.DataCase, async: false
 
+  import Ecto.Query
+
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.Fixtures.SlackVoice
   alias Ryker.Ingress.Inbox
-  alias Ryker.Slack.Gateway
+  alias Ryker.Slack.{AttachmentIngestor, Gateway}
+  alias Ryker.TestTranscriber
+  alias Ryker.Transcription.Worker, as: TranscriptionWorker
 
   defmodule Transport do
     @behaviour Ryker.Slack.SocketTransport
@@ -69,6 +74,23 @@ defmodule Ryker.Slack.GatewayRuntimeTest do
     end
   end
 
+  defmodule HeldTranscriber do
+    @behaviour Ryker.Transcription
+
+    # Runs until the test lets it finish, so a transcription can be held in
+    # progress for as long as the test needs.
+    @impl true
+    def transcribe(_data, _options) do
+      send(Ryker.Slack.GatewayRuntimeTest, {:transcribing, self()})
+
+      receive do
+        {:finish_transcription, words} -> {:ok, words}
+      after
+        5_000 -> {:error, :timeout}
+      end
+    end
+  end
+
   test "acknowledges an event only after its normalized input is durable" do
     gateway = start_gateway(settings())
     assert_receive {:socket_connected, ^gateway}
@@ -81,6 +103,51 @@ defmodule Ryker.Slack.GatewayRuntimeTest do
 
     assert [%{status: :pending, event_ref: "Ev-1"}] =
              Ryker.Repo.all(Inbox.Entry)
+  end
+
+  # The gateway takes one envelope at a time. A voice message transcribed
+  # inside it held every later Slack event for up to a minute, and Slack
+  # delivered a clip longer than about 25 s twice (2026-09-27). Transcription
+  # runs beside the gateway now, after the acknowledgement.
+  test "another Slack event is acknowledged while a voice message is being transcribed" do
+    Process.register(self(), __MODULE__)
+    file = %{SlackVoice.file() | "duration_ms" => 95_000}
+
+    settings =
+      settings()
+      |> Map.put(:attachment_ingestor, AttachmentIngestor)
+      |> Map.put(
+        :attachment_options,
+        SlackVoice.attachment_options({:ok, file, TestTranscriber.recording("unheard")})
+      )
+
+    gateway = start_gateway(settings)
+    assert_receive {:socket_connected, ^gateway}
+    worker = start_supervised!({TranscriptionWorker, transcriber: HeldTranscriber})
+
+    voice = SlackVoice.envelope("Ev-voice", file: file, workspace_ref: "T123")
+    send(gateway, {:socket_frame, {:text, Jason.encode!(voice)}})
+    assert_receive {:socket_sent, {:text, acknowledgement}}, 1_000
+    assert %{"envelope_id" => "env-Ev-voice"} = Jason.decode!(acknowledgement)
+
+    assert_receive {:transcribing, ^worker}, 1_000
+
+    send(gateway, {:socket_frame, {:text, Jason.encode!(message_envelope())}})
+    assert_receive {:socket_sent, {:text, acknowledgement}}, 1_000
+    assert %{"envelope_id" => "env-event"} = Jason.decode!(acknowledgement)
+
+    [voice_entry] =
+      Ryker.Repo.all(from(entry in Inbox.Entry, where: entry.event_ref == "Ev-voice"))
+
+    assert [%{"transcript_pending" => true}] = voice_entry.content["files"]
+
+    :ok = Inbox.subscribe_inputs()
+    send(worker, {:finish_transcription, "Roll back the payments deploy"})
+    id = voice_entry.id
+    assert_receive {:input_updated, ^id}, 1_000
+
+    assert {:ok, transcribed} = Inbox.fetch(Inbox.ref(voice_entry))
+    assert [%{"transcript" => "Roll back the payments deploy"}] = transcribed.content["files"]
   end
 
   test "does not acknowledge a transient host-control failure" do

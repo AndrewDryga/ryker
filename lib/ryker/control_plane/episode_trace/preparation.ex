@@ -226,6 +226,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp queue_kind(:superseded, _current), do: :superseded
   defp queue_kind(:retry_scheduled, true), do: :retry
   defp queue_kind(:waiting_predecessor, true), do: :waiting
+  defp queue_kind(:transcribed, true), do: :waiting
   defp queue_kind(:saved, true), do: :waiting
   defp queue_kind(:rearmed, true), do: :waiting
   defp queue_kind(kind, _current), do: kind
@@ -249,6 +250,23 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       link_label:
         transition.predecessor_input_id &&
           "“#{queue_blocker_text(transition)}” · View earlier input"
+    )
+  end
+
+  defp queue_event(%{kind: :transcribed, detail: nil} = transition, _input) do
+    queue_event(transition, "Transcribed", "Routing reads what the voice message says.")
+  end
+
+  defp queue_event(%{kind: :transcribed} = transition, _input) do
+    queue_event(transition, "Transcribed", "Routing reads that it is #{transition.detail}.")
+  end
+
+  defp queue_event(%{kind: :transcript_timed_out} = transition, _input) do
+    queue_event(
+      transition,
+      "Transcript not ready",
+      "Routing stopped waiting for the words and reads that it is " <>
+        "#{transition.detail || "a voice message Ryker could not transcribe"}."
     )
   end
 
@@ -303,6 +321,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   end
 
   defp current_queue_event(_input, _last, false, _now), do: []
+
+  defp current_queue_event(%{awaiting_transcript_until: %DateTime{} = until}, _last, true, now) do
+    reason =
+      if live_after?(until, now),
+        do:
+          "Waiting for the voice message's transcript, until #{retry_time(until)} at the latest.",
+        else: "The transcript was not ready in time. Ready for the next routing worker."
+
+    [%{kind: :current, label: "Current", at: nil, reason: reason, href: nil, link_label: nil}]
+  end
 
   defp current_queue_event(input, %{kind: :retry_scheduled}, true, now) do
     reason =

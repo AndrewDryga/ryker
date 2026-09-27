@@ -14,6 +14,8 @@ defmodule Ryker.Ingress.InputCustodyTransition do
       values: [
         :saved,
         :waiting_predecessor,
+        :transcribed,
+        :transcript_timed_out,
         :claimed,
         :reclaimed,
         :retry_scheduled,

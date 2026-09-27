@@ -5,19 +5,14 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
   alias Ryker.Admission.{Context, Prompt}
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
+  alias Ryker.Fixtures.SlackVoice
+  alias Ryker.Fixtures.SlackVoice.Downloader
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
   alias Ryker.Slack.AttachmentIngestor
   alias Ryker.TestTranscriber
 
   @png <<137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0>>
-
-  defmodule Downloader do
-    def download(%{observer: observer, result: result}, file, maximum_bytes) do
-      send(observer, {:download, file["id"], maximum_bytes})
-      result
-    end
-  end
 
   test "downloads each eligible Slack file once and replaces private URLs with durable refs" do
     input = input!([file()])
@@ -27,8 +22,7 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
              AttachmentIngestor.ingest(%{audience: :mention, input: input}, %{
                client: client,
                downloader: Downloader,
-               store: Artifacts,
-               transcriber: TestTranscriber
+               store: Artifacts
              })
 
     assert_received {:download, "F123", 8_388_608}
@@ -46,8 +40,7 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
              AttachmentIngestor.ingest(%{audience: :mention, input: input}, %{
                client: %{observer: self(), result: {:error, :must_not_download}},
                downloader: Downloader,
-               store: Artifacts,
-               transcriber: TestTranscriber
+               store: Artifacts
              })
 
     refute_received {:download, "F123", _maximum}
@@ -73,8 +66,7 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
              AttachmentIngestor.ingest(%{audience: :mention, input: input!([shell])}, %{
                client: %{observer: self(), result: {:ok, shell, script}},
                downloader: Downloader,
-               store: Artifacts,
-               transcriber: TestTranscriber
+               store: Artifacts
              })
 
     assert_received {:download, "F301", _maximum}
@@ -96,8 +88,7 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
              AttachmentIngestor.ingest(%{audience: :mention, input: input!([binary])}, %{
                client: %{observer: self(), result: {:ok, binary, <<0, 159, 146, 150>> <> @png}},
                downloader: Downloader,
-               store: Artifacts,
-               transcriber: TestTranscriber
+               store: Artifacts
              })
 
     assert [%{"reason" => "unsupported_media_type", "status" => "unavailable"}] =
@@ -111,8 +102,7 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
              AttachmentIngestor.ingest(%{audience: :mention, input: input!([unsupported])}, %{
                client: %{observer: self(), result: {:error, :must_not_download}},
                downloader: Downloader,
-               store: Artifacts,
-               transcriber: TestTranscriber
+               store: Artifacts
              })
 
     assert [%{"reason" => "unsupported_media_type", "status" => "unavailable"}] =
@@ -123,8 +113,7 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
     assert AttachmentIngestor.ingest(%{audience: :mention, input: input!([file()])}, %{
              client: %{observer: self(), result: {:error, {:slack_file_unavailable, :offline}}},
              downloader: Downloader,
-             store: Artifacts,
-             transcriber: TestTranscriber
+             store: Artifacts
            }) == {:error, {:slack_file_unavailable, :offline}}
   end
 
@@ -138,8 +127,7 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
     options = %{
       client: %{observer: self(), result: {:error, :must_not_download}},
       downloader: Downloader,
-      store: Artifacts,
-      transcriber: TestTranscriber
+      store: Artifacts
     }
 
     assert {:ok, enriched} =
@@ -191,8 +179,7 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
                AttachmentIngestor.ingest(%{audience: :mention, input: input!([metadata])}, %{
                  client: client,
                  downloader: Downloader,
-                 store: Artifacts,
-                 transcriber: TestTranscriber
+                 store: Artifacts
                })
 
       assert [%{"reason" => ^reason, "status" => "unavailable"}] =
@@ -202,45 +189,43 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
 
   # Andrew, 2026-09-27: "I sent an audio but ryker ignored it as file not
   # available". His Slack voice message (this exact file object) was refused
-  # before download because audio/mp4 was no type Ryker kept, and routing,
-  # reading an unavailable file and no text, decided nobody needed an answer.
-  # A voice message is words: routing has to read them before it decides.
-  test "a Slack voice message reaches routing as the words it says" do
+  # before download because audio/mp4 was no type Ryker kept. It is kept now,
+  # and its words come after Slack hears its acknowledgement: transcribing it
+  # here held the Slack gateway past Slack's 3 s for any clip over about 25 s.
+  test "a Slack voice message is kept with its transcript to come, and nothing transcribes it here" do
     audio = TestTranscriber.recording("Please audit the checkout service")
 
     assert {:ok, enriched} =
              AttachmentIngestor.ingest(
-               %{audience: :direct, input: voice_input!([voice_message()])},
-               options({:ok, voice_message(), audio})
+               %{audience: :direct, input: voice_input!([SlackVoice.file()])},
+               SlackVoice.attachment_options({:ok, SlackVoice.file(), audio})
              )
 
-    routing = routing_input(enriched.input)
-    assert routing =~ "Please audit the checkout service"
-    refute routing =~ "unavailable"
-    assert_received {:transcribed, ^audio}
-
+    assert_received {:download, "F0C5LM60REC", _maximum}
+    refute_received {:transcribed, _data}
     [descriptor] = enriched.input.content["files"]
-    assert descriptor["transcript"] == "Please audit the checkout service"
+    assert %{"status" => "available", "transcript_pending" => true} = descriptor
+    refute Map.has_key?(descriptor, "transcript")
     assert {:ok, [artifact]} = Artifacts.fetch_many([descriptor["artifact_ref"]])
     assert {artifact.media_type, artifact.data} == {"audio/mp4", audio}
 
     # Slack delivers the same file again when an acknowledgement is late, and
-    # in the app mention beside the message: it is not transcribed twice.
+    # in the app mention beside the message: it is not downloaded twice.
     assert {:ok, again} =
              AttachmentIngestor.ingest(
-               %{audience: :direct, input: voice_input!([voice_message()])},
-               options({:error, :must_not_download})
+               %{audience: :direct, input: voice_input!([SlackVoice.file()])},
+               SlackVoice.attachment_options({:error, :must_not_download})
              )
 
     assert again.input.content["files"] == enriched.input.content["files"]
-    refute_received {:transcribed, _data}
+    refute_received {:download, _id, _maximum}
   end
 
   # When Slack finished its own transcript, transcribing again would only
   # spend the seconds the Socket Mode acknowledgement is waiting on.
   test "Slack's finished transcript is used without transcribing the voice message" do
     file =
-      Map.put(voice_message(), "transcription", %{
+      Map.put(SlackVoice.file(), "transcription", %{
         "status" => "complete",
         "preview" => %{"content" => "Roll back the payments deploy", "has_more" => false}
       })
@@ -250,7 +235,7 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
     assert {:ok, enriched} =
              AttachmentIngestor.ingest(
                %{audience: :direct, input: voice_input!([file])},
-               options({:ok, file, audio})
+               SlackVoice.attachment_options({:ok, file, audio})
              )
 
     routing = routing_input(enriched.input)
@@ -259,33 +244,16 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
     refute_received {:transcribed, _data}
   end
 
-  # A voice message Ryker could not transcribe is still somebody talking to
-  # Ryker: routing must hear that one arrived, so it can ask for text instead
-  # of ignoring an unreadable file.
-  test "a voice message Ryker could not transcribe reaches routing saying so" do
-    audio = TestTranscriber.recording("FAIL")
-
-    assert {:ok, enriched} =
-             AttachmentIngestor.ingest(
-               %{audience: :direct, input: voice_input!([voice_message()])},
-               options({:ok, voice_message(), audio})
-             )
-
-    assert routing_input(enriched.input) =~ "a voice message Ryker could not transcribe"
-    assert [%{"status" => "available"} = descriptor] = enriched.input.content["files"]
-    refute Map.has_key?(descriptor, "transcript")
-  end
-
   # Any audio Slack shares is somebody talking, even in a format Ryker does
   # not keep: routing hears that a voice message arrived that Ryker could not
   # transcribe, never just an unsupported file.
   test "a voice message in a format Ryker does not keep still reaches routing as a voice message" do
-    amr = %{voice_message() | "id" => "F0C5LM60AMR", "mimetype" => "audio/amr"}
+    amr = %{SlackVoice.file() | "id" => "F0C5LM60AMR", "mimetype" => "audio/amr"}
 
     assert {:ok, enriched} =
              AttachmentIngestor.ingest(
                %{audience: :direct, input: voice_input!([amr])},
-               options({:error, :must_not_download})
+               SlackVoice.attachment_options({:error, :must_not_download})
              )
 
     assert routing_input(enriched.input) =~ "a voice message Ryker could not transcribe"
@@ -296,8 +264,8 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
   # refused before download; routing reads why in plain words rather than an
   # unreadable file, so the person hears what to send instead.
   test "a voice message too long or too large to transcribe is refused with a plain reason" do
-    too_long = %{voice_message() | "duration_ms" => 300_001}
-    too_large = %{voice_message() | "id" => "F0C5LM60REG", "size" => 8_388_609}
+    too_long = %{SlackVoice.file() | "duration_ms" => 300_001}
+    too_large = %{SlackVoice.file() | "id" => "F0C5LM60REG", "size" => 8_388_609}
 
     for {file, reason} <- [
           {too_long, "a voice message longer than 5 minutes, the most Ryker transcribes"},
@@ -306,7 +274,7 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
       assert {:ok, enriched} =
                AttachmentIngestor.ingest(
                  %{audience: :direct, input: voice_input!([file])},
-                 options({:error, :must_not_download})
+                 SlackVoice.attachment_options({:error, :must_not_download})
                )
 
       assert [%{"transcript_unavailable" => ^reason}] = enriched.input.content["files"]
@@ -331,32 +299,6 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
     |> Prompt.build()
     |> get_in(["context", "input"])
     |> CanonicalJSON.encode!()
-  end
-
-  defp options(result) do
-    %{
-      client: %{observer: self(), result: result},
-      downloader: Downloader,
-      store: Artifacts,
-      transcriber: TestTranscriber
-    }
-  end
-
-  # The file object Slack sent for Andrew's voice message on 2026-09-27.
-  defp voice_message do
-    %{
-      "id" => "F0C5LM60REC",
-      "name" => "audio_message.m4a",
-      "mimetype" => "audio/mp4",
-      "filetype" => "m4a",
-      "subtype" => "slack_audio",
-      "media_display_type" => "audio",
-      "size" => 109_145,
-      "duration_ms" => 6680,
-      "mode" => "hosted",
-      "file_access" => "visible",
-      "transcription" => %{"status" => "none"}
-    }
   end
 
   # A voice message has no text of its own.

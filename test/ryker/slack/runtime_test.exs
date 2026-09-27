@@ -72,9 +72,9 @@ defmodule Ryker.Slack.RuntimeTest do
     assert %FileClient{binary_http: %BinaryClient{}} =
              options.handler_settings.attachment_options.client
 
-    # Voice messages are transcribed before routing by the configured
-    # transcriber, the stand-in here: no test runs a speech model.
-    assert options.handler_settings.attachment_options.transcriber == Ryker.TestTranscriber
+    # The gateway keeps a voice message's recording and never transcribes it
+    # while Slack waits for the acknowledgement.
+    refute Map.has_key?(options.handler_settings.attachment_options, :transcriber)
 
     assert is_function(options.handler_settings.effective_settings, 2)
     assert options.handler_settings.home_handler == Ryker.Slack.AppHome
@@ -172,11 +172,16 @@ defmodule Ryker.Slack.RuntimeTest do
                     gateway: _gateway,
                     incident_worker: incident_worker,
                     reconciler: _reconciler,
-                    thread_status_worker: thread_status_worker
+                    thread_status_worker: thread_status_worker,
+                    transcription_worker: transcription_worker
                   }
                 ]}
            } = Runtime.child_spec(configuration())
 
+    # Its worker transcribes after the acknowledgement, with the configured
+    # transcriber, the stand-in here: no test runs a speech model.
+    assert transcription_worker[:transcriber] == Ryker.TestTranscriber
+    assert transcription_worker[:name] == Ryker.Transcription.Worker
     assert incident_worker.worker_ref == "slack-incident-room:T123"
     assert incident_worker.lease_seconds == 300
     assert thread_status_worker.workspace_ref == "T123"

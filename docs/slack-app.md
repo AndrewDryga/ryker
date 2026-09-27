@@ -64,12 +64,17 @@ message and does not start repository work.
 Voice messages and videos (m4a/mp4/aac, webm/ogg/opus, mp3, wav, flac, mov) are kept too and reach the
 models as words. Ryker uses Slack's own transcript when Slack finished one; otherwise the Ryker
 container transcribes the recording itself, with ffmpeg and whisper.cpp's multilingual base model
-shipped in the image, before routing reads the message, so a voice message is handled like typed
-text. A recording is bounded at 5 minutes and 8 MiB, and a transcription gives up after 60
-seconds. One past those bounds, or one Ryker could not transcribe, reaches routing saying so in
-plain words, so Ryker can ask for text instead of ignoring it. The recording's bytes never go to
-Coop; its transcript does, inside the message. `RYKER_WHISPER_MODEL` points the transcriber at
-another whisper.cpp model file.
+shipped in the image, so a voice message is handled like typed text. The gateway downloads and keeps
+the recording, records the message with its transcript pending and acknowledges the envelope at
+once; a transcription worker then transcribes one recording at a time and fills in the words, and
+routing waits for them before it decides. A transcript not ready two minutes after the message
+arrived is not waited for: routing reads that Ryker could not transcribe it. So a long clip is never
+delivered twice and no other Slack event waits behind a transcription. A recording is bounded at 5
+minutes and 8 MiB, and a transcription gives up after 60 seconds. One past those bounds, or one Ryker
+could not transcribe, reaches routing saying so in plain words, so Ryker can ask for text instead of
+ignoring it. Each transcript is kept beside its recording, so the same Slack file is never
+transcribed twice. The recording's bytes never go to Coop; its transcript does, inside the message.
+`RYKER_WHISPER_MODEL` points the transcriber at another whisper.cpp model file.
 
 When a user explicitly asks for an image or chart, the agent may create up to four PNG, JPEG, WebP,
 or GIF outputs in Coop's per-turn output directory or return typed ACP image content. Coop stores
