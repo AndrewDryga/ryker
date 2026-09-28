@@ -11,8 +11,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     EpisodeTrace,
     FeedbackPage,
     Kit,
-    RequestContextHTML,
-    RequestPage
+    RequestContextHTML
   }
 
   alias Ryker.Episodes.Words
@@ -1611,7 +1610,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <strong>Current scheduling status:</strong> {@step.current_warning}
       </p>
       <div :if={@step[:candidate_response]} class="candidate-evidence">
-        <Ryker.ControlPlane.RequestPage.candidate_response
+        <EpisodeRequest.candidate_response
           :if={
             @step.candidate_response.artifact &&
               @step.candidate_response.artifact.state in [:retained, :expired]
@@ -1871,7 +1870,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
              Enum.find(sections, &(&1.id == "candidate")),
            {:ok, %{"message" => body}} when is_binary(body) <- Jason.decode(text),
            true <- body == message.text,
-           %{attempt: attempt} <- RequestPage.latest_archived_response(sections) do
+           %{attempt: attempt} <- EpisodeRequest.latest_archived_response(sections) do
         "turn-#{message.id}-response-#{attempt}-body"
       else
         _ -> nil
