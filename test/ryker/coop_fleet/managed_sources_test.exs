@@ -31,6 +31,93 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
     assert_received :same_locked
   end
 
+  # A fetch that stalled inside source preparation held its Work slot for
+  # good: git ran with no deadline under a mirror lock that waited forever, so
+  # the turn's lease lapsed, the next slot claimed the turn and blocked on the
+  # same lock, and every slot touching that repository was consumed.
+  test "a stalled fetch is stopped at its deadline and leaves the mirror unlocked" do
+    directory = fixture_root()
+    primary = remote!(directory, "primary")
+    storage = Path.join(directory, "state")
+    pid_file = Path.join(directory, "fetch.pid")
+    arguments_file = Path.join(directory, "fetch.arguments")
+
+    # Every git command runs for real except the fetch, which hangs.
+    git =
+      program!(directory, "git", """
+      for argument; do
+        if [ "$argument" = fetch ]; then
+          printf '%s\\n' "$@" > '#{arguments_file}'
+          echo $$ > '#{pid_file}'
+          exec sleep 30
+        fi
+      done
+      exec '#{System.find_executable("git")}' "$@"
+      """)
+
+    preparation =
+      Task.async(fn ->
+        ManagedSources.prepare_from_remote(
+          storage,
+          identity("primary", primary, 1),
+          "main",
+          nil,
+          nil,
+          git: git,
+          git_timeout_ms: 500
+        )
+      end)
+
+    assert Task.yield(preparation, 10_000) == {:ok, {:error, :coop_worker_source_unavailable}}
+    refute pid_file |> File.read!() |> String.trim() |> alive?()
+
+    # A transfer that stalls without hanging git outright is git's to give up:
+    # below a byte a second for a minute.
+    options = arguments_file |> File.read!() |> String.split("\n", trim: true)
+    assert ["-c", "http.lowSpeedLimit=1"] in Enum.chunk_every(options, 2, 1)
+    assert ["-c", "http.lowSpeedTime=60"] in Enum.chunk_every(options, 2, 1)
+
+    assert ManagedSources.with_mirror_lock(storage, "primary", fn -> :unlocked end) == :unlocked
+  end
+
+  # The mirror lock was :global.trans/2, which retries forever: a preparation
+  # behind one that never finished waited with it, holding a Work slot of its own.
+  test "a preparation behind a mirror that stays locked gives up at its bound" do
+    directory = fixture_root()
+    primary = remote!(directory, "primary")
+    storage = Path.join(directory, "state")
+    owner = self()
+
+    holder =
+      Task.async(fn ->
+        ManagedSources.with_mirror_lock(storage, "primary", fn ->
+          send(owner, :mirror_locked)
+
+          receive do
+            :release -> :released
+          end
+        end)
+      end)
+
+    assert_receive :mirror_locked, 2_000
+
+    waiting =
+      Task.async(fn ->
+        ManagedSources.prepare_from_remote(
+          storage,
+          identity("primary", primary, 1),
+          "main",
+          nil,
+          nil,
+          mirror_lock_wait_ms: 100
+        )
+      end)
+
+    assert Task.yield(waiting, 5_000) == {:ok, {:error, :coop_worker_source_unavailable}}
+    send(holder.pid, :release)
+    assert Task.await(holder) == :released
+  end
+
   test "branch selection pins the default and selected identities without a full bundle" do
     directory =
       Path.join(System.tmp_dir!(), "ryker-managed-sources-#{System.unique_integer([:positive])}")
@@ -334,6 +421,24 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
     assert Path.wildcard(
              Path.join([directory, "state", "coop-source-mirrors", "*", ".coop-gitlinks-*"])
            ) == []
+  end
+
+  defp program!(directory, name, body) do
+    path = Path.join(directory, name)
+    File.write!(path, "#!/bin/sh\n" <> body)
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  # A stopped program may be reaped a moment after it dies.
+  defp alive?(os_pid, checks \\ 20) do
+    {_output, status} = System.cmd("sh", ["-c", "kill -0 #{os_pid} 2>/dev/null"])
+
+    cond do
+      status != 0 -> false
+      checks == 0 -> true
+      true -> Process.sleep(50) == :ok and alive?(os_pid, checks - 1)
+    end
   end
 
   defp fixture_root do

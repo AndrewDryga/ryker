@@ -15,6 +15,17 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
   @commit ~r/\A[0-9a-f]{40}\z/
 
+  # One git command's deadline. A transfer that stalls is git's own to give up
+  # (http.lowSpeedLimit and http.lowSpeedTime); this bounds everything else,
+  # and still lets the first mirror of a large repository, minutes long, finish.
+  @git_timeout_ms :timer.minutes(30)
+  # git removes its lock and temporary files when asked to stop; one still
+  # running this long after is killed.
+  @git_stop_grace_ms 5_000
+  # How long a preparation waits for another one to finish with its mirror.
+  @mirror_lock_wait_ms :timer.minutes(30)
+  @mirror_lock_poll_ms 250
+
   @spec prepare(String.t(), String.t(), map() | nil) :: {:ok, map()} | {:error, atom()}
   def prepare(storage_root, repository_ref, requested) do
     with true <- is_binary(storage_root) and Path.type(storage_root) == :absolute,
@@ -54,7 +65,8 @@ defmodule Ryker.CoopFleet.ManagedSources do
           map(),
           String.t(),
           map() | nil,
-          (String.t() -> {:ok, map()} | {:error, atom()}) | nil
+          (String.t() -> {:ok, map()} | {:error, atom()}) | nil,
+          keyword()
         ) ::
           {:ok, map()} | {:error, atom()}
   def prepare_from_remote(
@@ -67,19 +79,26 @@ defmodule Ryker.CoopFleet.ManagedSources do
         } = identity,
         base_branch,
         requested,
-        resolver \\ nil
+        resolver \\ nil,
+        options \\ []
       ) do
+    git = git_runner(options)
+
     with :ok <- validate_inputs(storage_root, repository_ref, remote, base_branch, requested),
          true <-
            JobSpec.github_repository?(github_repository),
          true <- is_integer(repository_id) and repository_id > 0,
          :ok <- private_mirror_root(storage_root),
          {:ok, prepared, declarations} <-
-           with_mirror_lock(storage_root, repository_ref, fn ->
-             prepare_locked(storage_root, identity, base_branch, requested)
-           end),
+           with_mirror_lock(
+             storage_root,
+             repository_ref,
+             fn -> prepare_locked(git, storage_root, identity, base_branch, requested) end,
+             git.mirror_lock_wait_ms
+           ),
          {:ok, modules, _remaining} <-
-           resolve_submodules(
+           resolve_modules(
+             git,
              storage_root,
              declarations,
              resolver,
@@ -98,8 +117,9 @@ defmodule Ryker.CoopFleet.ManagedSources do
   @doc """
   Deletes the mirror Ryker keeps of a repository that was removed, under the
   same lock a job's source is prepared under, so a preparation already running
-  finishes first. Nothing else is Ryker's to delete: each worker fetches its
-  own copy for a job.
+  finishes first; a mirror still locked after as long as a preparation waits
+  for one is left in place. Nothing else is Ryker's to delete: each worker
+  fetches its own copy for a job.
   """
   @spec remove_mirror(String.t(), String.t()) :: :ok
   def remove_mirror(storage_root, repository_ref) do
@@ -113,9 +133,48 @@ defmodule Ryker.CoopFleet.ManagedSources do
   end
 
   @doc false
-  def with_mirror_lock(storage_root, repository_ref, operation) do
+  def with_mirror_lock(storage_root, repository_ref, operation, wait_ms \\ @mirror_lock_wait_ms) do
     # :global identifies a lock by {resource, requester}, not {module, key}.
-    :global.trans({{__MODULE__, Path.expand(storage_root), repository_ref}, self()}, operation)
+    lock = {{__MODULE__, Path.expand(storage_root), repository_ref}, self()}
+    nodes = [node() | Node.list()]
+
+    if acquire_mirror_lock(lock, nodes, System.monotonic_time(:millisecond) + wait_ms) do
+      try do
+        operation.()
+      after
+        :global.del_lock(lock, nodes)
+      end
+    else
+      {:error, :source_mirror_busy}
+    end
+  end
+
+  # :global.trans/2 retries forever, and a preparation waiting here holds its
+  # Work slot, so the wait has a deadline.
+  defp acquire_mirror_lock(lock, nodes, deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    cond do
+      :global.set_lock(lock, nodes, 0) ->
+        true
+
+      remaining <= 0 ->
+        false
+
+      true ->
+        Process.sleep(min(remaining, @mirror_lock_poll_ms))
+        acquire_mirror_lock(lock, nodes, deadline)
+    end
+  end
+
+  # How one preparation runs git and waits for a mirror. Tests stand a program
+  # of their own in for git and shorten the bounds.
+  defp git_runner(options) do
+    %{
+      executable: Keyword.get_lazy(options, :git, fn -> System.find_executable("git") end),
+      mirror_lock_wait_ms: Keyword.get(options, :mirror_lock_wait_ms, @mirror_lock_wait_ms),
+      timeout_ms: Keyword.get(options, :git_timeout_ms, @git_timeout_ms)
+    }
   end
 
   defp validate_inputs(storage_root, repository_ref, remote, base_branch, requested) do
@@ -148,6 +207,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
   end
 
   defp prepare_locked(
+         git,
          storage_root,
          %{
            repository_ref: repository_ref,
@@ -162,16 +222,21 @@ defmodule Ryker.CoopFleet.ManagedSources do
     mirror = Path.join([storage_root, "coop-source-mirrors", repository_ref <> ".git"])
     requested = requested || RepositorySource.default()
 
-    with :ok <- ensure_mirror(mirror, remote),
-         :ok <- fetch_ref(mirror, "refs/heads/" <> base_branch, token),
-         {:ok, default_commit} <- commit_at(mirror, "refs/heads/" <> base_branch),
+    with :ok <- ensure_mirror(git, mirror, remote),
+         :ok <- fetch_ref(git, mirror, "refs/heads/" <> base_branch, token),
+         {:ok, default_commit} <- commit_at(git, mirror, "refs/heads/" <> base_branch),
          {:ok, selected_ref, selected_commit} <-
-           select(mirror, requested, default_commit, base_branch, token),
-         {:ok, base_commit} <- merge_base(mirror, default_commit, selected_commit),
+           select(git, mirror, requested, default_commit, base_branch, token),
+         {:ok, base_commit} <- merge_base(git, mirror, default_commit, selected_commit),
          {:ok, admitted_tree} <-
-           git_value(mirror, ["rev-parse", "--verify", selected_commit <> "^{tree}"], @commit),
+           git_value(
+             git,
+             mirror,
+             ["rev-parse", "--verify", selected_commit <> "^{tree}"],
+             @commit
+           ),
          {:ok, declarations} <-
-           submodule_declarations(mirror, selected_commit, github_repository, token) do
+           submodule_declarations(git, mirror, selected_commit, github_repository, token) do
       binding =
         source_binding(
           requested,
@@ -199,27 +264,29 @@ defmodule Ryker.CoopFleet.ManagedSources do
     end
   end
 
-  defp ensure_mirror(mirror, remote) do
+  defp ensure_mirror(git, mirror, remote) do
     case File.lstat(mirror) do
       {:error, :enoent} ->
-        with :ok <- git(nil, ["init", "--quiet", "--bare", mirror], nil) do
-          git(mirror, ["remote", "add", "origin", remote], nil)
+        with :ok <- git(git, nil, ["init", "--quiet", "--bare", mirror], nil) do
+          git(git, mirror, ["remote", "add", "origin", remote], nil)
         end
 
       {:ok, %File.Stat{type: :directory}} ->
-        confirm_remote(mirror, remote)
+        confirm_remote(git, mirror, remote)
 
       _wrong ->
         {:error, :mirror}
     end
   end
 
-  defp confirm_remote(mirror, remote) do
-    with {:ok, ^remote} <- git_output(mirror, ["remote", "get-url", "origin"], nil), do: :ok
+  defp confirm_remote(git, mirror, remote) do
+    with {:ok, ^remote} <- git_output(git, mirror, ["remote", "get-url", "origin"], nil),
+         do: :ok
   end
 
-  defp fetch_ref(mirror, ref, token) do
+  defp fetch_ref(git, mirror, ref, token) do
     git(
+      git,
       mirror,
       [
         "fetch",
@@ -234,42 +301,43 @@ defmodule Ryker.CoopFleet.ManagedSources do
     )
   end
 
-  defp commit_at(mirror, ref),
-    do: git_value(mirror, ["rev-parse", "--verify", ref <> "^{commit}"], @commit)
+  defp commit_at(git, mirror, ref),
+    do: git_value(git, mirror, ["rev-parse", "--verify", ref <> "^{commit}"], @commit)
 
-  defp select(_mirror, %{"kind" => "default"}, default_commit, base_branch, _token),
+  defp select(_git, _mirror, %{"kind" => "default"}, default_commit, base_branch, _token),
     do: {:ok, "refs/heads/" <> base_branch, default_commit}
 
-  defp select(mirror, %{"kind" => "branch", "name" => name}, _default, _base_branch, token) do
+  defp select(git, mirror, %{"kind" => "branch", "name" => name}, _default, _branch, token) do
     ref = "refs/heads/" <> name
 
-    with :ok <- fetch_ref(mirror, ref, token),
-         {:ok, commit} <- commit_at(mirror, ref),
+    with :ok <- fetch_ref(git, mirror, ref, token),
+         {:ok, commit} <- commit_at(git, mirror, ref),
          do: {:ok, ref, commit}
   end
 
-  defp select(mirror, %{"kind" => "pull_request", "number" => number}, _default, _branch, token) do
+  defp select(git, mirror, %{"kind" => "pull_request", "number" => number}, _, _, token) do
     ref = "refs/pull/#{number}/head"
 
-    with :ok <- fetch_ref(mirror, ref, token),
-         {:ok, commit} <- commit_at(mirror, ref),
+    with :ok <- fetch_ref(git, mirror, ref, token),
+         {:ok, commit} <- commit_at(git, mirror, ref),
          do: {:ok, ref, commit}
   end
 
-  defp select(mirror, %{"kind" => "commit", "sha" => sha}, _default, _branch, token) do
+  defp select(git, mirror, %{"kind" => "commit", "sha" => sha}, _default, _branch, token) do
     with :ok <-
            git(
+             git,
              mirror,
              ["fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin", sha],
              token
            ),
-         {:ok, ^sha} <- commit_at(mirror, sha) do
+         {:ok, ^sha} <- commit_at(git, mirror, sha) do
       {:ok, nil, sha}
     end
   end
 
-  defp merge_base(mirror, default_commit, selected_commit),
-    do: git_value(mirror, ["merge-base", default_commit, selected_commit], @commit)
+  defp merge_base(git, mirror, default_commit, selected_commit),
+    do: git_value(git, mirror, ["merge-base", default_commit, selected_commit], @commit)
 
   defp resolve_repository(snapshot, slug) do
     repositories =
@@ -296,19 +364,23 @@ defmodule Ryker.CoopFleet.ManagedSources do
   end
 
   @doc false
-  def resolve_submodules(_root, [], _resolver, _ancestors, _depth, remaining)
-      when remaining >= 0,
-      do: {:ok, [], remaining}
+  def resolve_submodules(root, declarations, resolver, ancestors, depth, remaining),
+    do: resolve_modules(git_runner([]), root, declarations, resolver, ancestors, depth, remaining)
 
-  def resolve_submodules(root, declarations, resolver, ancestors, depth, remaining)
-      when is_function(resolver, 1) and depth < 16 and length(declarations) <= remaining do
+  defp resolve_modules(_git, _root, [], _resolver, _ancestors, _depth, remaining)
+       when remaining >= 0,
+       do: {:ok, [], remaining}
+
+  defp resolve_modules(git, root, declarations, resolver, ancestors, depth, remaining)
+       when is_function(resolver, 1) and depth < 16 and length(declarations) <= remaining do
     Enum.reduce_while(declarations, {:ok, [], remaining}, fn declaration, {:ok, modules, left} ->
       with true <- left > 0,
            {:ok, identity} <- resolver.(declaration.repository),
            false <- {identity.repository_id, declaration.commit} in ancestors,
-           {:ok, tree, nested} <- pin_submodule(root, identity, declaration.commit),
+           {:ok, tree, nested} <- pin_submodule(git, root, identity, declaration.commit),
            {:ok, children, left} <-
-             resolve_submodules(
+             resolve_modules(
+               git,
                root,
                nested,
                resolver,
@@ -337,41 +409,54 @@ defmodule Ryker.CoopFleet.ManagedSources do
     end
   end
 
-  def resolve_submodules(_root, _declarations, _resolver, _ancestors, _depth, _remaining),
+  defp resolve_modules(_git, _root, _declarations, _resolver, _ancestors, _depth, _remaining),
     do: {:error, :submodule_manifest_limit}
 
-  defp pin_submodule(root, identity, commit) do
-    with_mirror_lock(root, identity.repository_ref, fn ->
-      mirror = Path.join([root, "coop-source-mirrors", identity.repository_ref <> ".git"])
-
-      with :ok <- ensure_mirror(mirror, identity.remote),
-           {:ok, nil, ^commit} <-
-             select(mirror, %{"kind" => "commit", "sha" => commit}, nil, nil, identity.token),
-           {:ok, tree} <- git_value(mirror, ["rev-parse", commit <> "^{tree}"], @commit),
-           {:ok, children} <-
-             submodule_declarations(mirror, commit, identity.github_repository, identity.token) do
-        {:ok, tree, children}
-      end
-    end)
+  defp pin_submodule(git, root, identity, commit) do
+    with_mirror_lock(
+      root,
+      identity.repository_ref,
+      fn -> pin_locked(git, root, identity, commit) end,
+      git.mirror_lock_wait_ms
+    )
   end
 
-  defp submodule_declarations(mirror, commit, repository, token) do
-    with {:ok, links} <- read_gitlinks(mirror, commit, token) do
+  defp pin_locked(git, root, identity, commit) do
+    mirror = Path.join([root, "coop-source-mirrors", identity.repository_ref <> ".git"])
+    pinned = %{"kind" => "commit", "sha" => commit}
+
+    with :ok <- ensure_mirror(git, mirror, identity.remote),
+         {:ok, nil, ^commit} <- select(git, mirror, pinned, nil, nil, identity.token),
+         {:ok, tree} <- git_value(git, mirror, ["rev-parse", commit <> "^{tree}"], @commit),
+         {:ok, children} <-
+           submodule_declarations(git, mirror, commit, identity.github_repository, identity.token) do
+      {:ok, tree, children}
+    end
+  end
+
+  defp submodule_declarations(git, mirror, commit, repository, token) do
+    with {:ok, links} <- read_gitlinks(git, mirror, commit, token) do
       if links == [],
         do: {:ok, []},
-        else: declared_links(mirror, commit, repository, token, links)
+        else: declared_links(git, mirror, commit, repository, token, links)
     end
   end
 
   # The primary tree can contain millions of ordinary files. Spool its metadata
   # while retaining only bounded gitlink declarations, never the full listing.
-  defp read_gitlinks(mirror, commit, token) do
+  defp read_gitlinks(git, mirror, commit, token) do
     path = Path.join(mirror, ".coop-gitlinks-" <> Ecto.UUID.generate())
 
     with {:ok, file} <- File.open(path, [:write, :exclusive]) do
       try do
         with {:ok, _stream} <-
-               git_raw(mirror, ["ls-tree", "-r", "-z", commit], token, IO.binstream(file, 65_536)),
+               git_raw(
+                 git,
+                 mirror,
+                 ["ls-tree", "-r", "-z", commit],
+                 token,
+                 IO.binstream(file, 65_536)
+               ),
              :ok <- File.close(file) do
           path
           |> File.stream!(65_536)
@@ -412,13 +497,16 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
   defp gitlink_entry(_ordinary, links), do: {:cont, {:ok, links}}
 
-  defp declared_links(mirror, commit, repository, token, links) do
-    with {:ok, entry} <- git_raw(mirror, ["ls-tree", "-z", commit, "--", ".gitmodules"], token),
+  defp declared_links(git, mirror, commit, repository, token, links) do
+    with {:ok, entry} <-
+           git_raw(git, mirror, ["ls-tree", "-z", commit, "--", ".gitmodules"], token),
          true <- Regex.match?(~r/\A100(?:644|755) blob [a-f0-9]{40}\t\.gitmodules\x00\z/, entry),
-         {:ok, size} <- git_output(mirror, ["cat-file", "-s", commit <> ":.gitmodules"], token),
+         {:ok, size} <-
+           git_output(git, mirror, ["cat-file", "-s", commit <> ":.gitmodules"], token),
          {size, ""} when size <= 262_144 <- Integer.parse(size),
          {:ok, config} <-
            git_raw(
+             git,
              mirror,
              ["config", "--no-includes", "--null", "--blob", commit <> ":.gitmodules", "--list"],
              token
@@ -545,8 +633,8 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
   defp maybe_put_pull_request(binding, _requested), do: binding
 
-  defp git_value(directory, arguments, pattern) do
-    with {:ok, value} <- git_output(directory, arguments, nil),
+  defp git_value(git, directory, arguments, pattern) do
+    with {:ok, value} <- git_output(git, directory, arguments, nil),
          true <- Regex.match?(pattern, value) do
       {:ok, value}
     else
@@ -554,21 +642,31 @@ defmodule Ryker.CoopFleet.ManagedSources do
     end
   end
 
-  defp git(directory, arguments, token) do
-    case git_output(directory, arguments, token) do
+  defp git(git, directory, arguments, token) do
+    case git_output(git, directory, arguments, token) do
       {:ok, _output} -> :ok
       {:error, _reason} = error -> error
     end
   end
 
-  defp git_output(directory, arguments, token) do
-    with {:ok, output} <- git_raw(directory, arguments, token), do: {:ok, String.trim(output)}
+  defp git_output(git, directory, arguments, token) do
+    with {:ok, output} <- git_raw(git, directory, arguments, token),
+         do: {:ok, String.trim(output)}
   end
 
-  defp git_raw(directory, arguments, token, into \\ "") do
-    options = [stderr_to_stdout: false, env: git_environment(token), into: into]
-    options = if directory, do: Keyword.put(options, :cd, directory), else: options
+  defp git_raw(git, directory, arguments, token, into \\ "") do
+    case open_git(git, directory, arguments, token) do
+      {:ok, port} ->
+        {initial, collect} = Collectable.into(into)
+        deadline = System.monotonic_time(:millisecond) + git.timeout_ms
+        await_git(port, os_pid(port), deadline, initial, collect)
 
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp open_git(git, directory, arguments, token) do
     arguments = [
       "--no-replace-objects",
       "-c",
@@ -578,13 +676,97 @@ defmodule Ryker.CoopFleet.ManagedSources do
       "-c",
       "credential.helper=",
       "-c",
-      "protocol.ext.allow=never" | arguments
+      "protocol.ext.allow=never",
+      # Slower than a byte a second for a minute, a transfer has stalled.
+      "-c",
+      "http.lowSpeedLimit=1",
+      "-c",
+      "http.lowSpeedTime=60" | arguments
     ]
 
-    case System.cmd("git", arguments, options) do
-      {output, 0} -> {:ok, output}
-      {_output, _status} -> {:error, :git}
+    options = [
+      :binary,
+      :exit_status,
+      :hide,
+      :use_stdio,
+      args: arguments,
+      env: port_environment(token)
+    ]
+
+    options = if directory, do: [{:cd, directory} | options], else: options
+    {:ok, Port.open({:spawn_executable, git.executable}, options)}
+  rescue
+    _unstartable in [ArgumentError, ErlangError] -> {:error, :git}
+  end
+
+  defp await_git(port, os_pid, deadline, acc, collect) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {^port, {:data, data}} ->
+        await_git(port, os_pid, deadline, collect.(acc, {:cont, data}), collect)
+
+      {^port, {:exit_status, 0}} ->
+        {:ok, collect.(acc, :done)}
+
+      {^port, {:exit_status, _status}} ->
+        collect.(acc, :halt)
+        {:error, :git}
+    after
+      remaining ->
+        stop_git(port, os_pid)
+        collect.(acc, :halt)
+        {:error, :git_timeout}
     end
+  end
+
+  # Closing the port does not stop git. It is asked to stop, which lets it
+  # remove its lock and temporary files, and killed if it has not after a
+  # grace; either signal goes to its exact process id, never a name or pattern.
+  defp stop_git(port, os_pid) do
+    signal(os_pid, "TERM")
+
+    receive do
+      {^port, {:exit_status, _status}} -> :ok
+    after
+      @git_stop_grace_ms -> signal(os_pid, "KILL")
+    end
+
+    try do
+      Port.close(port)
+    rescue
+      ArgumentError -> :ok
+    end
+
+    flush_git(port)
+  end
+
+  defp signal(nil, _signal), do: :ok
+
+  defp signal(os_pid, signal) when is_integer(os_pid),
+    do: System.cmd("sh", ["-c", "kill -#{signal} #{os_pid} 2>/dev/null"], stderr_to_stdout: true)
+
+  defp flush_git(port) do
+    receive do
+      {^port, _message} -> flush_git(port)
+      {:EXIT, ^port, _reason} -> flush_git(port)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp os_pid(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, os_pid} -> os_pid
+      nil -> nil
+    end
+  end
+
+  defp port_environment(token) do
+    Enum.map(git_environment(token), fn
+      {key, nil} -> {String.to_charlist(key), false}
+      {key, value} -> {String.to_charlist(key), String.to_charlist(value)}
+    end)
   end
 
   defp git_environment(token) do
