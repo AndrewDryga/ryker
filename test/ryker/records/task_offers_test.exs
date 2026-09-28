@@ -715,7 +715,8 @@ defmodule Ryker.Records.TaskOffersTest do
     review = confirmed_card!("publication-review")
     publication = publication!(review, "review")
 
-    assert_task_publication(review.card, "reviewing", :review_pending, [])
+    # A change being checked can always be dropped (Andrew, 2026-09-28).
+    assert_task_publication(review.card, "reviewing", :review_pending, ["discard"])
 
     publication =
       update_publication!(publication, %{
@@ -724,7 +725,7 @@ defmodule Ryker.Records.TaskOffersTest do
         next_attempt_at: DateTime.add(@now, 300, :second)
       })
 
-    assert_task_publication(review.card, "action_required", :review_pending, ["retry"])
+    assert_task_publication(review.card, "action_required", :review_pending, ["retry", "discard"])
 
     publication =
       update_publication!(publication, %{

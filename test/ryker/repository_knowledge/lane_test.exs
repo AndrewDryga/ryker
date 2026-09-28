@@ -19,7 +19,6 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   @merged "1111111111111111111111111111111111111111"
   @pushed "2222222222222222222222222222222222222222"
   @later "3333333333333333333333333333333333333333"
-  @fourth "4444444444444444444444444444444444444444"
 
   # The fleet answers every Coop mutation with an operation still running
   # and the worker finishes it a moment later (the fake's asynchronous mode);
