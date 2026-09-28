@@ -26,7 +26,7 @@ defmodule Ryker.GitHub.CapabilityTools do
   @context_sections ~w(subject issue_comments reviews review_comments review_thread files)
   # Every repository-bound tool may name another repository of the session's
   # environment to read; the session's own repository is the default.
-  @repository_description "A repository of this session's environment to read instead of the one this session changes, by its configured ref: work.repository_ref or a work.workspace.companions[].name. Omit it, or send null, for the session's own repository."
+  @repository_description "A repository of this session's environment, by its configured ref: work.repository_ref or a work.workspace.companions[].name. Companion repositories are read-only: review and CI write tools cannot target them. Omit it, or send null, for the session's own repository."
 
   @spec list(map() | keyword()) :: [map()]
   def list(options) do
@@ -234,7 +234,8 @@ defmodule Ryker.GitHub.CapabilityTools do
     options = options!(options)
 
     with {:ok, arguments} <- review_document(arguments),
-         {:ok, current, configured} <- repository_target(binding, options, arguments.repository),
+         {:ok, current, configured} <-
+           mutation_repository_target(binding, options, arguments.repository),
          :ok <- number_authorized(binding, current, arguments.number),
          :ok <- review_grant(configured, arguments.event),
          true <- context_api?(configured.api, :submit_review, 7),
@@ -594,6 +595,12 @@ defmodule Ryker.GitHub.CapabilityTools do
     end
   end
 
+  defp mutation_repository_target(binding, options, requested) do
+    if requested in companion_repositories(binding),
+      do: {:error, :unauthorized},
+      else: repository_target(binding, options, requested)
+  end
+
   defp number_authorized(
          %{episode: %Episode{destination_transport: "github"}},
          %{number: number},
@@ -694,7 +701,7 @@ defmodule Ryker.GitHub.CapabilityTools do
 
     with {:ok, arguments} <- ci_document(arguments),
          {:ok, _current, configured} <-
-           repository_target(binding, options, arguments.repository),
+           ci_repository_target(action, binding, options, arguments.repository),
          :ok <- ci_grant(configured, action),
          {:ok, result} <- invoke_ci(configured, action, arguments) do
       {:ok, result}
@@ -704,6 +711,12 @@ defmodule Ryker.GitHub.CapabilityTools do
   rescue
     error -> raised("#{action}_github_ci", error, __STACKTRACE__)
   end
+
+  defp ci_repository_target(:read, binding, options, requested),
+    do: repository_target(binding, options, requested)
+
+  defp ci_repository_target(_mutation, binding, options, requested),
+    do: mutation_repository_target(binding, options, requested)
 
   # A raise inside a tool still answers the model "temporarily unavailable",
   # but it is a host bug or an outage, so the log names the tool and the raise.

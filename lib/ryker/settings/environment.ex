@@ -33,8 +33,8 @@ defmodule Ryker.Settings.Environment do
   @fields ~w(ref display_name description emisar_connection_ref is_default parallel_goal_limit repositories access)a
   @ref ~r/\A[a-z0-9][a-z0-9-]{0,63}\z/
   # Coop mounts a read-only repository under its own name: 1 to 48 characters,
-  # never "primary", and at most 32 of them beside the working copy. In an
-  # environment with several repositories any of them may be mounted that way.
+  # never "primary", and at most 32 of them beside the working copy. A writable
+  # repository needs that name only if another writable one can take its place.
   @companion ~r/\A[a-z0-9][a-z0-9_-]{0,47}\z/
   @maximum_repositories 33
 
@@ -164,11 +164,6 @@ defmodule Ryker.Settings.Environment do
           validation: :unknown_repository
         )
 
-      not mountable_together?(refs) ->
-        add_error(changeset, :repositories, "names a repository Coop cannot mount read-only",
-          validation: :companion_name
-        )
-
       true ->
         put_access(changeset, refs, access, current)
     end
@@ -199,9 +194,18 @@ defmodule Ryker.Settings.Environment do
       )
 
   defp put_rows(rows, changeset, current) do
-    if rows == Enum.map(current.repositories, &{&1.repository_ref, &1.access}),
-      do: changeset,
-      else: put_change(changeset, :repository_rows, rows)
+    cond do
+      not mountable_together?(rows) ->
+        add_error(changeset, :repositories, "names a repository Coop cannot mount read-only",
+          validation: :companion_name
+        )
+
+      rows == Enum.map(current.repositories, &{&1.repository_ref, &1.access}) ->
+        changeset
+
+      true ->
+        put_change(changeset, :repository_rows, rows)
+    end
   end
 
   defp named_access(nil, _refs), do: {:ok, %{}}
@@ -231,10 +235,11 @@ defmodule Ryker.Settings.Environment do
     Enum.all?(refs, &(is_binary(&1) and MapSet.member?(known, &1)))
   end
 
-  # With several repositories any of them may be mounted read-only beside the
-  # one a task changes; alone, a repository is always the working copy.
-  defp mountable_together?([_alone]), do: true
-  defp mountable_together?(refs), do: Enum.all?(refs, &companion?/1)
+  # A repository is a companion only when a different writable one is chosen.
+  defp mountable_together?(rows) do
+    writable = for {ref, :read_write} <- rows, do: ref
+    Enum.all?(rows, fn {ref, _access} -> writable == [ref] or companion?(ref) end)
+  end
 
   defp companion?(ref), do: ref != "primary" and Regex.match?(@companion, ref)
 

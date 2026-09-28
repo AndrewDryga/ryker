@@ -5,7 +5,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   alias Ryker.CoopFleet.{JobSpec, JobTemplates, ManagedSources, Placement}
   alias Ryker.{Repo, Settings}
-  alias Ryker.Settings.Installation
+  alias Ryker.Settings.{Environment, Installation}
   alias Ryker.Work.{RepositoryContext, RepositorySource, Session, SessionChangeset}
 
   @identity ~w(id execution_kind generation create_generation external_ref policy policy_digest authority_digest repository_ref repository_context repository_source environment_ref workspace_task)a
@@ -117,12 +117,59 @@ defmodule Ryker.CoopFleet.JobAuthority do
         binding.policy_name == session.policy and binding.policy_digest == session.policy_digest and
           (is_nil(session.authority_digest) or
              binding.authority_digest == session.authority_digest) and
-          scope_matches?(binding, session) and binding.repositories == repositories
+          binding_scope_matches?(binding, session, repositories, snapshot)
       end)
 
     case bindings do
       [%{purpose: purpose}] -> {:ok, purpose}
       _unavailable -> {:error, :coop_worker_job_settings_unavailable}
+    end
+  end
+
+  defp binding_scope_matches?(binding, session, repositories, snapshot) do
+    (scope_matches?(binding, session) and binding.repositories == repositories) or
+      incident_repository_scope?(binding, session, repositories, snapshot)
+  end
+
+  # Incident policy selects a model ladder, not a repository grant. A room or
+  # in-place investigation inherits its source session's repository context;
+  # verify that context against current settings before resolving any source.
+  defp incident_repository_scope?(
+         %{purpose: :incident, scope_kind: :installation},
+         %{repository_ref: ref, repository_context: context, environment_ref: environment_ref},
+         repositories,
+         snapshot
+       )
+       when is_binary(ref) do
+    case {context, environment_ref} do
+      {nil, nil} ->
+        repositories == [ref]
+
+      {nil, environment_ref} ->
+        incident_environment_scope?(snapshot, environment_ref, ref, repositories, false)
+
+      {%{"context_ref" => ^environment_ref}, environment_ref} ->
+        incident_environment_scope?(snapshot, environment_ref, ref, repositories, true)
+
+      _other ->
+        false
+    end
+  end
+
+  defp incident_repository_scope?(_binding, _session, _repositories, _snapshot), do: false
+
+  defp incident_environment_scope?(snapshot, environment_ref, primary, repositories, context?) do
+    case Environment.find(snapshot, :ref, environment_ref) do
+      %Environment{} = environment ->
+        refs = Environment.repository_refs(environment)
+
+        primary in Environment.writable_refs(environment) and
+          if context?,
+            do: repositories == [primary | List.delete(refs, primary)],
+            else: refs == [primary] and repositories == [primary]
+
+      nil ->
+        false
     end
   end
 

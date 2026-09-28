@@ -175,8 +175,8 @@ default (mentions only unless changed), the default environment, alerts investig
 thread, and no additional incident invitees. The welcome offers **Be proactive** or **Mentions
 only**, and **Customize** starts a four-question setup conversation for participation,
 environment, app-alert escalation, and incident audience. An environment names the repositories
-work may read (a task changes one of them and reads the rest) and the Emisar account it may use. The
-final card shows the normalized typed values and safety boundary; nothing changes until the
+work may read (a task changes one with read/write access and reads the rest) and the Emisar account
+it may use. The final card shows the normalized typed values and safety boundary; nothing changes until the
 configured operator who started the setup saves it. Typed choices use Slack buttons. Configured operators are always
 invited to incident rooms;
 the audience step either adds no one else or accepts member and user-group mentions for additional
@@ -399,9 +399,9 @@ discard retained work; the confirmed task's own draft grant can publish without 
 running systems are Emisar's decision, not a Ryker permission. Watched-channel messages can produce only a
 host-validated ignore, reply, incident offer, or permitted incident decision; they cannot invoke
 incident controls or invent a repository, environment or policy. A member's engineering-task offer
-stays inside the channel's environment: the task changes one of its repositories, chosen for that
-task, and reads the others. Which environment a channel works in is an operator-owned channel
-setting. Infrastructure access remains constrained by the environment's Emisar account and the
+stays inside the channel's environment: the task changes one of its read/write repositories,
+chosen for that task, and reads the others. Which environment a channel works in is an
+operator-owned channel setting. Infrastructure access remains constrained by the environment's Emisar account and the
 frozen job's access settings. Slack guests and external Slack Connect identities are denied. See
 [`docs/slack-ux.md`](docs/slack-ux.md) for the complete interaction contract.
 
@@ -513,9 +513,11 @@ scripts/deploy.sh
 ```
 
 `scripts/deploy.sh` deploys HEAD to the Docker Compose installation in this checkout: it refuses
-a dirty tree or a HEAD that is not `main`'s, backs the database up into `.ryker/backups/`, builds
-the image from a clean worktree of HEAD, replaces only the `ryker` container, waits for health,
+a dirty tree or a HEAD that is not `main`'s, builds the image from a clean worktree of HEAD, then
+backs the database up into `.ryker/backups/` before replacing only the `ryker` container. It waits for health,
 readiness and the exact version header, and only then pins the version in `.ryker/compose.env`.
+If verification fails, it stops the unverified container and leaves the previous version pinned;
+check for database migrations before restarting the previous image.
 
 `make check` is the full gate, which CI runs on every push; run it locally before a tagged
 release. Use `make customer-check` for the Elixir product journeys and deterministic host replay.

@@ -644,9 +644,10 @@ defmodule Ryker.Slack.Runtime do
   # A room works in the environment of the conversation it was opened from and
   # mounts what that conversation mounted, as frozen when the room was
   # requested: the room's repository first, the default, then the others.
-  # Every one of them runs under the room's own policy. A room of an
-  # environment without repositories has nothing frozen to mount, so its goal
-  # limit is the environment's while it can run work; otherwise the room's new
+  # Only the room's working repository runs under its policy; the others
+  # stay read-only companions. A room in an environment without repositories
+  # has nothing frozen to mount, so its goal limit is the environment's while
+  # it can run work; otherwise the room's new
   # conversations run outside any environment.
   defp room_placement(%{environment_ref: nil}, _environments), do: %{}
 
@@ -670,7 +671,7 @@ defmodule Ryker.Slack.Runtime do
     %{
       environment_ref: environment_ref,
       parallel_goal_limit: parallel_goal_limit,
-      policies: Map.new(repositories, &{&1, classes}),
+      policies: %{primary => classes},
       repositories: repositories
     }
   end

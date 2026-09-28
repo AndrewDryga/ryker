@@ -514,7 +514,7 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
       CapabilityTools.options!(%{
         bindings: %{
           "github-main" => client.("example", 2_001, ~w(read review rerun_ci)),
-          "github-docs" => client.("docs", 2_002, ~w(read)),
+          "github-docs" => client.("docs", 2_002, ~w(read review rerun_ci cancel_ci)),
           "github-other" => client.("other", 2_003, ~w(read))
         }
       })
@@ -592,6 +592,34 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
              )
 
     assert_received {:read_ci, "octo/docs", 99, 1}
+
+    # The same GitHub grants do not make a read-only companion writable.
+    assert CapabilityTools.call(
+             "submit_github_review",
+             %{
+               "body" => "Reviewed",
+               "comments" => [],
+               "event" => "comment",
+               "head_sha" => String.duplicate("a", 40),
+               "number" => 7,
+               "repository" => "repo-docs"
+             },
+             binding,
+             options
+           ) == {:error, "unauthorized"}
+
+    for name <- ~w(rerun_github_ci cancel_github_ci) do
+      assert CapabilityTools.call(
+               name,
+               %{"attempt" => 1, "repository" => "repo-docs", "run_id" => 99},
+               binding,
+               options
+             ) == {:error, "unauthorized"}
+    end
+
+    refute_received {:submit_review, "octo/docs", _, _, _, _, _}
+    refute_received {:rerun_ci, "octo/docs", _, _}
+    refute_received {:cancel_ci, "octo/docs", _, _}
 
     # The tool contracts offer the choice without requiring it.
     for name <- ~w(search_github read_github_pull_request read_github_ci rerun_github_ci

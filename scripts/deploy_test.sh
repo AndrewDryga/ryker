@@ -3,8 +3,8 @@
 # Docker and a fake control plane, does its steps in the right order: the
 # database backed up before the container is replaced, the version pinned
 # only after the host saw the new release healthy, ready and named in the
-# version header, the worktree gone either way, and a failed deploy leaving
-# the previous pin in place with the container's logs on the screen.
+# version header, the worktree gone either way, and a failed deploy stopping
+# the unverified replacement while retaining the previous pin and log tail.
 #
 # The pin-after-verification rule is the one that matters most. A deploy
 # that pins first and fails later leaves compose.env claiming a version that
@@ -133,9 +133,12 @@ case " $* " in
     ;;
   *" up --detach --no-build --wait "*)
     printf 'RYKER_VERSION=%s RYKER_IMAGE=%s\n' "${RYKER_VERSION:-}" "${RYKER_IMAGE:-}" >>"$fake/up.env"
+    touch "$fake/controller.running"
     [[ -f $fake/up.fail ]] && { echo "fake: the container did not become healthy" >&2; exit 1; }
     [[ -f $fake/up.stale ]] || printf '%s\n' "${RYKER_VERSION:-}" >"$fake/version"
     ;;
+  *" stop ryker "*) rm -f "$fake/controller.running" ;;
+  *" start ryker "*) touch "$fake/controller.running" ;;
   *" logs "*) echo "fake container log line" ;;
   *" ps --status running --services "*) [[ -f $fake/controller.stopped ]] || echo "ryker" ;;
   *" exec -T database psql "*) echo 1 ;;
@@ -155,6 +158,7 @@ seed() {
   # The installation as the previous deploy left it, and a fake project that
   # still serves the previous version until the fake Docker "starts" a new one.
   rm -f "$fake/calls" "$fake/build.env" "$fake/build.fail" "$fake/up.env" "$fake/up.fail" "$fake/up.stale" "$fake/database.down"
+  touch "$fake/controller.running"
   rm -rf "$state/backups"
   printf '%s\n' "$old_version" >"$fake/version"
   printf '200' >"$fake/readyz.code"
@@ -180,6 +184,15 @@ backups() { find "$state/backups" -name 'pre-deploy-*.tar.gz' 2>/dev/null | wc -
 worktrees() { git -C "$repo" worktree list | wc -l | tr -d ' '; }
 mode() {
   if stat -f '%Lp' "$1" >/dev/null 2>&1; then stat -f '%Lp' "$1"; else stat -c '%a' "$1"; fi
+}
+check_controller_stopped() {
+  local what=$1
+  if [[ -e $fake/controller.running ]]; then
+    printf 'FAIL %s\n' "$what"
+    failures=$((failures + 1))
+  else
+    printf 'ok   %s\n' "$what"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -307,6 +320,7 @@ check "the previous version stays pinned" "RYKER_VERSION=$old_version" "$(cat "$
 check "the failure says what is still pinned" "still pins $old_version" "$out"
 check "the backup was taken before the failed replacement" "1" "$(backups)"
 check "the worktree is removed after a failed deploy" "1" "$(worktrees)"
+check_controller_stopped "an unhealthy replacement is stopped"
 
 # ---------------------------------------------------------------------------
 # A container that is healthy but serves other code than the commit.
@@ -316,6 +330,7 @@ out=$(run)
 check "a version header that is not the commit fails the deploy" "exit=1" "$out"
 check "the mismatch names the version that is serving" "version $old_version" "$out"
 check "a mismatched version is not pinned" "RYKER_VERSION=$old_version" "$(cat "$state/compose.env")"
+check_controller_stopped "a mismatched replacement is stopped"
 
 # ---------------------------------------------------------------------------
 # A container that is healthy and the right version but not ready.
@@ -326,6 +341,7 @@ out=$(run)
 check "a release that never becomes ready fails the deploy" "exit=1" "$out"
 check "the failure carries the host's own readiness reason" "no_eligible_workers" "$out"
 check "an unready release is not pinned" "RYKER_VERSION=$old_version" "$(cat "$state/compose.env")"
+check_controller_stopped "an unready replacement is stopped"
 
 # ---------------------------------------------------------------------------
 # A HEAD that is not main's.

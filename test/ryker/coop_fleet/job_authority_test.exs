@@ -332,6 +332,84 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert JobAuthority.validate(pinned) == {:ok, pinned}
   end
 
+  test "incident work in an environment pins only its configured repository set", %{
+    session: session
+  } do
+    snapshot = add_repository!("library", 18)
+
+    {:ok, snapshot} =
+      Settings.put_environment(
+        %{
+          ref: "production",
+          display_name: "Production",
+          repositories: ["app", "library"],
+          access: %{"library" => :read_only}
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    incident =
+      Enum.find(
+        JobTemplates.from_settings(snapshot),
+        &(&1.purpose == :incident and &1.scope_kind == :installation)
+      )
+
+    context = %{
+      "context_ref" => "production",
+      "primary_repository" => "app",
+      "read_only_repositories" => ["library"],
+      "parallel_goal_limit" => 3
+    }
+
+    session =
+      session
+      |> Ecto.Changeset.change(
+        environment_ref: "production",
+        policy: incident.policy_name,
+        policy_digest: incident.policy_digest,
+        authority_digest: incident.authority_digest,
+        repository_context: context
+      )
+      |> Repo.update!()
+
+    prepare = fn _, ref, _ ->
+      {:ok,
+       %{
+         source:
+           source()
+           |> Map.put("repository_ref", ref)
+           |> Map.put("github_repository", "example/" <> ref)
+           |> Map.put("github_repository_id", %{"app" => 17, "library" => 18}[ref])
+       }}
+    end
+
+    for invalid <- [
+          Map.put(context, "read_only_repositories", []),
+          Map.put(context, "read_only_repositories", ["other"])
+        ] do
+      changed =
+        session
+        |> Ecto.Changeset.change(repository_context: invalid)
+        |> Repo.update!()
+
+      assert {:error, :coop_worker_job_settings_unavailable} =
+               JobAuthority.ensure_pinned(changed, nil, fn _, _, _ ->
+                 flunk("fetched an unapproved incident source list")
+               end)
+    end
+
+    session =
+      session
+      |> then(&Repo.get!(Session, &1.id))
+      |> Ecto.Changeset.change(repository_context: context)
+      |> Repo.update!()
+
+    assert {:ok, pinned} = JobAuthority.ensure_pinned(session, nil, prepare)
+    assert pinned.worker_job_document["repository_read_only"]
+    assert Enum.map(pinned.worker_job_document["companions"], & &1["name"]) == ["library"]
+  end
+
   test "settings changed during source resolution leave no partial job", %{session: session} do
     prepare = fn root, ref, selector ->
       snapshot = Settings.fetch!()
