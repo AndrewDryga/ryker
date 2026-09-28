@@ -91,13 +91,22 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   @doc """
   The request for one knowledge turn: instructions and the repository's
   facts as context, within #{@max_encoded_bytes} bytes. `facts` holds the
-  repository's `name`, `default_branch` and `commit`, its `top_level`
-  entries, its `key_files` and, when there is one worth keeping, the
-  `current_document`. `retry?` adds the note that the last answer failed.
+  repository's `name`, `default_branch` and `commit`, its first `top_level`
+  entries and `key_files`, how many more of each the tree holds (`more`, as
+  `Ryker.RepositoryKnowledge.Document.outline_facts/1` counts them) and,
+  when there is one worth keeping, the `current_document`. A list the tree
+  holds more of says so in `omitted`. `retry?` adds the note that the last
+  answer failed.
   """
   @spec build(map(), boolean()) :: map()
   def build(facts, retry? \\ false) when is_map(facts) do
     instructions = if retry?, do: @instructions <> "\n" <> @retry, else: @instructions
+    lists = %{"top_level" => facts.top_level, "key_files" => facts.key_files}
+
+    totals = %{
+      "top_level" => length(facts.top_level) + facts.more.top_level,
+      "key_files" => length(facts.key_files) + facts.more.key_files
+    }
 
     context = %{
       "repository" => %{
@@ -108,10 +117,15 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
       "top_level" => facts.top_level,
       "key_files" => facts.key_files,
       "current_document" => facts[:current_document],
-      "omitted" => []
+      "omitted" =>
+        for(
+          key <- ~w(top_level key_files),
+          totals[key] > length(lists[key]),
+          do: cut(key, length(lists[key]), totals[key])
+        )
     }
 
-    %{"instructions" => instructions, "context" => fit(instructions, context)}
+    %{"instructions" => instructions, "context" => fit(instructions, context, totals)}
   end
 
   # The order a reader needs: which repository, what it holds, what describes
@@ -337,14 +351,14 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   # The current document gives way first: the repository itself is the
   # source. Then the key files, then the top level, keep only their first
   # entries until the request fits.
-  defp fit(instructions, context) do
+  defp fit(instructions, context, totals) do
     [
       &shorten_document(&1, 16_000),
       &drop_document/1,
-      &trim_list(&1, "key_files", 60),
-      &trim_list(&1, "top_level", 80),
-      &trim_list(&1, "key_files", 10),
-      &trim_list(&1, "top_level", 20)
+      &trim_list(&1, "key_files", 60, totals),
+      &trim_list(&1, "top_level", 80, totals),
+      &trim_list(&1, "key_files", 10, totals),
+      &trim_list(&1, "top_level", 20, totals)
     ]
     |> Enum.reduce(context, fn step, context -> until_fits(instructions, context, step) end)
   end
@@ -382,17 +396,28 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
 
   defp drop_document(context), do: context
 
-  defp trim_list(context, key, keep) do
+  # One note per list says how many of how many it shows: a later cut's
+  # note replaces the earlier one's.
+  defp trim_list(context, key, keep, totals) do
     case context[key] do
       list when is_list(list) and length(list) > keep ->
         context
         |> Map.put(key, Enum.take(list, keep))
-        |> note("Only the first #{keep} #{String.replace(key, "_", " ")}, cut for length.")
+        |> Map.update!("omitted", &List.delete(&1, cut(key, length(list), totals[key])))
+        |> note(cut(key, keep, totals[key]))
 
       _short ->
         context
     end
   end
+
+  @list_names %{"top_level" => "top-level entries", "key_files" => "key files"}
+
+  defp cut(key, shown, total),
+    do: "Only the first #{shown} of #{number(total)} #{@list_names[key]}, cut for length."
+
+  defp number(count),
+    do: count |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
 
   # A cut never splits a character.
   defp valid_prefix(bytes) do

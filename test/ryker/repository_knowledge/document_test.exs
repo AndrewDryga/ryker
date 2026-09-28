@@ -264,6 +264,25 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
     refute outline =~ @commit
   end
 
+  # Review of the knowledge lane, 2026-09-28: the outline linked every
+  # directory at the root. A repository with thousands of them got an
+  # outline past the 128,000 bytes Ryker keeps of a document, which the
+  # database refused on every pass, so the repository never had one.
+  test "the outline of a root with thousands of directories links 200 and says how many more" do
+    entries =
+      for(n <- 1..6_000, do: %{"path" => "dir-#{n}", "type" => "tree"}) ++
+        [%{"path" => "README.md", "type" => "blob"}]
+
+    outline = Document.outline(Document.tree(entries), nil, @commit, @date)
+
+    [components] =
+      Regex.run(~r/## Components\n\n(.*?)(?:\n\n## |\z)/s, outline, capture: :all_but_first)
+
+    assert length(Regex.scan(~r/^- \[/m, components)) == 200
+    assert String.ends_with?(components, "\n\n…and 5,800 more.")
+    assert byte_size(outline) <= 128_000
+  end
+
   defp render!(answer) do
     {:ok, document} = Document.render(verified!(answer), @commit, @date)
     document
