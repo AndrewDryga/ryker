@@ -206,7 +206,9 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
   test "By day draws a bar a day, negative at its foot, above its table", %{day: _day} do
     by_day = page(%{}) |> LazyHTML.query("section[aria-labelledby=feedback-by-day]")
 
-    assert by_day |> LazyHTML.query("figure.feedback-chart + .kit-table-wrap .kit-table") |> Enum.count() == 1
+    assert by_day
+           |> LazyHTML.query("figure.feedback-chart + .kit-table-wrap .kit-table")
+           |> Enum.count() == 1
 
     [bar] = by_day |> LazyHTML.query("g.feedback-chart-day") |> Enum.to_list()
     date = Calendar.strftime(Date.utc_today(), "%d %b")
