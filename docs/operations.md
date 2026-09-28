@@ -114,9 +114,11 @@ scripts/compose.sh upgrade
 ```
 
 Upgrade pulls the pinned third-party images (such as PostgreSQL and the worker's Docker daemon), rebuilds
-the Ryker and bundled-worker images from the checkout, starts the replacements, runs migrations
-through the container entrypoint, and verifies health, readiness and the exact version header.
-Enrolled remote workers are not restarted or modified.
+the Ryker image from the checkout, starts the replacements, runs migrations through the container
+entrypoint, and verifies health, readiness and the exact version header. It rebuilds the bundled
+worker's image from the Dockerfile's Coop pin only when `RYKER_COOP_IMAGE` is unset: an image named
+there is a supplied build, and its Coop may keep the worker's state in a schema the pinned one
+refuses. Enrolled remote workers are not restarted or modified.
 
 For a worker-protocol change, first verify that the bundled-worker build pin or supplied image
 actually speaks the new protocol, and plan the worker and controller cutover together. The normal
