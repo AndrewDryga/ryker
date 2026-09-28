@@ -1,51 +1,47 @@
 defmodule Ryker.ControlPlane.RunningSystem do
   @moduledoc """
-  What the running process assembled, for the bottom of the Advanced settings
-  page: whether tasks that change code can run, then the loaded settings
-  grouped by the part of Ryker they belong to and the tools it names.
+  What is running, at the bottom of Settings › Advanced: the Ryker version, and
+  for each worker whether it is taking work, its Coop version, its free work
+  slots and how much disk it has before it stops taking new work.
 
-  It is evidence, never a control. Product settings are changed on the
-  settings pages above it and the deployment environment where Ryker is
-  installed. The loaded values sit in one closed disclosure, because they
-  matter for support rather than for everyday use; a problem that needs a
-  person (code changes unavailable) stays outside it. Everything a reader
-  sees before opening a Details says it in plain words; keys, raw values and
-  the precise behaviour of each setting stay under that setting's Details.
-
-  Slack, GitHub, Emisar and webhooks are listed as integrations, in the state
-  and words their own pages show (`Integrations`), with whether the running
-  Ryker loaded them under Details. Until 2026-09-25 they were four bare
-  "Not configured" lines that contradicted those pages: Slack with verified
-  tokens, and webhooks with a signing credential, both read as nothing.
+  Andrew, 2026-09-28: the card it replaces listed every loaded setting under
+  collapsibles inside a collapsible (ten parts of Ryker that always read
+  "Configured", the integrations and retention again, eighteen tool names) and
+  was "not very practical". A worker's disk is what actually stops work, so
+  it is here in its own numbers (`Ryker.CoopFleet.Protocol` storage report).
+  Tasks that change code are always supported on a working installation, so
+  that card shows only when they are not, with what to check.
   """
 
   use Phoenix.Component
 
+  import Ecto.Query
+
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{ConfigurationHelp, Integrations, Kit}
+  alias Ryker.ControlPlane.{Kit, ShortTime}
+  alias Ryker.CoopFleet.Worker
+  alias Ryker.Repo
   alias Ryker.Work.CodeEditingSetup
 
-  @integrations ~w(slack github emisar webhooks)
+  # A worker polls every few seconds; one quiet for longer is not taking work.
+  @quiet_seconds 120
 
-  @doc """
-  The evidence as HTML, ready for the settings page's body. `integrations`
-  are the states `Integrations.all/1` read from the same settings the page
-  shows.
-  """
-  @spec html(%{
-          rows: [map()],
-          grants: [map()],
-          source: String.t(),
-          integrations: [Integrations.t()]
-        }) :: String.t()
-  def html(%{rows: rows, grants: grants, source: source, integrations: integrations}) do
+  @doc "What the page shows, read afresh."
+  @spec fetch() :: map()
+  def fetch do
     %{
-      __changed__: nil,
-      groups: groups(rows, integrations),
-      grants: grants,
-      source: source,
-      supported: CodeEditingSetup.checkpoint_supported?()
+      version: to_string(Application.spec(:ryker, :vsn) || "unknown"),
+      workers: Repo.all(from(worker in Worker, order_by: [asc: worker.id])),
+      supported: CodeEditingSetup.checkpoint_supported?(),
+      now: Repo.now!()
     }
+  end
+
+  @doc "The card as HTML, ready for the settings page's body."
+  @spec html(map()) :: String.t()
+  def html(view) do
+    view
+    |> Map.put(:__changed__, nil)
     |> render()
     |> Safe.to_iodata()
     |> IO.iodata_to_binary()
@@ -54,227 +50,100 @@ defmodule Ryker.ControlPlane.RunningSystem do
   defp render(assigns) do
     ~H"""
     <Kit.section_card
+      :if={!@supported}
       id="code-editing"
       class="code-editing-setup"
       title="Tasks that change code"
-      lede="Whether Ryker can run tasks that change code."
+      lede="Tasks that change code cannot run on this installation right now."
     >
-      <p class="settings-state-line">
-        <Kit.state
-          tone={if @supported, do: :on, else: :bad}
-          word={if @supported, do: "Supported", else: "Code changes are unavailable"}
-        />
-      </p>
-      <p :if={@supported} class="settings-lede">
-        This installation supports saving and restoring a task's working copy. Check each worker's health on <a href="/working-copies">Working copies</a>.
-      </p>
-      <div :if={!@supported} class="settings-problem">
+      <div class="settings-problem">
         <p>
-          Tasks that change code cannot run, because this installation cannot save and restore
-          the copy of the code they work in. Docker Compose installations set this up on their
-          own: check <code>scripts/compose.sh status</code>
+          Ryker cannot save and restore the copy of the code such a task works in. Docker Compose
+          installations set this up on their own: check <code>scripts/compose.sh status</code>
           and <code>scripts/compose.sh logs</code>, then restart the installation.
         </p>
-        <details class="settings-disclosure">
-          <summary>If you run your own workers</summary>
-          <p>
-            Only installations with their own workers need this. Enrol a co:op worker install,
-            connect it to Ryker's worker gateway, and select its worker install above.
-            Ryker supplies the code and settings for each job; workers need no policy files.
-          </p>
-          <p>
-            On the machine running Ryker, create a one-time enrolment token with <code>scripts/compose.sh worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF</code>. Store it on the worker in a private file with mode <code>0600</code>, then connect to your reachable HTTPS gateway:
-          </p>
-          <pre><code>coop sessions connect --controller https://ryker.example:4322 --token-file /etc/coop/enrollment-token --state /var/lib/coop-sessions</code></pre>
-          <p>
-            For a private certificate authority, also pass
-            <code>--ca-file /etc/coop/worker-ca.pem</code>
-            with the CA supplied by your Ryker installation. Do not disable certificate verification.
-          </p>
-          <p>Check the worker locally:</p>
-          <pre><code>coop sessions doctor --socket /var/lib/coop-sessions/control.sock</code></pre>
-          <p>Confirm the saved settings were applied:</p>
-          <pre><code>scripts/compose.sh doctor</code></pre>
-          <p>
-            Then check that working copies can be saved and restored, and that the repository's
-            build tools are installed, before trying the task again.
-          </p>
-        </details>
       </div>
     </Kit.section_card>
-
     <Kit.section_card
-      class="configuration-evidence"
-      title="What is running"
-      lede="What the running Ryker loaded, for support and troubleshooting."
+      id="running-now"
+      title="Running now"
+      lede="What this installation runs, for support and troubleshooting."
     >
-      <details class="system-evidence">
-        <summary>Show what is loaded</summary>
-        <div class="configuration-values">
-          <p class="settings-lede">
-            Nothing here can be changed. Settings saved on these pages take effect without a
-            deployment; the database, network addresses and secrets are set where Ryker is
-            installed. Configured means a setting was saved, not that its connection or workers are
-            healthy, and a value can lag a save that has not been applied yet.
-          </p>
-          <p class="settings-lede">Loaded from <code>{@source}</code>.</p>
-          <Kit.empty
-            :if={@groups == []}
-            variant={:hint}
-            icon={:settings}
-            title="Nothing loaded"
-            text="The running Ryker published no settings."
-          />
-          <div :for={group <- @groups} class="configuration-group" data-group={group.key}>
-            <h3>{group.title}</h3>
-            <Kit.entity_list :if={group[:integrations]} label={group.title}>
-              <.integration
-                :for={integration <- group.integrations}
-                integration={integration}
-                row={Enum.find(group.rows, &(&1.key == Atom.to_string(integration.key)))}
-              />
-            </Kit.entity_list>
-            <div :if={!group[:integrations]} class="entity-list" role="list" aria-label={group.title}>
-              <.setting :for={row <- group.rows} row={row} source={@source} />
-            </div>
-          </div>
-        </div>
-        <div class="configuration-grants">
-          <h3>Tools</h3>
-          <p class="settings-lede">
-            The tools this installation names. This is not a health check, and listing a tool does
-            not give permission to use it.
-          </p>
-          <Kit.empty
-            :if={@grants == []}
-            variant={:hint}
-            icon={:code}
-            title="No tools"
-            text="This installation names no tools."
-          />
-          <Kit.entity_list :if={@grants != []} label="Tools">
-            <Kit.entity_row
-              :for={grant <- @grants}
-              name={grant.name}
-              text={ConfigurationHelp.grant(grant.kind)}
-              meta={[grant.kind, "From " <> grant.source]}
-            />
-          </Kit.entity_list>
-        </div>
-      </details>
+      <Kit.facts facts={[{"Ryker", @version}]} />
+      <p :if={@workers == []} class="settings-lede">
+        No worker has connected yet, so no work can run.
+      </p>
+      <div :for={worker <- @workers} class="running-worker" id={"running-worker-" <> worker.id}>
+        <h3>{worker.id}</h3>
+        <Kit.facts facts={worker_facts(worker, @now)} />
+        <p :if={refused?(worker)} class="settings-problem">
+          New work is stopped: {refusal(worker.storage)} It starts again once cleanup frees space;
+          <a href="/working-copies">Working copies</a>
+          shows what can be freed.
+        </p>
+      </div>
     </Kit.section_card>
     """
   end
 
-  attr(:integration, :map, required: true)
-  attr(:row, :map, default: nil, doc: "Whether the running Ryker loaded it, when it said")
-
-  # One integration in the words of its own page, with what the running
-  # process holds for it under Details.
-  defp integration(assigns) do
-    assigns =
-      assign(assigns, :help, ConfigurationHelp.setting(Atom.to_string(assigns.integration.key)))
-
-    ~H"""
-    <Kit.entity_row
-      id={"running-#{@integration.key}"}
-      name={@integration.name}
-      href={@integration.href}
-      link_row
-      state={@integration.state}
-      text={@integration.reason}
-      meta={@integration.facts}
-    >
-      <:details>
-        <details class="settings-row-details">
-          <summary>Details</summary>
-          <p class="configuration-behavior">{@help.behavior}</p>
-          <dl>
-            <div>
-              <dt>Name in the settings file</dt>
-              <dd><code>{@integration.key}</code></dd>
-            </div>
-            <div :if={@row}>
-              <dt>Running now</dt>
-              <dd><code>{if @row.value == "enabled", do: "yes", else: "no"}</code></dd>
-            </div>
-          </dl>
-        </details>
-      </:details>
-    </Kit.entity_row>
-    """
+  defp worker_facts(worker, now) do
+    [
+      {"State", state(worker, now)},
+      {"Coop", worker.build_version},
+      {"Work slots", slots(worker.capacity)},
+      {"Disk", disk(worker.storage)}
+    ]
   end
 
-  attr(:row, :map, required: true)
-  attr(:source, :string, required: true)
+  defp state(%Worker{last_seen_at: nil}, _now), do: word(:off, "Never connected")
 
-  # One loaded setting: what it is and its value first, what it is for under
-  # it, and the key, raw value and default in its own closed Details.
-  defp setting(assigns) do
-    assigns =
-      assign(assigns,
-        help: ConfigurationHelp.setting(assigns.row.key),
-        value: ConfigurationHelp.value(assigns.row.key, assigns.row.value)
-      )
+  defp state(%Worker{state: state, last_seen_at: seen}, now) do
+    if DateTime.diff(now, seen) > @quiet_seconds do
+      assigns = %{__changed__: nil, seen: seen, now: now}
 
-    ~H"""
-    <article class="entity-row configuration-setting" data-setting={@row.key} role="listitem">
-      <div class="entity-body">
-        <h4 class="entity-name">{@help.title}</h4>
-        <p class="entity-text configuration-value">{@value}</p>
-        <p class="entity-meta configuration-purpose">{@help.purpose}</p>
-        <details class="settings-row-details">
-          <summary>Details</summary>
-          <p class="configuration-behavior">{@help.behavior}</p>
-          <p class="configuration-default">Default: {@help.default}</p>
-          <dl>
-            <div>
-              <dt>Name in the settings file</dt>
-              <dd><code>{@row.key}</code></dd>
-            </div>
-            <div>
-              <dt>Value as loaded</dt>
-              <dd><code>{@row.value}</code></dd>
-            </div>
-            <div :if={@row.source != @source} class="configuration-provenance">
-              <dt>Loaded from</dt>
-              <dd><code>{@row.source}</code></dd>
-            </div>
-          </dl>
-        </details>
-      </div>
-    </article>
-    """
-  end
-
-  # Presence flags have bare keys; everything else groups by the prefix of its
-  # dotted key, in the order an operator reads a deployment: what runs, the
-  # services it works through, then how each part behaves.
-  defp groups(rows, integrations) do
-    rows
-    |> Enum.group_by(&group/1)
-    |> Map.put_new({1, "integrations", "Integrations"}, [])
-    |> Enum.sort_by(fn {{order, _key, _title}, _rows} -> order end)
-    |> Enum.map(fn
-      {{_order, "integrations", title}, rows} ->
-        %{key: "integrations", title: title, rows: rows, integrations: integrations}
-
-      {{_order, key, title}, rows} ->
-        %{key: key, title: title, rows: rows}
-    end)
-    |> Enum.reject(&(&1[:integrations] == []))
-  end
-
-  defp group(%{key: key}) when key in @integrations, do: {1, "integrations", "Integrations"}
-
-  defp group(%{key: key}) do
-    case String.split(key, ".", parts: 2) do
-      [_flag] -> {0, "subsystems", "Parts of Ryker"}
-      ["runtime", _] -> {2, "runtime", "Installation"}
-      ["admission", _] -> {3, "admission", "Routing"}
-      ["work", _] -> {4, "work", "Running work"}
-      ["retention", _] -> {5, "retention", "Cleanup and retention"}
-      _ -> {6, "other", "Other settings"}
+      ~H"""
+      <Kit.state tone={:warn} word="Not connected" />
+      <ShortTime.time at={@seen} now={@now} prefix=" · last seen " />
+      """
+    else
+      state_word(state)
     end
   end
+
+  defp state_word(state) when state in [:eligible, :busy], do: word(:on, "Taking work")
+  defp state_word(:draining), do: word(:warn, "Finishing its work, taking no new work")
+  defp state_word(:needs_auth), do: word(:bad, "Needs a model sign-in")
+  defp state_word(:revoked), do: word(:off, "Removed")
+  defp state_word(_state), do: word(:off, "Offline")
+
+  defp word(tone, text) do
+    assigns = %{__changed__: nil, tone: tone, text: text}
+    ~H"<Kit.state tone={@tone} word={@text} />"
+  end
+
+  defp slots(%{"session_slots_total" => total, "session_slots_free" => free})
+       when is_integer(total) and is_integer(free),
+       do: "#{free} of #{total} free"
+
+  defp slots(_capacity), do: nil
+
+  # The worker's own volume and the line where it stops taking new work.
+  defp disk(%{"free_bytes" => free, "capacity_bytes" => capacity, "high_watermark_bytes" => stop})
+       when is_integer(free) and is_integer(capacity) and is_integer(stop),
+       do: "#{gb(free)} free · new work stops below #{gb(capacity - stop)} free"
+
+  defp disk(_storage), do: "Not reported yet"
+
+  defp refused?(%Worker{storage: %{"allocation" => "refused"}}), do: true
+  defp refused?(_worker), do: false
+
+  defp refusal(%{"refusal_reason" => "reserve_exhausted"}),
+    do: "its disk reached the space it keeps free for cleanup."
+
+  defp refusal(%{"refusal_reason" => "protected_storage_exceeds_budget"}),
+    do: "working copies Ryker must keep fill its disk."
+
+  defp refusal(_storage), do: "its disk is full."
+
+  defp gb(bytes), do: :erlang.float_to_binary(bytes / 1_000_000_000, decimals: 1) <> " GB"
 end

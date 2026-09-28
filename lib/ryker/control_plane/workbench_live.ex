@@ -109,6 +109,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        page_description: nil,
        page_action: nil,
        page_back: nil,
+       page_state: nil,
+       page_title_href: nil,
        connected: connected?(socket),
        unavailable: false,
        reload_scheduled?: false,
@@ -188,6 +190,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        page_title: "Workspace",
        page_description: nil,
        page_back: nil,
+       page_state: nil,
+       page_title_href: nil,
        observed_at: nil,
        # An outcome or an open question belongs to the page it happened on. A
        # form that saved returns to its list and carries what the save did
@@ -1364,6 +1368,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       page_title: "Instructions",
       page_description: ConfigurationGuide.description(:instructions),
       page_back: nil,
+      page_state: nil,
+      page_title_href: nil,
       body_lead: "",
       body:
         BehaviorPage.instructions(%{__changed__: nil, channels: view.channels, saved: saved})
@@ -1388,6 +1394,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         page_title: ChannelPage.title(snapshot),
         page_description: ChannelPage.description(snapshot),
         page_back: {"All channels", "/channels"},
+        page_state: ChannelPage.header_state(snapshot),
+        page_title_href: ChannelPage.slack_url(snapshot),
         body_lead:
           ChannelPage.lead(%{
             __changed__: nil,
@@ -1936,11 +1944,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # so a saved-but-unapplied revision is visibly not in it. The integrations in
   # it read the same state as their own pages; settings that cannot be read
   # show no page at all, so there is nothing to render them into.
-  defp configuration_evidence(options, {:ok, view}) do
-    options.projection.operator_configuration.()
-    |> Map.put(:integrations, Integrations.all(view))
-    |> RunningSystem.html()
-  end
+  defp configuration_evidence(options, {:ok, _view}),
+    do: options.projection.running_system.() |> RunningSystem.html()
 
   defp configuration_evidence(_options, _unavailable), do: ""
 
@@ -1959,6 +1964,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       page_title: page.title,
       page_description: page.description,
       page_action: Map.get(page, :action),
+      page_state: Map.get(page, :state),
+      page_title_href: Map.get(page, :title_href),
       page_back: Map.get(page, :back),
       settings: options.projection.settings.(),
       settings_commands: settings_commands(options)
@@ -2359,6 +2366,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               title={@page_title}
               description={@page_description}
               back={@page_back}
+              status={@page_state}
+              title_href={@page_title_href}
               navigate
             />
             <Components.form_feedback
@@ -2394,6 +2403,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               title={@page_title}
               description={@page_description}
               back={@page_back}
+              status={@page_state}
+              title_href={@page_title_href}
               navigate
             >
               <:action :if={@page_action}>{Phoenix.HTML.raw(@page_action)}</:action>

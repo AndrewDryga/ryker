@@ -118,11 +118,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
         ] do
       html = page("/channels/T123/#{channel}")
 
-      assert html
-             |> LazyHTML.from_document()
-             |> LazyHTML.query(".page-description")
-             |> LazyHTML.text() == description,
-             channel
+      assert String.starts_with?(description(html), description), channel
     end
 
     assert {:ok, %{channel: %{membership: public}}} = ChannelDetail.fetch("T123", "CPUBLIC", %{})
@@ -155,9 +151,10 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     refute html =~ "slack:T123"
     assert Enum.empty?(LazyHTML.query(document, "#taking-part code, #channel-details"))
 
-    assert fact_links(html, "In Slack") == [
-             "https://slack.com/app_redirect?channel=C456&team=T123"
-           ]
+    # Andrew, 2026-09-28: the channel's title opens it in Slack; "In Slack"
+    # was a row of the settings card.
+    assert title_link(html) == "https://slack.com/app_redirect?channel=C456&team=T123"
+    refute "In Slack" in fact_labels(html)
   end
 
   test "current configuration is projected exactly, not inferred" do
@@ -223,14 +220,15 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert view.participation == %{source: :channel, value: :proactive}
 
     html = page("/channels/T123/C456")
-    # The page reads the join against the present, and it was an hour ago.
-    assert fact(html, "In Slack") == "Ryker joined 1 h ago · Open in Slack"
+    # When Ryker joined is said once, under the title.
+    assert description(html) ==
+             "A public channel in Slack. Ryker joined on #{Calendar.strftime(@now, "%-d %b %Y")}."
 
     assert chosen(html, "Conversations") == "Joins relevant conversations"
 
-    # Work here may use every repository of the environment; a task changes the
-    # one it needs, so the page no longer says one is only read.
-    assert fact(html, "Code") == "acme/api, acme/docs · a task changes the one it needs"
+    # Each repository of the environment with what work here may do in it
+    # (Andrew, 2026-09-28: "render it properly with (R/RW) permissions").
+    assert fact(html, "Code") == "acme/api Read and write · default acme/docs Read and write"
     assert fact(html, "Emisar") == "Production approvals"
     assert chosen(html, "Alerts") == "Offers to investigate, in the thread or an incident room"
     assert chosen(html, "Environment") == "Production"
@@ -248,14 +246,14 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     # A save prints its day and clock time, never a relative time, and no
     # revision number.
     saved = Calendar.strftime(@now, "%d %b, %H:%M UTC")
-    assert fact(html, "Channel settings") == "Saved #{saved} by Slack user"
+    assert fact(html, "Last changed") == "Saved #{saved} by Slack user"
 
-    assert fact_links(html, "Channel settings") == [
+    assert fact_links(html, "Last changed") == [
              "https://slack.com/app_redirect?team=T123&channel=U123"
            ]
 
-    assert html |> LazyHTML.from_document() |> LazyHTML.query(".channel-state") |> LazyHTML.text() =~
-             "Connected"
+    # The state sits beside the title, where it is seen (Andrew, 2026-09-28).
+    assert header_state(html) == "Connected"
   end
 
   # Choosing a channel's environment on its page saves the channel as the
@@ -266,8 +264,8 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
     html = page("/channels/T123/C456")
     saved = Calendar.strftime(@now, "%d %b, %H:%M UTC")
-    assert fact(html, "Channel settings") == "Saved #{saved} in Ryker"
-    assert fact_links(html, "Channel settings") == []
+    assert fact(html, "Last changed") == "Saved #{saved} in Ryker"
+    assert fact_links(html, "Last changed") == []
   end
 
   test "unconfigured values are calm explicit empties, never a substituted default" do
@@ -285,7 +283,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert view.participation == %{source: :installation, value: :mentions}
 
     html = page("/channels/T123/C456")
-    assert fact(html, "In Slack") =~ "Ryker left"
+    assert description(html) =~ "Ryker left on"
     assert fact(html, "Conversations") == "Replies when mentioned · workspace default"
     assert fact(html, "Environment") == "None, and no environment is the default"
     assert fact(html, "Code") == "None, so Ryker does not read code here"
@@ -297,12 +295,11 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
              "Ryker keeps settings only for channels it is in. Once it joins this one, choose its environment here."
 
     assert fact(html, "Alerts") == "Investigates in the alert's thread"
-    assert fact(html, "Channel settings") == "Never changed; this channel follows the defaults"
+    assert fact(html, "Last changed") == "Never changed; this channel follows the defaults"
     refute "Invites to incident rooms" in fact_labels(html)
     refute "Incident room" in fact_labels(html)
 
-    assert html |> LazyHTML.from_document() |> LazyHTML.query(".channel-state") |> LazyHTML.text() =~
-             "Disconnected"
+    assert header_state(html) == "Disconnected"
   end
 
   test "an incident room channel shows its room and owning incident only when it is one" do
@@ -352,8 +349,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert lede(html) ==
              "An incident room works in the code it was opened with, so there is no environment to choose."
 
-    assert html |> LazyHTML.from_document() |> LazyHTML.query(".channel-state") |> LazyHTML.text() =~
-             "Incident open"
+    assert header_state(html) == "Incident open"
 
     refute html =~ room.prompt
     refute html =~ "private-incident-error"
@@ -1471,7 +1467,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
                saved_configuration()
 
       assert chosen(render(view), "Environment") == "Staging"
-      assert fact(render(view), "Code") == "acme/api"
+      assert fact(render(view), "Code") == "acme/api Read and write · default"
       assert fact(render(view), "Emisar") == "None, so Ryker cannot act on running systems here"
       refute has_element?(view, "#taking-part .form-feedback")
 
@@ -1518,8 +1514,8 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       conn = build_conn() |> Map.put(:host, "localhost")
 
       for path <- ["/channels/T123/C456", "/channels/T%31%32%33/C%34%35%36"] do
-        {:ok, view, html} = live(conn, path)
-        assert html =~ "<h1>Slack channel C456</h1>", path
+        {:ok, view, _html} = live(conn, path)
+        assert has_element?(view, "h1 a.page-title-link", "Slack channel C456"), path
         assert has_element?(view, "section.instructions-editor"), path
         assert has_element?(view, "main.native-page"), path
       end
@@ -2134,7 +2130,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   defp page(path) do
     page = request(path)
     assert page.status == 200, "#{path} answered #{page.status}"
-    HTML.page(page.title, page.description, page.body)
+    HTML.page(page.title, page.description, page.body, nil, page)
   end
 
   defp page_status(path), do: request(path).status
@@ -2153,6 +2149,30 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       }
     )
   end
+
+  defp description(html),
+    do:
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query(".page-description")
+      |> LazyHTML.text()
+      |> String.trim()
+
+  defp header_state(html),
+    do:
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query(".page-title-line .state-word")
+      |> LazyHTML.text()
+      |> String.trim()
+
+  defp title_link(html),
+    do:
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("h1 a.page-title-link")
+      |> LazyHTML.attribute("href")
+      |> List.first()
 
   defp lede(html) do
     html

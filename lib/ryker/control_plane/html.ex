@@ -9,12 +9,14 @@ defmodule Ryker.ControlPlane.HTML do
   # The title and description are the shell's header, led by the way back
   # when the page belongs to another; the body owns the rest.
   @spec page(String.t(), String.t() | nil, iodata(), {String.t(), String.t()} | nil) :: binary()
-  def page(title, description, body, back \\ nil) do
+  def page(title, description, body, back \\ nil, header \\ %{}) do
     %{
       __changed__: nil,
       title: title,
       description: description,
       back: back,
+      status: Map.get(header, :state),
+      title_href: Map.get(header, :title_href),
       body: IO.iodata_to_binary(body)
     }
     |> Layouts.static()

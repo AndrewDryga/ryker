@@ -264,12 +264,20 @@ defmodule Ryker.ControlPlane.ChannelDetail do
 
       environment ->
         refs = Environment.repository_refs(environment)
+        access = Map.new(environment.repositories, &{&1.repository_ref, &1.access})
 
         %{
           emisar: Environments.emisar_name(settings, environment),
           name: environment.display_name,
           ref: ref,
-          repositories: Enum.map(refs, &repository(&1, settings)),
+          repositories:
+            refs
+            |> Enum.with_index()
+            |> Enum.map(fn {repository_ref, index} ->
+              repository_ref
+              |> repository(settings)
+              |> Map.merge(%{access: Map.get(access, repository_ref), default: index == 0})
+            end),
           source: source,
           writable: List.first(refs)
         }

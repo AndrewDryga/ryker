@@ -271,7 +271,10 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
            end)
   end
 
-  test "channel page has its own editor and inherited preview without leaking text into the roster" do
+  # Andrew, 2026-09-28: the global text and "Nothing saved yet." above a
+  # channel's form read as the card's centerpiece. The channel's words are the
+  # point; the global ones are one quiet link below the form.
+  test "a channel's editor links to the global instructions below its form and leaks nothing into the roster" do
     join!()
     start_supervised!({Names, workspace: "TINSTRUCTIONS", fetch: fn _ -> {:ok, "test"} end})
     Names.name("TINSTRUCTIONS", "CTEST")
@@ -286,13 +289,13 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     refute html =~ "more specific for conflicting behavioral guidance in this channel"
     refute html =~ "They cannot change permissions or fixed system rules."
     refute html =~ "take priority"
-    assert has_element?(view, "#inherited-instructions", "Global <script>plain text</script>")
-    refute html =~ "<script>plain text</script>"
+    refute html =~ "Global"
+    refute html =~ "Nothing saved yet."
 
     assert has_element?(
              view,
-             "a[href='/instructions']",
-             "Edit the instructions for every conversation"
+             "#instructions-form ~ .instructions-global a[href='/instructions']",
+             "instructions for every conversation"
            )
 
     submit(view, "CHANNEL_PRIVATE_INSTRUCTION")
@@ -307,13 +310,14 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     refute other.resp_body =~ "CHANNEL_PRIVATE_INSTRUCTION"
   end
 
-  test "the channel page reads how Ryker takes part, its instructions, then what applies and what it knows" do
+  test "the channel page reads its settings, its instructions, then what applies and what it knows" do
     # Deployed 2026-09-13 as 0.1.0-g865731d1, the editor card sat between the
     # title and everything the page leads with. On 2026-09-24 the page became
     # Kit sections in the order a person asks about a channel: how Ryker takes
     # part, what it was told here, what else applies, what it knows, then its
     # schedules, recent work and usage. On 2026-09-26 each became its own
-    # card, the instructions editor drawing the Instructions card.
+    # card, the instructions editor drawing the Instructions card. On
+    # 2026-09-28 the channel's state moved into the title line.
     join!()
     start_supervised!({Names, workspace: "TINSTRUCTIONS", fetch: fn _ -> {:ok, "test"} end})
     Names.name("TINSTRUCTIONS", "CTEST")
@@ -324,7 +328,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     outline =
       page
-      |> LazyHTML.query("header.page-header, p.channel-state, section.kit-card")
+      |> LazyHTML.query("header.page-header, section.kit-card")
       |> Enum.map(fn node ->
         [tag] = LazyHTML.tag(node)
         [class | _] = LazyHTML.attribute(node, "class") |> hd() |> String.split()
@@ -334,7 +338,6 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     assert outline == [
              "header.page-header",
-             "p.channel-state",
              "section.kit-card#taking-part",
              "section.kit-card#instructions-slack:TINSTRUCTIONS:CTEST",
              "section.kit-card#applies",
@@ -353,7 +356,10 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
            |> LazyHTML.text() == "Instructions"
 
     assert page |> LazyHTML.query("header.page-header h1") |> LazyHTML.text() == "#test"
-    assert page |> LazyHTML.query("p.channel-state") |> LazyHTML.text() =~ "Connected"
+
+    assert page |> LazyHTML.query("header.page-header .state-word") |> LazyHTML.text() =~
+             "Connected"
+
     refute html =~ "How context reaches this channel"
   end
 

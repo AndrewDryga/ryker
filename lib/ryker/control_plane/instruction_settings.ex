@@ -8,9 +8,9 @@ defmodule Ryker.ControlPlane.InstructionSettings do
   alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, IncidentRoom}
 
   @doc """
-  The saved instructions for `scope`. A channel's view carries the global
-  text it inherits; the global view carries every channel that adds
-  instructions of its own, which the Instructions page lists under its editor.
+  The saved instructions for `scope`. The global view also carries every
+  channel that adds instructions of its own, which the Instructions page lists
+  under its editor.
   """
   def fetch(scope) do
     with {:ok, _membership} <- available(scope),
@@ -21,8 +21,8 @@ defmodule Ryker.ControlPlane.InstructionSettings do
     end
   end
 
-  defp view(:global, setting), do: %{setting: setting, global: nil, channels: channels()}
-  defp view(_channel, setting), do: %{setting: setting, global: Instructions.get(:global)}
+  defp view(:global, setting), do: %{setting: setting, channels: channels()}
+  defp view(_channel, setting), do: %{setting: setting}
 
   # A cleared channel has nothing to add, so it is not listed.
   @channel_limit 500

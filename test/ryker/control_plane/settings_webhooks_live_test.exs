@@ -155,6 +155,23 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
            )
   end
 
+  # Andrew, 2026-09-28: a box saying "Create a signing credential above before
+  # adding a webhook source." sat over the list. The Add it blocks cannot be
+  # pressed now and says why on hover.
+  test "with no signing credential, Add webhook source is disabled and says why on hover" do
+    installation!()
+    assert {:ok, :ok} = Credentials.delete(:webhook, @registered, @actor)
+    {:ok, view, _html} = open()
+
+    blocked =
+      "#settings-webhooks span.settings-editor-add.is-disabled[aria-disabled='true']" <>
+        "[title='Create a signing credential above before adding a webhook source.']"
+
+    assert has_element?(view, blocked, "Add webhook source")
+    refute has_element?(view, "#settings-webhooks a.settings-editor-add")
+    refute has_element?(view, "#settings-webhooks .settings-notice", "signing credential")
+  end
+
   test "a source may only reference a credential Ryker has in encrypted custody" do
     installation!()
     {:ok, view, _html} = open()
@@ -560,16 +577,6 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     assert has_element?(view, ".form-feedback-error[role=alert]", "That name cannot be used.")
     assert has_element?(view, "form[phx-submit=create-webhook-credential]")
     refute has_element?(view, ".form-feedback-success")
-  end
-
-  test "an installation with no webhook credentials says how to create one" do
-    assert {:ok, :ok} = Credentials.delete(:webhook, @registered, @actor)
-    installation!()
-
-    {:ok, view, _html} = open()
-
-    assert has_element?(view, ".settings-notice", "Create a signing credential")
-    refute has_element?(view, "#settings-webhooks-secret_name option[value='#{@registered}']")
   end
 
   test "the page says what Slack is waiting for in the words every other page uses" do

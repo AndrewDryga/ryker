@@ -17,6 +17,8 @@ defmodule Ryker.ControlPlane.Layouts do
       assigns
       |> assign_new(:description, fn -> nil end)
       |> assign_new(:back, fn -> nil end)
+      |> assign_new(:status, fn -> nil end)
+      |> assign_new(:title_href, fn -> nil end)
       |> assign(:stylesheets, @stylesheets)
 
     ~H"""
@@ -38,9 +40,13 @@ defmodule Ryker.ControlPlane.Layouts do
             </div>
             <main class="page-surface action-page">
               <div class="secondary-page">
-                <Components.page_header title={@title} description={@description} back={@back} />{Phoenix.HTML.raw(
-                  @body
-                )}
+                <Components.page_header
+                  title={@title}
+                  description={@description}
+                  back={@back}
+                  status={@status}
+                  title_href={@title_href}
+                />{Phoenix.HTML.raw(@body)}
               </div>
             </main>
           </div>

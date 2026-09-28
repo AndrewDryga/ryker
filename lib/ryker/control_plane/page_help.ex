@@ -401,16 +401,16 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How this channel works", [
       {"What this page shows",
        [
-         "Everything about one Slack channel: how Ryker takes part, the environment its work uses, the channel's own instructions and what applies here. Recent work, schedules and usage follow."
+         "Everything about one Slack channel: its settings, the environment its work uses, the channel's own instructions and what applies here. Recent work, schedules and usage follow. The channel's name opens it in Slack."
        ]},
-      {"How Ryker takes part",
+      {"Channel settings",
        [
          "Conversations says when Ryker replies here, Alerts what it does when an alert is posted, and Environment which repositories and Emisar account its work may use. No environment means Ryker works here without code and cannot act on running systems.",
          "Each choice saves as soon as you make it, and a small Saved beside it confirms it. Ryker's welcome message in the channel changes with it."
        ]},
       {"Instructions and what applies",
        [
-         "This channel's instructions add to the global ones, here only. What applies here lists the rules, saved instructions and facts Ryker uses in this channel, and where each comes from."
+         "This channel's instructions add to the instructions for every conversation, here only; change those on the Instructions page. What applies here lists the rules, saved instructions and facts Ryker uses in this channel, and where each comes from."
        ]},
       {"Ask Ryker in the channel",
        [
@@ -933,7 +933,8 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How model prices work", [
       {"What this page holds",
        [
-         "What each model costs per million tokens, for input, cached input, output and reasoning, with the day a price starts and where it came from."
+         "What each model costs per million tokens, for input, cached input, output and reasoning, with the day a price starts and where it came from.",
+         "Leave Reasoning empty when a model's output already counts its reasoning, as Codex and Claude report it."
        ]},
       {"Where prices show up",
        [
@@ -987,14 +988,10 @@ defmodule Ryker.ControlPlane.PageHelp do
          "Ryker selects the code and settings for each job. When a job uses a repository, the worker fetches its code into an isolated working copy.",
          "Choose models on the Models page. Workers need no policy files."
        ]},
-      {"Tasks that change code",
+      {"Running now",
        [
-         "Tasks that change code says whether Ryker can change code right now. When it cannot, it says what is missing and how to check the installation."
-       ]},
-      {"What is running",
-       [
-         "Show what is loaded lists what the running Ryker actually uses, for support and troubleshooting. Nothing there can be changed; a saved setting shows there once it is applied.",
-         "Its integrations show the same state as their own pages, with whether the running Ryker loaded them under Details."
+         "Running now shows the Ryker version and each worker: whether it is taking work, its free work slots, and its free disk against the line where it stops taking new work.",
+         "When code changes cannot run on this installation, a card above it says so and what to check."
        ]},
       {"When something looks wrong",
        [

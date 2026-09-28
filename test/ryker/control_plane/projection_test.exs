@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     BehaviorLibrary,
     ChannelDetail,
     ChannelDirectory,
-    ConfigurationProjection,
     EpisodePage,
     EpisodeProjection,
     FailureProjection,
@@ -433,29 +432,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       assert {:ok, unlinked} = EpisodeProjection.fetch(transition.episode.key)
       assert unlinked.trace.source == nil
     end
-  end
-
-  test "configuration reports only runtime presence and includes every product owner" do
-    keys = [:control_plane, :emisar, :retention]
-    previous = Map.new(keys, &{&1, Application.get_env(:ryker, &1, :missing)})
-
-    Application.put_env(:ryker, :control_plane, %{port: 4321})
-    Application.put_env(:ryker, :emisar, %{token: "secret"})
-    Application.put_env(:ryker, :retention, %{lease_seconds: 60})
-
-    on_exit(fn ->
-      Enum.each(previous, fn
-        {key, :missing} -> Application.delete_env(:ryker, key)
-        {key, value} -> Application.put_env(:ryker, key, value)
-      end)
-    end)
-
-    %{rows: rows} = ConfigurationProjection.fetch()
-    assert %{key: "control_plane", value: "enabled", source: "durable settings"} in rows
-    assert %{key: "emisar", value: "enabled", source: "durable settings"} in rows
-    assert %{key: "retention", value: "enabled", source: "durable settings"} in rows
-    refute inspect(rows) =~ "4321"
-    refute inspect(rows) =~ "secret"
   end
 
   test "usage keeps measured coverage cost timing and effective targets distinct" do
@@ -1690,12 +1666,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert ScheduleProjection.fetch("missing") == :not_found
     assert ChannelDetail.fetch("T123", "C456", %{}) == :not_found
 
-    assert %{grants: grants, rows: rows, source: source} = ConfigurationProjection.fetch()
-    assert is_list(grants)
-    assert is_list(rows)
-    assert is_binary(source)
-    refute inspect(%{grants: grants, rows: rows}) =~ "secret"
-
     assert IncidentProjection.list(:invalid) == []
     assert ScheduleProjection.list(:invalid) == []
     assert ChannelDirectory.list(:invalid) == []
@@ -2430,60 +2400,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     # Usage reads the frozen execution ledger, not a later mutation of the custody row.
     assert %{performance: [%{average_provider_ms: 5_000}], window: "7d"} =
              UsageProjection.page(%{"window" => "7d"})
-  end
-
-  test "effective configuration exposes provenance and grant names but never secrets or callbacks" do
-    keys = [:state_tools, :work]
-    previous = Map.new(keys, &{&1, Application.get_env(:ryker, &1, :missing)})
-
-    Application.put_env(:ryker, :state_tools, %{
-      additional_call: fn _, _, _ -> :secret_callback end,
-      additional_tools: [
-        %{"name" => "search_slack", "description" => "private schema"},
-        %{name: "read_incident"},
-        %{unexpected: "ignored"}
-      ],
-      capabilities: [:emisar_approvals, :schedules],
-      token: "must-not-render-secret"
-    })
-
-    Application.put_env(:ryker, :work, %{
-      concurrency: 4,
-      platform_tools: ["source_read"],
-      poll_interval_ms: 250
-    })
-
-    on_exit(fn ->
-      Enum.each(previous, fn
-        {key, :missing} -> Application.delete_env(:ryker, key)
-        {key, value} -> Application.put_env(:ryker, key, value)
-      end)
-    end)
-
-    snapshot = ConfigurationProjection.fetch()
-    # Effective values come from the applied settings, not from a file path an
-    # operator could be pointed at.
-    assert snapshot.source == "durable settings"
-
-    assert %{key: "work.concurrency", value: "4"} =
-             Enum.find(snapshot.rows, &(&1.key == "work.concurrency"))
-
-    assert Enum.any?(snapshot.grants, &match?(%{kind: "MCP tool", name: "search_slack"}, &1))
-    assert Enum.any?(snapshot.grants, &match?(%{kind: "MCP tool", name: "read_incident"}, &1))
-
-    assert Enum.any?(
-             snapshot.grants,
-             &match?(%{kind: "host capability", name: "emisar_approvals"}, &1)
-           )
-
-    assert Enum.any?(
-             snapshot.grants,
-             &match?(%{kind: "source/action tool", name: "source_read"}, &1)
-           )
-
-    refute inspect(snapshot) =~ "must-not-render-secret"
-    refute inspect(snapshot) =~ "secret_callback"
-    refute inspect(snapshot) =~ "private schema"
   end
 
   # A memory is a person's own words, confirmed as a fact. The channel page and

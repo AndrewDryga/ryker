@@ -40,7 +40,8 @@ defmodule Ryker.ControlPlane.Components do
     bolt: "M13 2 4 14h7l-1 8 9-12h-7l1-8Z",
     pen: "M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z M13.5 6.5l3 3",
     plug: "M9 2v6 M15 2v6 M6 8h12v4a6 6 0 0 1-12 0V8Z M12 18v4",
-    tag: "M3 3h8l10 10-8 8L3 11V3Z M7.5 7.5h.01"
+    tag: "M3 3h8l10 10-8 8L3 11V3Z M7.5 7.5h.01",
+    external: "M14 4h6v6 M20 4l-9 9 M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"
   }
 
   attr(:class, :any, default: nil)
@@ -512,6 +513,16 @@ defmodule Ryker.ControlPlane.Components do
     doc: "Inside the live shell, the way back opens without reloading"
   )
 
+  attr(:status, :any,
+    default: nil,
+    doc: "{tone, word} of the page's own record, shown beside the title where it is seen first"
+  )
+
+  attr(:title_href, :string,
+    default: nil,
+    doc: "Where the record lives outside Ryker (a Slack channel); the title opens it"
+  )
+
   slot(:action, doc: "A real page-level action that already exists; never a placeholder")
 
   @doc """
@@ -533,6 +544,8 @@ defmodule Ryker.ControlPlane.Components do
       |> assign_new(:back, fn -> nil end)
       |> assign_new(:navigate, fn -> false end)
       |> assign_new(:action, fn -> [] end)
+      |> assign_new(:status, fn -> nil end)
+      |> assign_new(:title_href, fn -> nil end)
 
     ~H"""
     <header class="page-header">
@@ -543,7 +556,18 @@ defmodule Ryker.ControlPlane.Components do
         navigate={@navigate}
       />
       <div class="page-heading">
-        <h1>{@title}</h1>
+        <div class="page-title-line">
+          <h1 :if={!@title_href}>{@title}</h1>
+          <h1 :if={@title_href}>
+            <a
+              href={@title_href}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="page-title-link"
+            >{@title}<.icon name={:external} class="page-title-external" /></a>
+          </h1>
+          <Kit.state :if={@status} tone={elem(@status, 0)} word={elem(@status, 1)} />
+        </div>
         <div :if={@action != []} class="page-action">{render_slot(@action)}</div>
       </div>
       <p :if={@description} class="page-description">{@description}</p>

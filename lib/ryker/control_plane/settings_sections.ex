@@ -767,31 +767,42 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :operational_data_seconds,
           kind: :days,
           label: "Prompts, replies and tool activity",
-          help: "The full text of messages Ryker received and of each model and tool call."
+          help:
+            "The words themselves: messages people sent, every prompt and answer of a model " <>
+              "call, and what each tool call sent and got back. By far the largest part. Once " <>
+              "deleted, a request's page still shows each step, without the text."
         },
         %{
           name: :closed_work_seconds,
           kind: :days,
           label: "Finished work",
-          help: "Closed incident rooms, task cards and finished work sessions."
+          help:
+            "Ryker's records of closed incident rooms and of task cards in Slack. Small. It never " <>
+              "touches code: working copies of repositories are cleaned up on their own (see " <>
+              "Working copies)."
         },
         %{
           name: :episode_history_seconds,
           kind: :days,
           label: "Request history",
-          help: "The step-by-step record of each finished request."
+          help:
+            "The steps behind each finished request's page: decisions, work turns, approvals, " <>
+              "pull requests and schedule runs, without the words above. Small. Once deleted, " <>
+              "the request leaves Activity."
         },
         %{
           name: :audit_data_seconds,
           kind: :days,
           label: "Audit trail",
-          help: "Records of changes to settings, instructions and channels."
+          help: "Who changed settings, instructions, channels and credentials, and when. Small."
         },
         %{
           name: :conversation_memory_seconds,
           kind: :days,
           label: "Conversation memory",
-          help: "What Ryker remembers about each conversation."
+          help:
+            "What Ryker learned from each conversation: learned topics, notes and summaries. " <>
+              "Small. Facts someone confirmed for the whole workspace stay regardless."
         },
         %{
           name: :routing_examples_enabled,
@@ -806,8 +817,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :days,
           label: "Routing examples",
           help:
-            "How long each copy is kept. Deleting a message or forgetting what Ryker learned " <>
-              "from it removes it from every copy at once."
+            "How long each copy is kept; each is about the size of one routing prompt. Deleting " <>
+              "a message or forgetting what Ryker learned from it removes it from every copy at once."
         }
       ]
     },
@@ -859,8 +870,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :decimal,
           label: "Reasoning",
           placeholder: "0.00",
-          group: "US dollars per million tokens",
-          help: "Leave empty when output already counts reasoning, as Codex and Claude report it."
+          group: "US dollars per million tokens"
         },
         %{
           name: :effective_from,

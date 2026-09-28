@@ -192,20 +192,6 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
         title="Instructions"
         lede={ChannelPage.instructions_lede()}
       />
-      <div :if={@view.global} class="inherited-instructions">
-        <p class="inherited-head">
-          <span>For every conversation</span>
-          <.link navigate="/instructions">Edit<span class="sr-only"> the instructions for every conversation</span></.link>
-        </p>
-        <p :if={@view.global.text == ""} class="inherited-empty">Nothing saved yet.</p>
-        <%!-- pre-wrap text: whitespace inside these paragraphs is content. --%>
-        <p
-          :if={@view.global.text != ""}
-          id="inherited-instructions"
-          class="inherited-text"
-          phx-no-format
-        >{@view.global.text}</p>
-      </div>
       <form
         id="instructions-form"
         phx-hook="InstructionDraft"
@@ -266,6 +252,12 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
           </div>
         </div>
       </form>
+      <%!-- Andrew, 2026-09-28: the global text above the form read as the
+      card's centerpiece. The channel's words are the point; the global ones
+      are a link away. --%>
+      <p :if={@scope != :global} class="instructions-global">
+        These add to the <.link navigate="/instructions">instructions for every conversation</.link>.
+      </p>
     </section>
     """
   end

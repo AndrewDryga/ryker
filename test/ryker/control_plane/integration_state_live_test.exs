@@ -21,9 +21,7 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
     Actions,
     ChannelsPage,
     Endpoint,
-    Integrations,
     Projection,
-    RunningSystem,
     SettingsPage,
     SettingsView
   }
@@ -368,8 +366,7 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
       {"/integrations", "#integration-slack"},
       {"/integrations/slack", ".settings-connection"},
       {"/channels", "#slack-status"},
-      {"/setup", "ol.setup-steps > li:first-child"},
-      {"/settings/advanced", "#running-slack"}
+      {"/setup", "ol.setup-steps > li:first-child"}
     ]
 
   defp surfaces(:github),
@@ -377,23 +374,20 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
       {"/integrations", "#integration-github"},
       {"/integrations/github", ".settings-connection"},
       {"/repositories", "#github-status"},
-      {"/setup", "ol.setup-steps > li:nth-child(2)"},
-      {"/settings/advanced", "#running-github"}
+      {"/setup", "ol.setup-steps > li:nth-child(2)"}
     ]
 
   defp surfaces(:emisar),
     do: [
       {"/integrations", "#integration-emisar"},
       {"/integrations/emisar", ".settings-connection"},
-      {"/setup", ".setup-emisar"},
-      {"/settings/advanced", "#running-emisar"}
+      {"/setup", ".setup-emisar"}
     ]
 
   defp surfaces(:webhooks),
     do: [
       {"/integrations", "#integration-webhooks"},
-      {"/integrations/webhooks", ".settings-connection"},
-      {"/settings/advanced", "#running-webhooks"}
+      {"/integrations/webhooks", ".settings-connection"}
     ]
 
   defp page(key), do: "/integrations/#{key}"
@@ -413,17 +407,11 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
       render_component(&ChannelsPage.slack_status/1, settings: {:ok, view})
       |> LazyHTML.from_fragment()
 
-    running =
-      %{rows: [], grants: [], source: "durable settings", integrations: Integrations.all(view)}
-      |> RunningSystem.html()
-      |> LazyHTML.from_fragment()
-
     [
       overview: page.(:integrations) |> LazyHTML.query("#integration-slack"),
       slack: page.(:slack) |> LazyHTML.query(".settings-connection"),
       channels: LazyHTML.query(channels, "#slack-status"),
-      setup: page.(:setup) |> LazyHTML.query("ol.setup-steps > li:first-child"),
-      advanced: LazyHTML.query(running, "#running-slack")
+      setup: page.(:setup) |> LazyHTML.query("ol.setup-steps > li:first-child")
     ]
     |> Enum.map(fn {surface, nodes} -> {surface, text(nodes)} end)
   end
