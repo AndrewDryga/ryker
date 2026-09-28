@@ -697,8 +697,8 @@ defmodule Ryker.Ingress.Inbox do
     with {:ok, receipt} <- admit(input, load(dedupe_key), settings),
          :ok <- attach_artifacts(input, receipt),
          :ok <- revoke_answer_memory(receipt),
-         :ok <- forget_routing_examples(receipt),
          :ok <- receive_observation(receipt),
+         :ok <- forget_routing_examples(receipt),
          :ok <- Projections.observe(input, ref(receipt.entry)) do
       {:ok, receipt}
     end
@@ -706,7 +706,11 @@ defmodule Ryker.Ingress.Inbox do
 
   # Somebody deleting their message, or replacing its words by editing it,
   # takes those words back: the routing examples kept for training that quote
-  # it are erased as the change is recorded.
+  # it are erased as the change is recorded. That takes the lock every
+  # forgetting takes (`Ryker.RoutingExamples`), so it comes after the
+  # message's note is written: forgetting what was learned from a message
+  # holds its note and then takes that lock, and the other order deadlocked
+  # with it.
   defp forget_routing_examples(%{status: :recorded, entry: %Entry{event_kind: kind} = entry})
        when kind in [:edit, :delete],
        do: RoutingExamples.forget_revised_in_transaction(entry)

@@ -2,11 +2,21 @@ defmodule Ryker.Ingress.InboxConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.Admission
+  alias Ryker.Admission.Decision
   alias Ryker.Behaviors.StandingRuleInventory
+  alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Memories.Forgetting
   alias Ryker.Repo
+  alias Ryker.Slack.ChannelMembership
   alias Ryker.Slack.Input, as: SlackInput
+
+  @learned_workspace "TLOCKORDER"
+  @learned_channel "CLOCKORDER"
 
   test "simultaneous Slack retries converge on one inbox record" do
     Sandbox.unboxed_run(Repo, fn ->
@@ -218,6 +228,187 @@ defmodule Ryker.Ingress.InboxConcurrencyTest do
 
       refute Repo.exists?(from(row in Entry, where: row.id == ^entry.id))
     end)
+  end
+
+  # A person edits or deletes their message while someone forgets a topic
+  # learned from it. Forgetting holds the message's note and then takes the
+  # lock every forgetting takes; recording the edit or deletion took that lock
+  # and then the note. Each waited on the other until the database cancelled
+  # one: the edit or deletion was not recorded, or the forgetting failed
+  # (found in review, 2026-09-28).
+  for {kind, revision} <- [edit: "an edit", delete: "a deletion"] do
+    test "#{revision} recorded while a topic learned from its message is forgotten waits instead of deadlocking" do
+      Sandbox.unboxed_run(Repo, fn ->
+        message_ref = unique_message_ref()
+
+        try do
+          topic = learned_topic!(message_ref)
+          parent = self()
+
+          forgetter =
+            unboxed_task(fn ->
+              pause_after_holding_the_note!(parent)
+
+              try do
+                safely(fn -> Forgetting.forget_topic(topic.id) end)
+              after
+                :telemetry.detach({__MODULE__, self()})
+              end
+            end)
+
+          assert_receive {:note_held, forgetter_backend}, 5_000
+
+          recorder =
+            unboxed_task(fn ->
+              send(parent, {:recorder_ready, backend_pid()})
+              safely(fn -> Inbox.record(revision!(message_ref, unquote(kind))) end)
+            end)
+
+          try do
+            assert_receive {:recorder_ready, recorder_backend}, 5_000
+            await_blocked_by(recorder_backend, forgetter_backend)
+            send(forgetter.pid, :resume)
+
+            recorded = Task.await(recorder, 10_000)
+            forgotten = Task.await(forgetter, 10_000)
+
+            assert match?({:ok, %{status: :recorded}}, recorded),
+                   "#{unquote(revision)} was not recorded: #{inspect(recorded)}"
+
+            assert match?({:ok, %{forgotten: [_ | _]}}, forgotten),
+                   "the topic was not forgotten: #{inspect(forgotten)}"
+          after
+            send(forgetter.pid, :resume)
+            stop_tasks([forgetter, recorder])
+          end
+        after
+          clean_learned!(message_ref)
+        end
+      end)
+    end
+  end
+
+  # A deadlock is raised in the transaction the database cancels.
+  defp safely(fun) do
+    fun.()
+  rescue
+    error in Postgrex.Error -> {:raised, error.postgres[:code]}
+  end
+
+  defp pause_after_holding_the_note!(parent) do
+    :ok =
+      :telemetry.attach(
+        {__MODULE__, self()},
+        [:ryker, :repo, :query],
+        &__MODULE__.pause_forgetting/4,
+        {self(), parent, backend_pid()}
+      )
+  end
+
+  # The first time forgetting writes a note, it holds the notes it forgets
+  # and is about to take the lock every forgetting takes.
+  def pause_forgetting(_event, _measurements, %{query: query}, {forgetter, parent, backend}) do
+    if self() == forgetter and not Process.get(:paused?, false) and
+         String.starts_with?(query, ~s(UPDATE "conversation_observations")) do
+      Process.put(:paused?, true)
+      :telemetry.detach({__MODULE__, forgetter})
+      send(parent, {:note_held, backend})
+
+      receive do
+        :resume -> :ok
+      after
+        5_000 -> :ok
+      end
+    end
+  end
+
+  # A person's message, routed and learned from: routing kept a note of it,
+  # and a topic was learned from that note.
+  defp learned_topic!(message_ref) do
+    assert {:ok, %{entry: entry}} = Inbox.record(learned_input!(message_ref, :message, 1))
+
+    assert {:ok, context} =
+             Admission.context(Inbox.ref(entry),
+               now: DateTime.utc_now(),
+               continuation_window: 1_800,
+               history_window: 2_592_000,
+               candidate_limit: 8
+             )
+
+    assert {:ok, decision} =
+             Decision.parse(%{
+               "action" => "ignore",
+               "episode_ref" => nil,
+               "messages" => nil,
+               "reactions" => nil,
+               "relation" => "unrelated",
+               "repository" => nil,
+               "repository_source" => nil,
+               "reason" => "The person shared where the staging account lives.",
+               "work_class" => nil
+             })
+
+    assert {:ok, %{entry: decided}} = Admission.commit(context, decision, "decision:#{entry.id}")
+
+    proposal = %{
+      "topic_key" => "staging-account",
+      "title" => "Staging account",
+      "summary" => "The staging account is acme-staging, as the message said.",
+      "topics" => ["staging-account"],
+      "anchors" => [],
+      "target_ref" => nil,
+      "expected_version" => 0
+    }
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn -> KnowledgeFixtures.record_topic(decided, proposal, []) end)
+
+    Repo.one!(
+      from(topic in ConversationKnowledge,
+        where:
+          topic.workspace_ref == ^"slack:#{@learned_workspace}" and
+            topic.topic_key == "staging-account"
+      )
+    )
+  end
+
+  defp revision!(message_ref, :edit),
+    do: learned_input!(message_ref, :edit, 2, "the staging account is acme-stg")
+
+  defp revision!(message_ref, :delete), do: learned_input!(message_ref, :delete, 2, "")
+
+  defp learned_input!(message_ref, kind, revision, text \\ "the staging account is acme-staging") do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "ULOCKORDER"},
+               channel_ref: @learned_channel,
+               content: %{"text" => text},
+               event_kind: kind,
+               event_ref: "Ev-lock-order-#{kind}-#{message_ref}",
+               message_ref: message_ref,
+               occurred_at: DateTime.add(DateTime.utc_now(), revision * 60 - 300, :second),
+               revision: revision,
+               thread_ref: nil,
+               workspace_ref: @learned_workspace
+             })
+
+    input
+  end
+
+  defp clean_learned!(message_ref) do
+    scope = "slack:#{@learned_workspace}"
+    Repo.delete_all(from(topic in ConversationKnowledge, where: topic.workspace_ref == ^scope))
+    Repo.delete_all(from(note in ConversationObservation, where: note.workspace_ref == ^scope))
+
+    delete_entries!(
+      from(entry in Entry,
+        where: entry.source_ref == @learned_workspace and entry.source_item_ref == ^message_ref
+      )
+    )
+
+    Repo.delete_all(
+      from(membership in ChannelMembership, where: membership.workspace_ref == @learned_workspace)
+    )
   end
 
   defp delete_inputs!(refs),
