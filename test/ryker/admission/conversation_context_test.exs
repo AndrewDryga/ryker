@@ -11,6 +11,7 @@ defmodule Ryker.Admission.ConversationContextTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Input
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.{Custody, Turn}
@@ -20,7 +21,10 @@ defmodule Ryker.Admission.ConversationContextTest do
   # modules that share a conversation take its admission lock in opposite
   # orders and deadlock under load.
   @channel "CCONVERSATIONCONTEXT"
-  @now ~U[2026-09-11 12:00:00.000000Z]
+  # A summary names its newest input the way the Work handover records it, by
+  # the input's episode key and never by the message's own timestamp. This one
+  # is production's, from the thread summary of 2026-09-28 below.
+  @handover_ref "admit_input:87ee48596c232b8344bce82c8c1bb5c147000e534b7c9a02a9fb15239f007f04"
 
   test "a thread reply receives its root and the twenty messages that precede it in that thread" do
     # Admission saw only the message it was deciding. A reply that says "it is
@@ -220,43 +224,91 @@ defmodule Ryker.Admission.ConversationContextTest do
 
   test "summaries report absent, stale, current and after-cutoff without fabricating freshness" do
     current = record!("Decide me", ts: "1789000700.000100", thread_ref: "1789000650.000100")
+    routed_at = DateTime.add(current.occurred_at, 1, :second)
 
-    assert ConversationSummaries.thread(current, @now)["status"] == "unavailable"
-    assert ConversationSummaries.thread(current, @now)["reason"] == "absent"
-    assert ConversationSummaries.channel(current, @now)["reason"] == "absent"
+    assert ConversationSummaries.thread(current, routed_at)["status"] == "unavailable"
+    assert ConversationSummaries.thread(current, routed_at)["reason"] == "absent"
+    assert ConversationSummaries.channel(current, routed_at)["reason"] == "absent"
 
-    summary!(current, "1789000650.000100", "1789000660.000100", DateTime.add(@now, -60, :second))
-    fresh = ConversationSummaries.thread(current, @now)
+    summary!(current, "1789000650.000100", @handover_ref, saved(current, -60))
+    fresh = ConversationSummaries.thread(current, routed_at)
     assert fresh["status"] == "available"
     assert fresh["freshness"] == "current"
     assert fresh["document"]["state"]["situation"] == "Replication is stalled"
 
-    summary!(
-      current,
-      "1789000650.000100",
-      "1789000660.000100",
-      DateTime.add(@now, -3 * 24 * 3600, :second)
-    )
+    summary!(current, "1789000650.000100", @handover_ref, saved(current, -3 * 24 * 3600))
+    assert ConversationSummaries.thread(current, routed_at)["freshness"] == "stale"
 
-    assert ConversationSummaries.thread(current, @now)["freshness"] == "stale"
-
-    summary!(current, "1789000650.000100", "1789000800.000100", DateTime.add(@now, -60, :second))
-    after_cutoff = ConversationSummaries.thread(current, @now)
+    summary!(current, "1789000650.000100", @handover_ref, saved(current, 1))
+    after_cutoff = ConversationSummaries.thread(current, saved(current, 2))
     assert after_cutoff["status"] == "unavailable"
     assert after_cutoff["reason"] == "after_cutoff"
     assert is_nil(after_cutoff["document"])
   end
 
+  # On 2026-09-28 Andrew's "And now?" was routed as if its Slack thread had no
+  # summary, though Ryker had saved one there thirteen hours before. The cutoff
+  # compared the summary's newest input, which the Work handover records as an
+  # "admit_input:<digest>" key, with the message's Slack timestamp as text, and
+  # letters sort after digits: every Slack thread summary looked newer than
+  # every message. From 2026-09-11 no Slack routing decision got its thread
+  # summary (all seven in production that had one refused it), and the
+  # Timeline said each was "created after this request". Production's row and
+  # message.
+  test "a thread summary saved before a reply reaches that reply's routing" do
+    current = record!("And now?", ts: "1790569786.896249", thread_ref: "1790504146.985239")
+
+    summary!(current, "1790504146.985239", @handover_ref, ~U[2026-09-27 15:16:01.430657Z])
+
+    selected = ConversationSummaries.thread(current, ~U[2026-09-28 04:29:47.774293Z])
+
+    assert selected["status"] == "available",
+           "routing left the thread summary out as #{selected["reason"]}"
+
+    assert selected["covered_through"] == "2026-09-27T15:16:01.430657Z"
+    assert selected["freshness"] == "current"
+  end
+
+  # The same comparison never refused a Conversation Lab summary: its
+  # "admit_input:" key sorts before every "control-plane-item:" message, so a
+  # summary saved while a Lab message waited to be routed reached that routing
+  # and could describe what came after it. Production's Lab message and key;
+  # the later save is the case the cutoff exists for.
+  test "a summary saved after a message arrived stays out of that message's routing" do
+    current =
+      lab_record!(
+        "What is the temporary validation codename? Answer with only the codename.",
+        "24e68e99-5b48-46f7-90a2-d4d6016f2b67",
+        ~U[2026-09-20 22:19:18.407470Z]
+      )
+
+    summary!(
+      current,
+      current.destination_thread_ref,
+      "admit_input:73bb706189c91db0d7fcfecbb77ca39a5cf649096083ec365d81d82b6b4b8979",
+      saved(current, 60)
+    )
+
+    selected = ConversationSummaries.thread(current, saved(current, 120))
+
+    assert selected["status"] == "unavailable",
+           "a summary saved a minute after the message reached its routing"
+
+    assert selected["reason"] == "after_cutoff"
+    assert is_nil(selected["document"])
+  end
+
   test "the captured bundle carries both summaries and their coverage in the manifest" do
     current = record!("Decide me", ts: "1789000900.000100", thread_ref: "1789000850.000100")
-    summary!(current, "1789000850.000100", "1789000860.000100", DateTime.add(@now, -60, :second))
+    summary!(current, "1789000850.000100", @handover_ref, saved(current, -60))
+    routed_at = saved(current, 1)
 
     captured =
       current
       |> ConversationContext.capture()
       |> ConversationContext.with_summaries(
-        ConversationSummaries.thread(current, @now),
-        ConversationSummaries.channel(current, @now)
+        ConversationSummaries.thread(current, routed_at),
+        ConversationSummaries.channel(current, routed_at)
       )
 
     assert captured.bundle["thread_summary"]["freshness"] == "current"
@@ -299,6 +351,38 @@ defmodule Ryker.Admission.ConversationContextTest do
     {:ok, %{entry: entry}} = Inbox.record(input)
     entry
   end
+
+  # A Conversation Lab message as the Lab records one: the conversation is its
+  # own thread and the item is named after the message.
+  defp lab_record!(text, id, occurred_at) do
+    conversation_ref = "control-plane:lab:72eff4a2-1020-4168-b337-be0450c0f467"
+
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: :user, ref: "local-operator"},
+        content: %{"text" => text},
+        destination: %{
+          transport: "control_plane",
+          conversation_ref: conversation_ref,
+          thread_ref: conversation_ref
+        },
+        event_kind: :message,
+        event_ref: "control-plane-event:#{id}",
+        native_input_id: "control-plane-message:#{id}",
+        occurred_at: occurred_at,
+        occurred_at_source: :ingress,
+        revision: 1,
+        source: %{kind: "control_plane", ref: "local"},
+        source_capabilities: %{},
+        source_item_ref: "control-plane-item:#{id}"
+      })
+
+    {:ok, %{entry: entry}} = Inbox.record(input)
+    entry
+  end
+
+  # When a summary was saved, relative to the message being decided.
+  defp saved(entry, seconds), do: DateTime.add(entry.occurred_at, seconds, :second)
 
   # A reply Ryker delivered into this Slack conversation. Only the turn's
   # delivered receipt matters to context capture.
@@ -393,7 +477,11 @@ defmodule Ryker.Admission.ConversationContextTest do
       ref: "summary:#{System.unique_integer([:positive])}",
       identity_key: identity,
       transport: entry.destination_transport,
-      workspace_ref: "slack:#{@workspace}",
+      workspace_ref:
+        Ryker.Episodes.Scope.workspace_ref(
+          entry.destination_transport,
+          entry.destination_conversation_ref
+        ),
       conversation_ref: entry.destination_conversation_ref,
       thread_ref: thread_ref,
       visibility: :conversation,
