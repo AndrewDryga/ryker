@@ -724,11 +724,17 @@ a reusable procedure, and approving a new revision supersedes the one it replace
 from `search_memory`'s `case` kind and from the first Work briefing's `retained_cases`, always as
 history: a past fix is advice about what worked once, never proof that this incident has the same
 cause or permission to repeat it. Deletion is explicit and reaches everything derived — the case
-text and every lesson are erased while the identity remains, the next capture does not rebuild a
-deleted case, and somebody deleting the original message, or editing it to say something else,
-redacts every case built from it, because routine expiry of a transcript is not a withdrawal but
-removing the message or its words is. An edit that leaves the text as it was, as Slack reports a
-link's preview arriving, redacts nothing.
+text and every lesson are erased while the identity remains, and the next capture does not rebuild
+a deleted case.
+
+Routine expiry of a transcript is not a withdrawal, but somebody deleting a message the work was
+built from, or editing it to say something else, is. Ryker withdraws the case as it receives the
+change: a message's through ingress, and a review comment's on Ryker's own pull request through
+publication follow-ups. A case already kept is found by the message identities it keeps and
+redacted. Work that is still running, or finished but not yet captured, keeps its case
+withdrawn, so capture never builds it. A typo fixed while the work runs therefore drops that work's
+case. An edit that leaves the text as it was, as Slack reports a link's preview arriving, takes
+nothing back.
 
 Large ingress, prompt, candidate, validation, delivery, and artifact bodies are redacted on the
 operational horizon only after all of the episode's Coop sessions are proven discarded. The episode

@@ -4,8 +4,8 @@ defmodule Ryker.Memories.CasesTest do
   import Ecto.Query
 
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode, Origin}
-  alias Ryker.Ingress.Input
+  alias Ryker.Episodes.{Command, Episode, Event, Origin}
+  alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Memories.CaseRecord
   alias Ryker.Memories.Cases
   alias Ryker.Memories.MemorySearchPage
@@ -110,59 +110,73 @@ defmodule Ryker.Memories.CasesTest do
              Repo.get_by!(CaseRecord, case_ref: record.case_ref)
   end
 
-  test "deleting the original message redacts the case built from it" do
-    # Routine expiry of a transcript is exactly what a case is meant to outlive.
-    # Somebody removing their message is not: no durable record may keep
-    # quoting text that was explicitly withdrawn.
-    episode = finished!("case:withdrawn", @outage)
-    record = capture!(episode)
+  # Routine expiry of a transcript is exactly what a case is meant to
+  # outlive; somebody removing their message is not, and no durable record may
+  # keep quoting what they withdrew. A case is kept only once its work's
+  # history is reclaimed, so a message deleted while its work still ran was
+  # quoted by the case kept after it: the deletion found no case to withdraw,
+  # and the work's history still held the words (found in review, 2026-09-28).
+  test "a message deleted while its work runs is never quoted by the case kept after it" do
+    episode = started!("case:deleted-early", @outage)
 
     revise!(episode, :delete, %{})
+    finished = finish!(episode)
 
-    assert %CaseRecord{status: :deleted, problem: "(deleted)"} =
-             Repo.get_by!(CaseRecord, case_ref: record.case_ref)
+    assert {:ok, %CaseRecord{status: :deleted, problem: "(deleted)", search_text: ""}} =
+             Cases.capture(finished.id)
 
-    assert Cases.recall(finished!("case:after-withdrawal", "The #{@outage} again")) == []
+    assert Cases.recall(finished!("case:after-deletion", "The #{@outage} again")) == []
   end
 
   # Editing a message takes back the words it replaced, as deleting it takes
-  # back all of them. Only deleting reached the case, so a case, kept without
-  # an age limit, went on quoting words the person had replaced.
-  test "editing the words of the original message redacts the case built from it" do
-    episode = finished!("case:edited", @outage)
+  # back all of them: a typo fixed while the work runs gives up its case.
+  test "a message edited to say something else while its work runs is never quoted by the case kept after it" do
+    episode = started!("case:edited-early", @outage)
+
+    revise!(episode, :edit, %{"text" => "Postgres replica pgsql-prod-02 is lagging"})
+    finished = finish!(episode)
+
+    assert {:ok, %CaseRecord{status: :deleted, problem: "(deleted)", search_text: ""}} =
+             Cases.capture(finished.id)
+  end
+
+  # A case outlives its work's history, and with it the record of which work
+  # the message joined, so routing no longer takes a later deletion to that
+  # work. The case is found by the message identities it keeps.
+  test "a message deleted after its work's history was reclaimed withdraws the case kept from it" do
+    episode = finished!("case:deleted-late", @outage)
     record = capture!(episode)
+    reclaim_history!(episode)
+
+    revise!(episode, :delete, %{})
+
+    assert %CaseRecord{status: :deleted, problem: "(deleted)", search_text: ""} =
+             Repo.get_by!(CaseRecord, case_ref: record.case_ref)
+
+    assert Cases.recall(finished!("case:after-late-deletion", "The #{@outage} again")) == []
+  end
+
+  test "a message edited to say something else after its work's history was reclaimed withdraws the case kept from it" do
+    episode = finished!("case:edited-late", @outage)
+    record = capture!(episode)
+    reclaim_history!(episode)
 
     revise!(episode, :edit, %{"text" => "Postgres replica pgsql-prod-02 is lagging"})
 
-    assert %CaseRecord{status: :deleted, problem: "(deleted)"} =
-             Repo.get_by!(CaseRecord, case_ref: record.case_ref)
-  end
-
-  # A case is kept after its work's history is gone, so an edit that comes
-  # later can join other work, which never saw what the message said before.
-  test "an edit that joins other work still redacts the case built from the message" do
-    episode = finished!("case:edited-later", @outage)
-    record = capture!(episode)
-
-    revise!(episode, :edit, %{"text" => "Postgres replica pgsql-prod-02 is lagging"},
-      into: :new_work
-    )
-
-    assert %CaseRecord{status: :deleted, problem: "(deleted)"} =
+    assert %CaseRecord{status: :deleted, problem: "(deleted)", search_text: ""} =
              Repo.get_by!(CaseRecord, case_ref: record.case_ref)
   end
 
   # Slack reports a link's preview arriving as an edit with the words
   # untouched; that takes nothing back.
-  test "an edit that leaves the words as they were, such as a link preview, keeps the case" do
-    episode = finished!("case:previewed", @outage)
-    record = capture!(episode)
+  test "an edit that leaves the words as they were, such as a link preview, withdraws nothing" do
+    episode = started!("case:previewed", @outage)
 
     preview = %{"title" => "pgsql-prod-01", "from_url" => "https://grafana.example.com/d/pg"}
     revise!(episode, :edit, %{"text" => @outage, "attachments" => [preview]})
+    finished = finish!(episode)
 
-    assert %CaseRecord{status: :active, problem: @outage} =
-             Repo.get_by!(CaseRecord, case_ref: record.case_ref)
+    assert {:ok, %CaseRecord{status: :active, problem: @outage}} = Cases.capture(finished.id)
   end
 
   test "repeated capture keeps one case per intended revision" do
@@ -187,17 +201,9 @@ defmodule Ryker.Memories.CasesTest do
     assert {:ok, %CaseRecord{status: :deleted}} = Cases.capture(record.episode_id)
   end
 
-  # The person edits or deletes the message the work started from, and the
-  # revision joins that work, or starts new work `into: :new_work`.
-  defp revise!(%Episode{} = episode, kind, content, options \\ []) do
-    [native_input_id] =
-      Repo.all(
-        from(origin in Origin,
-          where: origin.episode_id == ^episode.id,
-          select: origin.native_input_id
-        )
-      )
-
+  # The person edits or deletes the message the work started from, and Ryker
+  # receives it as it receives every message.
+  defp revise!(%Episode{} = episode, kind, content) do
     {:ok, revision} =
       SlackInput.new(%{
         actor: %{kind: :user, ref: "UALICE"},
@@ -208,34 +214,18 @@ defmodule Ryker.Memories.CasesTest do
         message_ref: episode.destination_thread_ref,
         occurred_at: DateTime.add(@now, 120, :second),
         revision: 2,
-        thread_ref: episode.destination_thread_ref,
+        thread_ref: nil,
         workspace_ref: "TCASES"
       })
 
-    {episode_id, episode_key} =
-      case Keyword.get(options, :into) do
-        :new_work -> new_work()
-        nil -> {episode.id, episode.key}
-      end
-
-    {:ok, _transition} =
-      Episodes.apply(%Command.AdmitInput{
-        actor_ref: Input.actor_ref(revision),
-        destination: revision.destination,
-        episode_id: episode_id,
-        episode_key: episode_key,
-        linked_episode_id: nil,
-        native_input_id: native_input_id,
-        occurred_at: revision.occurred_at,
-        payload: revision |> Input.document() |> Map.put("native_input_id", native_input_id),
-        revision: 2,
-        turn_ref: "turn:#{episode_id}"
-      })
+    {:ok, %{status: :recorded}} = Inbox.record(revision)
   end
 
-  defp new_work do
-    id = Ecto.UUID.generate()
-    {id, "case:new-work:#{id}"}
+  # Retention reclaims a finished episode's history as it keeps its case: the
+  # record of which messages joined it goes.
+  defp reclaim_history!(%Episode{} = episode) do
+    Repo.delete_all(from(origin in Origin, where: origin.episode_id == ^episode.id))
+    Repo.delete_all(from(event in Event, where: event.episode_id == ^episode.id))
   end
 
   # A finished episode whose work turn exists, for records written during it.
@@ -302,8 +292,13 @@ defmodule Ryker.Memories.CasesTest do
     record |> Ecto.Changeset.change(closed_at: at, updated_at: at) |> Repo.update!()
   end
 
-  defp finished!(key, text) do
+  defp finished!(key, text), do: key |> started!(text) |> finish!()
+
+  # Work a person's message started, received as Ryker receives every
+  # message and still running.
+  defp started!(key, text) do
     input = slack_input!(text)
+    {:ok, %{status: :recorded}} = Inbox.record(input)
     id = Ecto.UUID.generate()
 
     {:ok, transition} =
@@ -320,8 +315,10 @@ defmodule Ryker.Memories.CasesTest do
         turn_ref: "turn:#{id}"
       })
 
-    episode = transition.episode
+    transition.episode
+  end
 
+  defp finish!(%Episode{} = episode) do
     {:ok, settled} =
       Episodes.apply(%Command.AcceptResult{
         decision_reason: "The replica was promoted and reads recovered.",
@@ -331,7 +328,7 @@ defmodule Ryker.Memories.CasesTest do
         expected_turn_ref: episode.owner_ref,
         next_turn_ref: nil,
         occurred_at: DateTime.add(@now, 60, :second),
-        result_ref: "result:#{id}"
+        result_ref: "result:#{episode.id}"
       })
 
     settled.episode

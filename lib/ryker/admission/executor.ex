@@ -64,13 +64,13 @@ defmodule Ryker.Admission.Executor do
   end
 
   # A deletion leaves a model nothing to weigh, so routing never spends a turn
-  # on one. A deleted message that work owns joins that work, which withdraws
-  # everything derived from it and shows Work the message is gone; one no work
-  # owns is left alone. A model turn here once risked a reply, a reaction or
-  # new work for a message that no longer exists, could leave derived records
-  # in place by choosing to ignore it, and while the model account was out it
-  # held every later message in the conversation behind it (manual testing,
-  # 2026-09-26).
+  # on one. A deleted message that work owns joins that work, which shows Work
+  # the message is gone; what Ryker kept of it was withdrawn as the deletion
+  # arrived (`Ryker.Ingress.Inbox`). One no work owns is left alone. A model
+  # turn here once risked a reply, a reaction or new work for a message that no
+  # longer exists, could leave derived records in place by choosing to ignore
+  # it, and while the model account was out it held every later message in the
+  # conversation behind it (manual testing, 2026-09-26).
   defp deletion_decision(%Context{input: %Input{event_kind: :delete}} = context) do
     case Admission.source_owner(context) do
       nil ->

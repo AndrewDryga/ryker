@@ -16,6 +16,7 @@ defmodule Ryker.Publication.Followups.Signals do
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Input
   alias Ryker.Learning.Observations
+  alias Ryker.Memories.Cases
   alias Ryker.Publication.{DeploymentSignal, Followup, LifecycleEvent, Publication}
   alias Ryker.Publication.Followups.Store
   alias Ryker.Repo
@@ -212,8 +213,10 @@ defmodule Ryker.Publication.Followups.Signals do
       [%Publication{} = publication] ->
         {status, stored} = record_github_feedback(input, publication)
 
-        case Observations.record_publication_feedback_in_transaction(stored, publication) do
-          :ok -> %{event: stored, status: if(status == :ok, do: :recorded, else: :duplicate)}
+        with :ok <- Observations.record_publication_feedback_in_transaction(stored, publication),
+             :ok <- withdraw_cases(input, status) do
+          %{event: stored, status: if(status == :ok, do: :recorded, else: :duplicate)}
+        else
           {:error, reason} -> Repo.rollback(reason)
         end
 
@@ -221,6 +224,17 @@ defmodule Ryker.Publication.Followups.Signals do
         Repo.rollback(:publication_review_feedback_ambiguous)
     end
   end
+
+  # A review comment deleted or edited on GitHub takes its words back, as a
+  # person's message does when Ryker receives it (`Ryker.Ingress.Inbox`): the
+  # cases built from it are withdrawn (`Ryker.Memories.Cases`). GitHub reports
+  # an edit only when the words change. A repeated delivery withdrew them the
+  # first time.
+  defp withdraw_cases(%Input{event_kind: kind, native_input_id: native_input_id}, :ok)
+       when kind in [:edit, :delete],
+       do: Cases.withdraw_message_in_transaction(native_input_id)
+
+  defp withdraw_cases(_input, _status), do: :ok
 
   defp github_feedback_publications(repository, pull_request_number) do
     Repo.all(

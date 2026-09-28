@@ -13,6 +13,11 @@ defmodule Ryker.Memories.Cases do
   new one, so nothing here can become a loop that feeds on its own output.
   Deletion is explicit and redacts the text while keeping the identity, so a
   deleted case cannot be reconstructed from a summary that quoted it.
+
+  A person taking back a message the work was built from, by deleting it or
+  editing it to say something else, withdraws the case as Ryker receives the
+  change (`withdraw_message_in_transaction/1`), whether the case was already
+  kept or the work is still running.
   """
 
   import Ecto.Query
@@ -34,6 +39,7 @@ defmodule Ryker.Memories.Cases do
   @maximum_anchors 64
   @terminal_states [:complete, :cancelled]
   @recall_limit 5
+  @redacted "(deleted)"
 
   @doc """
   Captures or refreshes the compact case for each finished episode.
@@ -45,8 +51,11 @@ defmodule Ryker.Memories.Cases do
   @spec capture_many([Ecto.UUID.t()]) :: non_neg_integer()
   def capture_many([]), do: 0
 
+  # In episode order, the order a withdrawal takes the cases of the work a
+  # message joined in, so the two never wait on each other's cases.
   def capture_many(episode_ids) do
     episode_ids
+    |> Enum.sort()
     |> Enum.map(&capture/1)
     |> Enum.count(&match?({:ok, _case}, &1))
   end
@@ -132,52 +141,112 @@ defmodule Ryker.Memories.Cases do
   @spec delete(String.t()) :: {:ok, CaseRecord.t()} | {:error, term()}
   def delete(case_ref) do
     Repo.transaction(fn ->
-      case Repo.one(
-             from(record in CaseRecord, where: record.case_ref == ^case_ref, lock: "FOR UPDATE")
-           ) do
-        nil ->
-          Repo.rollback(:case_not_found)
-
-        record ->
-          record
-          |> Ecto.Changeset.change(
-            attempted_actions: [],
-            cause: nil,
-            links: [],
-            outcome: nil,
-            problem: "(deleted)",
-            search_text: "",
-            status: :deleted,
-            anchor_keys: []
-          )
-          |> Repo.update!()
-          |> tap(&announce_case/1)
+      case locked(case_ref) do
+        nil -> Repo.rollback(:case_not_found)
+        record -> redact!(record)
       end
     end)
   end
 
   @doc """
-  Redacts every retained case built from one explicitly withdrawn source.
+  Withdraws every case built from one message a person took back, deleted or
+  edited to say something else, inside the transaction that records it.
 
   Routine expiry of a transcript is not a withdrawal, and a case exists exactly
-  so it can outlive one. Somebody deleting the message, or editing it to say
-  something else, is different: no derived record may keep quoting what they
-  removed, so the case is redacted rather than revalidated into silence later.
+  so it can outlive one. Taking the words back is different: no derived record
+  may keep quoting what the person removed, so the case is redacted rather than
+  revalidated into silence later. A case is kept only once its work's history
+  is reclaimed, so the message is traced two ways. Work it joined that has no
+  case yet keeps a withdrawn one, which capture never rebuilds, so a typo fixed
+  while the work runs gives up that work's case. A case already kept is found
+  by the message identities it keeps (`source_refs`) and redacted. The work
+  is looked at first: a capture committing meanwhile has either not yet
+  reclaimed the history that names the message, or has already written the
+  case the second look finds.
   """
-  @spec withdraw_source(String.t()) :: non_neg_integer()
-  def withdraw_source(native_input_id) when is_binary(native_input_id) do
+  @spec withdraw_message_in_transaction(String.t()) :: :ok
+  def withdraw_message_in_transaction(native_input_id) when is_binary(native_input_id) do
+    Repo.all(
+      from(episode in Episode,
+        join: origin in Origin,
+        on: origin.episode_id == episode.id,
+        where: origin.native_input_id == ^native_input_id,
+        distinct: episode.id,
+        order_by: [asc: episode.id]
+      )
+    )
+    |> Enum.each(&withdraw_work!/1)
+
     Repo.all(
       from(record in CaseRecord,
         where: record.status == :active and ^native_input_id in record.source_refs,
-        select: record.case_ref
+        order_by: [asc: record.case_ref],
+        lock: "FOR UPDATE"
       )
     )
-    |> Enum.reduce(0, fn case_ref, redacted ->
-      case delete(case_ref) do
-        {:ok, _record} -> redacted + 1
-        {:error, _reason} -> redacted
-      end
-    end)
+    |> Enum.each(&redact!/1)
+  end
+
+  # Work with no case yet keeps a withdrawn one; one kept meanwhile is
+  # redacted instead.
+  defp withdraw_work!(%Episode{} = episode) do
+    now = Repo.now!()
+
+    withdrawn = %{
+      id: Ecto.UUID.generate(),
+      case_ref: "case:#{episode.id}",
+      closed_at: episode.updated_at,
+      content_fingerprint: CanonicalJSON.digest(%{"problem" => @redacted}),
+      conversation_ref: episode.destination_conversation_ref,
+      episode_id: episode.id,
+      episode_key: episode.key,
+      execution_mode: episode.execution_mode,
+      inserted_at: now,
+      problem: @redacted,
+      search_text: "",
+      source_refs: source_refs(episode.id),
+      status: :deleted,
+      transport: episode.destination_transport,
+      updated_at: now,
+      workspace_ref: workspace_ref(episode)
+    }
+
+    case Repo.insert_all(CaseRecord, [withdrawn],
+           on_conflict: :nothing,
+           conflict_target: [:case_ref]
+         ) do
+      {1, _inserted} ->
+        announce_case(struct!(CaseRecord, withdrawn))
+
+      {0, _kept} ->
+        case locked(withdrawn.case_ref) do
+          %CaseRecord{status: :active} = record -> redact!(record)
+          _withdrawn -> :ok
+        end
+    end
+  end
+
+  defp locked(case_ref),
+    do:
+      Repo.one(
+        from(record in CaseRecord, where: record.case_ref == ^case_ref, lock: "FOR UPDATE")
+      )
+
+  # The identity and the lifecycle stay; the text is erased.
+  defp redact!(%CaseRecord{} = record) do
+    record
+    |> Ecto.Changeset.change(
+      attempted_actions: [],
+      cause: nil,
+      links: [],
+      outcome: nil,
+      problem: @redacted,
+      search_text: "",
+      status: :deleted,
+      anchor_keys: []
+    )
+    |> Repo.update!()
+    |> tap(&announce_case/1)
   end
 
   # A case is stamped by the database clock, the one a memory search takes its
