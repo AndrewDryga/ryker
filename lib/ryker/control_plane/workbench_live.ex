@@ -883,7 +883,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       do: {:noreply, ask_remove_repository(socket, ref)}
 
   # Refreshing a repository's RYKER.md asks over the list too: it spends a
-  # model turn, and what it writes reaches the repository as a pull request.
+  # model turn.
   def handle_event(
         "confirm-settings-action",
         %{"action" => "refresh-knowledge", "ref" => ref},
@@ -983,11 +983,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     notice =
       case RepositoryKnowledge.refresh(ref, @actor_ref) do
         {:ok, :requested} ->
-          {:list, :success,
-           "Ryker is reading #{name || ref} again. A new RYKER.md arrives as a pull request."}
+          {:list, :success, "Ryker is reading #{name || ref} again to rewrite its knowledge."}
 
         {:ok, :already_writing} ->
-          {:list, :success, "Ryker is already writing RYKER.md for #{name || ref}."}
+          {:list, :success, "Ryker is already rewriting the knowledge of #{name || ref}."}
 
         {:error, reason} ->
           {:list, :error, refresh_error(reason)}
@@ -1887,7 +1886,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp refresh_error(:repository_not_found), do: "That repository is no longer added."
 
   defp refresh_error(:repository_not_ready),
-    do: "RYKER.md is written once the repository's setup has finished."
+    do: "Knowledge is written once the repository's setup has finished."
 
   defp refresh_error(reason)
        when reason in [:github_access_unavailable, :repository_binding_missing],
@@ -1896,7 +1895,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
            "to it, then refresh."
 
   defp refresh_error(_reason),
-    do: "RYKER.md could not be refreshed. Reload the page and try again."
+    do: "The knowledge could not be refreshed. Reload the page and try again."
 
   defp remove_error(:repository_not_found), do: "That repository is no longer added."
 

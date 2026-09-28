@@ -4,21 +4,15 @@ defmodule Ryker.RepositoryKnowledge.Entry do
 
   `phase` is what is wanted next: `idle` waits for the daily check at
   `next_check_at`; `write` has a model read the repository (or, when no
-  model can finish and none ever wrote it, the outline); `publish` proposes
-  the written document on GitHub. `reason` says why the last write was
-  wanted, `requested_by` who asked for it on the Repositories page.
+  model can finish and none ever wrote it, the outline). `reason` says why
+  the last write was wanted, `requested_by` who asked for it on the
+  Repositories page.
 
-  The last document Ryker wrote is kept with the default branch commit it
-  read (`document_commit`), when (`document_at`) and who wrote it
-  (`document_by`: a model, or the outline). `published_at` and
-  `publication` say how it reached GitHub: a pull request `opened`, an open
-  one `updated`, or nothing, because the default branch already said the
-  same (`unchanged`). `sent_sha256s` holds the sha256 of each document
-  Ryker was about to write on its pull request's branch since it last
-  recorded a proposal, so its own words are never taken for a person's edit.
-  `pull_request_url` is Ryker's latest knowledge pull request, and
-  `pull_request_state` where it stood when last read. `error` says in plain
-  words why the last step failed.
+  The last document Ryker wrote is the repository's knowledge, which Work is
+  briefed with (`Ryker.Work.SubmissionBuilder`): kept with the default branch
+  commit it read (`document_commit`), when (`document_at`) and who wrote it
+  (`document_by`: a model, or the outline). Nothing of it is written to the
+  repository. `error` says in plain words why the last step failed.
   """
 
   use Ecto.Schema
@@ -26,7 +20,7 @@ defmodule Ryker.RepositoryKnowledge.Entry do
   @primary_key {:repository_ref, :string, autogenerate: false}
 
   schema "repository_knowledge" do
-    field(:phase, Ecto.Enum, values: [:idle, :write, :publish], default: :idle)
+    field(:phase, Ecto.Enum, values: [:idle, :write], default: :idle)
     field(:reason, :string)
     field(:requested_by, :string)
     field(:start_count, :integer, default: 0)
@@ -45,12 +39,6 @@ defmodule Ryker.RepositoryKnowledge.Entry do
     field(:document_at, :utc_datetime_usec)
     field(:document_run_id, :binary_id)
     field(:dropped_count, :integer)
-    field(:published_at, :utc_datetime_usec)
-    field(:publication, Ecto.Enum, values: [:opened, :updated, :unchanged])
-    field(:sent_sha256s, {:array, :string}, default: [])
-    field(:pull_request_url, :string)
-    field(:pull_request_number, :integer)
-    field(:pull_request_state, Ecto.Enum, values: [:open, :merged, :closed])
     field(:error_code, :string)
     field(:error, :string)
     timestamps(type: :utc_datetime_usec)

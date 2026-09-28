@@ -7,8 +7,8 @@ defmodule Ryker.RepositoryKnowledge do
   (`Ryker.GitHub.Onboarding`), and every ready repository once a day. The
   check (`Ryker.RepositoryKnowledge.Refresh`) has a model read the repository
   again when the default branch moved since the last write and a file that
-  says how to work there changed, or a week passed and any code did. The
-  model reads the repository read-only at its default branch head, in a
+  says how to work there changed, or a week passed and anything else did.
+  The model reads the repository read-only at its default branch head, in a
   worker session of its own, and answers with a strict contract
   (`Ryker.RepositoryKnowledge.Prompt`); the host keeps only the paths and
   commands the repository shows and writes RYKER.md from those
@@ -16,11 +16,11 @@ defmodule Ryker.RepositoryKnowledge do
   ever wrote the file, an outline from the file list takes its place, and
   says so.
 
-  The document is proposed in one pull request at a time: an open one is
-  updated, and nothing is opened when the default branch already says the
-  same. Work reads the proposed document while its pull request is open and
-  the file on the default branch otherwise (`Ryker.Work.SubmissionBuilder`).
-  "Refresh knowledge" on the Repositories page asks for a write at once
+  Ryker keeps the document itself, in its own database: it is the
+  repository's knowledge the moment it is written, Work is briefed with it
+  (`Ryker.Work.SubmissionBuilder`), and nothing is written to the
+  repository. A RYKER.md the repository holds is one more file the model may
+  read. "Refresh knowledge" on the Repositories page asks for a write at once
   (`refresh/2`).
 
   Every change to a repository's entry is announced after it commits
@@ -78,42 +78,20 @@ defmodule Ryker.RepositoryKnowledge do
   unknown one still says what happened and what comes next.
   """
   @spec failure(term()) :: String.t()
-  def failure({:github_onboarding, :archived}),
-    do:
-      "The repository is archived on GitHub, so Ryker cannot propose its RYKER.md. " <>
-        "Unarchive it on GitHub, then refresh knowledge."
-
   def failure({:github_onboarding, :permission}),
     do:
-      "The Ryker GitHub App cannot read this repository or open its RYKER.md pull request. " <>
-        "Give it Contents and Pull requests (Read and write), then refresh knowledge."
+      "The Ryker GitHub App cannot read this repository's code. Give it Contents access, " <>
+        "then refresh knowledge."
 
   def failure({:github_onboarding, :not_found}),
     do:
       "GitHub no longer finds this repository or its default branch, so RYKER.md was not updated."
-
-  def failure({:github_onboarding, :pull_request_refused}),
-    do:
-      "GitHub refused Ryker's RYKER.md pull request, so Ryker stopped asking for today. " <>
-        "It tries again with tomorrow's check, or when someone refreshes knowledge."
 
   def failure(:repository_empty),
     do: "The repository has no commits yet, so there is nothing to write RYKER.md from."
 
   def failure(:repository_too_large),
     do: "The repository has too many files for Ryker to check a RYKER.md against them."
-
-  def failure(:repository_knowledge_proposal_edited),
-    do:
-      "Someone edited RYKER.md on Ryker's pull request, so Ryker left it as it is and did " <>
-        "not propose its newer RYKER.md. Ryker proposes again once that pull request is " <>
-        "merged, or when someone refreshes knowledge after closing it."
-
-  def failure(:repository_knowledge_unreadable),
-    do:
-      "Ryker cannot read the RYKER.md on the default branch: it is too large, not text, or " <>
-        "not a file. Ryker leaves it as it is, as it does one a person wrote. Shorten or " <>
-        "remove it, then refresh knowledge, to have Ryker write one."
 
   def failure(reason),
     do:

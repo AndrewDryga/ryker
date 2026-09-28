@@ -4,8 +4,9 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   of each model turn that reads one, after the self-analysis pattern
   (`Ryker.Improvement.Analyses`).
 
-  A worker leases an entry for one step: the daily check, a model turn (or the
-  outline when no model could finish), or proposing the written document.
+  A worker leases an entry for one step: the daily check, or a model turn (or
+  the outline when no model could finish). A written document is the
+  repository's knowledge at once; nothing is written to the repository.
   Each model attempt is a run with a frozen prompt, and starting one spends
   one of the write's starts (`start_limit`), so a model that keeps failing
   costs a bounded number of calls. A run whose worker session may still be
@@ -77,8 +78,8 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   @doc """
   Leases the next entry due for a step, or one whose worker stopped renewing
   its lease: `{:ok, claim}`, or `{:ok, :idle}` with nothing to do. Only the
-  repositories in `refs` are checked, written or proposed; a run already out
-  at Coop is followed to its stop whatever became of its repository.
+  repositories in `refs` are checked or written; a run already out at Coop
+  is followed to its stop whatever became of its repository.
   """
   @spec claim(String.t(), map(), [String.t()]) :: {:ok, claim() | :idle} | {:error, term()}
   def claim(worker, settings, refs) do
@@ -107,9 +108,9 @@ defmodule Ryker.RepositoryKnowledge.Custody do
     )
   end
 
-  # A worker stopped renewing its lease; or, unleased, a write or proposal is
-  # due for a repository still set up, or has a run out at Coop; or the
-  # daily check is due for a repository still set up.
+  # A worker stopped renewing its lease; or, unleased, a write is due for a
+  # repository still set up, or has a run out at Coop; or the daily check is
+  # due for a repository still set up.
   defp claimable(now, refs) do
     dynamic(
       [entry: e],
@@ -121,7 +122,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   defp step_due(now, refs) do
     dynamic(
       [entry: e],
-      e.phase in [:write, :publish] and
+      e.phase == :write and
         (is_nil(e.next_attempt_at) or e.next_attempt_at <= ^now) and
         (e.repository_ref in ^refs or exists(outstanding_parent_run()))
     )
@@ -158,7 +159,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
           select: [
             filter(
               min(entry.next_attempt_at),
-              is_nil(entry.lease_ref) and entry.phase in [:write, :publish] and
+              is_nil(entry.lease_ref) and entry.phase == :write and
                 entry.next_attempt_at > ^since and
                 (entry.repository_ref in ^refs or exists(outstanding_parent_run()))
             ),
@@ -235,25 +236,17 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
   @doc """
   Records what the daily check decided, and gives the lease back:
-  `{:write, reason}` has a model read the repository now; `:publish`
-  proposes the document Ryker wrote but could not propose before;
-  `:current` waits for tomorrow's check; `{:failed, reason}` waits for it
-  too and says why. `pull_request_state` is where Ryker's pull request stood,
-  when it has one. A write someone asked for while the check ran stays.
+  `{:write, reason}` has a model read the repository now; `:current` waits
+  for tomorrow's check; `{:failed, reason}` waits for it too and says why. A
+  write someone asked for while the check ran stays.
   """
-  def checked(claim, decision, pull_request_state \\ nil) do
+  def checked(claim, decision) do
     Repo.transaction(fn ->
       entry = owned!(claim)
       now = Repo.now!()
-
-      state =
-        if pull_request_state && entry.pull_request_url,
-          do: [pull_request_state: pull_request_state],
-          else: []
-
       changes = if entry.phase == :idle, do: decided(decision, now), else: []
 
-      save(entry, unleased() ++ [checked_at: now] ++ state ++ changes)
+      save(entry, unleased() ++ [checked_at: now] ++ changes)
     end)
   end
 
@@ -265,8 +258,6 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       start_count: 0,
       next_attempt_at: now
     ]
-
-  defp decided(:publish, now), do: [phase: :publish, next_attempt_at: now]
 
   defp decided(:current, now),
     do: [next_check_at: DateTime.add(now, @day_seconds), error_code: nil, error: nil]
@@ -281,8 +272,8 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   @doc """
   Asks for RYKER.md to be written now, as the Repositories page's Refresh
   knowledge does: `{:ok, :requested}`, or `{:ok, :already_writing}` while a
-  model is reading the repository already. No lease is taken: a check or a
-  proposal that finishes after this leaves the write in place.
+  model is reading the repository already. No lease is taken: a check that
+  finishes after this leaves the write in place.
   """
   @spec request_write(String.t(), String.t(), String.t() | nil) ::
           {:ok, :requested | :already_writing} | {:error, term()}
@@ -347,10 +338,9 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc """
-  Ends a write that will not finish: its starts are spent and the RYKER.md
-  there is kept (a model wrote Ryker's last one, or the default branch holds
-  one a model or a person wrote), or GitHub or the repository refused it for
-  a reason another try would meet again. Whatever document the entry holds
+  Ends a write that will not finish: its starts are spent and the RYKER.md a
+  model wrote last is kept, or GitHub or the repository refused it for a
+  reason another try would meet again. Whatever document the entry holds
   stays as it is, the next check comes tomorrow, and the entry says why.
   """
   def give_up_write(claim, reason) do
@@ -374,9 +364,9 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc """
-  Keeps the outline as the document to propose, when no model could finish
-  reading a repository that has no RYKER.md a model wrote. It says it is an
-  outline, and the next check writes it again.
+  Keeps the outline as the repository's knowledge, when no model could finish
+  reading a repository no model ever wrote a RYKER.md for, and gives the
+  lease back. It says it is an outline, and tomorrow's check writes it again.
   """
   def store_outline(claim, document, commit, reason) when is_binary(document) do
     Repo.transaction(fn ->
@@ -387,110 +377,20 @@ defmodule Ryker.RepositoryKnowledge.Custody do
         entry,
         unleased() ++
           document_fields(document, commit, :outline, nil, nil, now) ++
-          [
-            phase: :publish,
-            start_count: 0,
-            next_attempt_at: now,
-            error_code: code(reason),
-            error: RepositoryKnowledge.outline_failure(reason)
-          ]
+          settled(now) ++
+          [error_code: code(reason), error: RepositoryKnowledge.outline_failure(reason)]
       )
     end)
   end
 
-  @doc """
-  Records, before the document is proposed, that Ryker may write it on its
-  pull request's branch: a step can fail after it writes the branch and
-  before it records the proposal (`published/3`), and until one is recorded
-  a branch that holds any document Ryker sent is its own, never a person's
-  edit. Nothing a page shows changes.
-  """
-  def sending(claim) do
-    Repo.transaction(fn ->
-      entry = owned!(claim)
-
-      if entry.document_sha256 in entry.sent_sha256s,
-        do: entry,
-        else:
-          entry
-          |> Ecto.Changeset.change(sent_sha256s: entry.sent_sha256s ++ [entry.document_sha256])
-          |> Repo.update!()
-    end)
-  end
-
-  @doc """
-  Records that the written document reached GitHub (`result` from
-  `Ryker.RepositoryKnowledge.Remote.publish/3`), and gives the lease back:
-  the next check comes tomorrow. `settings_write` saves Work's copy of it in
-  the same transaction. A write someone asked for while it was proposed
-  stays.
-  """
-  def published(claim, result, settings_write) do
-    Repo.transaction(fn ->
-      entry = owned!(claim)
-      now = Repo.now!()
-
-      pull_request =
-        if result.outcome in [:opened, :updated],
-          do: [
-            pull_request_url: result.url,
-            pull_request_number: result.number,
-            pull_request_state: :open
-          ],
-          else: []
-
-      settle =
-        if entry.phase == :publish,
-          do: [
-            phase: :idle,
-            start_count: 0,
-            next_attempt_at: nil,
-            next_check_at: DateTime.add(now, @day_seconds)
-          ],
-          else: []
-
-      # An outline keeps saying why no model could finish.
-      error = if entry.document_by == :outline, do: [], else: [error_code: nil, error: nil]
-
-      # Nothing Ryker sent is unrecorded now: the branch holds what Work's
-      # copy names, or no pull request is open to hold anything.
-      entry =
-        save(
-          entry,
-          unleased() ++
-            [published_at: now, publication: result.outcome, sent_sha256s: []] ++
-            error ++ pull_request ++ settle
-        )
-
-      case settings_write.(entry) do
-        :ok -> entry
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
-  end
-
-  @doc """
-  A proposal GitHub refused for a reason another try would meet again: the
-  document stays, unproposed, the next check tries again tomorrow, and the
-  entry says why.
-  """
-  def publication_failed(claim, reason) do
-    Repo.transaction(fn ->
-      entry = owned!(claim)
-      now = Repo.now!()
-
-      settle =
-        if entry.phase == :publish,
-          do: [phase: :idle, next_attempt_at: nil, next_check_at: DateTime.add(now, @day_seconds)],
-          else: []
-
-      save(
-        entry,
-        unleased() ++
-          [error_code: code(reason), error: RepositoryKnowledge.failure(reason)] ++ settle
-      )
-    end)
-  end
+  # A document is written: nothing is due until tomorrow's check.
+  defp settled(now),
+    do: [
+      phase: :idle,
+      start_count: 0,
+      next_attempt_at: nil,
+      next_check_at: DateTime.add(now, @day_seconds)
+    ]
 
   defp code({:github_onboarding, kind}), do: "github_#{kind}"
   defp code(reason) when is_atom(reason), do: Atom.to_string(reason)
@@ -775,9 +675,10 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc """
-  Makes the run's checked document the one to propose: the run is applied
-  with its turn's stop proof, and the entry holds the document, from the
-  commit the run read, ready to publish. Both in one transaction, so a step
+  Makes the run's checked document the repository's knowledge, and gives the
+  lease back: the run is applied with its turn's stop proof, and the entry
+  holds the document, from the commit the run read, until tomorrow's check.
+  Work is briefed with it from then on. Both in one transaction, so a step
   that ends before it leaves the run outstanding and the next one reads the
   same finished turn instead of asking the model again.
   """
@@ -803,8 +704,9 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
       save(
         entry,
-        document_fields(run.document, run.source_commit, :model, run.id, run.dropped_count, now) ++
-          [phase: :publish, next_attempt_at: now, error_code: nil, error: nil]
+        unleased() ++
+          document_fields(run.document, run.source_commit, :model, run.id, run.dropped_count, now) ++
+          settled(now) ++ [error_code: nil, error: nil]
       )
     end)
   end
@@ -819,9 +721,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       document_by: by,
       document_run_id: run_id,
       dropped_count: dropped,
-      document_at: now,
-      published_at: nil,
-      publication: nil
+      document_at: now
     ]
 
   @doc "Ends an attempt that cannot write the document, without mistaking it for one that did."

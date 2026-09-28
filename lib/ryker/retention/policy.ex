@@ -226,7 +226,7 @@ defmodule Ryker.Retention.Policy do
       table: "repository_knowledge",
       class: :kept,
       why:
-        "one row per repository: when its RYKER.md is next checked, the last document Ryker wrote from it, and its pull request; it is the refresh schedule and the proof of what was proposed"
+        "one row per repository: when its RYKER.md is next checked, and the last document Ryker wrote from it, which Work is briefed with; it is the refresh schedule and the repository's knowledge"
     },
     %{
       table: "repository_knowledge_runs",

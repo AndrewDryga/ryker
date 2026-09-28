@@ -465,14 +465,14 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert has_element?(
              view,
              "#repository-notice.form-feedback-success",
-             "Ryker is reading acme/api again. A new RYKER.md arrives as a pull request."
+             "Ryker is reading acme/api again to rewrite its knowledge."
            )
 
     entry = RepositoryKnowledge.entry("acme-api")
     assert {entry.phase, entry.requested_by} == {:write, @actor}
 
     # While it is written, the row says so and cannot be asked again.
-    assert has_element?(view, "#repository-acme-api .entity-meta", "Writing RYKER.md")
+    assert has_element?(view, "#repository-acme-api .entity-meta", "Writing knowledge")
     refute has_element?(view, button)
 
     # A refresh never asked about only asks.

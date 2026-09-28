@@ -4,8 +4,8 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   repository. A row says whether the repository is ready, still being set up,
   not fully added or needs a person, and what to do about it, which
   environments it is in, and where its RYKER.md stands: when Ryker last
-  updated it, its pull request, and what is under way or failed
-  (`Ryker.RepositoryKnowledge`). Access, permissions, GitHub events, RYKER.md
+  updated it, and what is under way or failed (`Ryker.RepositoryKnowledge`).
+  Access, permissions, GitHub events, RYKER.md
   and the last code Ryker used wait in one closed Details disclosure per row.
   A ready repository's RYKER.md can be refreshed at once, and every added
   repository can be removed; the page asks first, over the list
@@ -214,18 +214,18 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   end
 
   @doc """
-  What Refresh knowledge asks: what refreshing does, and that nothing
-  reaches the repository without a pull request someone merges.
+  What Refresh knowledge asks: what refreshing does, and that Ryker keeps
+  what it writes: nothing reaches the repository.
   """
   @spec refresh_question(map()) :: %{title: String.t(), text: String.t()}
   def refresh_question(item) do
     %{
       title: "Refresh knowledge of #{name(item)}?",
       text:
-        "A model reads the repository again now and Ryker rewrites RYKER.md from what it " <>
-          "finds, checking every path and command against the code. If the new version says " <>
-          "something the default branch does not, Ryker proposes it in a pull request, or " <>
-          "updates the one already open."
+        "A model reads the repository again now and Ryker rewrites its knowledge from " <>
+          "what it finds, checking every path and command against the code. Work in the " <>
+          "repository starts from the new version as soon as it is written. Nothing is " <>
+          "written to the repository."
     }
   end
 
@@ -345,7 +345,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
 
   defp refreshable?(_item), do: false
 
-  defp writing?(%{phase: phase}), do: phase in [:write, :publish]
+  defp writing?(%{phase: phase}), do: phase == :write
   defp writing?(_knowledge), do: false
 
   defp add_again?(%{configured: %{github_bound: false, github_repository: name}}),
@@ -382,20 +382,17 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   defp step(:cloning), do: "Copying the code"
 
   # Where RYKER.md stands, in the row's own line: what is under way, or when
-  # Ryker last updated it and its pull request.
-  defp knowledge_facts(nil, _now), do: ["RYKER.md not written yet"]
+  # Ryker last updated it.
+  defp knowledge_facts(nil, _now), do: ["Knowledge not written yet"]
+  defp knowledge_facts(%{phase: :write}, _now), do: ["Writing knowledge"]
 
-  defp knowledge_facts(%{phase: phase}, _now) when phase in [:write, :publish],
-    do: ["Writing RYKER.md"]
+  defp knowledge_facts(%{document_by: :outline} = knowledge, now),
+    do: [updated(knowledge, now, "Knowledge outline written ")]
 
-  defp knowledge_facts(%{document_by: :outline, published_at: %DateTime{}} = knowledge, now),
-    do: [updated(knowledge, now, "Outline written "), pull_request(knowledge)]
+  defp knowledge_facts(%{document_at: %DateTime{}} = knowledge, now),
+    do: [updated(knowledge, now, "Knowledge updated ")]
 
-  defp knowledge_facts(%{published_at: %DateTime{}} = knowledge, now),
-    do: [updated(knowledge, now, "Knowledge updated "), pull_request(knowledge)]
-
-  defp knowledge_facts(%{document_at: %DateTime{}}, _now), do: ["RYKER.md not proposed yet"]
-  defp knowledge_facts(_knowledge, _now), do: ["RYKER.md not written yet"]
+  defp knowledge_facts(_knowledge, _now), do: ["Knowledge not written yet"]
 
   defp updated(knowledge, now, prefix),
     do:
@@ -405,16 +402,6 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         now: now,
         prefix: prefix
       })
-
-  defp pull_request(%{pull_request_url: url, pull_request_number: number} = knowledge)
-       when is_binary(url) do
-    words =
-      if knowledge.pull_request_state == :open, do: "open pull request", else: "pull request"
-
-    {:link, "#{words} ##{number}", url}
-  end
-
-  defp pull_request(_knowledge), do: nil
 
   # A failed step says why on the row, beneath anything that needs a person
   # more; the repository itself still works.
@@ -478,13 +465,16 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     <.fact :if={@repository[:onboarding_state]} label="Setup">
       {setup(@repository.onboarding_state)}
     </.fact>
-    <.fact :if={@repository[:onboarding_state]} label="RYKER.md">
-      {knowledge(@item[:knowledge], @repository)}<a
-        :if={@item[:knowledge][:pull_request_url]}
-        href={@item.knowledge.pull_request_url}
-        target="_blank"
-        rel="noopener noreferrer"
-      >Pull request #{@item.knowledge.pull_request_number}</a>
+    <.fact :if={@repository[:onboarding_state]} label="Knowledge">
+      {knowledge(@item[:knowledge])}
+      <Components.disclosure
+        :if={@item[:knowledge][:document]}
+        id={"repository-knowledge-#{@repository.ref}"}
+        label="Read it"
+        class="repository-knowledge-document"
+      >
+        <pre>{@item.knowledge.document}</pre>
+      </Components.disclosure>
     </.fact>
     <.fact :if={@item[:knowledge][:reason]} label="Last written because">
       {@item.knowledge.reason}
@@ -564,21 +554,14 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   defp setup(:ready), do: "Done"
   defp setup(:blocked), do: "Stopped"
 
-  # Who wrote the RYKER.md Work reads, and whether it is merged yet.
-  defp knowledge(%{document_by: :outline, document_commit: commit}, _repository),
-    do: "An outline from the file list at #{short(commit)}; a model could not finish reading it. "
+  # Who wrote the RYKER.md Work is briefed with.
+  defp knowledge(%{document_by: :outline, document_commit: commit}),
+    do: "An outline from the file list at #{short(commit)}; a model could not finish reading it."
 
-  defp knowledge(%{document_by: :model, document_commit: commit}, %{knowledge_status: status}),
-    do: "Written by a model from #{short(commit)}; #{knowledge_status(status)}. "
+  defp knowledge(%{document_by: :model, document_commit: commit}),
+    do: "Written by a model from #{short(commit)}."
 
-  defp knowledge(_knowledge, %{knowledge_status: :accepted}),
-    do: "Kept as the default branch has it; Ryker did not write it. "
-
-  defp knowledge(_knowledge, _repository), do: "Not written yet. "
-
-  defp knowledge_status(:accepted), do: "Work reads it as merged"
-  defp knowledge_status(:proposed), do: "Work reads the proposal until it is merged"
-  defp knowledge_status(_none), do: "not proposed yet"
+  defp knowledge(_knowledge), do: "Not written yet."
 
   defp short(commit), do: String.slice(commit, 0, 7)
 

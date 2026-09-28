@@ -13,14 +13,10 @@ defmodule Ryker.RepositoryKnowledge.Document do
 
   `outline/4` is the fallback when no model could finish reading the
   repository: the file list, marked as an outline, never an invented
-  command. `origin/1` reads which of these, if any, a RYKER.md is, and
-  `same?/2` compares two documents without their provenance lines, so a
-  rewrite that says the same things proposes nothing.
+  command.
   """
 
-  @provenance ~r/^Written by Ryker from `([0-9a-f]{7,40})` on (\d{4}-\d{2}-\d{2})\.[^\n]*$/m
   @outline_note "This is only an outline from the file list"
-  @old_scan_prefix "# RYKER.md\n\n> Repository knowledge generated from `"
   @vendored ~w(node_modules vendor deps _build third_party)
   @guidance_names ~w(AGENTS.md CLAUDE.md GEMINI.md)
   @build_names ~w(Makefile GNUmakefile mix.exs go.mod go.work package.json Cargo.toml pyproject.toml Gemfile Dockerfile)
@@ -510,8 +506,8 @@ defmodule Ryker.RepositoryKnowledge.Document do
   defp number(count),
     do: count |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
 
-  # A plain relative link: GitHub resolves it against the branch the reader
-  # is on, so it never points at an old commit.
+  # A plain relative link, the path in the repository: it never points at an
+  # old commit.
   defp link(path, kind) do
     text = if kind == :tree, do: path <> "/", else: path
     "[#{escape_link_text(text)}](#{URI.encode(text, &(URI.char_unreserved?(&1) or &1 == ?/))})"
@@ -530,45 +526,4 @@ defmodule Ryker.RepositoryKnowledge.Document do
 
   defp clause(text),
     do: text |> String.trim() |> String.trim_trailing(".") |> String.trim_trailing(":")
-
-  # -- Reading one ---------------------------------------------------------------
-
-  @doc """
-  Who wrote a RYKER.md: `:model` for a document Ryker wrote from a model's
-  reading, `:outline` for its fallback, `:old_scan` for the file-list
-  summary setup wrote before either existed, `:person` for anything else,
-  and `:none` when there is no file.
-  """
-  @spec origin(String.t() | nil) :: :none | :model | :outline | :old_scan | :person
-  def origin(nil), do: :none
-
-  def origin(text) when is_binary(text) do
-    text = String.replace(text, "\r\n", "\n")
-
-    case Regex.run(@provenance, text) do
-      [line | _captures] ->
-        if String.contains?(line, @outline_note), do: :outline, else: :model
-
-      nil ->
-        if String.starts_with?(text, @old_scan_prefix), do: :old_scan, else: :person
-    end
-  end
-
-  @doc """
-  Whether two documents say the same things: equal once each loses its
-  provenance line, which names a commit and a date every rewrite changes.
-  """
-  @spec same?(String.t() | nil, String.t() | nil) :: boolean()
-  def same?(nil, nil), do: true
-  def same?(nil, _document), do: false
-  def same?(_document, nil), do: false
-  def same?(left, right), do: without_provenance(left) == without_provenance(right)
-
-  defp without_provenance(text) do
-    text
-    |> String.replace("\r\n", "\n")
-    |> String.replace(@provenance, "")
-    |> String.replace(~r/\n{3,}/, "\n\n")
-    |> String.trim()
-  end
 end

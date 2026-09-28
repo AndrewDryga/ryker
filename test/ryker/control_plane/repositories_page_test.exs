@@ -32,9 +32,6 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
           &{&1, "write"}
         ),
       github_repository: "acme/checkout-api",
-      knowledge_pull_request_url: nil,
-      knowledge_source_commit: String.duplicate("b", 40),
-      knowledge_status: :accepted,
       onboarding_error: nil,
       onboarding_state: :ready,
       ref: "acme-checkout-api",
@@ -46,11 +43,6 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
       document_by: :model,
       document_commit: "783fc48" <> String.duplicate("0", 33),
       document_at: ~U[2026-08-28 13:00:00Z],
-      published_at: ~U[2026-08-28 13:01:00Z],
-      publication: :opened,
-      pull_request_url: "https://github.com/acme/checkout-api/pull/84",
-      pull_request_number: 84,
-      pull_request_state: :merged,
       checked_at: ~U[2026-08-28 13:00:00Z],
       next_check_at: ~U[2026-08-29 13:00:00Z],
       error: nil
@@ -138,7 +130,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
            |> Enum.count() == 1
 
     assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
-             "In Production, Staging · used in 2 channels and 1 schedule · 14 tasks · code from 3f9a1c2e, fetched 2 h ago · Knowledge updated 1 h ago · pull request #84"
+             "In Production, Staging · used in 2 channels and 1 schedule · 14 tasks · code from 3f9a1c2e, fetched 2 h ago · Knowledge updated 1 h ago"
 
     assert LazyHTML.query(row, "p.entity-meta strong") |> LazyHTML.text() == "3f9a1c2e"
   end
@@ -151,7 +143,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     row = render([alone]) |> LazyHTML.query("article.entity-row")
 
     assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
-             "In no environment yet · 14 tasks · code from 3f9a1c2e, fetched 2 h ago · Knowledge updated 1 h ago · pull request #84"
+             "In no environment yet · 14 tasks · code from 3f9a1c2e, fetched 2 h ago · Knowledge updated 1 h ago"
   end
 
   test "a repository still being set up says which step it is on and since when" do
@@ -251,8 +243,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
     text = details |> LazyHTML.text() |> squeeze()
     assert text =~ "acme/checkout-api · access available"
-    assert text =~ "Written by a model from 783fc48; Work reads it as merged."
-    assert text =~ "Pull request #84"
+    assert text =~ "Written by a model from 783fc48."
     assert text =~ "Last written because These files changed: README.md."
     assert text =~ "Last 1 h ago, next tomorrow 13:00 UTC"
     assert text =~ "Everything Ryker needs"
@@ -398,15 +389,13 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   end
 
   # Andrew, 2026-09-27: "also when those are updated?" The row says when
-  # Ryker last updated RYKER.md and links its pull request, or says what is
-  # under way, or why the last step failed, in plain words.
-  test "a ready repository says where its RYKER.md stands" do
+  # Ryker last updated the repository's knowledge, or says what is under way,
+  # or why the last step failed, in plain words.
+  test "a ready repository says where its knowledge stands" do
     for {knowledge, meta} <- [
-          {%{pull_request_state: :open}, "Knowledge updated 1 h ago · open pull request #84"},
-          {%{phase: :write}, "Writing RYKER.md"},
-          {%{phase: :publish}, "Writing RYKER.md"},
-          {%{document_by: :outline}, "Outline written 1 h ago · pull request #84"},
-          {%{published_at: nil}, "RYKER.md not proposed yet"}
+          {%{}, "Knowledge updated 1 h ago"},
+          {%{phase: :write}, "Writing knowledge"},
+          {%{document_by: :outline}, "Knowledge outline written 1 h ago"}
         ] do
       row =
         @repository
@@ -420,15 +409,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     fresh = render_row(%{@repository | knowledge: nil})
 
     assert fresh |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() =~
-             "· RYKER.md not written yet"
-
-    # The link opens the pull request on GitHub.
-    assert @repository
-           |> render_row()
-           |> LazyHTML.query(
-             "p.entity-meta a[href='https://github.com/acme/checkout-api/pull/84'][target=_blank]"
-           )
-           |> LazyHTML.text() == "pull request #84"
+             "· Knowledge not written yet"
 
     # While a model writes it, it cannot be asked for again.
     writing = @repository |> put_in([:knowledge, :phase], :write) |> render_row()
@@ -456,14 +437,28 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
              "GitHub access was removed"
   end
 
+  # Andrew, 2026-09-28: "I don't want to make daily PRs to update those
+  # files." Ryker keeps each repository's knowledge itself, so its row is
+  # the place a person reads it.
+  test "a repository's knowledge can be read on its row, as Ryker keeps it" do
+    document =
+      "# RYKER.md\n\nWritten by Ryker from `783fc48` on 2026-08-28.\n\n## Purpose\n\nIt works.\n"
+
+    row = @repository |> put_in([:knowledge, :document], document) |> render_row()
+
+    [reader] = LazyHTML.query(row, "details.repository-knowledge-document") |> Enum.to_list()
+    assert LazyHTML.query(reader, "summary") |> LazyHTML.text() |> squeeze() == "Read it"
+    assert LazyHTML.query(reader, "pre") |> LazyHTML.text() == document
+  end
+
   test "refreshing knowledge asks what it does before a model reads the repository" do
     assert RepositoriesPage.refresh_question(@repository) == %{
              title: "Refresh knowledge of acme/checkout-api?",
              text:
-               "A model reads the repository again now and Ryker rewrites RYKER.md from what " <>
-                 "it finds, checking every path and command against the code. If the new " <>
-                 "version says something the default branch does not, Ryker proposes it in a " <>
-                 "pull request, or updates the one already open."
+               "A model reads the repository again now and Ryker rewrites its knowledge from " <>
+                 "what it finds, checking every path and command against the code. Work in the " <>
+                 "repository starts from the new version as soon as it is written. Nothing is " <>
+                 "written to the repository."
            }
   end
 

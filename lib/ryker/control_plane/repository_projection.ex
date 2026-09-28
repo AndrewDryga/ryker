@@ -130,23 +130,19 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     end
   end
 
-  # What a row says of RYKER.md: what is under way, the last document Ryker
-  # wrote and its pull request, why the last step failed, and when the next
-  # check is due. The document itself stays in the database.
+  # What a row says of the repository's knowledge: what is under way, the
+  # document Ryker keeps and who wrote it, why the last step failed, and when
+  # the next check is due. Ryker is the only place the document can be read.
   defp knowledge_view(nil), do: nil
 
   defp knowledge_view(entry) do
     Map.take(entry, [
       :phase,
       :reason,
+      :document,
       :document_by,
       :document_commit,
       :document_at,
-      :published_at,
-      :publication,
-      :pull_request_url,
-      :pull_request_number,
-      :pull_request_state,
       :checked_at,
       :next_check_at,
       :error
@@ -222,10 +218,6 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
          github_access: repository.github_access,
          github_health: binding && Events.health(binding.name),
          github_repository: repository.github_repository,
-         knowledge_sha256: repository.knowledge_sha256,
-         knowledge_source_commit: repository.knowledge_source_commit,
-         knowledge_status: repository.knowledge_status,
-         knowledge_pull_request_url: repository.knowledge_pull_request_url,
          onboarding_error: repository.onboarding_error,
          onboarding_state: repository.onboarding_state,
          ref: repository.ref,
