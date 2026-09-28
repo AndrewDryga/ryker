@@ -14,10 +14,11 @@ defmodule Ryker.Improvement.Export do
     - `actors` and `events`: the person's messages in the request, up to the
       first negative feedback, word for word (credentials redacted), in
       order, each an `input` to the same place. An edited message is sent
-      once, when it was first sent, in its last words by then. Slack people,
-      the workspace and channels are renamed (`U-person-1`, `TEVAL`, `CEVAL`),
-      and so are their mentions in the text; Ryker's own mention reads
-      `U-ryker`.
+      once, when it was first sent, in its last words by then; words the
+      person took back by editing it were never kept, so it is sent in the
+      words they left. Slack people, the workspace and channels are renamed
+      (`U-person-1`, `TEVAL`, `CEVAL`), and so are their mentions in the
+      text; Ryker's own mention reads `U-ryker`.
     - `expect.quality_rubric`: the analysis's `expected`, weight 3.
     - `tags`: `model-world`, `feedback-harvested`, the step and the category.
   - `tool-catalog.json`: the standard catalog of
@@ -158,7 +159,9 @@ defmodule Ryker.Improvement.Export do
   # The person's messages up to the first negative feedback: the conversation
   # as it stood when Ryker let them down. A world event is a message, so an
   # edit is not one of its own: each message is sent once, when it was
-  # first sent, in the words of its last revision by then.
+  # first sent, in the words of its last revision by then. The words an edit
+  # replaced were never kept (`Ryker.Improvement.Evidence`), so a message
+  # the person edited since is sent in the words they left.
   defp events(candidate, snapshot, names) do
     said = snapshot["events"]
 
@@ -171,7 +174,7 @@ defmodule Ryker.Improvement.Export do
       end)
 
     if(before == [], do: said, else: before)
-    |> as_sent()
+    |> as_sent(said)
     |> Enum.map(fn event ->
       %{
         "actor_ref" => actor_ref(event, names),
@@ -183,17 +186,25 @@ defmodule Ryker.Improvement.Export do
     end)
   end
 
-  defp as_sent(revisions) do
+  defp as_sent(revisions, said) do
     revisions
     |> Enum.with_index()
-    |> Enum.group_by(fn {event, _index} -> {event["source"], event["message_ref"]} end)
-    |> Enum.map(fn {_message, [{first, index} | _later] = all} ->
-      {last, _index} = List.last(all)
-      {Map.put(first, "text", last["text"]), index}
+    |> Enum.group_by(fn {event, _index} -> message(event) end)
+    |> Enum.flat_map(fn {message, [{first, index} | _later] = all} ->
+      case last_words(Enum.map(all, &elem(&1, 0))) ||
+             last_words(Enum.filter(said, &(message(&1) == message))) do
+        nil -> []
+        text -> [{Map.put(first, "text", text), index}]
+      end
     end)
     |> Enum.sort_by(&elem(&1, 1))
     |> Enum.map(&elem(&1, 0))
   end
+
+  defp message(event), do: {event["source"], event["message_ref"]}
+
+  defp last_words(revisions),
+    do: revisions |> Enum.map(& &1["text"]) |> Enum.filter(&is_binary/1) |> List.last()
 
   defp actors(events, snapshot, names) do
     refs = events |> Enum.map(& &1["actor_ref"]) |> Enum.uniq()

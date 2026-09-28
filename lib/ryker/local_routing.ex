@@ -25,14 +25,14 @@ defmodule Ryker.LocalRouting do
   not built.
 
   A person forgetting wins. Each comparison records what its prompt quotes
-  when it is queued, as a routing example does. Deleting a message in Slack,
-  forgetting what was learned from one or a learned topic, or deleting a
-  Slack channel erases every comparison whose prompt quotes it, the local
-  model's answer with it, in the transaction that forgets it
-  (`Ryker.RoutingExamples`, which every forgetting calls). The lane checks
-  again just before it sends, by the test a routing example's copy passes
-  (`Ryker.RoutingExamples.quotes_forgotten?/1`), and erases one that quotes
-  anything forgotten since, unasked.
+  when it is queued, as a routing example does. Deleting a message in Slack
+  or editing its words, forgetting what was learned from one or a learned
+  topic, or deleting a Slack channel erases every comparison whose prompt
+  quotes it, the local model's answer with it, in the transaction that
+  forgets it (`Ryker.RoutingExamples`, which every forgetting calls). The
+  lane checks again just before it sends, by the test a routing example's
+  copy passes (`Ryker.RoutingExamples.quotes_forgotten?/1`), and erases one
+  that quotes anything forgotten since, unasked.
 
   Every comparison queued, settled or erased is announced after its commit
   (`subscribe_comparisons/0`).
@@ -362,9 +362,9 @@ defmodule Ryker.LocalRouting do
   # -- Forgetting --------------------------------------------------------------
 
   @doc """
-  Erases the comparisons whose prompt quotes what a person just forgot or
-  deleted, waiting, compared or given up, inside the transaction that
-  forgets it (`Ryker.RoutingExamples`): `identities` name the messages
+  Erases the comparisons whose prompt quotes what a person just forgot,
+  deleted or edited, waiting, compared or given up, inside the transaction
+  that forgets it (`Ryker.RoutingExamples`): `identities` name the messages
   themselves (`Ryker.Learning.Observations.source_identity/1`), and `keys`
   every message and topic, as a routing prompt quotes them
   (`Ryker.RoutingExamples.quoted_keys/1`).

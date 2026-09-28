@@ -39,8 +39,9 @@ defmodule Ryker.Improvement do
   Every change is announced after the outermost commit
   (`subscribe_improvement/0`). A candidate names its request without a
   foreign key, like a routing example: it expires on its own window
-  (`Ryker.Retention.Data`), and a person forgetting a message, a topic or a
-  channel it quotes erases what it holds (`forget_in_transaction/1`).
+  (`Ryker.Retention.Data`), and a person forgetting, deleting or editing a
+  message, or forgetting a topic or a channel it quotes, erases what it holds
+  (`forget_in_transaction/1`).
   """
 
   import Ecto.Query
@@ -419,7 +420,7 @@ defmodule Ryker.Improvement do
 
   @doc """
   Erases what candidates hold about the messages and topics a person just
-  forgot or deleted, inside the transaction that forgets them
+  forgot, deleted or edited, inside the transaction that forgets them
   (`Ryker.RoutingExamples`, which is called from every place that forgets):
   `keys` are the message and topic keys routing examples quote them by. The
   diagnosis, the evidence of an accepted case and the prompts and answers of

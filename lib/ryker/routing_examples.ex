@@ -18,15 +18,18 @@ defmodule Ryker.RoutingExamples do
   horizons never reach it; only its own window does (`Ryker.Retention.Data`).
 
   A person forgetting wins. Forgetting a fact or a learned topic, deleting a
-  message in Slack, or deleting a Slack channel erases every example whose
-  prompt quoted that message, topic or conversation, in the same transaction,
-  what improvement candidates hold about it (`Ryker.Improvement`), and the
-  local routing comparisons of such a prompt (`Ryker.LocalRouting`). An
-  erased example keeps only its identity, so it is never copied again.
-  One whose message was forgotten before its turn to be copied is checked at
-  the copy, which then records only that identity. Each copy and each
-  forgetting holds one lock (shared by copies, exclusive to forgetting), so
-  a copy in flight can never slip past a forgetting that is committing.
+  message in Slack, editing its words, or deleting a Slack channel erases
+  every example whose prompt quoted that message, topic or conversation, in
+  the same transaction, what improvement candidates hold about it
+  (`Ryker.Improvement`), and the local routing comparisons of such a prompt
+  (`Ryker.LocalRouting`). An edit takes back the words it replaced; one that
+  left them as they were, as Slack reports a link's preview arriving, takes
+  back nothing. An erased example keeps only its identity, so it is never
+  copied again. One whose message was forgotten before its turn to be copied
+  is checked at the copy, which then records only that identity. Each copy
+  and each forgetting holds one lock (shared by copies, exclusive to
+  forgetting), so a copy in flight can never slip past a forgetting that is
+  committing.
 
   What the prompt quotes and forgetting can reach: the message itself, the
   earlier messages of its thread or channel, learned observations and topics.
@@ -301,7 +304,7 @@ defmodule Ryker.RoutingExamples do
       if is_map(context["conversation_context"]), do: context["conversation_context"], else: %{}
 
     messages =
-      [{conversation, entry.source_item_ref || entry.native_input_id}] ++
+      [own_message(entry)] ++
         for(
           %{"source_message_ref" => ref} when is_binary(ref) <-
             [history["root"], history["current"] | list(history["messages"])],
@@ -337,12 +340,16 @@ defmodule Ryker.RoutingExamples do
   defp list(values) when is_list(values), do: values
   defp list(_absent), do: []
 
+  # A message as a key names it: its conversation, and its reference there.
+  defp own_message(entry),
+    do: {entry.destination_conversation_ref, entry.source_item_ref || entry.native_input_id}
+
   @doc false
-  # Whether a person already forgot or deleted anything a routing prompt for
-  # `entry` quotes, by the same test a copy passes before it keeps one. The
-  # analysis of a request people were unhappy with reads a routing attempt's
-  # own prompt only when this says no (`Ryker.Improvement.Evidence`), and the
-  # local routing model is sent one only then (`Ryker.LocalRouting`).
+  # Whether a person already forgot, deleted or edited anything a routing
+  # prompt for `entry` quotes, by the same test a copy passes before it keeps
+  # one. The analysis of a request people were unhappy with reads a routing
+  # attempt's own prompt only when this says no (`Ryker.Improvement.Evidence`),
+  # and the local routing model is sent one only then (`Ryker.LocalRouting`).
   @spec quotes_forgotten?(Entry.t()) :: boolean()
   def quotes_forgotten?(%Entry{} = entry) do
     quoted = quoted(entry)
@@ -354,8 +361,8 @@ defmodule Ryker.RoutingExamples do
   end
 
   # Whether a person already removed anything the prompt quotes: the message
-  # or one it quotes forgotten or deleted, a topic forgotten, or a Slack
-  # channel it came from deleted.
+  # or one it quotes forgotten, deleted or its words edited, a topic
+  # forgotten, or a Slack channel it came from deleted.
   defp forgotten?(example, quoted) do
     keys = MapSet.new(example.message_keys)
 
@@ -368,6 +375,7 @@ defmodule Ryker.RoutingExamples do
     ) or
       forgotten_messages(quoted.conversations) |> Enum.any?(&MapSet.member?(keys, &1)) or
       deleted_messages(quoted.conversations) |> Enum.any?(&MapSet.member?(keys, &1)) or
+      edited_messages(quoted.messages) != [] or
       forgotten_topic?(quoted.topics) or
       deleted_channel?(quoted.conversations)
   end
@@ -406,6 +414,96 @@ defmodule Ryker.RoutingExamples do
       )
     )
     |> Enum.map(fn {c, m} -> message_key(c, m) end)
+  end
+
+  # The messages among these whose words a person replaced by editing them.
+  # A routing prompt quotes the revision it read, and a later prompt quotes
+  # every revision of the conversation, the replaced ones with the rest, so
+  # a message whose words were edited counts as taken back whichever
+  # revision a prompt quoted.
+  defp edited_messages(messages) do
+    for {message, history} <- edit_histories(messages),
+        replaced_words?(history),
+        do: message
+  end
+
+  @doc false
+  # The revisions among `entries`' messages whose words a person replaced by
+  # editing them: each one before the message's latest edit that says
+  # something else. The analysis of a request people were unhappy with leaves
+  # their words out, as it does a deleted message's
+  # (`Ryker.Improvement.Evidence`).
+  @spec edited_revisions([Entry.t()]) :: MapSet.t(Ecto.UUID.t())
+  def edited_revisions(entries) when is_list(entries) do
+    entries
+    |> Enum.map(&own_message/1)
+    |> Enum.uniq()
+    |> edit_histories()
+    |> Enum.flat_map(fn {_message, history} ->
+      latest = history |> Enum.filter(&(&1.event_kind == :edit)) |> List.last()
+
+      for revision <- history,
+          revision.revision < latest.revision and not same_words?(revision, latest),
+          do: revision.id
+    end)
+    |> MapSet.new()
+  end
+
+  # An edit replaced the words when the revision before it said something
+  # else, or Ryker no longer holds what it said. Only the text a person wrote
+  # counts: Slack reports a link's preview arriving as an edit with the text
+  # untouched, and taking that for an edit would take back nearly every
+  # prompt, each quoting a channel's last twenty messages.
+  defp replaced_words?(history) do
+    [nil | history]
+    |> Enum.zip(history)
+    |> Enum.any?(fn {before, revision} ->
+      revision.event_kind == :edit and (is_nil(before) or not same_words?(before, revision))
+    end)
+  end
+
+  # Text that cannot be read, pruned or never text at all, such as a GitHub
+  # comment's, is never the same: forgetting then errs toward erasing.
+  defp same_words?(%{text: text}, %{text: text}) when is_binary(text), do: true
+  defp same_words?(_revision, _other), do: false
+
+  # Every revision, oldest first, of each of these messages that has an edit,
+  # by the message as a key names it. An edit is found by its own index, and
+  # the revisions before it by the message's source.
+  defp edit_histories([]), do: %{}
+
+  defp edit_histories(messages) do
+    conversations = messages |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    refs = messages |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+    wanted = MapSet.new(messages)
+
+    Repo.all(
+      from(edit in Entry,
+        join: revision in Entry,
+        on:
+          revision.source_kind == edit.source_kind and revision.source_ref == edit.source_ref and
+            revision.native_input_id == edit.native_input_id,
+        where:
+          edit.event_kind == :edit and edit.destination_conversation_ref in ^conversations and
+            fragment("COALESCE(?, ?)", edit.source_item_ref, edit.native_input_id) in ^refs,
+        distinct: revision.id,
+        select: %{
+          id: revision.id,
+          message:
+            {edit.destination_conversation_ref,
+             fragment("COALESCE(?, ?)", edit.source_item_ref, edit.native_input_id)},
+          revision: revision.revision,
+          inserted_at: revision.inserted_at,
+          event_kind: revision.event_kind,
+          text: fragment("(?::jsonb)->>'text'", revision.content)
+        }
+      )
+    )
+    |> Enum.filter(&MapSet.member?(wanted, &1.message))
+    |> Enum.group_by(& &1.message)
+    |> Map.new(fn {message, history} ->
+      {message, Enum.sort_by(history, &{&1.revision, &1.inserted_at})}
+    end)
   end
 
   # A Slack conversation is "slack:<workspace>:<channel>", as the channel
@@ -588,19 +686,27 @@ defmodule Ryker.RoutingExamples do
     do: erase_in_transaction([], Enum.map(ids, &knowledge_key/1))
 
   @doc """
-  Erases the examples that quote a message somebody deleted, inside the
-  transaction that records the deletion (`entry` is that revision).
+  Erases the examples that quote a message somebody deleted, or whose words
+  somebody replaced by editing it, inside the transaction that records the
+  deletion or the edit (`entry` is that revision). An edit that left the
+  words as they were erases nothing.
   """
-  @spec forget_deleted_in_transaction(Entry.t()) :: :ok
-  def forget_deleted_in_transaction(%Entry{event_kind: :delete} = entry) do
+  @spec forget_revised_in_transaction(Entry.t()) :: :ok
+  def forget_revised_in_transaction(%Entry{event_kind: :delete} = entry),
+    do: forget_message_in_transaction(entry)
+
+  def forget_revised_in_transaction(%Entry{event_kind: :edit} = entry) do
+    if edited_messages([own_message(entry)]) == [],
+      do: :ok,
+      else: forget_message_in_transaction(entry)
+  end
+
+  defp forget_message_in_transaction(entry) do
+    {conversation, message} = own_message(entry)
+
     erase_in_transaction(
       [Observations.source_identity(entry)],
-      [
-        message_key(
-          entry.destination_conversation_ref,
-          entry.source_item_ref || entry.native_input_id
-        )
-      ]
+      [message_key(conversation, message)]
     )
   end
 

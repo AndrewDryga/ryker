@@ -362,6 +362,55 @@ defmodule Ryker.Improvement.ExportTest do
     assert event["occurred_at"] == DateTime.to_iso8601(question.occurred_at)
   end
 
+  # A person who edits their question after a wrong answer takes its first
+  # words back, and the edit is what makes the request a candidate. The case
+  # replayed those words for as long as training data is kept; it now sends
+  # the message when it was first sent, in the words the person left.
+  test "a message edited after the answer replays when first sent, in the words the person left" do
+    question =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: "CEXPORTOPS",
+        actor: "UEXPORTPERSON",
+        text: "Is the payroll box healthy?",
+        ts: "1790200980.000100"
+      )
+
+    reply =
+      Answers.work_reply!(
+        question,
+        "The payroll box is healthy.",
+        "1790200980.000200",
+        DateTime.add(question.occurred_at, 60, :second)
+      )
+
+    edit =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: "CEXPORTOPS",
+        actor: "UEXPORTPERSON",
+        text: "Is the billing box healthy?",
+        ts: "1790200980.000100",
+        kind: :edit,
+        revision: 2,
+        at: DateTime.add(question.occurred_at, 120, :second)
+      )
+
+    Answers.join!(edit, reply.episode.id)
+
+    candidate = Improvement.for_request({:episode, reply.episode.id})
+    assert candidate.reasons == ["edited"]
+    assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
+
+    assert {:ok, scenario} = exported!(accepted)
+    assert [event] = scenario.events
+    assert event["payload"]["text"] == "Is the billing box healthy?"
+    assert event["occurred_at"] == DateTime.to_iso8601(question.occurred_at)
+
+    files = accepted |> Export.files() |> Enum.map(&elem(&1, 1)) |> IO.iodata_to_binary()
+    refute files =~ "Is the payroll box healthy?"
+  end
+
   # A world scenario replays Slack and Chat messages; a GitHub comment has
   # other fields the export does not write yet. Accepting one would keep a
   # case whose scenario the world runner refuses, and one refused directory

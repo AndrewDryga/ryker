@@ -76,15 +76,16 @@ part of each link after `?`. Only what redaction changes differs; everything els
 byte. On the live install on 2026-09-27, 77 of 82 prompts came through unchanged; the other five
 lost the query of a link.
 
-**A person forgetting wins.** Forgetting a fact or a learned topic, deleting a message in Slack, or
-deleting a Slack channel erases, in the same transaction, every copy whose prompt quoted that
-message, topic or conversation: its own message, the earlier messages of its thread or channel, and
-learned observations and topics. The copy keeps only its identity, so it is never copied again. A
-message forgotten before its decision is copied is checked at the copy, which then records only
-that identity. Copies and forgetting share one lock, so a copy in flight cannot slip past a
-forgetting that is committing. The one quotation this cannot trace is the short preview of an
-earlier request offered as a candidate, which names no message. Editing a message does not erase
-its copy.
+**A person forgetting wins.** Forgetting a fact or a learned topic, deleting a message in Slack,
+editing its words, or deleting a Slack channel erases, in the same transaction, every copy whose
+prompt quoted that message, topic or conversation: its own message, the earlier messages of its
+thread or channel, and learned observations and topics. An edit takes back the words it replaced;
+one that leaves the text as it was, as Slack reports a link's preview arriving, takes back nothing.
+The copy keeps only its identity, so it is never copied again. A message forgotten, deleted or
+edited before its decision is copied is checked at the copy, which then records only that identity.
+Copies and forgetting share one lock, so a copy in flight cannot slip past a forgetting that is
+committing. The one quotation this cannot trace is the short preview of an earlier request offered
+as a candidate, which names no message.
 
 ## Getting the examples out
 

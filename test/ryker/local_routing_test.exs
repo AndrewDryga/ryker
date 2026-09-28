@@ -428,6 +428,33 @@ defmodule Ryker.LocalRoutingTest do
       assert LocalRouting.run_next(options(endpoint)) == :idle
     end
 
+    # An edit replaces the words a person no longer wants said, and the local
+    # model's answer can repeat them. Only deleting reached a comparison, so
+    # the local model was still sent the words an edit had replaced.
+    test "editing a message erases every comparison that quoted its old words" do
+      endpoint =
+        local_model!([
+          {:answer, Harvested.hi_again_quick_reply()},
+          {:answer, Harvested.hi_again_quick_reply()}
+        ])
+
+      initialize!()
+      shadow!(endpoint)
+      route!(Harvested.hi_quick_reply(), "Ev-local-edited")
+      drain(endpoint)
+      [_sent_before_it_was_edited] = local_prompts()
+      route!(Harvested.hi_quick_reply(), "Ev-local-edited-2", at: 1)
+      other = route!(Harvested.hi_quick_reply(), "Ev-local-edited-3", at: 2, channel: "C999")
+
+      edit!("Ev-local-edited", "hi, reply with two words")
+
+      assert kept() == [other.id], "a comparison quoting an edited message's old words is kept"
+      drain(endpoint)
+
+      assert local_prompts() == [prompt(other)],
+             "the local model was sent the words an edit replaced"
+    end
+
     test "forgetting what was learned from a message erases every comparison that quoted it" do
       endpoint =
         local_model!([
@@ -558,6 +585,25 @@ defmodule Ryker.LocalRoutingTest do
         content: %{"text" => ""},
         event_kind: :delete,
         event_ref: event_ref <> "-deleted",
+        message_ref: message_ref(event_ref),
+        occurred_at: DateTime.add(@now, 60, :second),
+        revision: 2,
+        thread_ref: nil,
+        workspace_ref: @workspace
+      })
+
+    {:ok, %{status: :recorded}} = Inbox.record(input)
+  end
+
+  # The person edits their message in Slack to say `text`.
+  defp edit!(event_ref, text) do
+    {:ok, input} =
+      SlackInput.new(%{
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: @channel,
+        content: %{"text" => text},
+        event_kind: :edit,
+        event_ref: event_ref <> "-edited",
         message_ref: message_ref(event_ref),
         occurred_at: DateTime.add(@now, 60, :second),
         revision: 2,
