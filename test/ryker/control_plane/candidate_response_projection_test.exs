@@ -5,57 +5,96 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
   import Ecto.Query
 
   alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection, RequestPage}
+  alias Ryker.InspectionRedactor
   alias Ryker.Work.{CandidateResponse, Custody, Submission, Turn}
 
   @fixture "test/ryker/work/fixtures/airflow_candidate_responses.json"
 
-  test "the timeline and inspector pair every check with its exact recorded response" do
+  test "the timeline pairs every check with its exact recorded response" do
     {episode, turn, bodies} = recorded_turn!(3)
-    {:ok, view} = ModelRequests.project(episode.key, %{})
-    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
-    {:ok, snapshot} = Projection.episode(episode.key)
+    html = timeline_html(episode)
+    document = LazyHTML.from_document(html)
+    assert Enum.count(LazyHTML.query(document, ".candidate-response")) == 3
+    assert Enum.empty?(LazyHTML.query(document, ".candidate-response[open]"))
 
-    inspector = render_inspector(view)
-
-    timeline_html =
-      render_component(&EpisodePage.render/1,
-        snapshot: snapshot,
-        timeline: timeline,
-        requests: nil,
-        params: %{}
-      )
-
-    for html <- [inspector, timeline_html] do
-      document = LazyHTML.from_document(html)
-      assert Enum.count(LazyHTML.query(document, ".candidate-response")) == 3
-      assert Enum.empty?(LazyHTML.query(document, ".candidate-response[open]"))
-
-      for body <- Enum.uniq(bodies) do
-        message = Jason.decode!(body)["message"]
-        assert LazyHTML.text(document) =~ message
-      end
-
-      ids = LazyHTML.query(document, "[id]") |> LazyHTML.attribute("id")
-      assert ids == Enum.uniq(ids)
+    for body <- Enum.uniq(bodies) do
+      message = Jason.decode!(body)["message"]
+      assert LazyHTML.text(document) =~ message
     end
 
-    refute inspector =~ "artifact-candidate"
-    refute timeline_html =~ "Raw model response"
-    assert inspector =~ "selected-#{turn.id}-response-1-body"
-    assert timeline_html =~ "turn-#{turn.id}-response-1-body"
+    ids = LazyHTML.query(document, "[id]") |> LazyHTML.attribute("id")
+    assert ids == Enum.uniq(ids)
+    refute html =~ "Raw model response"
+    assert html =~ "turn-#{turn.id}-response-1-body"
     assert Repo.get!(Turn, turn.id).candidate == List.last(bodies)
+  end
+
+  test "each validation attempt retains its own collapsed response when the next candidate arrives" do
+    # The real Airflow trial replaced a 518-byte first candidate and retained
+    # only the latest of three attempts. Cleanup made that first response lost.
+    # These two independently harvested responses compose a host-only sequence;
+    # they do not reconstruct the trial's missing first response.
+    {episode, turn, bodies} = recorded_turn!(3)
+    document = timeline_document(episode)
+
+    for {body, attempt} <- Enum.with_index(bodies, 1) do
+      check = LazyHTML.query_by_id(document, "event-turn-#{turn.id}-validation-#{attempt}")
+      response = LazyHTML.query(check, ".candidate-response")
+
+      assert LazyHTML.attribute(response, "id") == ["turn-#{turn.id}-response-#{attempt}"]
+
+      assert LazyHTML.query(response, "pre") |> LazyHTML.text() ==
+               InspectionRedactor.artifact(body).text
+
+      # A validated answer is primary message content, not another subtitle
+      # beneath its check result. Raw evidence remains a separate disclosure.
+      assert Enum.count(LazyHTML.query(response, ".ui-message-body")) == 1
+      assert Enum.empty?(LazyHTML.query(check, ".candidate-response[open]"))
+
+      summary = response |> LazyHTML.query(".ui-disclosure summary") |> LazyHTML.text()
+      assert summary =~ "Raw response"
+      assert summary =~ "JSON"
+    end
+
+    assert Enum.empty?(LazyHTML.query(document, ".candidate-response a"))
+    refute LazyHTML.text(document) =~ "Response body not retained for this attempt"
+  end
+
+  test "expired or mismatched attempt bodies never borrow the latest response" do
+    {episode, turn, [_first, latest]} = recorded_turn!(2)
+    message = Jason.decode!(latest)["message"]
+    archived = Repo.get_by!(CandidateResponse, turn_id: turn.id, candidate_attempt: 1)
+    first_check = "event-turn-#{turn.id}-validation-1"
+
+    # The first attempt's archive holds the latest body, not the one its check read.
+    archived
+    |> Ecto.Changeset.change(
+      body: latest,
+      sha256: :crypto.hash(:sha256, latest) |> Base.encode16(case: :lower),
+      byte_size: byte_size(latest)
+    )
+    |> Repo.update!()
+
+    mismatched = episode |> timeline_document() |> LazyHTML.query_by_id(first_check)
+    assert Enum.empty?(LazyHTML.query(mismatched, ".candidate-response"))
+    refute LazyHTML.text(mismatched) =~ message
+
+    # The first attempt's archive expired while the turn did not.
+    Repo.get_by!(CandidateResponse, turn_id: turn.id, candidate_attempt: 1)
+    |> Ecto.Changeset.change(body: nil, operational_pruned_at: DateTime.utc_now())
+    |> Repo.update!()
+
+    expired = episode |> timeline_document() |> LazyHTML.query_by_id(first_check)
+    assert LazyHTML.text(expired) =~ "Response body expired"
+    assert Enum.empty?(LazyHTML.query(expired, ".candidate-response"))
+    refute LazyHTML.text(expired) =~ message
   end
 
   test "an older response link selects its own bounded check page without borrowing the latest body" do
     {episode, turn, _bodies} = recorded_turn!(12)
-    {:ok, stable} = ModelRequests.project(episode.key, %{})
-    assert validation(stable).response_page.page == 1
-    assert Map.keys(validation(stable).responses) |> Enum.sort() == Enum.to_list(1..10)
-
-    {:ok, latest} = ModelRequests.project(episode.key, %{"responses_page" => "2"})
-    latest_checks = validation(latest)
-    assert latest_checks.response_page.page == 2
-    assert Map.keys(latest_checks.responses) |> Enum.sort() == [11, 12]
+    {:ok, latest} = ModelRequests.timeline(episode.key, %{})
+    latest_checks = validation(latest, turn)
+    assert Map.keys(latest_checks.responses) |> Enum.sort() == Enum.to_list(3..12)
 
     href = latest_checks.response_links["turn-#{turn.id}-validation-1"].href
     uri = URI.parse(href)
@@ -66,6 +105,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     assert uri.fragment == "turn-#{turn.id}-response-1-body"
 
     {:ok, older} = ModelRequests.timeline(episode.key, params)
+    assert Map.keys(validation(older, turn).responses) |> Enum.sort() == Enum.to_list(1..10)
     {:ok, snapshot} = Projection.episode(episode.key)
 
     html =
@@ -84,7 +124,8 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
              Enum.map(1..10, &"turn-#{turn.id}-response-#{&1}")
 
     {other, _turn, _bodies} = recorded_turn!(1)
-    assert :not_found == ModelRequests.project(other.key, params)
+    {:ok, foreign} = ModelRequests.timeline(other.key, params)
+    refute Enum.any?(foreign.items, &String.contains?(&1.id, turn.id))
   end
 
   test "timeline response bodies and omitted-body links share one full-width evidence row" do
@@ -152,63 +193,11 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     end
   end
 
-  test "a new eleventh attempt leaves the inspector on its existing first page" do
-    {episode, turn, _bodies} = recorded_turn!(10)
-    {:ok, before} = ModelRequests.project(episode.key, %{})
-
-    before_ids =
-      render_inspector(before)
-      |> LazyHTML.from_document()
-      |> LazyHTML.query(".candidate-response")
-      |> LazyHTML.attribute("id")
-
-    response = hd(fixture_responses())
-    last = List.last(turn.validation_history)
-
-    next = %{
-      last
-      | "candidate_attempt" => 11,
-        "candidate_sha256" => response["sha256"],
-        "response_bytes" => response["bytes"]
-    }
-
-    Repo.insert!(%CandidateResponse{
-      turn_id: turn.id,
-      candidate_attempt: 11,
-      body: response["body"],
-      sha256: response["sha256"],
-      byte_size: response["bytes"],
-      recorded_at: DateTime.utc_now()
-    })
-
-    turn
-    |> Ecto.Changeset.change(
-      validation_history: turn.validation_history ++ [next],
-      candidate: response["body"],
-      candidate_sha256: response["sha256"],
-      candidate_attempt: 11
-    )
-    |> Repo.update!()
-
-    {:ok, after_update} = ModelRequests.project(episode.key, %{})
-
-    after_ids =
-      render_inspector(after_update)
-      |> LazyHTML.from_document()
-      |> LazyHTML.query(".candidate-response")
-      |> LazyHTML.attribute("id")
-
-    assert validation(after_update).response_page.page == 1
-    assert after_ids == before_ids
-    assert render_inspector(after_update) =~ "Later attempts"
-  end
-
   test "the owner expiry marker hides bodies even before an old response row is pruned" do
     {episode, turn, _bodies} = recorded_turn!(3)
     turn |> Ecto.Changeset.change(operational_pruned_at: DateTime.utc_now()) |> Repo.update!()
-    {:ok, view} = ModelRequests.project(episode.key, %{})
-    html = render_inspector(view)
-    assert html =~ "This artifact has expired"
+    html = timeline_html(episode)
+    assert html =~ "Response body expired for this attempt"
     refute html =~ "Verification is scheduled"
     refute html =~ "Verification remains inconclusive"
     refute html =~ "candidate-response"
@@ -238,7 +227,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     [href] = LazyHTML.query(latest, "p a") |> LazyHTML.attribute("href")
     uri = URI.parse(href)
     params = URI.decode_query(uri.query)
-    assert params["section"] == "candidate"
+    assert params == %{"attempt" => turn.id}
     assert uri.fragment == "turn-#{turn.id}-response-2-body"
     {:ok, selected} = ModelRequests.timeline(episode.key, params)
 
@@ -260,10 +249,10 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     |> Ecto.Changeset.change(candidate_sha256: String.duplicate("d", 64))
     |> Repo.update!()
 
-    {:ok, view} = ModelRequests.project(episode.key, %{})
     # The display's candidate digest is calculated from actual bytes, not the
     # damaged execution cursor metadata; it still matches the exact check.
-    assert RequestPage.latest_archived_response(view.selected.sections)
+    assert RequestPage.latest_archived_response(result(episode, turn).sections)
+    assert Enum.empty?(latest_response(episode, turn))
 
     Repo.get_by!(CandidateResponse, turn_id: turn.id, candidate_attempt: 2)
     |> Ecto.Changeset.change(
@@ -273,9 +262,8 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     )
     |> Repo.update!()
 
-    {:ok, mismatched} = ModelRequests.project(episode.key, %{})
-    assert RequestPage.latest_archived_response(mismatched.selected.sections) == nil
-    assert render_inspector(mismatched) =~ "artifact-candidate"
+    assert RequestPage.latest_archived_response(result(episode, turn).sections) == nil
+    assert Enum.count(latest_response(episode, turn)) == 1
   end
 
   # Andrew, 2026-09-27, of a card that read "Request title Hello": "what is
@@ -444,7 +432,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     ]
   end
 
-  defp timeline_document(episode) do
+  defp timeline_html(episode) do
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
     {:ok, snapshot} = Projection.episode(episode.key)
 
@@ -454,7 +442,23 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
       requests: nil,
       params: %{}
     )
-    |> LazyHTML.from_document()
+  end
+
+  defp timeline_document(episode), do: episode |> timeline_html() |> LazyHTML.from_document()
+
+  # The model call's result on the timeline: the answer, its checks and their responses.
+  defp result(episode, turn) do
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    Enum.find(timeline.items, &(&1.id == "request-#{turn.id}-result"))
+  end
+
+  # The latest answer's raw response on the result card, shown there only when
+  # no check carries it.
+  defp latest_response(episode, turn) do
+    episode
+    |> timeline_document()
+    |> LazyHTML.query_by_id("request-#{turn.id}-result")
+    |> LazyHTML.query(".artifact-candidate")
   end
 
   defp title_update(document, turn) do
@@ -467,14 +471,11 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     end
   end
 
-  defp validation(view), do: Enum.find(view.selected.sections, &(&1.id == "validation"))
-
-  defp render_inspector(view, params \\ %{}) do
-    render_component(&RequestPage.render/1,
-      view: view,
-      params: params,
-      path: "/timeline/#{URI.encode_www_form(view.episode_ref)}"
-    )
+  defp validation(timeline, turn) do
+    timeline.items
+    |> Enum.find(&(&1.id == "request-#{turn.id}-result"))
+    |> Map.fetch!(:sections)
+    |> Enum.find(&(&1.id == "validation"))
   end
 
   defp fixture_responses do

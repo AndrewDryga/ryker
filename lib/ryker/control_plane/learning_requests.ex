@@ -319,7 +319,6 @@ defmodule Ryker.ControlPlane.LearningRequests do
       generation: number.number,
       generations: number.total,
       counts: %{},
-      coverage: nil,
       href: nil,
       # The briefing names Slack people while it is drawn; see `Names.revision/0`.
       names: Names.revision()

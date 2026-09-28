@@ -77,8 +77,14 @@ defmodule Ryker.Admission.ExecutorTest do
     assert attempt.turn_ref == execution.turn_id
     assert Map.has_key?(attempt.milestones, "response_received")
     assert Map.has_key?(attempt.milestones, "committed")
-    assert {:ok, inspector} = ModelRequests.project_input(entry.id, %{})
-    request = Enum.find(inspector.selected.sections, &(&1.id == "request"))
+
+    assert {:ok, inspector} =
+             ModelRequests.project_input(entry.id, %{
+               "disclosed" => ["admission-#{entry.id}-1-request"]
+             })
+
+    briefing = Enum.find(inspector.timeline, &(&1.id == "admission-#{entry.id}-1"))
+    request = Enum.find(briefing.sections, &(&1.id == "request"))
     assert request.artifact.state == :retained
     assert request.artifact.text =~ "Please investigate the unfamiliar failure"
 

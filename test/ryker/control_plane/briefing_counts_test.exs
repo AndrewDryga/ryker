@@ -331,7 +331,8 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     href = "/timeline/" <> URI.encode_www_form(candidate_key)
 
     assert {:ok, view} = ModelRequests.project_input(entry.id, %{})
-    assert view.selected.counts["candidate_episodes"] == %{candidate_ref => href}
+    briefing = Enum.find(view.timeline, &(&1.id == "admission-#{entry.id}-1"))
+    assert briefing.counts["candidate_episodes"] == %{candidate_ref => href}
 
     html = render_component(&EpisodePage.message_page/1, view: view)
     document = LazyHTML.from_document(html)

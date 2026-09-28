@@ -405,7 +405,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           >{@view.heading.conversation_link.label} →</a>
         </p>
       </div>
-      <.admission_recovery :if={@view.selected[:recovery]} recovery={@view.selected.recovery} />
+      <.admission_recovery :if={@view.recovery} recovery={@view.recovery} />
       <section
         :if={@view.metrics.response_ms || @view.metrics.cost}
         class="episode-metrics"

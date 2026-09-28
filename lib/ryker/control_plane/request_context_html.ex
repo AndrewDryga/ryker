@@ -457,17 +457,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "</section>"
     ]
 
-  def render(artifact, root \\ "$.context", prefix \\ "context")
-
-  def render(%{state: :retained, truncated: false, text: text}, root, prefix) do
-    case Jason.decode(text) do
-      {:ok, context} when is_map(context) -> context(context, root, prefix)
-      _not_structured -> []
-    end
-  end
-
-  def render(_artifact, _root, _prefix), do: []
-
   @doc "A flat source inventory for the timeline, without a parent disclosure."
   def assembly(artifact, root, prefix, counts \\ %{})
 
@@ -1596,25 +1585,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   def assembly_instructions(_, _), do: []
-
-  def instructions(artifact, kind, prefix \\ "instructions", open \\ false)
-
-  def instructions(%{state: :retained, text: text}, kind, prefix, open) do
-    title = if kind == :admission, do: "Admission system prompt", else: "Work system prompt"
-
-    source(
-      "instructions",
-      "$.instructions",
-      text,
-      {title, "policy", nil,
-       "The instruction field retained with this exact request. This is not the Coop wrapper or provider system prompt, and it is not loaded from today's source code."},
-      ["<pre class=\"model-document-text\">", escape(text), "</pre>"],
-      prefix,
-      open: open
-    )
-  end
-
-  def instructions(_artifact, _kind, _prefix, _open), do: []
 
   defp context(context, root, prefix) do
     [

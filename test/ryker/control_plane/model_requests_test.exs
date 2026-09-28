@@ -4,90 +4,32 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   alias Ryker.Admission.Attempt
   alias Ryker.ControlPlane.ConversationLab
   alias Ryker.ControlPlane.{EpisodePage, EpisodeRequest, Projection}
-  alias Ryker.ControlPlane.{ModelRequests, RequestPage}
+  alias Ryker.ControlPlane.ModelRequests
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.{InputCustodyTransition, WorkProfile}
   alias Ryker.InspectionRedactor
   alias Ryker.Settings
   alias Ryker.Work.{Custody, Session, Submission, Turn}
 
-  test "inspection reads the frozen request and distinguishes instructions from provider-owned context" do
+  test "a request reads the frozen submission and distinguishes instructions from provider-owned context" do
     {episode, turn, original} = frozen_turn!()
-    assert {:ok, view} = ModelRequests.project(episode.key, %{})
-    assert view.selected.id == turn.id
-    instructions = Enum.find(view.selected.sections, &(&1.id == "instructions"))
+    request = timeline_request(episode, turn)
+    instructions = Enum.find(request.sections, &(&1.id == "instructions"))
 
     assert instructions.artifact.text ==
              "Host-authored retained instructions for this submission."
 
-    raw = Enum.find(view.selected.sections, &(&1.id == "request"))
+    raw = Enum.find(request.sections, &(&1.id == "request"))
     assert raw.artifact.sha256 == :crypto.hash(:sha256, original) |> Base.encode16(case: :lower)
-    assert view.selected.coverage =~ "Coop wrapper"
 
-    html =
-      render_component(&RequestPage.render/1,
-        view: view,
-        params: %{},
-        path: "/timeline/#{URI.encode_www_form(episode.key)}"
-      )
+    html = render_component(&EpisodeRequest.render/1, request: request)
+    full = html |> LazyHTML.from_fragment() |> LazyHTML.query(".final-prompt")
 
-    refute LazyHTML.from_fragment(html) |> LazyHTML.text() =~ "$.work.inputs"
-    assert html =~ "&lt;script&gt;"
-    refute html =~ "<script>"
-    refute html =~ "xoxb-recorded-credential"
-    assert html =~ "source message"
-    assert html =~ "Not recorded"
-    refute html =~ "Artifact identity"
-    refute html =~ "Original retained bytes"
+    assert LazyHTML.text(full) =~
+             "Provider-owned instructions and wrappers are not part of this record."
+
     refute html =~ raw.artifact.sha256
-
-    identity =
-      LazyHTML.from_fragment(html)
-      |> LazyHTML.query("details.document-provenance[id^=request-identity-]")
-
-    assert identity |> LazyHTML.query("summary") |> LazyHTML.text() |> String.trim() ==
-             "Request identity"
-
-    assert LazyHTML.text(identity) =~ "Execution policy"
-    assert LazyHTML.text(identity) =~ view.selected.policy
-
-    assert identity
-           |> LazyHTML.query("button[data-copy-value]")
-           |> LazyHTML.attribute("data-copy-value") == [view.selected.id]
-
-    refute LazyHTML.text(identity) =~ "Request fingerprint"
-    refute LazyHTML.text(identity) =~ view.selected.fingerprint
-
-    refute LazyHTML.text(identity) =~ "Model call identity and policy"
-
-    for section <- view.selected.sections do
-      native =
-        render_component(&RequestPage.render/1,
-          view: view,
-          params: %{"section" => section.id},
-          path: "/timeline/#{URI.encode_www_form(episode.key)}"
-        )
-
-      expected_title =
-        case section.id do
-          "request" -> "Full submitted request"
-          "validation" -> "Response checks"
-          _ -> section.title
-        end
-
-      assert native =~ expected_title
-      # Existing "Inspect accepted answer" links must open the requested artifact,
-      # not bury it below instructions and raw submissions after removing the tabs.
-      assert native
-             |> LazyHTML.from_document()
-             |> LazyHTML.query(".inspector-document")
-             |> LazyHTML.attribute("id")
-             |> hd() == "selected-#{turn.id}-#{section.id}"
-
-      assert native =~ "attempt=#{turn.id}"
-      refute native =~ "<script>"
-      refute native =~ "xoxb-recorded-credential"
-    end
+    refute html =~ "xoxb-recorded-credential"
   end
 
   test "a request that held a credential shows it removed, with no secrets disclaimer anywhere" do
@@ -98,44 +40,32 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     # "Sensitive values are hidden in this view". The credential is still
     # removed before anything renders; the pages just stop saying so.
     {episode, turn, _original} = frozen_turn!()
-    {:ok, view} = ModelRequests.project(episode.key, %{})
-
-    {:ok, timeline} =
-      ModelRequests.timeline(episode.key, %{"disclosed" => ["work-#{turn.id}-request"]})
-
-    request = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
+    request = timeline_request(episode, turn)
     assert Enum.find(request.sections, &(&1.id == "request")).artifact.redacted
 
-    pages = [
-      render_component(&RequestPage.render/1,
-        view: view,
-        params: %{},
-        path: "/timeline/#{URI.encode_www_form(episode.key)}"
-      ),
-      render_component(&EpisodeRequest.render/1, request: request)
-    ]
-
-    for html <- pages do
-      text = html |> LazyHTML.from_document() |> LazyHTML.text()
-      refute html =~ "xoxb-recorded-credential"
-      assert text =~ "Full submitted request"
-      refute text =~ ~r/secrets redacted/i
-      refute text =~ ~r/· redacted/i
-      refute text =~ ~r/sensitive values are hidden/i
-    end
+    html = render_component(&EpisodeRequest.render/1, request: request)
+    text = html |> LazyHTML.from_document() |> LazyHTML.text()
+    refute html =~ "xoxb-recorded-credential"
+    assert text =~ "Full submitted request"
+    refute text =~ ~r/secrets redacted/i
+    refute text =~ ~r/· redacted/i
+    refute text =~ ~r/sensitive values are hidden/i
   end
 
   test "a request cannot be inspected through another episode" do
     {episode, _turn, _prompt} = frozen_turn!()
-    assert :not_found == ModelRequests.project(episode.key, %{"attempt" => Ecto.UUID.generate()})
-    assert :not_found == ModelRequests.project(episode.key, %{"attempt" => "not-a-uuid"})
+    {_other, other_turn, _prompt} = frozen_turn!()
+
+    for attempt <- [other_turn.id, Ecto.UUID.generate(), "not-a-uuid"] do
+      assert {:ok, timeline} = ModelRequests.timeline(episode.key, %{"attempt" => attempt})
+      refute Enum.any?(timeline.items, &String.contains?(&1.id, other_turn.id))
+    end
   end
 
   test "the full submitted request groups exact prompt text and output contract as collapsed components" do
     # The full-request disclosure previously left the contract as an unrelated
     # open block, while the technical inspector showed only the prompt text.
     {episode, turn, _original} = frozen_turn!()
-    {:ok, view} = ModelRequests.project(episode.key, %{})
 
     # On the Timeline the prompt body loads when its disclosure is opened, so
     # this asks for the opened view of the same artifact the reader would get.
@@ -152,70 +82,47 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     prompt = Enum.find(request.sections, &(&1.id == "request")).artifact.text
     contract = Enum.find(request.sections, &(&1.id == "contract")).artifact.text
 
-    for html <- [
-          render_component(&EpisodeRequest.render/1, request: request),
-          render_component(&RequestPage.render/1,
-            view: view,
-            params: %{},
-            path: "/timeline/#{URI.encode_www_form(episode.key)}"
-          )
+    html = render_component(&EpisodeRequest.render/1, request: request)
+    document = LazyHTML.from_document(html)
+    full = LazyHTML.query(document, ".final-prompt")
+    assert Enum.count(full) == 1
+
+    # The full request is a section with a heading. It had been a disclosure
+    # held permanently open, whose summary then had to be made unfocusable so
+    # it would stop behaving like a control nobody could use — three
+    # workarounds for not being the element it already was.
+    assert Enum.count(LazyHTML.query(document, "section.final-prompt")) == 1
+    assert Enum.empty?(LazyHTML.query(document, "details.final-prompt"))
+    assert LazyHTML.query(full, "header h4") |> LazyHTML.text() =~ "Full submitted request"
+
+    # Its components inside it stay collapsed.
+    assert Enum.empty?(LazyHTML.query(full, ".prompt-source[open]"))
+
+    for {id, title, text} <- [
+          {"request", "Prompt text", prompt},
+          {"contract", "Response format", contract}
         ] do
-      document = LazyHTML.from_document(html)
-      full = LazyHTML.query(document, ".final-prompt")
-      assert Enum.count(full) == 1
+      component = LazyHTML.query(full, ".prompt-source[data-source='#{id}']")
+      assert Enum.count(component) == 1
+      assert LazyHTML.query(component, "summary") |> LazyHTML.text() =~ title
+      assert LazyHTML.query(component, "summary") |> LazyHTML.text() =~ ~r/≈ [\d,]+ tokens/
+      refute LazyHTML.text(component) =~ "Raw text"
 
-      assert LazyHTML.text(full) =~ "Full submitted request"
-
-      # The retained submission is the page's subject and reads as a plain
-      # section; its components inside it stay collapsed.
-      assert Enum.empty?(LazyHTML.query(full, ".prompt-source[open]"))
-
-      for {id, title, text} <- [
-            {"request", "Prompt text", prompt},
-            {"contract", "Response format", contract}
-          ] do
-        component = LazyHTML.query(full, ".prompt-source[data-source='#{id}']")
-        assert Enum.count(component) == 1
-        assert LazyHTML.query(component, "summary") |> LazyHTML.text() =~ title
-        assert LazyHTML.query(component, "summary") |> LazyHTML.text() =~ ~r/≈ [\d,]+ tokens/
-        refute LazyHTML.text(component) =~ "Raw text"
-
-        assert LazyHTML.query(component, ".submitted-prompt-formatted code")
-               |> LazyHTML.text()
-               |> Jason.decode!() == Jason.decode!(text)
-      end
-
-      prompt_component = LazyHTML.query(full, ".prompt-source[data-source=request]")
-      refute LazyHTML.text(prompt_component) =~ "Recorded when the request was sent"
-      refute LazyHTML.text(full) =~ "Recorded with this request"
-      refute LazyHTML.text(prompt_component) =~ "Retained submission"
-      refute LazyHTML.text(prompt_component) =~ "exact retained prompt text"
-      refute LazyHTML.text(full) =~ "alongside"
-      assert LazyHTML.text(full) |> String.downcase() =~ "provider"
-      ids = LazyHTML.query(document, "[id]") |> LazyHTML.attribute("id")
-      assert ids == Enum.uniq(ids)
-      refute html =~ "xoxb-recorded-credential"
+      assert LazyHTML.query(component, ".submitted-prompt-formatted code")
+             |> LazyHTML.text()
+             |> Jason.decode!() == Jason.decode!(text)
     end
 
-    # On the page whose subject is this request, it is a section with a heading.
-    # It had been a disclosure held permanently open, whose summary then had to
-    # be made unfocusable so it would stop behaving like a control nobody could
-    # use — three workarounds for not being the element it already was.
-    page =
-      LazyHTML.from_document(
-        render_component(&RequestPage.render/1,
-          view: view,
-          params: %{},
-          path: "/timeline/#{URI.encode_www_form(episode.key)}"
-        )
-      )
-
-    assert Enum.count(LazyHTML.query(page, "section.final-prompt")) == 1
-    assert Enum.empty?(LazyHTML.query(page, "details.final-prompt"))
-
-    assert page
-           |> LazyHTML.query(".final-prompt > .document-heading h4")
-           |> LazyHTML.text() =~ "Full submitted request"
+    prompt_component = LazyHTML.query(full, ".prompt-source[data-source=request]")
+    refute LazyHTML.text(prompt_component) =~ "Recorded when the request was sent"
+    refute LazyHTML.text(full) =~ "Recorded with this request"
+    refute LazyHTML.text(prompt_component) =~ "Retained submission"
+    refute LazyHTML.text(prompt_component) =~ "exact retained prompt text"
+    refute LazyHTML.text(full) =~ "alongside"
+    assert LazyHTML.text(full) |> String.downcase() =~ "provider"
+    ids = LazyHTML.query(document, "[id]") |> LazyHTML.attribute("id")
+    assert ids == Enum.uniq(ids)
+    refute html =~ "xoxb-recorded-credential"
   end
 
   test "validation history shows each recorded check and its violations without inventing response bodies" do
@@ -243,68 +150,23 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     }
 
     turn |> Ecto.Changeset.change(validation_history: [rejected, accepted]) |> Repo.update!()
-    {:ok, view} = ModelRequests.project(episode.key, %{})
-
-    html =
-      render_component(&RequestPage.render/1,
-        view: view,
-        params: %{},
-        path: "/timeline/#{URI.encode_www_form(episode.key)}"
-      )
-
+    html = timeline_html(episode)
     document = LazyHTML.from_document(html)
-    attempts = LazyHTML.query(document, ".validation-attempt")
-    assert LazyHTML.attribute(attempts, "data-candidate-attempt") == ["1", "2"]
-    assert LazyHTML.text(Enum.at(attempts, 0)) =~ "Attempt 1 rejected"
-    assert LazyHTML.text(Enum.at(attempts, 0)) =~ "not ready"
-    assert LazyHTML.text(Enum.at(attempts, 1)) =~ "Attempt 2 accepted"
-    assert LazyHTML.text(Enum.at(attempts, 1)) =~ "JSON object"
-    assert LazyHTML.text(Enum.at(attempts, 1)) =~ "100 bytes"
-    assert LazyHTML.text(attempts) =~ "Response body not retained for this attempt"
-    refute LazyHTML.text(attempts) =~ rejected["candidate_sha256"]
-    refute html =~ "<script>"
-    refute LazyHTML.text(attempts) =~ "Response sent"
-    assert Enum.count(LazyHTML.query(document, ".artifact-validation[open]")) == 1
-    assert Enum.empty?(LazyHTML.query(document, ".validation-raw[open]"))
-    raw = Enum.find(view.selected.sections, &(&1.id == "validation")).artifact.text
-    assert LazyHTML.query(document, ".validation-raw pre") |> LazyHTML.text() == raw
-    assert Repo.get!(Turn, turn.id).validation_history == [rejected, accepted]
-  end
+    first = LazyHTML.query(document, "#event-turn-#{turn.id}-validation-1")
+    second = LazyHTML.query(document, "#event-turn-#{turn.id}-validation-2")
 
-  test "partial or malformed validation records do not become confident verdicts" do
-    for artifact <- [
-          InspectionRedactor.artifact(nil, expired: true),
-          InspectionRedactor.artifact(%{"history" => "unavailable"}),
-          InspectionRedactor.artifact(%{"history" => [nil]}),
-          InspectionRedactor.artifact(%{
-            "history" => [
-              %{"candidate_attempt" => 1, "verdict" => "accept", "violations" => ["not ready"]}
-            ]
-          }),
-          InspectionRedactor.artifact(%{
-            "history" => [
-              %{"candidate_attempt" => 1, "verdict" => "reject", "violations" => "not a list"}
-            ]
-          }),
-          InspectionRedactor.artifact(
-            %{"history" => [%{"candidate_attempt" => 1, "verdict" => "accept"}]},
-            max_bytes: 30
-          )
-        ] do
-      html =
-        render_component(&RequestPage.artifact/1,
-          section: %{
-            id: "validation",
-            title: "Host validation and repair history",
-            artifact: artifact
-          },
-          prefix: "unavailable"
-        )
+    assert LazyHTML.text(first) =~ "Answer rejected"
+    assert LazyHTML.text(first) =~ "not ready"
+    assert LazyHTML.text(second) =~ "Answer validated"
 
-      refute html =~ "passed checks"
-      refute html =~ "Response sent"
-      assert html =~ "Validation details" or html =~ "This artifact has expired"
+    for check <- [first, second] do
+      assert LazyHTML.text(check) =~ "Response body not retained for this attempt"
+      assert Enum.empty?(LazyHTML.query(check, ".candidate-response"))
     end
+
+    refute html =~ rejected["candidate_sha256"]
+    refute html =~ "<script>"
+    assert Repo.get!(Turn, turn.id).validation_history == [rejected, accepted]
   end
 
   test "a validation receipt links only the exact retained response attempt" do
@@ -315,59 +177,45 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       |> File.read!()
       |> Jason.decode!()
       |> Map.fetch!("candidate")
-      |> InspectionRedactor.artifact()
+      |> Jason.encode!()
+
+    digest = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    {episode, turn, _original} = frozen_turn!()
 
     history =
       for attempt <- [1, 2] do
         %{
           "candidate_attempt" => attempt,
-          "candidate_sha256" => candidate.sha256,
+          "candidate_sha256" => digest,
           "verdict" => "accept",
           "violations" => []
         }
       end
 
-    for retained <- [
-          candidate,
-          %{candidate | truncated: true},
-          %{candidate | sha256: String.duplicate("d", 64)}
-        ] do
-      validation = %{
-        id: "validation",
-        title: "Host validation and repair history",
-        artifact: InspectionRedactor.artifact(%{"history" => history, "candidate_attempt" => 2})
-      }
+    # No per-attempt archive: only the latest answer, still in its slot, can be linked.
+    for {latest, linked} <- [{candidate, true}, {candidate <> "\n", false}] do
+      turn
+      |> Ecto.Changeset.change(
+        candidate: latest,
+        candidate_attempt: 2,
+        candidate_sha256: digest,
+        validation_history: history
+      )
+      |> Repo.update!()
 
-      document =
-        render_component(&RequestPage.artifact/1,
-          section: validation,
-          sections: [validation, %{id: "candidate", artifact: retained}],
-          prefix: "checks"
-        )
-        |> LazyHTML.from_document()
+      document = episode |> timeline_html() |> LazyHTML.from_document()
+      first = LazyHTML.query(document, "#event-turn-#{turn.id}-validation-1")
+      second = LazyHTML.query(document, "#event-turn-#{turn.id}-validation-2")
 
-      attempts = LazyHTML.query(document, ".validation-attempt")
-      assert Enum.count(attempts) == 2
-      assert Enum.empty?(LazyHTML.query(Enum.at(attempts, 0), "a"))
+      assert Enum.empty?(LazyHTML.query(first, ".candidate-evidence a"))
+      assert LazyHTML.text(first) =~ "Response body not retained for this attempt"
 
-      expected = if retained.sha256 == candidate.sha256, do: ["#checks-candidate-body"], else: []
+      expected = if linked, do: ["turn-#{turn.id}-response-2-body"], else: []
 
-      assert Enum.at(attempts, 1) |> LazyHTML.query("a") |> LazyHTML.attribute("href") == expected
-
-      # Chromium scrolls to a closed details element without opening it. The
-      # link must target its retained body so native fragment navigation reveals it.
-      rendered_candidate =
-        render_component(&RequestPage.artifact/1,
-          section: %{id: "candidate", title: "Response to validate", artifact: retained},
-          prefix: "checks"
-        )
-        |> LazyHTML.from_document()
-
-      assert Enum.empty?(LazyHTML.query(rendered_candidate, "#checks-candidate[open]"))
-
-      assert Enum.count(
-               LazyHTML.query(rendered_candidate, "#checks-candidate #checks-candidate-body")
-             ) == 1
+      assert second
+             |> LazyHTML.query(".candidate-evidence a")
+             |> LazyHTML.attribute("href")
+             |> Enum.map(&URI.parse(&1).fragment) == expected
     end
   end
 
@@ -376,18 +224,17 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     # A source-labelled viewer must not call a neighboring document model input.
     submission = put_in(turn.submission, ["context", "inputs"], [])
     turn |> Ecto.Changeset.change(submission: submission) |> Repo.update!()
-    {:ok, view} = ModelRequests.project(episode.key, %{})
-    context = Enum.find(view.selected.sections, &(&1.id == "context"))
+    request = timeline_request(episode, turn)
+    context = Enum.find(request.sections, &(&1.id == "context"))
     assert context.artifact.text =~ "source message"
 
     submission = Map.put(submission, "prompt", "unstructured historical prompt")
     turn |> Ecto.Changeset.change(submission: submission) |> Repo.update!()
-    {:ok, view} = ModelRequests.project(episode.key, %{})
+    request = timeline_request(episode, turn)
 
-    assert Enum.find(view.selected.sections, &(&1.id == "context")).artifact.state ==
-             :not_recorded
+    assert Enum.find(request.sections, &(&1.id == "context")).artifact.state == :not_recorded
 
-    assert Enum.find(view.selected.sections, &(&1.id == "request")).artifact.text =~
+    assert Enum.find(request.sections, &(&1.id == "request")).artifact.text =~
              "historical prompt"
   end
 
@@ -662,12 +509,19 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       )
 
     html =
-      render_component(&RequestPage.artifact/1,
-        section: %{id: "context", title: "Frozen context", artifact: artifact},
-        prefix: "truncated"
+      render_component(&EpisodeRequest.render/1,
+        request: %{
+          id: "request-truncated",
+          source_kind: :work,
+          phase: :submission,
+          target: "codex:gpt-5.6-terra/medium@emisar",
+          sections: [
+            %{id: "context", title: "Frozen context", source_kind: :work, artifact: artifact}
+          ]
+        }
       )
 
-    assert html =~ "truncated display"
+    assert html =~ "Partial display"
     assert html =~ "[display truncated]"
     assert html =~ "retained context"
   end
@@ -730,7 +584,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
 
     {:ok, missing} = ModelRequests.timeline(episode.key, %{})
     assert missing_request = Enum.find(missing.items, &(&1.id == "admission-#{entry.id}-2"))
-    assert missing_request.coverage =~ "no retained submitted prompt"
+    assert missing_prompt?(missing_request)
 
     for generation <- 1..2 do
       Repo.insert!(%Attempt{
@@ -795,7 +649,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     {:ok, bounded} = ModelRequests.timeline(episode.key, %{})
     assert bounded.truncated
     assert bounded.call_history.more == 2
-    refute Enum.any?(bounded.items, &(&1.coverage =~ "no retained submitted prompt"))
+    refute Enum.any?(bounded.items, &missing_prompt?/1)
 
     {:ok, snapshot} = Projection.episode(episode.key)
 
@@ -861,40 +715,40 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       set: [submission: %{"retention" => "pruned"}, operational_pruned_at: DateTime.utc_now()]
     )
 
-    assert {:ok, view} = ModelRequests.project(episode.key, %{})
-    assert Enum.find(view.selected.sections, &(&1.id == "request")).artifact.state == :expired
+    request = timeline_request(episode, turn)
+    assert Enum.find(request.sections, &(&1.id == "request")).artifact.state == :expired
 
-    native =
-      render_component(&RequestPage.render/1,
-        view: view,
-        params: %{"section" => "request"},
-        path: "/timeline/retained"
-      )
-
-    assert native =~ "This artifact has expired"
-    refute native =~ "Host-authored retained instructions"
+    html = render_component(&EpisodeRequest.render/1, request: request)
+    assert html =~ "Expired. No reconstructed substitute is shown."
+    refute html =~ "Host-authored retained instructions"
   end
 
-  # Every other directory clamps a page past the end to the last page. This one
-  # read the offset straight from the query string, so a stale bookmark or a
-  # hand-edited `?page=` answered with an empty request list and no selected
-  # request, beside a pager that said "page 99 of 1".
-  test "a request page past the end is the last page, never an empty one" do
-    {episode, turn, _prompt} = frozen_turn!()
+  # A request that says its prompt was never recorded, rather than showing one.
+  defp missing_prompt?(request) do
+    match?(
+      %{artifact: %{state: :not_recorded}},
+      Enum.find(request[:sections] || [], &(&1.id == "request"))
+    )
+  end
 
-    assert {:ok, view} = ModelRequests.project(episode.key, %{"page" => "99"})
-    assert view.page == view.pages
-    assert Enum.map(view.items, & &1.id) == [turn.id]
-    assert view.selected.id == turn.id
+  # The work request the timeline shows for `turn`, its prompt body opened.
+  defp timeline_request(episode, turn) do
+    {:ok, timeline} =
+      ModelRequests.timeline(episode.key, %{"disclosed" => ["work-#{turn.id}-request"]})
 
-    assert {:ok, first} = ModelRequests.project(episode.key, %{"page" => "0"})
-    assert first.page == 1
-    assert first.selected.id == turn.id
+    Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
+  end
 
-    assert {:ok, tools} =
-             ModelRequests.project(episode.key, %{"attempt" => turn.id, "tools_page" => "40"})
+  defp timeline_html(episode) do
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    {:ok, snapshot} = Projection.episode(episode.key)
 
-    assert tools.selected.tools.page == tools.selected.tools.pages
+    render_component(&EpisodePage.render/1,
+      snapshot: snapshot,
+      timeline: timeline,
+      requests: nil,
+      params: %{}
+    )
   end
 
   defp frozen_turn! do

@@ -681,8 +681,8 @@ hold no checkout; `/memory/learning` lists them.
 
 An episode's Routing section shows the saved briefing, activity, decision and
 reason for each incoming message. Response checks appear as individual events
-in the same timeline. The request inspector provides the full retained artifacts
-for a selected model execution; it is not another execution or a second timeline.
+in the same timeline. Each model call's card opens its full retained artifacts
+in place; there is no separate request inspector or second timeline.
 
 Usage compares work classes and models using the execution ledger: runs, failures,
 elapsed model time, and retained response corrections. Provider retries are not
@@ -1067,8 +1067,8 @@ browser's own file field is hidden and the composer names the chosen files
 beside Attach files. Without a pointer to hover, each example is drawn as a row
 to tap. Each message carries a
 `View request` link, opening in a new tab, to its own retained execution: an input's
-own admission request (or its pre-episode request inspector, or its recorded
-decision when it was ignored) and a reply's producing work turn. While a message
+own admission request (or, before it joined a request, its message page, or its
+recorded decision when it was ignored) and a reply's producing work turn. While a message
 is waiting on admission its progress shows beneath it. There is no runtime rail,
 welcome page, start-of-history marker or `/conversations/new` route. Editing an operator message happens
 in place: Edit swaps the rendered body for an editor at the same width, Enter
