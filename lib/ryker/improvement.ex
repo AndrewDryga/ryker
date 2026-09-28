@@ -51,6 +51,7 @@ defmodule Ryker.Improvement do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
+  alias Ryker.RoutingExamples
 
   @reasons ~w(frustrated reaction asked_again edited stopped)
 
@@ -287,9 +288,18 @@ defmodule Ryker.Improvement do
   defp decide(id, actor_ref, status) do
     with {:ok, id} <- cast_id(id),
          :ok <- actor(actor_ref) do
-      Repo.transaction(fn -> decide_locked(id, actor_ref, status) end)
+      Repo.transaction(fn ->
+        :ok = hold_forgetting(status)
+        decide_locked(id, actor_ref, status)
+      end)
     end
   end
+
+  # Accepting freezes evidence, so it holds forgetting off from before it
+  # locks the candidate, as an analysis prompt does
+  # (`Ryker.Improvement.Analyses.prepare/2`).
+  defp hold_forgetting(:accepted), do: RoutingExamples.copy_lock_in_transaction()
+  defp hold_forgetting(_status), do: :ok
 
   defp decide_locked(id, actor_ref, status) do
     candidate =
