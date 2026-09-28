@@ -31,8 +31,11 @@ defmodule Ryker.LocalRouting do
   quotes it, the local model's answer with it, in the transaction that
   forgets it (`Ryker.RoutingExamples`, which every forgetting calls). The
   lane checks again just before it sends, by the test a routing example's
-  copy passes (`Ryker.RoutingExamples.quotes_forgotten?/1`), and erases one
-  that quotes anything forgotten since, unasked.
+  copy passes (`Ryker.RoutingExamples.quotes_forgotten?/1`) and under the
+  lock that copy holds, and erases one that quotes anything forgotten since,
+  unasked. A forgetting still committing when the check runs, which may have
+  looked for comparisons before routing's commit made this one visible, is
+  waited for and seen.
 
   Every comparison queued, settled or erased is announced after its commit
   (`subscribe_comparisons/0`).
@@ -193,7 +196,7 @@ defmodule Ryker.LocalRouting do
        do: settle(comparison, failed("#{max} attempts never finished"), options)
 
   defp run(comparison, options) do
-    case material(comparison) do
+    case checked_material(comparison) do
       {:ok, material} ->
         case Client.ask(options, material.prompt, material.schema) do
           {:ok, answer} -> settle(comparison, compared(comparison, material, answer), options)
@@ -202,12 +205,32 @@ defmodule Ryker.LocalRouting do
         end
 
       :forgotten ->
-        :ok = erase(from(forgotten in Comparison, where: forgotten.id == ^comparison.id))
         comparison
 
       :gone ->
         settle(comparison, failed("the routing prompt or its context is no longer kept"), options)
     end
+  end
+
+  # What is sent is read under the lock a routing example's copy holds
+  # (`Ryker.RoutingExamples.copy_lock_in_transaction/0`), and a comparison
+  # whose prompt quotes anything forgotten is erased there, unasked. A
+  # forgetting that looked for comparisons before routing's commit made this
+  # one visible holds that lock until it commits, so the check waits for it
+  # and sees what it removed; one that begins after the check finds this
+  # comparison and erases it, with any answer saved to it.
+  defp checked_material(comparison) do
+    {:ok, checked} =
+      Repo.transaction(fn ->
+        :ok = RoutingExamples.copy_lock_in_transaction()
+
+        with :forgotten <- material(comparison) do
+          :ok = erase(from(forgotten in Comparison, where: forgotten.id == ^comparison.id))
+          :forgotten
+        end
+      end)
+
+    checked
   end
 
   # What routing kept: the prompt and contract the provider answered, the
