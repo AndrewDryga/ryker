@@ -372,6 +372,37 @@ defmodule Ryker.RoutingExamplesTest do
       assert kept(third)
     end
 
+    # Routing offers earlier work beside a message, each by a short preview of
+    # its opening and latest message, and nothing recorded which messages
+    # those were. Deleting the message a preview quoted left its words in
+    # every example that had offered that work: the one quotation forgetting
+    # could not trace (2026-09-27).
+    test "deleting a message a candidate's preview quoted erases the examples that offered it" do
+      keep_examples!()
+      route!("Ev-examples-offered", "the staging account is acme-staging", @start_episode)
+
+      # The channel's five later messages are the notes routing recalls beside
+      # the next one, so of the first only the work's preview is left.
+      for number <- 2..6,
+          do: route!("Ev-examples-offered-#{number}", "noted #{number}", @ignore, message: number)
+
+      # Asked in another thread, it sees that work only as a candidate.
+      asked =
+        route!("Ev-examples-offered-asked", "is the billing export done?", @ignore,
+          message: 7,
+          thread: "1787832000.000900"
+        )
+
+      notes = Repo.get!(Entry, asked.id).admission_context["conversation_observations"]
+      refute Enum.any?(List.wrap(notes), &(&1["source_message_ref"] == message_ref(1)))
+      assert attempt!(asked).submission["prompt"] =~ "acme-staging"
+      assert {:ok, %{copied: 6}} = RoutingExamples.capture(@options)
+
+      delete_message!("Ev-examples-offered-gone", 1)
+
+      assert_erased(asked)
+    end
+
     test "deleting a Slack channel erases the examples from it" do
       keep_examples!()
       first = route!("Ev-examples-channel", "the staging account is acme-staging", @ignore)
@@ -631,7 +662,8 @@ defmodule Ryker.RoutingExamplesTest do
   end
 
   # One Slack message in the channel, routed by the real executor to the
-  # harvested answer. `message` numbers messages in time order.
+  # harvested answer. `message` numbers messages in time order; `thread` is
+  # the thread it replies in.
   defp route!(event_ref, text, answer, options \\ []) do
     number = Keyword.get(options, :message, 1)
 
@@ -645,7 +677,7 @@ defmodule Ryker.RoutingExamplesTest do
                message_ref: message_ref(number),
                occurred_at: DateTime.add(@now, number, :second),
                revision: 1,
-               thread_ref: nil,
+               thread_ref: Keyword.get(options, :thread),
                workspace_ref: @workspace
              })
 

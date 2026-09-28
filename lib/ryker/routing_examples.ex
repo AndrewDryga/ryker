@@ -32,9 +32,10 @@ defmodule Ryker.RoutingExamples do
   committing.
 
   What the prompt quotes and forgetting can reach: the message itself, the
-  earlier messages of its thread or channel, learned observations and topics.
-  The previews of earlier requests offered as candidates carry no message
-  identity, so they are the one quotation forgetting cannot trace.
+  earlier messages of its thread or channel, learned observations and topics,
+  and the messages previewed for each earlier request offered as a candidate
+  (`Ryker.Admission.Candidate.previewed_messages/1`). A decision routed before
+  those were recorded (2026-09-28) names none, so its previews stay untraced.
   """
 
   import Ecto.Query
@@ -293,29 +294,17 @@ defmodule Ryker.RoutingExamples do
 
   # The message itself; the thread root, the earlier messages and the current
   # one of its conversation; learned observations, with the conversation each
-  # came from; and learned topics. The prompt names them by their words
-  # alone, so they are read from the context routing froze beside it, which
-  # keeps each one's reference until the message's bodies are pruned.
+  # came from; the messages the candidates' previews quote, wherever they were
+  # sent; and learned topics. The prompt names them by their words alone, so
+  # they are read from the context routing froze beside it, which keeps each
+  # one's reference until the message's bodies are pruned.
   defp quoted(entry) do
-    conversation = entry.destination_conversation_ref
     context = if is_map(entry.admission_context), do: entry.admission_context, else: %{}
-
-    history =
-      if is_map(context["conversation_context"]), do: context["conversation_context"], else: %{}
 
     messages =
       [own_message(entry)] ++
-        for(
-          %{"source_message_ref" => ref} when is_binary(ref) <-
-            [history["root"], history["current"] | list(history["messages"])],
-          do: {conversation, ref}
-        ) ++
-        for(
-          %{"conversation_ref" => observed_in, "source_message_ref" => ref}
-          when is_binary(observed_in) and is_binary(ref) <-
-            list(context["conversation_observations"]),
-          do: {observed_in, ref}
-        )
+        history_messages(entry.destination_conversation_ref, context) ++
+        observed_messages(context) ++ previewed_messages(context)
 
     topics =
       for %{"source_ref" => "knowledge:" <> id} = topic <- list(context["conversation_knowledge"]),
@@ -335,6 +324,28 @@ defmodule Ryker.RoutingExamples do
         |> Enum.uniq()
         |> Enum.sort()
     }
+  end
+
+  defp history_messages(conversation, context) do
+    history =
+      if is_map(context["conversation_context"]), do: context["conversation_context"], else: %{}
+
+    for %{"source_message_ref" => ref} when is_binary(ref) <-
+          [history["root"], history["current"] | list(history["messages"])],
+        do: {conversation, ref}
+  end
+
+  defp observed_messages(context) do
+    for %{"conversation_ref" => observed_in, "source_message_ref" => ref}
+        when is_binary(observed_in) and is_binary(ref) <-
+          list(context["conversation_observations"]),
+        do: {observed_in, ref}
+  end
+
+  defp previewed_messages(context) do
+    for %{"conversation_ref" => previewed_in, "message_ref" => ref}
+        when is_binary(previewed_in) and is_binary(ref) <- list(context["candidate_messages"]),
+        do: {previewed_in, ref}
   end
 
   defp list(values) when is_list(values), do: values

@@ -153,6 +153,8 @@ defmodule Ryker.Admission do
           ),
         built_at: settings.now,
         candidates: candidates,
+        candidate_messages:
+          candidates |> Enum.flat_map(&Candidate.previewed_messages/1) |> Enum.uniq(),
         continuation_window: settings.continuation_window,
         conversation_context: captured.bundle,
         context_manifest: captured.manifest,
