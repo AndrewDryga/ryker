@@ -425,29 +425,34 @@ defmodule Ryker.RepositoryKnowledge.Document do
     components =
       Enum.reject(directories, &(String.starts_with?(&1, ".") and &1 != ".github"))
 
-    guidance =
-      facts.key_files
-      |> Enum.reject(&String.starts_with?(&1, ".github/workflows/"))
-      |> Enum.take(30)
-
+    guidance = Enum.reject(facts.key_files, &String.starts_with?(&1, ".github/workflows/"))
     workflows = Enum.any?(facts.key_files, &String.starts_with?(&1, ".github/workflows/"))
+    purpose = readme_purpose(readme, tree)
 
-    [
-      "# RYKER.md",
-      provenance(commit, date) <>
-        " #{@outline_note}: Ryker could not finish reading the repository, and replaces it " <>
-        "on its next refresh.",
-      section("Purpose", [readme_purpose(readme, tree)]),
-      listed("Components", components, &"- #{link(&1, :tree)}"),
-      list("Files that describe it", guidance, &"- #{link(&1, :blob)}"),
-      workflows &&
-        section("CI", [
-          "The GitHub Actions workflows are in #{link(".github/workflows", :tree)}."
-        ])
-    ]
-    |> Enum.reject(&(&1 in [nil, false]))
-    |> Enum.join("\n\n")
-    |> Kernel.<>("\n")
+    # Long names can take even these lists past what Ryker keeps of a
+    # document, and an outline it cannot keep was refused on every pass: the
+    # lists get shorter until it fits, and with none it always does.
+    Enum.find_value([{@listed, 30}, {100, 15}, {50, 8}, {10, 2}, {0, 0}], fn {shown, cited} ->
+      document =
+        [
+          "# RYKER.md",
+          provenance(commit, date) <>
+            " #{@outline_note}: Ryker could not finish reading the repository, and replaces it " <>
+            "on its next refresh.",
+          section("Purpose", [purpose]),
+          listed("Components", components, shown, &"- #{link(&1, :tree)}"),
+          list("Files that describe it", Enum.take(guidance, cited), &"- #{link(&1, :blob)}"),
+          workflows &&
+            section("CI", [
+              "The GitHub Actions workflows are in #{link(".github/workflows", :tree)}."
+            ])
+        ]
+        |> Enum.reject(&(&1 in [nil, false]))
+        |> Enum.join("\n\n")
+        |> Kernel.<>("\n")
+
+      if byte_size(document) <= @maximum_bytes, do: document
+    end)
   end
 
   defp readme_purpose(readme, tree) do
@@ -492,10 +497,13 @@ defmodule Ryker.RepositoryKnowledge.Document do
 
   # A list of the tree's entries names its first ones, and says how many
   # more there are.
-  defp listed(title, items, line) do
-    case Enum.split(items, @listed) do
-      {shown, []} -> list(title, shown, line)
-      {shown, more} -> list(title, shown, line) <> "\n\n…and #{number(length(more))} more."
+  defp listed(_title, [], _shown, _line), do: nil
+
+  defp listed(title, items, shown, line) do
+    case Enum.split(items, shown) do
+      {named, []} -> list(title, named, line)
+      {[], more} -> "## #{title}\n\nThere are #{number(length(more))} of them."
+      {named, more} -> list(title, named, line) <> "\n\n…and #{number(length(more))} more."
     end
   end
 

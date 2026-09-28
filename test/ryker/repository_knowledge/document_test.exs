@@ -283,6 +283,29 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
     assert byte_size(outline) <= 128_000
   end
 
+  # Two hundred links still fit only while names are short: long non-Latin
+  # names are escaped three bytes to one in a link, and an outline past the
+  # 128,000 bytes Ryker keeps was refused on every pass, so the repository
+  # never had one.
+  test "an outline of long names shows fewer of them and still fits" do
+    name = String.duplicate("ü", 120)
+
+    entries =
+      for(n <- 1..300, do: %{"path" => "#{name}-#{n}", "type" => "tree"}) ++
+        [%{"path" => "README.md", "type" => "blob"}]
+
+    outline = Document.outline(Document.tree(entries), nil, @commit, @date)
+
+    assert byte_size(outline) <= 128_000
+
+    [components] =
+      Regex.run(~r/## Components\n\n(.*?)(?:\n\n## |\z)/s, outline, capture: :all_but_first)
+
+    shown = length(Regex.scan(~r/^- \[/m, components))
+    assert shown in 1..199
+    assert String.ends_with?(components, "\n\n…and #{300 - shown} more.")
+  end
+
   defp render!(answer) do
     {:ok, document} = Document.render(verified!(answer), @commit, @date)
     document
