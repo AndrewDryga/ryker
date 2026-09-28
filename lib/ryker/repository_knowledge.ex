@@ -92,6 +92,11 @@ defmodule Ryker.RepositoryKnowledge do
     do:
       "GitHub no longer finds this repository or its default branch, so RYKER.md was not updated."
 
+  def failure({:github_onboarding, :pull_request_refused}),
+    do:
+      "GitHub refused Ryker's RYKER.md pull request, so Ryker stopped asking for today. " <>
+        "It tries again with tomorrow's check, or when someone refreshes knowledge."
+
   def failure(:repository_empty),
     do: "The repository has no commits yet, so there is nothing to write RYKER.md from."
 
