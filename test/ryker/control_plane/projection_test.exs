@@ -1706,6 +1706,26 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert ChannelDetail.fetch(nil, nil, %{}) == :not_found
   end
 
+  # Andrew, 2026-09-28: "i removed repo and it stayed as not added?" The
+  # list named every repository anything mentioned, so one removed from Ryker
+  # stayed on it as "Not added" because a past task had worked there. Its
+  # tasks keep their history; the list holds the repositories Ryker has.
+  test "a repository no longer added leaves the Repositories list" do
+    source = start_episode!("removed-repository")
+
+    assert {:ok, session} =
+             Custody.pin_episode(
+               source.episode.id,
+               "policy:operator",
+               String.duplicate("a", 64),
+               "gone"
+             )
+
+    assert session.repository_ref == "gone"
+    assert RepositoryProjection.list(%{}) == []
+    assert RepositoryProjection.fetch("gone") == :error
+  end
+
   test "operator workbench joins incidents schedules channels and repository freshness without payload leaks" do
     configuration_keys = [:control_plane, :schedules]
 

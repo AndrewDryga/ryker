@@ -258,17 +258,6 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
            |> Enum.count() == 1
   end
 
-  test "a repository Ryker only saw in past work is not ready, and invents no receipt or worker" do
-    observed = %{@repository | configured: nil, freshness: nil, sessions: 0}
-    row = render([observed]) |> LazyHTML.query("article.entity-row")
-
-    assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~ "acme-checkout-api"
-    assert state(row) == {"Not added", ["off"]}
-    text = row |> LazyHTML.query("details") |> LazyHTML.text() |> squeeze()
-    assert text =~ "None yet. It appears after Ryker's first task in this repository."
-    refute text =~ "No worker reports this repository"
-  end
-
   test "an empty list says how to add one, and a search miss says so" do
     bare = render([])
 
