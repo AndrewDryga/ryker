@@ -15,6 +15,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Learning.Batches
   alias Ryker.Learning.FleetSession, as: LearningFleetSession
+  alias Ryker.Learning.Observations
   alias Ryker.LocalRouting.Comparison
   alias Ryker.Operator.Actions
   alias Ryker.Operator.Retention, as: RetentionOperator
@@ -503,6 +504,7 @@ defmodule Ryker.Retention.DataTest do
     comparison =
       Repo.insert!(%Comparison{
         input_id: entry.id,
+        source_identity: Observations.source_identity(entry),
         generation: 1,
         execution_mode: :live,
         status: :compared,

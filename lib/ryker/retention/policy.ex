@@ -244,7 +244,7 @@ defmodule Ryker.Retention.Policy do
       table: "local_routing_comparisons",
       class: :operational,
       why:
-        "the local routing model's answer to one routing prompt and how it compared; it leaves with its message's bodies"
+        "the local routing model's answer to one routing prompt and how it compared; it leaves with its message's bodies, and at once when a person forgets a message, topic or channel its prompt quotes"
     },
     %{
       table: "conversation_rollups",

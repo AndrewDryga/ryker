@@ -14,6 +14,11 @@ defmodule Ryker.LocalRouting.Comparison do
   Beside the local model's answer, its time and token counts, it keeps what
   the provider's call for the same message cost and how long it took, so a
   cascade's savings can be read off the comparisons alone.
+
+  `source_identity`, `message_keys` and `conversation_refs` name what its
+  prompt quotes, as a routing example names them
+  (`Ryker.RoutingExamples.quoted_keys/1`), so a person forgetting any of it
+  erases the comparison.
   """
   use Ecto.Schema
 
@@ -43,6 +48,9 @@ defmodule Ryker.LocalRouting.Comparison do
     field(:provider_cost_estimated, :boolean)
     field(:provider_ms, :integer)
     field(:compared_at, :utc_datetime_usec)
+    field(:source_identity, :string)
+    field(:message_keys, {:array, :string}, default: [])
+    field(:conversation_refs, {:array, :string}, default: [])
     timestamps(type: :utc_datetime_usec)
   end
 end

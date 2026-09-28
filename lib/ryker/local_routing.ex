@@ -24,15 +24,17 @@ defmodule Ryker.LocalRouting do
   when the local answer is invalid, unsure, or for work that needs it; it is
   not built.
 
-  A person forgetting wins. Deleting a message in Slack, forgetting what was
-  learned from one or a learned topic, or deleting a Slack channel withdraws
-  every comparison still waiting whose prompt quotes it, in the transaction
-  that forgets it (`Ryker.RoutingExamples`, which every forgetting calls).
-  The lane checks again just before it sends, by the test a routing example's
-  copy passes (`Ryker.RoutingExamples.quotes_forgotten?/1`), and withdraws
-  one that quotes anything forgotten since, unasked.
+  A person forgetting wins. Each comparison records what its prompt quotes
+  when it is queued, as a routing example does. Deleting a message in Slack,
+  forgetting what was learned from one or a learned topic, or deleting a
+  Slack channel erases every comparison whose prompt quotes it, the local
+  model's answer with it, in the transaction that forgets it
+  (`Ryker.RoutingExamples`, which every forgetting calls). The lane checks
+  again just before it sends, by the test a routing example's copy passes
+  (`Ryker.RoutingExamples.quotes_forgotten?/1`), and erases one that quotes
+  anything forgotten since, unasked.
 
-  Every comparison queued, settled or withdrawn is announced after its commit
+  Every comparison queued, settled or erased is announced after its commit
   (`subscribe_comparisons/0`).
   """
 
@@ -83,6 +85,7 @@ defmodule Ryker.LocalRouting do
     with %{mode: :shadow, model: model} <- setting(),
          true <- prompted?(entry) do
       now = DateTime.utc_now()
+      quoted = RoutingExamples.quoted_keys(entry)
 
       Repo.insert_all(
         Comparison,
@@ -96,6 +99,9 @@ defmodule Ryker.LocalRouting do
             attempt_count: 0,
             local_model: model,
             differing_fields: [],
+            source_identity: Observations.source_identity(entry),
+            message_keys: quoted.keys,
+            conversation_refs: quoted.conversations,
             inserted_at: now,
             updated_at: now
           }
@@ -196,7 +202,7 @@ defmodule Ryker.LocalRouting do
         end
 
       :forgotten ->
-        withdraw([comparison])
+        :ok = erase(from(forgotten in Comparison, where: forgotten.id == ^comparison.id))
         comparison
 
       :gone ->
@@ -356,74 +362,50 @@ defmodule Ryker.LocalRouting do
   # -- Forgetting --------------------------------------------------------------
 
   @doc """
-  Withdraws the comparisons still waiting whose prompt quotes what a person
-  just forgot or deleted, inside the transaction that forgets it
-  (`Ryker.RoutingExamples`): `identities` name the messages themselves
-  (`Ryker.Learning.Observations.source_identity/1`), and `keys` every message
-  and topic, as a routing prompt quotes them (`Ryker.RoutingExamples.quoted_keys/1`).
+  Erases the comparisons whose prompt quotes what a person just forgot or
+  deleted, waiting, compared or given up, inside the transaction that
+  forgets it (`Ryker.RoutingExamples`): `identities` name the messages
+  themselves (`Ryker.Learning.Observations.source_identity/1`), and `keys`
+  every message and topic, as a routing prompt quotes them
+  (`Ryker.RoutingExamples.quoted_keys/1`).
   """
   @spec forget_in_transaction([String.t()], [String.t()]) :: :ok
-  def forget_in_transaction(identities, keys) when is_list(identities) and is_list(keys) do
-    keys = MapSet.new(keys)
-
-    withdraw_waiting(fn entry, quoted ->
-      Observations.source_identity(entry) in identities or
-        Enum.any?(quoted.keys, &MapSet.member?(keys, &1))
-    end)
-  end
+  def forget_in_transaction(identities, keys) when is_list(identities) and is_list(keys),
+    do:
+      erase(
+        from(comparison in Comparison,
+          where:
+            comparison.source_identity in ^identities or
+              fragment("? && ?::text[]", comparison.message_keys, ^keys)
+        )
+      )
 
   @doc """
-  Withdraws the comparisons still waiting from a conversation that was
-  deleted, or whose prompt quotes it, inside the transaction that removes what
-  Ryker kept of it.
+  Erases the comparisons from a conversation that was deleted, or whose
+  prompt quotes it, inside the transaction that removes what Ryker kept of
+  it.
   """
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref),
-    do: withdraw_waiting(fn _entry, quoted -> conversation_ref in quoted.conversations end)
+    do:
+      erase(
+        from(comparison in Comparison,
+          where:
+            fragment("? @> ARRAY[?]::text[]", comparison.conversation_refs, ^conversation_ref)
+        )
+      )
 
-  # What a waiting comparison's prompt quotes is read from the context its
-  # message froze, as a routing example reads it.
-  defp withdraw_waiting(quotes?) do
-    from(comparison in Comparison,
-      join: entry in Entry,
-      on: entry.id == comparison.input_id,
-      where: comparison.status == :pending,
-      select:
-        {comparison,
-         struct(entry, [
-           :id,
-           :source_kind,
-           :source_ref,
-           :native_input_id,
-           :source_item_ref,
-           :destination_conversation_ref,
-           :admission_context
-         ])}
-    )
-    |> Repo.all()
-    |> Enum.filter(fn {_comparison, entry} ->
-      quotes?.(entry, RoutingExamples.quoted_keys(entry))
-    end)
-    |> Enum.map(&elem(&1, 0))
-    |> withdraw()
-  end
-
-  # A withdrawn comparison is gone, never asked and never counted.
-  defp withdraw([]), do: :ok
-
-  defp withdraw(comparisons) do
-    Repo.delete_all(
-      from(comparison in Comparison, where: comparison.id in ^Enum.map(comparisons, & &1.id))
-    )
-
-    comparisons |> Enum.map(& &1.input_id) |> Enum.uniq() |> Enum.each(&broadcast/1)
+  # An erased comparison is gone, never asked and never counted.
+  defp erase(query) do
+    {_count, input_ids} = Repo.delete_all(select(query, [comparison], comparison.input_id))
+    input_ids |> Enum.uniq() |> Enum.each(&broadcast/1)
   end
 
   # -- PubSub ------------------------------------------------------------------
 
   @doc """
   Delivers `{:local_routing_updated, input_id}` after a comparison for that
-  message is queued, settled or withdrawn, and has committed.
+  message is queued, settled or erased, and has committed.
   """
   @spec subscribe_comparisons() :: :ok | {:error, term()}
   def subscribe_comparisons, do: Ryker.PubSub.subscribe(@topic)

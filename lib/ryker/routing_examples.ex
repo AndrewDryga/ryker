@@ -21,9 +21,8 @@ defmodule Ryker.RoutingExamples do
   message in Slack, or deleting a Slack channel erases every example whose
   prompt quoted that message, topic or conversation, in the same transaction,
   what improvement candidates hold about it (`Ryker.Improvement`), and the
-  local routing comparisons still waiting to send such a prompt
-  (`Ryker.LocalRouting`). An erased example keeps only its identity, so it is
-  never copied again.
+  local routing comparisons of such a prompt (`Ryker.LocalRouting`). An
+  erased example keeps only its identity, so it is never copied again.
   One whose message was forgotten before its turn to be copied is checked at
   the copy, which then records only that identity. Each copy and each
   forgetting holds one lock (shared by copies, exclusive to forgetting), so
@@ -284,8 +283,8 @@ defmodule Ryker.RoutingExamples do
   # What a routing prompt for `entry` quotes, as its example records it: the
   # message and topic keys, and the conversations they come from. The
   # improvement candidates that quote the same prompt record the same keys
-  # (`Ryker.Improvement`), and forgetting finds the local routing comparisons
-  # waiting to send it by them (`Ryker.LocalRouting`).
+  # (`Ryker.Improvement`), as do the local routing comparisons of it
+  # (`Ryker.LocalRouting`).
   @spec quoted_keys(Entry.t()) :: %{keys: [String.t()], conversations: [String.t()]}
   def quoted_keys(%Entry{} = entry), do: entry |> quoted() |> Map.take([:keys, :conversations])
 
