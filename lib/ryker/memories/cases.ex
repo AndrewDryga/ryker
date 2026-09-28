@@ -17,7 +17,9 @@ defmodule Ryker.Memories.Cases do
   A person taking back a message the work was built from, by deleting it or
   editing it to say something else, withdraws the case as Ryker receives the
   change (`withdraw_message_in_transaction/1`), whether the case was already
-  kept or the work is still running.
+  kept or the work is still running. Deleting a Slack channel withdraws every
+  case built from its messages the same way
+  (`withdraw_conversation_in_transaction/2`).
   """
 
   import Ecto.Query
@@ -159,27 +161,67 @@ defmodule Ryker.Memories.Cases do
   is reclaimed, so the message is traced two ways. Work it joined that has no
   case yet keeps a withdrawn one, which capture never rebuilds, so a typo fixed
   while the work runs gives up that work's case. A case already kept is found
-  by the message identities it keeps (`source_refs`) and redacted. The work
-  is looked at first: a capture committing meanwhile has either not yet
-  reclaimed the history that names the message, or has already written the
-  case the second look finds.
+  by the message identities it keeps (`source_refs`) and redacted.
   """
   @spec withdraw_message_in_transaction(String.t()) :: :ok
   def withdraw_message_in_transaction(native_input_id) when is_binary(native_input_id) do
-    Repo.all(
-      from(episode in Episode,
-        join: origin in Origin,
-        on: origin.episode_id == episode.id,
-        where: origin.native_input_id == ^native_input_id,
-        distinct: episode.id,
-        order_by: [asc: episode.id]
+    withdraw(
+      dynamic(
+        [episode],
+        episode.id in subquery(
+          from(origin in Origin,
+            where: origin.native_input_id == ^native_input_id,
+            select: origin.episode_id
+          )
+        )
+      ),
+      dynamic([record], ^native_input_id in record.source_refs)
+    )
+  end
+
+  @doc """
+  Withdraws every case built from the messages of a conversation that was
+  deleted, inside the transaction that removes what Ryker kept of it, as
+  `withdraw_message_in_transaction/1` withdraws one message's: work that
+  lived there or that one of its messages joined keeps a withdrawn case, and
+  a case already kept is found by the conversations it records.
+  """
+  @spec withdraw_conversation_in_transaction(String.t(), String.t()) :: :ok
+  def withdraw_conversation_in_transaction(transport, conversation_ref)
+      when is_binary(transport) and is_binary(conversation_ref) do
+    withdraw(
+      dynamic(
+        [episode],
+        (episode.destination_transport == ^transport and
+           episode.destination_conversation_ref == ^conversation_ref) or
+          episode.id in subquery(
+            from(origin in Origin,
+              where:
+                origin.transport == ^transport and origin.conversation_ref == ^conversation_ref,
+              select: origin.episode_id
+            )
+          )
+      ),
+      dynamic(
+        [record],
+        (record.transport == ^transport and record.conversation_ref == ^conversation_ref) or
+          fragment("? @> ARRAY[?]::text[]", record.conversation_refs, ^conversation_ref)
       )
     )
+  end
+
+  # The work first, then the cases kept: a capture committing meanwhile has
+  # either not yet reclaimed the history that names the work, or has already
+  # written the case the second look finds. Both go in episode order, the
+  # order capture keeps cases in, so the two never wait on each other.
+  defp withdraw(work, kept) do
+    Repo.all(from(episode in Episode, where: ^work, order_by: [asc: episode.id]))
     |> Enum.each(&withdraw_work!/1)
 
     Repo.all(
       from(record in CaseRecord,
-        where: record.status == :active and ^native_input_id in record.source_refs,
+        where: record.status == :active,
+        where: ^kept,
         order_by: [asc: record.case_ref],
         lock: "FOR UPDATE"
       )
@@ -205,6 +247,7 @@ defmodule Ryker.Memories.Cases do
       problem: @redacted,
       search_text: "",
       source_refs: source_refs(episode.id),
+      conversation_refs: conversation_refs(episode.id),
       status: :deleted,
       transport: episode.destination_transport,
       updated_at: now,
@@ -318,6 +361,7 @@ defmodule Ryker.Memories.Cases do
       repository_ref: repository_ref(episode.id),
       search_text: bounded(search_text(content, digest), @search_bytes),
       source_refs: source_refs(episode.id),
+      conversation_refs: conversation_refs(episode.id),
       status: :active,
       transport: episode.destination_transport,
       workspace_ref: workspace_ref(episode)
@@ -416,6 +460,20 @@ defmodule Ryker.Memories.Cases do
     )
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
+  end
+
+  # Every conversation the work's messages came from, so that deleting any of
+  # them finds the case (`withdraw_conversation_in_transaction/2`).
+  defp conversation_refs(episode_id) do
+    Repo.all(
+      from(origin in Origin,
+        where: origin.episode_id == ^episode_id and not is_nil(origin.conversation_ref),
+        distinct: true,
+        order_by: [asc: origin.conversation_ref],
+        select: origin.conversation_ref
+      )
+    )
+    |> Enum.take(64)
   end
 
   # Lineage is kept by the source identity the adapter issued, not by this

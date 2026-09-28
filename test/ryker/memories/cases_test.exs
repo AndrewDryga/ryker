@@ -11,6 +11,7 @@ defmodule Ryker.Memories.CasesTest do
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Records.Record
   alias Ryker.Repo
+  alias Ryker.Slack.ChannelConfigurations
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.Custody
 
@@ -192,6 +193,59 @@ defmodule Ryker.Memories.CasesTest do
     assert {:ok, %CaseRecord{status: :active, problem: @outage}} = Cases.capture(finished.id)
   end
 
+  # Deleting a Slack channel takes back every message in it, as it erases the
+  # routing examples that quoted them. The cases built from those messages
+  # stayed, quoting a channel that no longer exists (found in review,
+  # 2026-09-28).
+  test "deleting a Slack channel withdraws the case kept of work there, and no other" do
+    episode = finished!("case:channel-deleted", @outage)
+    record = capture!(episode)
+    reclaim_history!(episode)
+
+    elsewhere = finished!("case:channel-kept", @outage, channel: "CKEPT")
+    kept = capture!(elsewhere)
+    reclaim_history!(elsewhere)
+
+    delete_channel!("CDEVOPS")
+
+    assert %CaseRecord{status: :deleted, problem: "(deleted)", search_text: ""} =
+             Repo.get_by!(CaseRecord, case_ref: record.case_ref)
+
+    assert %CaseRecord{status: :active, problem: @outage} =
+             Repo.get_by!(CaseRecord, case_ref: kept.case_ref)
+  end
+
+  # Work can gather messages from more than one conversation. The case it
+  # left is withdrawn when any of them is deleted, not only the one it lived
+  # in, long after the work's own record of them is gone.
+  test "deleting a Slack channel withdraws the case kept of work one of its messages joined" do
+    episode = finished!("case:channel-joined", @outage)
+
+    episode
+    |> joined!(
+      slack_input!("pgsql-prod-01 also paged in the incident channel", channel: "CPAGES")
+    )
+    |> finish!()
+
+    record = capture!(episode)
+    reclaim_history!(episode)
+
+    delete_channel!("CPAGES")
+
+    assert %CaseRecord{status: :deleted, problem: "(deleted)", search_text: ""} =
+             Repo.get_by!(CaseRecord, case_ref: record.case_ref)
+  end
+
+  test "deleting a Slack channel withdraws the case of work still running there, so it is never built" do
+    episode = started!("case:channel-running", @outage)
+
+    delete_channel!("CDEVOPS")
+    finished = finish!(episode)
+
+    assert {:ok, %CaseRecord{status: :deleted, problem: "(deleted)", search_text: ""}} =
+             Cases.capture(finished.id)
+  end
+
   test "repeated capture keeps one case per intended revision" do
     # Close, reopen, cleanup and restart events all reach capture. Appending a
     # row for each would grow a record that feeds on its own output.
@@ -305,7 +359,7 @@ defmodule Ryker.Memories.CasesTest do
     record |> Ecto.Changeset.change(closed_at: at, updated_at: at) |> Repo.update!()
   end
 
-  defp finished!(key, text), do: key |> started!(text) |> finish!()
+  defp finished!(key, text, options \\ []), do: key |> started!(text, options) |> finish!()
 
   # Work a message started, a person's unless another `actor` sent it,
   # received as Ryker receives every message and still running.
@@ -341,10 +395,52 @@ defmodule Ryker.Memories.CasesTest do
         expected_turn_ref: episode.owner_ref,
         next_turn_ref: nil,
         occurred_at: DateTime.add(@now, 60, :second),
-        result_ref: "result:#{episode.id}"
+        result_ref: "result:#{episode.id}:#{System.unique_integer([:positive])}"
       })
 
     settled.episode
+  end
+
+  # Another message, received as Ryker receives every message, joins the
+  # work, which takes it up again where it lives.
+  defp joined!(%Episode{} = episode, input) do
+    {:ok, %{status: :recorded}} = Inbox.record(input)
+
+    {:ok, transition} =
+      Episodes.apply(%Command.AdmitInput{
+        actor_ref: Input.actor_ref(input),
+        destination: %{
+          conversation_ref: episode.destination_conversation_ref,
+          thread_ref: episode.destination_thread_ref,
+          transport: episode.destination_transport
+        },
+        episode_id: episode.id,
+        episode_key: episode.key,
+        linked_episode_id: nil,
+        native_input_id: input.native_input_id,
+        occurred_at: input.occurred_at,
+        payload: Input.document(input),
+        revision: 1,
+        turn_ref: "turn:#{episode.id}:#{System.unique_integer([:positive])}"
+      })
+
+    transition.episode
+  end
+
+  # Slack deletes the channel, as the membership event reports it.
+  defp delete_channel!(channel_ref) do
+    {:ok, _deleted} =
+      ChannelConfigurations.observe_membership(
+        %{
+          actor_ref: nil,
+          channel_ref: channel_ref,
+          event_ref: "event:case-channel:#{System.unique_integer([:positive])}",
+          kind: :deleted,
+          occurred_at: Repo.now!(),
+          workspace_ref: "TCASES"
+        },
+        %{default_environment: nil, environments: []}
+      )
   end
 
   defp slack_input!(text, options \\ []) do
@@ -353,7 +449,7 @@ defmodule Ryker.Memories.CasesTest do
     {:ok, input} =
       SlackInput.new(%{
         actor: Keyword.get(options, :actor, %{kind: :user, ref: "UALICE"}),
-        channel_ref: "CDEVOPS",
+        channel_ref: Keyword.get(options, :channel, "CDEVOPS"),
         content: %{"text" => text},
         event_kind: :message,
         event_ref: "Ev-#{unique}",
