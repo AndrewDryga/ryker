@@ -1,9 +1,8 @@
 defmodule Ryker.ControlPlane.RepositoryProjection do
   @moduledoc """
-  The repository directory: every repository saved settings, an
-  environment, a schedule, a session, a publication names, with
-  the environments it is in, its counts, its configured work, the freshness
-  receipt of its last recorded work, and where its RYKER.md stands
+  The repository directory: every repository added to Ryker, with the
+  environments it is in, its counts, its configured work, the freshness
+  receipt of its last recorded work, and where its knowledge stands
   (`Ryker.RepositoryKnowledge`).
 
   Channels choose environments, not repositories, so a repository's channels
@@ -36,7 +35,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     |> Map.new(fn {ref, name} -> {ref, name || ref} end)
   end
 
-  @doc "Every repository anything names, with its environments, counts, configured work and freshness."
+  @doc "Every repository added to Ryker, with its environments, counts, configured work and freshness."
   def list(params) when is_map(params) do
     parts = parts(:all)
 
@@ -52,7 +51,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
   @doc """
   One repository's row as `list/1` shows it, read for its exact ref alone, or
-  `:error` when nothing names it. The questions a row's buttons ask read it
+  `:error` when it is not added. The questions a row's buttons ask read it
   this way, so a repository past the list's first hundred is still found.
   """
   @spec fetch(String.t()) :: {:ok, map()} | :error
@@ -91,20 +90,9 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     }
   end
 
-  # Every ref anything names.
-  defp refs(parts) do
-    [
-      parts.configured,
-      parts.channels,
-      parts.schedules,
-      parts.sessions,
-      parts.publications,
-      parts.freshness
-    ]
-    |> Enum.flat_map(&Map.keys/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-  end
+  # The repositories Ryker has. One removed from Ryker leaves the list, and
+  # its tasks keep their history (Andrew, 2026-09-28).
+  defp refs(parts), do: Map.keys(parts.configured)
 
   defp row(repository_ref, parts) do
     %{
