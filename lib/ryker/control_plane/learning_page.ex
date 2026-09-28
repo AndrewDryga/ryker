@@ -262,8 +262,15 @@ defmodule Ryker.ControlPlane.LearningPage do
   # attempts. Andrew, 2026-09-27: "this is poorly designed, especially back
   # button you can't even find clearly"; a batch stuck on a topic that lost
   # its messages offered only relearning it, and "why I can't just
-  # forget/delete it?".
+  # forget/delete it?". What you can do is there only when something is: why
+  # one more start waits is part of what happened.
   defp batch(assigns) do
+    assigns =
+      assign(assigns,
+        retry: assigns.batch.retry_available == true and assigns.csrf_secret != nil,
+        drop: assigns.batch[:drop_available] == true
+      )
+
     ~H"""
     <article class="memory-batch" id={"batch-" <> @batch.id}>
       <Kit.status_line id="batch-status" state={state(@batch.status)}>
@@ -276,11 +283,15 @@ defmodule Ryker.ControlPlane.LearningPage do
       <div class="memory-prose">
         <p>{happened(@batch.status)}</p>
         <p :if={cause(@batch)}>{cause(@batch)}</p>
+        <p :if={@batch.retry_blocked}>{@batch.retry_blocked}</p>
       </div>
     </article>
-    <section :if={@batch.status == :deferred} id="what-you-can-do" class="memory-section">
+    <section
+      :if={@batch.status == :deferred and (@batch.relearn != [] or @retry or @drop)}
+      id="what-you-can-do"
+      class="memory-section"
+    >
       <Kit.section_head title="What you can do" lede={options_lede(@batch)} />
-      <p :if={@batch.retry_blocked} class="memory-note">{@batch.retry_blocked}</p>
       <Kit.entity_list label="What you can do">
         <Kit.entity_row
           :for={topic <- @batch.relearn}
@@ -301,7 +312,7 @@ defmodule Ryker.ControlPlane.LearningPage do
           </:actions>
         </Kit.entity_row>
         <Kit.entity_row
-          :if={@batch.retry_available && @csrf_secret}
+          :if={@retry}
           id="retry"
           name="Grant one more start"
           text="Ryker reads these same messages again with one more start, using the learning settings in place now. The messages are checked again first. Earlier attempts and the starts they used stay recorded."
@@ -329,7 +340,7 @@ defmodule Ryker.ControlPlane.LearningPage do
           </:actions>
         </Kit.entity_row>
         <Kit.entity_row
-          :if={@batch[:drop_available]}
+          :if={@drop}
           id="drop"
           name="Drop this batch"
           text="Ryker stops trying to learn from these messages and the batch no longer needs you. Nothing Ryker already learned changes, and replies are unaffected."
