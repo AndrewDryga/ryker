@@ -366,6 +366,29 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     assert Repo.aggregate(Inbox.Entry, :count) == 0
   end
 
+  # A new source is named by what was typed, so the message looked for its row
+  # before asking whether it was new: adding "alerts" said "alerts was saved.",
+  # the words for an edit. A new one is added; an edited one is saved.
+  test "a new webhook source is said to be added, and an edited one saved" do
+    installation!()
+    {:ok, view, _html} = open()
+    open_source_editor(view)
+    view |> form("#settings-webhooks-form", source_params()) |> render_submit()
+
+    assert_patch(view, "/integrations/webhooks")
+    assert has_element?(view, ".form-feedback-success", "alerts was added.")
+
+    view |> element("#settings-webhooks a", "Edit") |> render_click()
+    assert_patch(view, "/integrations/webhooks/sources/alerts/edit")
+
+    view
+    |> form("#settings-webhooks-form", %{"group_by_labels" => "service"})
+    |> render_submit()
+
+    assert_patch(view, "/integrations/webhooks")
+    assert has_element?(view, ".form-feedback-success", "alerts was saved.")
+  end
+
   test "a source that changed under the editor shows what is saved now, mapping and all" do
     installation!()
     {:ok, view, _html} = open()
