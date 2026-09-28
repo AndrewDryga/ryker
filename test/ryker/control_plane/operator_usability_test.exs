@@ -654,12 +654,15 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     document = LazyHTML.from_fragment(html)
 
+    # Andrew, 2026-09-28: four headed runs of prose were "not usable". Two
+    # cards: what happened in labelled rows, then what a person can do.
     assert LazyHTML.query(document, ".section-head h2") |> Enum.map(&LazyHTML.text/1) == [
              "What happened",
-             "What it affects",
-             "What Ryker tried",
              "What you can do"
            ]
+
+    assert LazyHTML.query(document, "#failure-summary .failure-rows dt")
+           |> Enum.map(&LazyHTML.text/1) == ["Cause", "Who is waiting", "What Ryker tried"]
 
     assert html =~ "Open the request"
     assert html =~ "Direct conversation"

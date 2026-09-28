@@ -686,7 +686,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Find what went wrong",
        [
          "Open a row to see the request's timeline: the message, what Ryker understood, what it did and what it answered. The request's own page lists its feedback in a chapter of its own.",
-         "By day shows whether something got worse: a bar a day, negative feedback at its foot and positive on top, with the table under it. Open a kind to see all of it, newest first, and search for words in a reason or a request."
+         "By day, at the top, shows whether something got worse: a bar a day for all feedback, negative at its foot and positive on top. The search and Negative and Positive below do not change it. Open a kind to see all of it, newest first, and search for words in a reason or a request."
        ]},
       {"Negative and positive",
        [

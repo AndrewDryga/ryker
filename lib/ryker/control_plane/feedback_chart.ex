@@ -69,9 +69,7 @@ defmodule Ryker.ControlPlane.FeedbackChart do
     <figure class="usage-chart feedback-chart">
       <figcaption>
         <strong>{@total}</strong>
-        {if @total == 1, do: "piece of feedback", else: "pieces of feedback"} · {date(@first)} – {date(
-          @last
-        )}
+        {if @total == 1, do: "piece of feedback", else: "pieces of feedback"} · {span(@first, @last)}
         <span class="feedback-chart-legend">
           <span :for={tone <- @legend} class={"feedback-key feedback-key-#{tone}"}>{word(tone)}</span>
         </span>
@@ -168,6 +166,9 @@ defmodule Ryker.ControlPlane.FeedbackChart do
 
   defp ticks(count) when count <= 7, do: Enum.to_list(0..(count - 1))
   defp ticks(count), do: Enum.uniq(Enum.map(0..6, &round(&1 * (count - 1) / 6)))
+
+  defp span(day, day), do: date(day)
+  defp span(first, last), do: date(first) <> " – " <> date(last)
 
   defp date(date), do: Calendar.strftime(date, "%d %b")
   defp coord(value), do: :erlang.float_to_binary(value * 1.0, decimals: 2)
