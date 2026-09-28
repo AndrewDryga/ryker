@@ -319,6 +319,59 @@ defmodule Ryker.RoutingExamplesTest do
       assert_erased(first)
     end
 
+    # An edit replaces the words a person no longer wants said. Only deleting
+    # reached the copies, so the year-long example kept the words the person
+    # had replaced, in its own prompt and in every later prompt of the channel
+    # that quoted it.
+    test "editing a message in Slack erases the examples that quoted its old words" do
+      keep_examples!()
+      first = route!("Ev-examples-edited", "the staging account is acme-staging", @ignore)
+      second = route!("Ev-examples-edited-2", "thanks", @ignore, message: 2)
+      unrelated = route!("Ev-examples-edited-3", "hello", @ignore, message: 3, channel: "C999")
+      assert {:ok, %{copied: 3}} = RoutingExamples.capture(@options)
+
+      edit_message!("Ev-examples-edited-changed", 1, "the staging account is acme-stg")
+
+      assert_erased(first)
+      assert_erased(second)
+      assert kept(unrelated)
+    end
+
+    # Work can run for hours before its decision settles, and a person often
+    # fixes their message meanwhile: the copy taken afterwards quoted the
+    # words the edit had replaced.
+    test "a message edited before its example is taken is never copied" do
+      keep_examples!()
+      first = route!("Ev-examples-edited-early", "the staging account is acme-staging", @ignore)
+      second = route!("Ev-examples-edited-early-2", "thanks", @ignore, message: 2)
+
+      edit_message!("Ev-examples-edited-early-changed", 1, "the staging account is acme-stg")
+
+      assert {:ok, %{copied: 0, forgotten: 2}} = RoutingExamples.capture(@options)
+      assert_erased(first)
+      assert_erased(second)
+    end
+
+    # Slack reports a link's preview arriving as an edit of the message, with
+    # the words untouched. Most messages quote a channel's last twenty, so
+    # counting those as edits would take nearly every example with them.
+    test "an edit that leaves the words as they were, such as a link preview, erases nothing" do
+      keep_examples!()
+      text = "the dashboard is https://grafana.example.com/d/abc"
+      first = route!("Ev-examples-preview", text, @ignore)
+      second = route!("Ev-examples-preview-2", "thanks", @ignore, message: 2)
+      assert {:ok, %{copied: 2}} = RoutingExamples.capture(@options)
+      third = route!("Ev-examples-preview-3", "anything else?", @ignore, message: 3)
+
+      preview = %{"title" => "Grafana", "from_url" => "https://grafana.example.com/d/abc"}
+      edit_message!("Ev-examples-preview-unfurled", 1, text, attachments: [preview])
+
+      assert kept(first)
+      assert kept(second)
+      assert {:ok, %{copied: 1, forgotten: 0}} = RoutingExamples.capture(@options)
+      assert kept(third)
+    end
+
     test "deleting a Slack channel erases the examples from it" do
       keep_examples!()
       first = route!("Ev-examples-channel", "the staging account is acme-staging", @ignore)
@@ -624,6 +677,29 @@ defmodule Ryker.RoutingExamplesTest do
                channel_ref: @channel,
                content: %{"text" => ""},
                event_kind: :delete,
+               event_ref: event_ref,
+               message_ref: message_ref(number),
+               occurred_at: DateTime.add(@now, 60, :second),
+               revision: 2,
+               thread_ref: nil,
+               workspace_ref: @workspace
+             })
+
+    assert {:ok, %{status: :recorded}} = Inbox.record(input)
+  end
+
+  # The person edits message `number` to say `text`; `attachments` are what
+  # Slack added to it, such as a link's preview.
+  defp edit_message!(event_ref, number, text, options \\ []) do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: @channel,
+               content: %{
+                 "text" => text,
+                 "attachments" => Keyword.get(options, :attachments, [])
+               },
+               event_kind: :edit,
                event_ref: event_ref,
                message_ref: message_ref(number),
                occurred_at: DateTime.add(@now, 60, :second),

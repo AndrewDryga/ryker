@@ -8,10 +8,10 @@ defmodule Ryker.Improvement.Evidence do
 
   Everything is read, never paraphrased, and every stored credential is
   redacted from it (`Ryker.InspectionRedactor`). What a person took back is
-  left out: the words of a message they deleted, and any routing prompt that
-  quoted something a person deleted or forgot. Expired words are left out
-  too, and each gap is named in `omitted`, so the analysis never mistakes a
-  missing piece for an empty one.
+  left out: the words of a message they deleted, the words an edit of theirs
+  replaced, and any routing prompt that quoted something a person deleted,
+  edited or forgot. Expired words are left out too, and each gap is named in
+  `omitted`, so the analysis never mistakes a missing piece for an empty one.
 
   The analysis reads it through `Ryker.Improvement.Prompt`; accepting a
   candidate freezes part of it as the case's evidence (`case_snapshot/1`).
@@ -88,10 +88,13 @@ defmodule Ryker.Improvement.Evidence do
     %{evidence: evidence, messages: messages} =
       read(candidate, InspectionRedactor.configured_secrets())
 
+    # A revision whose words an edit replaced stays without them, as when the
+    # message was first sent: the replay sends it then, in the words the
+    # person left (`Ryker.Improvement.Export`).
     events =
-      for {entry, %{"text" => text}} <- messages,
+      for {entry, %{"text" => text} = said} <- messages,
           entry.actor_kind == :user,
-          words?(text),
+          words?(text) or said["note"] == "edited by the person",
           do: event(entry, text)
 
     snapshot =
@@ -122,12 +125,13 @@ defmodule Ryker.Improvement.Evidence do
     episode = episode(request)
     entries = entries(request)
     deleted = deleted_messages(entries)
+    edited = RoutingExamples.edited_revisions(entries)
 
-    messages = Enum.map(entries, &message(&1, deleted, secrets))
+    messages = Enum.map(entries, &message(&1, deleted, edited, secrets))
     answers = answers(request, entries, secrets)
-    {routing, routing_keys} = routing(entries, deleted, secrets)
+    {routing, routing_keys} = routing(entries, deleted, edited, secrets)
     work = work(episode, secrets)
-    feedback = feedback(request, entries, deleted, secrets)
+    feedback = feedback(request, entries, deleted, edited, secrets)
     missing = missing(messages)
 
     keys =
@@ -225,7 +229,9 @@ defmodule Ryker.Improvement.Evidence do
   defp deleted?(entry, deleted),
     do: MapSet.member?(deleted, {entry.source_kind, entry.source_ref, entry.native_input_id})
 
-  defp message(%Entry{} = entry, deleted, secrets) do
+  # `edited` holds the revisions whose words a later edit replaced
+  # (`Ryker.RoutingExamples.edited_revisions/1`): the edit keeps its own.
+  defp message(%Entry{} = entry, deleted, edited, secrets) do
     base = %{
       "at" => iso(entry.occurred_at),
       "from" => sender(entry.actor_kind),
@@ -235,6 +241,9 @@ defmodule Ryker.Improvement.Evidence do
     cond do
       deleted?(entry, deleted) ->
         Map.merge(base, %{"text" => nil, "note" => "deleted by the person"})
+
+      MapSet.member?(edited, entry.id) ->
+        Map.merge(base, %{"text" => nil, "note" => "edited by the person"})
 
       not is_nil(entry.operational_pruned_at) ->
         Map.merge(base, %{"text" => nil, "note" => "expired"})
@@ -255,7 +264,10 @@ defmodule Ryker.Improvement.Evidence do
       people == [] ->
         :improvement_evidence_automated
 
-      Enum.any?(people, &(&1["note"] in ["deleted by the person", "expired"])) ->
+      Enum.any?(
+        people,
+        &(&1["note"] in ["deleted by the person", "edited by the person", "expired"])
+      ) ->
         :improvement_evidence_unavailable
 
       true ->
@@ -383,11 +395,11 @@ defmodule Ryker.Improvement.Evidence do
   # Each routing decision about the request's messages: the exact prompt and
   # answer from its routing example when one is kept, else from the routing
   # attempt itself. An example is erased with anything it quoted that a
-  # person forgot or deleted; an attempt is not, so its prompt is read only
-  # when nothing it quotes (the message, its thread and channel, learned
-  # notes and topics) was forgotten or deleted, by the test an example's copy
-  # passes (`Ryker.RoutingExamples.quotes_forgotten?/1`).
-  defp routing(entries, deleted, secrets) do
+  # person forgot, deleted or edited; an attempt is not, so its prompt is
+  # read only when nothing it quotes (the message, its thread and channel,
+  # learned notes and topics) was forgotten, deleted or edited, by the test an
+  # example's copy passes (`Ryker.RoutingExamples.quotes_forgotten?/1`).
+  defp routing(entries, deleted, edited, secrets) do
     decided = entries |> Enum.filter(&(&1.status == :decided)) |> Enum.take(-@routing_limit)
     ids = Enum.map(decided, & &1.id)
 
@@ -406,7 +418,7 @@ defmodule Ryker.Improvement.Evidence do
           {routing_item(entry, nil, nil, nil, "forgotten"), %{keys: [], conversations: []}}
 
         nil ->
-          unkept_routing(entry, deleted, secrets)
+          unkept_routing(entry, deleted, edited, secrets)
       end
     end)
     |> then(fn items ->
@@ -418,10 +430,11 @@ defmodule Ryker.Improvement.Evidence do
     end)
   end
 
-  defp unkept_routing(entry, deleted, secrets) do
-    if MapSet.size(deleted) == 0 and not RoutingExamples.quotes_forgotten?(entry),
-      do: attempt_routing(entry, secrets),
-      else: {routing_item(entry, nil, nil, nil, "forgotten"), %{keys: [], conversations: []}}
+  defp unkept_routing(entry, deleted, edited, secrets) do
+    if MapSet.size(deleted) == 0 and MapSet.size(edited) == 0 and
+         not RoutingExamples.quotes_forgotten?(entry),
+       do: attempt_routing(entry, secrets),
+       else: {routing_item(entry, nil, nil, nil, "forgotten"), %{keys: [], conversations: []}}
   end
 
   defp attempt_routing(entry, secrets) do
@@ -538,11 +551,12 @@ defmodule Ryker.Improvement.Evidence do
   # Every signal about the request, oldest first, with the words of the message
   # it came from when it came from one: the message that asked again, the edit,
   # or the message routing read a feeling from.
-  defp feedback(request, entries, deleted, secrets) do
+  defp feedback(request, entries, deleted, edited, secrets) do
     asker = entries |> Enum.find(&(&1.actor_kind == :user)) |> then(&(&1 && &1.actor_ref))
     signals = Feedback.for_request(request)
     sources = source_entries(signals)
     deleted = MapSet.union(deleted, deleted_messages(Map.values(sources)))
+    edited = MapSet.union(edited, RoutingExamples.edited_revisions(Map.values(sources)))
 
     Enum.map(signals, fn signal ->
       source = Map.get(sources, signal.source_ref)
@@ -553,7 +567,7 @@ defmodule Ryker.Improvement.Evidence do
         "value" => signal.value,
         "note" => redact(signal.note, secrets),
         "by" => by(signal, asker),
-        "message" => source && message(source, deleted, secrets)["text"],
+        "message" => source && message(source, deleted, edited, secrets)["text"],
         key: source && entry_key(source)
       }
     end)
@@ -581,10 +595,12 @@ defmodule Ryker.Improvement.Evidence do
     [
       Enum.any?(messages, &(&1["note"] == "deleted by the person")) &&
         "The words of messages the person deleted.",
+      Enum.any?(messages, &(&1["note"] == "edited by the person")) &&
+        "The words messages had before the person edited them.",
       Enum.any?(messages, &(&1["note"] == "expired")) &&
         "The words of messages older than Ryker keeps them.",
       Enum.any?(routing, &(&1["kept"] == "forgotten")) &&
-        "Routing prompts that quoted something a person forgot or deleted.",
+        "Routing prompts that quoted something a person forgot, edited or deleted.",
       Enum.any?(routing, &(&1["kept"] == "expired")) &&
         "Routing prompts that were no longer kept.",
       length(entries) >= @message_limit && "Messages after the first #{@message_limit}."

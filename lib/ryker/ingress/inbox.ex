@@ -704,10 +704,12 @@ defmodule Ryker.Ingress.Inbox do
     end
   end
 
-  # Somebody deleting their message is a withdrawal: the routing examples kept
-  # for training that quote it are erased as the deletion is recorded.
-  defp forget_routing_examples(%{status: :recorded, entry: %Entry{event_kind: :delete} = entry}),
-    do: RoutingExamples.forget_deleted_in_transaction(entry)
+  # Somebody deleting their message, or replacing its words by editing it,
+  # takes those words back: the routing examples kept for training that quote
+  # it are erased as the change is recorded.
+  defp forget_routing_examples(%{status: :recorded, entry: %Entry{event_kind: kind} = entry})
+       when kind in [:edit, :delete],
+       do: RoutingExamples.forget_revised_in_transaction(entry)
 
   defp forget_routing_examples(_receipt), do: :ok
 

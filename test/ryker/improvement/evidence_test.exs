@@ -8,7 +8,7 @@ defmodule Ryker.Improvement.EvidenceTest do
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
   alias Ryker.Improvement
-  alias Ryker.Improvement.{Evidence, Prompt}
+  alias Ryker.Improvement.{Candidate, Evidence, Prompt}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.RoutingExamples
 
@@ -24,6 +24,107 @@ defmodule Ryker.Improvement.EvidenceTest do
   # deleted them, kept them in the analysis run's prompt and, once the
   # candidate was accepted, in the eval case and its download.
   test "a routing prompt is never read once a person deleted a message it quoted" do
+    %{bob: bob, candidate: candidate} = request_quoting_bob!()
+
+    # While nothing it quotes is gone, the analysis reads the attempt's own
+    # prompt, and names Bob's message among those forgetting reaches it by.
+    evidence = Evidence.gather(candidate)
+    assert [%{"kept" => "attempt", "prompt" => prompt}] = evidence.routing
+    assert prompt =~ @bob
+    assert key(bob) in evidence.message_keys
+
+    Answers.slack_message!(
+      workspace: @workspace,
+      channel: @channel,
+      actor: "UBOB",
+      text: "",
+      ts: "1790500100.000100",
+      thread: "1790500100.000100",
+      kind: :delete,
+      revision: 2,
+      at: DateTime.add(@now, 180, :second)
+    )
+
+    evidence = Evidence.gather(Improvement.for_request(Candidate.request(candidate)))
+    assert [%{"kept" => "forgotten", "prompt" => nil, "answer" => nil}] = evidence.routing
+
+    assert "Routing prompts that quoted something a person forgot, edited or deleted." in evidence.omitted
+
+    refute CanonicalJSON.encode!(Prompt.build(evidence)) =~ "payroll"
+
+    assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
+    refute CanonicalJSON.encode!(accepted.case_evidence) =~ "payroll"
+  end
+
+  # An edit replaces the words a person no longer wants said. The analysis
+  # read the routing prompt that quoted Bob's old words after he had
+  # replaced them, and an accepted case kept them for a year.
+  test "a routing prompt is never read once a person edited the words of a message it quoted" do
+    %{candidate: candidate} = request_quoting_bob!()
+
+    Answers.slack_message!(
+      workspace: @workspace,
+      channel: @channel,
+      actor: "UBOB",
+      text: "The payroll export moved to the new billing box.",
+      ts: "1790500100.000100",
+      thread: "1790500100.000100",
+      kind: :edit,
+      revision: 2,
+      at: DateTime.add(@now, 180, :second)
+    )
+
+    evidence = Evidence.gather(Improvement.for_request(Candidate.request(candidate)))
+    assert [%{"kept" => "forgotten", "prompt" => nil, "answer" => nil}] = evidence.routing
+    refute CanonicalJSON.encode!(Prompt.build(evidence)) =~ "old billing box"
+
+    assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
+    refute CanonicalJSON.encode!(accepted.case_evidence) =~ "old billing box"
+  end
+
+  # A person who edits their question after a wrong answer is unhappy with
+  # it, so the edit itself makes the request a candidate, before any analysis
+  # read it. The analysis then read the words the edit replaced from the
+  # message's first revision, and an accepted case kept them for a year.
+  test "the words a person replaced by editing their own message are never read" do
+    %{alice: alice, candidate: candidate} = request_quoting_bob!()
+
+    edit =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: @channel,
+        actor: "UALICE",
+        text: "Is the staging replica healthy?",
+        ts: "1790500200.000100",
+        thread: "1790500100.000100",
+        kind: :edit,
+        revision: 2,
+        at: DateTime.add(@now, 180, :second)
+      )
+
+    # Routing joins an edit to the work that owns the message it edits.
+    Answers.join!(edit, alice.episode_id)
+
+    evidence = Evidence.gather(Improvement.for_request(Candidate.request(candidate)))
+    said = for %{"from" => "person"} = message <- evidence.conversation, do: message
+
+    assert [
+             %{"kind" => "message", "text" => nil, "note" => "edited by the person"},
+             %{"kind" => "edit", "text" => "Is the staging replica healthy?"}
+           ] = said
+
+    assert "The words messages had before the person edited them." in evidence.omitted
+    refute CanonicalJSON.encode!(Prompt.build(evidence)) =~ "Is the staging database healthy?"
+
+    assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
+    refute CanonicalJSON.encode!(accepted.case_evidence) =~ "Is the staging database healthy?"
+    assert CanonicalJSON.encode!(accepted.case_evidence) =~ "Is the staging replica healthy?"
+  end
+
+  # Alice asks in the thread Bob started, Ryker answers wrongly, and she
+  # gives it a thumbs down: the request is a candidate, and the routing
+  # decision about her message quoted Bob's.
+  defp request_quoting_bob! do
     bob =
       Answers.slack_message!(
         workspace: @workspace,
@@ -64,36 +165,11 @@ defmodule Ryker.Improvement.EvidenceTest do
                request: {:episode, reply.episode.id}
              })
 
-    candidate = Improvement.for_request({:episode, reply.episode.id})
-
-    # While nothing it quotes is gone, the analysis reads the attempt's own
-    # prompt, and names Bob's message among those forgetting reaches it by.
-    evidence = Evidence.gather(candidate)
-    assert [%{"kept" => "attempt", "prompt" => prompt}] = evidence.routing
-    assert prompt =~ @bob
-    assert key(bob) in evidence.message_keys
-
-    Answers.slack_message!(
-      workspace: @workspace,
-      channel: @channel,
-      actor: "UBOB",
-      text: "",
-      ts: "1790500100.000100",
-      thread: "1790500100.000100",
-      kind: :delete,
-      revision: 2,
-      at: DateTime.add(@now, 180, :second)
-    )
-
-    evidence = Evidence.gather(Improvement.for_request({:episode, reply.episode.id}))
-    assert [%{"kept" => "forgotten", "prompt" => nil, "answer" => nil}] = evidence.routing
-
-    assert "Routing prompts that quoted something a person forgot or deleted." in evidence.omitted
-
-    refute CanonicalJSON.encode!(Prompt.build(evidence)) =~ "payroll"
-
-    assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
-    refute CanonicalJSON.encode!(accepted.case_evidence) =~ "payroll"
+    %{
+      alice: Repo.get!(Entry, alice.id),
+      bob: bob,
+      candidate: Improvement.for_request({:episode, reply.episode.id})
+    }
   end
 
   # What routing froze beside the decision about `entry` quotes `quoted` as

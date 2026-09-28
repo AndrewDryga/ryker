@@ -13,6 +13,7 @@ defmodule Ryker.Improvement.RetentionTest do
 
   import Ecto.Query
 
+  alias Ryker.CanonicalJSON
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
   alias Ryker.Improvement
@@ -129,6 +130,32 @@ defmodule Ryker.Improvement.RetentionTest do
 
     assert Improvement.accept(candidate.id, "control-plane:local") ==
              {:error, :improvement_candidate_forgotten}
+  end
+
+  # An edit replaces the words a person no longer wants said. Only deleting
+  # reached a candidate, so an accepted case kept the replaced words for as
+  # long as training data is kept, with the diagnosis written from them.
+  test "a person editing the words of a message the case quotes erases what the candidate holds" do
+    candidate = candidate!("1790400550.000100")
+    run = run!(candidate, @now)
+
+    assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
+    assert CanonicalJSON.encode!(accepted.case_evidence) =~ "staging database"
+
+    Answers.slack_message!(
+      workspace: @workspace,
+      channel: "CRETENTION",
+      text: "Is the staging replica healthy?",
+      ts: "1790400550.000100",
+      kind: :edit,
+      revision: 2,
+      at: DateTime.add(@now, 600, :second)
+    )
+
+    forgotten = Repo.get!(Candidate, candidate.id)
+    assert %DateTime{} = forgotten.forgotten_at
+    assert forgotten.case_evidence == nil
+    assert Repo.get!(AnalysisRun, run.id).prompt == nil
   end
 
   test "the migration refuses to roll back while candidates are kept, and returns cleanly without them" do
