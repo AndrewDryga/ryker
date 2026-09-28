@@ -140,6 +140,86 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert Enum.empty?(LazyHTML.query(document, ".tool-card"))
   end
 
+  # Andrew, 2026-09-28: "nice design for every kind, branded cards for Emisar
+  # tool calls, informative cards, consecutive calls collapsed into one card
+  # where it fits (like queues)". One infrastructure review drew a card per
+  # call, some 43,000 pixels. Calls that follow each other are one card now,
+  # a line per step that opens to its full card; a call that failed keeps a
+  # card of its own.
+  test "consecutive tool calls read as one card, a line per step, Emisar's with its mark" do
+    work = episode_with_tool!("run", "small")
+
+    tool!(work, 2, "find_actions", %{"query" => "gcp compute instances list"})
+    tool!(work, 3, "list_runners", %{})
+    tool!(work, 4, "get_work_state", %{})
+    tool!(work, 5, "list_packs", %{}, "failed")
+
+    document = LazyHTML.from_document(rendered(work))
+    [run] = document |> LazyHTML.query(".case-tool_run") |> Enum.to_list()
+
+    assert LazyHTML.query(run, ".tool-run > .case-card-heading h3") |> LazyHTML.text() ==
+             "4 steps"
+
+    lines =
+      run
+      |> LazyHTML.query(".tool-run-step")
+      |> Enum.map(fn step ->
+        {LazyHTML.query(step, ".tool-run-badge") |> LazyHTML.text() |> String.trim(),
+         LazyHTML.query(step, ".tool-run-title") |> LazyHTML.text(),
+         LazyHTML.query(step, ".tool-run-text") |> LazyHTML.text()}
+      end)
+
+    assert lines == [
+             {"Code", "Run command", "rg --files"},
+             {"Emisar", "Emisar actions looked up", "gcp compute instances list"},
+             {"Emisar", "Emisar runners listed", ""},
+             {"Ryker", "Work state read", ""}
+           ]
+
+    assert LazyHTML.query(run, ".tool-run-badge[data-service=emisar] svg.emisar-mark")
+           |> Enum.count() == 2
+
+    # Each step keeps its own anchor and opens to its full card.
+    assert run
+           |> LazyHTML.query("li.tool-run-step")
+           |> LazyHTML.attribute("id")
+           |> Enum.all?(&String.starts_with?(&1, "event-activity-"))
+
+    assert LazyHTML.query(run, "details.tool-run-detail .tool-run-body .action-card")
+           |> Enum.count() == 4
+
+    # The failed call is a card of its own after the run.
+    failed =
+      document |> LazyHTML.query(".case-entry:not(.case-tool_run) .action-card") |> Enum.to_list()
+
+    assert Enum.any?(failed, &(LazyHTML.text(&1) =~ "failed"))
+  end
+
+  defp tool!(work, sequence, tool, arguments, status \\ "completed") do
+    payload = %{
+      "evidence_version" => 1,
+      "kind" => "other",
+      "tool_call_id" => "call-#{tool}-#{sequence}",
+      "title" => tool,
+      "input" => %{"server" => "controller-tools", "tool" => tool, "arguments" => arguments},
+      "status" => status
+    }
+
+    Repo.insert!(%ActivityEvent{
+      coop_turn_id: "coop-turn-run",
+      episode_id: work.episode.id,
+      kind: "tool.completed",
+      occurred_at: DateTime.add(@now, 90 + sequence, :second),
+      payload: payload,
+      payload_fingerprint: CanonicalJSON.digest(payload),
+      remote_event_id: "tool-event:run:#{sequence}",
+      remote_session_id: "remote-session:#{work.session.id}",
+      sequence: sequence,
+      session_id: work.session.id,
+      version: 1
+    })
+  end
+
   defp ids(events), do: MapSet.new(events, & &1.id)
 
   defp loaded_bytes(work) do

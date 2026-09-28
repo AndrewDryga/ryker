@@ -43,6 +43,28 @@ defmodule Ryker.ControlPlane.Components do
     tag: "M3 3h8l10 10-8 8L3 11V3Z M7.5 7.5h.01"
   }
 
+  attr(:class, :any, default: nil)
+
+  @doc """
+  Emisar's mark, in its own two colours, for what Emisar did: its chevrons
+  and circles in the text colour, the right chevron and the middle circle in
+  Emisar green (#36e6a5), as Emisar's own logo draws them.
+  """
+  def emisar_mark(assigns) do
+    ~H"""
+    <svg class={["emisar-mark", @class]} viewBox="-18 0 390 390" fill="none" aria-hidden="true">
+      <g stroke-linejoin="round" stroke-width="37">
+        <path stroke="currentColor" d="M96 50 19.5 195 96 340" />
+        <path class="emisar-accent" stroke="#36e6a5" d="m258 50 76.5 145L258 340" />
+      </g>
+      <path stroke="currentColor" stroke-width="16" d="M177 84v69m0 84v69" />
+      <circle cx="177" cy="42.5" r="34.5" stroke="currentColor" stroke-width="14" />
+      <circle class="emisar-accent" cx="177" cy="195" r="34.5" stroke="#36e6a5" stroke-width="14" />
+      <circle cx="177" cy="347.5" r="34.5" stroke="currentColor" stroke-width="14" />
+    </svg>
+    """
+  end
+
   attr(:name, :atom, required: true)
   attr(:class, :any, default: nil)
 

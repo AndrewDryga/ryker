@@ -2590,7 +2590,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert html =~ "worker-silent</strong>"
     assert html =~ "has not reported storage yet."
     assert html =~ "not taking new copies (reserve exhausted)"
-    assert html =~ "Nothing is ready for cleanup right now"
+    # Nothing ready for cleanup is no section at all (T10, 2026-09-28).
+    refute html =~ ~s(id="ready-for-cleanup")
     refute html =~ "Keep it briefly for follow-up questions"
   end
 

@@ -1,5 +1,10 @@
 defmodule Ryker.ControlPlane.ToolCard do
-  @moduledoc "Readable actions, derived only from retained, sanitized tool evidence."
+  @moduledoc """
+  Readable actions, derived only from retained, sanitized tool evidence: one
+  tool call as a card (`render/1`), or as one line of a run of calls
+  (`line/1`), which says whose tool it was, what it did, the one fact that
+  tells it apart from its neighbours, and how long it took.
+  """
   use Phoenix.Component
   alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.SlackMarkdown
@@ -55,6 +60,7 @@ defmodule Ryker.ControlPlane.ToolCard do
       {"Record approval request", "Approval request recorded",
        "Keeps the pending infrastructure approval so work can resume after a decision."},
     # Emisar's own tools, which Ryker's server has offered since 2026-09-27.
+    # Their lines carry Emisar's mark (`@emisar_tools`).
     "find_actions" =>
       {"Look up Emisar actions", "Emisar actions looked up",
        "Searches the actions Emisar can run with this environment's account."},
@@ -95,6 +101,67 @@ defmodule Ryker.ControlPlane.ToolCard do
       {"Update an Emisar runbook draft", "Emisar runbook draft updated",
        "Changes a draft runbook in Emisar for a person to review."}
   }
+
+  @emisar_tools ~w(find_actions get_action run_action wait_for_run list_runners list_packs list_runbooks get_runbook recent_runs get_operation cancel_run execute_runbook create_runbook_draft update_runbook_draft)
+  @slack_tools ~w(list_slack_channels search_slack read_slack_source set_slack_reaction post_slack_message post_slack_update)
+  @github_tools ~w(read_github_conversation search_github read_github_pull_request read_github_ci rerun_github_ci cancel_github_ci submit_github_review set_github_reaction)
+
+  @doc """
+  One step of a run of tool calls or status updates as one line: whose it
+  was (`:emisar`, `:ryker`, `:slack`, `:github` or the `:workspace` the work
+  runs in), its title, the fact that sets it apart (the search, the action,
+  the command, the file), and its duration.
+  """
+  @spec line(map()) :: %{
+          service: atom(),
+          title: String.t(),
+          detail: String.t() | nil,
+          duration: String.t() | nil,
+          failed: boolean()
+        }
+  def line(%{stage: "Status"} = step) do
+    %{
+      service: :slack,
+      title: if(step.summary, do: "Status", else: step.title),
+      detail: step.summary,
+      duration: nil,
+      failed: step.state == "failed"
+    }
+  end
+
+  def line(step) do
+    action = project(step)
+
+    %{
+      service: service(action),
+      title: if(step.state == "started", do: "Started: " <> action.title, else: action.title),
+      detail: line_detail(action),
+      duration: step.duration_ms && duration(step.duration_ms),
+      failed: step.state in ["failed", "cancelled"]
+    }
+  end
+
+  defp service(%{tool: tool}) when tool in @emisar_tools, do: :emisar
+  defp service(%{tool: tool}) when tool in @slack_tools, do: :slack
+  defp service(%{tool: tool}) when tool in @github_tools, do: :github
+  defp service(%{kind: "ryker"}), do: :ryker
+  defp service(_action), do: :workspace
+
+  # The one fact that tells a step from the ones around it, on one line.
+  defp line_detail(action) do
+    [
+      Enum.map(action.facts, &elem(&1, 1)),
+      action.paths,
+      action.description_detail,
+      action.text
+    ]
+    |> List.flatten()
+    |> Enum.find(&(is_binary(&1) and String.trim(&1) != ""))
+    |> case do
+      nil -> nil
+      text -> text |> String.split("\n", parts: 2) |> hd() |> String.slice(0, 160)
+    end
+  end
 
   def render(assigns) do
     assigns = assign(assigns, :action, project(assigns.step))
@@ -189,8 +256,12 @@ defmodule Ryker.ControlPlane.ToolCard do
     {paths, warning} = display_paths(step[:path_context], file)
 
     action = %{
+      tool: tool,
       title: title,
       description: description,
+      # A command or a search names itself in its description; that is the
+      # detail its line shows.
+      description_detail: if(kind in ~w(command search), do: description),
       kind: kind,
       symbol: symbol,
       paths: paths,
