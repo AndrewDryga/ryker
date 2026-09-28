@@ -184,7 +184,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   # -- Proposing RYKER.md ----------------------------------------------------------
 
   @impl Ryker.RepositoryKnowledge.Remote
-  def publish(binding, repository, %{document: _, body: _, proposed: _} = proposal) do
+  def publish(binding, repository, %{document: _, body: _, proposed: _, sent: _} = proposal) do
     slug = repository.github_repository
 
     with {:ok, client} <- client(binding.name),
@@ -236,8 +236,8 @@ defmodule Ryker.GitHub.RepositoryFiles do
   # its file, and its description says why. A branch that already says the
   # same is left alone rather than given a commit that only moves the date.
   # The pull request asks people to review and edit it, so a branch that
-  # says anything but what Ryker last proposed (a person edited it, removed
-  # it, or made it one Ryker cannot read) is theirs, and is left alone too.
+  # holds anything but Ryker's own words (a person edited it, removed it, or
+  # made it one Ryker cannot read) is theirs, and is left alone too.
   defp update_open(client, slug, number, %{document: document} = proposal) do
     case file(client, slug, @path, @branch) do
       {:ok, current} ->
@@ -245,7 +245,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
           Document.same?(text(current), document) ->
             :ok
 
-          ryker_proposal?(current, proposal.proposed) ->
+          ryker_proposal?(current, proposal) ->
             replace_proposal(client, slug, number, current, document, proposal.body)
 
           true ->
@@ -260,12 +260,14 @@ defmodule Ryker.GitHub.RepositoryFiles do
     end
   end
 
-  # Compared as documents, without their provenance lines: a rewrite that
-  # said the same left the branch's older line in place.
-  defp ryker_proposal?(%{text: text}, proposed) when is_binary(proposed),
-    do: Document.same?(text, proposed)
+  # Ryker's own words: what it last proposed, compared as documents without
+  # their provenance lines, since a rewrite that said the same left the
+  # branch's older line in place; or, byte for byte, a document it sent
+  # since, which a step that failed before recording its proposal left there.
+  defp ryker_proposal?(%{text: text}, %{proposed: proposed, sent: sent}),
+    do: (is_binary(proposed) and Document.same?(text, proposed)) or sha256(text) in sent
 
-  defp ryker_proposal?(_current, _proposed), do: false
+  defp ryker_proposal?(:not_found, _proposal), do: false
 
   defp replace_proposal(client, slug, number, current, document, body) do
     with :ok <- write_file(client, slug, current, document, "Update Ryker repository knowledge") do
@@ -539,4 +541,6 @@ defmodule Ryker.GitHub.RepositoryFiles do
   defp requester, do: Application.get_env(:ryker, :github_files_requester, JSONClient)
 
   defp encode_ref(ref), do: URI.encode(ref, &URI.char_unreserved?/1)
+
+  defp sha256(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
 end

@@ -399,6 +399,26 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc """
+  Records, before the document is proposed, that Ryker may write it on its
+  pull request's branch: a step can fail after it writes the branch and
+  before it records the proposal (`published/3`), and until one is recorded
+  a branch that holds any document Ryker sent is its own, never a person's
+  edit. Nothing a page shows changes.
+  """
+  def sending(claim) do
+    Repo.transaction(fn ->
+      entry = owned!(claim)
+
+      if entry.document_sha256 in entry.sent_sha256s,
+        do: entry,
+        else:
+          entry
+          |> Ecto.Changeset.change(sent_sha256s: entry.sent_sha256s ++ [entry.document_sha256])
+          |> Repo.update!()
+    end)
+  end
+
+  @doc """
   Records that the written document reached GitHub (`result` from
   `Ryker.RepositoryKnowledge.Remote.publish/3`), and gives the lease back:
   the next check comes tomorrow. `settings_write` saves Work's copy of it in
@@ -432,11 +452,14 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       # An outline keeps saying why no model could finish.
       error = if entry.document_by == :outline, do: [], else: [error_code: nil, error: nil]
 
+      # Nothing Ryker sent is unrecorded now: the branch holds what Work's
+      # copy names, or no pull request is open to hold anything.
       entry =
         save(
           entry,
           unleased() ++
-            [published_at: now, publication: result.outcome] ++ error ++ pull_request ++ settle
+            [published_at: now, publication: result.outcome, sent_sha256s: []] ++
+            error ++ pull_request ++ settle
         )
 
       case settings_write.(entry) do

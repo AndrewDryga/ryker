@@ -448,28 +448,34 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
 
   # -- Proposing ---------------------------------------------------------------------
 
+  # What Ryker is about to write on its branch is recorded before it is
+  # sent, so a step that fails after the write still knows its own words.
   defp publish(claim, {repository, binding}, settings) do
     entry = claim.entry
 
-    case settings.remote.publish(binding, repository, %{
-           document: entry.document,
-           body: pull_request_body(entry),
-           proposed: last_proposal(repository)
-         }) do
-      {:ok, result} ->
-        recorded(claim, result, repository, settings)
+    with {:ok, %{sent_sha256s: sent}} <- Custody.sending(claim) do
+      case settings.remote.publish(binding, repository, %{
+             document: entry.document,
+             body: pull_request_body(entry),
+             proposed: last_proposal(repository),
+             sent: sent
+           }) do
+        {:ok, result} ->
+          recorded(claim, result, repository, settings)
 
-      # RYKER.md on the default branch became one Ryker cannot read.
-      {:error, :source_unavailable} ->
-        failed(claim, :repository_knowledge_unreadable, settings, &Custody.publication_failed/2)
+        # RYKER.md on the default branch became one Ryker cannot read.
+        {:error, :source_unavailable} ->
+          failed(claim, :repository_knowledge_unreadable, settings, &Custody.publication_failed/2)
 
-      {:error, reason} ->
-        failed(claim, reason, settings, &Custody.publication_failed/2)
+        {:error, reason} ->
+          failed(claim, reason, settings, &Custody.publication_failed/2)
+      end
     end
   end
 
   # What Ryker last proposed: Work reads that proposal while its pull request
-  # is open (`follow_default_branch/4`), so it is what Ryker last wrote there.
+  # is open (`follow_default_branch/4`), so it is what Ryker last recorded
+  # writing there.
   defp last_proposal(%{knowledge_status: :proposed, knowledge_content: content}), do: content
   defp last_proposal(_repository), do: nil
 
