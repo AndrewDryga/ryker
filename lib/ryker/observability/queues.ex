@@ -17,7 +17,7 @@ defmodule Ryker.Observability.Queues do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Observability.Query
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Followup, LifecycleEvent, Publication}
+  alias Ryker.Publication.{Followup, Followups, LifecycleEvent, Publication}
   alias Ryker.Records.Record
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Schedules.Schedule
@@ -211,6 +211,12 @@ defmodule Ryker.Observability.Queues do
       from(publication in PublicationCustody.claimable_query(now), select: publication.id)
 
     from(publication in query, where: publication.id in subquery(publications))
+  end
+
+  # A pull request's poll waits while the task's newer change is in review.
+  defp runnable(query, :publication_followup, _now) do
+    followups = from(followup in Followups.pollable_query(), select: followup.id)
+    from(followup in query, where: followup.id in subquery(followups))
   end
 
   defp runnable(query, _name, _now), do: query
