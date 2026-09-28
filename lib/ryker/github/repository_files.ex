@@ -458,7 +458,10 @@ defmodule Ryker.GitHub.RepositoryFiles do
   end
 
   defp request(client, method, path, body \\ nil),
-    do: JSONClient.request(client, method, path, body, @headers)
+    do: requester().request(client, method, path, body, @headers)
+
+  # GitHub itself; in tests, the replies each test records (config/test.exs).
+  defp requester, do: Application.get_env(:ryker, :github_files_requester, JSONClient)
 
   defp encode_ref(ref), do: URI.encode(ref, &URI.char_unreserved?/1)
 end

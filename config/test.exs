@@ -40,3 +40,7 @@ config :ryker, :transcriber, Ryker.TestTranscriber
 # that does not answer in time takes a moment rather than four seconds.
 config :ryker, :emisar_requester, Ryker.TestSupport.EmisarMCP
 config :ryker, :emisar_catalog_budget_ms, 300
+
+# RYKER.md's reads and proposals answer from replies each test records: no
+# test reaches GitHub.
+config :ryker, :github_files_requester, Ryker.TestSupport.RecordedGitHub
