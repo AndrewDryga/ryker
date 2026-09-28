@@ -4,6 +4,7 @@ defmodule Ryker.Publication.FollowupExecutor do
   alias Ryker.Delivery.Adapters
   alias Ryker.LeasedCall
   alias Ryker.Publication.Followups
+  alias Ryker.Slack.TaskCards
 
   def run_poll(
         %{followup: followup, lease_ref: lease_ref, publication: publication} = claim,
@@ -20,10 +21,7 @@ defmodule Ryker.Publication.FollowupExecutor do
     with {:ok, settings} <- settings(options),
          {:ok, event} <- settings.custody.admit_wakeup(event.ref, lease_ref),
          {:ok, request} <- settings.custody.delivery_request(event),
-         {:ok, receipt} <-
-           leased_call(claim, :delivery, settings, fn ->
-             Adapters.publish(request, settings.adapters)
-           end),
+         {:ok, receipt} <- deliver(claim, event, request, settings),
          {:ok, stored} <- settings.custody.confirm_delivery(event.ref, lease_ref, receipt) do
       {:ok, %{event: stored, phase: :delivery, receipt: receipt}}
     end
@@ -31,6 +29,20 @@ defmodule Ryker.Publication.FollowupExecutor do
 
   def run_delivery(_claim, _options),
     do: {:error, {:invalid_publication_followup_executor, :claim}}
+
+  # A lifecycle event of a task with a card in its thread is shown by that
+  # card (`Ryker.Slack.TaskCards.card_receipt/2`); nothing new is posted.
+  defp deliver(claim, event, request, settings) do
+    case TaskCards.card_receipt(event.episode_id, request) do
+      nil ->
+        leased_call(claim, :delivery, settings, fn ->
+          Adapters.publish(request, settings.adapters)
+        end)
+
+      settled ->
+        settled
+    end
+  end
 
   defp run_poll_with_settings(claim, followup, publication, lease_ref, settings) do
     if is_binary(followup.verification_event_ref) and is_nil(followup.verified_at),

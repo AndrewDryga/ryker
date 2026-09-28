@@ -12,11 +12,12 @@ defmodule Ryker.Slack.TaskCards do
 
   import Ecto.Query
 
+  alias Ryker.Delivery.Request
   alias Ryker.Episodes.Episode
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.{TaskCard, TaskCardChangeset}
-  alias Ryker.Work.Turn
+  alias Ryker.Work.{DeliveryReceipt, Turn}
 
   @maximum_error_detail_bytes 4_096
 
@@ -53,6 +54,65 @@ defmodule Ryker.Slack.TaskCards do
       )
 
     Repo.one(from(card in subquery(due), where: card.due_at > ^since, select: min(card.due_at)))
+  end
+
+  @doc """
+  The message of the card that shows `episode_id`'s task in exactly this
+  Slack conversation and thread, or nil when there is none. A publication's
+  review and pull request are that card's to show (`Ryker.Publication.Executor`).
+  """
+  @spec message_ref(Ecto.UUID.t() | nil, String.t() | nil, String.t() | nil) :: String.t() | nil
+  def message_ref(episode_id, "slack:" <> conversation, thread_ref)
+      when is_binary(episode_id) and is_binary(thread_ref) do
+    case String.split(conversation, ":") do
+      [workspace, channel] ->
+        Repo.one(
+          from(card in TaskCard,
+            where:
+              card.episode_id == ^episode_id and card.workspace_ref == ^workspace and
+                card.channel_ref == ^channel and card.thread_ref == ^thread_ref and
+                not is_nil(card.message_ref),
+            order_by: [desc: card.inserted_at],
+            limit: 1,
+            select: card.message_ref
+          )
+        )
+
+      _other ->
+        nil
+    end
+  end
+
+  def message_ref(_episode_id, _conversation_ref, _thread_ref), do: nil
+
+  @doc """
+  Settles `request` by the card that shows `episode_id`'s task in the same
+  Slack thread: the card's own message is its receipt, and nothing new is
+  posted. Nil when the task has no card there, and the request is posted.
+
+  The card shows a publication's review, its pull request, CI and review
+  feedback, with every control they need, and refreshes itself in place. A
+  message for each said it again underneath: Andrew, 2026-09-28, of four
+  identical "Authenticated GitHub review feedback arrived for PR #2" posts,
+  "it's bad to have spam that is not actionable by users, especially if last
+  message is the task card we are updating anyways!"
+  """
+  @spec card_receipt(Ecto.UUID.t() | nil, Request.t()) ::
+          {:ok, DeliveryReceipt.t()} | {:error, term()} | nil
+  def card_receipt(episode_id, %Request{} = request) do
+    case message_ref(episode_id, request.conversation_ref, request.thread_ref) do
+      nil ->
+        nil
+
+      message_ref ->
+        DeliveryReceipt.new(
+          request.ref,
+          request.transport,
+          request.conversation_ref,
+          request.thread_ref,
+          message_ref
+        )
+    end
   end
 
   @spec claim_next(String.t(), pos_integer(), pos_integer()) ::

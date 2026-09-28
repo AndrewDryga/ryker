@@ -11,6 +11,7 @@ defmodule Ryker.Publication.Executor do
   alias Ryker.Delivery.Adapters
   alias Ryker.LeasedCall
   alias Ryker.Publication.{Custody, FixLoop, GateOutput, Request}
+  alias Ryker.Slack.TaskCards
   alias Ryker.Work.Session
 
   @review_states ~w(open exhausted)
@@ -83,8 +84,7 @@ defmodule Ryker.Publication.Executor do
 
   defp deliver(claim, settings) do
     with {:ok, request} <- settings.custody.delivery_request(claim.publication),
-         {:ok, receipt} <-
-           leased_call(claim, settings, fn -> Adapters.publish(request, settings.adapters) end),
+         {:ok, receipt} <- deliver_request(claim, request, settings),
          {:ok, stored} <-
            settings.custody.confirm_delivery(
              claim.publication.ref,
@@ -92,6 +92,15 @@ defmodule Ryker.Publication.Executor do
              receipt
            ) do
       {:ok, %{phase: :delivered, publication: stored, receipt: receipt}}
+    end
+  end
+
+  # A publication whose task has a card in its thread is delivered by that
+  # card (`Ryker.Slack.TaskCards.card_receipt/2`); nothing new is posted.
+  defp deliver_request(claim, request, settings) do
+    case TaskCards.card_receipt(claim.publication.episode_id, request) do
+      nil -> leased_call(claim, settings, fn -> Adapters.publish(request, settings.adapters) end)
+      settled -> settled
     end
   end
 
