@@ -150,7 +150,13 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     work = episode_with_tool!("run", "small")
 
     tool!(work, 2, "find_actions", %{"query" => "gcp compute instances list"})
-    tool!(work, 3, "list_runners", %{})
+
+    tool!(work, 3, "run_action", %{
+      "action_id" => "cloud-init.log_tail",
+      "pack_ref" => "cloud-init@0.1.19/sha256:" <> String.duplicate("c", 64),
+      "reason" => "Inspect the completed initialization."
+    })
+
     tool!(work, 4, "get_work_state", %{})
     tool!(work, 5, "list_packs", %{}, "failed")
 
@@ -172,12 +178,19 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert lines == [
              {"Code", "Run command", "rg --files"},
              {"Emisar", "Emisar actions looked up", "gcp compute instances list"},
-             {"Emisar", "Emisar runners listed", ""},
+             {"Emisar", "Emisar run requested",
+              "cloud-init.log_tail · Inspect the completed initialization."},
              {"Ryker", "Work state read", ""}
            ]
 
     assert LazyHTML.query(run, ".tool-run-badge[data-service=emisar] svg.emisar-mark")
            |> Enum.count() == 2
+
+    # The full card names the pack without the digest it was pinned by; the
+    # raw arguments keep it, as they keep everything exactly.
+    facts = run |> LazyHTML.query(".action-facts") |> LazyHTML.text()
+    assert facts =~ "cloud-init@0.1.19"
+    refute facts =~ "sha256"
 
     # Each step keeps its own anchor and opens to its full card.
     assert run
