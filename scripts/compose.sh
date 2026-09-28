@@ -48,6 +48,14 @@ value() {
   sed -n "s/^$1=//p" "$2" | tail -n 1
 }
 
+# A worker image named in the environment file is a supplied build, made for
+# example from a Coop checkout ahead of the Dockerfile's pin. Building the
+# worker would tag the pin's image with that name, and a newer Coop may have
+# moved the worker's state to a schema the pinned one refuses.
+supplied_worker_image() {
+  [ -n "$(value RYKER_COOP_IMAGE "$env_file")" ]
+}
+
 wait_ready() {
   control_port=$(value RYKER_CONTROL_PORT "$env_file")
   control_port=${control_port:-4321}
@@ -163,7 +171,11 @@ install_ryker() {
     fi
   fi
 
-  compose up --detach --build --wait ryker-coop
+  if supplied_worker_image; then
+    compose up --detach --wait ryker-coop
+  else
+    compose up --detach --build --wait ryker-coop
+  fi
 
   worker_attempt=0
   while [ "$worker_attempt" -lt 120 ]; do
@@ -275,7 +287,11 @@ case "$command" in
   upgrade)
     require_install
     compose pull --ignore-buildable
-    compose build --pull ryker ryker-coop
+    if supplied_worker_image; then
+      compose build --pull ryker
+    else
+      compose build --pull ryker ryker-coop
+    fi
     compose up --detach --wait
     wait_ready
     ;;

@@ -390,6 +390,24 @@ check "an already stopped controller can be backed up" "exit=0" "$out"
 refute "backup preserves the operator's stopped controller" "start ryker" "$(cat "$fake/calls")"
 rm "$fake/controller.stopped"
 
+# A worker image named in compose.env is a supplied build: on 2026-09-28 the
+# bundled worker ran Coop 126f5d07, built from a Coop checkout ahead of the
+# Dockerfile's pin, and that Coop had already moved the worker's session
+# store to a schema the pinned Coop refuses. Building ryker-coop there tags
+# the pin's image with the supplied name, and the restart that follows takes
+# the worker down with no way back but a restore.
+seed
+printf 'RYKER_COOP_IMAGE=ryker-coop:supplied\n' >>"$state/compose.env"
+out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
+check "upgrade with a supplied worker image succeeds" "exit=0" "$out"
+check "upgrade still builds Ryker" "build --pull ryker" "$(cat "$fake/calls")"
+refute "upgrade leaves a supplied worker image alone" "ryker-coop" "$(grep ' build ' "$fake/calls")"
+
+seed
+out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
+check "upgrade without a supplied worker image succeeds" "exit=0" "$out"
+check "upgrade builds the worker from the pin" "build --pull ryker ryker-coop" "$(cat "$fake/calls")"
+
 if [[ $failures -gt 0 ]]; then
   echo "$failures deploy check(s) failed"
   exit 1
