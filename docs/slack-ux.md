@@ -280,10 +280,11 @@ manifest says which happened.
 This applies to explicit mentions even when broad proactive triage is off. Top-level context can
 include ambient messages that were never Ryker work, allowing the agent to recognize that two
 people are talking to each other or that another person already answered. Raw messages from
-unrelated threads are not mixed into the target thread. A conversation summary is stored per
-Slack thread and per channel and retains purpose, situation, goal, active topics, topology,
-decisions, open loops, unresolved questions, evidence references and participants. Each turn also
-receives a
+unrelated threads are not mixed into the target thread. A conversation summary is the handover a
+Work turn saves for the thread it answers in; it retains purpose, situation, goal, active topics,
+topology, decisions, open loops, unresolved questions, evidence references and participants.
+Routing a message in that thread receives the summary saved before the message arrived. Each turn
+also receives a
 bounded set of recent summaries from the same channel and from public channels across the
 workspace, preferring the same repository. Private-channel summaries stay local unless a future
 membership-aware path can prove the requester may read them. A work session is replaced when its

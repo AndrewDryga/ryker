@@ -219,10 +219,7 @@ defmodule Ryker.Admission do
       local_history_limit: settings.local_history_limit,
       reader: settings.source_reader
     )
-    |> ConversationContext.with_summaries(
-      ConversationSummaries.thread(entry, settings.now),
-      ConversationSummaries.channel(entry, settings.now)
-    )
+    |> ConversationContext.with_thread_summary(ConversationSummaries.thread(entry, settings.now))
   end
 
   defp slack_addressing(%Entry{slack_audience: nil, slack_bot_user_ref: nil}), do: nil

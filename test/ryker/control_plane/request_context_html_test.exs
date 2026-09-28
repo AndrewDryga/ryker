@@ -759,10 +759,12 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
          row |> LazyHTML.query(".prompt-source-status") |> LazyHTML.text()}
       end)
 
+    # Every routing card also said "Channel summary: None saved", a row that
+    # could never fill because nothing saves a summary of a whole channel; it
+    # was gone from routing on 2026-09-28.
     assert absent == [
              {"Global instructions", "Not configured"},
              {"Channel instructions", "Not applicable"},
-             {"Channel summary", "None saved"},
              {"Thread summary", "Not applicable"},
              {"Continuation candidates", "None"},
              {"Background matches", "None"},
@@ -907,7 +909,6 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
           "requested" => 20,
           "source_read" => "retained_only",
           "cutoff" => "2026-09-21T05:48:52.427135Z",
-          "channel_summary" => %{"status" => "unavailable", "reason" => "absent"},
           "thread_summary" => %{"status" => "unavailable", "reason" => "not_applicable"}
         },
         "conversation_context" => %{
@@ -918,7 +919,6 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
               "occurred_at" => "2026-09-21T05:47:00Z"
             }
           ],
-          "channel_summary" => nil,
           "thread_summary" => nil
         },
         "allowed_actions" => ["start_episode", "reply"]
@@ -939,23 +939,18 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
            |> LazyHTML.query(messages <> " > .prompt-source")
            |> LazyHTML.attribute("data-source") == ~w(input earlier_messages)
 
-    # Summaries are saved documents about the conversation, not its messages.
+    # A summary is a saved document about the conversation, not its messages.
     assert document
            |> LazyHTML.query(".prompt-group[data-group=summaries] > .prompt-source")
-           |> LazyHTML.attribute("data-source") == ~w(channel_summary thread_summary)
+           |> LazyHTML.attribute("data-source") == ~w(thread_summary)
 
     assert LazyHTML.text(document) =~ "1 message"
     assert LazyHTML.text(document) =~ "Earlier question"
     assert LazyHTML.text(document) =~ "Up to 20 earlier messages"
-    assert LazyHTML.text(document) =~ "Channel summary"
     assert LazyHTML.text(document) =~ "Thread summary"
 
     # The recorded reason picks the same words routing uses when it leaves a
-    # summary out: none saved for the conversation, not applicable outside a thread.
-    assert document
-           |> LazyHTML.query("[data-source=channel_summary] .prompt-source-status")
-           |> LazyHTML.text() == "None saved"
-
+    # summary out: not applicable outside a thread.
     assert document
            |> LazyHTML.query("[data-source=thread_summary] .prompt-source-status")
            |> LazyHTML.text() == "Not applicable"

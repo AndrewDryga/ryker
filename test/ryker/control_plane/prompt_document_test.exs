@@ -110,7 +110,6 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
           },
           "conversation_context" => %{
             "messages" => [%{"content" => %{"text" => "Earlier question"}}],
-            "channel_summary" => %{"summary" => "Channel context"},
             "thread_summary" => %{"summary" => "Thread context"}
           },
           "conversation_observations" => [%{"text" => "Observed earlier"}],
@@ -135,7 +134,6 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
           {"$.context.custom_instructions.global", "Global instructions"},
           {"$.context.custom_instructions.channel", "Channel instructions"},
           {"$.context.conversation_context.messages", "Earlier messages"},
-          {"$.context.conversation_context.channel_summary", "Channel summary"},
           {"$.context.conversation_context.thread_summary", "Thread summary"},
           {"$.context.conversation_observations", "Conversation notes"},
           {"$.context.conversation_knowledge", "Learned topics"},

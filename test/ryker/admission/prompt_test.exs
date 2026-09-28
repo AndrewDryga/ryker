@@ -513,7 +513,7 @@ defmodule Ryker.Admission.PromptTest do
              ]
 
       refute Map.has_key?(bundle, "current")
-      refute Map.has_key?(bundle, "channel_summary")
+      refute Map.has_key?(bundle, "thread_summary")
       assert document["context_manifest"] == %{"included" => 2, "requested" => 20}
 
       # The frozen snapshot still has where each message can be re-read.
@@ -690,7 +690,6 @@ defmodule Ryker.Admission.PromptTest do
       input: input!(),
       input_entry: %Entry{id: Ecto.UUID.generate()},
       conversation_context: %{
-        "channel_summary" => nil,
         "current" => message.("UALICE", "2026-08-27T12:00:00Z", "Still down?", "m3"),
         "messages" => [
           message.("UALICE", "2026-08-27T11:59:00Z", "Is checkout up?\r\n", "m1"),
@@ -701,7 +700,6 @@ defmodule Ryker.Admission.PromptTest do
       },
       context_manifest: %{
         "bytes" => 512,
-        "channel_summary" => %{"reason" => "absent", "status" => "unavailable"},
         "included" => 2,
         "kind" => "conversation",
         "requested" => 20,
