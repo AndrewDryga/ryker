@@ -287,13 +287,14 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     case socket.assigns.form do
       {:form, key} ->
         %{section: section, paths: paths} = socket.assigns
-        saved = row_name(section, view, key || saved_item_key(socket))
-
+        # A new row is added and an existing one saved, whether or not the
+        # list can name it.
         message =
-          cond do
-            saved -> "#{saved} was saved."
-            key -> "The #{noun(section)} was saved."
-            true -> "The #{noun(section)} was added."
+          case {key, row_name(section, view, key || saved_item_key(socket))} do
+            {nil, nil} -> "The #{noun(section)} was added."
+            {nil, name} -> "#{name} was added."
+            {_key, nil} -> "The #{noun(section)} was saved."
+            {_key, name} -> "#{name} was saved."
           end
 
         send(self(), {:settings_item_saved, view, paths.list, message})
