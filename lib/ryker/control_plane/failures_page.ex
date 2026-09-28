@@ -204,6 +204,11 @@ defmodule Ryker.ControlPlane.FailuresPage do
     |> Safe.to_iodata()
   end
 
+  # Andrew, 2026-09-28, of this page: "this is shitton of text without proper
+  # design, page is not usable". Four headed runs of prose are now two cards:
+  # what happened, in labelled rows a person can scan, then what they can do,
+  # one row an option with its button. The worker's own words and the
+  # technical details stay folded underneath.
   defp detail_view(assigns) do
     ~H"""
     <div class="failure-page">
@@ -212,56 +217,64 @@ defmodule Ryker.ControlPlane.FailuresPage do
         <span :for={fact <- @facts} class="failure-status-fact">{fact}</span>
       </p>
 
-      <Kit.section_head title="What happened" />
-      <div class="failure-prose">
-        <p :for={paragraph <- @e.happened}>{paragraph}</p>
-      </div>
-      <details :if={@report} class="recovery-worker-report failure-report">
-        <summary>The worker’s last answer</summary>
-        <p class="recovery-attribution">
-          The worker wrote this. Ryker has not checked the claims in it.
-        </p>
-        <div class="recovery-model-output">
-          {Phoenix.HTML.raw(SlackMarkdown.preview(@report))}
-        </div>
-      </details>
+      <Kit.section_card id="failure-summary" title="What happened" class="failure-summary">
+        <dl class="failure-rows">
+          <div :if={@e.happened != []}>
+            <dt>Cause</dt>
+            <dd><p :for={paragraph <- @e.happened}>{paragraph}</p></dd>
+          </div>
+          <div :if={@e.affects != []}>
+            <dt>Who is waiting</dt>
+            <dd><p :for={paragraph <- @e.affects}>{paragraph}</p></dd>
+          </div>
+          <div :if={@e.tried != []}>
+            <dt>What Ryker tried</dt>
+            <dd><p :for={paragraph <- @e.tried}>{paragraph}</p></dd>
+          </div>
+        </dl>
+        <details :if={@report} class="recovery-worker-report failure-report">
+          <summary>The worker’s last answer</summary>
+          <p class="recovery-attribution">
+            The worker wrote this. Ryker has not checked the claims in it.
+          </p>
+          <div class="recovery-model-output">
+            {Phoenix.HTML.raw(SlackMarkdown.preview(@report))}
+          </div>
+        </details>
+      </Kit.section_card>
 
-      <Kit.section_head title="What it affects" />
-      <div class="failure-prose">
-        <p :for={paragraph <- @e.affects}>{paragraph}</p>
-      </div>
-
-      <Kit.section_head title="What Ryker tried" />
-      <div class="failure-prose">
-        <p :for={paragraph <- @e.tried}>{paragraph}</p>
-      </div>
-
-      <Kit.section_head title="What you can do" lede={@e.options_lede} />
-      <Kit.entity_list label="What you can do">
-        <Kit.entity_row
-          :for={option <- @e.options}
-          name={option.label}
-          state={option[:outlook]}
-          text={option.effect}
-          meta={List.wrap(option[:note])}
-          class="failure-option"
-        >
-          <:actions :if={option[:path] || option[:href]}>
-            <Components.action_button
-              :if={option[:path]}
-              path={option.path}
-              label={option.label}
-              tone={if option[:recommended], do: :primary, else: :secondary}
-            />
-            <a
-              :if={option[:href]}
-              class={["ui-button", if(option[:recommended], do: "primary", else: "secondary")]}
-              href={option.href}
-              {external(option.href)}
-            >{option[:link] || option.label}</a>
-          </:actions>
-        </Kit.entity_row>
-      </Kit.entity_list>
+      <Kit.section_card
+        id="failure-options"
+        title="What you can do"
+        lede={@e.options_lede}
+        class="failure-options"
+      >
+        <Kit.entity_list label="What you can do">
+          <Kit.entity_row
+            :for={option <- @e.options}
+            name={option.label}
+            state={option[:outlook]}
+            text={option.effect}
+            meta={List.wrap(option[:note])}
+            class={["failure-option", !option[:path] and !option[:href] && "failure-option-passive"]}
+          >
+            <:actions :if={option[:path] || option[:href]}>
+              <Components.action_button
+                :if={option[:path]}
+                path={option.path}
+                label={option.label}
+                tone={if option[:recommended], do: :primary, else: :secondary}
+              />
+              <a
+                :if={option[:href]}
+                class={["ui-button", if(option[:recommended], do: "primary", else: "secondary")]}
+                href={option.href}
+                {external(option.href)}
+              >{option[:link] || option.label}</a>
+            </:actions>
+          </Kit.entity_row>
+        </Kit.entity_list>
+      </Kit.section_card>
 
       <Components.disclosure
         id="failure-technical"

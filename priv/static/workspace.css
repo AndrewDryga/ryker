@@ -1785,6 +1785,17 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .memory-technical { max-width:720px; margin:32px 0 0; }
 .ryker-app .memory-technical .ui-facts > div { padding:3px 0; border-top:0; }
 .memory-summary-groups { display:grid; gap:8px; max-width:720px; margin:8px 0 0; }
+.memory-summary #summary-facts { margin-top:24px; }
+/* A failure's page: what happened in labelled rows, then its options. */
+.failure-rows { display:grid; gap:12px; max-width:880px; margin:0; }
+.failure-rows > div { display:grid; grid-template-columns:150px minmax(0, 1fr); gap:16px; }
+.failure-rows dt { margin:0; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
+.failure-rows dd { margin:0; }
+.ryker-app .failure-rows dd p { margin:0 0 4px; font-size:14px; line-height:20px; color:var(--ryker-text); }
+.ryker-app .failure-rows dd p + p { color:var(--ryker-text-secondary); }
+.failure-summary .failure-report { margin-top:16px; }
+.failure-option-passive .entity-name { color:var(--ryker-text-secondary); }
+@media (max-width:700px) { .failure-rows > div { grid-template-columns:minmax(0, 1fr); gap:2px; } }
 .ryker-app .memory-summary-label { margin:0; font-size:13px; line-height:18px; font-weight:600; color:var(--ryker-text-secondary); }
 .ryker-app .memory-summary-groups ul { margin:2px 0 0; padding-left:18px; }
 .ryker-app .memory-summary-groups li { margin:2px 0; font-size:14px; line-height:20px; color:var(--ryker-text); overflow-wrap:anywhere; }
