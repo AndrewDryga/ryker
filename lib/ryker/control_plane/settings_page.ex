@@ -136,6 +136,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <:action :if={@section == :environments and is_nil(@form)}>
           <EnvironmentsPage.add />
         </:action>
+        <:action :if={@section == :pricing and is_nil(@form)}>
+          <.link patch="/settings/prices/new" class="ui-button secondary">
+            <Components.icon name={:plus} />Add price
+          </.link>
+        </:action>
         <%!-- A file download, so a plain link: the browser saves what the
         router streams and the page stays where it is. --%>
         <:action :if={@section == :retention and @view.snapshot.retention.routing_examples_enabled}>
@@ -192,12 +197,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       />
       <%= if is_nil(@form) do %>
         <SetupPage.render :if={@section == :setup} view={@view} />
-        <EnvironmentsPage.render
-          :if={@section == :environments}
-          view={@view}
-          params={@params}
-          confirm={@confirm}
-        />
+        <EnvironmentsPage.render :if={@section == :environments} view={@view} params={@params} />
         <.integrations :if={@section == :integrations} view={@view} />
         <.settings_overview :if={@section == :settings} view={@view} />
         <.slack
@@ -289,7 +289,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     assigns = assign(assigns, :ref, ref)
 
     ~H"""
-    <EnvironmentsPage.form view={@view} ref={@ref} />
+    <EnvironmentsPage.form view={@view} ref={@ref} confirm={@confirm} />
     """
   end
 
@@ -310,19 +310,19 @@ defmodule Ryker.ControlPlane.SettingsPage do
       )
 
     ~H"""
-    <Kit.form_card :if={@found} label={heading(@section, @form, @view).title}>
-      <.live_component
-        module={SettingsEditor}
-        id={"settings-#{@key}"}
-        section={@collection}
-        view={@view}
-        commands={@commands}
-        show_header={false}
-        frame={:none}
-        form={{:form, @item}}
-        paths={paths(@key)}
-      />
-    </Kit.form_card>
+    <.live_component
+      :if={@found}
+      module={SettingsEditor}
+      id={"settings-#{@key}"}
+      section={@collection}
+      view={@view}
+      commands={@commands}
+      show_header={false}
+      frame={:none}
+      form={{:form, @item}}
+      label={heading(@section, @form, @view).title}
+      paths={paths(@key)}
+    />
     <.gone
       :if={!@found}
       noun={Map.get(@collection, :item_label, "entry")}
@@ -410,21 +410,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
           name={row.name}
           href={row.href}
           navigate={true}
+          link_row={true}
           state={row.state}
           tag={row.tag}
           text={row.text}
           meta={row.meta}
-        >
-          <:actions>
-            <.link
-              navigate={row.action.href}
-              class={["ui-button", if(row.action.primary, do: "primary", else: "secondary")]}
-            >{row.action.label}<span
-              :if={not String.contains?(row.action.label, row.name)}
-              class="sr-only"
-            >{" " <> row.name}</span></.link>
-          </:actions>
-        </Kit.entity_row>
+        />
       </Kit.entity_list>
     </Kit.section_card>
     """
@@ -988,7 +979,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     <Kit.section_card
       class="settings-section"
       title="Accounts"
-      lede="Pause an account to stop sending it new work. Its history stays."
+      lede="Open an account to rename it, replace its key, pause it or remove it."
     >
       <:actions :if={@accounts != []}>
         <.link patch="/integrations/emisar/new" class="ui-button secondary">
@@ -1009,6 +1000,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
           :for={account <- @accounts}
           id={"emisar-account-" <> account.ref}
           name={account.display_name}
+          href={"/integrations/emisar/#{account.ref}/edit"}
+          navigate={true}
+          link_row={true}
           state={@account_states[account.ref].state}
           text={@account_states[account.ref].reason}
           meta={
@@ -1019,18 +1013,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
               watching(account, @account_states[account.ref])
             ]
           }
-        >
-          <:actions>
-            <button
-              type="button"
-              class="ui-button secondary"
-              phx-click={if account.enabled_for_new_work, do: "disable-emisar", else: "enable-emisar"}
-              phx-value-ref={account.ref}
-            >{if account.enabled_for_new_work, do: "Pause", else: "Resume"}</button>
-            <.link patch={"/integrations/emisar/#{account.ref}/edit"} class="ui-button secondary">Edit<span class="sr-only">{" " <>
-              account.display_name}</span></.link>
-          </:actions>
-        </Kit.entity_row>
+        />
       </Kit.entity_list>
     </Kit.section_card>
     """
@@ -1098,6 +1081,27 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
     <Kit.section_card
       class="settings-section"
+      id="emisar-new-work"
+      title="New work"
+      lede={
+        if @account.enabled_for_new_work,
+          do:
+            "Ryker sends new work to this account. Pause it to stop that; work already sent to it and its history stay.",
+          else: "Paused, so Ryker sends it no new work. Work already sent to it and its history stay."
+      }
+    >
+      <:actions>
+        <button
+          type="button"
+          class="ui-button secondary"
+          phx-click={if @account.enabled_for_new_work, do: "disable-emisar", else: "enable-emisar"}
+          phx-value-ref={@account.ref}
+        >{if @account.enabled_for_new_work, do: "Pause", else: "Resume"}</button>
+      </:actions>
+    </Kit.section_card>
+
+    <Kit.section_card
+      class="settings-section"
       title="Approval monitoring"
       lede={
         if @account.monitoring_enabled,
@@ -1121,21 +1125,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
       </:actions>
     </Kit.section_card>
 
-    <Kit.section_card
-      class="settings-section"
+    <Kit.remove_card
+      id="remove-emisar-account"
       title="Remove account"
-      lede="The environments that use it are left without an Emisar account. An account that tasks or approvals still name cannot be removed; pause it instead."
-    >
-      <:actions>
-        <button
-          type="button"
-          class="ui-button danger"
-          phx-click="confirm-settings-action"
-          phx-value-action="delete-emisar"
-          phx-value-ref={@account.ref}
-        >Remove account</button>
-      </:actions>
-    </Kit.section_card>
+      text="The environments that use it are left without an Emisar account. An account that tasks or approvals still name cannot be removed; pause it instead."
+      phx-click="confirm-settings-action"
+      phx-value-action="delete-emisar"
+      phx-value-ref={@account.ref}
+    />
     <Kit.confirm_modal
       :if={@confirm == {"delete-emisar", @account.ref}}
       id="confirm-delete-emisar"

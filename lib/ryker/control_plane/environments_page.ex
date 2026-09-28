@@ -5,11 +5,11 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
   One Kit row per environment says what it holds, how many repositories, the
   default one (the one a task changes unless it picks another) and how many
   work only reads, its Emisar account, and who chooses it. The default
-  environment comes first and says so. Add an environment and a row's name or
-  Edit open its form on a page of its own (`form/1`, `EnvironmentEditor`).
-  Use as default moves the default in one save; Remove asks first in a modal,
-  and a removal the settings refuse names who still uses the environment.
-  The LiveView runs every write; this only renders.
+  environment comes first and says so. The whole row opens the environment's
+  page, its form (`form/1`, `EnvironmentEditor`), where it is changed, made
+  the default or removed; Add an environment opens an empty one. Remove asks
+  first in a modal, and a removal the settings refuse names who still uses
+  the environment. The LiveView runs every write; this only renders.
   """
 
   use Phoenix.Component
@@ -26,7 +26,6 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
 
   attr(:view, :map, required: true, doc: "The settings view")
   attr(:params, :map, default: %{}, doc: "The page's query: q searches")
-  attr(:confirm, :any, default: nil, doc: "{action, ref} of the question now open, if any")
 
   def render(assigns) do
     snapshot = assigns.view.snapshot
@@ -37,12 +36,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
       assign(assigns,
         environments: environments,
         query: query,
-        rows: Enum.filter(environments, &matches?(&1, query, snapshot)),
-        removing:
-          case assigns.confirm do
-            {"delete-environment", ref} -> Environments.find(snapshot, ref)
-            _other -> nil
-          end
+        rows: Enum.filter(environments, &matches?(&1, query, snapshot))
       )
 
     ~H"""
@@ -67,31 +61,11 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
           name={environment.display_name}
           href={edit_path(environment.ref)}
           navigate={true}
+          link_row={true}
           tag={if environment.is_default, do: "Default"}
           text={environment.description}
           meta={meta(environment, @view)}
-        >
-          <:actions>
-            <.link
-              patch={edit_path(environment.ref)}
-              class="ui-button secondary"
-            >Edit<span class="sr-only">{" " <> environment.display_name}</span></.link>
-            <button
-              :if={!environment.is_default}
-              type="button"
-              class="ui-button secondary"
-              phx-click="make-default-environment"
-              phx-value-ref={environment.ref}
-            >Use as default</button>
-            <button
-              type="button"
-              class="ui-button quiet"
-              phx-click="confirm-settings-action"
-              phx-value-action="delete-environment"
-              phx-value-ref={environment.ref}
-            >Remove<span class="sr-only">{" " <> environment.display_name}</span></button>
-          </:actions>
-        </Kit.entity_row>
+        />
       </Kit.entity_list>
       <.first_environment :if={@environments == []} view={@view} />
       <Kit.empty
@@ -99,16 +73,6 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
         icon={:search}
         title={"No environments match “#{@query}”"}
         text="Try another name or clear the search."
-      />
-      <Kit.confirm_modal
-        :if={@removing}
-        id="confirm-delete-environment"
-        title={"Remove #{@removing.display_name}?"}
-        text={removal(@removing)}
-        label="Remove environment"
-        cancel="cancel-settings-action"
-        phx-click="delete-environment"
-        phx-value-ref={@removing.ref}
       />
     </div>
     """
@@ -125,16 +89,21 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
 
   attr(:view, :map, required: true)
   attr(:ref, :string, default: nil, doc: "The environment it edits; nil adds one")
+  attr(:confirm, :any, default: nil, doc: "{action, ref} of the question now open, if any")
 
   @doc """
-  The page of one environment's form, adding one (`ref` nil) or editing one.
-  An address for an environment that is gone says so instead of an empty form.
+  The page of one environment, adding one (`ref` nil) or editing one: its
+  form, then removing it. An address for an environment that is gone says so
+  instead of an empty form.
   """
   def form(assigns) do
+    environment = assigns.ref && Environments.find(assigns.view.snapshot, assigns.ref)
+
     assigns =
       assign(assigns,
-        found:
-          is_nil(assigns.ref) or not is_nil(Environments.find(assigns.view.snapshot, assigns.ref))
+        environment: environment,
+        found: is_nil(assigns.ref) or not is_nil(environment),
+        removing: environment && assigns.confirm == {"delete-environment", environment.ref}
       )
 
     ~H"""
@@ -146,6 +115,25 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
         view={@view}
       />
     </Kit.form_card>
+    <Kit.remove_card
+      :if={@environment}
+      id="remove-environment"
+      title="Remove environment"
+      text={removal(@environment)}
+      phx-click="confirm-settings-action"
+      phx-value-action="delete-environment"
+      phx-value-ref={@environment.ref}
+    />
+    <Kit.confirm_modal
+      :if={@removing}
+      id="confirm-delete-environment"
+      title={"Remove #{@environment.display_name}?"}
+      text={removal(@environment)}
+      label="Remove environment"
+      cancel="cancel-settings-action"
+      phx-click="delete-environment"
+      phx-value-ref={@environment.ref}
+    />
     <Kit.empty
       :if={!@found}
       id="environment-not-found"

@@ -280,6 +280,7 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
             id={row.id}
             name={row.name}
             href={row.href}
+            link_row
             text={row.text}
             meta={[row.differs]}
             at={Kit.clock(row.at)}

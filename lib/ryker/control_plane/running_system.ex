@@ -180,6 +180,7 @@ defmodule Ryker.ControlPlane.RunningSystem do
       id={"running-#{@integration.key}"}
       name={@integration.name}
       href={@integration.href}
+      link_row
       state={@integration.state}
       text={@integration.reason}
       meta={@integration.facts}

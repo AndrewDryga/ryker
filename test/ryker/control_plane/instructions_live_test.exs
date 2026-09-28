@@ -148,8 +148,8 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert has_element?(
              view,
              row <>
-               " a[href='/channels/TINSTRUCTIONS/CTEST#instructions-slack:TINSTRUCTIONS:CTEST']",
-             "Edit"
+               ".entity-row-link h3 a[href='/channels/TINSTRUCTIONS/CTEST#instructions-slack:TINSTRUCTIONS:CTEST']",
+             "Slack channel CTEST"
            )
 
     refute has_element?(view, "section.instructions-channels", "CCLEARED")
@@ -341,7 +341,8 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
              "section.kit-card#knows",
              "section.kit-card#schedules",
              "section.kit-card#episodes",
-             "section.kit-card#usage"
+             "section.kit-card#usage",
+             "section.kit-card#leave-channel"
            ]
 
     # The Instructions card opens with its title.

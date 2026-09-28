@@ -84,6 +84,30 @@ defmodule Ryker.Slack.ChannelSetup do
     end
   end
 
+  @doc """
+  Takes Ryker out of a channel when a person removes it on the channel's
+  page: Slack takes it out, then the leave is recorded as Slack's own event
+  records one, so the page says so at once; the event that follows is the
+  same leave. What Ryker did and learned there stays, and the channel's
+  settings come back if it is invited again.
+  """
+  @spec leave(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def leave(workspace_ref, channel_ref, options) do
+    with :ok <- options.api.leave_conversation(options.client, channel_ref) do
+      options.configurations.observe_membership(
+        %{
+          actor_ref: nil,
+          channel_ref: channel_ref,
+          event_ref: "control-plane:leave:" <> Ecto.UUID.generate(),
+          kind: :left,
+          occurred_at: DateTime.utc_now(),
+          workspace_ref: workspace_ref
+        },
+        options.catalog
+      )
+    end
+  end
+
   @spec handle_interaction(Ryker.Slack.Interaction.t(), map()) ::
           {:ok, map()} | {:error, term()}
   def handle_interaction(%{action_id: "ryker_welcome_" <> _rest} = interaction, options) do

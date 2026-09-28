@@ -18,11 +18,13 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   title, under the page's own. A section that is part of another card, or a
   row's form on a page of its own, draws no card (`frame: :none`).
 
-  A list section (`kind: :collection`) is a list: each row's Edit opens that
-  row's form on a page of its own, and Add opens the form for a new row the
-  same way (`paths`). Removing asks first in `Kit.confirm_modal/1`. On its own
-  page the editor is the form alone (`form: {:form, key}`, key nil for a new
-  row); a save returns to the list and says what it did there.
+  A list section (`kind: :collection`) is a list: the whole of a row opens
+  that row's page, its form, and Add opens the form for a new row the same
+  way (`paths`). On its own page the editor is the row's form in its card
+  (`form: {:form, key}`, key nil for a new row), then, for a saved row,
+  removing it (`Kit.remove_card/1`), which asks first in
+  `Kit.confirm_modal/1`. A save or a removal returns to the list and says
+  what it did there.
   """
 
   use Phoenix.LiveComponent
@@ -188,7 +190,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   def handle_event("cancel-remove", _params, socket),
     do: {:noreply, assign(socket, removing: nil, remove_error: nil)}
 
-  # Removing takes two steps: the row's Remove asks, and only the button in
+  # Removing takes two steps: the page's Remove asks, and only the button in
   # that question removes. A remove that arrives without the question having
   # been asked is treated as the asking, so one stray click never deletes.
   def handle_event("delete-item", %{"item" => key}, %{assigns: %{removing: key}} = socket) do
@@ -244,11 +246,12 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp position(_absent), do: nil
 
-  # The page says what was removed, above the list, as it says every outcome.
+  # A removed row's page is gone, so the removal returns to the list, which
+  # says what was removed, as a save does.
   defp removed(socket, {:ok, snapshot}, name) do
     view = SettingsView.view(snapshot)
-    send(self(), {:settings_notice, view, "#{name} was removed."})
-    socket |> assign(:view, view) |> reset(nil)
+    send(self(), {:settings_item_saved, view, socket.assigns.paths.list, "#{name} was removed."})
+    assign(socket, view: view, removing: nil)
   end
 
   # The list moved while the question was open. The row may read differently
@@ -445,39 +448,124 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   @impl true
   def render(%{form: {:form, _key}} = assigns) do
+    %{section: section, view: view, item_key: key} = assigns
+
+    item =
+      key && Enum.find(SettingsSections.items(section, view), &(item_key(section, &1) == key))
+
+    row = item && SettingsRows.present(section, item, view)
+
     assigns =
       assign(assigns,
         collection?: true,
-        notices: notices(assigns.section, assigns.view),
-        noun: noun(assigns.section)
+        notices: notices(section, view),
+        noun: noun(section),
+        row: row
       )
 
     ~H"""
     <div id={@id} class="settings-block settings-form-block">
-      <p :for={notice <- @notices} class="settings-notice">
-        {notice.text}
-        <.link :if={notice[:href]} navigate={notice.href}>{notice.link}</.link>
-      </p>
-      <.editor
-        id={@id}
-        section={@section}
-        view={@view}
-        draft={@draft}
-        dirty={@dirty}
-        errors={@errors}
-        error={@error}
-        impact={@impact}
-        conflict={@conflict}
-        item_key={@item_key}
-        message={@message}
-        saved_key={nil}
-        autosave={false}
-        myself={@myself}
-        collection?={true}
-        refusal={@refusal}
-        noun={@noun}
-        cancel={@paths.list}
+      <Kit.form_card label={@label}>
+        <p :for={notice <- @notices} class="settings-notice">
+          {notice.text}
+          <.link :if={notice[:href]} navigate={notice.href}>{notice.link}</.link>
+        </p>
+        <p :if={@row && @row.address} class="settings-address">
+          <span>Address</span>
+          <code>{@row.address}</code>
+          <button
+            type="button"
+            class="copy-value"
+            data-copy-value={@row.address}
+            aria-label={"Copy the address for #{@row.name}"}
+          >
+            <Components.icon name={:copy} />
+            <span class="sr-only" data-copy-status aria-live="polite"></span>
+          </button>
+        </p>
+        <.editor
+          id={@id}
+          section={@section}
+          view={@view}
+          draft={@draft}
+          dirty={@dirty}
+          errors={@errors}
+          error={@error}
+          impact={@impact}
+          conflict={@conflict}
+          item_key={@item_key}
+          message={@message}
+          saved_key={nil}
+          autosave={false}
+          myself={@myself}
+          collection?={true}
+          refusal={@refusal}
+          noun={@noun}
+          cancel={@paths.list}
+        />
+      </Kit.form_card>
+      <Kit.remove_card
+        :if={@row}
+        id={"#{@id}-remove-card"}
+        title={"Remove #{@noun}"}
+        text={SettingsRows.removal(@section)}
+        phx-click="ask-remove"
+        phx-value-item={@item_key}
+        phx-target={@myself}
       />
+      <Kit.confirm_modal
+        :if={@row && @removing == @item_key}
+        id={"#{@id}-remove"}
+        title={"Remove #{@row.name}?"}
+        text={SettingsRows.removal(@section)}
+        label={"Remove #{@noun}"}
+        error={@remove_error}
+        cancel="cancel-remove"
+        target={@myself}
+        phx-click="delete-item"
+        phx-value-item={@item_key}
+        phx-target={@myself}
+      />
+    </div>
+    """
+  end
+
+  # A list that is its page's only part, such as Model prices, reads as every
+  # list page does: how many it holds above it, then its rows in the page's
+  # card, with Add in the page's header (Andrew, 2026-09-28: "Prices table
+  # isn't the standard layout").
+  def render(%{section: %{kind: :collection}, show_header: false} = assigns) do
+    %{section: section, view: view} = assigns
+    rows = rows(section, view)
+    noun = noun(section)
+
+    assigns =
+      assign(assigns,
+        rows: rows,
+        noun: noun,
+        notices: notices(section, view),
+        total: Kit.list_total(length(rows), {noun, plural(noun)}, false)
+      )
+
+    ~H"""
+    <div id={@id} class="settings-block settings-collection settings-list-page">
+      <Kit.counts label={@section.title} items={[@total]} />
+      <Kit.section_card label={@section.title}>
+        <p :for={notice <- @notices} class="settings-notice">
+          {notice.text}
+          <.link :if={notice[:href]} navigate={notice.href}>{notice.link}</.link>
+        </p>
+        <.rows_list id={@id} rows={@rows} paths={@paths} label={@section.title} />
+        <Kit.empty
+          :if={@rows == [] and @section[:empty]}
+          variant={:hint}
+          icon={elem(@section.empty, 0)}
+          title={elem(@section.empty, 1)}
+          text={elem(@section.empty, 2)}
+        >
+          <.add_link noun={@noun} paths={@paths} primary={true} />
+        </Kit.empty>
+      </Kit.section_card>
     </div>
     """
   end
@@ -485,13 +573,11 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   def render(assigns) do
     %{section: section, view: view} = assigns
     collection? = section.kind == :collection
-    rows = if collection?, do: rows(section, view), else: []
 
     assigns =
       assign(assigns,
         collection?: collection?,
-        rows: rows,
-        removing_row: assigns.removing && List.keyfind(rows, assigns.removing, 0),
+        rows: if(collection?, do: rows(section, view), else: []),
         notices: notices(section, view),
         noun: noun(section),
         autosave: autosave?(section),
@@ -518,10 +604,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           <.add_link noun={@noun} paths={@paths} />
         </:actions>
       </Kit.section_head>
-      <div :if={!@show_header and @collection? and @rows != []} class="settings-collection-bar">
-        <p>{count(@rows, @noun)}</p>
-        <.add_link noun={@noun} paths={@paths} />
-      </div>
       <p :for={notice <- @notices} class="settings-notice">
         {notice.text}
         <.link :if={notice[:href]} navigate={notice.href}>{notice.link}</.link>
@@ -547,80 +629,40 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         noun={@noun}
         cancel={nil}
       />
-      <Kit.entity_list :if={@rows != []} label={@section.title}>
-        <Kit.entity_row
-          :for={{key, row} <- @rows}
-          id={"#{@id}-row-#{row_id(key)}"}
-          name={row.name}
-          state={row.state}
-          text={row.text}
-          meta={row.meta}
-        >
-          <:actions>
-            <.link
-              patch={edit_path(@paths, key)}
-              class="ui-button secondary"
-            >Edit<span class="sr-only">{" " <> row.name}</span></.link>
-            <button
-              type="button"
-              class="ui-button quiet"
-              phx-click="ask-remove"
-              phx-value-item={key}
-              phx-target={@myself}
-            >Remove<span class="sr-only">{" " <> row.name}</span></button>
-          </:actions>
-          <:details>
-            <p :if={row.address} class="settings-address">
-              <span>Address</span>
-              <code>{row.address}</code>
-              <button
-                type="button"
-                class="copy-value"
-                data-copy-value={row.address}
-                aria-label={"Copy the address for #{row.name}"}
-              >
-                <Components.icon name={:copy} />
-                <span class="sr-only" data-copy-status aria-live="polite"></span>
-              </button>
-            </p>
-            <details :if={row.details != []} class="settings-row-details">
-              <summary>Details</summary>
-              <dl>
-                <div :for={{label, value} <- row.details}>
-                  <dt>{label}</dt>
-                  <dd :if={match?({:fingerprint, _value}, value)}>
-                    <Components.identifier value={elem(value, 1)} label={label} />
-                  </dd>
-                  <dd :if={is_binary(value)}><code>{value}</code></dd>
-                </div>
-              </dl>
-            </details>
-          </:details>
-        </Kit.entity_row>
-      </Kit.entity_list>
+      <.rows_list :if={@collection?} id={@id} rows={@rows} paths={@paths} label={@section.title} />
       <Kit.empty
         :if={@collection? and @rows == [] and @section[:empty]}
         variant={if @frame == :card, do: :hint, else: :boxed}
         icon={elem(@section.empty, 0)}
         title={elem(@section.empty, 1)}
         text={elem(@section.empty, 2)}
-      >
-        <.add_link :if={!@show_header} noun={@noun} paths={@paths} primary={true} />
-      </Kit.empty>
-      <Kit.confirm_modal
-        :if={@removing_row}
-        id={"#{@id}-remove"}
-        title={"Remove #{elem(@removing_row, 1).name}?"}
-        text={SettingsRows.removal(@section)}
-        label={"Remove #{@noun}"}
-        error={@remove_error}
-        cancel="cancel-remove"
-        target={@myself}
-        phx-click="delete-item"
-        phx-value-item={elem(@removing_row, 0)}
-        phx-target={@myself}
       />
     </section>
+    """
+  end
+
+  attr(:id, :string, required: true)
+  attr(:rows, :list, required: true)
+  attr(:paths, :map, required: true)
+  attr(:label, :string, required: true)
+
+  # Each saved row opens its own page, its form, from anywhere on the row.
+  defp rows_list(assigns) do
+    ~H"""
+    <Kit.entity_list :if={@rows != []} label={@label}>
+      <Kit.entity_row
+        :for={{key, row} <- @rows}
+        id={"#{@id}-row-#{row_id(key)}"}
+        icon={row.icon}
+        name={row.name}
+        href={edit_path(@paths, key)}
+        navigate={true}
+        link_row={true}
+        state={row.state}
+        text={row.text}
+        meta={row.meta}
+      />
+    </Kit.entity_list>
     """
   end
 
@@ -1397,9 +1439,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp collection_item_label(:repositories), do: "repository"
   defp collection_item_label(:github_bindings), do: "GitHub repository binding"
   defp collection_item_label(_key), do: "entry"
-
-  defp count([_one], noun), do: "1 #{noun}"
-  defp count(rows, noun), do: "#{length(rows)} #{plural(noun)}"
 
   defp plural(noun) do
     cond do

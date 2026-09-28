@@ -2,8 +2,8 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   @moduledoc """
   The Repositories list: one search box over Kit rows that say whether each
   repository is ready, still being set up, or needs a person and what to do,
-  and where its RYKER.md stands, with the exact support facts in one closed
-  Details disclosure per row.
+  and where its knowledge stands. Each row opens the repository's own page,
+  which holds its buttons and every fact in cards.
   """
   use ExUnit.Case, async: true
 
@@ -15,6 +15,10 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   @repository %{
     channels: 2,
     environments: ["Production", "Staging"],
+    in_environments: [
+      %{ref: "production", name: "Production"},
+      %{ref: "staging", name: "Staging"}
+    ],
     configured: %{
       action_grants: ["merge_pull_request"],
       contributor_policy: "ryker-write",
@@ -112,22 +116,16 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert state(row) == {"Ready", ["on"]}
     assert Enum.empty?(LazyHTML.query(row, "p.entity-text"))
 
-    # Refreshing its RYKER.md and removing it are its actions, quiet, and
-    # both only ask.
-    assert row |> LazyHTML.query(".entity-actions .ui-button") |> Enum.map(&LazyHTML.text/1) ==
-             ["Refresh knowledge of acme/checkout-api", "Remove acme/checkout-api"]
+    # Andrew, 2026-09-28: "same here http://127.0.0.1:4321/repositories but
+    # repos missing their own page where that buttons will move to". The
+    # whole row opens the repository's page; the row has no buttons and no
+    # Details disclosure of its own.
+    assert LazyHTML.attribute(row, "class") |> hd() =~ "entity-row-link"
 
-    assert LazyHTML.query(
-             row,
-             ".entity-actions button.quiet[phx-click=confirm-settings-action][phx-value-action=refresh-knowledge][phx-value-ref=acme-checkout-api]"
-           )
-           |> Enum.count() == 1
+    assert LazyHTML.query(row, "h3.entity-name a") |> LazyHTML.attribute("href") ==
+             ["/repositories/acme-checkout-api"]
 
-    assert LazyHTML.query(
-             row,
-             ".entity-actions button.quiet[phx-click=confirm-settings-action][phx-value-action=remove-repository][phx-value-ref=acme-checkout-api]"
-           )
-           |> Enum.count() == 1
+    assert Enum.empty?(LazyHTML.query(row, "button, details, .entity-actions"))
 
     assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
              "In Production, Staging · used in 2 channels and 1 schedule · 14 tasks · code from 3f9a1c2e, fetched 2 h ago · Knowledge updated 1 h ago"
@@ -211,11 +209,20 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     refute state(row) == {"Needs attention", ["warn"]}
     assert Enum.empty?(LazyHTML.query(row, "p.entity-text"))
 
-    details = row |> LazyHTML.query("details") |> LazyHTML.text() |> squeeze()
-    assert details =~ "Enough to work here. Not shared: deployments"
+    github =
+      @repository
+      |> put_in(
+        [:configured, :github_permissions],
+        Map.new(~w(metadata contents pull_requests checks actions issues), &{&1, "write"})
+      )
+      |> detail()
+      |> LazyHTML.query("#repository-github")
+
+    assert github |> LazyHTML.text() |> squeeze() =~
+             "Permissions Enough to work here. Not shared: deployments"
   end
 
-  test "a blocked setup offers Retry setup on its row, bound to that repository" do
+  test "a blocked setup offers Retry setup on its page, bound to that repository" do
     blocked =
       @repository
       |> put_in([:configured, :onboarding_state], :blocked)
@@ -227,35 +234,121 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() ==
              "Setup stopped. Cloning failed: repository is empty. Fix the cause, then retry setup."
 
+    # What needs a person comes first on the page, with the button that fixes it.
+    attention = blocked |> detail() |> LazyHTML.query("#repository-attention")
+    assert LazyHTML.query(attention, "h2") |> LazyHTML.text() == "What to do"
+
+    assert LazyHTML.query(attention, ".section-head p") |> LazyHTML.text() ==
+             "Setup stopped. Cloning failed: repository is empty. Fix the cause, then retry setup."
+
     retry =
       LazyHTML.query(
-        row,
-        ".entity-actions button.ui-button.secondary[phx-click=retry-github-onboarding][phx-value-repository=acme-checkout-api]"
+        attention,
+        "button.ui-button.primary[phx-click=retry-github-onboarding][phx-value-repository=acme-checkout-api]"
       )
 
     assert LazyHTML.text(retry) == "Retry setup"
   end
 
-  test "the support facts wait in one closed Details disclosure per row" do
-    details = render([@repository]) |> LazyHTML.query("article.entity-row details:not([open])")
-    assert Enum.count(details) == 1
-    assert LazyHTML.query(details, "summary") |> LazyHTML.text() == "Details"
+  # Andrew, 2026-09-28, of the closed Details under every row: the "ugly
+  # collapsible" content belongs on the repository's own page. Each part of it
+  # is a card there, in the order it matters, and removing it comes last.
+  test "a repository's page holds its facts in cards, in the order they matter" do
+    page = detail(@repository)
 
-    text = details |> LazyHTML.text() |> squeeze()
-    assert text =~ "acme/checkout-api · access available"
-    assert text =~ "Written by a model from 783fc48."
-    assert text =~ "Last written because These files changed: README.md."
-    assert text =~ "Last 1 h ago, next tomorrow 13:00 UTC"
-    assert text =~ "Everything Ryker needs"
-    assert text =~ "merge pull request"
-    assert text =~ "Up to date"
-    refute text =~ "tasks use ryker-write"
-    assert text =~ "from refs/heads/main"
-    assert text =~ "not a live check"
-    assert text =~ "1 pull request opened by Ryker"
+    assert outline(page, "div.repository-page > *") == [
+             "p.kit-status-line",
+             "section.kit-card#repository-knowledge",
+             "section.kit-card#repository-use",
+             "section.kit-card#repository-github",
+             "section.kit-card#repository-code",
+             "section.kit-card#remove-repository"
+           ]
 
-    assert LazyHTML.query(details, "a[href='/activity?repository=acme-checkout-api']")
-           |> Enum.count() == 1
+    assert LazyHTML.query(page, "details") |> Enum.empty?()
+    assert LazyHTML.query(page, "#repository-state .state-word") |> LazyHTML.text() == "Ready"
+
+    knowledge = page |> LazyHTML.query("#repository-knowledge") |> LazyHTML.text() |> squeeze()
+    assert knowledge =~ "Written By a model from 783fc48, 1 h ago"
+    assert knowledge =~ "Why These files changed: README.md."
+    assert knowledge =~ "Checks Last 1 h ago, next tomorrow 13:00 UTC"
+
+    # Refreshing it only asks, from the card it refreshes.
+    assert LazyHTML.query(
+             page,
+             "#repository-knowledge .section-actions button.secondary[phx-click=confirm-settings-action][phx-value-action=refresh-knowledge][phx-value-ref=acme-checkout-api]"
+           )
+           |> LazyHTML.text() == "Refresh knowledge"
+
+    use = page |> LazyHTML.query("#repository-use") |> LazyHTML.text() |> squeeze()
+    assert use =~ "Environments Production, Staging"
+    assert use =~ "Channels 2 channels"
+    assert use =~ "Schedules 1 schedule"
+    assert use =~ "Tasks 14 tasks · See its requests"
+    assert use =~ "Pull requests 1 pull request opened by Ryker"
+
+    assert LazyHTML.query(page, "#repository-use a") |> LazyHTML.attribute("href") == [
+             "/environments/production/edit",
+             "/environments/staging/edit",
+             "/activity?repository=acme-checkout-api"
+           ]
+
+    github = page |> LazyHTML.query("#repository-github") |> LazyHTML.text() |> squeeze()
+    assert github =~ "Repository acme/checkout-api"
+    assert github =~ "Access Available"
+    assert github =~ "Permissions Everything Ryker needs"
+    assert github =~ "Allowed actions merge pull request"
+    assert github =~ "Events Up to date, last received 1 h ago"
+    refute github =~ "ryker-write"
+
+    assert LazyHTML.query(page, "#repository-github a[target=_blank]")
+           |> LazyHTML.attribute("href") == ["https://github.com/acme/checkout-api"]
+
+    code = page |> LazyHTML.query("#repository-code") |> LazyHTML.text() |> squeeze()
+    assert code =~ "not a live check"
+    assert code =~ "from refs/heads/main, fetched 2 h ago"
+    assert code =~ "Base Current"
+
+    remove = LazyHTML.query(page, "#remove-repository")
+
+    assert LazyHTML.query(remove, ".section-head p") |> LazyHTML.text() ==
+             RepositoriesPage.removal(@repository).text
+
+    assert LazyHTML.query(
+             remove,
+             "button.ui-button.danger[phx-click=confirm-settings-action][phx-value-action=remove-repository][phx-value-ref=acme-checkout-api]"
+           )
+           |> LazyHTML.text() == "Remove repository"
+  end
+
+  test "a repository in no environment says so on its page and where to add it" do
+    page = detail(%{@repository | environments: [], in_environments: [], channels: 0})
+    use = page |> LazyHTML.query("#repository-use") |> LazyHTML.text() |> squeeze()
+
+    assert use =~
+             "Environments None yet, so no channel's work can use it. Add it to an environment"
+
+    assert use =~ "Channels None"
+    assert LazyHTML.query(page, "#repository-use a[href='/environments']") |> Enum.count() == 1
+  end
+
+  test "the route opens a repository's page under its name, and one not added is not found" do
+    options = %{
+      projection: %{
+        repository: fn
+          "acme-checkout-api" -> {:ok, @repository}
+          _other -> :error
+        end
+      }
+    }
+
+    page = Pages.page(["repositories", "acme-checkout-api"], %{}, options)
+    assert page.status == 200
+    assert page.title == "acme/checkout-api"
+    assert page.back == {"All repositories", "/repositories"}
+    assert IO.iodata_to_binary(page.body) =~ ~s(id="remove-repository")
+
+    assert Pages.page(["repositories", "gone"], %{}, options).status == 404
   end
 
   test "an empty list says how to add one, and a search miss says so" do
@@ -341,15 +434,21 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
              "Adding it stopped before it finished, so Ryker cannot use it yet. Add it again, or remove it."
 
     refute LazyHTML.text(row) =~ "binding"
-    assert Enum.empty?(LazyHTML.query(row, "button[phx-click=retry-github-onboarding]"))
+
+    page = detail(half)
+    attention = LazyHTML.query(page, "#repository-attention")
+    assert LazyHTML.query(attention, "h2") |> LazyHTML.text() == "What to do"
+    refute LazyHTML.text(page) =~ "binding"
+    assert Enum.empty?(LazyHTML.query(page, "button[phx-click=retry-github-onboarding]"))
 
     assert LazyHTML.query(
-             row,
-             ".entity-actions button.secondary[phx-click=add-repository-again][phx-value-repository=acme-checkout-api]"
+             attention,
+             "button.primary[phx-click=add-repository-again][phx-value-repository=acme-checkout-api]"
            )
            |> LazyHTML.text() == "Add it again"
 
-    assert LazyHTML.query(row, "button[phx-value-action=remove-repository]") |> Enum.count() == 1
+    assert LazyHTML.query(page, "#remove-repository button[phx-value-action=remove-repository]")
+           |> Enum.count() == 1
 
     assert document |> LazyHTML.query(".kit-count[data-tone=warn]") |> LazyHTML.text() =~
              "needs attention"
@@ -373,8 +472,8 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() ==
              "Setup stopped. Repository setup could not finish. Check GitHub access and retry."
 
-    assert row |> LazyHTML.query(".entity-actions .ui-button") |> Enum.map(&LazyHTML.text/1) ==
-             ["Retry setup", "Remove acme/checkout-api"]
+    assert stopped |> detail() |> LazyHTML.query("button") |> Enum.map(&LazyHTML.text/1) ==
+             ["Retry setup", "Remove repository"]
   end
 
   # Andrew, 2026-09-27: "also when those are updated?" The row says when
@@ -401,8 +500,11 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
              "· Knowledge not written yet"
 
     # While a model writes it, it cannot be asked for again.
-    writing = @repository |> put_in([:knowledge, :phase], :write) |> render_row()
+    writing = @repository |> put_in([:knowledge, :phase], :write) |> detail()
     assert Enum.empty?(LazyHTML.query(writing, "button[phx-value-action=refresh-knowledge]"))
+
+    assert LazyHTML.query(writing, "#repository-knowledge") |> LazyHTML.text() |> squeeze() =~
+             "1 h ago · being rewritten now"
   end
 
   test "a failed RYKER.md step says why on the row, and the repository stays ready" do
@@ -427,17 +529,21 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   end
 
   # Andrew, 2026-09-28: "I don't want to make daily PRs to update those
-  # files." Ryker keeps each repository's knowledge itself, so its row is
-  # the place a person reads it.
-  test "a repository's knowledge can be read on its row, as Ryker keeps it" do
+  # files." Ryker keeps each repository's knowledge itself, so the
+  # repository's page is the place a person reads it, whole and open.
+  test "a repository's knowledge can be read on its page, as Ryker keeps it" do
     document =
       "# RYKER.md\n\nWritten by Ryker from `783fc48` on 2026-08-28.\n\n## Purpose\n\nIt works.\n"
 
-    row = @repository |> put_in([:knowledge, :document], document) |> render_row()
+    page = @repository |> put_in([:knowledge, :document], document) |> detail()
 
-    [reader] = LazyHTML.query(row, "details.repository-knowledge-document") |> Enum.to_list()
-    assert LazyHTML.query(reader, "summary") |> LazyHTML.text() |> squeeze() == "Read it"
-    assert LazyHTML.query(reader, "pre") |> LazyHTML.text() == document
+    assert LazyHTML.query(
+             page,
+             "#repository-knowledge .copy-block pre#repository-knowledge-document"
+           )
+           |> LazyHTML.text() == document
+
+    assert Enum.empty?(LazyHTML.query(page, "details"))
   end
 
   test "refreshing knowledge asks what it does before a model reads the repository" do
@@ -469,7 +575,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
     observed = %{@repository | configured: nil}
 
-    assert render([observed])
+    assert detail(observed)
            |> LazyHTML.query("button[phx-value-action=remove-repository]")
            |> Enum.empty?()
   end
@@ -519,15 +625,9 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     |> LazyHTML.from_fragment()
   end
 
-  # An added repository's row carries Remove, so its state sits beside its
-  # name; one Ryker only saw in past work has no buttons and keeps it at the
-  # far edge.
+  # A row has no buttons, so its state sits at the far edge.
   defp state(row) do
-    state =
-      if Enum.empty?(LazyHTML.query(row, ".entity-actions")),
-        do: LazyHTML.query(row, ".entity-side .state-word"),
-        else: LazyHTML.query(row, "h3.entity-name .state-word")
-
+    state = LazyHTML.query(row, ".entity-side .state-word")
     {LazyHTML.text(state), LazyHTML.attribute(state, "data-tone")}
   end
 
@@ -539,6 +639,13 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
   defp render_row(item), do: [item] |> render() |> LazyHTML.query("article.entity-row")
 
+  defp detail(item),
+    do:
+      item
+      |> RepositoriesPage.detail_html(@now)
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
   defp squeeze(text), do: text |> String.replace(~r/\s+/, " ") |> String.trim()
 
   # "tag.first-class" for each matched element, in document order.
@@ -549,9 +656,15 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     |> LazyHTML.tag()
     |> Enum.zip(LazyHTML.attributes(nodes))
     |> Enum.map(fn {tag, attributes} ->
+      id =
+        case List.keyfind(attributes, "id", 0) do
+          {"id", id} when tag == "section" -> "#" <> id
+          _other -> ""
+        end
+
       case List.keyfind(attributes, "class", 0) do
-        {"class", class} -> tag <> "." <> hd(String.split(class))
-        nil -> tag
+        {"class", class} -> tag <> "." <> hd(String.split(class)) <> id
+        nil -> tag <> id
       end
     end)
   end

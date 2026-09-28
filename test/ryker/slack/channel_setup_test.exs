@@ -76,6 +76,9 @@ defmodule Ryker.Slack.ChannelSetupTest do
   defmodule FailingAPI do
     def find_message(_client, _channel, _thread, _delivery_ref), do: {:error, :slack_down}
 
+    def leave_conversation(_client, _channel),
+      do: {:error, {:slack_api_error, "cant_leave_general"}}
+
     def update_message(_client, _channel, _message_ref, _document, _delivery_ref),
       do: {:error, :slack_down}
   end
@@ -114,6 +117,32 @@ defmodule Ryker.Slack.ChannelSetupTest do
     }
 
     %{options: options}
+  end
+
+  # Andrew, 2026-09-28: "no way to remove a channel". Removing Ryker on the
+  # channel's page takes it out in Slack and records the leave at once, the
+  # way Slack's own event would, so the page reads Disconnected without
+  # waiting for that event; the channel's settings stay for a later invite.
+  test "removing Ryker from a channel takes it out in Slack and records the leave at once",
+       %{options: options} do
+    assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
+    assert %{status: :joined} = ChannelConfigurations.membership(@workspace, "C456")
+
+    assert {:ok, %{status: :left}} = ChannelSetup.leave(@workspace, "C456", options)
+    assert FakeSlackAPI.state(options.client).left == ["C456"]
+    assert %{status: :left} = ChannelConfigurations.membership(@workspace, "C456")
+
+    assert %{environment_ref: "production"} =
+             ChannelConfigurations.configuration(@workspace, "C456")
+  end
+
+  test "a leave Slack refuses records nothing", %{options: options} do
+    assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
+
+    assert ChannelSetup.leave(@workspace, "C456", %{options | api: FailingAPI}) ==
+             {:error, {:slack_api_error, "cant_leave_general"}}
+
+    assert %{status: :joined} = ChannelConfigurations.membership(@workspace, "C456")
   end
 
   # The Q&A's second question asked which repository to use when nobody named

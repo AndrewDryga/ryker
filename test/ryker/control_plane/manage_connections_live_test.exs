@@ -329,8 +329,10 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     refute has_element?(view, "#repository-import-notice")
   end
 
-  # Andrew, 2026-09-27: "how do I remove repositories?!"
-  test "a repository is removed only after the question over the list is answered" do
+  # Andrew, 2026-09-27: "how do I remove repositories?!", and 2026-09-28:
+  # "repos missing their own page where that buttons will move to". Remove
+  # is the last card on the repository's page, and asks over it.
+  test "a repository is removed from its page only after the question is answered" do
     connect_github!()
 
     {:ok, %{added: ["acme/api", "acme/web"]}} =
@@ -340,10 +342,11 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
       ])
 
     {:ok, view, _html} = open("/repositories")
+    refute has_element?(view, "#repository-acme-api button")
 
-    view
-    |> element("#repository-acme-api button[phx-value-action=remove-repository]", "Remove")
-    |> render_click()
+    {:ok, view, _html} = open("/repositories/acme-api")
+    remove = "#remove-repository button[phx-value-action=remove-repository]"
+    view |> element(remove, "Remove repository") |> render_click()
 
     question = "#confirm-remove-repository"
     assert has_element?(view, "#{question} .kit-modal-title", "Remove acme/api?")
@@ -361,12 +364,11 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     refute has_element?(view, question)
     assert Enum.map(Settings.fetch!().repositories, & &1.ref) == ["acme-api", "acme-web"]
 
-    view
-    |> element("#repository-acme-api button[phx-value-action=remove-repository]", "Remove")
-    |> render_click()
-
+    view |> element(remove, "Remove repository") |> render_click()
     view |> element("#{question} button", "Remove repository") |> render_click()
 
+    # Its page is gone, so the removal returns to the list, which says so.
+    assert_patch(view, "/repositories")
     refute has_element?(view, question)
 
     assert has_element?(
@@ -405,10 +407,10 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
       for(index <- 1..100, do: %{ref: "a-acme-api-#{index}", inserted_at: now, updated_at: now})
     )
 
-    {:ok, view, _html} = open("/repositories?q=acme/api")
+    {:ok, view, _html} = open("/repositories/acme-api")
 
     view
-    |> element("#repository-acme-api button[phx-value-action=remove-repository]", "Remove")
+    |> element("#remove-repository button[phx-value-action=remove-repository]")
     |> render_click()
 
     assert has_element?(view, "#confirm-remove-repository .kit-modal-title", "Remove acme/api?")
@@ -417,7 +419,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     view |> element("#confirm-remove-repository button", "Cancel") |> render_click()
 
     view
-    |> element("#repository-acme-api button[phx-value-action=refresh-knowledge]")
+    |> element("#repository-knowledge button[phx-value-action=refresh-knowledge]")
     |> render_click()
 
     assert has_element?(
@@ -439,8 +441,8 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     {:ok, _snapshot} =
       Settings.put_repository(%{ref: "acme-api", onboarding_state: :ready}, :current, @actor)
 
-    {:ok, view, _html} = open("/repositories")
-    button = "#repository-acme-api button[phx-value-action=refresh-knowledge]"
+    {:ok, view, _html} = open("/repositories/acme-api")
+    button = "#repository-knowledge button[phx-value-action=refresh-knowledge]"
     question = "#confirm-refresh-knowledge"
 
     view |> element(button, "Refresh knowledge") |> render_click()
@@ -471,8 +473,8 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     entry = RepositoryKnowledge.entry("acme-api")
     assert {entry.phase, entry.requested_by} == {:write, @actor}
 
-    # While it is written, the row says so and cannot be asked again.
-    assert has_element?(view, "#repository-acme-api .entity-meta", "Writing knowledge")
+    # While it is written, the page says so and it cannot be asked again.
+    assert has_element?(view, "#repository-knowledge", "being rewritten now")
     refute has_element?(view, button)
 
     # A refresh never asked about only asks.
@@ -496,10 +498,10 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
         @actor
       )
 
-    {:ok, view, _html} = open("/repositories")
+    {:ok, view, _html} = open("/repositories/acme-api")
 
     view
-    |> element("#repository-acme-api button[phx-value-action=remove-repository]", "Remove")
+    |> element("#remove-repository button[phx-value-action=remove-repository]")
     |> render_click()
 
     view
@@ -541,11 +543,15 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     row = "#repository-acme-site"
     assert has_element?(view, "#{row} .state-word[data-tone=warn]", "Not fully added")
     assert has_element?(view, "#{row} .entity-text", "Add it again, or remove it.")
-    refute has_element?(view, "#{row} button[phx-click=retry-github-onboarding]")
-    assert has_element?(view, "#{row} button[phx-value-action=remove-repository]", "Remove")
+
+    {:ok, view, _html} = open("/repositories/acme-site")
+    attention = "#repository-attention"
+    assert has_element?(view, "#{attention} h2", "What to do")
+    refute has_element?(view, "button[phx-click=retry-github-onboarding]")
+    assert has_element?(view, "#remove-repository button", "Remove repository")
 
     view
-    |> element("#{row} button[phx-click=add-repository-again]", "Add it again")
+    |> element("#{attention} button[phx-click=add-repository-again]", "Add it again")
     |> render_click()
 
     assert has_element?(
@@ -555,8 +561,8 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
            )
 
     # Finished, its setup starts over instead of reading as stopped.
-    assert has_element?(view, "#{row} .state-word", "Setting up")
-    refute has_element?(view, "#{row} .entity-text")
+    assert has_element?(view, "#repository-state .state-word", "Setting up")
+    refute has_element?(view, attention)
     assert [%{repository_ref: "acme-site"}] = Settings.fetch!().github_bindings
   end
 

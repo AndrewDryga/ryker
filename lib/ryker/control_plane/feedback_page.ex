@@ -223,6 +223,7 @@ defmodule Ryker.ControlPlane.FeedbackPage do
       icon_tone={tile_tone(@item.category)}
       name={@item.request.title}
       href={@item.request.href}
+      link_row
       navigate
       state={state(@item)}
       text={text(@item)}

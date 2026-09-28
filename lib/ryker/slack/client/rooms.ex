@@ -1,7 +1,8 @@
 defmodule Ryker.Slack.Client.Rooms do
   @moduledoc """
   A conversation Ryker creates and sets up: the channel itself, the people
-  invited into it, its topic and its pinned message.
+  invited into it, its topic and its pinned message; and leaving a channel
+  when a person removes Ryker from it.
 
   Creating is idempotent: the channel an earlier attempt created is found
   before a new one is asked for, and again when the create's reply is lost or
@@ -64,6 +65,16 @@ defmodule Ryker.Slack.Client.Rooms do
            }),
          {:ok, _body} <- Transport.response(response) do
       :ok
+    end
+  end
+
+  # Slack answers ok, with not_in_channel set, when Ryker is already out,
+  # which is what was asked for.
+  def leave_conversation(client, channel_ref) do
+    with :ok <- Fields.slack_id(channel_ref),
+         {:ok, response} <-
+           Transport.request(client, :post, "/conversations.leave", %{"channel" => channel_ref}) do
+      response |> Transport.response() |> Transport.success()
     end
   end
 

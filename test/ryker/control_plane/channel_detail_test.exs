@@ -95,16 +95,20 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     membership!("T123", "CPRIVATE", private: true, external_shared: true)
     membership!("T123", "CUNKNOWN", private: nil, external_shared: nil)
 
-    for {channel, visibility, shared} <- [
-          {"CPUBLIC", "Public", "No"},
-          {"CPRIVATE", "Private", "Yes"},
-          {"CUNKNOWN", "Not recorded", "Not recorded"}
+    # The page says it once, in the sentence under its title; a value Slack
+    # never gave is left unsaid rather than guessed.
+    for {channel, description} <- [
+          {"CPUBLIC", "A public channel in Slack."},
+          {"CPRIVATE", "A private channel in Slack, shared with another organization."},
+          {"CUNKNOWN", "A channel in Slack."}
         ] do
       html = page("/channels/T123/#{channel}")
-      assert fact(html, "Visibility") == visibility, "#{channel} visibility"
 
-      assert fact(html, "Shared with another organization") == shared,
-             "#{channel} external sharing"
+      assert html
+             |> LazyHTML.from_document()
+             |> LazyHTML.query(".page-description")
+             |> LazyHTML.text() == description,
+             channel
     end
 
     assert {:ok, %{channel: %{membership: public}}} = ChannelDetail.fetch("T123", "CPUBLIC", %{})
@@ -128,19 +132,18 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
              repository_ref: nil
            } = view.scope
 
+    # Andrew, 2026-09-28, of the Details under How Ryker takes part: raw
+    # workspace and channel IDs, a settings revision and a membership
+    # generation. The page shows none of them; Open in Slack is the way to
+    # the channel itself.
     html = page("/channels/T123/C456")
-    assert html =~ "slack:T123:C456"
-    assert html =~ "slack:T123"
-    assert fact(html, "Channel ID") =~ "C456"
-    assert fact(html, "Workspace ID") =~ "T123"
-
-    # The raw references live in the one closed Details disclosure, never in
-    # the facts a person reads first or in any list.
     document = LazyHTML.from_document(html)
-    refute Enum.empty?(LazyHTML.query(document, "code"))
+    refute html =~ "slack:T123"
+    assert Enum.empty?(LazyHTML.query(document, "#taking-part code, #channel-details"))
 
-    assert Enum.count(LazyHTML.query(document, "code")) ==
-             Enum.count(LazyHTML.query(document, "details:not([open]) code"))
+    assert fact_links(html, "In Slack") == [
+             "https://slack.com/app_redirect?channel=C456&team=T123"
+           ]
   end
 
   test "current configuration is projected exactly, not inferred" do
@@ -207,8 +210,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
     html = page("/channels/T123/C456")
     # The page reads the join against the present, and it was an hour ago.
-    assert fact(html, "Membership") == "Ryker joined 1 h ago"
-    assert fact(html, "Membership record") == "Generation 3"
+    assert fact(html, "In Slack") == "Ryker joined 1 h ago · Open in Slack"
 
     assert chosen(html, "Conversations") == "Joins relevant conversations"
 
@@ -229,9 +231,10 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
              "https://slack.com/app_redirect?team=T123&channel=U2"
            ]
 
-    # A saved revision prints its day and clock time, never a relative time.
+    # A save prints its day and clock time, never a relative time, and no
+    # revision number.
     saved = Calendar.strftime(@now, "%d %b, %H:%M UTC")
-    assert fact(html, "Channel settings") == "Revision 4, saved #{saved} by Slack user"
+    assert fact(html, "Channel settings") == "Saved #{saved} by Slack user"
 
     assert fact_links(html, "Channel settings") == [
              "https://slack.com/app_redirect?team=T123&channel=U123"
@@ -249,7 +252,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
     html = page("/channels/T123/C456")
     saved = Calendar.strftime(@now, "%d %b, %H:%M UTC")
-    assert fact(html, "Channel settings") == "Revision 2, saved #{saved} in Ryker"
+    assert fact(html, "Channel settings") == "Saved #{saved} in Ryker"
     assert fact_links(html, "Channel settings") == []
   end
 
@@ -268,7 +271,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert view.participation == %{source: :installation, value: :mentions}
 
     html = page("/channels/T123/C456")
-    assert fact(html, "Membership") =~ "Ryker left"
+    assert fact(html, "In Slack") =~ "Ryker left"
     assert fact(html, "Conversations") == "Replies when mentioned · workspace default"
     assert fact(html, "Environment") == "None, and no environment is the default"
     assert fact(html, "Code") == "None, so Ryker does not read code here"
@@ -280,7 +283,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
              "Ryker keeps settings only for channels it is in. Once it joins this one, choose its environment here."
 
     assert fact(html, "Alerts") == "Investigates in the alert's thread"
-    assert fact(html, "Channel settings") == "Never saved; this channel follows the defaults"
+    assert fact(html, "Channel settings") == "Never changed; this channel follows the defaults"
     refute "Invites to incident rooms" in fact_labels(html)
     refute "Incident room" in fact_labels(html)
 

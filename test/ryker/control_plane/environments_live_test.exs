@@ -92,26 +92,14 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert LazyHTML.query(document, "#environment-ops .entity-meta") |> text() ==
              "No repositories · No Emisar account · Not used by any channel yet"
 
-    # The default cannot be made the default again; every other row can.
-    refute has_element?(
-             view,
-             "#environment-production button[phx-click=make-default-environment]"
-           )
-
-    assert has_element?(
-             view,
-             "#environment-staging button[phx-click=make-default-environment]",
-             "Use as default"
-           )
-
+    # Andrew, 2026-09-28, of Edit, Use as default and Remove on every row:
+    # "here you can click on entire row, do it here too … by removing edit
+    # button (click on row opens edit view) and delete can be a button/section
+    # on edit page". The whole row opens the environment; it has no buttons.
     for ref <- ~w(production staging ops) do
-      assert has_element?(view, "#environment-#{ref} .entity-actions a", "Edit")
-
-      assert has_element?(
-               view,
-               "#environment-#{ref} button[phx-value-action=delete-environment]",
-               "Remove"
-             )
+      assert has_element?(view, "#environment-#{ref}.entity-row-link")
+      refute has_element?(view, "#environment-#{ref} button")
+      refute has_element?(view, "#environment-#{ref} .entity-actions")
     end
 
     # A list page's search sits in the one Kit toolbar row; its count leads
@@ -121,16 +109,6 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     refute has_element?(view, ".kit-toolbar-count")
 
     assert has_element?(view, ".page-action a[href='/environments/new']", "Add an environment")
-
-    view |> element("#environment-staging button", "Use as default") |> render_click()
-
-    assert has_element?(
-             view,
-             ".form-feedback-success",
-             "Staging is the default environment now."
-           )
-
-    assert %{ref: "staging"} = Settings.Environment.default(Settings.fetch!())
   end
 
   # Andrew, 2026-09-25: "One place for counts." The page leads with how many
@@ -236,12 +214,19 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     channel_in!("CQA", "staging")
     webhook_source_in!("alerts", "staging")
 
-    {:ok, view, _html} = open("/environments")
+    # Removing happens on the environment's own page, last, in its own card.
+    {:ok, view, _html} = open("/environments/staging/edit")
 
-    view |> element("#environment-staging button", "Remove") |> render_click()
+    assert has_element?(
+             view,
+             "#remove-environment.kit-remove-card",
+             "Its repositories and Emisar account stay."
+           )
+
+    view |> element("#remove-environment button", "Remove environment") |> render_click()
     assert has_element?(view, "#confirm-delete-environment[role=alertdialog]", "Remove Staging?")
-    # The question is over the page; the row that asked is as it was.
-    refute has_element?(view, "#environment-staging #confirm-delete-environment")
+    # The question is over the page; the card that asked is as it was.
+    refute has_element?(view, "#remove-environment #confirm-delete-environment")
     assert Enum.any?(Settings.fetch!().environments, &(&1.ref == "staging"))
 
     view
@@ -256,15 +241,26 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
 
     assert Enum.any?(Settings.fetch!().environments, &(&1.ref == "staging"))
 
-    view |> element("#environment-scratch button", "Remove") |> render_click()
+    # A removed environment's page is gone, so the removal returns to the list.
+    {:ok, view, _html} = open("/environments/scratch/edit")
+    view |> element("#remove-environment button", "Remove environment") |> render_click()
 
     view
     |> element("#confirm-delete-environment button", "Remove environment")
     |> render_click()
 
+    assert_patch(view, "/environments")
     assert has_element?(view, ".form-feedback-success", "Scratch was removed.")
     refute Enum.any?(Settings.fetch!().environments, &(&1.ref == "scratch"))
     refute has_element?(view, "#environment-scratch")
+  end
+
+  test "adding an environment has nothing to remove yet" do
+    installation!()
+    {:ok, view, _html} = open("/environments/new")
+
+    assert has_element?(view, "#environment-editor-new")
+    refute has_element?(view, "#remove-environment")
   end
 
   # Andrew, 2026-09-27, of Add an environment opening above the list: "this is
@@ -293,8 +289,15 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert_patch(view, "/environments")
     refute has_element?(view, "#environment-editor-new")
 
-    view |> element("#environment-staging .entity-actions a", "Edit") |> render_click()
-    assert_patch(view, "/environments/staging/edit")
+    {:ok, view, _html} =
+      view
+      |> element("#environment-staging .entity-name a", "Staging")
+      |> render_click()
+      |> follow_redirect(
+        build_conn() |> Map.put(:host, "localhost"),
+        "/environments/staging/edit"
+      )
+
     assert has_element?(view, "main h1", "Edit Staging")
     assert has_element?(view, ".kit-form-card #environment-editor-staging form")
     refute has_element?(view, ".entity-list")

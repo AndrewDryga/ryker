@@ -149,6 +149,9 @@ defmodule Ryker.Slack.Client do
   defdelegate set_topic(client, channel_ref, topic), to: Rooms
 
   @impl true
+  defdelegate leave_conversation(client, channel_ref), to: Rooms
+
+  @impl true
   defdelegate pin_message(client, channel_ref, message_ref), to: Rooms
 
   # --- people ---------------------------------------------------------------

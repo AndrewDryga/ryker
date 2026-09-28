@@ -128,6 +128,31 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
     end
   end
 
+  # Andrew, 2026-09-28, of Environments, Channels and Repositories beside
+  # Activity: "here you can click on entire row, do it here too … same issue
+  # on many other pages, we need more consistency and component reuse in our
+  # design". Rows had Edit, Remove, Review, Open and Manage buttons beside a
+  # name that already opened the same page. A row that opens a page of its
+  # own opens it from anywhere on the row and carries no buttons: what can be
+  # done to the item is on its page.
+  test "every row that opens a page opens it from the whole row and carries no buttons" do
+    linked =
+      for {name, document} <- list_pages(),
+          row <- LazyHTML.query(document, ".entity-row"),
+          not Enum.empty?(LazyHTML.query(row, ".entity-name a")) do
+        label = "#{name}: #{row |> LazyHTML.query(".entity-name") |> words()}"
+        assert LazyHTML.attribute(row, "class") |> hd() =~ "entity-row-link", label
+
+        assert Enum.empty?(LazyHTML.query(row, ".entity-actions, .ui-button")),
+               "#{label} has buttons of its own"
+
+        name
+      end
+
+    for page <- ~w(Activity Environments Channels Repositories),
+        do: assert(page in linked, "#{page} rendered no row that opens a page")
+  end
+
   # Andrew, 2026-09-26: "Empty table states across the app should not look
   # like title+subtitle, they need to be properly designed, otherwise tables
   # look like text blobs and you can't tell it's an empty state without

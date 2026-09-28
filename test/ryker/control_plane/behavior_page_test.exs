@@ -270,9 +270,14 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     rows = LazyHTML.query(section, "article.entity-row")
     assert Enum.count(rows) == 2
 
-    assert rows |> LazyHTML.query("h3 a") |> LazyHTML.attribute("href") |> Enum.uniq() == [
+    # A match that started work opens it from the whole row; one still
+    # waiting opens its rule on this page.
+    assert rows |> LazyHTML.query("h3 a") |> LazyHTML.attribute("href") == [
+             "/timeline/episode%3Aone",
              "#behavior-behavior:one"
            ]
+
+    assert Enum.all?(rows, &(LazyHTML.attribute(&1, "class") |> hd() =~ "entity-row-link"))
 
     [ignored, pending] = Enum.map(rows, &(LazyHTML.query(&1, ".entity-meta") |> LazyHTML.text()))
     assert ignored =~ "No reply needed"
@@ -280,10 +285,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     assert pending =~ "Waiting for Ryker"
     assert pending =~ "just now"
 
-    assert LazyHTML.query(section, "a.ui-button") |> LazyHTML.attribute("href") == [
-             "/timeline/episode%3Aone"
-           ]
-
+    assert Enum.empty?(LazyHTML.query(section, ".ui-button"))
     refute LazyHTML.text(section) =~ "decided"
   end
 
@@ -605,7 +607,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
              "Nothing saved yet"
   end
 
-  test "channel instructions list each channel with its words and an edit link to that channel's editor" do
+  test "channel instructions list each channel with its words, and the whole row opens that channel's editor" do
     channels = [
       %{
         workspace_ref: "T123",
@@ -639,15 +641,15 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     assert String.ends_with?(long, "…”")
     assert String.length(long) < 200
 
+    # Andrew, 2026-09-28: a row that opens something opens it from anywhere
+    # on the row, with no Edit button beside it.
     assert rows |> LazyHTML.query("h3 a") |> LazyHTML.attribute("href") == [
-             "/channels/T123/C456",
-             "/channels/T123/C999"
-           ]
-
-    assert rows |> LazyHTML.query(".entity-actions a") |> LazyHTML.attribute("href") == [
              "/channels/T123/C456#instructions-slack:T123:C456",
              "/channels/T123/C999#instructions-slack:T123:C999"
            ]
+
+    assert Enum.all?(rows, &(LazyHTML.attribute(&1, "class") |> hd() =~ "entity-row-link"))
+    assert Enum.empty?(LazyHTML.query(rows, ".entity-actions, .ui-button"))
 
     empty =
       instructions_document([], saved([])) |> LazyHTML.query("section.instructions-channels")

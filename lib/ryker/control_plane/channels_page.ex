@@ -1,7 +1,8 @@
 defmodule Ryker.ControlPlane.ChannelsPage do
   @moduledoc """
   The Channels list: the Slack channels Ryker is in and how it takes part in
-  each one, as Kit rows under one search box and an In use / All choice.
+  each one, as Kit rows under one search box and an In use / All choice. The
+  whole row opens the channel's page, where everything about it changes.
 
   The words for participation and for a channel's state live here once, so
   the list, the channel page and anything else that names them agree. An
@@ -106,6 +107,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
           icon_tone={:info}
           name={channel_name(item.workspace_ref, item.channel_ref, item.incident_room)}
           href={path(item.workspace_ref, item.channel_ref)}
+          link_row
           state={
             state(item.membership, match?(%{open: true}, item[:incident_room]), item.channel_ref)
           }

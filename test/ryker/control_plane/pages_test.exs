@@ -16,7 +16,6 @@ defmodule Ryker.ControlPlane.PagesTest do
   test "operator actions are buttons while inspection remains navigation" do
     # Text links made recovery actions look like more inspection pages.
     for path <- [
-          "/failures",
           "/failures/delivery/delivery%3Aone",
           "/working-copies",
           "/memory",
@@ -34,9 +33,11 @@ defmodule Ryker.ControlPlane.PagesTest do
       refute LazyHTML.text(buttons) =~ "…"
     end
 
-    # A failure's name is the way into its own page; its button is an action.
+    # A failure's row is the way into its own page, whose buttons are actions;
+    # the row itself carries none (Andrew, 2026-09-28).
     names = body("/failures") |> LazyHTML.query("article .entity-name a[href^='/failures/']")
     assert Enum.count(names) == Enum.count(body("/failures") |> LazyHTML.query("article"))
+    assert body("/failures") |> LazyHTML.query("form, .ui-button") |> Enum.empty?()
   end
 
   test "renders every bounded read-only operator view without external assets" do
@@ -365,25 +366,29 @@ defmodule Ryker.ControlPlane.PagesTest do
     assert failures.body =~ "/timeline/episode%3Aone"
     assert failures.body =~ "/failures/admission/ingress-input%3Aone"
     assert failures.body =~ "3 attempts"
-    assert failures.body =~ "/actions/delivery/delivery%3Aone/rearm"
     # References and raw destinations belong to a failure's Technical details.
     refute failures.body =~ "delivery:one"
     refute failures.body =~ "slack:T123:C456"
 
-    # Every failure a retry could help offers it on the list; one a retry
-    # cannot help (an invite list with a person Slack will not add) offers it
-    # only on its own page, beside the reason it will fail.
+    # The list says what to do next; each failure's own page, which its row
+    # opens, offers the recovery as its primary button. One a retry cannot
+    # help (an invite list with a person Slack will not add) offers the retry
+    # beside the reason it will fail.
+    refute failures.body =~ "/actions/"
+
     for {kind, ref, action} <- [
+          {"delivery", "delivery:one", "rearm"},
           {"admission", "ingress-input:one", "rearm"},
           {"work", "episode:blocked", "retry"},
           {"emisar", "approval:one", "rearm"},
           {"slack_interaction", "interaction:one", "rearm"}
         ] do
       encoded_ref = URI.encode(ref, &URI.char_unreserved?/1)
-      assert failures.body =~ "/actions/#{kind}/#{encoded_ref}/#{action}"
+
+      assert page("/failures/#{kind}/#{encoded_ref}").body =~
+               "/actions/#{kind}/#{encoded_ref}/#{action}"
     end
 
-    refute failures.body =~ "/actions/slack_incident/"
     incident = page("/failures/slack_incident/incident-room%3Aone")
     assert incident.body =~ "/actions/slack_incident/incident-room%3Aone/rearm"
     assert incident.body =~ "Will fail"

@@ -669,9 +669,9 @@ defmodule Ryker.ControlPlane.Integrations do
 
   @doc """
   The Integrations overview: one row per service with its state, what it
-  gives Ryker, why it is not working when it is not, and the one action that
-  fits. Emisar is optional but recommended, so an unconnected Emisar says so
-  and leads with the page's one primary action.
+  gives Ryker and why it is not working when it is not. The row opens the
+  service's page, where every step is. Emisar is optional but recommended,
+  so an unconnected Emisar says so.
   """
   @spec overview(map()) :: [map()]
   def overview(view) do
@@ -683,8 +683,7 @@ defmodule Ryker.ControlPlane.Integrations do
         state: integration.state,
         text: gives(integration.key),
         meta: overview_meta(integration),
-        tag: if(recommended?(integration), do: "Recommended"),
-        action: Map.put(integration.action, :primary, recommended?(integration))
+        tag: if(recommended?(integration), do: "Recommended")
       }
     end
   end

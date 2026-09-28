@@ -244,19 +244,21 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     for {row, article} <- Enum.zip(rows, LazyHTML.query(document, "article.failure-row")) do
       explanation = FailureExplanation.explain(row, @now)
-      button = LazyHTML.query(article, "form[method='get'] button")
       next = LazyHTML.query(article, ".failure-next") |> LazyHTML.text()
 
-      assert LazyHTML.text(button) == explanation.button.label
-
-      assert LazyHTML.query(article, "form") |> LazyHTML.attribute("action") == [
-               "/actions/#{row.kind}/#{URI.encode(row.ref, &URI.char_unreserved?/1)}/rearm"
-             ]
-
-      # The line under the facts names the button and says what it does.
+      # The line under the facts names the step and says what it does. The
+      # whole row opens the failure's page (Andrew, 2026-09-28: a row that
+      # opens something carries no buttons), where the step is the one
+      # primary button.
+      assert Enum.empty?(LazyHTML.query(article, "form, .ui-button"))
       assert next =~ explanation.button.label
       [_label, effect] = String.split(next, ":", parts: 2)
       assert String.trim(effect) == hd(Enum.filter(explanation.options, & &1[:path])).effect
+
+      path = "/actions/#{row.kind}/#{URI.encode(row.ref, &URI.char_unreserved?/1)}/rearm"
+      button = row |> detail() |> LazyHTML.query("form[method='get'][action='#{path}'] button")
+      assert LazyHTML.text(button) == explanation.button.label
+      assert LazyHTML.attribute(button, "class") == ["ui-button primary"]
     end
 
     assert LazyHTML.text(document) =~ "Post the reply again"
@@ -286,11 +288,16 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert Enum.empty?(LazyHTML.query(list, "form[action^='/actions/']"))
     assert LazyHTML.query(list, ".failure-next") |> LazyHTML.text() =~ "invite Ryker"
 
-    assert LazyHTML.query(list, ".entity-actions a") |> LazyHTML.attribute("href") == [
-             "https://slack.com/app_redirect?team=T123&channel=C456"
-           ]
+    # On the failure's page, the change that has to come first is the
+    # primary step, and the retry that would fail is not.
+    detail = detail(row)
 
-    detail = row |> FailuresPage.detail(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+    assert LazyHTML.query(
+             detail,
+             "a.ui-button.primary[href='https://slack.com/app_redirect?team=T123&channel=C456']"
+           )
+           |> Enum.count() == 1
+
     retry = LazyHTML.query(detail, "form[action='/actions/delivery/delivery%3Aone/rearm'] button")
     assert LazyHTML.attribute(retry, "class") == ["ui-button secondary"]
     assert LazyHTML.text(detail) =~ "Fails until fixed"
@@ -303,9 +310,12 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     assert LazyHTML.query(list, ".state-word") |> LazyHTML.text() == "Retry should work"
 
-    assert LazyHTML.query(list, "form") |> LazyHTML.attribute("action") == [
-             "/actions/delivery/delivery%3Aone/rearm"
-           ]
+    retry =
+      rejoined
+      |> detail()
+      |> LazyHTML.query("form[action='/actions/delivery/delivery%3Aone/rearm'] button")
+
+    assert LazyHTML.attribute(retry, "class") == ["ui-button primary"]
   end
 
   test "a stuck publication says why it is stuck" do
@@ -345,9 +355,15 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert html =~ "did not match what Ryker expected"
     refute html =~ "no longer open"
     assert html =~ "Pull requests are not set up for the ryker repository"
-    assert html =~ "href=\"/integrations/github\""
     refute html =~ "/actions/publication/"
     refute html =~ "No recognized error explanation"
+
+    # Where to fix it is on the failure's own page, which the row opens.
+    assert rows
+           |> Enum.at(1)
+           |> detail()
+           |> LazyHTML.query("a[href='/integrations/github']")
+           |> Enum.count() >= 1
   end
 
   # 2026-09-26: the model account behind routing ran out of usage for three
@@ -732,4 +748,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert length(Regex.scan(~r/<rect /, html)) <= 366
     assert html =~ "latest 366 calendar days"
   end
+
+  defp detail(row),
+    do: row |> FailuresPage.detail(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
 end

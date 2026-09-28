@@ -191,6 +191,21 @@ defmodule Ryker.ControlPlane.Pages do
     |> Map.put(:back, {"All repositories", "/repositories"})
   end
 
+  # One repository's page, under its name. A repository no longer added has
+  # no page; its past requests stay in Activity.
+  def page(["repositories", repository_ref], _params, options) do
+    with {:ok, repository_ref} <- PathRef.decode(repository_ref),
+         {:ok, item} <- options.projection.repository.(repository_ref) do
+      item
+      |> RepositoriesPage.name()
+      |> ok(RepositoriesPage.detail_html(item))
+      |> Map.put(:back, {"All repositories", "/repositories"})
+    else
+      {:error, :path_ref} -> not_found("Repository")
+      :error -> not_found("Repository")
+    end
+  end
+
   def page(["memory"], params, options) do
     params = Map.take(params, FactsPage.query_keys())
 
@@ -357,7 +372,7 @@ defmodule Ryker.ControlPlane.Pages do
   def subscriptions(["follow-ups"], _params), do: SubscriptionsPage.subscriptions()
   def subscriptions(["channels"], _params), do: ChannelsPage.subscriptions()
   def subscriptions(["repositories"], _params), do: RepositoriesPage.subscriptions()
-  def subscriptions(["repositories", "new"], _params), do: RepositoriesPage.subscriptions()
+  def subscriptions(["repositories", _ref], _params), do: RepositoriesPage.subscriptions()
   def subscriptions(["memory"], _params), do: FactsPage.subscriptions()
   def subscriptions(["memory", "learned"], _params), do: LearnedPage.subscriptions()
   def subscriptions(["memory", "learning"], _params), do: LearningPage.subscriptions()

@@ -100,6 +100,10 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
       configured: Map.get(parts.configured, repository_ref),
       environments:
         parts.environments |> Map.get(repository_ref, []) |> Enum.map(& &1.display_name),
+      in_environments:
+        parts.environments
+        |> Map.get(repository_ref, [])
+        |> Enum.map(&%{ref: &1.ref, name: &1.display_name}),
       freshness: Map.get(parts.freshness, repository_ref),
       knowledge: knowledge_view(Map.get(parts.knowledge, repository_ref)),
       publications: Map.get(parts.publications, repository_ref, 0),

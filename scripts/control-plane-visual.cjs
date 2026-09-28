@@ -163,6 +163,8 @@ async function discover(page) {
     ['episode-detail', '/', '.activity-title[href^="/timeline/"]'],
     ['conversation', '/conversations', '.lab-directory-list a[href^="/conversations/"]'],
     ['channel-detail', '/channels', 'a[href^="/channels/"]'],
+    ['environment-detail', '/environments', '.entity-name a[href^="/environments/"]'],
+    ['repository-detail', '/repositories', '.entity-name a[href^="/repositories/"]'],
     ['incident-room-detail', '/incident-rooms', 'a[href^="/incident-rooms/"]'],
     ['schedule-detail', '/schedules', 'a[href^="/schedules/"]'],
     ['failure-detail', '/failures', 'a[href^="/failures/"]']

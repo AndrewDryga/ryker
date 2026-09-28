@@ -378,8 +378,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     assert_patch(view, "/integrations/webhooks")
     assert has_element?(view, ".form-feedback-success", "alerts was added.")
 
-    view |> element("#settings-webhooks a", "Edit") |> render_click()
-    assert_patch(view, "/integrations/webhooks/sources/alerts/edit")
+    view = edit_source(view)
 
     view
     |> form("#settings-webhooks-form", %{"group_by_labels" => "service"})
@@ -396,8 +395,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     view |> form("#settings-webhooks-form", source_params()) |> render_submit()
     assert_patch(view, "/integrations/webhooks")
 
-    view |> element("#settings-webhooks a", "Edit") |> render_click()
-    assert_patch(view, "/integrations/webhooks/sources/alerts/edit")
+    view = edit_source(view)
 
     # Someone saves the source while this person is typing into its form.
     view
@@ -437,6 +435,12 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
            )
 
     view |> form("#settings-webhooks-form", source_params()) |> render_submit()
+    assert has_element?(view, "#settings-webhooks .entity-row .state-word[data-tone=on]", "On")
+
+    # The address is on the source's own page, above its form, with a copy
+    # button; the list's row only opens that page.
+    refute has_element?(view, "#settings-webhooks .entity-row button")
+    view = edit_source(view)
 
     assert has_element?(
              view,
@@ -448,8 +452,6 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
              view,
              "#settings-webhooks .settings-address button[data-copy-value='http://127.0.0.1:4320/v1/hooks/alerts']"
            )
-
-    assert has_element?(view, "#settings-webhooks .entity-row .state-word[data-tone=on]", "On")
   end
 
   test "a signing credential a source uses is not deleted, and the refusal names the source" do
@@ -618,7 +620,20 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     refute render(view) =~ "not in any Slack channel yet"
   end
 
-  defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/integrations/webhooks")
+  defp open, do: live(conn(), "/integrations/webhooks")
+
+  defp conn, do: build_conn() |> Map.put(:host, "localhost")
+
+  # A source's row opens its own page from anywhere on the row.
+  defp edit_source(view) do
+    {:ok, view, _html} =
+      view
+      |> element("#settings-webhooks .entity-name a", "alerts")
+      |> render_click()
+      |> follow_redirect(conn(), "/integrations/webhooks/sources/alerts/edit")
+
+    view
+  end
 
   defp open_source_editor(view) do
     view |> element("#settings-webhooks a.settings-editor-add") |> render_click()

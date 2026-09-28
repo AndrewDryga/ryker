@@ -87,6 +87,8 @@ defmodule Ryker.Slack.API do
   @callback invite_users(term(), String.t(), [String.t()]) :: :ok | {:error, term()}
   @callback set_topic(term(), String.t(), String.t()) :: :ok | {:error, term()}
   @callback pin_message(term(), String.t(), String.t()) :: :ok | {:error, term()}
+  @doc "Takes Ryker out of a channel it is in; already out is `:ok`."
+  @callback leave_conversation(term(), String.t()) :: :ok | {:error, term()}
 
   # --- views ----------------------------------------------------------------
 
@@ -111,6 +113,7 @@ defmodule Ryker.Slack.API do
                       invite_users: 3,
                       set_topic: 3,
                       pin_message: 3,
+                      leave_conversation: 2,
                       publish_home: 3,
                       open_view: 3
 end

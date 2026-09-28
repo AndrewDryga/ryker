@@ -4,20 +4,19 @@ defmodule Ryker.ControlPlane.LearnedPage do
   conversations, and the summaries it saves when work in a conversation ends,
   each with the messages it learned from.
 
-  One topic is a sub-page of its own (`heading/1` gives the shell its title,
-  the way back to all topics and Forget opposite the title): whether Ryker
-  uses it, its full text, its facts, the picker that relearns it from
-  messages a person chooses when its own messages are gone, and its update
-  history, each update with the message it came from and the learning card on
-  the Timeline that wrote it. A record's source messages are a sub-page the
+  Each topic's row opens its sub-page (`heading/1` gives the shell its title
+  and the way back to all topics): whether Ryker uses it, its full text, its
+  facts, the picker that relearns it from messages a person chooses when its
+  own messages are gone, its update history, each update with the message it
+  came from and the learning card on the Timeline that wrote it, and
+  forgetting it, last. A record's source messages are a sub-page the
   same way, leading back to the record they support. An open page redraws
   when a topic, a summary or what they were learned from changes
   (`subscriptions/0`).
   """
   use Phoenix.Component
 
-  import Ryker.ControlPlane.Components,
-    only: [action_button: 1, action_button: 2, filter_toolbar: 1, pager: 1]
+  import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1]
 
   alias Phoenix.HTML.Safe
 
@@ -52,22 +51,13 @@ defmodule Ryker.ControlPlane.LearnedPage do
 
   @doc """
   The shell's heading for a sub-page of Learned, or nil for the lists, which
-  keep the page's own title. One topic is titled by its name, leads back to
-  all topics and, until it is forgotten, has Forget opposite its title; the
-  messages behind a record lead back to that record. A topic that does not
-  exist is `:not_found`.
+  keep the page's own title. One topic is titled by its name and leads back
+  to all topics; the messages behind a record lead back to that record. A
+  topic that does not exist is `:not_found`.
   """
   @spec heading(map()) :: map() | :not_found | nil
   def heading(%{kind: "knowledge", selected: id, items: [item | _]}) when is_binary(id) do
-    %{
-      title: item.title,
-      description: nil,
-      back: {"All topics", "/memory/learned"},
-      action:
-        if(is_nil(item[:forgotten_at]),
-          do: forget_path(item.id) |> action_button("Forget") |> IO.iodata_to_binary()
-        )
-    }
+    %{title: item.title, description: nil, back: {"All topics", "/memory/learned"}, action: nil}
   end
 
   def heading(%{kind: "knowledge", selected: id}) when is_binary(id), do: :not_found
@@ -107,11 +97,10 @@ defmodule Ryker.ControlPlane.LearnedPage do
   end
 
   # A topic's row: its name and whether Ryker uses it, then its words and
-  # facts, and its buttons at the far edge. Andrew, 2026-09-27: why Ryker
-  # stopped using a topic was a sentence under the row with "Relearn it" as a
-  # link in it, and "Not used" sat against the Forget button. The reason is
-  # the state's hint now, Relearn is a button beside Forget, and the state
-  # sits beside the name.
+  # facts. Andrew, 2026-09-27: why Ryker stopped using a topic was a sentence
+  # under the row; the reason is the state's hint now. The whole row opens
+  # the topic, where it is relearned or forgotten (Andrew, 2026-09-28: "same
+  # issue on many other pages").
   defp topics(assigns) do
     ~H"""
     <.tools view={@view} />
@@ -122,19 +111,11 @@ defmodule Ryker.ControlPlane.LearnedPage do
         icon={:book}
         name={item.title}
         href={ConversationMemory.topic_path(item.id)}
+        link_row
         state={topic_state(item)}
         text={MemoryFormat.excerpt(item.text, item.workspace)}
         meta={topic_facts(item)}
-      >
-        <:actions :if={is_nil(item[:forgotten_at])}>
-          <a
-            :if={item.available == false}
-            class="ui-button secondary"
-            href={ConversationMemory.topic_path(item.id) <> "#relearn"}
-          >Relearn</a>
-          <.action_button path={forget_path(item.id)} label="Forget" />
-        </:actions>
-      </Kit.entity_row>
+      />
     </Kit.entity_list>
     <.nothing view={@view} />
     <.pager
@@ -204,10 +185,10 @@ defmodule Ryker.ControlPlane.LearnedPage do
 
   # One topic's page under the shell's heading (`heading/1`): whether Ryker
   # uses it, its text, its facts, the way to relearn it when its messages are
-  # gone, then its update history. Andrew, 2026-09-27: "this page is not
-  # properly designed" — it opened under the list's title with its own
-  # smaller heading, and Forget and the reason it was not used sat between
-  # its facts and a collapsed relearning form.
+  # gone, its update history, then forgetting it. Andrew, 2026-09-27: "this
+  # page is not properly designed" — it opened under the list's title with
+  # its own smaller heading, and Forget and the reason it was not used sat
+  # between its facts and a collapsed relearning form.
   defp topic(assigns) do
     assigns = assign(assigns, :item, List.first(assigns.view.items))
 
@@ -257,6 +238,13 @@ defmodule Ryker.ControlPlane.LearnedPage do
           later="Older updates →"
         />
       </section>
+      <Kit.remove_card
+        :if={is_nil(@item[:forgotten_at])}
+        id="forget-topic"
+        title="Forget topic"
+        text="Ryker erases its text and history, stops using it in answers and never learns from its messages again."
+        path={forget_path(@item.id)}
+      />
     <% end %>
     """
   end

@@ -90,6 +90,7 @@ defmodule Ryker.ControlPlane.Actions do
       save_instructions: &InstructionSettings.save/3,
       # The outcome comes back to the page that asked, as a message.
       redraw_channel_welcome: &SlackRuntime.redraw_welcome(&1, &2, self()),
+      leave_channel: &SlackRuntime.leave_channel/2,
       # What the GitHub App reaches, for Add repositories; it asks GitHub.
       github_repositories: fn -> IntegrationSetup.github_repositories() end,
       initialize_settings: &SettingsCommands.initialize/0,
