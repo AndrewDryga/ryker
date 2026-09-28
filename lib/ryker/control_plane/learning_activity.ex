@@ -622,6 +622,10 @@ defmodule Ryker.ControlPlane.LearningActivity do
     do:
       "A possible existing topic was found. The next bounded attempt must compare it before creating a duplicate."
 
+  def error("nothing_to_learn"),
+    do:
+      "Only greetings, thanks or short replies like \"ok\", so Ryker did not ask a model to learn from them."
+
   def error("learning_result_pruned"),
     do: "The saved model response expired. Its outcome remains recorded."
 

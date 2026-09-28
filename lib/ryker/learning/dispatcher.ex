@@ -1,6 +1,6 @@
 defmodule Ryker.Learning.Dispatcher do
   @moduledoc "Dispatches exclusively assigned original inputs; replying is a separate decision."
-  alias Ryker.Learning.{Batches, Executor, FleetSession}
+  alias Ryker.Learning.{Batches, EmptyChat, Executor, FleetSession}
 
   @maximum_reconciliations 12
   @refused_policy_hold_seconds 300
@@ -43,6 +43,12 @@ defmodule Ryker.Learning.Dispatcher do
 
   defp prepare(claim, settings) do
     cond do
+      # Greetings, thanks and bare acknowledgements hold nothing a model could
+      # learn (`EmptyChat`), so they end here without a call. A relearning a
+      # person asked for always runs.
+      is_nil(claim.batch.rebuild_target_id) and EmptyChat.all?(claim.inputs) ->
+        Batches.finish(claim, :no_change, "nothing_to_learn")
+
       # Every session this policy creates is refused before a message is sent,
       # so a new attempt would only spend a start. Hold until the policy changes.
       Batches.policy_refused?(settings) ->

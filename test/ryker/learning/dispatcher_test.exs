@@ -516,6 +516,42 @@ defmodule Ryker.Learning.DispatcherTest do
     assert {:ok, :idle} = Dispatcher.run_once(Map.put(@settings, :client, nil))
   end
 
+  # The 2026-09-28 token and context investigation: every "hi" someone sent
+  # Ryker, each deploy check among them, started a learning model call that
+  # read one greeting and saved nothing, about 5.5 KB of prompt each time.
+  # Learning reads only what people said, never Ryker's replies, so a batch of
+  # greetings, thanks and bare acknowledgements has nothing it could learn.
+  test "a batch of only greetings and thanks ends without a model call" do
+    [first | rest] = inputs!() |> Enum.map(& &1.id)
+    say!([first], "hi <@U0RYKER> 👋")
+    say!(rest, "Thanks!! 🙏")
+
+    assert {:ok, %{status: :no_change, error_code: "nothing_to_learn"}} =
+             Dispatcher.run_once(Map.put(@settings, :client, nil))
+
+    assert Repo.aggregate(LearningRun, :count) == 0
+    assert Repo.aggregate(Session, :count) == 0
+    assert {:ok, :idle} = Dispatcher.run_once(Map.put(@settings, :client, nil))
+  end
+
+  # A greeting that says anything more can carry the one correction worth
+  # keeping, so only a batch where every message is empty chat is skipped.
+  test "a greeting that says anything more is still learned from" do
+    entries = inputs!()
+    [first | rest] = Enum.map(entries, & &1.id)
+    say!([first], "hi, the staging account moved to acme-stg2")
+    say!(rest, "thanks")
+    {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
+
+    result = Dispatcher.run_once(Map.put(@settings, :client, fake))
+    refute match?({:ok, %{status: :no_change}}, result)
+    refute Repo.exists?(from(b in Batch, where: b.status == :no_change))
+    assert Repo.aggregate(LearningRun, :count) == 1
+  end
+
+  defp say!(ids, text),
+    do: Repo.update_all(from(e in Entry, where: e.id in ^ids), set: [content: %{"text" => text}])
+
   test "learning accepts a repository-free, tool-free normal job receipt" do
     entries = inputs!()
     {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
