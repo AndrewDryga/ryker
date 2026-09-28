@@ -366,10 +366,15 @@ defmodule Ryker.GitHub.RepositoryFiles do
       {:ok, %{status: 422, body: refusal}} when draft? ->
         if drafts_refused?(refusal),
           do: create_pull(client, repository, owner, title, body, false),
-          else: reconcile_pull(client, slug, owner)
+          else: refused_pull(client, slug, owner)
 
       {:ok, %{status: status} = response} when status in @refused ->
         refused(response)
+
+      # GitHub refused this pull request itself; asking again would only
+      # write the branch again for the same refusal.
+      {:ok, %{status: status}} when status in 400..499 ->
+        refused_pull(client, slug, owner)
 
       {:ok, _other} ->
         reconcile_pull(client, slug, owner)
@@ -389,6 +394,15 @@ defmodule Ryker.GitHub.RepositoryFiles do
   end
 
   defp drafts_refused?(_refusal), do: false
+
+  # A refusal can be GitHub saying Ryker's pull request already exists: that
+  # one is the proposal.
+  defp refused_pull(client, slug, owner) do
+    case reconcile_pull(client, slug, owner) do
+      {:ok, _pull} = found -> found
+      {:error, _none} -> {:error, {:github_onboarding, :pull_request_refused}}
+    end
+  end
 
   defp reconcile_pull(client, slug, owner) do
     case open_pull(client, slug, owner) do

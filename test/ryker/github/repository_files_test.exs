@@ -150,6 +150,33 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
     assert RecordedGitHub.unanswered() == []
   end
 
+  # Any other refusal is GitHub's answer to this pull request itself, and
+  # asking again gets it again. It read as a pull request that could not be
+  # opened, which was tried every minute, each time writing the branch again.
+  test "a pull request GitHub refuses outright is a refusal, not a retry" do
+    refused = %{
+      "message" => "Validation Failed",
+      "errors" => [
+        %{
+          "resource" => "PullRequest",
+          "code" => "custom",
+          "message" => "No commits between main and ryker/repository-knowledge"
+        }
+      ]
+    }
+
+    RecordedGitHub.reply(
+      new_proposal(nil) ++
+        [
+          {:post, "/repos/acme/widget/pulls", ok(422, refused)},
+          {:get, @pulls, ok(200, [])}
+        ]
+    )
+
+    assert publish("# RYKER.md\n") == {:error, {:github_onboarding, :pull_request_refused}}
+    assert RecordedGitHub.unanswered() == []
+  end
+
   # A rewrite that says what the open proposal already says would only move
   # its date: no commit, and the description stays.
   test "an open proposal that already says the same is left as it is" do

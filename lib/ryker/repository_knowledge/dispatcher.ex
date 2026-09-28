@@ -37,6 +37,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     {:github_onboarding, :archived},
     {:github_onboarding, :permission},
     {:github_onboarding, :not_found},
+    {:github_onboarding, :pull_request_refused},
     :repository_empty,
     :repository_too_large,
     :repository_knowledge_unreadable,
