@@ -55,6 +55,7 @@ env_file=$state_dir/compose.env
 ready_timeout=${RYKER_DEPLOY_READY_TIMEOUT:-180}
 poll_seconds=${RYKER_DEPLOY_POLL_SECONDS:-2}
 keep_images=${RYKER_KEEP_IMAGES:-2}
+keep_backups=${RYKER_KEEP_BACKUPS:-10}
 started=$SECONDS
 
 say() { echo "deploy: $*"; }
@@ -241,6 +242,17 @@ while IFS= read -r tag; do
 done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' ryker 2>/dev/null || true)
 if ((${#pruned[@]} > 0)); then
   say "pruned ${#pruned[@]} older image(s): ${pruned[*]}"
+fi
+
+# Every deploy writes a backup of about 20 MB and none was ever removed: 140
+# of them held 2.4 GB on 2026-09-28. Keep the newest ten, the one this deploy
+# wrote among them; other archives in the directory are never touched.
+removed_backups=0
+while IFS= read -r old_backup; do
+  rm -f -- "$old_backup" && removed_backups=$((removed_backups + 1))
+done < <(find "$backup_dir" -maxdepth 1 -name 'pre-deploy-*.tar.gz' | sort -r | tail -n +$((keep_backups + 1)))
+if ((removed_backups > 0)); then
+  say "removed $removed_backups older pre-deploy backup(s); the newest $keep_backups stay in $backup_dir"
 fi
 
 elapsed=$((SECONDS - started))

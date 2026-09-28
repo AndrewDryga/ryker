@@ -22,7 +22,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeRevision}
   alias Ryker.Learning.{Batch, Batches, InputMembership}
   alias Ryker.Learning.LearningRun
   alias Ryker.Operator.Action
@@ -111,6 +111,73 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert html =~ "1 of 3 model starts used"
     refute html =~ "1 messages"
     refute html =~ "1 model starts"
+  end
+
+  test "a batch's page says what Ryker learned: the model's reason and each topic with its key" do
+    # Andrew, 2026-09-28: the page said "Each attempt below shows what it
+    # changed" above an attempt that showed nothing; it "should show how
+    # knowledge was updated, link to referred learning, Model's reason …,
+    # summary, link to topic, topic key".
+    [old, _current] = inputs!()
+    assert {:ok, claim} = Batches.claim("inspection-test", @settings)
+    assert {:ok, run} = Batches.prepare(claim)
+
+    proposal = %{
+      "topic_key" => "checkout-readiness-history",
+      "title" => "Checkout readiness history",
+      "summary" => "Checkout readiness alerted once after a deploy and recovered.",
+      "topics" => ["checkout"],
+      "anchors" => [],
+      "target_ref" => nil,
+      "expected_version" => 0
+    }
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn -> KnowledgeFixtures.record_topic(old, proposal, []) end)
+
+    topic = Repo.one!(ConversationKnowledge)
+
+    Repo.update_all(KnowledgeRevision,
+      set: [source_result_ref: "learning:#{run.id}:" <> String.duplicate("a", 64)]
+    )
+
+    result =
+      Jason.encode!(%{
+        "reason" => "Kept the checkout readiness history. Left the deploy chatter out.",
+        "updates" => [
+          Map.put(proposal, "action", "create"),
+          %{"action" => "defer", "topic_key" => "deploy-chatter", "title" => "Deploy chatter"}
+        ]
+      })
+
+    Repo.update!(Ecto.Changeset.change(run, status: :applied, result: result))
+    assert {:ok, _} = Batches.finish(claim, :applied, nil)
+
+    learned = claim.batch.id |> page() |> LazyHTML.query("#learned")
+
+    assert text(learned, "#learned-reason") ==
+             "Reason Kept the checkout readiness history. Left the deploy chatter out."
+
+    assert learned
+           |> LazyHTML.query("article.entity-row h3.entity-name")
+           |> Enum.map(&squish/1) == ["Checkout readiness history", "Deploy chatter"]
+
+    assert learned
+           |> LazyHTML.query("article.entity-row .entity-side .state-word")
+           |> Enum.map(&squish/1) == ["Created", "Left as it was"]
+
+    assert learned
+           |> LazyHTML.query("article.entity-row h3.entity-name a")
+           |> LazyHTML.attribute("href") ==
+             [ConversationMemory.topic_path(topic.id)]
+
+    assert text(learned, "#learned-1") =~ "Checkout readiness alerted once after a deploy"
+    assert text(learned, "#learned-1") =~ "key checkout-readiness-history"
+
+    [attempt] = LearningActivity.project(%{"batch" => claim.batch.id}).selected.attempts
+
+    assert learned |> LazyHTML.query(".section-head a") |> LazyHTML.attribute("href") ==
+             [attempt.path]
   end
 
   test "learning from a removed repository still names it owner/repo, as on GitHub" do
@@ -857,6 +924,8 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert Enum.count(card) == 1, "#{rest} opens no card"
     card
   end
+
+  defp squish(node), do: node |> LazyHTML.text() |> String.split() |> Enum.join(" ")
 
   defp text(node, selector),
     do: node |> LazyHTML.query(selector) |> LazyHTML.text() |> String.split() |> Enum.join(" ")

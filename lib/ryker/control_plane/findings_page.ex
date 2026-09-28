@@ -155,18 +155,25 @@ defmodule Ryker.ControlPlane.FindingsPage do
         />
       </div>
     </section>
-    <Kit.section_card
+    <section
       :if={@item.status == :open and @item.classification == "unexplained"}
       id="mark-explained"
-      title="Mark explained"
-      lede="When you know why it happened. Ryker then stops bringing it up as an open question."
+      class="kit-card"
+      aria-label="Mark explained"
     >
-      <.action_button
-        path={action_path(@item.id, "mark-explained")}
-        label="Mark explained"
-        tone={:primary}
-      />
-    </Kit.section_card>
+      <Kit.section_head
+        title="Mark explained"
+        lede="When you know why it happened. Ryker then stops bringing it up as an open question."
+      >
+        <:actions>
+          <.action_button
+            path={action_path(@item.id, "mark-explained")}
+            label="Mark explained"
+            tone={:primary}
+          />
+        </:actions>
+      </Kit.section_head>
+    </section>
     <Kit.remove_card
       :if={@item.status == :open}
       id="forget-finding"

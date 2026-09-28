@@ -737,7 +737,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Recent passes",
        [
          "Each pass reads new messages from one conversation. Finding nothing to change is a normal outcome. Filter by outcome to see what changed.",
-         "Open a batch to see its attempts. Each attempt opens on the Timeline beside the messages it read, with its prompt, the answer, tokens and cost."
+         "Open a batch to see what Ryker learned from it: the model's reason in its own words and each topic it created or updated, with its key and summary. Each topic opens its page. Each attempt opens on the Timeline beside the messages it read, with its prompt, the answer, tokens and cost."
        ]},
       {"When learning needs you",
        [

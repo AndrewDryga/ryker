@@ -19,7 +19,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
-  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeRevision}
   alias Ryker.Learning.{Batch, Batches, InputMembership, Runtime}
   alias Ryker.Learning.LearningRun
   alias Ryker.Repo
@@ -276,6 +276,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
     batch(row, secrets, context([row]))
     |> Map.merge(attempts(row, params))
     |> Map.merge(%{
+      learned: learned(row, secrets),
       relearn: relearn,
       retry_available: retryable?(row, relearn, outstanding or busy, policy),
       retry_blocked:
@@ -286,6 +287,66 @@ defmodule Ryker.ControlPlane.LearningActivity do
       drop_available: row.status == :deferred and not outstanding
     })
   end
+
+  # What the batch's last applied attempt did, in the model's own words: the
+  # reason it gave, and each topic it created, updated or left as it was, with
+  # the topic's key, its summary, the topic's page and the attempt's card on
+  # the Timeline. Andrew, 2026-09-28: the batch page "should show how
+  # knowledge was updated, link to referred learning, Model's reason …,
+  # summary, link to topic, topic key".
+  defp learned(row, secrets) do
+    run =
+      Repo.one(
+        from(r in LearningRun,
+          where: r.batch_id == ^row.id and r.status == :applied and is_nil(r.pruned_at),
+          order_by: [desc: r.inserted_at, desc: r.id],
+          limit: 1,
+          select: %{id: r.id, result: r.result, inputs: r.inputs}
+        )
+      )
+
+    with %{result: result} when is_binary(result) <- run,
+         {:ok, %{} = decoded} <- Jason.decode(result) do
+      decoded = InspectionRedactor.document(decoded, secrets)
+      topics = topics_written(run.id)
+
+      %{
+        reason: present_text(decoded["reason"]),
+        path: LearningRequests.paths([run])[run.id],
+        updates:
+          for %{} = update <- List.wrap(decoded["updates"]) do
+            key = update["topic_key"]
+
+            %{
+              action: update["action"],
+              title: present_text(update["title"]) || key || "Untitled topic",
+              summary: present_text(update["summary"]),
+              key: key,
+              path: topics[key] && ConversationMemory.topic_path(topics[key])
+            }
+          end
+      }
+    else
+      _nothing_applied -> nil
+    end
+  end
+
+  # The topics an attempt wrote, by key: each revision names the attempt that
+  # wrote it (`learning:<attempt>:<result digest>`).
+  defp topics_written(run_id) do
+    Repo.all(
+      from(revision in KnowledgeRevision,
+        join: knowledge in ConversationKnowledge,
+        on: knowledge.id == revision.knowledge_id,
+        where: like(revision.source_result_ref, ^"learning:#{run_id}:%"),
+        select: {knowledge.topic_key, knowledge.id}
+      )
+    )
+    |> Map.new()
+  end
+
+  defp present_text(text) when is_binary(text) and text != "", do: text
+  defp present_text(_text), do: nil
 
   # One more start is offered only to a stopped batch nothing else holds,
   # under a working policy, and never while a stale topic would stop it again.
