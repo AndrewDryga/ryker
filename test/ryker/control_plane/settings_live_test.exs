@@ -1874,9 +1874,9 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     })
     |> render_submit()
 
-    # A saved price returns to the list, which says so.
+    # A saved price returns to the list, which names it, as its removal does.
     assert_patch(view, "/settings/prices")
-    assert has_element?(view, ".form-feedback-success", "The price was added.")
+    assert has_element?(view, ".form-feedback-success", "test-model was added.")
 
     rate =
       Enum.find(Settings.fetch!().pricing_rates, &(&1.execution_target == "codex:test-model"))
