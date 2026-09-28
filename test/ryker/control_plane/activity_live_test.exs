@@ -16,6 +16,8 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
 
   setup do
     {:ok, items} = Agent.start_link(fn -> [item(1), item(2)] end)
+    # Whether the database answers Activity's read.
+    {:ok, reachable} = Agent.start_link(fn -> true end)
 
     {:ok, profile} =
       WorkProfile.new(%{
@@ -32,6 +34,9 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
         Map.merge(Projection.callbacks(), %{
           overview: fn -> %{fleet: %{required: false}} end,
           activity: fn params ->
+            unless Agent.get(reachable, & &1),
+              do: raise(DBConnection.ConnectionError, "connection not available")
+
             list = Agent.get(items, & &1)
 
             %{
@@ -44,7 +49,10 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
               views: %{"attention" => 1, "running" => 2, "done" => 0}
             }
           end,
-          schedules: fn _params -> [] end
+          schedules: fn _params -> [] end,
+          usage_filter_options: fn ->
+            [%{conversation_ref: "slack:T123:C456", conversation_label: "#deploys"}]
+          end
         })
     }
 
@@ -61,7 +69,7 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
        ]}
     )
 
-    %{items: items}
+    %{items: items, reachable: reachable}
   end
 
   test "activity rows stay a live stream inside the Kit list and its views patch in place", %{
@@ -101,7 +109,38 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
     assert_patch(view, "/?filter=attention")
   end
 
-  # The reload an announcement schedules, run now.
+  # The retry after a failed read merged into the rows that read never drew:
+  # after a database blip, Activity came back empty behind "2 new or
+  # reordered items · Show latest", its filter menu with nothing to choose,
+  # while Try again beside it would have shown the whole list. The retry the
+  # page runs by itself now reads the page the way Try again does.
+  test "Activity that could not be read comes back whole once the database answers", %{
+    reachable: reachable
+  } do
+    Agent.update(reachable, fn _ -> false end)
+
+    {view, _log} =
+      ExUnit.CaptureLog.with_log(fn ->
+        {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), "/")
+        view
+      end)
+
+    assert has_element?(view, ".document-unavailable", "temporarily unavailable")
+
+    Agent.update(reachable, fn _ -> true end)
+    refresh(view)
+
+    rows = "#activity-stream[phx-update=stream] > article.entity-row"
+    assert has_element?(view, rows <> "#activity-episode-id-1")
+    assert has_element?(view, rows <> "#activity-episode-id-2")
+    refute has_element?(view, "button.new-activity")
+    refute has_element?(view, ".app-warning", "could not refresh")
+
+    view |> element("#filter-add") |> render_click()
+    assert has_element?(view, "#filter-values-conversation button", "#deploys")
+  end
+
+  # The reload an announcement or a failed read schedules, run now.
   defp refresh(view) do
     send(view.pid, :reload_page)
     render(view)
