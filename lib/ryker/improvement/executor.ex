@@ -11,7 +11,9 @@ defmodule Ryker.Improvement.Executor do
   the frozen prompt once, and follows the turn. When the turn offers an
   answer, the host checks it against the contract (`Ryker.Improvement.Prompt.parse/1`)
   before telling Coop to accept it, as learning does; an answer that fails
-  the check ends the run, and the next start gets a fresh prompt that says so.
+  the check, or that the host cannot keep at all
+  (`Ryker.Improvement.Analyses.record_candidate/4`), ends the run, and the
+  next start gets a fresh prompt that says so.
 
   Nothing is abandoned while its outcome is unknown: a create or a submit
   Coop has not finished is waited for, a turn past its time is cancelled and
@@ -320,15 +322,21 @@ defmodule Ryker.Improvement.Executor do
       "prompt" => run.prompt
     }
 
+  # An offered answer the host cannot keep, or one outside the contract, ends
+  # the run: reading the same turn again would only offer it again.
   defp process_turn(claim, run, session, %{"state" => "awaiting_validation"} = turn, settings) do
     # Coop records the selected target on the session, not on the turn.
     producer = turn |> Map.take(~w(id session_id)) |> Map.put("target", session["target"])
 
-    with {:ok, saved} <- Analyses.record_candidate(claim, run.id, turn, producer) do
-      case Prompt.parse(saved.result) do
-        {:ok, _diagnosis} -> accept(claim, saved, session, turn, settings)
-        {:error, reason} -> stop(claim, saved, session, reason, settings)
-      end
+    with {:ok, saved} <- Analyses.record_candidate(claim, run.id, turn, producer),
+         {:ok, _diagnosis} <- Prompt.parse(saved.result) do
+      accept(claim, saved, session, turn, settings)
+    else
+      {:error, :invalid_improvement_result} ->
+        stop(claim, run, session, :invalid_improvement_result, settings)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

@@ -480,7 +480,13 @@ defmodule Ryker.Improvement.Analyses do
     end)
   end
 
-  @doc "Stores the exact answer the turn offered, before anything is acknowledged or applied."
+  @doc """
+  Stores the exact answer the turn offered, before anything is acknowledged
+  or applied. An offer not in the shape Coop promises (an answer over 64 KB,
+  an attempt that is not a whole number, a digest that does not match, or a
+  producer over 4 KB) cannot be kept: `{:error, :invalid_improvement_result}`,
+  as for an answer outside the contract.
+  """
   def record_candidate(
         claim,
         run_id,
@@ -502,7 +508,7 @@ defmodule Ryker.Improvement.Analyses do
 
     if sha256(result) == digest and CanonicalJSON.validate(producer, max_bytes: 4_096) == :ok,
       do: run_transaction(claim, run_id, &save_candidate(&1, turn_id, session_id, answer)),
-      else: {:error, :invalid_improvement_candidate}
+      else: {:error, :invalid_improvement_result}
   end
 
   def record_candidate(_claim, _run_id, _turn, _producer),
