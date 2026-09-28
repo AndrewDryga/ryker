@@ -74,25 +74,24 @@ defmodule Ryker.CoopFleet.JobAuthority do
       )
 
   defp repin(original, job) do
-    with {:ok, digest} <- JobSpec.digest(job) do
-      Repo.transaction(fn ->
-        session =
-          Repo.one(
-            from(session in Session, where: session.id == ^original.id, lock: "FOR UPDATE")
-          )
+    with {:ok, digest} <- JobSpec.digest(job),
+         do: Repo.transaction(fn -> repin_locked(original, job, digest) end)
+  end
 
-        cond do
-          is_nil(session) or Map.take(session, @identity) != Map.take(original, @identity) or
-              session.worker_job_digest != original.worker_job_digest ->
-            Repo.rollback(:coop_worker_job_identity_changed)
+  defp repin_locked(original, job, digest) do
+    session =
+      Repo.one(from(session in Session, where: session.id == ^original.id, lock: "FOR UPDATE"))
 
-          unplaced(session) != :ok ->
-            session
+    cond do
+      is_nil(session) or Map.take(session, @identity) != Map.take(original, @identity) or
+          session.worker_job_digest != original.worker_job_digest ->
+        Repo.rollback(:coop_worker_job_identity_changed)
 
-          true ->
-            session |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update!()
-        end
-      end)
+      unplaced(session) != :ok ->
+        session
+
+      true ->
+        session |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update!()
     end
   end
 
