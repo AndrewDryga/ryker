@@ -49,8 +49,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           feedback_groups(
             assigns.snapshot[:feedback] || [],
             assigns.snapshot[:self_analysis] || []
-          ) ++
-          review_groups(assigns.snapshot.trace.review)
+          )
       )
 
     assigns =
@@ -252,37 +251,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
-  # Andrew, 2026-09-27: "reviews can be own section like [Cleanup] with own
-  # cards." Every review of how the request ended is a card in a chapter of
-  # its own, after the background chapters. A request nobody has reviewed yet
-  # has no chapter; the end of its timeline says so quietly instead.
-  defp review_groups(%{reviews: [_ | _] = reviews}) do
-    [
-      %{
-        band: :review,
-        conversation_turn: nil,
-        description: "Each time someone checked how this request ended, and any note they left.",
-        kind: :review,
-        marker: "R",
-        phases: [
-          %{
-            band: :review,
-            turn: nil,
-            steps:
-              Enum.map(reviews, &%{id: "review-#{&1.id}", kind: :review, at: &1.at, review: &1})
-          }
-        ],
-        title: "Reviews"
-      }
-    ]
-  end
-
-  defp review_groups(_review), do: []
-
   # Andrew, 2026-09-27: every answer records the feedback it gets. What people
   # said about this request's answers is a chapter of its own, after the
-  # background chapters and before the reviews, which keep theirs: one card
-  # per signal, oldest first, each saying how they felt and why. Ryker's own
+  # background chapters, and how people rated it is part of it (2026-09-29):
+  # one card per signal, oldest first, each saying how they felt and why. Ryker's own
   # analysis of what went wrong follows the feedback that started it, as the
   # model-request cards every other call has (2026-09-28). A request nobody
   # said anything about has no chapter.
@@ -582,18 +554,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </span>
       </p>
       <.timeline_bands groups={@groups} started_at={@snapshot.trace.received_at} />
-      <Kit.empty
-        :if={@snapshot.trace.review.awaiting}
-        id="review-awaiting"
-        icon={:check}
-        title={
-          if @snapshot.trace.review.reviews == [],
-            do: "Not reviewed yet",
-            else: "How it ended this time is not reviewed yet"
-        }
-        text="Once you have checked how this request ended, mark it reviewed at the top of the page."
-        variant={:hint}
-      />
+      <.rate :if={@snapshot.trace.rating.awaiting} rating={@snapshot.trace.rating} />
       <div id="latest-outcome" class="case-outcome">
         <div
           :if={@snapshot.trace.case_file.awaiting_reply && !@snapshot.trace[:startup]}
@@ -614,7 +575,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   # The Jump to line and the chapters: each message's band with its stages,
   # then the background chapters, then what closes the page, such as the
-  # reviews of how it ended or the thread a message is part of. The request
+  # feedback on it or the thread a message is part of. The request
   # page and a message's own page draw them the same way.
   defp timeline_bands(assigns) do
     ~H"""
@@ -1104,7 +1065,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
         />
         <.event :if={@entry.kind == :event && !card_stage?(@entry.step.stage)} step={@entry.step} />
         <EpisodeRequest.render :if={@entry.kind == :request} request={@entry} />
-        <.review :if={@entry.kind == :review} review={@entry.review} />
         <.feedback :if={@entry.kind == :feedback} feedback={@entry.feedback} />
       </div>
     </article>
@@ -1146,19 +1106,25 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp feedback_reason(_feedback), do: nil
 
-  attr(:review, :map, required: true)
+  attr(:rating, :map, required: true)
 
-  # One review of how the request ended: the note the person left, and
-  # whether it covers the ending the request has now or one before it
-  # continued.
-  defp review(assigns) do
+  # Andrew, 2026-09-28, of "Mark ending reviewed": "i just mark it so what
+  # next? this is half baked!" A finished request asks how it went, and each
+  # answer does something: Went well counts on Feedback, and Needs work sends
+  # the request to Self-improvement, where Ryker works out what went wrong.
+  defp rate(assigns) do
     ~H"""
-    <div class="case-event-content review-card">
-      <.card_heading title="Ending reviewed">
-        <:meta>{if @review.current, do: "Current ending", else: "An earlier ending"}</:meta>
-      </.card_heading>
-      <p :if={@review.note} class="case-event-summary">{@review.note}</p>
-    </div>
+    <Kit.section_card
+      id="rate-request"
+      title="How did this go?"
+      lede="Needs work sends it to Self-improvement: Ryker works out what went wrong and suggests a test case for it."
+      class="rate-request"
+    >
+      <:actions>
+        <.action_button path={@rating.good} label="Went well" />
+        <.action_button path={@rating.needs_work} label="Needs work" />
+      </:actions>
+    </Kit.section_card>
     """
   end
 

@@ -11,6 +11,8 @@ defmodule Ryker.Operator.EpisodeReview do
     field(:semantic_version, :integer)
     field(:actor_ref, :string)
     field(:note, :string, default: "")
+    # How the person rated it; nil on reviews recorded before ratings.
+    field(:rating, Ecto.Enum, values: [:good, :needs_work])
     field(:reviewed_at, :utc_datetime_usec)
 
     timestamps(type: :utc_datetime_usec, updated_at: false)

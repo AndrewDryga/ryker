@@ -17,8 +17,8 @@ defmodule Ryker.Feedback do
   - how routing read the person's next message about the answer before it,
     satisfied, neutral, frustrated or angry, with its reason
     (`Ryker.Admission`, when it commits the routing decision); and
-  - an operator marking how the request ended as reviewed, with the note
-    (`Ryker.Operator.EpisodeReviews`).
+  - a person rating how a finished request went, good or needs work, with
+    their note (`Ryker.Operator.EpisodeReviews`).
 
   Recording is idempotent per source event: one event gives at most one
   signal of a kind. A negative signal also makes its request a candidate to
@@ -93,7 +93,9 @@ defmodule Ryker.Feedback do
   def category(:reaction_removed, _emoji), do: :neutral
   def category(:asked_again, _value), do: :asked_again
   def category(kind, _value) when kind in [:message_edited, :message_deleted], do: :edited
-  def category(:reviewed, _value), do: :reviewed
+  def category(:reviewed, "good"), do: :satisfied
+  def category(:reviewed, "needs_work"), do: :frustrated
+  def category(:reviewed, _ending), do: :reviewed
 
   # What a reaction says without its context. Most emoji say nothing about how
   # an answer landed (eyes is "I'm looking"), so only these two short lists

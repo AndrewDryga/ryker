@@ -17,7 +17,7 @@ defmodule Ryker.Improvement do
   - a reaction that judges the answer (`negative_reactions/0`);
   - the same person asked the same thing again soon after the answer;
   - the person edited or deleted their message after the answer;
-  - an operator reviewed how the request ended, and it was stopped.
+  - a person rated how the request went as needing work.
 
   Positive and neutral feedback never creates one; it is still evidence for
   the analysis of a request that has one.
@@ -54,7 +54,9 @@ defmodule Ryker.Improvement do
   alias Ryker.Repo
   alias Ryker.RoutingExamples
 
-  @reasons ~w(frustrated reaction asked_again edited stopped)
+  # "stopped" named a review of a cancelled request, before ratings; it stays
+  # so the candidates it made still read.
+  @reasons ~w(frustrated reaction asked_again edited rated stopped)
 
   # Reactions that judge the answer itself. The Feedback page counts a longer
   # list as frustrated, but crying, worried or weary faces are as often about
@@ -75,7 +77,7 @@ defmodule Ryker.Improvement do
 
   @doc """
   The kind of negative feedback `signal` is, or nil when it is not negative:
-  `frustrated`, `reaction`, `asked_again`, `edited` or `stopped`.
+  `frustrated`, `reaction`, `asked_again`, `edited` or `rated`.
   """
   @spec reason(Signal.t() | map()) :: String.t() | nil
   def reason(%{kind: :sentiment, value: feeling}) when feeling in ["frustrated", "angry"],
@@ -86,7 +88,7 @@ defmodule Ryker.Improvement do
 
   def reason(%{kind: :asked_again}), do: "asked_again"
   def reason(%{kind: kind}) when kind in [:message_edited, :message_deleted], do: "edited"
-  def reason(%{kind: :reviewed, value: "cancelled"}), do: "stopped"
+  def reason(%{kind: :reviewed, value: "needs_work"}), do: "rated"
   def reason(_signal), do: nil
 
   # -- Candidates ---------------------------------------------------------------------

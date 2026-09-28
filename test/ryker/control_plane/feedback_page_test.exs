@@ -249,12 +249,18 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
     chapter = LazyHTML.query(document, "#feedback")
     assert chapter |> LazyHTML.query("h3") |> Enum.map(&text/1) |> List.first() == "Feedback"
 
-    # The review keeps its own chapter; the rest are cards here, oldest first.
+    # Every signal is a card here, oldest first; how a person rated the
+    # request is one of them (a review from before ratings, here).
     assert chapter |> LazyHTML.query(".feedback-card h3") |> Enum.map(&text/1) ==
-             ["How they felt about the answer", "Reacted 👎", "Asked the same thing again"]
+             [
+               "How they felt about the answer",
+               "Reacted 👎",
+               "Asked the same thing again",
+               "Ending reviewed"
+             ]
 
     assert chapter |> LazyHTML.query(".feedback-card .state-word") |> Enum.map(&text/1) ==
-             ["Angry", "Frustrated", "Asked again"]
+             ["Angry", "Frustrated", "Asked again", "Reviewed"]
 
     assert text(chapter) =~ "“They say checkout is down for them.”"
 

@@ -199,7 +199,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     assert {:ok, _recorded} =
              Feedback.record(%{
                kind: :reviewed,
-               value: "cancelled",
+               value: "needs_work",
                actor_ref: "control-plane:local",
                source: "control_plane",
                source_ref: "episode-review:#{Ecto.UUID.generate()}",

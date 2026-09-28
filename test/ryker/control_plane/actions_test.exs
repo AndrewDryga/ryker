@@ -77,21 +77,25 @@ defmodule Ryker.ControlPlane.ActionsTest do
              )
 
     assert {:ok, %{review: review, status: :recorded}} =
-             callbacks.review_episode.(complete.episode.key)
+             callbacks.rate_episode.(complete.episode.key, :needs_work)
 
     assert review.semantic_version == completed.episode.semantic_version
     assert review.actor_ref == "control-plane:local"
+    assert review.rating == :needs_work
 
     assert {:ok, %{review: replayed, status: :duplicate}} =
-             callbacks.review_episode.(complete.episode.key)
+             callbacks.rate_episode.(complete.episode.key, :needs_work)
 
     assert replayed.id == review.id
+
+    # One rating per ending: a different one is refused, not rewritten.
+    assert callbacks.rate_episode.(complete.episode.key, :good) ==
+             {:error, :episode_review_conflict}
   end
 
-  test "closing a request does not ask its closer to review the ending they chose" do
+  test "closing a request does not ask its closer to rate the ending they chose" do
     # QA re-test, 2026-09-26: right after "Close as no longer needed" the
-    # timeline offered "Mark ending reviewed" for the ending the person had
-    # just chosen.
+    # timeline asked about the ending the person had just chosen.
     callbacks = Actions.callbacks()
     waiting = start_episode!("close-review")
 
@@ -125,7 +129,7 @@ defmodule Ryker.ControlPlane.ActionsTest do
 
     refute awaiting_review?(card.episode.key)
 
-    # An ending nobody chose here still asks to be reviewed.
+    # An ending nobody chose here still asks how it went.
     ended = start_episode!("stalled")
     assert {:ok, _cancelled} = cancel(ended.episode, "work:stalled:#{Ecto.UUID.generate()}")
     assert awaiting_review?(ended.episode.key)
@@ -143,9 +147,7 @@ defmodule Ryker.ControlPlane.ActionsTest do
 
   defp awaiting_review?(episode_key) do
     {:ok, %{trace: trace}} = EpisodeProjection.fetch(episode_key)
-    reviewable = Enum.any?(trace.actions, &(&1.label == "Mark ending reviewed"))
-    assert reviewable == trace.review.awaiting
-    reviewable
+    trace.rating.awaiting
   end
 
   defp start_episode!(suffix) do

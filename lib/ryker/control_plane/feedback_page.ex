@@ -273,15 +273,19 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   @doc "What a category holds, in one sentence."
   @spec lede(atom()) :: String.t()
   def lede(:frustrated),
-    do: "People who were frustrated or angry with an answer, or reacted to say so."
+    do:
+      "People who were frustrated or angry with an answer, reacted to say so, or rated the request as needing work."
 
   def lede(:asked_again),
     do: "The same person asked the same thing again within ten minutes of the answer."
 
   def lede(:edited), do: "People who changed or deleted their message after Ryker answered it."
   def lede(:neutral), do: "Reactions and replies that say neither way how an answer landed."
-  def lede(:satisfied), do: "People who said or showed that an answer helped."
-  def lede(:reviewed), do: "Your reviews of how requests ended, with your notes."
+
+  def lede(:satisfied),
+    do: "People who said or showed that an answer helped, or rated the request as going well."
+
+  def lede(:reviewed), do: "Requests marked reviewed before they could be rated, with the notes."
 
   @doc "A signal's state: a dot and a word, with what it means on hover."
   @spec state(map()) :: {atom(), String.t(), String.t()}
@@ -307,6 +311,14 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   def state(%{kind: :message_deleted}),
     do: {:warn, "Deleted", "They deleted their message after Ryker answered it."}
 
+  def state(%{kind: :reviewed, value: "good"}),
+    do: {:on, "Went well", "Someone rated how this request went."}
+
+  def state(%{kind: :reviewed, value: "needs_work"}),
+    do:
+      {:bad, "Needs work",
+       "Someone rated how this request went; Ryker works out what went wrong under Self-improvement."}
+
   def state(%{kind: :reviewed, value: ending}),
     do: {:off, "Reviewed", "Someone marked how this request #{ending_words(ending)} as reviewed."}
 
@@ -318,6 +330,8 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   def title(%{kind: :asked_again}), do: "Asked the same thing again"
   def title(%{kind: :message_edited}), do: "Edited their message after the answer"
   def title(%{kind: :message_deleted}), do: "Deleted their message after the answer"
+  def title(%{kind: :reviewed, value: "good"}), do: "Rated: went well"
+  def title(%{kind: :reviewed, value: "needs_work"}), do: "Rated: needs work"
   def title(%{kind: :reviewed}), do: "Ending reviewed"
 
   @doc "What a signal says, in a sentence: the reason or note, or what the person did."
@@ -330,6 +344,10 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   def text(%{kind: :message_edited}), do: "Edited their message after Ryker answered it."
   def text(%{kind: :message_deleted}), do: "Deleted their message after Ryker answered it."
   def text(%{kind: :reviewed, note: note}) when is_binary(note), do: "“#{note}”"
+  def text(%{kind: :reviewed, value: "good"}), do: "Rated how this request went: it went well."
+
+  def text(%{kind: :reviewed, value: "needs_work"}),
+    do: "Rated how this request went: it needs work."
 
   def text(%{kind: :reviewed, value: ending}),
     do: "Marked how the request #{ending_words(ending)} as reviewed."

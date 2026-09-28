@@ -97,14 +97,12 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
 
   @doc """
   A request's feedback for its Timeline, oldest first: an episode's
-  (`{:episode, id}`) without its reviews, which have their own chapter, or a
-  message's routing answered by itself (`{:input, id}`).
+  (`{:episode, id}`), with how people rated it, or a message's routing
+  answered by itself (`{:input, id}`).
   """
   @spec for_request(Ryker.Feedback.request()) :: [map()]
-  def for_request({:episode, id}) when is_binary(id) do
-    from(signal in Signal, where: signal.episode_id == ^id and signal.kind != :reviewed)
-    |> timeline_rows()
-  end
+  def for_request({:episode, id}) when is_binary(id),
+    do: from(signal in Signal, where: signal.episode_id == ^id) |> timeline_rows()
 
   def for_request({:input, id}) when is_binary(id),
     do: from(signal in Signal, where: signal.input_id == ^id) |> timeline_rows()

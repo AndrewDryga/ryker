@@ -25,7 +25,7 @@ defmodule Ryker.Improvement.CandidatesTest do
       {:asked_again, nil, nil, "asked_again"},
       {:message_edited, nil, nil, "edited"},
       {:message_deleted, nil, nil, "edited"},
-      {:reviewed, "cancelled", "Stopped: it checked production.", "stopped"}
+      {:reviewed, "needs_work", "It checked production.", "rated"}
     ]
 
     for {{kind, value, note, reason}, index} <- Enum.with_index(negative) do
@@ -46,7 +46,9 @@ defmodule Ryker.Improvement.CandidatesTest do
       # answer, so the Feedback page's frustrated list is not the rule here.
       {:reaction_added, "cry", nil},
       {:reaction_removed, "-1", nil},
-      {:reviewed, "complete", "Checked."}
+      {:reviewed, "good", "Checked."},
+      # A stopped request is not by itself a bad answer: a person rates it.
+      {:reviewed, "cancelled", "Stopped: it checked production."}
     ]
 
     for {{kind, value, note}, index} <- Enum.with_index(positive_or_neutral) do
