@@ -115,8 +115,8 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     end)
   end
 
-  # The bytes as they were sent or answered, with secrets redacted in place:
-  # re-encoding the JSON would reorder it into something never sent.
+  # The bytes as they were sent or answered. Re-encoding the JSON would
+  # reorder it into something never sent; the redactor keeps the format.
   defp exact(nil, _secrets), do: nil
 
   defp exact(text, secrets) do
