@@ -59,10 +59,9 @@ defmodule Ryker.CoopFleet.JobAuthority do
   """
   @spec without_removed_repositories(map()) :: map()
   def without_removed_repositories(
-        %{worker_job_document: %{"companions" => companions} = job, repository_context: context} =
-          authority
+        %{worker_job_document: %{"companions" => companions} = job} = authority
       )
-      when is_list(companions) and is_map(context) do
+      when is_list(companions) do
     available = available_repositories()
     kept = Enum.filter(companions, &MapSet.member?(available, &1["source"]["repository_ref"]))
 
@@ -72,21 +71,17 @@ defmodule Ryker.CoopFleet.JobAuthority do
       job = Map.put(job, "companions", kept)
       {:ok, digest} = JobSpec.digest(job)
 
-      context =
-        Map.update!(context, "read_only_repositories", fn refs ->
-          Enum.filter(refs, &MapSet.member?(available, &1))
-        end)
-
-      %{
-        authority
-        | worker_job_document: job,
-          worker_job_digest: digest,
-          repository_context: context
-      }
+      %{authority | worker_job_document: job, worker_job_digest: digest}
+      |> Map.update(:repository_context, nil, &available_context(&1, available))
     end
   end
 
   def without_removed_repositories(authority), do: authority
+
+  defp available_context(%{"read_only_repositories" => refs} = context, available),
+    do: %{context | "read_only_repositories" => Enum.filter(refs, &MapSet.member?(available, &1))}
+
+  defp available_context(context, _available), do: context
 
   @doc "Whether the session's frozen job names a companion repository Ryker no longer has."
   @spec removed_repositories?(Session.t()) :: boolean()

@@ -416,6 +416,18 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
              pinned
              | worker_job_document: authority.worker_job_document
            })
+
+    # The companion goes whether or not the session names a repository
+    # context. A replacement that kept it would still be one to replace, so
+    # Work would replace it again on every attempt.
+    without_context =
+      JobAuthority.without_removed_repositories(%{
+        Sessions.session_authority(pinned)
+        | repository_context: nil
+      })
+
+    assert without_context.worker_job_document == authority.worker_job_document
+    assert without_context.repository_context == nil
   end
 
   test "incident work in an environment pins only its configured repository set", %{
