@@ -147,6 +147,11 @@ defmodule Ryker.ControlPlane.ToolCard do
   defp service(%{kind: "ryker"}), do: :ryker
   defp service(_action), do: :workspace
 
+  # A run request says which action and why: cloud-init.log_tail · Inspect…
+  defp line_detail(%{tool: "run_action", facts: [{"Action", action} | _facts], text: reason})
+       when is_binary(reason),
+       do: String.slice(action <> " · " <> first_line(reason), 0, 160)
+
   # The one fact that tells a step from the ones around it, on one line.
   defp line_detail(action) do
     [
@@ -159,9 +164,11 @@ defmodule Ryker.ControlPlane.ToolCard do
     |> Enum.find(&(is_binary(&1) and String.trim(&1) != ""))
     |> case do
       nil -> nil
-      text -> text |> String.split("\n", parts: 2) |> hd() |> String.slice(0, 160)
+      text -> text |> first_line() |> String.slice(0, 160)
     end
   end
+
+  defp first_line(text), do: text |> String.split("\n", parts: 2) |> hd()
 
   def render(assigns) do
     assigns = assign(assigns, :action, project(assigns.step))
@@ -243,14 +250,7 @@ defmodule Ryker.ControlPlane.ToolCard do
     tool = input["tool"] || input["operation"]
     metadata = if input["server"] in ["controller-tools", "responder-state"], do: @tools[tool]
 
-    {title, description, kind, symbol} =
-      case metadata do
-        {verb, completed, description} ->
-          {if(step.state == "completed", do: completed, else: verb), description, "ryker", "◇"}
-
-        nil ->
-          common_action(step, args)
-      end
+    {title, description, kind, symbol} = naming(metadata, step, args, tool)
 
     file = file_path(args, step.title)
     {paths, warning} = display_paths(step[:path_context], file)
@@ -274,6 +274,20 @@ defmodule Ryker.ControlPlane.ToolCard do
     }
 
     citation_result(action, step, tool)
+  end
+
+  defp naming({verb, completed, description}, step, _args, _tool),
+    do: {if(step.state == "completed", do: completed, else: verb), description, "ryker", "◇"}
+
+  # A tool this view has no words for is named by its own name, not "Tool call".
+  defp naming(nil, step, args, tool) do
+    case common_action(step, args) do
+      {"Tool call", description, kind, symbol} when is_binary(tool) and tool != "" ->
+        {tool |> String.replace(~r/[_.]+/, " ") |> String.capitalize(), description, kind, symbol}
+
+      named ->
+        named
+    end
   end
 
   defp citation_result(
@@ -367,54 +381,49 @@ defmodule Ryker.ControlPlane.ToolCard do
 
   defp groups(_, _), do: []
 
-  defp fact_keys(tool) do
-    case tool do
-      "cite_source" ->
-        [{"subject", "Subject"}, {"relation", "Relation"}, {"source_ref", "Source"}]
+  # The facts each tool's card lists, by argument and label; a tool without
+  # its own list shows the ones most tools share.
+  @fact_keys %{
+    "cite_source" => [{"subject", "Subject"}, {"relation", "Relation"}, {"source_ref", "Source"}],
+    "record_finding" => [{"status", "Conclusion"}, {"scope", "Scope"}],
+    "plan_goal" => [
+      {"requested_outcome", "Goal"},
+      {"completion_contract", "Done when"},
+      {"authority", "Allowed work"},
+      {"writable_repository", "Writable project"}
+    ],
+    "update_conversation_summary" => [],
+    "search_memory" => [{"query", "Search"}, {"kind", "Knowledge type"}],
+    "update_goal" => [{"goal_id", "Goal"}, {"state", "Progress"}],
+    "wait_for" => [
+      {"deadline", "Wait until"},
+      {"verification", "What to verify"},
+      {"on_timeout", "If time runs out"}
+    ],
+    "get_action" => [{"action_id", "Action"}, {"pack_ref", "Pack"}],
+    "run_action" => [{"action_id", "Action"}, {"pack_ref", "Pack"}],
+    "find_actions" => [{"query", "Search"}]
+  }
+  @shared_fact_keys [
+    {"title", "Title"},
+    {"objective", "Objective"},
+    {"query", "Search"},
+    {"pattern", "Pattern"}
+  ]
 
-      "record_finding" ->
-        [{"status", "Conclusion"}, {"scope", "Scope"}]
-
-      "plan_goal" ->
-        [
-          {"requested_outcome", "Goal"},
-          {"completion_contract", "Done when"},
-          {"authority", "Allowed work"},
-          {"writable_repository", "Writable project"}
-        ]
-
-      "update_conversation_summary" ->
-        []
-
-      "search_memory" ->
-        [{"query", "Search"}, {"kind", "Knowledge type"}]
-
-      "update_goal" ->
-        [{"goal_id", "Goal"}, {"state", "Progress"}]
-
-      "wait_for" ->
-        [
-          {"deadline", "Wait until"},
-          {"verification", "What to verify"},
-          {"on_timeout", "If time runs out"}
-        ]
-
-      _ ->
-        [
-          {"title", "Title"},
-          {"objective", "Objective"},
-          {"query", "Search"},
-          {"pattern", "Pattern"}
-        ]
-    end
-  end
+  defp fact_keys(tool), do: Map.get(@fact_keys, tool, @shared_fact_keys)
 
   defp facts(tool, args) do
     for {key, label} <- fact_keys(tool),
         value = args[key],
         is_binary(value) && value != "",
-        do: {label, value}
+        do: {label, fact_value(key, value)}
   end
+
+  # A pack by its name and version, as Emisar lists it: cloud-init@0.1.19,
+  # without the content digest it was pinned by.
+  defp fact_value("pack_ref", value), do: value |> String.split("/sha256:", parts: 2) |> hd()
+  defp fact_value(_key, value), do: value
 
   defp file_path(args, title) do
     cond do
