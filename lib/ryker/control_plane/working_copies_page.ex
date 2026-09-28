@@ -3,17 +3,19 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   The Working copies page: the repository checkouts tasks work in and how
   cleanup treats each one, as Kit rows.
 
-  A compact storage line per worker comes first, then the copies with their
-  confirmed cleanup actions, what is ready for cleanup now, and the removed
-  copies behind one closed disclosure. Nothing here estimates a byte no
-  worker measured: a missing report is unknown, never zero. An open page
-  redraws when a copy, its request or a worker changes (`subscriptions/0`).
+  It reads as every list page does (Andrew, 2026-09-28: "design the bottom
+  half properly"): how many copies are in use, ready for cleanup and removed,
+  then a compact storage line per worker, then Current or Removed, each a
+  list of copies with their confirmed cleanup actions. What is ready for
+  cleanup now shows above the current copies only when there is some.
+  Nothing here estimates a byte no worker measured: a missing report is
+  unknown, never zero. An open page redraws when a copy, its request or a
+  worker changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, ShortTime, SlackMarkdown}
-  alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
 
   @gib 1_073_741_824
@@ -47,6 +49,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
 
   attr(:storage, :map, required: true)
   attr(:now, :any, default: nil)
+  attr(:view, :string, default: "current", doc: "current, or removed for removed copies")
 
   def render(assigns) do
     # Learning sessions share the cleanup custody but hold no checkout; the
@@ -57,59 +60,96 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
         &(Map.get(&1, :execution_kind) != :learning and is_binary(Map.get(&1, :repository)))
       )
 
+    current = Enum.reject(rows, &(&1.status == :discarded))
+    removed = Enum.filter(rows, &(&1.status == :discarded))
+    ready = Enum.filter(assigns.storage.preview, &(&1.kind == :work and is_binary(&1.repository)))
+    view = if assigns[:view] == "removed", do: "removed", else: "current"
+
     assigns =
       assigns
       |> assign_new(:now, fn -> nil end)
       |> then(&assign(&1, :now, &1.now || DateTime.utc_now()))
       |> assign(
-        current: Enum.reject(rows, &(&1.status == :discarded)),
-        removed: Enum.filter(rows, &(&1.status == :discarded)),
-        ready:
-          Enum.filter(assigns.storage.preview, &(&1.kind == :work and is_binary(&1.repository)))
+        view: view,
+        current: current,
+        removed: removed,
+        ready: ready,
+        counts: counts(current, ready, removed)
       )
 
     ~H"""
     <div class="working-copies-page">
+      <Kit.counts label="Working copies" items={@counts} />
       <.storage storage={@storage} now={@now} copies?={@current != []} />
-      <Kit.entity_list :if={@current != []} label="Working copies">
-        <.copy :for={row <- @current} row={row} now={@now} />
-      </Kit.entity_list>
-      <Kit.empty
-        :if={@current == []}
-        icon={:copy}
-        title="No working copies right now"
-        text="A copy appears here while a task works in a repository, and stays until cleanup removes it safely."
-      />
-      <section id="ready-for-cleanup" class="working-copies-section">
-        <Kit.section_head
-          title="Ready for cleanup"
-          lede="Copies Ryker can clean up now, oldest first."
+      <Kit.toolbar>
+        <Kit.segmented
+          label="Which copies"
+          options={[
+            {"Current", "/working-copies", @view == "current"},
+            {"Removed", "/working-copies?view=removed", @view == "removed"}
+          ]}
         />
-        <Kit.entity_list :if={@ready != []} label="Ready for cleanup">
-          <Kit.entity_row
-            :for={item <- @ready}
-            id={"ready-" <> item.ref}
-            name={item.repository}
-            text={item.reason}
-            meta={["ready for " <> duration(item.eligible_age_seconds)]}
+      </Kit.toolbar>
+      <%= if @view == "current" do %>
+        <section :if={@ready != []} id="ready-for-cleanup" class="working-copies-section">
+          <Kit.section_head
+            title="Ready for cleanup"
+            lede="Copies Ryker cleans up next, oldest first."
           />
+          <Kit.entity_list label="Ready for cleanup">
+            <Kit.entity_row
+              :for={item <- @ready}
+              id={"ready-" <> item.ref}
+              icon={:code}
+              name={item.repository}
+              text={item.reason}
+              meta={["ready for " <> duration(item.eligible_age_seconds)]}
+            />
+          </Kit.entity_list>
+        </section>
+        <Kit.entity_list :if={@current != []} label="Working copies">
+          <.copy :for={row <- @current} row={row} now={@now} />
         </Kit.entity_list>
         <Kit.empty
-          :if={@ready == []}
-          variant={:hint}
-          icon={:check}
-          title="Nothing is ready for cleanup right now"
-          text="Ryker removes a copy on its own once that is safe. It keeps any copy with work not yet merged."
+          :if={@current == []}
+          icon={:copy}
+          title="No working copies right now"
+          text="A copy appears here while a task works in a repository, and stays until cleanup removes it safely."
         />
-      </section>
-      <details :if={@removed != []} id="removed-copies" class="working-copies-history">
-        <summary>Removed copies ({length(@removed)})</summary>
-        <Kit.entity_list label="Removed copies">
+      <% else %>
+        <Kit.entity_list :if={@removed != []} label="Removed copies">
           <.copy :for={row <- @removed} row={row} now={@now} />
         </Kit.entity_list>
-      </details>
+        <Kit.empty
+          :if={@removed == []}
+          icon={:copy}
+          title="No removed copies yet"
+          text="A copy moves here once cleanup removes it."
+        />
+      <% end %>
     </div>
     """
+  end
+
+  # How many copies are in use, ready for cleanup and removed, each opening
+  # its view. A count a person should act on is not one of these: a copy that
+  # needs attention says so on its row.
+  defp counts(current, ready, removed) do
+    [
+      %{
+        value: length(current),
+        label: if(length(current) == 1, do: "copy in use", else: "copies in use"),
+        href: "/working-copies"
+      },
+      ready != [] &&
+        %{
+          value: length(ready),
+          label: "ready for cleanup",
+          href: "/working-copies#ready-for-cleanup"
+        },
+      %{value: length(removed), label: "removed", href: "/working-copies?view=removed"}
+    ]
+    |> Enum.filter(& &1)
   end
 
   attr(:row, :map, required: true)
@@ -142,21 +182,6 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
           tone={:danger}
         />
       </:actions>
-      <:details>
-        <details id={"copy-" <> @row.ref <> "-details"} class="entity-details">
-          <summary>Details</summary>
-          <dl class="entity-facts">
-            <div>
-              <dt>Working copy ID</dt>
-              <dd><code>{@row.ref}</code></dd>
-            </div>
-            <div :if={@row[:state]}>
-              <dt>Request</dt>
-              <dd>{Words.label(@row.state)}</dd>
-            </div>
-          </dl>
-        </details>
-      </:details>
     </Kit.entity_row>
     """
   end

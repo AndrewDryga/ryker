@@ -310,7 +310,8 @@ defmodule Ryker.ControlPlane.Pages do
       WorkingCopiesPage.html(%{
         rows: options.projection.workspaces.(params),
         storage: options.projection.workspace_storage.(),
-        now: nil
+        now: nil,
+        view: params["view"]
       })
     )
   end
