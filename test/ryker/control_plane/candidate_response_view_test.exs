@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
 
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{EpisodeRequest, RequestPage}
+  alias Ryker.ControlPlane.EpisodeRequest
   alias Ryker.InspectionRedactor
 
   @fixture "test/ryker/work/fixtures/airflow_candidate_responses.json"
@@ -26,7 +26,7 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
     }
 
     html =
-      render_component(&RequestPage.candidate_response/1,
+      render_component(&EpisodeRequest.candidate_response/1,
         response: displayed,
         attempt: 1,
         prefix: "safe"
@@ -46,7 +46,7 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
     assert redacted.redacted
 
     raw =
-      render_component(&RequestPage.candidate_response/1,
+      render_component(&EpisodeRequest.candidate_response/1,
         response: redacted,
         attempt: 1,
         prefix: "secret"
@@ -83,7 +83,7 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
     message = Jason.decode!(body)["message"]
 
     unsent =
-      render_component(&RequestPage.candidate_response/1,
+      render_component(&EpisodeRequest.candidate_response/1,
         response: response,
         attempt: 1,
         prefix: "turn-x"
@@ -94,7 +94,7 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
              String.slice(message, 0, 40)
 
     sent =
-      render_component(&RequestPage.candidate_response/1,
+      render_component(&EpisodeRequest.candidate_response/1,
         response: response,
         attempt: 1,
         prefix: "turn-x",

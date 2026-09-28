@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
   import Phoenix.LiveViewTest
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection, RequestPage}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeRequest, ModelRequests, Projection}
   alias Ryker.InspectionRedactor
   alias Ryker.Work.{CandidateResponse, Custody, Submission, Turn}
 
@@ -251,7 +251,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
 
     # The display's candidate digest is calculated from actual bytes, not the
     # damaged execution cursor metadata; it still matches the exact check.
-    assert RequestPage.latest_archived_response(result(episode, turn).sections)
+    assert EpisodeRequest.latest_archived_response(result(episode, turn).sections)
     assert Enum.empty?(latest_response(episode, turn))
 
     Repo.get_by!(CandidateResponse, turn_id: turn.id, candidate_attempt: 2)
@@ -262,7 +262,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     )
     |> Repo.update!()
 
-    assert RequestPage.latest_archived_response(result(episode, turn).sections) == nil
+    assert EpisodeRequest.latest_archived_response(result(episode, turn).sections) == nil
     assert Enum.count(latest_response(episode, turn)) == 1
   end
 
