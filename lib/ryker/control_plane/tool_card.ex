@@ -196,9 +196,6 @@ defmodule Ryker.ControlPlane.ToolCard do
       >
         The worker reported that a command ran, not which one.
       </p>
-      <p :if={@action.saved_evidence} class="action-evidence-link">
-        <a href={@action.saved_evidence}>View recorded evidence ↑</a>
-      </p>
       <p :if={@action.warning} class="action-warning">⚠ {@action.warning}</p>
       <code :for={path <- @action.paths} class="action-path">{path}</code>
       <p :if={@step.summary && @step.state in ["failed", "cancelled"]} class="action-error">
@@ -261,7 +258,7 @@ defmodule Ryker.ControlPlane.ToolCard do
     file = file_path(args, step.title)
     {paths, warning} = display_paths(step[:path_context], file)
 
-    action = %{
+    %{
       tool: tool,
       title: title,
       description: description,
@@ -275,11 +272,8 @@ defmodule Ryker.ControlPlane.ToolCard do
       text: readable_text(tool, args),
       facts: facts(tool, args),
       groups: groups(tool, args),
-      diff: string(args["diff"] || args["patch"]),
-      saved_evidence: nil
+      diff: string(args["diff"] || args["patch"])
     }
-
-    citation_result(action, step, tool)
   end
 
   defp naming({verb, completed, description}, step, _args, _tool),
@@ -308,24 +302,6 @@ defmodule Ryker.ControlPlane.ToolCard do
   defp by_kind("delete", _description), do: {"Delete files", nil, "edit", "±"}
   defp by_kind("move", _description), do: {"Move files", nil, "edit", "±"}
   defp by_kind(_kind, description), do: {"Tool call", description, "tool", "◇"}
-
-  defp citation_result(
-         %{kind: "ryker"} = action,
-         %{state: "completed", saved_evidence: link},
-         "cite_source"
-       )
-       when is_binary(link) do
-    %{
-      action
-      | title: "Citation saved",
-        description: nil,
-        text: nil,
-        facts: [],
-        saved_evidence: link
-    }
-  end
-
-  defp citation_result(action, _step, _tool), do: action
 
   defp common_action(%{tool_kind: "edit"}, _), do: {"Edit files", nil, "edit", "±"}
   defp common_action(%{tool_kind: "read"}, _), do: {"Read file", nil, "read", "↳"}

@@ -1,7 +1,7 @@
-defmodule Ryker.ControlPlane.EvidenceLinksTest do
+defmodule Ryker.ControlPlane.SavedCitationsTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.EvidenceLinks
+  alias Ryker.ControlPlane.SavedCitations
   alias Ryker.Records.Record
   alias Ryker.Work.{ActivityEvent, Turn}
 
@@ -18,15 +18,14 @@ defmodule Ryker.ControlPlane.EvidenceLinksTest do
     }
   end
 
-  test "the real citation links by owning turn and full call identity without rewriting earlier events",
+  test "a saved citation is told by its observation's card alone, matched by turn and full call identity",
        c do
-    # In this retained HAProxy run the completion omitted its response. The
-    # durable host operation and full claim hash still prove the exact citation.
-    [started, completed] = attach(c)
-    assert completed.saved_evidence == "#event-record-" <> c.record.id
-    assert completed.at == List.last(c.events).occurred_at
-    assert started == hd(c.steps)
-    assert Map.delete(completed, :saved_evidence) == List.last(c.steps)
+    # Andrew, 2026-09-28, of "Citation saved · View recorded evidence ↑": "one
+    # of card is just to link other one?" In this retained HAProxy run the
+    # completion omitted its response; the durable host operation and full
+    # claim hash still prove the exact citation, so its card goes and the
+    # evidence card above it stands for the call. Earlier events stay as they were.
+    assert fold(c) == [hd(c.steps)]
   end
 
   test "similar prose and a shared operation slot never hide a different observation", c do
@@ -39,7 +38,7 @@ defmodule Ryker.ControlPlane.EvidenceLinksTest do
         ] do
       [start, finish] = c.events
       start = put_in(start.payload["input"]["arguments"][key], value)
-      assert attach(%{c | events: [start, finish]}) == c.steps
+      assert fold(%{c | events: [start, finish]}) == c.steps
     end
   end
 
@@ -52,7 +51,7 @@ defmodule Ryker.ControlPlane.EvidenceLinksTest do
           %{c.record | payload: %{}},
           %{c.record | inserted_at: DateTime.add(List.last(c.events).occurred_at, 1, :second)}
         ] do
-      assert attach(%{c | record: record}) == c.steps
+      assert fold(%{c | record: record}) == c.steps
     end
 
     for turn <- [
@@ -60,11 +59,11 @@ defmodule Ryker.ControlPlane.EvidenceLinksTest do
           %{c.turn | coop_turn_id: "another-turn"},
           %{c.turn | episode_id: Ecto.UUID.generate()}
         ] do
-      assert attach(%{c | turn: turn}) == c.steps
+      assert fold(%{c | turn: turn}) == c.steps
     end
 
-    assert EvidenceLinks.attach(c.steps, c.events, [c.turn, c.turn], [c.record]) == c.steps
-    assert EvidenceLinks.attach(c.steps, c.events, [c.turn], [c.record, c.record]) == c.steps
+    assert SavedCitations.fold(c.steps, c.events, [c.turn, c.turn], [c.record]) == c.steps
+    assert SavedCitations.fold(c.steps, c.events, [c.turn], [c.record, c.record]) == c.steps
   end
 
   test "failed, unmatched, admission and missing calls retain their full standalone cards", c do
@@ -78,14 +77,14 @@ defmodule Ryker.ControlPlane.EvidenceLinksTest do
           [put_in(start.payload["input"]["arguments"], nil), finish],
           [finish]
         ] do
-      assert attach(%{c | events: events}) == c.steps
+      assert fold(%{c | events: events}) == c.steps
     end
 
-    assert EvidenceLinks.attach(c.steps, c.events, [c.turn], []) == c.steps
-    assert EvidenceLinks.attach(c.steps, c.events, [], [c.record]) == c.steps
+    assert SavedCitations.fold(c.steps, c.events, [c.turn], []) == c.steps
+    assert SavedCitations.fold(c.steps, c.events, [], [c.record]) == c.steps
   end
 
-  test "idempotent calls can point to one existing citation without claiming another creation",
+  test "idempotent calls fold into one existing citation without claiming another creation",
        c do
     [start, finish] = c.events
 
@@ -96,25 +95,25 @@ defmodule Ryker.ControlPlane.EvidenceLinksTest do
       )
 
     steps = c.steps ++ Enum.map(repeated, &%{id: "activity-" <> &1.id, at: &1.occurred_at})
-    result = EvidenceLinks.attach(steps, c.events ++ repeated, [c.turn], [c.record])
-    assert Enum.count(result, &Map.has_key?(&1, :saved_evidence)) == 2
+    result = SavedCitations.fold(steps, c.events ++ repeated, [c.turn], [c.record])
 
-    assert result
-           |> Enum.filter(&Map.has_key?(&1, :saved_evidence))
-           |> Enum.map(& &1.saved_evidence)
-           |> Enum.uniq() == ["#event-record-" <> c.record.id]
+    # Both calls are told by the one evidence card; neither claims another.
+    assert result == [
+             hd(c.steps),
+             %{id: "activity-" <> hd(repeated).id, at: hd(repeated).occurred_at}
+           ]
   end
 
   test "missing remote call and turn identities never establish a citation link", c do
     for id <- [nil, ""] do
       events = Enum.map(c.events, &put_in(&1.payload["tool_call_id"], id))
-      assert attach(%{c | events: events}) == c.steps
+      assert fold(%{c | events: events}) == c.steps
       events = Enum.map(c.events, &%{&1 | coop_turn_id: id})
-      assert attach(%{c | events: events, turn: %{c.turn | coop_turn_id: id}}) == c.steps
+      assert fold(%{c | events: events, turn: %{c.turn | coop_turn_id: id}}) == c.steps
     end
   end
 
-  defp attach(c), do: EvidenceLinks.attach(c.steps, c.events, [c.turn], [c.record])
+  defp fold(c), do: SavedCitations.fold(c.steps, c.events, [c.turn], [c.record])
 
   defp load(module, fields) do
     attributes =
