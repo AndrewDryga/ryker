@@ -776,7 +776,7 @@ defmodule Ryker.ControlPlane.Router do
   end
 
   defp confirmation("memory-review", resource_ref, action, options)
-       when action in ["keep", "merge", "forget", "dismiss"] do
+       when action in ["keep", "merge", "forget"] do
     snapshot = options.projection.memory.(%{})
 
     case Enum.find(snapshot.reviews, &(&1["review_ref"] == resource_ref)) do
@@ -994,7 +994,7 @@ defmodule Ryker.ControlPlane.Router do
     do: actions.mark_finding_explained.(resource_ref)
 
   defp perform("memory-review", resource_ref, action, actions)
-       when action in ["keep", "merge", "forget", "dismiss"],
+       when action in ["keep", "merge", "forget"],
        do: actions.resolve_memory_review.(resource_ref, memory_review_action(action), nil)
 
   defp perform("admission", resource_ref, "rearm", actions),
@@ -1073,15 +1073,9 @@ defmodule Ryker.ControlPlane.Router do
        "Ryker stops using this and erases what it saved. You can ask it to remember again later.",
        :danger}
 
-  defp review_confirmation("dismiss", _kind, subjects),
-    do:
-      {"Stop reviewing #{subjects}?", "Nothing changes, and Ryker stops asking about it for now.",
-       :primary}
-
   defp memory_review_action("keep"), do: :keep
   defp memory_review_action("merge"), do: :merge
   defp memory_review_action("forget"), do: :forget
-  defp memory_review_action("dismiss"), do: :dismiss
 
   defp action_return_path("episode", resource_ref),
     do: "/timeline/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}"
