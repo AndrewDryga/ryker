@@ -3,8 +3,8 @@ defmodule Ryker.Admission.ConversationSummaries do
   Selects the latest thread and parent-channel summary a captured context may show.
 
   A summary is a bounded hint, never evidence. Selection is source-safe: a
-  revision derived from a message after this input's cutoff is refused rather
-  than shown, because a newer summary would otherwise leak future messages
+  summary saved after this input arrived is refused rather than shown, because
+  the work that saved it could have read later messages and would leak them
   into an earlier decision. A withdrawn or unauthorized source makes the
   summary unavailable rather than laundering its text. When none is available
   the manifest says so, and the actual recent messages carry the context.
@@ -87,17 +87,14 @@ defmodule Ryker.Admission.ConversationSummaries do
     )
   end
 
-  # Slack message references are zero-padded decimal timestamps, so the
-  # captured item of the summary's newest source orders against this input's
-  # own item without parsing either as a number.
-  defp after_cutoff?(%ConversationSummary{source_message_ref: ref}, %Entry{source_item_ref: item})
-       when is_binary(ref) and is_binary(item),
-       do: ref >= item
-
+  # When the summary was saved is what bounds what it can know. Its
+  # `source_message_ref` names the saving episode's newest input by episode key
+  # ("admit_input:<digest>"), which neither orders against a Slack timestamp
+  # nor covers what that work read for itself.
   defp after_cutoff?(%ConversationSummary{updated_at: updated_at}, %Entry{
          occurred_at: occurred_at
        }),
-       do: DateTime.compare(updated_at, occurred_at) == :gt
+       do: DateTime.after?(updated_at, occurred_at)
 
   defp document(summary, now) do
     %{
