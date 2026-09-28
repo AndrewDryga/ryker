@@ -168,16 +168,20 @@ defmodule Ryker.Work.Executor.Sessions do
   defp create_session(claim, key, settings) do
     task = Session.coop_task_ref(claim.session)
 
+    # Pinning a repository's source can take minutes, longer than the lease.
+    prepare = fn ->
+      API.prepare_create_session(
+        settings.api,
+        settings.client,
+        key,
+        claim.session.policy,
+        task,
+        claim.session.repository_source
+      )
+    end
+
     result =
-      with :ok <-
-             API.prepare_create_session(
-               settings.api,
-               settings.client,
-               key,
-               claim.session.policy,
-               task,
-               claim.session.repository_source
-             ) do
+      with :ok <- Remote.with_lease_heartbeat(settings, prepare) do
         Remote.mutation_call(settings, :create_session, key, fn ->
           Remote.create_remote_session(settings, claim, key, task)
         end)

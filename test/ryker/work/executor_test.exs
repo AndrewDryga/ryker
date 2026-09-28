@@ -469,6 +469,78 @@ defmodule Ryker.Work.ExecutorTest do
     assert FakeAPI.state(fake).submit_count == 0
   end
 
+  # Preparing a repository's source can take minutes (the first mirror of a
+  # large repository takes over five) and nothing renewed the turn's lease
+  # while it ran. The lease lapsed, a second slot claimed the turn and spent an
+  # attempt, and the first then failed on its stale lease; repeated, that spent
+  # every one of the turn's eight attempts.
+  test "a source preparation that outlasts the lease keeps the turn" do
+    claim = claim_episode!("preparation-outlasts-lease")
+    {:ok, fake} = fake_for(claim, [reply("Prepared before anyone else took the turn.")])
+    parent = self()
+
+    # The claim's lease runs out before the preparation ends.
+    expiry = DateTime.add(Repo.now!(), 2, :second)
+    lease_expires!(claim, expiry)
+
+    prepare = fn fallback ->
+      database_clock_past!(expiry)
+      send(parent, {:second_slot, Custody.claim_next("worker:second-slot", 60, :work)})
+      fallback.()
+    end
+
+    # The fleet answers a create with an operation it finishes later.
+    create_session = fn fallback ->
+      assert {:ok, %{"operation" => operation}} = fallback.()
+      {:ok, %{"operation" => %{operation | "state" => "running"}}}
+    end
+
+    options =
+      fake
+      |> protocol_options(%{prepare_create_session: prepare, create_session: create_session})
+      |> Keyword.merge(
+        lease_seconds: 3,
+        max_block_ms: 100,
+        monotonic_ms: fn -> System.monotonic_time(:millisecond) end
+      )
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, options)
+    assert_received {:second_slot, {:ok, nil}}
+    assert FakeAPI.state(fake).create_count == 1
+
+    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).work_attempt_count ==
+             claim.turn.work_attempt_count
+  end
+
+  # The renewals run in a process of their own beside the preparation. The
+  # Work slot rescues a database error and lives on, so renewals that outlived
+  # a preparation which raised would keep its turn from ever being taken again.
+  test "a source preparation that raises takes its lease renewals with it" do
+    claim = claim_episode!("preparation-raises")
+    {:ok, fake} = fake_for(claim, [reply("Never reached.")])
+    expiry = DateTime.add(Repo.now!(), 500, :millisecond)
+    lease_expires!(claim, expiry)
+
+    prepare = fn _fallback ->
+      raise DBConnection.ConnectionError, "the connection pool went away"
+    end
+
+    options =
+      fake
+      |> protocol_options(%{prepare_create_session: prepare})
+      |> Keyword.merge(
+        lease_seconds: 1,
+        max_block_ms: 100,
+        monotonic_ms: fn -> System.monotonic_time(:millisecond) end
+      )
+
+    assert_raise DBConnection.ConnectionError, fn -> Executor.run(claim, options) end
+
+    # Past the first renewal the heartbeat would have made.
+    Process.sleep(700)
+    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).lease_expires_at == expiry
+  end
+
   test "one frozen turn reaches a validated durable delivery intent" do
     assert {:ok, _} =
              Ryker.Instructions.save(:global, "Explain the evidence.", 0, "operator:test")
@@ -4571,6 +4643,21 @@ defmodule Ryker.Work.ExecutorTest do
   defp protocol_options(fake, overrides) do
     options(%{fake: fake, overrides: overrides})
     |> Keyword.put(:api, ProtocolAPI)
+  end
+
+  defp lease_expires!(claim, expiry) do
+    {1, nil} =
+      Repo.update_all(from(turn in Ryker.Work.Turn, where: turn.id == ^claim.turn.id),
+        set: [lease_expires_at: expiry]
+      )
+  end
+
+  defp database_clock_past!(moment, checks \\ 100) do
+    cond do
+      DateTime.compare(Repo.now!(), moment) == :gt -> :ok
+      checks == 0 -> flunk("the database clock never passed #{moment}")
+      true -> Process.sleep(50) == :ok and database_clock_past!(moment, checks - 1)
+    end
   end
 
   defp prepare_remote_operation(claim, kind, key, revision, function) do
