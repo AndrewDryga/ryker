@@ -332,8 +332,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       when is_tuple(event) and tuple_size(event) > 1 and elem(event, 0) in @page_events,
       do: {:noreply, schedule_reload(socket)}
 
+  # A page that could not be read is read afresh, the way Try again reads it.
+  # Merged into what the failed read left, Activity came back empty behind
+  # "N new or reordered items" after a database blip.
   def handle_info(:reload_page, socket),
-    do: {:noreply, socket |> reload_drained() |> refresh()}
+    do: {:noreply, socket |> reload_drained() |> refresh(socket.assigns.unavailable)}
 
   def handle_info({:settings_editor_saved, view}, socket) do
     {:noreply, assign(socket, settings: {:ok, view}, settings_error: nil)}
