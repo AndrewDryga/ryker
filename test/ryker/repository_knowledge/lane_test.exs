@@ -606,6 +606,31 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
                "repository. Ryker tries again with the next daily check, or refresh knowledge."
   end
 
+  # Review of the knowledge lane, 2026-09-28: an answer the custody refuses
+  # to keep (larger than a run holds) read as Coop not answering, so the
+  # same turn was asked about again and again for a day and a half, left
+  # open at the worker, with no start spent. It ends its attempt now: the
+  # turn is cancelled and stopped, and the next start is made.
+  test "an answer too large to keep ends its attempt, and the next start is made" do
+    github!()
+    ready!()
+    coop = coop!([String.duplicate("a", 131_073), answer_json()])
+
+    drain(settings(coop), 60)
+
+    [first, second] =
+      Repo.all(from(run in Run, where: run.repository_ref == "emisar", order_by: run.generation))
+
+    assert {first.status, first.error_code} == {:rejected, "invalid_repository_knowledge"}
+    assert %DateTime{} = first.remote_stopped_at
+    assert first.stop_receipt["state"] == "cancelled"
+    assert first.result == nil
+
+    assert second.status == :applied
+    assert length(FakeCoopAPI.state(coop).submissions) == 2
+    assert %{number: 84} = FakeGitHubRepository.state().open
+  end
+
   # The outline stands in only where there is nothing better: asking for a
   # refresh of a RYKER.md a person wrote, and a model that cannot finish,
   # must not propose the file list over their document.
