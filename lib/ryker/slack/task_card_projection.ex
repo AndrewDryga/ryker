@@ -92,8 +92,8 @@ defmodule Ryker.Slack.TaskCardProjection do
         controls(record, episode, turn, session, publication, snapshot.workspace_hold),
       "episode_state" => Atom.to_string(episode.state),
       "publication" => publication(publication, publication_offer, fix),
-      "request" => compact(record.payload["prompt"], 600),
-      "repository" => record.payload["repository"],
+      "request" => compact(record.payload["prompt"], 12_000),
+      "repository" => repository_name(record.payload["repository"]),
       "repository_url" => repository_url(publication),
       "session_generation" => session && session.generation,
       "stages" =>
@@ -150,6 +150,21 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp followup(%Publication{id: id}),
     do: Repo.one(from(followup in Followup, where: followup.publication_id == ^id))
+
+  # A repository by the name people know it by, owner/repo, from the
+  # repository Ryker added; one no longer added keeps the name the task
+  # recorded (Andrew, 2026-09-28: "why repo name is andrewdryga-emisar while
+  # it's andrewdryga/emisar?").
+  defp repository_name(ref) when is_binary(ref) do
+    Repo.one(
+      from(repository in Settings.Repository,
+        where: repository.ref == ^ref,
+        select: repository.github_repository
+      )
+    ) || ref
+  end
+
+  defp repository_name(ref), do: ref
 
   # A repository links out only from the trusted GitHub binding its own
   # publication receipt recorded; a display label never becomes a URL.
@@ -250,36 +265,51 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp public_errors(projection, snapshot) do
     fix = snapshot.automatic_fix
     attention = if fix_line(fix, :fixing), do: nil, else: snapshot.publication
+    task = projection.document["task_card"]
 
-    case fix_line(fix, :stopped) ||
-           public_error(attention, snapshot.turn, snapshot.workspace_hold) do
-      nil ->
-        projection
+    cond do
+      # Why the pull request could not be made is said once, on the
+      # publication's own line above Review latest state and Discard (Andrew,
+      # 2026-09-28: the card said "PR creation is blocked" with its buttons,
+      # then the same again as Action needed).
+      match?(%Publication{status: :blocked}, attention) and is_map(task["publication"]) and
+          is_nil(snapshot.workspace_hold) ->
+        reason = fix_line(fix, :stopped) || blocked_cause(attention)
 
-      message ->
         replace_task(
           projection,
-          Map.put(projection.document["task_card"], "action_needed", message)
+          task
+          |> Map.put("action_needed", nil)
+          |> put_in(["publication", "blocked_reason"], reason)
         )
+
+      message =
+          fix_line(fix, :stopped) ||
+            public_error(attention, snapshot.turn, snapshot.workspace_hold) ->
+        replace_task(projection, Map.put(task, "action_needed", message))
+
+      true ->
+        projection
     end
   end
+
+  # A review's refusal in the host's own words for Coop's codes; a refusal
+  # the host has no words for names only its code, which is the host's own.
+  defp blocked_cause(%Publication{} = publication) do
+    case Review.refusal(publication.review_document) do
+      [] -> blocked_code(publication.last_error_code)
+      causes -> sentence_list(causes) <> "."
+    end
+  end
+
+  defp blocked_code(code) when is_binary(code) and code != "", do: "`#{code}`."
+  defp blocked_code(_code), do: nil
 
   # The generic notice exists so untrusted error text never reaches Slack. A held
   # workspace already carries a host-authored explanation and the worker's own
   # redacted reply for this exact destination, and replacing that with "open the
   # episode for details" is what hid the runner's actual question for two days.
   defp public_error(_publication, _turn, hold) when is_map(hold), do: nil
-
-  # A review's refusal never sets the publication's own error code, so reading
-  # only that code told #test on 2026-09-28 that no cause was recorded, beside a
-  # review saying the repository's checks had failed. The review's causes are
-  # the host's own words for Coop's codes, so they travel; the code never does.
-  defp public_error(%Publication{status: :blocked} = publication, _turn, _hold) do
-    case Review.refusal(publication.review_document) do
-      [] -> attention("Draft pull-request work is blocked", publication.last_error_code)
-      causes -> "Draft pull-request work is blocked: #{sentence_list(causes)}."
-    end
-  end
 
   defp public_error(%Publication{last_error_code: code}, _turn, _hold) when is_binary(code),
     do: attention("Draft pull-request work needs operator attention", code)
@@ -586,6 +616,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp publication(%Publication{} = publication, _offer, fix) do
     %{
       "automatic_fix" => fix_line(fix, :fixing),
+      "blocked_reason" => nil,
       "branch" => publication.branch_ref,
       "controls" =>
         if(fix_line(fix, :fixing), do: ["discard"], else: publication_controls(publication)),

@@ -859,6 +859,7 @@ defmodule Ryker.Slack.RendererTest do
     blocked =
       publication_task_card(%{
         "automatic_fix" => nil,
+        "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/publication-42",
         "controls" => ["update", "discard"],
         "discarded_reason" => nil,
@@ -878,6 +879,83 @@ defmodule Ryker.Slack.RendererTest do
     refute Jason.encode!(reviewed_rendered) =~ "refs/heads/ryker/publication-42"
   end
 
+  # Andrew, 2026-09-28, of a blocked task card: "PR creation is blocked.
+  # Review… or discard…" with its buttons, then "⚠️ Action needed: Draft
+  # pull-request work is blocked: …" said it twice. It is one line now, the
+  # failure and its cause, above the buttons that act on it.
+  test "a blocked pull request says what failed and why once, above its buttons" do
+    blocked =
+      publication_task_card(%{
+        "automatic_fix" => nil,
+        "blocked_reason" => "the repository's checks failed on the committed change.",
+        "branch" => nil,
+        "controls" => ["update", "discard"],
+        "discarded_reason" => nil,
+        "publication_ref" => "publication:def456",
+        "pull_request_number" => nil,
+        "pull_request_url" => nil,
+        "recovery_generation" => 1,
+        "status" => "blocked",
+        "unverified" => nil
+      })
+      |> Map.put("action_needed", nil)
+
+    assert {:ok, %{"blocks" => blocks}} = Renderer.render(%{"task_card" => blocked})
+    texts = for %{"text" => %{"text" => text}} <- blocks, do: text
+
+    assert ":warning: *PR creation failed:* the repository's checks failed on the committed change." in texts
+
+    refute Enum.any?(texts, &(&1 =~ "Action needed"))
+    refute Enum.any?(texts, &(&1 =~ "PR creation is blocked"))
+
+    failed = Enum.find_index(blocks, &(text_of(&1) =~ "PR creation failed"))
+    assert %{"type" => "actions", "elements" => buttons} = Enum.at(blocks, failed + 1)
+
+    assert Enum.map(buttons, & &1["text"]["text"]) == ["Review latest state", "Discard candidate"]
+
+    # Without a cause Ryker can show, the line still says what failed.
+    unexplained = put_in(blocked, ["publication", "blocked_reason"], nil)
+    assert {:ok, %{"blocks" => blocks}} = Renderer.render(%{"task_card" => unexplained})
+    assert Enum.any?(blocks, &(text_of(&1) == ":warning: *PR creation failed.*"))
+  end
+
+  # Andrew, 2026-09-28: "Progress should be always fully visible", and of the
+  # request: "Yes it will be collapsed but when its open I want to see all of
+  # it." Progress is never folded; the request is folded by Slack but whole.
+  test "a task card shows its whole request and never folds its progress" do
+    request = Enum.map_join(1..60, "\n", &"Line #{&1}: check the ledger & keep <it> short.")
+    task = "working" |> task_document() |> Map.put("request", request)
+
+    assert {:ok, %{"blocks" => blocks}} = Renderer.render(%{"task_card" => task})
+
+    request_blocks = Enum.filter(blocks, &(text_of(&1) =~ "Line "))
+
+    shown = Enum.map_join(request_blocks, "\n", & &1["text"]["text"])
+    assert shown =~ "*The request*"
+    assert shown =~ "Line 1: check the ledger &amp; keep &lt;it&gt; short."
+    assert shown =~ "Line 60: check the ledger"
+    refute shown =~ "…"
+    refute Enum.any?(request_blocks, &Map.get(&1, "expand"))
+
+    progress = Enum.filter(blocks, &(text_of(&1) =~ "*Progress*"))
+
+    assert [%{"expand" => true}] = progress
+
+    # One line longer than a section is cut at words into lines that fit.
+    long = String.duplicate("word ", 1_200)
+    task = Map.put(task, "request", long)
+    assert {:ok, %{"blocks" => blocks}} = Renderer.render(%{"task_card" => task})
+    request_blocks = Enum.filter(blocks, &(text_of(&1) =~ "word word"))
+    assert length(request_blocks) >= 2
+    assert Enum.all?(request_blocks, &(String.length(&1["text"]["text"]) <= 3_000))
+
+    assert request_blocks
+           |> Enum.map_join(" ", & &1["text"]["text"])
+           |> String.split()
+           |> Enum.count(&(&1 == "word")) ==
+             1_200
+  end
+
   # Since 2026-09-25 Ryker ends a publication whose worker session closed,
   # because that review can never run, and records why. The card said only "PR
   # preparation stopped" for that and for a person's discard alike, so a reader
@@ -885,6 +963,7 @@ defmodule Ryker.Slack.RendererTest do
   test "a discarded publication says why in words" do
     publication = %{
       "automatic_fix" => nil,
+      "blocked_reason" => nil,
       "branch" => nil,
       "controls" => [],
       "discarded_reason" => "review_session_closed",
@@ -925,6 +1004,7 @@ defmodule Ryker.Slack.RendererTest do
       "episode_state" => "complete",
       "publication" => %{
         "automatic_fix" => nil,
+        "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["open", "check"],
         "discarded_reason" => nil,
@@ -970,6 +1050,7 @@ defmodule Ryker.Slack.RendererTest do
     reviewed =
       put_in(task, ["publication"], %{
         "automatic_fix" => nil,
+        "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["publish"],
         "discarded_reason" => nil,
@@ -990,6 +1071,7 @@ defmodule Ryker.Slack.RendererTest do
     recoverable =
       put_in(task, ["publication"], %{
         "automatic_fix" => nil,
+        "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["update", "discard"],
         "discarded_reason" => nil,
@@ -1002,7 +1084,7 @@ defmodule Ryker.Slack.RendererTest do
       })
 
     assert {:ok, recovery_rendered} = Renderer.render(%{"task_card" => recoverable})
-    assert Jason.encode!(recovery_rendered) =~ "PR creation is blocked"
+    assert Jason.encode!(recovery_rendered) =~ "PR creation failed"
     refute Jason.encode!(recovery_rendered) =~ "Publication:"
 
     recovery_buttons =
@@ -1018,6 +1100,7 @@ defmodule Ryker.Slack.RendererTest do
     stale =
       put_in(task, ["publication"], %{
         "automatic_fix" => nil,
+        "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["open", "check", "update", "discard"],
         "discarded_reason" => nil,
@@ -1055,6 +1138,7 @@ defmodule Ryker.Slack.RendererTest do
       "episode_state" => "complete",
       "publication" => %{
         "automatic_fix" => nil,
+        "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["open", "check"],
         "discarded_reason" => nil,
@@ -2532,6 +2616,7 @@ defmodule Ryker.Slack.RendererTest do
     task =
       publication_task_card(%{
         "automatic_fix" => nil,
+        "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["publish", "update", "discard"],
         "discarded_reason" => nil,
@@ -2570,7 +2655,7 @@ defmodule Ryker.Slack.RendererTest do
 
     assert {:ok, blocked_rendered} = Renderer.render(%{"task_card" => unshareable})
     blocked_encoded = Jason.encode!(blocked_rendered)
-    assert blocked_encoded =~ "PR creation is blocked"
+    assert blocked_encoded =~ "PR creation failed"
     refute blocked_encoded =~ "ryker_task_publish"
   end
 
@@ -2581,6 +2666,7 @@ defmodule Ryker.Slack.RendererTest do
     task =
       publication_task_card(%{
         "automatic_fix" => nil,
+        "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["publish", "update", "discard"],
         "discarded_reason" => nil,
@@ -2611,6 +2697,7 @@ defmodule Ryker.Slack.RendererTest do
     publishing =
       publication_task_card(%{
         "automatic_fix" => nil,
+        "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => [],
         "discarded_reason" => nil,
@@ -3222,6 +3309,7 @@ defmodule Ryker.Slack.RendererTest do
       task_document("reviewing")
       |> put_in(["publication"], %{
         "automatic_fix" => nil,
+        "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => [],
         "discarded_reason" => nil,
@@ -3537,6 +3625,7 @@ defmodule Ryker.Slack.RendererTest do
       task_document("working")
       |> put_in(["publication"], %{
         "automatic_fix" => nil,
+        "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["open"],
         "publication_ref" => nil,
@@ -3730,6 +3819,10 @@ defmodule Ryker.Slack.RendererTest do
       "work_state" => nil
     }
   end
+
+  # A block's own text, "" for a block without one, such as actions.
+  defp text_of(%{"text" => %{"text" => text}}) when is_binary(text), do: text
+  defp text_of(_block), do: ""
 
   defp publication_task_card(publication) do
     "action_required"

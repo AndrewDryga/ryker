@@ -88,6 +88,12 @@ defmodule Ryker.Slack.Renderer.Blocks do
     }
   end
 
+  @doc """
+  A section Slack always shows whole, never behind "Show more" (Block Kit's
+  `expand`), for what a reader must always see, such as a task's progress.
+  """
+  def expanded_section(text), do: text |> section() |> Map.put("expand", true)
+
   def context(text),
     do: %{"type" => "context", "elements" => [%{"type" => "mrkdwn", "text" => text}]}
 

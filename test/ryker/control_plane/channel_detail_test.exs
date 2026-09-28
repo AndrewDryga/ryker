@@ -87,6 +87,20 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert other_workspace.summaries.total == 0
   end
 
+  # Andrew, 2026-09-28: a summary on #test read "uses andrewdryga-emisar", the
+  # repository's ref. A repository is always named as people know it.
+  test "a summary names the repository it used as owner/repo, not by its ref" do
+    membership!("T123", "C456", private: false, external_shared: false)
+    environment!("production", "Production", ~w(api))
+    summary!("slack:T123", "slack:T123:C456", repository_ref: "api")
+
+    html = page("/channels/T123/C456")
+    summaries = html |> LazyHTML.from_document() |> LazyHTML.query("[id^=summary-] .entity-meta")
+
+    assert LazyHTML.text(summaries) =~ "uses acme/api"
+    refute LazyHTML.text(summaries) =~ "uses api"
+  end
+
   test "recorded false and missing visibility values are told apart" do
     # `private=false` is a recorded fact. Rendering it as "public or unrecorded"
     # hid whether Slack ever told us, which is exactly what an operator checking
@@ -1066,7 +1080,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert Enum.count(LazyHTML.query(document, "#preferences article.entity-row")) == 3
       assert preferences =~ "Response detail"
       assert preferences =~ "set for this channel"
-      assert preferences =~ "from repository ryker"
+      assert preferences =~ "from repository acme/ryker"
       assert preferences =~ "from the whole workspace"
       refute preferences =~ "Elsewhere"
       refute preferences =~ "Paused"
@@ -1152,7 +1166,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert text =~ "primary database"
       assert text =~ "db-01"
       assert text =~ "set for this channel"
-      assert text =~ "from repository ryker"
+      assert text =~ "from repository acme/ryker"
       assert text =~ "from the whole workspace"
       assert text =~ "from every workspace"
       refute html =~ "must-not-render-foreign-memory"

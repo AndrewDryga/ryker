@@ -304,10 +304,13 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert LazyHTML.query(page, "#repository-github a[target=_blank]")
            |> LazyHTML.attribute("href") == ["https://github.com/acme/checkout-api"]
 
+    # A commit by its short name and a branch as people name it; no base
+    # status or full hash (Andrew, 2026-09-28: no raw hashes on a page).
     code = page |> LazyHTML.query("#repository-code") |> LazyHTML.text() |> squeeze()
     assert code =~ "not a live check"
-    assert code =~ "from refs/heads/main, fetched 2 h ago"
-    assert code =~ "Base Current"
+    assert code =~ "Last used 3f9a1c2 from main, fetched 2 h ago"
+    refute code =~ "Base"
+    refute code =~ String.duplicate("a", 40)
 
     remove = LazyHTML.query(page, "#remove-repository")
 

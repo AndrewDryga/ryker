@@ -28,7 +28,8 @@ defmodule Ryker.Publication.Card do
         "publishable" => Review.publishable?(review),
         "reasons" => reasons,
         "rebase" => review["rebase"],
-        "repository" => publication.repository,
+        # The name people know it by, owner/repo, as the task card says it.
+        "repository" => publication.github_repository || publication.repository,
         "title" => publication.title
       },
       "ref" => publication.ref,

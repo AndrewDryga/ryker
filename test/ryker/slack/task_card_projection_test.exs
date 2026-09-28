@@ -48,6 +48,46 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     assert without.document["task_card"]["question_url"] == nil
   end
 
+  # Andrew, 2026-09-28: "why repo name is andrewdryga-emisar while it's
+  # andrewdryga/emisar?" The card named the repository by the ref the task
+  # offer recorded, not as it was added from GitHub.
+  test "a task card names its repository as owner/repo, as it was added from GitHub" do
+    now = DateTime.utc_now()
+
+    Repo.insert_all(Ryker.Settings.Repository, [
+      %{
+        ref: "andrewdryga-emisar",
+        github_repository: "AndrewDryga/emisar",
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: now,
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:named-repository",
+      payload: %{
+        "title" => "Fix the diagnostic log access",
+        "repository" => "andrewdryga-emisar",
+        "prompt" => "Fix it."
+      }
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+    assert projection.document["task_card"]["repository"] == "AndrewDryga/emisar"
+
+    # One no longer added keeps the name the task recorded.
+    gone = put_in(source.payload["repository"], "since-removed")
+    assert {:ok, projection} = TaskCardProjection.build(gone)
+    assert projection.document["task_card"]["repository"] == "since-removed"
+  end
+
   test "a confirmed task with no turn yet reads as queued, not working" do
     # The 2026-09-12 coverage measurement: between confirming a task and a
     # worker being asked for anything, the card said "Working". Nothing was.
@@ -179,12 +219,14 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     refute Jason.encode!(after_feedback.document) =~ "Internal feedback"
     assert after_feedback.fingerprint == complete.fingerprint
 
+    # Andrew, 2026-09-28: "why you trimmed text that is behind show more/less
+    # anyways?" The request travels whole, up to what a task offer can hold;
+    # Slack folds a long one and opening it shows all of it.
     long_request =
       put_in(source.payload["prompt"], String.duplicate(source.payload["prompt"], 25))
 
     assert {:ok, request_card} = TaskCardProjection.build(long_request)
-    assert String.length(request_card.document["task_card"]["request"]) == 600
-    assert String.ends_with?(request_card.document["task_card"]["request"], "…")
+    assert request_card.document["task_card"]["request"] == long_request.payload["prompt"]
 
     # Completed history must not conceal the next active subtask on long plans.
     for index <- 2..9 do

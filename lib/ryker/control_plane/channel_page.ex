@@ -573,7 +573,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
             "Rule for this channel",
             watches(item.trigger),
             item.source_filter && sender(item.source_filter),
-            item.repository && uses(item.repository),
+            item.repository && uses(item.repository, @view),
             used(item, @now),
             expiry(item.expires_at, @now)
           ]}
@@ -593,7 +593,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           href={item.library_path}
           link_row
           text={Words.label(item.value || "Not recorded")}
-          meta={["Preference", from(item), used(item, @now), expiry(item.expires_at, @now)]}
+          meta={["Preference", from(item, @view), used(item, @now), expiry(item.expires_at, @now)]}
         />
       </.relation>
       <.relation
@@ -612,7 +612,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           text={item.summary}
           meta={[
             "Guidance",
-            from(item),
+            from(item, @view),
             only_here(item.visibility),
             used(item, @now),
             expiry(item.expires_at, @now)
@@ -636,7 +636,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           text={item.value || "Not recorded"}
           meta={[
             "Fact",
-            from(item),
+            from(item, @view),
             item.applicability,
             only_here(item.visibility),
             recalled(item),
@@ -708,7 +708,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           meta={[
             "Conversation summary",
             if(item.thread_ref, do: "in a thread", else: "in the channel"),
-            item.repository_ref && uses(item.repository_ref),
+            item.repository_ref && uses(item.repository_ref, @view),
             recalled(item),
             ShortTime.time(%{__changed__: nil, at: item.updated_at, now: @now, prefix: "updated "})
           ]}
@@ -1025,18 +1025,24 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp sender("app"), do: "from apps only"
   defp sender(_any), do: "from people and apps"
 
-  defp from(%{scope: :conversation}), do: "set for this channel"
+  defp from(%{scope: :conversation}, _view), do: "set for this channel"
 
-  defp from(%{scope: :repository, scope_ref: ref}),
-    do: from_repository(%{__changed__: nil, ref: ref})
+  defp from(%{scope: :repository, scope_ref: ref}, view),
+    do: from_repository(%{__changed__: nil, ref: repository_name(ref, view)})
 
-  defp from(%{scope: :workspace}), do: "from the whole workspace"
-  defp from(%{scope: :global}), do: "from every workspace"
+  defp from(%{scope: :workspace}, _view), do: "from the whole workspace"
+  defp from(%{scope: :global}, _view), do: "from every workspace"
 
   defp from_repository(assigns), do: ~H"from repository <strong>{@ref}</strong>"
 
-  defp uses(repository), do: uses_repository(%{__changed__: nil, ref: repository})
+  # A repository by the name people know it by, owner/repo, never its ref
+  # (andrewdryga-emisar read on this page on 2026-09-28).
+  defp uses(repository, view),
+    do: uses_repository(%{__changed__: nil, ref: repository_name(repository, view)})
+
   defp uses_repository(assigns), do: ~H"uses <strong>{@ref}</strong>"
+
+  defp repository_name(ref, view), do: Map.get(Map.get(view, :repository_names, %{}), ref, ref)
 
   defp only_here(visibility)
        when visibility in ["conversation", "private", :conversation, :private],
