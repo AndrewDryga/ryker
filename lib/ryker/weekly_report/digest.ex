@@ -16,7 +16,7 @@ defmodule Ryker.WeeklyReport.Digest do
   one bounded line and cannot become a link or a mention.
   """
 
-  alias Ryker.ControlPlane.ImprovementPage
+  alias Ryker.Improvement
 
   @quote_characters 240
 
@@ -201,7 +201,7 @@ defmodule Ryker.WeeklyReport.Digest do
       section(:fix, "What to fix", [none(nil), open(base, "What to fix", "/memory/feedback/fix")])
 
   defp fix(week, base) do
-    lines = [ImprovementPage.week_words(week), sure(week.sure)]
+    lines = [Improvement.week_words(week), sure(week.sure)]
     section(:fix, "What to fix", lines ++ [open(base, "What to fix", "/memory/feedback/fix")])
   end
 

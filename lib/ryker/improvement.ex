@@ -246,6 +246,69 @@ defmodule Ryker.Improvement do
     })
   end
 
+  # -- Words -----------------------------------------------------------------------
+
+  @doc "A category's name: Host bug, Prompt bug, …"
+  @spec category_label(atom()) :: String.t()
+  def category_label(:host_bug), do: "Host bug"
+  def category_label(:prompt_bug), do: "Prompt bug"
+  def category_label(:model_mistake), do: "Model mistake"
+  def category_label(:not_a_problem), do: "Not a problem"
+  def category_label(:unclear), do: "Unclear"
+
+  @doc "A category's name for a count of them: 2 prompt bugs, 1 host bug, 3 unclear."
+  @spec category_plural(atom(), non_neg_integer()) :: String.t()
+  def category_plural(category, 1), do: category_label(category)
+  def category_plural(:not_a_problem, _count), do: "Not a problem"
+  def category_plural(:unclear, _count), do: "Unclear"
+  def category_plural(category, _count), do: category_label(category) <> "s"
+
+  @doc """
+  What a week brought (`week/2`), in words: what was found and what Ryker
+  made of it, then what people decided. A quiet week says so rather than
+  leaving the line out, which would read as a good week. What to fix's Last
+  7 days line and the weekly report's What to fix read it.
+  """
+  @spec week_words(map()) :: String.t()
+  def week_words(%{found: 0, accepted: 0, dismissed: 0}),
+    do: "Nothing new, and nothing accepted or dismissed."
+
+  def week_words(week), do: found(week) <> " " <> decided(week)
+
+  defp found(%{found: 0}), do: "Nothing new."
+
+  defp found(week) do
+    kinds =
+      Enum.map(week.categories, fn {category, count} ->
+        "#{count} #{String.downcase(category_plural(category, count))}"
+      end) ++
+        Enum.reject(
+          [
+            week.waiting > 0 && "#{week.waiting} still to analyze",
+            week.not_analyzed > 0 && "#{week.not_analyzed} not analyzed"
+          ],
+          &(&1 == false)
+        )
+
+    "#{week.found} new: #{listed(kinds)}."
+  end
+
+  defp decided(%{accepted: 0, dismissed: 0}), do: "None accepted or dismissed."
+
+  defp decided(week) do
+    [
+      week.accepted == 1 && "1 accepted as an eval case",
+      week.accepted > 1 && "#{week.accepted} accepted as eval cases",
+      week.dismissed > 0 && "#{week.dismissed} dismissed"
+    ]
+    |> Enum.reject(&(&1 == false))
+    |> listed()
+    |> Kernel.<>(".")
+  end
+
+  defp listed([only]), do: only
+  defp listed(parts), do: Enum.join(Enum.drop(parts, -1), ", ") <> " and " <> List.last(parts)
+
   # -- Decisions -------------------------------------------------------------------
 
   @doc """
