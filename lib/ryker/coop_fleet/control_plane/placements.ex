@@ -164,7 +164,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   means the offer is a promise the fleet cannot keep, and the operator would
   lose the working copy by accepting it.
   """
-  @spec portable_workspace(Session.t(), map(), String.t() | nil) ::
+  @spec portable_workspace(Session.t(), map(), String.t()) ::
           %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
           | nil
   def portable_workspace(%Session{} = session, requirements, body_root) do
@@ -217,8 +217,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
          checkpoint_available?(root, checkpoint),
        do: Map.take(checkpoint, [:byte_size, :checkpoint_ref, :repository_ref])
   end
-
-  defp checkpoint_available?(_root, %{body_command_id: nil}), do: true
 
   defp checkpoint_available?(root, checkpoint),
     do:

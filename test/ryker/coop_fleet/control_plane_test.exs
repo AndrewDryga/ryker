@@ -6,6 +6,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   alias Ryker.Admission.FleetSession
 
   alias Ryker.CoopFleet.{
+    Bodies,
     Client,
     Command,
     ControlPlane,
@@ -1847,12 +1848,13 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       workspace_ref: "workspace-main"
     }
 
-    assert ControlPlane.portable_workspace(session, requirements) == nil
+    body_root = body_root!()
+    assert ControlPlane.portable_workspace(session, requirements, body_root) == nil
 
     command = checkpoint_command!(session)
-    transfer = transfer!(command, session, "checkpoint:portable")
+    transfer = transfer!(command, session, "checkpoint:portable", body_root)
 
-    assert ControlPlane.portable_workspace(session, requirements) == %{
+    assert ControlPlane.portable_workspace(session, requirements, body_root) == %{
              byte_size: 4_096,
              checkpoint_ref: "checkpoint:portable",
              repository_ref: "ryker"
@@ -1878,18 +1880,22 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         )
       )
 
-    assert ControlPlane.portable_workspace(moved, requirements) == nil
+    assert ControlPlane.portable_workspace(moved, requirements, body_root) == nil
 
     # A newer historical snapshot must not quietly roll work back to an older
     # v2 checkpoint just because the new worker cannot restore its format.
     %{transfer | id: Ecto.UUID.generate(), checkpoint_ref: "checkpoint:newer-v1"}
     |> Ecto.Changeset.change(
+      body_command_id: nil,
+      ciphertext: :binary.copy(<<3>>, 4_096),
       descriptor: %{"version" => 1},
+      encryption_nonce: :binary.copy(<<1>>, 12),
+      encryption_tag: :binary.copy(<<2>>, 16),
       inserted_at: DateTime.add(transfer.inserted_at, 1, :second)
     )
     |> Repo.insert!()
 
-    assert ControlPlane.portable_workspace(session, requirements) == nil
+    assert ControlPlane.portable_workspace(session, requirements, body_root) == nil
   end
 
   test "repository-free chat work has no portable workspace" do
@@ -1913,7 +1919,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     }
 
     assert ControlPlane.worker_available?(session, requirements)
-    assert ControlPlane.portable_workspace(session, requirements) == nil
+    assert ControlPlane.portable_workspace(session, requirements, body_root!()) == nil
   end
 
   defp authorize_and_poll!(worker_id, options \\ []) do
@@ -2192,22 +2198,36 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     )
   end
 
-  defp transfer!(command, session, checkpoint_ref) do
+  # A checkpoint as Ryker keeps one: its bundle an encrypted file stored under
+  # the command that brought it.
+  defp transfer!(command, session, checkpoint_ref, body_root) do
+    bundle = :binary.copy(<<3>>, 4_096)
+    sha256 = :crypto.hash(:sha256, bundle) |> Base.encode16(case: :lower)
+    reference = %{"sha256" => sha256, "byte_size" => byte_size(bundle)}
+    key = :binary.copy(<<9>>, 32)
+    assert :ok = Bodies.put(body_root, command.id, :response, reference, [bundle], key)
+
     Repo.insert!(%WorkspaceCheckpointTransfer{
       id: Ecto.UUID.generate(),
-      bundle_byte_size: 4_096,
-      bundle_sha256: String.duplicate("c", 64),
+      body_command_id: command.id,
+      bundle_byte_size: byte_size(bundle),
+      bundle_sha256: sha256,
       checkpoint_ref: checkpoint_ref,
-      ciphertext: :binary.copy(<<3>>, 4_096),
       command_id: command.id,
       descriptor: %{"version" => 2, "checkpoint_ref" => checkpoint_ref},
-      encryption_key_sha256: String.duplicate("a", 64),
-      encryption_nonce: :binary.copy(<<1>>, 12),
-      encryption_tag: :binary.copy(<<2>>, 16),
+      encryption_key_sha256: :crypto.hash(:sha256, key) |> Base.encode16(case: :lower),
       placement_generation: command.placement_generation,
       repository_ref: session.repository_ref,
       session_ref: session.id,
       worker_id: command.worker_id
     })
+  end
+
+  defp body_root! do
+    root =
+      Path.join(System.tmp_dir!(), "ryker-fleet-bodies-#{System.unique_integer([:positive])}")
+
+    on_exit(fn -> File.rm_rf!(root) end)
+    root
   end
 end

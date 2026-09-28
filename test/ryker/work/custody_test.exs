@@ -3,8 +3,8 @@ defmodule Ryker.Work.CustodyTest do
 
   import Ecto.Query
 
+  alias Ryker.CoopFleet.{Bodies, Worker, WorkspaceCheckpointTransfer}
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
-  alias Ryker.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
@@ -1561,16 +1561,17 @@ defmodule Ryker.Work.CustodyTest do
 
     assert {:ok, claim} = Custody.claim_next("worker:portable", 60)
     blocked = %{claim.turn | status: :blocked}
+    storage_root = storage_root!()
 
     # No worker yet, and no checkpoint: nothing to offer.
-    assert Custody.portable_workspace(blocked) == nil
+    assert Custody.portable_workspace(blocked, storage_root: storage_root) == nil
 
     enroll!("worker-portable")
-    assert Custody.portable_workspace(blocked) == nil
+    assert Custody.portable_workspace(blocked, storage_root: storage_root) == nil
 
-    checkpoint!(session)
+    checkpoint!(session, Path.join(storage_root, "worker-bodies"))
 
-    assert Custody.portable_workspace(blocked) == %{
+    assert Custody.portable_workspace(blocked, storage_root: storage_root) == %{
              byte_size: 4_096,
              checkpoint_ref: "checkpoint:custody",
              repository_ref: "ryker"
@@ -1578,8 +1579,8 @@ defmodule Ryker.Work.CustodyTest do
 
     # A turn with no session of its own has nowhere to resume from, and a turn
     # that is still running is not being resumed at all.
-    assert Custody.portable_workspace(%Turn{status: :blocked}) == nil
-    assert Custody.portable_workspace(claim.turn) == nil
+    assert Custody.portable_workspace(%Turn{status: :blocked}, storage_root: storage_root) == nil
+    assert Custody.portable_workspace(claim.turn, storage_root: storage_root) == nil
   end
 
   defp enroll!(id) do
@@ -1605,7 +1606,17 @@ defmodule Ryker.Work.CustodyTest do
     })
   end
 
-  defp checkpoint!(session) do
+  defp storage_root! do
+    root =
+      Path.join(System.tmp_dir!(), "ryker-custody-state-#{System.unique_integer([:positive])}")
+
+    on_exit(fn -> File.rm_rf!(root) end)
+    root
+  end
+
+  # A checkpoint as Ryker keeps one: its bundle an encrypted file stored under
+  # the command that brought it.
+  defp checkpoint!(session, body_root) do
     session = WorkerJob.pin!(session)
 
     assert {:ok, placement} =
@@ -1643,16 +1654,20 @@ defmodule Ryker.Work.CustodyTest do
         )
       )
 
+    bundle = :binary.copy(<<3>>, 4_096)
+    sha256 = :crypto.hash(:sha256, bundle) |> Base.encode16(case: :lower)
+    reference = %{"sha256" => sha256, "byte_size" => byte_size(bundle)}
+    key = :binary.copy(<<9>>, 32)
+    assert :ok = Bodies.put(body_root, command.id, :response, reference, [bundle], key)
+
     Repo.insert!(%WorkspaceCheckpointTransfer{
-      bundle_byte_size: 4_096,
-      bundle_sha256: String.duplicate("c", 64),
+      body_command_id: command.id,
+      bundle_byte_size: byte_size(bundle),
+      bundle_sha256: sha256,
       checkpoint_ref: "checkpoint:custody",
-      ciphertext: :binary.copy(<<3>>, 4_096),
       command_id: command.id,
       descriptor: %{"version" => 2, "checkpoint_ref" => "checkpoint:custody"},
-      encryption_key_sha256: String.duplicate("a", 64),
-      encryption_nonce: :binary.copy(<<1>>, 12),
-      encryption_tag: :binary.copy(<<2>>, 16),
+      encryption_key_sha256: :crypto.hash(:sha256, key) |> Base.encode16(case: :lower),
       id: Ecto.UUID.generate(),
       placement_generation: command.placement_generation,
       repository_ref: session.repository_ref,

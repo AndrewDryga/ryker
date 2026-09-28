@@ -2,7 +2,6 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
   use ExUnit.Case, async: true
   import Ryker.TestHelpers, only: [digest: 1]
 
-  alias Ryker.CoopFleet.CheckpointCrypto
   alias Ryker.CoopFleet.WorkspaceCheckpoint
   alias Ryker.CoopFleet.WorkspaceCheckpointBundle
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
@@ -305,53 +304,6 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
                rebind_bundle(checkpoint, missing_manifest),
                missing_manifest,
                []
-             )
-  end
-
-  test "checkpoint encryption binds the exact descriptor and rejects malformed keys" do
-    {checkpoint, bundle} = WorkspaceCheckpointFixture.build(%{session_ref: "session-crypto"})
-    key = :crypto.strong_rand_bytes(32)
-
-    sealed = WorkspaceCheckpointFixture.seal_historical(key, checkpoint, bundle)
-
-    assert {:ok, ^bundle} =
-             CheckpointCrypto.open(
-               key,
-               checkpoint,
-               sealed.ciphertext,
-               sealed.encryption_nonce,
-               sealed.encryption_tag,
-               sealed.encryption_key_sha256
-             )
-
-    assert {:error, :workspace_checkpoint_decryption_failed} =
-             CheckpointCrypto.open(
-               :crypto.strong_rand_bytes(32),
-               checkpoint,
-               sealed.ciphertext,
-               sealed.encryption_nonce,
-               sealed.encryption_tag,
-               sealed.encryption_key_sha256
-             )
-
-    assert {:error, :workspace_checkpoint_decryption_failed} =
-             CheckpointCrypto.open(
-               key,
-               checkpoint,
-               sealed.ciphertext,
-               sealed.encryption_nonce,
-               sealed.encryption_tag,
-               "wrong-length"
-             )
-
-    assert {:error, :workspace_checkpoint_decryption_failed} =
-             CheckpointCrypto.open(
-               "short",
-               checkpoint,
-               sealed.ciphertext,
-               sealed.encryption_nonce,
-               sealed.encryption_tag,
-               sealed.encryption_key_sha256
              )
   end
 

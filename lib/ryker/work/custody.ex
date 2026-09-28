@@ -831,11 +831,12 @@ defmodule Ryker.Work.Custody do
   worker and a verified portable snapshot both exist, so the fleet answers both
   halves at once. An uninitialized or non-fleet installation has nowhere to
   resume, which is not a failure — the surfaces simply keep their plain retry.
+  The snapshot is looked for under `:storage_root`, by default Ryker's own.
   """
-  @spec portable_workspace(Turn.t()) ::
+  @spec portable_workspace(Turn.t(), keyword()) ::
           %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
           | nil
-  defdelegate portable_workspace(turn), to: Cancellation
+  defdelegate portable_workspace(turn, options \\ []), to: Cancellation
 
   @doc """
   Where this turn's accepted answer belongs.

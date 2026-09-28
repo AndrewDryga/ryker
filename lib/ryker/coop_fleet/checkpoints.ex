@@ -6,7 +6,6 @@ defmodule Ryker.CoopFleet.Checkpoints do
   alias Ryker.CoopFleet.{
     Bodies,
     Bridge,
-    CheckpointCrypto,
     CheckpointSecretScan,
     Command,
     ControlPlane,
@@ -244,21 +243,8 @@ defmodule Ryker.CoopFleet.Checkpoints do
       "source_placement_generation" => transfer.placement_generation
     }
 
-  defp with_checkpoint(%{body_command_id: nil} = transfer, options, consume) do
-    # Read historical encrypted rows without changing their authenticated format.
-    with {:ok, bytes} <-
-           CheckpointCrypto.open(
-             options[:checkpoint_key],
-             transfer.descriptor,
-             transfer.ciphertext,
-             transfer.encryption_nonce,
-             transfer.encryption_tag,
-             transfer.encryption_key_sha256
-           ) do
-      consume.(fn -> [bytes] end)
-    end
-  end
-
+  # Only a version 2 checkpoint is restored, and every one was stored as an
+  # encrypted file: the rows kept in PostgreSQL are all version 1.
   defp with_checkpoint(transfer, options, consume) do
     with {:ok, body, _} <-
            Bodies.fetch(
