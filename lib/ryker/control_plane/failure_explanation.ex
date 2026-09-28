@@ -55,7 +55,8 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       outlook: level,
       state: state(level, story),
       summary: story.summary,
-      happened: story.happened,
+      happened: Enum.reject(story.happened, &is_nil/1),
+      cause: cause_lines(story[:cause]),
       affects: story.affects,
       tried: story.tried,
       options_lede: options_lede(level),
@@ -284,9 +285,15 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       recommended: level == :automatic or (level == :stuck and is_nil(story[:fix]))
     }
 
+  # Why it stopped: the cause in a sentence, then what the saved detail adds.
+  defp cause_lines(nil), do: []
+
+  defp cause_lines(cause),
+    do: [cause[:short], cause[:long]] |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
   defp options_lede(:ready), do: "What stopped it has cleared, so a retry should work."
-  defp options_lede(:unknown), do: "Whether a retry works depends on the cause below."
-  defp options_lede(:fix_first), do: "A retry fails until the problem below is fixed."
+  defp options_lede(:unknown), do: "Whether a retry works depends on the cause above."
+  defp options_lede(:fix_first), do: "A retry fails until the problem above is fixed."
   defp options_lede(:stuck), do: "A retry would stop the same way."
   defp options_lede(:automatic), do: "Ryker is still trying on its own."
 
@@ -379,7 +386,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       impact: :housekeeping,
       lede: "#{retention_owner(row)} #{outlook_short(cause.outlook)}",
       summary: "#{retention_owner(row)} #{cause.short}",
-      happened: [retention_happened(row, thing), cause.long],
+      happened: [retention_happened(row, thing)],
       affects: [
         retention_affects(row),
         "Until cleanup finishes, the worker may keep this session’s files on its disk."
@@ -389,6 +396,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "Nothing gets worse. Ryker will not try this cleanup again by itself, and the session’s files stay on the worker until it is cleaned up.",
       nothing:
         "A retry would stop the same way. Leaving it costs only the session’s files on the worker.",
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -646,7 +654,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       impact: :people,
       lede: "#{stopping_affected(row)} #{outlook_short(cause.outlook)}",
       summary: "#{stopping_affected(row)} #{cause.short}",
-      happened: [stopping_happened(row), cause.long],
+      happened: [stopping_happened(row)],
       affects: [stopping_affects(row)],
       tried: [
         tried(row, now),
@@ -654,6 +662,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ],
       if_left:
         "Ryker keeps trying. The stop finishes by itself as soon as the worker answers, or once the worker is removed from Ryker.",
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix
@@ -855,7 +864,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       impact: :people,
       lede: "#{work_affected(brief)} #{outlook_short(cause.outlook)}",
       summary: "#{work_affected(brief)} #{cause.short}",
-      happened: Enum.reject([work_happened(row, brief), cause.long], &is_nil/1),
+      happened: [work_happened(row, brief)],
       affects:
         Enum.reject(
           [work_affects(brief), if(brief[:not_started], do: brief[:workspace])],
@@ -863,6 +872,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         ),
       tried: [tried(row, now), work_tried(row, brief)],
       if_left: work_left(row, brief),
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -1244,8 +1254,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       lede: "The person who wrote it has no answer. #{outlook_short(cause.outlook)}",
       summary: "The person who wrote it has no answer. #{cause.short}",
       happened: [
-        "A new message arrived#{place_words(row)}. Ryker began deciding how to respond to it, whether to reply, react or start a task, and stopped before it decided.",
-        cause.long
+        "A new message arrived#{place_words(row)}. Ryker began deciding how to respond to it, whether to reply, react or start a task, and stopped before it decided."
       ],
       affects: [
         "The person who wrote the message has had no reply and no reaction. In Slack, Ryker’s “thinking” status simply went away.",
@@ -1254,6 +1263,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       tried: [tried(row, now), cause[:tried] || admission_tried(row)],
       if_left:
         "The message stays unanswered. Nothing expires and Ryker will not retry it by itself. The worker may keep the short session it used for it.",
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -1399,13 +1409,14 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       impact: :people,
       lede: "#{parts.affected} #{outlook_short(cause.outlook)}",
       summary: "#{parts.affected} #{cause.short}",
-      happened: [parts.happened <> place_words(row) <> ".", cause.long],
+      happened: [parts.happened <> place_words(row) <> "."],
       affects: parts.affects,
       tried: [
         tried(row, now),
         "Ryker retries Slack or network trouble up to eight times over about two minutes, and stops at once when Slack refuses in a way a retry cannot change."
       ],
       if_left: parts.left,
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -1730,7 +1741,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       impact: :people,
       lede: "#{affected} #{outlook_short(cause.outlook)}",
       summary: "#{affected} #{cause.short}",
-      happened: [happened, cause.long],
+      happened: [happened],
       affects: [
         affected <>
           " Slack told the person who pressed it that the message might be out of date.",
@@ -1742,6 +1753,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ],
       if_left:
         "The message keeps its old buttons, and this record is deleted with other audit data after the retention period.",
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -1800,8 +1812,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       lede: "The task’s card in Slack is out of date. #{outlook_short(cause.outlook)}",
       summary: "The task’s card in Slack is out of date. #{cause.short}",
       happened: [
-        "Ryker keeps a card in Slack up to date as an engineering task moves, by editing the same message. Updating it stopped#{place_words(row)}.",
-        cause.long
+        "Ryker keeps a card in Slack up to date as an engineering task moves, by editing the same message. Updating it stopped#{place_words(row)}."
       ],
       affects: [
         "The card shows an older state of the task. The task itself is not affected and keeps going; the request page shows its real state.",
@@ -1813,6 +1824,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ],
       if_left:
         "The card stays as it is. The task keeps going and finishes on its own; only the card in Slack is stale.",
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -1867,8 +1879,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       lede: "The status under the thread may be wrong. #{outlook_short(cause.outlook)}",
       summary: "The status under the thread may be wrong. #{cause.short}",
       happened: [
-        "Ryker shows what it is doing under a Slack thread while it works and clears it when it is done. It tried to #{wanted}#{place_words(row)}, and Slack did not take it.",
-        cause.long
+        "Ryker shows what it is doing under a Slack thread while it works and clears it when it is done. It tried to #{wanted}#{place_words(row)}, and Slack did not take it."
       ],
       affects: [
         "The thread may show an old status, or none, while Ryker works. The request itself is not affected; replies still arrive."
@@ -1879,6 +1890,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ],
       if_left:
         "The status under the thread stays as it is until Ryker’s next change there. Nothing else waits on it.",
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -1925,8 +1937,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       lede: "No investigation is running for “#{title}” yet. #{outlook_short(cause.outlook)}",
       summary: "No investigation is running for “#{title}” yet. #{cause.short}",
       happened: [
-        "#{if row[:automatic], do: "An alert rule", else: "Someone"} asked for an incident room for “#{title}”#{place_words(row)}. Ryker sets a room up in steps: create the channel, post its first message, invite people, set the topic, pin the card, then tell the original thread. It stopped at the step to #{setup_step(row[:setup_step])}.",
-        cause.long
+        "#{if row[:automatic], do: "An alert rule", else: "Someone"} asked for an incident room for “#{title}”#{place_words(row)}. Ryker sets a room up in steps: create the channel, post its first message, invite people, set the topic, pin the card, then tell the original thread. It stopped at the step to #{setup_step(row[:setup_step])}."
       ],
       affects: [
         "The investigation starts only when the room is ready, so nothing is being investigated. Nobody in Slack was told that setup stopped.",
@@ -1938,6 +1949,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ],
       if_left:
         "The room stays half set up, no investigation starts, and it keeps counting toward the limit on open rooms. The buttons on the original message do nothing. If its channel is deleted in Slack, Ryker closes the room and frees its place.",
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -2043,7 +2055,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       impact: :people,
       lede: "#{parts.affected} #{outlook_short(cause.outlook)}",
       summary: "#{parts.affected} #{cause.short}",
-      happened: [parts.happened <> place_words(row) <> ".", cause.long],
+      happened: [parts.happened <> place_words(row) <> "."],
       affects: parts.affects,
       tried: [
         tried(row, now),
@@ -2051,6 +2063,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ],
       if_left:
         "Ryker moves the reply to the alert thread the room was opened from and posts it there on its own.",
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -2100,9 +2113,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       lede: stalled.lede,
       summary: stalled.summary,
       happened: [
-        "A task asked Emisar to run #{action_words(row)}, and Emisar held it for approval. The task waits until Ryker sees a final result.",
-        stalled.long
+        "A task asked Emisar to run #{action_words(row)}, and Emisar held it for approval. The task waits until Ryker sees a final result."
       ],
+      cause: %{short: stalled.long},
       affects:
         Enum.reject(
           [
@@ -2132,8 +2145,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       lede: "Ryker no longer follows this approval. #{outlook_short(cause.outlook)}",
       summary: "Ryker no longer follows this approval, so the task waits. #{cause.short}",
       happened: [
-        "A task asked Emisar to run #{action_words(row)}, and Emisar held it for approval. Ryker was watching the request so it could tell the person who asked and continue the task, and the watch stopped.",
-        cause.long
+        "A task asked Emisar to run #{action_words(row)}, and Emisar held it for approval. Ryker was watching the request so it could tell the person who asked and continue the task, and the watch stopped."
       ],
       affects:
         Enum.reject(
@@ -2153,6 +2165,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ],
       if_left:
         "The task waits and the card stays frozen. The approval runs its course in Emisar without Ryker reporting it.",
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -2349,8 +2362,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "The change is ready, but no pull request exists yet. #{outlook_short(cause.outlook)}",
       summary: "The change is ready, but no pull request exists yet. #{cause.short}",
       happened: [
-        "A code task finished a change in #{repository_words(row)}. Ryker reviews such a change and then opens a draft pull request for it, and that stopped.",
-        cause.long
+        "A code task finished a change in #{repository_words(row)}. Ryker reviews such a change and then opens a draft pull request for it, and that stopped."
       ],
       affects: [
         "The person who asked has no pull request. The task card in the conversation says it needs attention.",
@@ -2358,6 +2370,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ],
       tried: [tried(row, now)],
       if_left: cause[:left] || cause.note,
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: cause.fix,
@@ -2490,8 +2503,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "Ryker is not learning from #{messages} in this conversation. #{outlook_short(cause.outlook)}",
       summary: "Ryker is not learning from #{messages} in this conversation. #{cause.short}",
       happened: [
-        "Ryker reads conversations in the background and keeps what is worth remembering as learned topics. Reading #{messages} here stopped.",
-        cause.long
+        "Ryker reads conversations in the background and keeps what is worth remembering as learned topics. Reading #{messages} here stopped."
       ],
       affects: [
         "Ryker is not learning from these messages; replies are unaffected.",
@@ -2502,6 +2514,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "Ryker does not start again on its own, because a start can be a model call."
       ],
       if_left: "These messages stay unlearned. Nothing else changes.",
+      cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
       fix: learning_fix(row, cause)
