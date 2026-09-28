@@ -200,9 +200,19 @@ defmodule Ryker.CoopFleet.JobAuthority do
   def prepared(%Session{id: id} = expected) when is_binary(id) do
     case Repo.get(Session, id) do
       %Session{} = saved ->
-        if Map.take(saved, @identity) == Map.take(expected, @identity),
-          do: validate(saved),
-          else: {:error, {:coop_fleet_authority_mismatch, :worker_job}}
+        cond do
+          Map.take(saved, @identity) != Map.take(expected, @identity) ->
+            {:error, {:coop_fleet_authority_mismatch, :worker_job}}
+
+          # A session Coop runs directly holds no worker job, so there is
+          # nothing to adopt. Validating one anyway failed every such create
+          # before its first turn: each eval world ran no model (2026-09-29).
+          is_nil(saved.worker_job_document) and is_nil(expected.worker_job_document) ->
+            {:ok, expected}
+
+          true ->
+            validate(saved)
+        end
 
       nil ->
         {:error, {:coop_fleet_authority_mismatch, :worker_job}}

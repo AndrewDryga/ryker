@@ -504,6 +504,19 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert kept.worker_job_digest == refreshed.worker_job_digest
   end
 
+  test "a session Coop runs directly has no worker job to adopt", %{session: session} do
+    # 09118beb made the executor adopt a job preparation re-pinned before it
+    # creates the session. A session Coop runs directly holds no job, and
+    # validating one anyway failed its create before any turn: every eval
+    # world ran no model, and the gate's world runner test said "unrun".
+    assert is_nil(session.worker_job_document)
+    assert JobAuthority.prepared(session) == {:ok, session}
+
+    # The caller still has to hold the session's own identity.
+    assert JobAuthority.prepared(%{session | generation: session.generation + 1}) ==
+             {:error, {:coop_fleet_authority_mismatch, :worker_job}}
+  end
+
   # Found live 2026-09-28: two repositories were removed from Ryker while a
   # #test conversation's authority still named them as companions. A
   # replacement keeps its predecessor's authority, so every new session for
