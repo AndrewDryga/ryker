@@ -14,7 +14,12 @@ defmodule Ryker.Publication.Dispatcher do
   @maximum_error_detail_bytes 4_096
 
   @spec run_once(keyword()) ::
-          {:ok, :idle | {:executed, map()} | {:deferred, term()} | {:discarded, term()}}
+          {:ok,
+           :idle
+           | {:executed, map()}
+           | {:deferred, term()}
+           | {:discarded, term()}
+           | {:lease_lost, term()}}
           | {:error, term()}
   def run_once(options) do
     with {:ok, settings} <- settings(options),
@@ -36,6 +41,12 @@ defmodule Ryker.Publication.Dispatcher do
 
       {:error, {:publication_review_session_closed, _state} = reason} ->
         discard(claim, reason)
+
+      # A person discarded the change while its review ran, or the lease ran
+      # out and another claimant holds it: either way this attempt is over and
+      # has nothing to defer.
+      {:error, :publication_lease_lost = reason} ->
+        {:ok, {:lease_lost, reason}}
 
       {:error, reason} ->
         delay = retry_delay(claim.publication.attempt_count, settings)

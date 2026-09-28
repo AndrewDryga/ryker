@@ -68,6 +68,10 @@ defmodule Ryker.Publication.Worker do
         Logger.info("publication discarded: #{inspect(reason)}")
         0
 
+      {:ok, {:lease_lost, _reason}} ->
+        Logger.info("publication attempt ended: it was discarded or taken over while it ran")
+        0
+
       {:error, reason} ->
         Logger.error("publication dispatcher failed: #{inspect(reason)}")
         state.poll_interval_ms

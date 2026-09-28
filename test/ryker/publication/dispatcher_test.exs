@@ -31,6 +31,13 @@ defmodule Ryker.Publication.DispatcherTest do
     end
 
     def run_review({agent, _effects}, _session_id, key, expected_revision) do
+      # What a person does while Coop is still checking happens inside the
+      # call, where their click lands in production.
+      case Agent.get(agent, &Map.get(&1, :during_review)) do
+        nil -> :ok
+        act -> act.()
+      end
+
       Agent.get_and_update(agent, fn state ->
         response = %{
           "operation" => %{
@@ -672,6 +679,45 @@ defmodule Ryker.Publication.DispatcherTest do
     assert FailureProjection.fetch("publication", publication.ref) == :not_found
   end
 
+  # A person may discard a change while Coop still checks it (Andrew,
+  # 2026-09-28). The running review then loses its lease: its answer must
+  # change nothing, and ending that way is no dispatcher failure, which the
+  # worker would log as an error for every discard.
+  test "a change discarded while its review runs stays discarded and the review ends quietly" do
+    %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} =
+      delivered_offer!("discarded-mid-review")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
+
+    owner = self()
+
+    discard = fn ->
+      Ecto.Adapters.SQL.Sandbox.allow(Repo, owner, self())
+
+      send(
+        owner,
+        {:discarded_mid_review, PublicationCustody.recover(publication.ref, :discard, 1)}
+      )
+    end
+
+    coop = review_coop!(work_claim, "open", during_review: discard)
+    effects = effects!(publication)
+    options = dispatcher_options(coop, effects)
+    result = Dispatcher.run_once(options)
+
+    assert_received {:discarded_mid_review, {:ok, %{publication: %{status: :discarded}}}}
+    assert {:ok, {:lease_lost, :publication_lease_lost}} = result
+
+    ended = Repo.get!(Publication, publication.id)
+    assert ended.status == :discarded
+    assert ended.review_document == nil
+    assert ended.last_error_code == nil
+    assert ended.next_attempt_at == nil
+    assert Agent.get(effects, & &1.delivery_requests) == []
+    assert {:ok, :idle} = Dispatcher.run_once(options)
+  end
+
   defp review_coop!(work_claim, state, options \\ []) do
     {:ok, coop} =
       Agent.start_link(fn ->
@@ -687,7 +733,8 @@ defmodule Ryker.Publication.DispatcherTest do
             "state" => state
           },
           session_calls: 0,
-          session_errors: Keyword.get(options, :session_errors, [])
+          session_errors: Keyword.get(options, :session_errors, []),
+          during_review: Keyword.get(options, :during_review)
         }
       end)
 

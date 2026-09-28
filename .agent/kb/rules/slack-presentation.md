@@ -133,6 +133,8 @@ Progress is never folded (Block Kit `expand`); the request is shown whole and ma
 Slack's own "Show more" (Andrew, 2026-09-28). A pull request that cannot be made is said once, on
 the publication line directly above its buttons: "⚠️ PR creation failed: <cause in the host's
 words>." with Review latest state and Discard candidate, never again as a separate Action needed.
+While a check runs the card always offers Discard candidate, since a check takes minutes. Every
+confirmation dialog says what happens in plain words, with no generation, candidate or evidence jargon.
 A repository is named as owner/repo, never by its ref.
 
 ## Governed review

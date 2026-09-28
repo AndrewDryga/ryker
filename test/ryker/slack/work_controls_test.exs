@@ -6,6 +6,7 @@ defmodule Ryker.Slack.WorkControlsTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
+  alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Repo
 
@@ -284,6 +285,48 @@ defmodule Ryker.Slack.WorkControlsTest do
 
     assert WorkControls.recover_publication(stale, :update) ==
              {:error, :publication_recovery_generation_stale}
+  end
+
+  # Andrew, 2026-09-28: after Review latest state the card offered nothing
+  # until Coop answered. Discard from the card now ends a running check.
+  test "a task card's Discard ends a change whose check is still running" do
+    fixture =
+      PublicationFixture.published!("task-card-discard-running",
+        conversation_ref: "slack:T123:C456"
+      )
+
+    card = publication_task_card!(fixture.publication, "discard-running")
+
+    Repo.update_all(
+      from(followup in Followup, where: followup.publication_id == ^fixture.publication.id),
+      set: [pr_state: "stale"]
+    )
+
+    {1, _rows} =
+      Repo.update_all(
+        from(publication in Publication, where: publication.id == ^fixture.publication.id),
+        set: [expected_remote_head_sha: String.duplicate("d", 40)]
+      )
+
+    attributes =
+      card
+      |> publication_attributes()
+      |> Map.merge(%{expected_generation: 1, publication_ref: fixture.publication.ref})
+
+    assert {:ok, %{outcome: :review_pending}} =
+             WorkControls.recover_publication(attributes, :update)
+
+    assert {:ok, running} = PublicationCustody.claim_next("publication:discard-running", 60)
+    assert running.publication.id == fixture.publication.id
+
+    discard = %{
+      attributes
+      | expected_generation: 2,
+        request_ref: "interaction:discard-running-check"
+    }
+
+    assert {:ok, %{outcome: :discarded}} = WorkControls.recover_publication(discard, :discard)
+    assert Repo.get!(Publication, fixture.publication.id).status == :discarded
   end
 
   test "timeline and evidence controls publish one recoverable thread message" do

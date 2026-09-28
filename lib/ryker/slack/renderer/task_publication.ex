@@ -114,8 +114,8 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
             "Retry publication",
             "#{task_ref}|#{publication_ref}|#{recovery_generation}",
             "primary",
-            "Retry publication workflow",
-            "Retry this exact failed publication generation without changing its frozen review state?",
+            "Retry the failed step",
+            "Retry the step that failed? The checked changes stay exactly as they are.",
             "Retry"
           )
 
@@ -125,9 +125,9 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
             "Review latest state",
             "#{task_ref}|#{publication_ref}|#{recovery_generation}",
             nil,
-            "Review latest repository state",
-            "Invalidate this exact review and run a new review against the latest repository state?",
-            "Review latest"
+            "Check the latest changes",
+            "Check the changes again as they are now? The new result replaces this one.",
+            "Check again"
           )
 
         "discard" ->
@@ -136,8 +136,8 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
             "Discard candidate",
             "#{task_ref}|#{publication_ref}|#{recovery_generation}",
             "danger",
-            "Discard publication candidate",
-            "Discard this exact publication generation? Its review and remote evidence remain retained, but Ryker will stop updating it.",
+            "Discard these changes",
+            "Stop preparing a PR from these changes? A check still running is dropped, and the task's history is kept.",
             "Discard"
           )
       end)
