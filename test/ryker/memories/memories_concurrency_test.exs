@@ -13,7 +13,7 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationSummaryDraft
   alias Ryker.Memories
-  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Memories.{CaseRecord, MemoryEntry}
   alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Memories.MemoryReviewItem
   alias Ryker.Records
@@ -585,6 +585,11 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
     )
 
     Repo.delete_all(from(record in Record, where: record.episode_id == ^fixture.episode_id))
+    # Deleting the channel now withdraws the case of its work not yet captured,
+    # and a withdrawn case outlived this test: every later test that needs an
+    # empty database, the world and learning runners among them, refused to
+    # start (67 failures in `make check`, 2026-09-28).
+    Repo.delete_all(from(record in CaseRecord, where: record.episode_id == ^fixture.episode_id))
     Repo.delete_all(from(turn in Turn, where: turn.episode_id == ^fixture.episode_id))
     Repo.delete_all(from(session in Session, where: session.episode_id == ^fixture.episode_id))
     Repo.delete_all(from(event in Event, where: event.episode_id == ^fixture.episode_id))
