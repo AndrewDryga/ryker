@@ -18,7 +18,17 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Environments, Integrations, Kit, SettingsView, ShortTime}
+
+  alias Ryker.ControlPlane.{
+    CallRun,
+    Components,
+    Environments,
+    Integrations,
+    Kit,
+    SettingsView,
+    ShortTime
+  }
+
   alias Ryker.{Episodes, RepositoryKnowledge, Schedules}
   alias Ryker.GitHub.Events, as: GitHubEvents
   alias Ryker.Publication.Custody, as: Publications
@@ -376,6 +386,39 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
 
   defp knowledge_problem(_item), do: nil
 
+  # A knowledge run's outcome as a dot and a word, the model, what it cost and
+  # how long it took.
+  defp run_tone(%{status: :applied}), do: :on
+  defp run_tone(%{status: status}) when status in [:prepared, :responded], do: :busy
+  defp run_tone(_run), do: :warn
+
+  defp run_word(%{status: :applied}), do: "Written"
+  defp run_word(%{status: :prepared}), do: "Running"
+  defp run_word(%{status: :responded}), do: "Checking"
+  defp run_word(%{status: :stale}), do: "Never started"
+  defp run_word(_run), do: "Not used"
+
+  defp run_parts(run) do
+    [
+      run.target,
+      run.tokens,
+      run.cost,
+      run.total_ms && CallRun.duration(run.total_ms),
+      run.commit && "commit " <> String.slice(run.commit, 0, 7)
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp run_note(%{status: :applied, dropped: count}) when is_integer(count) and count > 0,
+    do:
+      "Ryker left out #{plural(count, "path or command", "paths or commands")} it could not find in the repository."
+
+  defp run_note(%{status: :rejected, result: result}) when is_binary(result),
+    do: "The answer did not match what Ryker asked for, so Ryker did not use it."
+
+  defp run_note(%{status: :rejected}), do: "The run ended before the model answered."
+  defp run_note(_run), do: nil
+
   # Channels choose environments, so an added repository in none of them is
   # code no channel's work can reach; the row says so.
   defp environments(%{configured: nil}), do: nil
@@ -435,7 +478,8 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         repository: item.configured || %{},
         state: state(item),
         problem: problem(item),
-        knowledge: item[:knowledge]
+        knowledge: item[:knowledge],
+        runs: Map.get(item, :knowledge_runs, [])
       )
 
     ~H"""
@@ -507,6 +551,41 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         <Components.copy_block :if={@knowledge[:document]} label="Copy the knowledge">
           <pre id="repository-knowledge-document" class="repository-knowledge-document">{@knowledge.document}</pre>
         </Components.copy_block>
+      </Kit.section_card>
+      <Kit.section_card
+        :if={@runs != []}
+        id="repository-knowledge-runs"
+        title="How it was written"
+        lede="Each time a model read the repository to write its knowledge: when, which model, what it cost, and exactly what it was sent and answered."
+      >
+        <div :for={run <- @runs} id={"knowledge-run-" <> run.id} class="knowledge-run">
+          <p class="knowledge-run-line">
+            <Kit.state tone={run_tone(run)} word={run_word(run)} />
+            <ShortTime.time at={run.at} now={@now} />
+            <span :for={part <- run_parts(run)}> · {part}</span>
+          </p>
+          <p :if={run_note(run)} class="knowledge-run-note">{run_note(run)}</p>
+          <Components.disclosure
+            :if={run.prompt}
+            id={"knowledge-run-" <> run.id <> "-prompt"}
+            label="Prompt sent"
+            kind={:source}
+          >
+            <Components.copy_block label="Copy the prompt">
+              <pre class="knowledge-run-text">{run.prompt}</pre>
+            </Components.copy_block>
+          </Components.disclosure>
+          <Components.disclosure
+            :if={run.result}
+            id={"knowledge-run-" <> run.id <> "-answer"}
+            label="The model's answer"
+            kind={:source}
+          >
+            <Components.copy_block label="Copy the answer">
+              <pre class="knowledge-run-text">{run.result}</pre>
+            </Components.copy_block>
+          </Components.disclosure>
+        </div>
       </Kit.section_card>
       <Kit.section_card
         id="repository-use"

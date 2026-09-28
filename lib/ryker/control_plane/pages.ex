@@ -195,7 +195,7 @@ defmodule Ryker.ControlPlane.Pages do
   # no page; its past requests stay in Activity.
   def page(["repositories", repository_ref], _params, options) do
     with {:ok, repository_ref} <- PathRef.decode(repository_ref),
-         {:ok, item} <- options.projection.repository.(repository_ref) do
+         {:ok, item} <- options.projection.repository_detail.(repository_ref) do
       item
       |> RepositoriesPage.name()
       |> ok(RepositoriesPage.detail_html(item))

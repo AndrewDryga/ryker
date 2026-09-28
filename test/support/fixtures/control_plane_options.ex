@@ -963,6 +963,10 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           "ryker" -> {:ok, repository_row()}
           _other -> :error
         end,
+        repository_detail: fn
+          "ryker" -> {:ok, Map.put(repository_row(), :knowledge_runs, [])}
+          _other -> :error
+        end,
         schedules: fn _params ->
           [
             %{

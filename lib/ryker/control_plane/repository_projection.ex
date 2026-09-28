@@ -11,8 +11,10 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Environments, Search}
+  alias Ryker.Accounting.Execution
+  alias Ryker.ControlPlane.{CallRun, Environments, Search}
   alias Ryker.GitHub.Events
+  alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Publication.Publication
   alias Ryker.{Repo, RepositoryKnowledge}
   alias Ryker.Schedules.Schedule
@@ -58,6 +60,70 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   def fetch(ref) when is_binary(ref) do
     parts = parts({:ref, ref})
     if ref in refs(parts), do: {:ok, row(ref, parts)}, else: :error
+  end
+
+  @doc """
+  One repository's page: its row as `fetch/1` reads it, and the model runs
+  that wrote its knowledge.
+  """
+  @spec detail(String.t()) :: {:ok, map()} | :error
+  def detail(ref) when is_binary(ref) do
+    with {:ok, row} <- fetch(ref), do: {:ok, Map.put(row, :knowledge_runs, knowledge_runs(ref))}
+  end
+
+  @knowledge_runs 5
+
+  # The model runs that wrote this repository's knowledge, newest first, with
+  # what each cost from the execution ledger and exactly what it was sent and
+  # answered (Andrew, 2026-09-28: every model call shows the prompt it was
+  # sent; the knowledge runs were shown nowhere).
+  defp knowledge_runs(ref) do
+    runs =
+      Repo.all(
+        from(run in RepositoryKnowledge.Run,
+          where: run.repository_ref == ^ref,
+          order_by: [desc: run.inserted_at, desc: run.id],
+          limit: @knowledge_runs
+        )
+      )
+
+    ids = Enum.map(runs, & &1.id)
+
+    executions =
+      Repo.all(from(e in Execution, where: e.kind == "knowledge" and e.source_id in ^ids))
+      |> Map.new(&{&1.source_id, &1})
+
+    secrets = Redactor.configured_secrets()
+
+    Enum.map(runs, fn run ->
+      call = CallRun.from_background(run, executions[run.id])
+
+      %{
+        id: run.id,
+        at: run.started_at || run.inserted_at,
+        status: run.status,
+        commit: run.source_commit,
+        target: call.target,
+        tokens: call.tokens,
+        cost: call.cost,
+        total_ms: call.total_ms,
+        error_code: run.error_code,
+        dropped: run.dropped_count,
+        prompt: exact(run.prompt, secrets),
+        result: exact(run.result, secrets)
+      }
+    end)
+  end
+
+  # The bytes as they were sent or answered, with secrets redacted in place:
+  # re-encoding the JSON would reorder it into something never sent.
+  defp exact(nil, _secrets), do: nil
+
+  defp exact(text, secrets) do
+    case Redactor.artifact(text, secrets: secrets, preserve_format: true, max_bytes: 2_097_152) do
+      %{state: :retained, text: text} -> text
+      _unavailable -> nil
+    end
   end
 
   # What rows are built from, by repository ref: every repository's, or one

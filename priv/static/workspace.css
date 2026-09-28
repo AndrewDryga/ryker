@@ -1659,7 +1659,13 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 
 /* Channels, repositories and working copies (2026-09-24 redesign) */
 .channels-page, .repositories-page, .repository-page, .working-copies-page, .channel-page { max-width:1040px; min-width:0; }
-.repository-knowledge-document { box-sizing:border-box; max-height:60vh; margin:0; padding:12px 48px 12px 14px; overflow:auto; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface-sunken); font:13px/20px var(--ryker-font-mono); color:var(--ryker-text); white-space:pre-wrap; overflow-wrap:anywhere; }
+.repository-knowledge-document, .knowledge-run-text { box-sizing:border-box; max-height:60vh; margin:0; padding:12px 48px 12px 14px; overflow:auto; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface-sunken); font:13px/20px var(--ryker-font-mono); color:var(--ryker-text); white-space:pre-wrap; overflow-wrap:anywhere; }
+/* Each model run that wrote a repository's knowledge: its line, a note, and
+   the exact prompt and answer behind the Timeline's source disclosures. */
+.knowledge-run + .knowledge-run { margin-top:14px; padding-top:14px; border-top:1px solid var(--ryker-stroke); }
+.knowledge-run-line { display:flex; flex-wrap:wrap; align-items:center; gap:2px 6px; margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
+.knowledge-run-note { margin:4px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.knowledge-run .ui-disclosure { margin-top:8px; }
 /* One line naming a connection and the way to change it. */
 .connection-line { display:flex; align-items:center; gap:16px; max-width:1040px; box-sizing:border-box; margin:0 0 20px; padding:12px 16px; border:1px solid var(--ryker-stroke); border-radius:10px; }
 /* The name, the dot and word, and the facts centre on one line, and the facts
