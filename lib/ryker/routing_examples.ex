@@ -662,9 +662,10 @@ defmodule Ryker.RoutingExamples do
   Holds, until the transaction ends, the lock a copy holds (shared, where
   every forgetting holds it exclusively), for anything else that copies what
   a person may forget: the evidence an analysis prompt or an accepted case
-  freezes (`Ryker.Improvement`). Take it before reading anything, and before
-  any row a forgetting writes, as forgetting takes them: a forgetting then
-  either committed before the read, or waits and finds what the copy saved.
+  freezes (`Ryker.Improvement`). Take it before reading what is copied, and
+  before locking any row a forgetting writes only once it holds the lock,
+  such as a candidate: a forgetting then either committed before the read,
+  or waits and finds what the copy saved.
   """
   @spec copy_lock_in_transaction() :: :ok
   def copy_lock_in_transaction, do: lock(:shared)
