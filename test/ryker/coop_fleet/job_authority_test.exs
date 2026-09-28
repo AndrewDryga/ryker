@@ -476,6 +476,22 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert JobAuthority.validate(refreshed) == {:ok, refreshed}
     assert Repo.get!(Session, session.id).worker_job_digest == refreshed.worker_job_digest
 
+    # The executor that prepared the create adopts the new job before it reads
+    # the worker's receipt: one still holding the old job had its created
+    # session closed as "session_authority".
+    remote = %{
+      "external_ref" => Session.coop_task_ref(refreshed),
+      "job_ref" => refreshed.external_ref,
+      "job_digest" => refreshed.worker_job_digest
+    }
+
+    assert {:error, {:coop_protocol_error, :session_authority}} =
+             JobAuthority.exact_receipt(pinned, remote)
+
+    assert {:ok, adopted} = JobAuthority.prepared(pinned)
+    assert adopted.worker_job_digest == refreshed.worker_job_digest
+    assert JobAuthority.exact_receipt(adopted, remote) == :ok
+
     # A session already created on a worker keeps the job it was created with.
     placed =
       refreshed |> Ecto.Changeset.change(coop_session_id: "coop-session-placed") |> Repo.update!()
