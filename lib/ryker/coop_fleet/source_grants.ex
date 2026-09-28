@@ -3,6 +3,8 @@ defmodule Ryker.CoopFleet.SourceGrants do
 
   import Ecto.Query
 
+  require Logger
+
   alias Ryker.CoopFleet.{ControlPlane, JobSpec, Placement}
   alias Ryker.GitHub.InstallationTokens
   alias Ryker.{Repo, Settings}
@@ -32,7 +34,14 @@ defmodule Ryker.CoopFleet.SourceGrants do
          "expires_at" => DateTime.to_iso8601(expires_at)
        }}
     else
-      _unauthorized -> {:error, :coop_worker_source_grant_not_authorized}
+      refused ->
+        # The worker only hears 404, so this is the one place that says why a
+        # job could not fetch its repository. Never the token: it was not issued.
+        Logger.warning(
+          "Coop job source grant refused for #{job_ref}: #{inspect(refused, limit: 12)}"
+        )
+
+        {:error, :coop_worker_source_grant_not_authorized}
     end
   end
 
