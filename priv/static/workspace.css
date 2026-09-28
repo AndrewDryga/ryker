@@ -686,6 +686,28 @@
 .prompt-group > header h4 { margin:0; font-size:15px; line-height:24px; font-weight:600; }
 .prompt-group > header p { margin:3px 0 0; font-size:13px; color:var(--secondary); }
 .action-card { overflow-wrap:anywhere; }
+/* A run of tool calls and status updates: one card, a line per step, each
+   step opening to its full card. Emisar's steps carry its mark and green,
+   which is the same green as Ryker's mint. */
+.tool-run-steps { display:grid; margin:12px 0 0; padding:0; list-style:none; }
+.tool-run-step { border-top:1px solid var(--ryker-stroke); }
+.tool-run-step:first-child { border-top:0; }
+.tool-run-line { display:grid; grid-template-columns:max-content max-content minmax(0,1fr) max-content; align-items:center; gap:10px; padding:7px 0; font-size:13px; line-height:18px; }
+.tool-run-detail > summary.tool-run-line { list-style:none; cursor:pointer; }
+.tool-run-detail > summary::-webkit-details-marker { display:none; }
+.ryker-app .tool-run-detail > summary:hover .tool-run-title { text-decoration:underline; text-decoration-color:color-mix(in srgb, var(--ryker-text) 30%, transparent); text-underline-offset:3px; }
+.tool-run-detail > summary:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; border-radius:4px; }
+.tool-run-badge { display:inline-flex; align-items:center; gap:5px; min-width:0; padding:1px 8px; border-radius:999px; background:var(--ryker-surface-sunken); color:var(--ryker-text-secondary); font-size:11px; line-height:18px; font-weight:600; }
+.tool-run-badge[data-service=emisar] { background:color-mix(in srgb, var(--ryker-mint) 14%, transparent); color:var(--ryker-text); }
+.emisar-mark .emisar-accent { stroke:var(--ryker-mint); }
+.tool-run-badge .emisar-mark { width:12px; height:12px; flex:none; }
+.tool-run-title { color:var(--ryker-text); font-weight:500; white-space:nowrap; }
+.tool-run-text { overflow:hidden; color:var(--ryker-text-secondary); text-overflow:ellipsis; white-space:nowrap; }
+.tool-run-duration { color:var(--ryker-text-secondary); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.tool-run-body { margin:0 0 12px; padding:12px 14px; border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface); }
+.tool-run-body .case-card-heading { display:none; }
+.tool-run-body .action-card > :first-child:not(.case-card-heading) { margin-top:0; }
+@media (max-width:640px) { .tool-run-line { grid-template-columns:max-content minmax(0,1fr) max-content; } .tool-run-text { grid-column:2 / -1; } }
 .action-symbol { color:var(--secondary); font-size:18px; }
 .action-duration { font-size:12px; color:var(--secondary); font-variant-numeric:tabular-nums; }
 .action-description { color:var(--secondary); font-size:14px; line-height:20px; margin:8px 0 12px; }

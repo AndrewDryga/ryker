@@ -11,7 +11,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
     EpisodeTrace,
     FeedbackPage,
     Kit,
-    RequestContextHTML
+    RequestContextHTML,
+    ToolCard
   }
 
   alias Ryker.Episodes.Words
@@ -677,7 +678,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           />
         </div>
         <div class="phase-entries">
-          <.entry :for={entry <- phase.steps} entry={entry} />
+          <.entry :for={entry <- tool_runs(phase.steps)} entry={entry} />
         </div>
       </section>
     </section>
@@ -980,6 +981,115 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # retain exact timestamps even though they follow the conversation groups.
   defp background_band?(band), do: band in [:learning, :maintenance]
 
+  # Andrew, 2026-09-28: "nice design for every kind, branded cards for Emisar
+  # tool calls, informative cards, consecutive calls collapsed into one card
+  # where it fits (like queues)". Tool calls and Slack status updates that
+  # follow each other within a stage read as one card, a line per step, each
+  # opening to its full card. A goal, evidence, a reply or a step that failed
+  # ends the run, so what the work concluded, and what went wrong, keeps a
+  # card of its own. One request's timeline was 43,000 pixels of these.
+  defp tool_runs(entries) do
+    entries
+    |> Enum.reduce([], &add_to_run(&1, &2, tool_step?(&1)))
+    |> Enum.reverse()
+  end
+
+  defp add_to_run(entry, [%{kind: :tool_run} = run | rest], true),
+    do: [%{run | entries: run.entries ++ [entry]} | rest]
+
+  defp add_to_run(entry, [previous | rest] = runs, true) do
+    if tool_step?(previous),
+      do: [new_run(previous, entry) | rest],
+      else: [entry | runs]
+  end
+
+  defp add_to_run(entry, runs, _tool_step?), do: [entry | runs]
+
+  defp new_run(first, second),
+    do: %{kind: :tool_run, id: "steps-" <> first.id, at: first.at, entries: [first, second]}
+
+  defp tool_step?(%{kind: :event, step: %{stage: stage} = step})
+       when stage in ["Tool call", "Status"],
+       do: step[:tone] not in [:bad, :warn] and step[:state] not in ["failed", "cancelled"]
+
+  defp tool_step?(_entry), do: false
+
+  attr(:run, :map, required: true)
+
+  defp tool_run(assigns) do
+    lines = Enum.map(assigns.run.entries, &{&1, ToolCard.line(&1.step)})
+
+    assigns =
+      assign(assigns,
+        lines: lines,
+        services: lines |> Enum.map(&elem(&1, 1).service) |> Enum.uniq(),
+        span: run_span(assigns.run.entries)
+      )
+
+    ~H"""
+    <div class="tool-run">
+      <.card_heading title={"#{length(@lines)} steps"}>
+        <:description>{Enum.map_join(@services, ", ", &service_name/1)}</:description>
+        <:meta :if={@span}><span class="action-duration">{@span}</span></:meta>
+      </.card_heading>
+      <ol class="tool-run-steps">
+        <li
+          :for={{entry, line} <- @lines}
+          id={entry.id}
+          class="tool-run-step"
+          data-service={line.service}
+        >
+          <details :if={entry.step.stage == "Tool call"} class="tool-run-detail">
+            <summary class="tool-run-line">
+              <.service_badge service={line.service} />
+              <span class="tool-run-title">{line.title}</span>
+              <span class="tool-run-text" title={line.detail}>{line.detail}</span>
+              <span class="tool-run-duration">{line.duration}</span>
+            </summary>
+            <div class="tool-run-body">
+              <ToolCard.render step={entry.step} />
+            </div>
+          </details>
+          <div :if={entry.step.stage != "Tool call"} class="tool-run-line">
+            <.service_badge service={line.service} />
+            <span class="tool-run-title">{line.title}</span>
+            <span class="tool-run-text" title={line.detail}>{line.detail}</span>
+            <span class="tool-run-duration"></span>
+          </div>
+        </li>
+      </ol>
+    </div>
+    """
+  end
+
+  attr(:service, :atom, required: true)
+
+  defp service_badge(assigns) do
+    ~H"""
+    <span class="tool-run-badge" data-service={@service}><.emisar_mark :if={@service == :emisar} />{service_name(
+      @service
+    )}</span>
+    """
+  end
+
+  defp service_name(:emisar), do: "Emisar"
+  defp service_name(:ryker), do: "Ryker"
+  defp service_name(:slack), do: "Slack"
+  defp service_name(:github), do: "GitHub"
+  defp service_name(:workspace), do: "Code"
+
+  # When the run started and ended, by the clock, as the rows of a timeline
+  # read: 04:42:40–04:43:23.
+  defp run_span(entries) do
+    times = entries |> Enum.map(& &1.at) |> Enum.reject(&is_nil/1)
+
+    case times do
+      [] -> nil
+      [only] -> clock_time(only)
+      [first | _rest] -> clock_time(first) <> "–" <> clock_time(List.last(times))
+    end
+  end
+
   defp entry(assigns) do
     ~H"""
     <article
@@ -1007,6 +1117,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       </div>
       <div class="case-entry-body">
         <.message :if={@entry.kind == :message} message={@entry.message} />
+        <.tool_run :if={@entry.kind == :tool_run} run={@entry} />
         <Ryker.ControlPlane.ToolCard.render
           :if={@entry.kind == :event && @entry.step.stage == "Tool call"}
           step={@entry.step}
