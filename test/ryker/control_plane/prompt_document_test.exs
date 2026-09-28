@@ -98,6 +98,44 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
     assert Enum.count(LazyHTML.query(document, ~s([data-source="$.context.input"]))) == 1
   end
 
+  test "a prompt that lost a link's query still reads exactly as sent, in the order sent" do
+    # A prompt with anything redacted was drawn from a re-encoded map, so every
+    # routing prompt that quoted a link with a query showed its context above
+    # its instructions: 11 of the 124 routing prompts kept on 2026-09-28 read
+    # in the reverse of the order the model was sent. Only the removed query
+    # may differ from what the model read.
+    harvested =
+      "test/ryker/improvement/fixtures/emisar_access_correction.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    # The case keeps routing's prompt with its links' queries removed. The
+    # reply that prompt quotes keeps them, so the prompt as sent is both.
+    shown = Enum.at(harvested["routing"], 1)["prompt"]
+
+    sent =
+      ~r{https://[^\s)]+\?[^\s)]+}
+      |> Regex.scan(hd(harvested["replies"])["text"])
+      |> List.flatten()
+      |> Enum.reduce(shown, fn link, prompt ->
+        [resource | _query] = String.split(link, "?")
+        String.replace(prompt, resource <> ")", link <> ")")
+      end)
+
+    assert sent =~ "?project=emisar"
+
+    rows =
+      sent
+      |> prompt_document()
+      |> LazyHTML.query(".submitted-prompt-formatted .prompt-row")
+      |> Enum.map(&LazyHTML.text/1)
+
+    assert Enum.at(rows, 1) =~ ~s("instructions")
+
+    assert Enum.join(rows, "\n") ==
+             shown |> Jason.decode!(objects: :ordered_objects) |> Jason.encode!(pretty: true)
+  end
+
   test "the prompt inspector maps logical components instead of whole JSON containers" do
     prompt =
       Jason.encode!(%{
