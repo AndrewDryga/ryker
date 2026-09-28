@@ -190,6 +190,12 @@ defmodule Ryker.ControlPlane.ToolCard do
       <p :if={@action.description && @step.state != "started"} class="action-description">
         {@action.description}
       </p>
+      <p
+        :if={@action.kind == "command" && is_nil(@action.description) && @step.state != "started"}
+        class="action-description"
+      >
+        The worker reported that a command ran, not which one.
+      </p>
       <p :if={@action.saved_evidence} class="action-evidence-link">
         <a href={@action.saved_evidence}>View recorded evidence ↑</a>
       </p>
@@ -285,10 +291,23 @@ defmodule Ryker.ControlPlane.ToolCard do
       {"Tool call", description, kind, symbol} when is_binary(tool) and tool != "" ->
         {tool |> String.replace(~r/[_.]+/, " ") |> String.capitalize(), description, kind, symbol}
 
+      {"Tool call", description, _kind, _symbol} ->
+        by_kind(step[:tool_kind], description)
+
       named ->
         named
     end
   end
+
+  # The worker reports a code step's kind without its command or file, so a
+  # step with nothing else to go on is named by its kind. The emisar task's
+  # timeline had 55 lines reading only "Tool call".
+  defp by_kind("execute", _description), do: {"Run command", nil, "command", ">_"}
+  defp by_kind("think", _description), do: {"Think it through", nil, "tool", "◇"}
+  defp by_kind("fetch", _description), do: {"Fetch a web page", nil, "tool", "◇"}
+  defp by_kind("delete", _description), do: {"Delete files", nil, "edit", "±"}
+  defp by_kind("move", _description), do: {"Move files", nil, "edit", "±"}
+  defp by_kind(_kind, description), do: {"Tool call", description, "tool", "◇"}
 
   defp citation_result(
          %{kind: "ryker"} = action,

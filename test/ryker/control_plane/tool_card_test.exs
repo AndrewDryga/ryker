@@ -250,6 +250,31 @@ defmodule Ryker.ControlPlane.ToolCardTest do
     assert visible =~ args["completion_contract"]
   end
 
+  # The emisar task's timeline, 2026-09-28: the worker reports a code step's
+  # kind without its command or file, and 55 of its lines read only "Tool
+  # call", so nobody could tell a command from a thought.
+  test "a code step the worker reported only by its kind is named by that kind" do
+    for {kind, title} <- [
+          {"execute", "Run command"},
+          {"think", "Think it through"},
+          {"fetch", "Fetch a web page"},
+          {"other", "Tool call"}
+        ] do
+      assert ToolCard.line(step(%{"kind" => kind})).title == title
+    end
+
+    card =
+      render_component(&ToolCard.render/1, step: step(%{"kind" => "execute"}))
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.text()
+
+    assert card =~ "The worker reported that a command ran, not which one."
+
+    # A named tool keeps its own name, whatever its kind.
+    tool = %{"kind" => "execute", "input" => %{"server" => "emisar", "tool" => "recent_runs"}}
+    assert ToolCard.line(step(tool)).title == "Recent runs"
+  end
+
   defp step(payload) do
     %{
       id: "recorded",
