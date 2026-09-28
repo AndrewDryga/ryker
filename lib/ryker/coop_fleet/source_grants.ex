@@ -71,12 +71,27 @@ defmodule Ryker.CoopFleet.SourceGrants do
              repository_id == source["github_repository_id"] do
       {:ok, Map.take(binding, [:name, :repository_id, :installation_id]), source}
     else
-      _invalid -> {:error, :coop_worker_source_grant_not_authorized}
+      invalid ->
+        Logger.warning(
+          "Coop job source grant authority refused for #{job_ref}: " <>
+            refusal(invalid) <> " (source keys #{inspect(Map.keys(source))})"
+        )
+
+        {:error, :coop_worker_source_grant_not_authorized}
     end
   end
 
   def source_grant_authority(_certificate, _job_ref, _source),
     do: {:error, :coop_worker_source_grant_not_authorized}
+
+  # Which check refused, without the job document or any credential.
+  defp refusal([]), do: "no current session holds this job on this worker"
+  defp refusal([_one, _two]), do: "two current sessions hold this job"
+  defp refusal(false), do: "a job, source or repository check did not match"
+  defp refusal(nil), do: "the repository has no GitHub binding or is not available"
+  defp refusal({:error, reason}), do: inspect(reason, limit: 8)
+  defp refusal({:ok, _other}), do: "the job document's digest does not match"
+  defp refusal(other), do: inspect(other, limit: 3, printable_limit: 200)
 
   defp grants_repository?(nil, _identity), do: false
 
