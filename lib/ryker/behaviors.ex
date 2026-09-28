@@ -1270,7 +1270,7 @@ defmodule Ryker.Behaviors do
       Repo.update_all(
         from(behavior in Behavior, where: behavior.id == ^assignment_id),
         inc: [use_count: 1],
-        set: [last_used_at: now, updated_at: now]
+        set: [last_used_at: now]
       )
 
     broadcast_behavior_updated(assignment_id)

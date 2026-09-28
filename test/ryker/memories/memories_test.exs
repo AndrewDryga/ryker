@@ -8,6 +8,7 @@ defmodule Ryker.Memories.MemoriesTest do
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.MemoryPages
+  alias Ryker.Fixtures.SavedEntities
   alias Ryker.Ingress.Inbox.Entry
 
   alias Ryker.Slack.{
@@ -187,6 +188,45 @@ defmodule Ryker.Memories.MemoriesTest do
 
     assert {:ok, duplicate_forget} = Memories.forget(replacement.memory.ref, "slack:T123")
     assert duplicate_forget.id == forgotten.id
+  end
+
+  # The 2026-09-28 token and context investigation: automatic recall stamped a
+  # fact's updated_at and then ranked facts by updated_at, so a fact recalled
+  # once outranked every newer one from then on, and the more it was recalled
+  # the newer it looked. Reading a fact is not new content.
+  test "recalling a fact never makes it rank ahead of a fact confirmed after it" do
+    source = SavedEntities.source!("slack:T123:C4242")
+
+    context = %{
+      conversation_ref: "slack:T123:C4242",
+      repository: nil,
+      workspace_ref: "slack:T123"
+    }
+
+    older = SavedEntities.memory!(source, "staging-account", "The staging account is acme-stg.")
+    older_at = DateTime.add(@now, -3 * 3_600, :second)
+    content_time!(older, older_at)
+
+    assert [%{"memory_ref" => recalled}] = Recall.recall(context, 1)
+    assert recalled == older.ref
+
+    newer = SavedEntities.memory!(source, "prod-account", "The production account is acme-prd.")
+    content_time!(newer, DateTime.add(@now, -3_600, :second))
+
+    assert [%{"memory_ref" => latest}] = Recall.recall(context, 1)
+    assert latest == newer.ref
+
+    recalled_entry = Repo.get!(MemoryEntry, older.id)
+    assert recalled_entry.recall_count == 1
+    assert %DateTime{} = recalled_entry.last_recalled_at
+    assert DateTime.compare(recalled_entry.updated_at, older_at) == :eq
+  end
+
+  defp content_time!(%MemoryEntry{id: id}, at) do
+    {1, _rows} =
+      Repo.update_all(from(entry in MemoryEntry, where: entry.id == ^id),
+        set: [confirmed_at: at, inserted_at: at, updated_at: at]
+      )
   end
 
   test "explicit workspace visibility recalls across conversations while crossed controls fail closed" do

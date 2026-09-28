@@ -942,6 +942,8 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     behavior = Repo.get!(Behavior, confirmed.behavior.id)
     assert behavior.use_count == 1
     assert %DateTime{} = behavior.last_used_at
+    # Using an assignment is not changing it: its own time stays when it was saved.
+    assert DateTime.compare(behavior.updated_at, confirmed.behavior.updated_at) == :eq
 
     assert %{
              "standing_assignments" => [assignment]
