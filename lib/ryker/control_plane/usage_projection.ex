@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
   @moduledoc "Comparable usage breakdowns from the same deduplicated execution ledger."
   import Ecto.Query
   alias Ryker.Accounting.Pricing
-  alias Ryker.ControlPlane.LocalRoutingUsage
+  alias Ryker.ControlPlane.{LocalRoutingUsage, RepositoryNames}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Work.{Measurement, Turn}
@@ -121,7 +121,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
       performance: groups(query, [:work_kind, :provider, :model, :effort]),
       channels:
         groups(from(e in query, where: e.transport == "slack"), [:transport, :conversation_ref]),
-      repositories: groups(query, [:repository_ref]),
+      repositories: query |> groups([:repository_ref]) |> named_repositories(),
       kinds: groups(query, [:work_kind]),
       users: groups(people(query), [:source, :workspace, :actor]),
       days: days(query),
@@ -130,6 +130,12 @@ defmodule Ryker.ControlPlane.UsageProjection do
   end
 
   def totals(query), do: query |> aggregate() |> Repo.one!() |> finish()
+
+  # A repository row reads as owner/repo; its ref stays for the filter link.
+  defp named_repositories(rows) do
+    names = if Enum.any?(rows, & &1.repository_ref), do: RepositoryNames.all(), else: %{}
+    Enum.map(rows, &Map.put(&1, :repository_name, RepositoryNames.name(names, &1.repository_ref)))
+  end
 
   def filter_options do
     query = dimensions(Ryker.Accounting.Query.executions(nil, "all"))

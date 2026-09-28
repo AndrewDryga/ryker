@@ -23,20 +23,6 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
   @list_limit 100
 
-  @doc """
-  The name people know each added repository by, `owner/repo`, keyed by its
-  ref. A ref with no saved repository is its own name.
-  """
-  @spec names() :: %{String.t() => String.t()}
-  def names do
-    Repo.all(
-      from(repository in Settings.Repository,
-        select: {repository.ref, coalesce(repository.github_repository, repository.display_name)}
-      )
-    )
-    |> Map.new(fn {ref, name} -> {ref, name || ref} end)
-  end
-
   @doc "Every repository added to Ryker, with its environments, counts, configured work and freshness."
   def list(params) when is_map(params) do
     parts = parts(:all)

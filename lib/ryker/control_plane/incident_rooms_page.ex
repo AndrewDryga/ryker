@@ -347,7 +347,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp row_facts(room) do
     [
       channel_fact(room),
-      room.repository_ref,
+      repository(room),
       room.episode_ref && anchor(%{href: timeline_path(room.episode_ref), text: "investigation"}),
       publication_words(room.publication_status)
     ]

@@ -366,8 +366,41 @@ defmodule Ryker.Settings do
   def put_repository(attributes, expected_revision, actor_ref),
     do: put_item(:repositories, Repository, :ref, attributes, expected_revision, actor_ref)
 
-  def delete_repository(ref, expected_revision, actor_ref),
-    do: delete_item(:repositories, Repository, :ref, ref, expected_revision, actor_ref)
+  @doc """
+  Removes a repository. Its requests, usage and learned topics keep its ref,
+  so the name it was known by is kept (`removed_repository_names`) and they
+  still read owner/repo.
+  """
+  def delete_repository(ref, expected_revision, actor_ref) do
+    with :ok <- authorize(actor_ref) do
+      save(:repositories, expected_revision, actor_ref, fn snapshot ->
+        repository = Repository.find(snapshot, :ref, ref)
+        deleted = delete_found(Repository, :ref, repository, snapshot)
+        keep_removed_name!(repository)
+        deleted
+      end)
+    end
+  end
+
+  defp keep_removed_name!(%Repository{ref: ref} = repository) do
+    case Enum.find(
+           [repository.github_repository, repository.display_name],
+           &(&1 not in [nil, ""])
+         ) do
+      nil ->
+        :ok
+
+      name ->
+        Repo.insert_all(
+          "removed_repository_names",
+          [%{ref: ref, name: name, inserted_at: DateTime.utc_now()}],
+          on_conflict: {:replace, [:name, :inserted_at]},
+          conflict_target: :ref
+        )
+
+        :ok
+    end
+  end
 
   @doc """
   Creates or edits one environment.

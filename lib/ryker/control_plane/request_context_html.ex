@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.MemoryFormat
   alias Ryker.ControlPlane.PromptDocument
-  alias Ryker.ControlPlane.RepositoryProjection
+  alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Slack.Names
@@ -1208,6 +1208,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     end
   end
 
+  defp run_value("repository_ref", ref) when is_binary(ref),
+    do: RepositoryNames.name(repository_names(), ref)
+
   defp run_value("mode", "full"), do: "Full context"
   defp run_value("mode", "continuation"), do: "Continues the previous run"
 
@@ -2030,7 +2033,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   # Without the database the briefing still reads, naming repositories by ref.
   defp repository_names do
-    RepositoryProjection.names()
+    RepositoryNames.all()
   rescue
     _error in [DBConnection.ConnectionError, DBConnection.OwnershipError, Postgrex.Error] -> %{}
   end
