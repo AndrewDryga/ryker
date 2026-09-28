@@ -245,15 +245,15 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
     assert publish(rewrite, "Why now: A.", nil) == {:error, :repository_knowledge_proposal_edited}
   end
 
-  # GitHub answers a file over 1 MB with no content, a directory with a
-  # list, and Ryker reads no more than 128,000 bytes of text.
+  # GitHub answers a file over 1 MB with no content and a directory with a
+  # list, and Ryker reads no more than GitHub sends inline.
   test "a file Ryker cannot read is unavailable, and one that is not there is not found" do
     read = "/repos/acme/widget/contents/RYKER.md?ref=#{@head}"
 
     RecordedGitHub.reply([
       {:get, read,
        ok(200, %{"type" => "file", "encoding" => "none", "content" => "", "sha" => "x"})},
-      {:get, read, file(String.duplicate("a", 128_001), "x")},
+      {:get, read, file(String.duplicate("a", 1_048_577), "x")},
       {:get, read, file(<<0xFF, 0xFE>>, "x")},
       {:get, read, ok(200, [%{"type" => "file", "path" => "RYKER.md/a"}])},
       {:get, read, ok(404, %{"message" => "Not Found"})},
@@ -267,6 +267,19 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
 
     assert RepositoryFiles.read(@binding, @repository, "RYKER.md", @head) == {:ok, :not_found}
     assert RepositoryFiles.read(@binding, @repository, "RYKER.md", @head) == {:ok, "# RYKER.md\n"}
+  end
+
+  # coop's README is 135,820 bytes, and Ryker read no more than 128,000 of a
+  # file: the knowledge run of 2026-09-27 dropped three commands the README
+  # really has, `coop build && coop doctor` and `coop claude` among them, as
+  # ones it could not find written anywhere.
+  test "a long README is read whole" do
+    read = "/repos/acme/widget/contents/README.md?ref=#{@head}"
+    text = String.duplicate("a", 135_820)
+
+    RecordedGitHub.reply([{:get, read, file(text, "x")}])
+
+    assert RepositoryFiles.read(@binding, @repository, "README.md", @head) == {:ok, text}
   end
 
   # A 5xx while reading a file came back as a file Ryker cannot read, which

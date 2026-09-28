@@ -29,7 +29,10 @@ defmodule Ryker.GitHub.RepositoryFiles do
   @branch "ryker/repository-knowledge"
   @path "RYKER.md"
   @maximum_tree_entries 10_000
-  @maximum_source_bytes 128_000
+  # GitHub sends a file's content inline up to 1 MB, and Ryker reads all of
+  # it: a smaller bound dropped real commands from a 135,820-byte README
+  # (2026-09-27). A run reads at most 40 cited files.
+  @maximum_source_bytes 1_048_576
   # Statuses GitHub turns a request away with (`refused/1`).
   @refused [401, 403, 429]
   # GitHub lists at most this many files of a comparison.
