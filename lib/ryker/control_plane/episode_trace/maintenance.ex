@@ -22,14 +22,41 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   alias Ryker.Retention.Custody
   alias Ryker.Work.Session
 
-  @doc "Session close and workspace cleanup, each at the time it happened."
-  def steps(sessions) do
-    sessions = Enum.filter(sessions, &(&1.cleanup_status != :active))
-    workers = workers(sessions)
+  @doc """
+  One card per worker session that ran: its close and what became of its
+  working copy, told as one story at the time cleanup last acted on it.
 
-    Enum.flat_map(sessions, fn session ->
-      worker = Map.get(workers, session.id)
-      kept_open(session, worker) ++ closed(session, worker) ++ outcome(session, worker)
+  Andrew, 2026-09-28: the chapter showed "Nothing to remove", "Worker session
+  closed", "Working copy already gone" and "Working copy removed" for one
+  request, which read as four contradicting answers. They were three sessions,
+  one of which never started on a worker, with a close and an outcome card
+  each and nothing to say which session a card was about. A session that
+  never started has nothing to clean up and no card; when a request had
+  several sessions, each card names which one it is.
+  """
+  def steps(sessions) do
+    ran = sessions |> Enum.filter(&ran?/1) |> Enum.sort_by(& &1.generation)
+    labels = labels(ran)
+    shown = Enum.filter(ran, &(&1.cleanup_status != :active))
+    workers = workers(shown)
+
+    Enum.flat_map(shown, fn session ->
+      card(session, Map.get(workers, session.id), Map.get(labels, session.id))
+    end)
+  end
+
+  # Only a session a worker knew has anything to close or remove.
+  defp ran?(%Session{coop_session_id: id}), do: is_binary(id) and id != ""
+
+  @ordinals ~w(first second third fourth fifth sixth seventh eighth ninth tenth)
+
+  defp labels([_only]), do: %{}
+
+  defp labels(sessions) do
+    sessions
+    |> Enum.with_index()
+    |> Map.new(fn {session, index} ->
+      {session.id, Enum.at(@ordinals, index, "#{index + 1}th") <> " session"}
     end)
   end
 
@@ -50,146 +77,134 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     |> Map.new()
   end
 
+  defp card(session, worker, label) do
+    case story(session) do
+      nil ->
+        []
+
+      story ->
+        [
+          step("maintenance-#{session.id}", :maintenance, story.at, %{
+            actor: "Ryker",
+            stage: "Maintenance",
+            state: story.state,
+            title: if(label, do: "#{story.title} · #{label}", else: story.title),
+            summary: story.summary,
+            href: story[:href],
+            tone: story[:tone],
+            details:
+              session_details(session, story[:worker] || worker) ++
+                close_details(session) ++ story.details
+          })
+        ]
+    end
+  end
+
   # A finished request's session stays open for a while in case the
   # conversation continues; until then it is waiting, not closed.
-  defp kept_open(%Session{cleanup_status: :grace, closed_at: nil} = session, worker) do
-    [
-      step("maintenance-#{session.id}-kept-open", :maintenance, session.updated_at, %{
-        actor: "Ryker",
-        stage: "Maintenance",
-        state: "current",
-        title: "Worker session kept open",
-        summary:
-          "The request ended. Ryker keeps its worker session open" <>
-            until(session.discard_after) <>
-            " in case the conversation continues, then closes it.",
-        tone: nil,
-        details:
-          session_details(session, worker) ++
-            compact_details([{"Kept open until", readable(session.discard_after)}])
-      })
-    ]
+  defp story(%Session{cleanup_status: :grace, closed_at: nil} = session) do
+    %{
+      at: session.updated_at,
+      state: "current",
+      title: "Worker session kept open",
+      summary:
+        "The request ended. Ryker keeps its worker session open" <>
+          until(session.discard_after) <>
+          " in case the conversation continues, then closes it.",
+      details: compact_details([{"Kept open until", readable(session.discard_after)}])
+    }
   end
 
-  defp kept_open(_session, _worker), do: []
-
-  defp closed(%Session{closed_at: nil}, _worker), do: []
-
-  defp closed(session, worker) do
-    [
-      step("maintenance-#{session.id}-closed", :maintenance, session.closed_at, %{
-        actor: "Ryker",
-        stage: "Maintenance",
-        state: "session closed",
-        title: "Worker session closed",
-        summary: closed_summary(session),
-        tone: nil,
-        details:
-          session_details(session, worker) ++
-            compact_details([
-              {"Close request", close_request(session), identifier: true},
-              {"Closed at revision", session.close_expected_revision},
-              {"Kept open until", readable(session.discard_after)},
-              {"Closed", readable(session.closed_at)}
-            ])
-      })
-    ]
-  end
-
-  defp outcome(%Session{cleanup_status: :discarded} = session, worker) do
+  defp story(%Session{cleanup_status: :discarded} = session) do
     receipt = session.cleanup_receipt || %{}
-    {title, summary} = cleanup_outcome(receipt["kind"])
+    {title, summary} = cleanup_outcome(receipt["kind"], session)
 
-    [
-      step("maintenance-#{session.id}-discarded", :maintenance, session.discarded_at, %{
-        actor: "Ryker",
-        stage: "Maintenance",
-        state: String.downcase(title),
-        title: title,
-        summary: plan_sentence(receipt["kind"], session.discard_plan) <> summary,
-        tone: nil,
-        details:
-          session_details(session, receipt["worker_id"] || worker) ++
-            plan_details(session) ++
-            compact_details([
-              {"Receipt", receipt_words(receipt["kind"])},
-              {"Worker reported", remote_words(receipt["remote_state"])},
-              {"Removal request", receipt["operation_key"], identifier: true},
-              {"Receipt fingerprint", session.cleanup_receipt_fingerprint, identifier: true},
-              {"Cleanup finished", readable(session.discarded_at)}
-            ])
-      })
-    ]
+    %{
+      at: session.discarded_at,
+      state: String.downcase(title),
+      title: title,
+      summary: closed_sentence(session) <> summary,
+      worker: receipt["worker_id"],
+      details:
+        plan_details(session) ++
+          compact_details([
+            {"Receipt", receipt_words(receipt["kind"])},
+            {"Worker reported", remote_words(receipt["remote_state"])},
+            {"Removal request", receipt["operation_key"], identifier: true},
+            {"Receipt fingerprint", session.cleanup_receipt_fingerprint, identifier: true},
+            {"Cleanup finished", readable(session.discarded_at)}
+          ])
+    }
   end
 
-  defp outcome(%Session{cleanup_status: :retained} = session, worker) do
-    [
-      step("maintenance-#{session.id}-retained", :maintenance, session.updated_at, %{
-        actor: "Ryker",
-        stage: "Maintenance",
-        state: "current",
-        title: "Working copy kept",
-        summary: retained_reason(session.retained_reason) <> recheck(session),
-        tone: nil,
-        details:
-          session_details(session, worker) ++
-            plan_details(session) ++
-            compact_details([
-              {"Why it was kept", retained_words(session.retained_reason)},
-              {"Next check", readable(session.cleanup_next_attempt_at)}
-            ])
-      })
-    ]
+  defp story(%Session{cleanup_status: :retained} = session) do
+    %{
+      at: session.updated_at,
+      state: "current",
+      title: "Working copy kept",
+      summary:
+        closed_sentence(session) <> retained_reason(session.retained_reason) <> recheck(session),
+      details:
+        plan_details(session) ++
+          compact_details([
+            {"Why it was kept", retained_words(session.retained_reason)},
+            {"Next check", readable(session.cleanup_next_attempt_at)}
+          ])
+    }
   end
 
-  defp outcome(%Session{cleanup_status: :blocked} = session, worker) do
-    [
-      step("maintenance-#{session.id}-blocked", :maintenance, session.updated_at, %{
-        actor: "Ryker",
-        stage: "Maintenance",
-        state: "current",
-        title: "Cleanup blocked",
-        href: "/working-copies",
-        summary:
+  defp story(%Session{cleanup_status: :blocked} = session) do
+    %{
+      at: session.updated_at,
+      state: "current",
+      title: "Cleanup blocked",
+      href: "/working-copies",
+      tone: :warn,
+      summary:
+        closed_sentence(session) <>
           "Cleanup stopped while #{String.downcase(step_words(session.cleanup_blocked_from))} " <>
-            "and needs attention." <>
-            error_words(session.cleanup_last_error_code) <>
-            " The delivered answer is unaffected.",
-        tone: :warn,
-        details:
-          session_details(session, worker) ++
-            compact_details([
-              {"Stopped while", step_words(session.cleanup_blocked_from)},
-              {"Tries", session.cleanup_attempt_count}
-            ]) ++ error_details(session)
-      })
-    ]
+          "and needs attention." <>
+          error_words(session.cleanup_last_error_code) <>
+          " The delivered answer is unaffected.",
+      details:
+        compact_details([
+          {"Stopped while", step_words(session.cleanup_blocked_from)},
+          {"Tries", session.cleanup_attempt_count}
+        ]) ++ error_details(session)
+    }
   end
 
-  defp outcome(%Session{cleanup_status: status} = session, worker)
+  defp story(%Session{cleanup_status: status} = session)
        when status in [:close_pending, :plan_pending, :discard_pending] do
-    [
-      step("maintenance-#{session.id}-pending", :maintenance, session.updated_at, %{
-        actor: "Ryker",
-        stage: "Maintenance",
-        state: "current",
-        title: "Cleanup in progress",
-        summary:
+    %{
+      at: session.updated_at,
+      state: "current",
+      title: "Cleanup in progress",
+      summary:
+        closed_sentence(session) <>
           "Ryker is #{String.downcase(step_words(status))}." <>
-            retrying(session.cleanup_last_error_code, session.cleanup_next_attempt_at),
-        tone: nil,
-        details:
-          session_details(session, worker) ++
-            compact_details([
-              {"Step", step_words(status)},
-              {"Tries", session.cleanup_attempt_count},
-              {"Next try", readable(session.cleanup_next_attempt_at)}
-            ]) ++ error_details(session)
-      })
-    ]
+          retrying(session.cleanup_last_error_code, session.cleanup_next_attempt_at),
+      details:
+        compact_details([
+          {"Step", step_words(status)},
+          {"Tries", session.cleanup_attempt_count},
+          {"Next try", readable(session.cleanup_next_attempt_at)}
+        ]) ++ error_details(session)
+    }
   end
 
-  defp outcome(_session, _worker), do: []
+  # Closed, and nothing has happened to its working copy yet.
+  defp story(%Session{closed_at: %DateTime{}} = session) do
+    %{
+      at: session.closed_at,
+      state: "session closed",
+      title: "Worker session closed",
+      summary: closed_sentence(session) <> "Closing it does not remove its working copy.",
+      details: []
+    }
+  end
+
+  defp story(_session), do: nil
 
   # Which worker held the session, and the session's identities on both sides.
   defp session_details(session, worker) do
@@ -251,60 +266,68 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   defp unpublished_words(%{"unmerged" => true}), do: "Yes"
   defp unpublished_words(_workspace), do: "None"
 
-  defp closed_summary(%Session{repository_ref: nil}),
-    do:
-      "After the request ended, Ryker closed its worker session, which worked without a repository. Closing it does not remove its working copy."
+  # The close, as the sentence a session's story starts with.
+  defp closed_sentence(%Session{closed_at: nil}), do: ""
 
-  defp closed_summary(%Session{repository_ref: repository}),
+  defp closed_sentence(%Session{repository_ref: nil, closed_at: at}),
     do:
-      "After the request ended, Ryker closed #{repository}'s worker session. Closing it does not remove its working copy."
+      "After the request ended, Ryker closed its worker session, which worked without a repository, at #{clock(at)}. "
+
+  defp closed_sentence(%Session{repository_ref: repository, closed_at: at}),
+    do: "After the request ended, Ryker closed #{repository}'s worker session at #{clock(at)}. "
+
+  defp close_details(%Session{closed_at: nil}), do: []
+
+  defp close_details(session) do
+    compact_details([
+      {"Close request", close_request(session), identifier: true},
+      {"Closed at revision", session.close_expected_revision},
+      {"Kept open until", readable(session.discard_after)},
+      {"Closed", readable(session.closed_at)}
+    ])
+  end
 
   defp close_request(%Session{close_expected_revision: nil}), do: nil
   defp close_request(session), do: Custody.close_key(session)
 
-  # What the cleanup receipt proves, by the kind cleanup writes. Only
-  # "discarded" is a removal this pass made.
-  defp cleanup_outcome("never_bound"),
-    do:
-      {"Nothing to remove",
-       "Ryker never learned a worker session for this request, so it had nothing to close or remove."}
-
-  defp cleanup_outcome("already_discarded"),
+  # What the cleanup receipt proves, by the kind cleanup writes, read on after
+  # the close. Only "discarded" is a removal this pass made.
+  defp cleanup_outcome("already_discarded", _session),
     do:
       {"Working copy already gone",
        "The worker reported the working copy was already gone; Ryker saw that, it did not delete it."}
 
-  defp cleanup_outcome("remote_absent"),
+  defp cleanup_outcome("remote_absent", _session),
     do:
       {"Working copy already gone",
-       "The worker no longer knew this session, so there was nothing left to close or remove."}
+       "By cleanup time the worker no longer knew this session, so there was nothing left to close or remove."}
 
-  defp cleanup_outcome("worker_removed"),
+  defp cleanup_outcome("worker_removed", _session),
     do:
       {"Working copy left on a removed worker",
        "The worker holding it was removed from Ryker, so Ryker cannot reach it to close or remove it."}
 
-  defp cleanup_outcome(_kind),
+  defp cleanup_outcome(_discarded, session),
     do:
       {"Working copy removed",
-       "The temporary working copy was removed. What this page shows about the work is unaffected."}
+       "#{if session.closed_at, do: "It", else: "Ryker"} removed the temporary working copy at #{clock(session.discarded_at)}" <>
+         plan_sentence(session.discard_plan) <>
+         " What this page shows about the work is unaffected."}
 
   # What Ryker checked before it removed a working copy it removed itself.
-  defp plan_sentence("discarded", %{"workspace" => %{"unmerged" => true}}),
+  defp plan_sentence(%{"workspace" => %{"unmerged" => true}}),
     do:
-      "Ryker checked that the working copy held no uncommitted changes; its unmerged commits could go because the work was published. "
+      ", after checking it held no uncommitted changes; its unmerged commits could go because the work was published."
 
-  defp plan_sentence("discarded", %{"workspace" => %{}}),
-    do:
-      "Ryker checked that the working copy held no uncommitted changes and no unpublished commits. "
+  defp plan_sentence(%{"workspace" => %{}}),
+    do: ", after checking it held no uncommitted changes and no unpublished commits."
 
-  defp plan_sentence(_kind, _plan), do: ""
+  defp plan_sentence(_plan), do: "."
 
   defp receipt_words("discarded"), do: "Removed at Ryker's request"
   defp receipt_words("already_discarded"), do: "The worker had already removed it"
   defp receipt_words("remote_absent"), do: "The worker no longer knew the session"
   defp receipt_words("worker_removed"), do: "Its worker was removed from Ryker"
-  defp receipt_words("never_bound"), do: "No worker session was ever started for it"
   defp receipt_words(_kind), do: nil
 
   defp remote_words("discarded"), do: "Removed"

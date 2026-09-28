@@ -141,7 +141,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
 
   test "closing a session is not removing its working copy" do
     %{episode: episode} = admitted!("closed")
-    cleanup!(episode, cleanup_status: :grace, closed_at: @now)
+    cleanup!(episode, coop_session_id: "remote-closed", cleanup_status: :grace, closed_at: @now)
 
     step = maintenance_step(episode, "Worker session closed")
     assert step.summary =~ "Closing it does not remove its working copy"
@@ -152,21 +152,25 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     %{episode: episode} = admitted!("kept")
 
     cleanup!(episode,
+      coop_session_id: "remote-kept",
       cleanup_status: :retained,
       closed_at: @now,
       retained_reason: "dirty_worktree"
     )
 
     step = maintenance_step(episode, "Working copy kept")
+    # One story: the close, then why the copy stayed.
+    assert step.summary =~ "closed"
     assert step.summary =~ "uncommitted changes"
     assert step.tone == nil
   end
 
-  test "a session that never bound a remote one is not a deleted workspace" do
+  test "a session that never started on a worker has no cleanup card" do
     # The step read the receipt under "outcome", a key cleanup never writes: it
     # writes "kind". Every settled cleanup therefore said "The temporary
-    # workspace was discarded", including a session Ryker never bound, one its
-    # worker had already lost, and one left on a worker removed from Ryker.
+    # workspace was discarded", including a session Ryker never bound. Then it
+    # said "Nothing to remove" (2026-09-28: one of four contradicting cards);
+    # a session no worker knew has nothing to tell.
     %{episode: episode} = admitted!("never-bound")
 
     cleanup!(episode,
@@ -182,16 +186,14 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
       cleanup_receipt_fingerprint: String.duplicate("c", 64)
     )
 
-    assert maintenance_step(episode, "Working copy removed") == nil
-    step = maintenance_step(episode, "Nothing to remove")
-    assert step.summary =~ "never learned a worker session"
-    refute step.summary =~ "discarded"
+    assert maintenance_steps(episode) == []
   end
 
   test "a session left on a removed worker says it could not be removed" do
     %{episode: episode} = admitted!("worker-removed")
 
     cleanup!(episode,
+      coop_session_id: "coop-session-removed",
       cleanup_status: :discarded,
       closed_at: @now,
       discarded_at: @now,
@@ -214,6 +216,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     %{episode: episode} = admitted!("blocked")
 
     cleanup!(episode,
+      coop_session_id: "remote-blocked",
       cleanup_status: :blocked,
       closed_at: @now,
       cleanup_attempt_count: 3,
@@ -233,6 +236,57 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     assert details["Error code"] == "coop_unavailable"
     assert details["Error detail"] =~ "econnrefused"
     assert step.tone == :warn
+  end
+
+  # Andrew, 2026-09-28, of one request's Cleanup: "Nothing to remove",
+  # "Worker session closed", "Working copy already gone" and "Working copy
+  # removed" read as four contradicting answers. They were three sessions, one
+  # of which never started on a worker, and no card said which it was about.
+  test "a request's cleanup is one card per session that ran, each naming its session" do
+    %{episode: episode} = admitted!("sessions")
+    first = Repo.one!(from(s in Session, where: s.episode_id == ^episode.id))
+    receipt = &%{"kind" => &1, "remote_state" => &2}
+    fingerprint = String.duplicate("c", 64)
+
+    cleanup!(episode,
+      coop_session_id: "remote-first",
+      cleanup_status: :discarded,
+      discarded_at: @now,
+      cleanup_receipt: receipt.("remote_absent", "absent"),
+      cleanup_receipt_fingerprint: fingerprint
+    )
+
+    first = Repo.get!(Session, first.id)
+
+    copy_session!(first, 2,
+      coop_session_id: nil,
+      cleanup_receipt: receipt.("never_bound", "unknown")
+    )
+
+    last =
+      copy_session!(first, 3,
+        coop_session_id: "remote-last",
+        closed_at: DateTime.add(@now, 60, :second),
+        discarded_at: DateTime.add(@now, 120, :second),
+        cleanup_receipt: receipt.("discarded", "discarded"),
+        discard_plan: %{"workspace" => %{"dirty" => false, "unmerged" => false}},
+        discard_plan_fingerprint: fingerprint,
+        discard_plan_operation_id: "plan:last"
+      )
+
+    steps = maintenance_steps(episode)
+
+    assert Enum.map(steps, & &1.title) == [
+             "Working copy already gone · first session",
+             "Working copy removed · second session"
+           ]
+
+    assert Enum.map(steps, & &1.id) == ["maintenance-#{first.id}", "maintenance-#{last.id}"]
+    [gone, removed] = Enum.map(steps, & &1.summary)
+    assert gone =~ "the worker no longer knew this session"
+    assert removed =~ "closed"
+    assert removed =~ "removed the temporary working copy"
+    refute Enum.any?(steps, &(&1.title =~ "Nothing to remove"))
   end
 
   # Andrew, 2026-09-26, of "B2 Cleanup — Worker session closed · Working copy
@@ -265,21 +319,20 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     stored = Repo.get!(Session, session.id)
     chapter = episode |> timeline() |> LazyHTML.query("section.phase-maintenance")
 
-    closed = LazyHTML.query(chapter, "#event-maintenance-#{session.id}-closed")
-    assert text(closed, ".case-event-summary") =~ "closed"
-    assert text(closed, ".case-event-details") =~ "Closed at revision 7"
-    # An identifier shows shortened and carries its exact value to hover and copy.
-    closed_details = html(closed, ".case-event-details")
-
-    for exact <- ["worker-forensic", "remote-forensic", "ryker:retention:close:#{session.id}:g1"],
-        do: assert(closed_details =~ exact)
-
-    removed = LazyHTML.query(chapter, "#event-maintenance-#{session.id}-discarded")
-    summary = text(removed, ".case-event-summary")
+    # One card tells the session's cleanup: the close, then the removal.
+    assert [_card] = chapter |> LazyHTML.query("article") |> Enum.to_list()
+    card = LazyHTML.query(chapter, "#event-maintenance-#{session.id}")
+    summary = text(card, ".case-event-summary")
+    assert summary =~ "closed"
     assert summary =~ "no uncommitted changes"
     assert summary =~ "no unpublished commits"
-    assert text(removed, ".case-event-details") =~ "Branch coop/session"
-    removed_details = html(removed, ".case-event-details")
+    assert text(card, ".case-event-details") =~ "Closed at revision 7"
+    assert text(card, ".case-event-details") =~ "Branch coop/session"
+    # An identifier shows shortened and carries its exact value to hover and copy.
+    details = html(card, ".case-event-details")
+
+    for exact <- ["worker-forensic", "remote-forensic", "ryker:retention:close:#{session.id}:g1"],
+        do: assert(details =~ exact)
 
     for exact <- [
           String.duplicate("a", 40),
@@ -288,7 +341,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
           stored.cleanup_receipt_fingerprint,
           "ryker:retention:discard:#{session.id}:g1"
         ],
-        do: assert(removed_details =~ exact)
+        do: assert(details =~ exact)
 
     # Exact identifiers only inside Details; the lines on the face are words.
     face = text(chapter, ".case-card-heading, .case-event-summary")
@@ -305,9 +358,12 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     card
   end
 
-  defp maintenance_step(episode, title) do
+  defp maintenance_step(episode, title),
+    do: Enum.find(maintenance_steps(episode), &(&1.title == title))
+
+  defp maintenance_steps(episode) do
     {:ok, detail} = EpisodeProjection.fetch(episode.key)
-    Enum.find(detail.trace.steps, &(&1.stage == "Maintenance" and &1.title == title))
+    Enum.filter(detail.trace.steps, &(&1.stage == "Maintenance"))
   end
 
   defp timeline(episode) do
@@ -343,6 +399,15 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
              )
 
     session
+  end
+
+  # Another session of the same request, as a continuation or a replacement
+  # leaves one: the first's row under a new generation.
+  defp copy_session!(session, generation, fields) do
+    %Session{session | id: Ecto.UUID.generate(), generation: generation}
+    |> Ecto.put_meta(state: :built)
+    |> Ecto.Changeset.change(Map.new(fields))
+    |> Repo.insert!()
   end
 
   defp place!(session, worker_id) do
