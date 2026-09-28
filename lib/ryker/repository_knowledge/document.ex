@@ -230,19 +230,14 @@ defmodule Ryker.RepositoryKnowledge.Document do
   # A command stands on its own. Nothing of a word, path or name runs into
   # its start, so `pnpm install` writes no `npm install`; and the command
   # ends where it does: at the end of its line, a comment, a shell
-  # operator, a closing quote, backtick or bracket, or the punctuation that
-  # ends a clause. So `make dev-check-all` writes no `make dev-check`, and
-  # "make sure" no `make`.
+  # operator, a closing quote, backtick, bracket or emphasis, or the
+  # punctuation or dash that ends a clause. So `make dev-check-all` writes
+  # no `make dev-check`, and "make sure" no `make`.
   defp written?(command, text) do
     words = command |> String.split() |> Enum.map_join("\\s+", &Regex.escape/1)
+    ending = "(?=[ \\t\\r]*(?:$|#|[;&|)\\]}<>`\"'*]|[.,:!?\\-–—](?:\\s|$)))"
 
-    Regex.match?(
-      Regex.compile!(
-        "(?<![\\w./-])" <> words <> "(?=[ \\t]*(?:$|#|[;&|)\\]}<>`\"']|[.,:!?](?:\\s|$)))",
-        "mu"
-      ),
-      text
-    )
+    Regex.match?(Regex.compile!("(?<![\\w./-])" <> words <> ending, "mu"), text)
   end
 
   defp unquoted(command) do
