@@ -25,6 +25,8 @@ defmodule Ryker.RepositoryKnowledge.Document do
   @guidance_names ~w(AGENTS.md CLAUDE.md GEMINI.md)
   @build_names ~w(Makefile GNUmakefile mix.exs go.mod go.work package.json Cargo.toml pyproject.toml Gemfile Dockerfile)
   @shell_operators ["&&", "||", ";", "|", ">", "<", "`", "$("]
+  # What `repository_knowledge` and its runs keep of a document.
+  @maximum_bytes 128_000
 
   @type tree :: %{String.t() => :tree | :blob}
 
@@ -343,9 +345,20 @@ defmodule Ryker.RepositoryKnowledge.Document do
   @doc """
   RYKER.md from a checked answer (`verify/3`): the provenance line, then a
   section for each part the answer holds, every path a plain relative link.
+  Ryker keeps at most #{@maximum_bytes} bytes of it, and an answer that
+  renders larger is refused as unusable.
   """
-  @spec render(map(), String.t(), Date.t()) :: String.t()
+  @spec render(map(), String.t(), Date.t()) ::
+          {:ok, String.t()} | {:error, :repository_knowledge_unusable}
   def render(answer, commit, %Date{} = date) do
+    document = rendered(answer, commit, date)
+
+    if byte_size(document) <= @maximum_bytes,
+      do: {:ok, document},
+      else: {:error, :repository_knowledge_unusable}
+  end
+
+  defp rendered(answer, commit, date) do
     [
       "# RYKER.md",
       provenance(commit, date),

@@ -401,9 +401,8 @@ defmodule Ryker.RepositoryKnowledge.Executor do
              run.source_commit,
              Document.cited_sources(answer, tree)
            ),
-         {:ok, kept, dropped} <- Document.verify(answer, tree, sources) do
-      document = Document.render(kept, run.source_commit, Date.utc_today())
-
+         {:ok, kept, dropped} <- Document.verify(answer, tree, sources),
+         {:ok, document} <- Document.render(kept, run.source_commit, Date.utc_today()) do
       with {:ok, _run} <- Custody.record_document(claim, run.id, document, dropped),
            do: {:ok, document}
     else

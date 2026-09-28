@@ -631,6 +631,46 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert %{number: 84} = FakeGitHubRepository.state().open
   end
 
+  # Review of the knowledge lane, 2026-09-28: the rendered RYKER.md had no
+  # bound of its own, but both tables keep at most 128,000 bytes of it. An
+  # answer within every limit of the contract can render larger, since each
+  # path is written twice in its link, once percent-encoded, and keeping it
+  # raised at the database on every step. It is refused as unusable first.
+  test "a document too large to keep is refused as unusable, and the next start is made" do
+    directories = for n <- 10..49, do: "d#{n}" <> String.duplicate("𝒜", 120)
+    github!(tree: Enum.map(directories, &{&1, "tree"}), files: %{})
+    ready!()
+
+    large = %{
+      answer()
+      | "components" =>
+          Enum.map(directories, &%{"path" => &1, "what_it_does" => String.duplicate("a", 400)}),
+        "build_test_run" => [],
+        "deploy_release" => [],
+        "conventions" => [],
+        "where_to_look" =>
+          directories
+          |> Enum.take(20)
+          |> Enum.map(&%{"task" => String.duplicate("b", 200), "path" => &1}),
+        "open_questions" => []
+    }
+
+    small = %{large | "components" => Enum.take(large["components"], 1), "where_to_look" => []}
+    assert byte_size(Jason.encode!(large)) <= 131_072
+    coop = coop!([Jason.encode!(large), Jason.encode!(small)])
+
+    drain(settings(coop), 60)
+
+    [first, second] =
+      Repo.all(from(run in Run, where: run.repository_ref == "emisar", order_by: run.generation))
+
+    assert {first.status, first.error_code, first.document} ==
+             {:rejected, "repository_knowledge_unusable", nil}
+
+    assert second.status == :applied
+    assert %{number: 84} = FakeGitHubRepository.state().open
+  end
+
   # The outline stands in only where there is nothing better: asking for a
   # refresh of a RYKER.md a person wrote, and a model that cannot finish,
   # must not propose the file list over their document.

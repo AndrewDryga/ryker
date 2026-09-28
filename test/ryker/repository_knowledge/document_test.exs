@@ -105,7 +105,7 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
 
     assert length(kept.build_test_run) == length(answer.build_test_run)
 
-    document = Document.render(kept, @commit, @date)
+    {:ok, document} = Document.render(kept, @commit, @date)
     refute document =~ "src/"
     refute document =~ "make test"
     refute document =~ "./run lint"
@@ -221,7 +221,7 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
   # changed only that would be noise.
   test "two documents that differ only in their provenance line say the same things" do
     first = render!(answer())
-    later = Document.render(verified!(answer()), String.duplicate("b", 40), ~D[2026-10-05])
+    {:ok, later} = Document.render(verified!(answer()), String.duplicate("b", 40), ~D[2026-10-05])
 
     assert first != later
     assert Document.same?(first, later)
@@ -257,7 +257,10 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
     refute outline =~ @commit
   end
 
-  defp render!(answer), do: Document.render(verified!(answer), @commit, @date)
+  defp render!(answer) do
+    {:ok, document} = Document.render(verified!(answer), @commit, @date)
+    document
+  end
 
   defp verified!(answer) do
     {:ok, kept, 0} = Document.verify(answer, tree!("emisar"), sources!("emisar"))
