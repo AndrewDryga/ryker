@@ -1,7 +1,7 @@
 defmodule Ryker.CoopFleet.JobAuthorityTest do
   use Ryker.DataCase, async: true
 
-  alias Ryker.CoopFleet.{Command, JobAuthority, JobSpec, JobTemplates, Placement}
+  alias Ryker.CoopFleet.{Command, JobAuthority, JobSpec, JobTemplates, Placement, Worker}
   alias Ryker.{Episodes, Repo, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Work.{Custody, Session}
@@ -422,7 +422,54 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert same.worker_job_digest == pinned.worker_job_digest
 
     # The companions' branches moved: they are pinned anew; the task's own
-    # source stays at the commit it began from.
+    # source stays at the commit it began from. The woken task was placed and
+    # its create refused eight times; no worker holds a copy of its job.
+    worker_id = "worker-refused-#{session.id}"
+    now = DateTime.utc_now()
+    requirements = %{"workspace_ref" => "workspace-main"}
+
+    Repo.insert!(%Worker{
+      capabilities: [],
+      capacity: %{},
+      certificate_sha256: :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower),
+      id: worker_id,
+      last_seen_at: now,
+      state: :eligible,
+      workspace_ref: "workspace-main"
+    })
+
+    Repo.insert!(%Placement{
+      episode_id: session.episode_id,
+      generation: 1,
+      id: Ecto.UUID.generate(),
+      inserted_at: now,
+      lease_expires_at: DateTime.add(now, 3_600, :second),
+      lease_ref: "placement-lease:#{session.id}",
+      requirements: requirements,
+      requirements_fingerprint: Ryker.CanonicalJSON.digest(requirements),
+      session_id: session.id,
+      state: :retired,
+      updated_at: now,
+      worker_id: worker_id
+    })
+
+    key = "ryker:work:create:#{session.id}:g1"
+
+    Repo.insert!(%Command{
+      id: Ecto.UUID.generate(),
+      session_id: session.id,
+      kind: "create_session",
+      command_version: 2,
+      payload: %{"external_ref" => session.external_ref},
+      payload_fingerprint: String.duplicate("f", 64),
+      idempotency_key: key,
+      operation_key: key,
+      status: :failed,
+      error: %{"code" => "operation_not_enqueued", "detail" => "refused"},
+      result_fingerprint: String.duplicate("e", 64),
+      completed_at: DateTime.utc_now()
+    })
+
     assert {:ok, refreshed} = JobAuthority.ensure_pinned(pinned, nil, at.(moved))
     assert commits.(refreshed) == [began, moved, moved]
     assert refreshed.worker_job_digest != pinned.worker_job_digest

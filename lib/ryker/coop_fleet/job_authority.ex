@@ -3,7 +3,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   import Ecto.Query
 
-  alias Ryker.CoopFleet.{JobSpec, JobTemplates, ManagedSources, Placement}
+  alias Ryker.CoopFleet.{Command, JobSpec, JobTemplates, ManagedSources, Placement}
   alias Ryker.{Repo, Settings}
   alias Ryker.Settings.{Environment, Installation}
   alias Ryker.Work.{RepositoryContext, RepositorySource, Session, SessionChangeset}
@@ -44,14 +44,14 @@ defmodule Ryker.CoopFleet.JobAuthority do
   # TestSourceStagingRefusesChangedOrUnprovenFrozenObjects): a task woken the
   # next day by review feedback on its pull request failed eight times on
   # companions that had simply advanced (2026-09-28). Companions are read-only
-  # context, so before a session is first placed each is resolved again and a
+  # context, so before a session is created each is resolved again and a
   # changed one is pinned anew. The task's own source stays as it began.
   defp refresh_companions(
          %Session{worker_job_document: %{"companions" => [_ | _] = pinned} = job} = session,
          root,
          prepare
        ) do
-    with :ok <- unplaced(session),
+    with :ok <- uncreated(session),
          {:ok, snapshot} <- Settings.fetch(),
          {:ok, current} <- companions(snapshot, Enum.map(pinned, & &1["name"]), root, prepare) do
       if Enum.map(current, &source_commits/1) == Enum.map(pinned, &source_commits/1),
@@ -87,13 +87,31 @@ defmodule Ryker.CoopFleet.JobAuthority do
           session.worker_job_digest != original.worker_job_digest ->
         Repo.rollback(:coop_worker_job_identity_changed)
 
-      unplaced(session) != :ok ->
+      uncreated(session) != :ok ->
         session
 
       true ->
         session |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update!()
     end
   end
+
+  # No worker holds a copy of the job of a session none of whose creates got
+  # anywhere: the placements its failed creates took do not bind it. That was
+  # the woken task's case, placed eight times and created none.
+  defp uncreated(%Session{coop_session_id: nil, cleanup_status: :active} = session) do
+    live =
+      Repo.exists?(
+        from(command in Command,
+          where:
+            command.session_id == ^session.id and command.kind == "create_session" and
+              command.status != :failed
+        )
+      )
+
+    if live, do: {:error, :coop_worker_job_requires_new_session}, else: :ok
+  end
+
+  defp uncreated(_session), do: {:error, :coop_worker_job_requires_new_session}
 
   def validate(%Session{worker_job_document: %{} = job, worker_job_digest: digest} = session) do
     with {:ok, ^digest} <- JobSpec.digest(job),
