@@ -9,6 +9,11 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   alias Ryker.Episodes.Words
   alias Ryker.Work.ExecutionTarget
 
+  # Background calls about a request that send no reply: learning from its
+  # messages, and the self-analysis of a request a person was unhappy with.
+  # Their cards carry what they decided under `background`.
+  @background_kinds [:learning, :improvement]
+
   def render(assigns) do
     request = assigns.request
     archived = latest_archived_response(request.sections)
@@ -379,7 +384,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     Enum.filter(sections, &(&1.id in ids))
   end
 
-  defp result_evidence(%{source_kind: :learning, sections: sections}),
+  defp result_evidence(%{source_kind: kind, sections: sections}) when kind in @background_kinds,
     do: Enum.filter(sections, &(&1.id == "response" and &1.artifact.state == :retained))
 
   defp result_evidence(_request), do: []
@@ -410,7 +415,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     """
   end
 
-  defp evidence_label(%{id: "response"}, :learning), do: "Raw model response"
+  defp evidence_label(%{id: "response"}, kind) when kind in @background_kinds,
+    do: "Raw model response"
+
   defp evidence_label(%{id: "response"}, _kind), do: "Raw routing response"
   defp evidence_label(%{id: "candidate"}, :work), do: "Raw model response"
   defp evidence_label(section, _kind), do: section.title
@@ -586,8 +593,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
        when is_integer(generation) and is_integer(generations) and generations > 1,
        do: "Attempt #{generation}"
 
-  defp attempt_label(%{source_kind: :learning, generation: generation, generations: total})
-       when is_integer(generation) and is_integer(total) and total > 1,
+  defp attempt_label(%{source_kind: kind, generation: generation, generations: total})
+       when kind in @background_kinds and is_integer(generation) and is_integer(total) and
+              total > 1,
        do: "Attempt #{generation}"
 
   defp attempt_label(_request), do: nil
@@ -624,6 +632,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp headline(%{phase: :submission, source_kind: :admission}), do: "Routing briefing"
   defp headline(%{phase: :submission, source_kind: :learning}), do: "Learning briefing"
+  defp headline(%{phase: :submission, source_kind: :improvement}), do: "Self-analysis briefing"
   defp headline(%{phase: :submission}), do: "Work briefing"
 
   defp headline(%{source_kind: :admission} = request) do
@@ -633,7 +642,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     end
   end
 
-  defp headline(%{source_kind: :learning, learning: %{headline: headline}}), do: headline
+  defp headline(%{source_kind: kind, background: %{headline: headline}})
+       when kind in @background_kinds,
+       do: headline
 
   defp headline(request) do
     case {document(request, "candidate"), document(request, "validation")} do
@@ -688,9 +699,11 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     do: [%{label: "Run", value: "Evaluation", note: "checked, but never delivered"}]
 
   # What a learning attempt saved, proposed or held back, linked to the topics
-  # it wrote, and how many of the messages it read are this page's.
-  defp decision_facts(%{source_kind: :learning, phase: :result, learning: %{facts: facts}}),
-    do: facts
+  # it wrote, and how many of the messages it read are this page's; what a
+  # self-analysis found, and how sure it was.
+  defp decision_facts(%{source_kind: kind, phase: :result, background: %{facts: facts}})
+       when kind in @background_kinds,
+       do: facts
 
   defp decision_facts(_request), do: []
 
@@ -735,8 +748,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp reason_from_model?(%{source_kind: :admission, phase: :result} = request),
     do: is_binary((document(request, "candidate") || %{})["reason"])
 
-  defp reason_from_model?(%{source_kind: :learning, phase: :result, learning: %{reason: reason}}),
-    do: is_binary(reason)
+  defp reason_from_model?(%{source_kind: kind, phase: :result, background: %{reason: reason}})
+       when kind in @background_kinds,
+       do: is_binary(reason)
 
   defp reason_from_model?(_request), do: false
 
@@ -848,7 +862,12 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     do:
       "Use an AI model to learn from these messages and keep what Ryker knows up to date. Learning sends no reply."
 
-  defp explanation(%{source_kind: :learning, learning: learning}), do: learning[:reason]
+  defp explanation(%{phase: :submission, source_kind: :improvement}),
+    do:
+      "Use an AI model to find what went wrong in this request after a person was unhappy with it. It sends no reply and changes nothing."
+
+  defp explanation(%{source_kind: kind, background: background}) when kind in @background_kinds,
+    do: background[:reason]
 
   defp explanation(%{phase: :submission} = request) do
     case document(request, "context") do

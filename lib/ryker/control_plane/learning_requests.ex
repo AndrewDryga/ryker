@@ -280,7 +280,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
           phase: :result,
           at: ended,
           sort_at: ended,
-          run: CallRun.from_learning(run, context.executions[run.id]),
+          run: CallRun.from_background(run, context.executions[run.id]),
           retried_after: retried_after(run, context),
           retention_note:
             if(run.pruned_at,
@@ -289,7 +289,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
                   "What it changed, what it cost and how long it took stay recorded."
             ),
           sections: [section("response", "Model response", run.result, options)],
-          learning: %{
+          background: %{
             headline: LearningActivity.attempt_label(run),
             reason: present(document["reason"]),
             facts: facts(run, document, context)

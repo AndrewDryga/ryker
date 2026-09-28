@@ -101,6 +101,24 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   @sources Map.put(@sources, "responder_state_tools", @sources["controller_tools"])
   @order ~w(custom_instructions input slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools responder_state_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
   @instruction_not_recorded :instruction_not_recorded
+  # The evidence a self-analysis was given, under its prompt's `context`: what
+  # the request was, what was said, what routing and Work did, what people
+  # said about it, and what was left out (`Ryker.Improvement.Evidence`).
+  @analysis_parts %{
+    "request" =>
+      {"The request", "conversation", "What kind of request it was, where, and how it ended."},
+    "conversation" =>
+      {"What was said", "conversation",
+       "The person's messages and Ryker's answers, in order, as Ryker kept them."},
+    "routing" =>
+      {"Routing decisions", "memory",
+       "What routing decided about each message. Each exact routing prompt is in the submitted prompt below."},
+    "work" =>
+      {"Work turns", "memory",
+       "Each Work turn: how it ended, the tools it called and its answer."},
+    "feedback" => {"Feedback", "conversation", "Everything people said or did about the answer."},
+    "omitted" => {"Left out", "runtime", "Evidence the analysis did not get, and why."}
+  }
   # What each tool a request could use is for, in a line an on-call engineer
   # reads without the tool's contract. The name stays beside it: the
   # timeline's tool steps show that name.
@@ -345,6 +363,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   # its parts at the top of the document.
   defp briefing_root(:admission), do: "$.context"
   defp briefing_root(:learning), do: "$"
+  defp briefing_root(:improvement), do: "$.context"
   defp briefing_root(_work), do: "$.work"
 
   # What a retry was told about the attempt before it, and the topic a
@@ -776,6 +795,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp part_section("rebuild_target", "$"),
     do: {"Topic being relearned", "instructions", "policy"}
+
+  # A self-analysis sends its evidence under `context` (`Ryker.Improvement.Prompt`).
+  defp part_section(key, "$.context") when is_map_key(@analysis_parts, key) do
+    {title, origin, _description} = @analysis_parts[key]
+    {title, origin, origin}
+  end
 
   defp part_section(key, parent) do
     case metadata(key, parent) do
@@ -1677,6 +1702,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp metadata(key, "$") when key in ~w(previous_attempt_error rebuild_target),
     do: {human(key), "instructions", nil, nil}
 
+  defp metadata(key, "$.context") when is_map_key(@analysis_parts, key) do
+    {title, origin, description} = @analysis_parts[key]
+    {title, origin, nil, description}
+  end
+
   defp metadata(key, _root),
     do:
       Map.get(
@@ -1768,6 +1798,16 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        do: workspace(value, Map.get(context, "repository_ref", :not_sent))
 
   defp source_body(key, value, path, prefix, _context), do: body(key, value, path, prefix)
+
+  defp body("request", value, "$.context.request", _prefix) when is_map(value),
+    do: analysis_request(value)
+
+  defp body(key, items, "$.context." <> key, _prefix)
+       when key in ~w(conversation routing work feedback) and is_list(items),
+       do: analysis_items(key, Enum.filter(items, &is_map/1))
+
+  defp body("omitted", items, "$.context.omitted", _prefix) when is_list(items),
+    do: analysis_omitted(Enum.filter(items, &is_binary/1))
 
   defp body("inputs", value, "$.inputs", _prefix) when is_list(value),
     do: messages(%{"inputs" => value}, :learning)
@@ -1972,6 +2012,157 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
     ["<ul class=\"context-list\">", Enum.map(names, &["<li>", escape(&1), "</li>"]), "</ul>"]
   end
+
+  # The request a self-analysis looked at, in words.
+  defp analysis_request(value) do
+    [
+      "<dl class=\"context-rows\">",
+      context_row("Kind", analysis_kind(value["kind"])),
+      context_row("Where", present(value["channel"])),
+      context_row("How it ended", value["state"] |> present() |> human_or_nil()),
+      context_row(
+        "Why it was analyzed",
+        value["negative_feedback"]
+        |> List.wrap()
+        |> Enum.filter(&is_binary/1)
+        |> Enum.map(&human/1)
+        |> word_list()
+      ),
+      "</dl>"
+    ]
+  end
+
+  defp analysis_kind("work"), do: "A request Ryker worked on"
+  defp analysis_kind("quick_reply"), do: "A message routing answered itself"
+  defp analysis_kind(_kind), do: nil
+
+  defp human_or_nil(nil), do: nil
+  defp human_or_nil(value), do: human(value)
+
+  defp analysis_items(_key, []), do: ["<p>None.</p>"]
+
+  defp analysis_items(key, items) do
+    workspace = Names.workspace()
+
+    [
+      "<section class=\"context-candidates\">",
+      Enum.map(items, &analysis_item(key, &1, workspace)),
+      "</section>"
+    ]
+  end
+
+  defp analysis_item("conversation", item, workspace) do
+    text = present(item["text"])
+
+    analysis_card(
+      analysis_from(item["from"]),
+      item["at"],
+      [
+        if(text,
+          do: [
+            "<div class=\"markdown-preview\">",
+            SlackMarkdown.preview(text, workspace),
+            "</div>"
+          ],
+          else: ["<p>", escape(present(item["note"]) || "No words kept."), "</p>"]
+        )
+      ]
+    )
+  end
+
+  defp analysis_item("routing", item, workspace) do
+    analysis_card(
+      "Routing: " <> (item["decision"] |> present() |> human_or_nil() || "no decision kept"),
+      item["message_at"],
+      [
+        "<dl class=\"context-rows\">",
+        context_row("Model", present(item["model"])),
+        context_row(
+          "Prompt",
+          if(is_binary(item["prompt"]), do: "Sent in full", else: present(item["kept"]))
+        ),
+        "</dl>",
+        analysis_answer("Answer", item["answer"], workspace)
+      ]
+    )
+  end
+
+  defp analysis_item("work", item, workspace) do
+    tools =
+      for %{"tool" => tool} = call <- List.wrap(item["tools"]), is_binary(tool) do
+        tool <> if(is_binary(call["status"]), do: " · " <> call["status"], else: "")
+      end
+
+    analysis_card(
+      "Work: " <> ((present(item["outcome"]) || present(item["status"]) || "unknown") |> human()),
+      item["started_at"],
+      [
+        "<dl class=\"context-rows\">",
+        context_row("Model", present(item["model"])),
+        context_row("Error", item["error"] |> present() |> human_or_nil()),
+        context_row("Tools", if(tools != [], do: Enum.join(tools, ", "))),
+        "</dl>",
+        analysis_answer("Answer", item["answer"], workspace)
+      ]
+    )
+  end
+
+  defp analysis_item("feedback", item, workspace) do
+    heading =
+      [present(item["kind"]) && human(item["kind"]), present(item["value"])]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" · ")
+
+    analysis_card(
+      if(heading == "", do: "Feedback", else: heading),
+      item["at"],
+      [
+        "<dl class=\"context-rows\">",
+        context_row("By", present(item["by"])),
+        context_row("Why", present(item["note"])),
+        "</dl>",
+        analysis_answer("Their words", item["message"], workspace)
+      ]
+    )
+  end
+
+  defp analysis_card(title, at, body) do
+    [
+      "<article class=\"context-candidate context-record\"><header class=\"candidate-heading\"><h4>",
+      escape(title),
+      "</h4>",
+      case readable_candidate_time(at) do
+        nil -> []
+        time -> ["<time>", escape(time), "</time>"]
+      end,
+      "</header><div class=\"candidate-readable\">",
+      body,
+      "</div></article>"
+    ]
+  end
+
+  defp analysis_answer(label, text, workspace) when is_binary(text) and text != "",
+    do: [
+      "<dl class=\"candidate-messages\"><div><dt>",
+      escape(label),
+      "</dt><dd class=\"markdown-preview\">",
+      SlackMarkdown.preview(text, workspace),
+      "</dd></div></dl>"
+    ]
+
+  defp analysis_answer(_label, _text, _workspace), do: []
+
+  defp analysis_from("person"), do: "The person"
+  defp analysis_from("ryker"), do: "Ryker"
+  defp analysis_from("app"), do: "An app"
+  defp analysis_from("bot"), do: "A bot"
+  defp analysis_from("system"), do: "The system"
+  defp analysis_from(_from), do: "Someone"
+
+  defp analysis_omitted([]), do: ["<p>Nothing was left out.</p>"]
+
+  defp analysis_omitted(items),
+    do: ["<ul class=\"context-list\">", Enum.map(items, &["<li>", escape(&1), "</li>"]), "</ul>"]
 
   defp sentence([only]), do: only
   defp sentence([first, second]), do: first <> " and " <> second
