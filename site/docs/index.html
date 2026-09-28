@@ -127,7 +127,7 @@
 
     <p>An <strong>environment</strong> is where Ryker works: a set of repositories, all of which work in it can read, and at most one Emisar account. Slack channels, webhook sources and Chat conversations each work in one environment.</p>
 
-    <p>A task that changes code picks one repository of its environment to change, and the others are mounted beside it read-only. The first repository is the default choice. Adding a repository puts it in the default environment, and creates one named Default when there is none, so a new installation needs no extra step. A channel can also choose <strong>No environment</strong>: Ryker then answers there without any repositories or Emisar.</p>
+    <p>A task that changes code picks a repository marked read/write in its environment; read-only repositories are available as context beside it. The first repository is the default choice. Adding a repository puts it in the default environment, and creates one named Default when there is none, so a new installation needs no extra step. A channel can also choose <strong>No environment</strong>: Ryker then answers there without any repositories or Emisar.</p>
 
     <p>The environment’s Emisar account decides whether work there can act on running systems. With one, Ryker sends the actions it wants to run to Emisar, where a person approves each risky one. Without one, Ryker can only tell you what to run.</p>
 

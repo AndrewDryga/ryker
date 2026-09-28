@@ -596,9 +596,15 @@ defmodule Ryker.GitHub.CapabilityTools do
   end
 
   defp mutation_repository_target(binding, options, requested) do
-    if requested in companion_repositories(binding),
-      do: {:error, :unauthorized},
-      else: repository_target(binding, options, requested)
+    case repository_target(binding, options, requested) do
+      {:ok, _thread, %{repository_ref: repository_ref}} = target ->
+        if repository_ref in companion_repositories(binding),
+          do: {:error, :unauthorized},
+          else: target
+
+      other ->
+        other
+    end
   end
 
   defp number_authorized(
