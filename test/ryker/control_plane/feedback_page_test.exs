@@ -71,7 +71,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
   end
 
   test "feedback leads with each kind, frustrated first, and opens the request where it happened",
-       %{reply: reply, greeting: greeting, day: day} do
+       %{reply: reply, greeting: greeting} do
     document = page(%{})
 
     # The feedback first, then what there is to fix: the unhappy request is
@@ -86,14 +86,13 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
            ]
 
     assert document |> LazyHTML.query(".section-head h2") |> Enum.map(&text/1) ==
-             ["What to fix", "By day", "Frustrated", "Asked again", "Satisfied", "Reviewed"]
+             ["By day", "What to fix", "Frustrated", "Asked again", "Satisfied", "Reviewed"]
 
-    # Over time: a row a day, a column a kind, frustrated first.
-    assert document |> LazyHTML.query(".kit-table th") |> Enum.map(&text/1) ==
-             ["Day", "Frustrated", "Asked again", "Satisfied", "Reviewed"]
+    # Over time is the chart alone; the table that repeated it is gone.
+    assert document |> LazyHTML.query(".kit-table") |> Enum.count() == 0
 
-    assert document |> LazyHTML.query(".kit-table tbody tr td") |> Enum.map(&text/1) ==
-             [day, "2", "1", "1", "1"]
+    assert document |> LazyHTML.query("g.feedback-chart-day") |> LazyHTML.attribute("data-date") ==
+             [Date.to_iso8601(Date.utc_today())]
 
     frustrated = LazyHTML.query(document, "#feedback-frustrated .entity-row")
     assert Enum.count(frustrated) == 2
@@ -170,7 +169,13 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
            ]
 
     assert negative |> LazyHTML.query(".section-head h2") |> Enum.map(&text/1) ==
-             ["What to fix", "By day", "Frustrated", "Asked again"]
+             ["By day", "What to fix", "Frustrated", "Asked again"]
+
+    # By day is all feedback, whichever way the filters below narrow the list.
+    date = Calendar.strftime(Date.utc_today(), "%d %b")
+
+    assert negative |> LazyHTML.query("g.feedback-chart-day") |> LazyHTML.attribute("aria-label") ==
+             ["#{date}: 3 negative, 1 neutral, 1 positive"]
 
     assert negative |> LazyHTML.query("nav.segmented a") |> Enum.map(&text/1) ==
              ["All", "Negative", "Positive"]
@@ -201,14 +206,17 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
            |> text() =~ "No positive feedback matches"
   end
 
-  # Andrew, 2026-09-28: By day "should be a graph like in usage and above
-  # table". A bar a day, negative at its foot, then the table.
-  test "By day draws a bar a day, negative at its foot, above its table", %{day: _day} do
-    by_day = page(%{}) |> LazyHTML.query("section[aria-labelledby=feedback-by-day]")
+  # Andrew, 2026-09-28: By day "should be a graph like in usage", then "put
+  # it above filters and make filters not apply to it" and drop the table.
+  test "By day leads the page with a bar a day, negative at its foot, above the filters" do
+    document = page(%{})
+    by_day = LazyHTML.query(document, "section[aria-labelledby=feedback-by-day]")
 
-    assert by_day
-           |> LazyHTML.query("figure.feedback-chart + .kit-table-wrap .kit-table")
-           |> Enum.count() == 1
+    assert document
+           |> LazyHTML.query("div.memory-feedback > *")
+           |> Enum.take(2)
+           |> Enum.map(&tag/1) ==
+             ["section.feedback-by-day", "p.kit-counts"]
 
     [bar] = by_day |> LazyHTML.query("g.feedback-chart-day") |> Enum.to_list()
     date = Calendar.strftime(Date.utc_today(), "%d %b")
@@ -298,6 +306,12 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
                occurred_at: at(unix),
                request: request
              })
+  end
+
+  defp tag(node) do
+    [tag] = LazyHTML.tag(node)
+    [class | _] = node |> LazyHTML.attribute("class") |> hd() |> String.split()
+    tag <> "." <> class
   end
 
   defp at(unix), do: DateTime.from_unix!(unix * 1_000_000, :microsecond)
