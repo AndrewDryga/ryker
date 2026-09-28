@@ -686,6 +686,49 @@ not built yet, so the placement is still pending while the content is not. The s
 episode identity the page snapshot carries, so that identity is part of the snapshot rather than
 something a card resolves for itself.
 
+## A refused change goes back to its work
+
+A confirmed task's completed turn arms its trusted review (`Publication.Custody`); Coop rebases the
+committed change onto the latest base, runs the repository's gate in its trusted box, scans it, and
+returns `publishable`, `gate`, `rebase`, `policy_findings` and `not_publishable_reasons`.
+`Publication.Review.remedy/1` sorts a refusal, and `Publication.FixLoop` acts on it without a person
+(Andrew, 2026-09-28: "it should be automatic feedback loop, agent needs to get errors from CI, fix
+them without me doing a man in the middle"):
+
+- **Fix** — `gate_failed`, `rebase_conflict`, `gate_modified_candidate`. Delivering the review posts a
+  one-line notice instead of the refusal card, and in the same transaction admits a host-written input
+  into the task's episode (actor and source `system:publication-review`, turn
+  `turn:publication-fix:<publication>:g<review generation>`). The input names the causes in the
+  host's words, says what to do about each, and carries `review.gate_failure` when Coop reported it.
+  Work runs it as a new turn in the same session. When that turn commits and completes, the
+  ordinary readiness path re-arms the same publication and the new commit is reviewed.
+- **Check again** — `parent_moved`, `source_moved`, `fork_owner_active` alone. Storing the review
+  starts a fresh review generation 30 seconds later instead; nothing is posted and no turn is spent.
+- **A person** — any policy finding (a possible credential above all, even beside failed checks),
+  `no_changes`, `gate_not_configured`, `gate_startup_error`, a gate that did not run, and any code
+  Ryker cannot read. The refusal card is delivered as before.
+
+Three fix rounds and three re-checks per publication (`fix_rounds`, `recheck_rounds`); after that
+the refusal is delivered and the task card says `I tried to fix it 3 times; …`.
+`fix_review_generation` names the review a round answers, so a round is running only while that
+review is the publication's current one: a re-arm, **Review latest state** or **Discard candidate**
+ends it without anyone clearing it. A round starts only for a confirmed task's publication whose
+episode is at rest (`complete`) and whose task grant still stands; a refusal that lands while a
+person's own follow-up runs leaves that turn alone, because its commit is reviewed afresh. The
+delivery takes the conversation and episode locks before the publication's, the order Work and
+admission already use, so a fix round and a completing turn never wait on each other.
+
+A failed gate's own output reaches the fix turn only when Coop reports it. Coop's proposed contract
+(2026-09-28, not shipped yet): a job opts in with `limits.max_gate_output_bytes` (1..65536), a failed
+gate's review then carries `gate_failure` (`command`, `exit_code`, redacted `output_tail`,
+`output_truncated`), and a worker that understands it advertises `review-gate-output:1`. A worker
+that does not refuses a job naming a limit it does not know, so `CoopFleet.ReviewGateOutput` pins a
+writable repository job with 16 KiB only when every current worker of its workspace advertises the
+capability, and placement puts a job that asks only on a worker that advertises it. Until Coop
+ships it, no worker advertises it, no job asks, and the fix turn is told to run the gate itself.
+`Review.prepare/2` keeps a well-formed report (at most 64 KiB, NUL bytes dropped) and drops any other
+shape rather than refusing the review it came with; the fix turn gets its last 16 KiB.
+
 ## Retention and cleanup
 
 `Ryker.Retention.Runtime` owns both remote workspace cleanup and local data horizons. For every
