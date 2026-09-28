@@ -34,9 +34,6 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   @doc "The page's own address."
   def path, do: @path
 
-  @doc "Where accepted cases download from."
-  def download_path, do: @download
-
   @doc """
   The topics an open What to fix page listens to: candidates found,
   analyzed or decided, and new feedback on them.

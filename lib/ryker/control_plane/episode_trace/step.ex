@@ -183,9 +183,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
 
   def timestamp_precise(_value), do: "Not recorded"
 
-  def error_sentence(nil), do: ""
-  def error_sentence(code), do: " " <> error_label(code) <> "."
-
   def error_label(nil), do: nil
   def error_label(code), do: code |> human() |> capitalize() |> bounded(200)
 

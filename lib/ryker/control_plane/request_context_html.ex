@@ -1727,11 +1727,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp instruction_metadata("channel", _value),
     do: {"Channel instructions", "policy", nil, nil}
 
-  @doc "One instruction scope: its identity on a line, then the text itself."
-  def instruction_scope(%{} = layer) do
-    instruction_scope(layer, "global")
-  end
-
+  # One instruction scope: its identity on a line, then the text itself.
   defp instruction_scope(%{} = layer, key) do
     text = layer["text"]
 

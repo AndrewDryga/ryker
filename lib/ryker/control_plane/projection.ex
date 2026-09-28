@@ -93,7 +93,6 @@ defmodule Ryker.ControlPlane.Projection do
 
   defdelegate admission(ref), to: FailureProjection
   defdelegate behavior(ref), to: BehaviorLibrary, as: :fetch
-  defdelegate behaviors(kind, params), to: BehaviorLibrary, as: :list
   defdelegate channel(workspace_ref, channel_ref, params), to: ChannelDetail, as: :fetch
   defdelegate channels(params), to: ChannelDirectory, as: :list
   defdelegate delivery(ref), to: FailureProjection
@@ -120,7 +119,6 @@ defmodule Ryker.ControlPlane.Projection do
 
   defdelegate lab_index(), to: ConversationProjection, as: :index
   defdelegate learned(params \\ %{}), to: ConversationMemory, as: :project
-  defdelegate learning(params \\ %{}), to: LearningActivity, as: :project
   defdelegate memory(params \\ %{}), to: MemoryProjection, as: :fetch
   defdelegate operator_configuration(), to: ConfigurationProjection, as: :fetch
   defdelegate overview(), to: OverviewProjection
@@ -130,8 +128,6 @@ defmodule Ryker.ControlPlane.Projection do
   defdelegate schedules(params), to: ScheduleProjection, as: :list
   defdelegate slack_incident(ref), to: FailureProjection
   defdelegate slack_interaction(ref), to: FailureProjection
-  defdelegate slack_task_card(ref), to: FailureProjection
-  defdelegate slack_thread_status(ref), to: FailureProjection
   defdelegate subscriptions(params), to: SubscriptionProjection, as: :list
   defdelegate usage(params), to: UsageProjection, as: :page
   defdelegate work(ref), to: FailureProjection

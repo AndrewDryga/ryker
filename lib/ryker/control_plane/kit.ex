@@ -776,13 +776,4 @@ defmodule Ryker.ControlPlane.Kit do
     ><Components.icon name={:check} />Saved<span :if={@note} class="kit-saved-note">. {@note}</span></span></span>
     """
   end
-
-  @doc "`saved/1` for a page built as an HTML string."
-  @spec saved_html(keyword()) :: iodata()
-  def saved_html(options) do
-    %{__changed__: nil, key: nil, note: nil}
-    |> Map.merge(Map.new(options))
-    |> saved()
-    |> Safe.to_iodata()
-  end
 end

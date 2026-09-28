@@ -151,40 +151,6 @@ defmodule Ryker.ControlPlane.EpisodeCausality do
     end
   end
 
-  @doc """
-  Groups chronologically ordered steps by their durable owner.
-
-  Steps that carry no owner are episode-level and extend the group they are
-  read within, never acquiring its identity. A step whose owner differs starts
-  a new group even when it is adjacent in time, which is what keeps a late
-  Turn 1 receipt labelled Turn 1.
-  """
-  @spec group(Enumerable.t(), (term() -> owner()), (term() -> term())) :: [
-          {term(), owner(), [term()]}
-        ]
-  def group(steps, owner_fun, band_fun) do
-    steps
-    |> Enum.map_reduce(nil, fn step, carried ->
-      band = band_fun.(step)
-
-      owner =
-        case owner_fun.(step) do
-          :episode -> carry(carried, band)
-          owner -> owner
-        end
-
-      {{band, owner, step}, {band, owner}}
-    end)
-    |> elem(0)
-    |> Enum.chunk_by(fn {band, owner, _step} -> {band, owner} end)
-    |> Enum.map(fn [{band, owner, _first} | _rest] = chunk ->
-      {band, owner, Enum.map(chunk, fn {_band, _owner, step} -> step end)}
-    end)
-  end
-
-  defp carry({band, owner}, band), do: owner
-  defp carry(_carried, _band), do: :episode
-
   defp selected_input_ids(%Turn{selected_input_refs: nil}, _by_ref), do: :not_recorded
 
   defp selected_input_ids(%Turn{selected_input_refs: refs}, by_ref) do

@@ -26,9 +26,6 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   @doc "The query keys the page reads."
   def query_keys, do: ["status", "category", "page"]
 
-  @doc "The decisions a list shows, open first."
-  def statuses, do: @statuses
-
   @doc """
   One read of the page for `params`: the counts of each decision and of each
   category in the view, what the last seven days brought, and one page of
