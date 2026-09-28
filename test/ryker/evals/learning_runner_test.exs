@@ -352,18 +352,10 @@ defmodule Ryker.Evals.LearningRunnerTest do
     assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 0
   end
 
-  test "a harvested acknowledgement can settle without creating a topic", %{options: options} do
-    # Constructed empty-update contract output tests only host application; the
-    # live lane must independently demonstrate that the model chooses no change.
-    Agent.update(
-      options.client,
-      &Map.put(
-        &1,
-        :eval_body,
-        Jason.encode!(%{"updates" => [], "reason" => "No durable change."})
-      )
-    )
-
+  test "a harvested acknowledgement settles without a topic or a model call", %{options: options} do
+    # Since ad018588 a batch of only greetings and thanks ends without asking
+    # the learning model: nothing in it can be worth keeping, and each call
+    # cost a model request. The recorded chatter settles with no change.
     assert {:ok, report} =
              LearningRunner.run(LearningRunner.recorded_sequence("chatter"), options)
 
@@ -373,8 +365,7 @@ defmodule Ryker.Evals.LearningRunnerTest do
     assert [%{expectation: :no_change, check: true, cleanup: :discarded}] =
              Enum.map(report.steps, &Map.take(&1, [:expectation, :check, :cleanup]))
 
-    assert [run] = report.runs
-    assert Jason.decode!(run["result"])["updates"] == []
+    assert report.runs == []
   end
 
   test "an explicit database mismatch prevents any imported source or remote call", %{

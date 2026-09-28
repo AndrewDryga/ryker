@@ -1327,14 +1327,22 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert summary.visibility == :public
     assert summary.source_result_ref == "result:#{work.claim.turn.id}"
 
-    # Hundreds of saved summaries were invisible on Memory, making replay look empty.
-    html =
+    # Hundreds of saved summaries were invisible on Memory, making replay look
+    # empty. The list names each one; its own page holds the open work.
+    list =
       ConversationMemory.project(%{"kind" => "context"})
       |> LearnedPage.html("test-secret")
       |> IO.iodata_to_binary()
 
-    assert html =~ "Conversation summaries"
-    assert html =~ "Verify production delivery"
+    assert list =~ "Conversation summaries"
+    assert list =~ "Investigate delivery"
+
+    page =
+      ConversationMemory.project(%{"kind" => "context", "item" => summary.id})
+      |> LearnedPage.html("test-secret")
+      |> IO.iodata_to_binary()
+
+    assert page =~ "Verify production delivery"
 
     recalled = Continuity.model_context(work.claim.episode, "ryker")
     assert recalled["current"]["state"] == revised
