@@ -997,6 +997,102 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              ControlPlane.handle_poll("worker-a", changed)
   end
 
+  # A result naming a response body Ryker never received rolled back the whole
+  # poll: the worker's heartbeat, its other results and its deliveries failed on
+  # every poll until the file existed, and a worker that had already reported
+  # the result could not upload it again. That one command's outcome is unknown;
+  # nothing else the worker reported is.
+  test "a result whose body never arrived is uncertain and the rest of its poll commits" do
+    authorize_and_poll!("worker-missing-body")
+    placement = place!("missing-body")
+
+    assert {:ok, missing} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "api_request",
+               %{"method" => "GET", "path" => "/v1/sessions/s/changes"},
+               "missing-body:changes"
+             )
+
+    assert {:ok, other} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "get_session",
+               %{"coop_session_id" => "s"},
+               "missing-body:session"
+             )
+
+    assert Enum.sort(delivered!("worker-missing-body", "missing-body:deliver")) ==
+             Enum.sort([missing.id, other.id])
+
+    bytes = String.duplicate("never uploaded ", 100)
+
+    reference = %{
+      "sha256" => :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower),
+      "byte_size" => byte_size(bytes)
+    }
+
+    results = [
+      %{
+        "command_id" => missing.id,
+        "error" => nil,
+        "operation_key" => missing.idempotency_key,
+        "resource" => %{"status" => 200, "body_ref" => reference},
+        "state" => "succeeded"
+      },
+      %{
+        "command_id" => other.id,
+        "error" => nil,
+        "operation_key" => other.idempotency_key,
+        "resource" => %{"status" => 200, "body" => %{"id" => "s"}},
+        "state" => "succeeded"
+      }
+    ]
+
+    old_expiry = DateTime.add(Repo.now!(), 1, :second)
+    placement |> Ecto.Changeset.change(lease_expires_at: old_expiry) |> Repo.update!()
+    body_root = body_root!()
+
+    assert {:ok, response} =
+             ControlPlane.handle_poll(
+               "worker-missing-body",
+               poll("worker-missing-body", "workspace-main", "missing-body:results",
+                 command_results: results
+               ),
+               body_root: body_root
+             )
+
+    assert response["acknowledged_result_command_ids"] == [missing.id, other.id]
+
+    persisted = Repo.get!(Command, missing.id)
+    assert persisted.status == :uncertain
+    assert persisted.operation_key == missing.idempotency_key
+    assert is_nil(persisted.result)
+
+    assert persisted.error == %{
+             "code" => "response_body_missing",
+             "detail" => "the worker reported a response body Ryker never received",
+             "status" => 409
+           }
+
+    assert Repo.get!(Command, other.id).status == :succeeded
+
+    assert DateTime.compare(Repo.get!(Placement, placement.id).lease_expires_at, old_expiry) ==
+             :gt
+
+    # The worker reports it again until acknowledged; the same result is.
+    assert {:ok, replay} =
+             ControlPlane.handle_poll(
+               "worker-missing-body",
+               poll("worker-missing-body", "workspace-main", "missing-body:replay",
+                 command_results: results
+               ),
+               body_root: body_root
+             )
+
+    assert replay["acknowledged_result_command_ids"] == [missing.id, other.id]
+  end
+
   test "a worker result cannot cross its expired placement generation" do
     authorize_and_poll!("worker-a")
     placement = place!("expired-command-result")
