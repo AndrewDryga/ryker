@@ -10,7 +10,7 @@ defmodule Ryker.Publication.Executor do
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Delivery.Adapters
   alias Ryker.LeasedCall
-  alias Ryker.Publication.{Custody, Request}
+  alias Ryker.Publication.{Custody, FixLoop, GateOutput, Request}
   alias Ryker.Work.Session
 
   @review_states ~w(open exhausted)
@@ -52,9 +52,27 @@ defmodule Ryker.Publication.Executor do
              publication.ref,
              claim.lease_ref,
              frozen.review_generation,
-             dossier
+             dossier,
+             gate_output(claim, frozen, dossier, settings)
            ) do
       {:ok, %{phase: review_phase(stored), publication: stored}}
+    end
+  end
+
+  # The whole output of a gate the task's work will be asked to fix, read while
+  # the review is still fresh. Best effort: a read that fails leaves the fix
+  # round telling the agent to run the gate itself, and never fails the review.
+  defp gate_output(claim, frozen, dossier, settings) do
+    if FixLoop.gate_output_wanted?(frozen, claim.session, dossier),
+      do: read_gate_output(claim, frozen, dossier, settings)
+  end
+
+  defp read_gate_output(claim, frozen, dossier, settings) do
+    read = fn -> {:ok, GateOutput.capture(settings.api, settings.client, frozen, dossier)} end
+
+    case leased_call(claim, settings, read) do
+      {:ok, output} -> output
+      {:error, _reason} -> nil
     end
   end
 
@@ -283,7 +301,7 @@ defmodule Ryker.Publication.Executor do
           freeze_review_revision: 3,
           renew: 3,
           store_publication: 3,
-          store_review: 4
+          store_review: 5
         ],
         :custody
       }

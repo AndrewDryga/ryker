@@ -23,6 +23,7 @@ defmodule Ryker.Publication.Custody do
     ConflictReceipt,
     FixLoop,
     Followups,
+    GateOutput,
     Publication,
     Receipt,
     Review
@@ -262,12 +263,17 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
-  def store_review(publication_ref, lease_ref, generation, review) do
+  @doc """
+  Stores Coop's review of the frozen generation, with what the host kept of its
+  failed gate's output for a fix round (`Ryker.Publication.GateOutput`), or nil.
+  """
+  def store_review(publication_ref, lease_ref, generation, review, gate_output) do
     with :ok <- reference(publication_ref, :publication_ref),
          :ok <- reference(lease_ref, :lease_ref),
-         :ok <- positive(generation, :review_generation) do
+         :ok <- positive(generation, :review_generation),
+         {:ok, gate_output} <- GateOutput.prepare(gate_output) do
       Repo.transaction(fn ->
-        store_review_locked(publication_ref, lease_ref, generation, review)
+        store_review_locked(publication_ref, lease_ref, generation, review, gate_output)
       end)
       |> transaction_result()
     end
@@ -668,6 +674,7 @@ defmodule Ryker.Publication.Custody do
       review_document: nil,
       review_expected_revision: nil,
       review_fingerprint: nil,
+      review_gate_output: nil,
       review_generation: publication.review_generation + 1,
       review_patch: nil,
       reviewed_at: nil,
@@ -703,7 +710,7 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
-  defp store_review_locked(publication_ref, lease_ref, generation, review) do
+  defp store_review_locked(publication_ref, lease_ref, generation, review, gate_output) do
     with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
          :ok <- status(publication, :review_pending),
          true <- publication.review_generation == generation,
@@ -718,7 +725,7 @@ defmodule Ryker.Publication.Custody do
       # about the change: ask again as it is, without posting a refusal.
       if FixLoop.recheck?(publication, prepared),
         do: update!(publication, FixLoop.recheck_attributes(publication, now), now),
-        else: persist_review(publication, prepared, now)
+        else: persist_review(publication, prepared, gate_output, now)
     else
       false -> Repo.rollback(:publication_review_generation_stale)
       {:error, reason} -> Repo.rollback(reason)
@@ -728,12 +735,13 @@ defmodule Ryker.Publication.Custody do
   # A phase that completes clears the failure an earlier attempt recorded. The
   # stale code used to ride along into every later phase, so a publication that
   # had recovered on its own stayed on the Failures page as broken.
-  defp persist_review(publication, prepared, now) do
+  defp persist_review(publication, prepared, gate_output, now) do
     update!(
       publication,
       %{
         review_document: prepared,
         review_fingerprint: Review.fingerprint(prepared),
+        review_gate_output: gate_output,
         reviewed_at: now,
         last_error_code: nil,
         last_error_detail: nil,

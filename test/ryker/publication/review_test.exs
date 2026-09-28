@@ -258,63 +258,6 @@ defmodule Ryker.Publication.ReviewTest do
            ) == ["gate_failed", "gate_modified_candidate"]
   end
 
-  # Coop's proposed report of a failed gate (2026-09-28, not final) is the
-  # agent's only view of what failed without running the gate again. Before
-  # this the host refused any review carrying a field it did not know, so the
-  # first job that asked for the report would have had every review refused;
-  # it is evidence, never the verdict, so one of another shape is dropped
-  # instead, and what is kept is bounded and holds nothing the store refuses.
-  test "a failed gate's report is kept bounded and clean, and a malformed one is dropped" do
-    expected = %{revision: 7, session_id: "session-review"}
-
-    report = %{
-      "command" => "./run gate review",
-      "exit_code" => 1,
-      "output_tail" => "1 test failed:\n  test/parser_test.exs:12\n",
-      "output_truncated" => false
-    }
-
-    failed =
-      review_document()
-      |> Map.merge(%{
-        "gate" => "failed",
-        "not_publishable_reasons" => ["gate_failed"],
-        "publishable" => false
-      })
-
-    assert {:ok, %{"gate_failure" => ^report}} =
-             Review.prepare(Map.put(failed, "gate_failure", report), expected)
-
-    long = String.duplicate("é", 40_000) <> "<nul>" <> <<0>> <> "last line"
-    noisy = %{report | "output_tail" => long}
-
-    assert {:ok, %{"gate_failure" => kept}} =
-             Review.prepare(Map.put(failed, "gate_failure", noisy), expected)
-
-    assert byte_size(kept["output_tail"]) <= 65_536
-    assert String.valid?(kept["output_tail"])
-    assert String.ends_with?(kept["output_tail"], "<nul>last line")
-    assert kept["output_truncated"]
-
-    for malformed <- [
-          Map.delete(report, "exit_code"),
-          Map.put(report, "stderr", "extra"),
-          %{report | "exit_code" => "1"},
-          %{report | "command" => " "},
-          "gate failed"
-        ] do
-      assert {:ok, prepared} =
-               Review.prepare(Map.put(failed, "gate_failure", malformed), expected)
-
-      refute Map.has_key?(prepared, "gate_failure"), inspect(malformed)
-    end
-
-    assert {:ok, passed} =
-             Review.prepare(Map.put(review_document(), "gate_failure", report), expected)
-
-    refute Map.has_key?(passed, "gate_failure")
-  end
-
   # Coop's policy scan words each finding as one of a few sentences around the
   # path it names (internal/sessionsvc/review_scan.go at the worker's Coop,
   # 126f5d07). A card that prints them whole reads Coop's phrasing as Ryker's,

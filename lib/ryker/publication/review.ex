@@ -4,10 +4,7 @@ defmodule Ryker.Publication.Review do
   alias Ryker.CanonicalJSON
 
   @required ~w(candidate_head candidate_retained candidate_tree creation_base gate job_digest not_publishable_reasons operation_id parent_head parent_tree patch_truncated policy_findings publishable rebase session_id session_revision source_head source_tree)
-  @optional ~w(gate_error gate_failure pull_request)
-  # Coop bounds a failed gate's output to what the job asked for, at most this.
-  @maximum_gate_output_bytes 65_536
-  @maximum_gate_command_bytes 1_024
+  @optional ~w(gate_error pull_request)
   @git_identity ~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
@@ -54,7 +51,7 @@ defmodule Ryker.Publication.Review do
   @spec prepare(map(), map()) :: {:ok, map()} | {:error, term()}
   def prepare(document, expected) when is_map(document) and is_map(expected) do
     # Publication retains identity, not the bounded display preview or source projection.
-    document = document |> Map.drop(["patch", "source"]) |> gate_failure_report()
+    document = Map.drop(document, ["patch", "source"])
 
     with :ok <- fields(document),
          :ok <- reference(document["operation_id"], :operation_id),
@@ -227,67 +224,6 @@ defmodule Ryker.Publication.Review do
     # conflict, not a second cause to fix.
     if "rebase_conflict" in codes, do: codes -- ["gate_not_run"], else: codes
   end
-
-  # Coop's proposed report of a failed gate (2026-09-28, not final): the
-  # command, its exit code and the redacted end of its output, sent only to a
-  # job that asked for it (`Ryker.CoopFleet.ReviewGateOutput`). It is evidence
-  # for the fix round, never part of the verdict, so a report of any other
-  # shape is dropped instead of refusing the review it came with, and what is
-  # kept is bounded and holds no byte the store refuses.
-  defp gate_failure_report(%{"gate" => "failed", "gate_failure" => report} = document) do
-    case gate_failure_shape(report) do
-      {:ok, report} -> Map.put(document, "gate_failure", report)
-      :error -> Map.delete(document, "gate_failure")
-    end
-  end
-
-  defp gate_failure_report(document), do: Map.delete(document, "gate_failure")
-
-  defp gate_failure_shape(
-         %{
-           "command" => command,
-           "exit_code" => exit_code,
-           "output_tail" => output,
-           "output_truncated" => truncated
-         } = report
-       )
-       when map_size(report) == 4 and is_binary(command) and is_integer(exit_code) and
-              is_binary(output) and is_boolean(truncated) do
-    command = without_nul(command)
-    output = without_nul(output)
-
-    if readable_report?(command, exit_code, output) do
-      kept = output_tail(output, @maximum_gate_output_bytes)
-
-      {:ok,
-       %{
-         "command" => String.byte_slice(command, 0, @maximum_gate_command_bytes),
-         "exit_code" => exit_code,
-         "output_tail" => kept,
-         "output_truncated" => truncated or kept != output
-       }}
-    else
-      :error
-    end
-  end
-
-  defp gate_failure_shape(_report), do: :error
-
-  defp readable_report?(command, exit_code, output) do
-    exit_code in -2_147_483_648..2_147_483_647 and String.valid?(command) and
-      String.trim(command) != "" and String.valid?(output)
-  end
-
-  @doc """
-  The last `maximum` bytes of a gate's output, cut at a character boundary.
-  """
-  @spec output_tail(String.t(), non_neg_integer()) :: String.t()
-  def output_tail(output, maximum) when byte_size(output) <= maximum, do: output
-
-  def output_tail(output, maximum),
-    do: String.byte_slice(output, byte_size(output) - maximum, maximum)
-
-  defp without_nul(text), do: String.replace(text, <<0>>, "")
 
   @doc """
   Each policy finding as the file it names and what is wrong with it, in the

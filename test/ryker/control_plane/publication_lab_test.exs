@@ -243,7 +243,8 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
                readiness.publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review
+               review,
+               nil
              )
 
     assert {:ok, review_delivery_claim} =

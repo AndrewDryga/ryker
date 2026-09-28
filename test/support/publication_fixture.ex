@@ -173,7 +173,8 @@ defmodule Ryker.Fixtures.Publication do
         publication.ref,
         review_claim.lease_ref,
         frozen.review_generation,
-        review
+        review,
+        nil
       )
 
     {:ok, review_delivery_claim} =

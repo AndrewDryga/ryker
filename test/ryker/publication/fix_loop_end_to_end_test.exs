@@ -65,6 +65,11 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
       end)
     end
 
+    # The failed gate's output, one page per cursor, as the adapter will read it.
+    def read_review_gate_output({agent, _publisher}, _session_id, _operation_id, cursor) do
+      {:ok, Agent.get(agent, &Map.fetch!(&1.gate_output, cursor))}
+    end
+
     def publish_review({_coop, agent}, _session_id, _review_key, _review_id, _key, body) do
       Agent.get_and_update(agent, fn state ->
         receipt = %{
@@ -100,10 +105,17 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
       })
 
     passed = review_document(task_session)
+    failure = "FAILED test/parser_test.exs:12 expected :ok, got :retry\n"
+
+    gate_output = %{
+      nil => %{"output" => String.duplicate("compiling\n", 500), "next_cursor" => "2"},
+      "2" => %{"output" => failure, "next_cursor" => nil}
+    }
 
     {:ok, publication_coop} =
       Agent.start_link(fn ->
         %{
+          gate_output: gate_output,
           reviews: [refused, passed],
           review_calls: [],
           session:
@@ -169,7 +181,15 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert request =~
              "Ryker's trusted review refused the committed change: the repository's checks failed on the committed change."
 
-    assert request =~ "Run the repository's gate yourself to see what fails, fix it and commit."
+    assert request =~
+             "The gate's complete output is the attached gate-output.txt, and its end is in review.gate_output_end."
+
+    assert String.ends_with?(current["content"]["content"]["review"]["gate_output_end"], failure)
+
+    # The whole output went to the worker with the turn, as the file it names.
+    assert [%{artifacts: [file]}] = FakeWorkCoopAPI.state(fix_api).submissions
+    assert file["name"] == "gate-output.txt"
+    assert file["data"] == String.duplicate("compiling\n", 500) <> failure
 
     assert {:ok, {:delivered, :message, _fix_delivery_ref}} = deliver_once(adapters)
     receive_post_containing!("Fixed the failing parser test and committed the change.")
