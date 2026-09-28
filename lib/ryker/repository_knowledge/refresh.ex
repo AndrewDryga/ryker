@@ -64,9 +64,12 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
       {_origin, :model} ->
         rules(written, head, changes, now)
 
-      {:model, _never_written_here} ->
-        # A document Ryker wrote before this installation kept a record of it
-        # (the repository was removed and added again): read afresh.
+      {:model, _outline_or_none} ->
+        # The default branch holds a RYKER.md Ryker wrote from a model's
+        # reading, and this entry's last write was the outline or nothing:
+        # another installation of Ryker wrote it, or the repository was added
+        # again under another ref. A repository removed and added again under
+        # its ref keeps its entry, and its rules. It is read afresh.
         {:write, "Ryker has no record of the RYKER.md it wrote here."}
     end
   end
