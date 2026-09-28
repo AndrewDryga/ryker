@@ -893,6 +893,42 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert Enum.empty?(LazyHTML.query(blocked, "form[method=post]"))
       assert LazyHTML.text(blocked) =~ "Another batch is running."
     end
+
+    # A stopped batch whose model execution was not yet confirmed stopped can
+    # be neither retried nor dropped, and had no topic to relearn: its page
+    # still said "What you can do" over a note and an empty list. It says why
+    # it waits under what happened, and offers nothing it cannot do.
+    test "a stopped batch with nothing to do now offers nothing, and says why under what happened" do
+      waiting =
+        Map.merge(@deferred, %{
+          attempts: [],
+          attempt_page: 1,
+          attempt_pages: 1,
+          relearn: [],
+          retry_available: false,
+          retry_blocked:
+            "An earlier model execution has not been confirmed stopped. Ryker must reconcile it before another start.",
+          drop_available: false
+        })
+
+      document = learning(%{@activity | selected: waiting})
+
+      assert Enum.empty?(LazyHTML.query(document, "section#what-you-can-do"))
+      refute LazyHTML.text(document) =~ "What you can do"
+
+      assert LazyHTML.query(document, "article.memory-batch .memory-prose") |> LazyHTML.text() =~
+               "An earlier model execution has not been confirmed stopped."
+
+      # With one thing it can do, the section is back, and the reason one more
+      # start waits stays with what happened.
+      droppable = learning(%{@activity | selected: %{waiting | drop_available: true}})
+      options = LazyHTML.query(droppable, "section#what-you-can-do")
+      assert LazyHTML.query(options, "article#drop") |> Enum.count() == 1
+      refute LazyHTML.text(options) =~ "not been confirmed stopped"
+
+      assert LazyHTML.query(droppable, "article.memory-batch .memory-prose") |> LazyHTML.text() =~
+               "An earlier model execution has not been confirmed stopped."
+    end
   end
 
   test "each memory page carries its own title and plain description and reads only its own query" do
