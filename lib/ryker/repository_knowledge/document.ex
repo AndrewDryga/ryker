@@ -66,7 +66,14 @@ defmodule Ryker.RepositoryKnowledge.Document do
     }
   end
 
-  @doc "Whether a path is one of the files that describe how to work in a repository."
+  @doc """
+  Whether a path is one of the files that describe how to work in a
+  repository: a README or CONTRIBUTING, AGENTS.md, CLAUDE.md or GEMINI.md,
+  or a build file (a Makefile, mix.exs, go.mod, package.json, Cargo.toml,
+  pyproject.toml, a Gemfile, a Dockerfile and the like) anywhere outside
+  vendored code, or a CI workflow. The prompt shows the model these, and a
+  change to one has RYKER.md read again (`Ryker.RepositoryKnowledge.Refresh`).
+  """
   @spec key_file?(String.t()) :: boolean()
   def key_file?(path) do
     segments = String.split(path, "/")

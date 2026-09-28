@@ -41,6 +41,22 @@ defmodule Ryker.RepositoryKnowledge.RefreshTest do
              :current
   end
 
+  # Review of the knowledge lane, 2026-09-28: the rules kept a list of key
+  # files of their own, narrower than the one the prompt shows the model, so
+  # a changed Dockerfile, Cargo.toml or CONTRIBUTING never had RYKER.md read
+  # again though the model is told those describe the repository.
+  test "every file the model is shown as a key file has RYKER.md read again when it changes" do
+    written = written(DateTime.add(@now, -86_400))
+
+    for path <- ~w(Dockerfile Cargo.toml pyproject.toml Gemfile GNUmakefile go.work GEMINI.md
+                   CONTRIBUTING.md docs/CONTRIBUTING.rst services/api/Dockerfile) do
+      assert Document.key_file?(path), "#{path} is a key file the model is shown"
+
+      assert {:write, _reason} = Refresh.decide(written, model(), @head, changes([path]), @now),
+             "#{path} should have RYKER.md read again"
+    end
+  end
+
   test "code alone waits a week after the last write" do
     six_days = written(DateTime.add(@now, -6 * 86_400))
     seven_days = written(DateTime.add(@now, -Refresh.stale_after_seconds()))
