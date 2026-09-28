@@ -127,7 +127,7 @@ defmodule Ryker.Memories.Recall do
 
   defp account_search_result(:done), do: :done
 
-  # The thousand most recently updated entries this conversation may see. The
+  # The thousand entries with the newest content this conversation may see. The
   # visibility rule is part of the query: with it applied afterwards, a
   # workspace whose other conversations held a thousand newer private entries
   # pushed an older shared fact out of the window before it was ever weighed.
@@ -138,7 +138,11 @@ defmodule Ryker.Memories.Recall do
       from(entry in MemoryEntry,
         where: ^visible(context),
         where: entry.status == :active and (is_nil(entry.expires_at) or entry.expires_at > ^now),
-        order_by: [desc: entry.updated_at, desc: entry.id],
+        order_by: [
+          desc:
+            fragment("COALESCE(?, ?, ?)", entry.edited_at, entry.confirmed_at, entry.inserted_at),
+          desc: entry.id
+        ],
         limit: 1_000
       )
     )
@@ -205,13 +209,18 @@ defmodule Ryker.Memories.Recall do
               select: entry.id
             ),
             inc: [recall_count: 1],
-            set: [last_recalled_at: now, updated_at: now]
+            set: [last_recalled_at: now]
           )
 
     Enum.each(ids, &Ryker.Memories.broadcast_memory_updated/1)
     retained = MapSet.new(ids)
     entries |> Enum.filter(&MapSet.member?(retained, &1.id)) |> Enum.map(&document/1)
   end
+
+  # When the fact itself was last said: edited, else confirmed, else saved.
+  # Recall counts in recall_count and last_recalled_at and never here; a fact
+  # recalled once used to outrank every newer one from then on (2026-09-28).
+  defp content_at(entry), do: entry.edited_at || entry.confirmed_at || entry.inserted_at
 
   defp rank(entry) do
     scope_rank =
@@ -223,7 +232,7 @@ defmodule Ryker.Memories.Recall do
       end
 
     visibility_rank = if entry.visibility == :conversation, do: 0, else: 1
-    recent = -DateTime.to_unix(entry.updated_at, :microsecond)
+    recent = -DateTime.to_unix(content_at(entry), :microsecond)
 
     {scope_rank, visibility_rank, recent, entry.ref}
   end
