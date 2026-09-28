@@ -170,6 +170,9 @@ defmodule Ryker.Work.Dispatcher do
   defp retry_class({:coop_transport_error, _detail}), do: :transient
   defp retry_class({:coop_error, 429, _code, _detail}), do: :transient
   defp retry_class({:coop_error, status, _code, _detail}) when status >= 500, do: :transient
+  # A fetch that stalled past its deadline, or a mirror another fetch holds;
+  # one GitHub keeps refusing still blocks once the attempts run out.
+  defp retry_class(:coop_worker_source_unavailable), do: :transient
   defp retry_class(_reason), do: :blocked
 
   defp reported_reason({:work_generation_spent, _phase, reason}), do: reason
