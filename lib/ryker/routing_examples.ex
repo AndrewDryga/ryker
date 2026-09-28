@@ -778,7 +778,8 @@ defmodule Ryker.RoutingExamples do
   Holds, until the transaction ends, the lock a copy holds (shared, where
   every forgetting holds it exclusively), for anything else that copies what
   a person may forget: the evidence an analysis prompt or an accepted case
-  freezes (`Ryker.Improvement`). Take it before reading what is copied, and
+  freezes (`Ryker.Improvement`), and the prompt the local routing model is
+  sent (`Ryker.LocalRouting`). Take it before reading what is copied, and
   before locking any row a forgetting writes only once it holds the lock,
   such as a candidate: a forgetting then either committed before the read,
   or waits and finds what the copy saved.
