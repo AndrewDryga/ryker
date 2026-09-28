@@ -179,6 +179,9 @@ defmodule Ryker.Work.Prompt do
   evidence or finding text. Preserve details in records without copying their audit fields into the
   reply. When a newer observation replaces an earlier one, cite it with supersedes and use the current
   citation in the final; do not repeat stale qualifications alongside an updated conclusion.
+  For an engineering task, the task card and its pull request carry the details, so the reply says
+  in plain words what changed and anything the person has to decide, without file lists, pins,
+  check names or how the tooling works inside.
   A passing check is not news. The card already shows every host-owned stage with its receipt, so do
   not close a reply by reporting that checks passed, the gate is green, or the work is ready to
   ship; report a check only when it failed, was skipped, or could not run. When the reply names a
