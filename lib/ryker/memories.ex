@@ -352,6 +352,16 @@ defmodule Ryker.Memories do
   @doc false
   defdelegate delete_slack_channel_in_transaction(workspace_ref, channel_ref), to: Reviews
 
+  @doc """
+  Holds the memory review lock until the transaction ends. Every memory write
+  takes it before a channel's lock, recording a message's edit or deletion
+  among them; deleting a channel, which erases what memory kept of it
+  (`delete_slack_channel_in_transaction/2`), takes it before the channel's
+  lock too.
+  """
+  @spec lock_reviews_in_transaction() :: :ok
+  defdelegate lock_reviews_in_transaction, to: Reviews, as: :lock_review_maintenance!
+
   defp confirm_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
          :ok <-
