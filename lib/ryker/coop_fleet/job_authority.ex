@@ -48,6 +48,72 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   def validate(_session), do: {:error, {:coop_fleet_authority_mismatch, :worker_job}}
 
+  @doc """
+  The same authority without the companion repositories Ryker no longer has.
+
+  A replacement keeps its predecessor's authority, but a repository removed
+  from Ryker since can grant no source any more: every new session for that
+  work asked the worker to fetch it and failed (2026-09-28). A replacement
+  may narrow its authority this way; it never widens it, and its primary
+  repository is never dropped.
+  """
+  @spec without_removed_repositories(map()) :: map()
+  def without_removed_repositories(
+        %{worker_job_document: %{"companions" => companions} = job, repository_context: context} =
+          authority
+      )
+      when is_list(companions) and is_map(context) do
+    available = available_repositories()
+    kept = Enum.filter(companions, &MapSet.member?(available, &1["source"]["repository_ref"]))
+
+    if length(kept) == length(companions) do
+      authority
+    else
+      job = Map.put(job, "companions", kept)
+      {:ok, digest} = JobSpec.digest(job)
+
+      context =
+        Map.update!(context, "read_only_repositories", fn refs ->
+          Enum.filter(refs, &MapSet.member?(available, &1))
+        end)
+
+      %{
+        authority
+        | worker_job_document: job,
+          worker_job_digest: digest,
+          repository_context: context
+      }
+    end
+  end
+
+  def without_removed_repositories(authority), do: authority
+
+  @doc "Whether the session's frozen job names a companion repository Ryker no longer has."
+  @spec removed_repositories?(Session.t()) :: boolean()
+  def removed_repositories?(%Session{
+        worker_job_document: %{"companions" => [_ | _] = companions}
+      }) do
+    available = available_repositories()
+    not Enum.all?(companions, &MapSet.member?(available, &1["source"]["repository_ref"]))
+  end
+
+  def removed_repositories?(_session), do: false
+
+  defp available_repositories do
+    case Settings.fetch() do
+      {:ok, snapshot} ->
+        bound = MapSet.new(snapshot.github_bindings, & &1.repository_ref)
+
+        for repository <- snapshot.repositories,
+            repository.github_access == :available and MapSet.member?(bound, repository.ref),
+            into: MapSet.new(),
+            do: repository.ref
+
+      {:error, _reason} ->
+        MapSet.new()
+    end
+  end
+
   # Create preparation pins after callers take their claim snapshot. Reload only the
   # same execution identity; an already-pinned caller may never adopt another job.
   def exact_receipt(%Session{id: id} = expected, remote) when is_binary(id) and is_map(remote) do

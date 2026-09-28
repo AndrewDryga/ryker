@@ -11,6 +11,7 @@ defmodule Ryker.Work.Custody.Sessions do
   import Ecto.Query
   import Ryker.Work.Custody.Locks
 
+  alias Ryker.CoopFleet.JobAuthority
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.Emisar.Connections, as: EmisarConnections
   alias Ryker.Episodes.Episode
@@ -785,8 +786,12 @@ defmodule Ryker.Work.Custody.Sessions do
     session_id = Ecto.UUID.generate()
     external_ref = session_external_ref(episode_id, generation)
 
-    # A replacement gets a new request identity, not newly resolved authority.
-    # Verify the predecessor's digest before rebinding only its job reference.
+    # A replacement gets a new request identity, not newly resolved authority,
+    # except that it gives up companion repositories Ryker no longer has: none
+    # could ever be fetched again (2026-09-28). Verify the digest before
+    # rebinding only its job reference.
+    authority = JobAuthority.without_removed_repositories(authority)
+
     with {:ok, job, job_digest} <-
            JobSpec.rebind(
              Map.get(authority, :worker_job_document),
