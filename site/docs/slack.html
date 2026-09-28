@@ -183,7 +183,7 @@
 
     <p>The task runs in an isolated working copy, in the same Slack thread, inside the conversation’s environment. It changes one repository with read/write access, the one the task names, and reads the others without changing them. A conversation with no environment has no repository a task could change. Later replies in the thread continue the task without a mention; messages elsewhere in the channel stay out of it.</p>
 
-    <p>The task card lists its stages: Workspace setup, Planning, Implementation, Self-review and checks, Draft PR, CI, and Review and merge. When the changes are ready, Ryker checks them on its own: it compares them with the current repository, rebases, runs your configured checks, and says whether the result is ready for review.</p>
+    <p>The task card lists its stages: Workspace setup, Planning, Implementation, Self-review and checks, Draft PR, CI, and Review and merge. When the changes are ready, Ryker asks its Coop worker to compare them with the current repository, rebase them, run your configured checks, and report whether the result is ready for review.</p>
 
     <p>Then a draft pull request. When Ryker is allowed to open pull requests (a setting on the GitHub integration), a task whose confirmer named that repository opens its draft itself once the review is clean. Otherwise a configured operator presses <strong>Create draft PR</strong>. After that the card offers <strong>Open PR</strong> and <strong>Check delivery</strong>. If CI fails on that exact commit, Ryker corrects the work within the task and updates the same pull request. Review comments on the pull request in GitHub go back to the same task. <a href="actions.html#publication">How publication works</a>.</p>
 
