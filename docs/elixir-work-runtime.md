@@ -725,8 +725,10 @@ from `search_memory`'s `case` kind and from the first Work briefing's `retained_
 history: a past fix is advice about what worked once, never proof that this incident has the same
 cause or permission to repeat it. Deletion is explicit and reaches everything derived — the case
 text and every lesson are erased while the identity remains, the next capture does not rebuild a
-deleted case, and somebody deleting the original message redacts every case built from it, because
-routine expiry of a transcript is not a withdrawal but removing the message is.
+deleted case, and somebody deleting the original message, or editing it to say something else,
+redacts every case built from it, because routine expiry of a transcript is not a withdrawal but
+removing the message or its words is. An edit that leaves the text as it was, as Slack reports a
+link's preview arriving, redacts nothing.
 
 Large ingress, prompt, candidate, validation, delivery, and artifact bodies are redacted on the
 operational horizon only after all of the episode's Coop sessions are proven discarded. The episode
