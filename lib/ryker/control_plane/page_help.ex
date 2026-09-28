@@ -59,8 +59,8 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/memory/learned", :learned},
     {"/memory/findings", :findings},
     {"/memory/learning", :learning},
-    {"/memory/feedback", :feedback},
-    {"/memory/feedback/fix", :improvement},
+    {"/feedback", :feedback},
+    {"/feedback/fix", :improvement},
     {"/integrations", :integrations},
     {"/integrations/slack", :slack},
     {"/integrations/github", :github},
@@ -686,7 +686,11 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Find what went wrong",
        [
          "Open a row to see the request's timeline: the message, what Ryker understood, what it did and what it answered. The request's own page lists its feedback in a chapter of its own.",
-         "The table by day shows whether something got worse. Open a kind to see all of it, newest first, and search for words in a reason or a request."
+         "By day shows whether something got worse: a bar a day, negative feedback at its foot and positive on top, with the table under it. Open a kind to see all of it, newest first, and search for words in a reason or a request."
+       ]},
+      {"Negative and positive",
+       [
+         "Negative shows only frustrated people, questions asked again and messages changed or deleted after an answer. Positive shows only people who said or showed that an answer helped. All brings back everything, neutral reactions and your reviews included."
        ]},
       {"How long it is kept",
        [

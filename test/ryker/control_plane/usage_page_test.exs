@@ -588,7 +588,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     assert document |> LazyHTML.query("#usage-work-types") |> LazyHTML.text() =~ "Self-analysis"
 
     assert LazyHTML.query(document, "#usage-work-types a") |> LazyHTML.attribute("href") ==
-             ["/memory/feedback/fix"]
+             ["/feedback/fix"]
   end
 
   test "every request count on Usage opens an Activity list of exactly that many requests" do

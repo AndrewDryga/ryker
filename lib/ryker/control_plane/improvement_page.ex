@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.ImprovementPage do
   @moduledoc """
-  Memory › Feedback › What to fix (`/memory/feedback/fix`): requests people
+  Feedback › What to fix (`/feedback/fix`): requests people
   were unhappy with, each with Ryker's own diagnosis of what went wrong
   (`Ryker.Improvement`, `Ryker.ControlPlane.ImprovementProjection`).
 
@@ -26,8 +26,8 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   alias Ryker.Improvement
   alias Ryker.Improvement.Candidate
 
-  @path "/memory/feedback/fix"
-  @download "/memory/feedback/fix/eval-cases.zip"
+  @path "/feedback/fix"
+  @download "/feedback/fix/eval-cases.zip"
   @missing ~w(improvement_evidence_unavailable improvement_evidence_wordless
     improvement_evidence_automated)
 
@@ -55,7 +55,7 @@ defmodule Ryker.ControlPlane.ImprovementPage do
       title: "What to fix",
       description:
         "Requests people were unhappy with, each with Ryker's own diagnosis. Accept one to keep it as an eval case, or dismiss it.",
-      back: {"All feedback", "/memory/feedback"},
+      back: {"All feedback", "/feedback"},
       action:
         if(view.exportable > 0,
           do:

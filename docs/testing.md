@@ -149,7 +149,7 @@ Passing deterministic and model gates does not deploy the runtime.
 
 ### Eval cases from feedback
 
-Memory › Feedback › What to fix lists the requests people were unhappy with, each with Ryker's own
+Feedback › What to fix lists the requests people were unhappy with, each with Ryker's own
 diagnosis of what went wrong (`Ryker.Improvement`), and says what the last seven days brought: the
 requests found, by diagnosis, and how many were accepted or dismissed. Accepting one keeps it as an
 eval case. GitHub requests are analyzed too but cannot be accepted yet: a world scenario replays

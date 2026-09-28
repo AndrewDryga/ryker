@@ -361,7 +361,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   # Self-analysis spends on requests people were unhappy with, one model call
   # each, and belongs to no request of its own.
   defp kind_link("self_analysis", label, _params, _snapshot),
-    do: ["<a title=\"What to fix\" href=\"/memory/feedback/fix\">", e(label), "</a>"]
+    do: ["<a title=\"What to fix\" href=\"/feedback/fix\">", e(label), "</a>"]
 
   # Reading each repository for its RYKER.md belongs to no request either.
   defp kind_link("repository_knowledge", label, _params, _snapshot),

@@ -179,12 +179,12 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  # The requests accepted as eval cases on Memory › Feedback › What to fix, as
+  # The requests accepted as eval cases on Feedback › What to fix, as
   # one zip of world scenario directories (`Ryker.Improvement.Export`).
   defp route(
          %Plug.Conn{
            method: "GET",
-           path_info: ["memory", "feedback", "fix", "eval-cases.zip"]
+           path_info: ["feedback", "fix", "eval-cases.zip"]
          } = conn,
          options
        ) do
@@ -1089,7 +1089,7 @@ defmodule Ryker.ControlPlane.Router do
   defp action_return_path("memory-review", _resource_ref), do: "/memory#review"
   defp action_return_path("knowledge", _resource_ref), do: "/memory/learned"
   defp action_return_path("finding", _resource_ref), do: "/memory/findings"
-  defp action_return_path("improvement", _resource_ref), do: "/memory/feedback/fix"
+  defp action_return_path("improvement", _resource_ref), do: "/feedback/fix"
   defp action_return_path("learning", resource_ref), do: LearningActivity.path(resource_ref)
 
   # Only a refused action of a kind no page offers gets here; like one whose

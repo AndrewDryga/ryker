@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.FeedbackProjection do
   @moduledoc """
-  The Feedback page (`/memory/feedback`) and a request's Feedback chapter on
+  The Feedback page (`/feedback`) and a request's Feedback chapter on
   its Timeline: what people told Ryker about its answers (`Ryker.Feedback`),
   by category, frustrated first, and over time.
 
@@ -9,6 +9,8 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   the latest days, and the newest few of each category with the way to all
   of them. One category (`?category=frustrated`) is a sub-page of its own: every
   signal of that kind, newest first under day headings, a page at a time.
+  Negative and Positive (`?tone=negative`) narrow the page to the feedback
+  that went that way (`Ryker.ControlPlane.FeedbackChart.tones/0`).
   Search narrows both by what a signal says (a reason, a note, an emoji) and
   by the request it is about. Each row names its request as Activity names
   it and opens its Timeline.
@@ -19,6 +21,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   alias Ryker.ControlPlane.{
     Activity,
     CurrentInputs,
+    FeedbackChart,
     ImprovementProjection,
     PagedRelation,
     Search,
@@ -39,7 +42,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   @days 14
 
   @doc "The query keys the Feedback page reads."
-  def query_keys, do: ["category", "page", "q"]
+  def query_keys, do: ["category", "page", "q", "tone"]
 
   @doc "The categories, frustrated first (`Ryker.Feedback.Signal.categories/0`)."
   def categories, do: Signal.categories()
@@ -51,6 +54,12 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
 
   def category(_value), do: nil
 
+  @doc "Which way the feedback a query asks for went, or nil for all of it."
+  @spec tone(term()) :: :negative | :positive | nil
+  def tone("negative"), do: :negative
+  def tone("positive"), do: :positive
+  def tone(_value), do: nil
+
   @doc """
   One read of the Feedback page for `params`: the counts by category, the
   latest days, and either the newest of each category or one category's page.
@@ -59,7 +68,9 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   def page(params) when is_map(params) do
     q = Search.term(params["q"]) || ""
     category = category(params["category"])
-    matching = search(from(signal in Signal, as: :signal), q)
+    # One kind's page lists that kind, whichever way it went.
+    tone = if category, do: nil, else: tone(params["tone"])
+    matching = from(signal in Signal, as: :signal) |> search(q) |> going(tone)
     counts = counts(matching)
 
     view = %{
@@ -67,6 +78,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
       counts: counts,
       days: days(matching),
       q: q,
+      tone: tone,
       total: counts |> Map.values() |> Enum.sum()
     }
 
@@ -74,7 +86,8 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
       nil ->
         view
         |> Map.put(:groups, groups(matching, counts))
-        |> Map.put(:improvement, ImprovementProjection.summary())
+        # What to fix is about the requests people were unhappy with.
+        |> Map.put(:improvement, if(tone != :positive, do: ImprovementProjection.summary()))
 
       category ->
         Map.merge(view, category_page(matching, category, params))
@@ -127,6 +140,13 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
           ilike(digest.title, ^pattern) or
           fragment("(?::jsonb ->> 'text') ILIKE ?", input.content, ^pattern)
     )
+  end
+
+  defp going(query, nil), do: query
+
+  defp going(query, tone) do
+    categories = Keyword.fetch!(FeedbackChart.tones(), tone)
+    from([signal: signal] in query, where: signal.category in ^categories)
   end
 
   defp counts(query) do

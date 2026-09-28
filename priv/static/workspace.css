@@ -48,6 +48,19 @@
 .chart-bar { fill:var(--ryker-data-primary); }
 .chart-bar:hover { fill:var(--ryker-data-primary-hover); }
 .usage-chart details { margin:4px 0 0; font-size:14px; }
+/* Feedback by day: each bar stacked negative, neutral, positive from its foot. */
+.feedback-chart { margin:0 0 16px; }
+.feedback-bar-negative { fill:var(--ryker-error); }
+.feedback-bar-neutral { fill:var(--ryker-stroke-strong); }
+.feedback-bar-positive { fill:var(--ryker-accent); }
+.feedback-chart-day:focus { outline:none; }
+.feedback-chart-day:focus rect { stroke:var(--ryker-text); stroke-width:1.5; }
+.feedback-chart-legend { display:flex; gap:14px; font-size:13px; }
+.usage-chart figcaption .feedback-key { display:inline-flex; align-items:center; gap:6px; margin-left:0; }
+.feedback-key::before { content:""; width:8px; height:8px; border-radius:2px; }
+.feedback-key-negative::before { background:var(--ryker-error); }
+.feedback-key-neutral::before { background:var(--ryker-stroke-strong); }
+.feedback-key-positive::before { background:var(--ryker-accent); }
 @media(max-width:700px) { .usage-chart figcaption span { width:100%; margin:0; } }
 .ryker-app select { appearance:none; background-image:linear-gradient(45deg,transparent 50%,var(--ryker-text-secondary) 50%),linear-gradient(135deg,var(--ryker-text-secondary) 50%,transparent 50%); background-size:5px 5px,5px 5px; background-repeat:no-repeat; background-position:right 19px center,right 14px center; padding-right:36px; }
 .recovery-model-output { overflow-wrap:anywhere; line-height:1.65; margin-top:12px; padding:16px; border-left:3px solid var(--line); background:var(--panel); color:var(--ink); }

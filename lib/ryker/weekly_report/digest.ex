@@ -150,7 +150,7 @@ defmodule Ryker.WeeklyReport.Digest do
     section(
       :feedback,
       "Feedback",
-      Enum.reject(lines, &is_nil/1) ++ [open(base, "Feedback", "/memory/feedback")]
+      Enum.reject(lines, &is_nil/1) ++ [open(base, "Feedback", "/feedback")]
     )
   end
 
@@ -197,12 +197,11 @@ defmodule Ryker.WeeklyReport.Digest do
   # -- What to fix -------------------------------------------------------------------
 
   defp fix(%{found: 0, accepted: 0, dismissed: 0, sure: nil}, base),
-    do:
-      section(:fix, "What to fix", [none(nil), open(base, "What to fix", "/memory/feedback/fix")])
+    do: section(:fix, "What to fix", [none(nil), open(base, "What to fix", "/feedback/fix")])
 
   defp fix(week, base) do
     lines = [Improvement.week_words(week), sure(week.sure)]
-    section(:fix, "What to fix", lines ++ [open(base, "What to fix", "/memory/feedback/fix")])
+    section(:fix, "What to fix", lines ++ [open(base, "What to fix", "/feedback/fix")])
   end
 
   defp sure(nil), do: "Newest sure diagnosis: none."
