@@ -205,6 +205,45 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert Enum.map(FakeCoopAPI.state(coop).validations, & &1.verdict) == [:accept]
   end
 
+  # The host keeps an offered answer only in the shape Coop promises: at
+  # most 64 KB, a whole attempt number, a digest that matches. One that was
+  # not came back as a Coop step still to settle, so the run read the same
+  # turn again, backing off to once a minute, for a day until it expired,
+  # and held the candidate's only lease all that time (found in review,
+  # 2026-09-28). It fails the host's check like an answer outside the
+  # contract: that start is spent, its turn is cancelled, and the next start
+  # is told so.
+  test "an offered answer the host cannot keep ends that start instead of being read again for a day" do
+    request = unhappy_request!("1790101400.000100")
+
+    novel =
+      Jason.encode!(%{
+        @diagnosis
+        | "what_went_wrong" => String.duplicate("It went wrong. ", 5_000)
+      })
+
+    assert byte_size(novel) > 65_536
+    coop = coop!([novel, Jason.encode!(@diagnosis)])
+
+    drain(settings(coop))
+
+    candidate = Improvement.for_request(request)
+    [first | _later] = runs(candidate)
+
+    assert {first.status, first.error_code} == {:rejected, "invalid_improvement_result"},
+           "the run is still waiting to read the answer it cannot keep " <>
+             "(#{first.reconcile_attempt_count} failed reads so far)"
+
+    assert %{"kind" => "terminal_turn", "state" => "cancelled"} = first.stop_receipt
+    assert candidate.analysis == :done
+    assert candidate.start_count == 2
+
+    # Coop was never told to accept it, and the next start heard why.
+    assert Enum.map(FakeCoopAPI.state(coop).validations, & &1.verdict) == [:accept]
+    assert [_first, second] = FakeCoopAPI.state(coop).submissions
+    assert second["prompt"] =~ "did not match the output contract"
+  end
+
   test "a model that keeps failing costs at most three starts, then the candidate says so" do
     request = unhappy_request!("1790100400.000100")
     coop = coop!(List.duplicate(Jason.encode!(@diagnosis), 5), every_turn_state: "failed")
@@ -442,6 +481,15 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert forgotten.error_code == "improvement_forgotten"
     assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
   end
+
+  defp runs(candidate),
+    do:
+      Repo.all(
+        from(run in AnalysisRun,
+          where: run.candidate_id == ^candidate.id,
+          order_by: run.generation
+        )
+      )
 
   defp stopped_run(request) do
     candidate = Improvement.for_request(request)
