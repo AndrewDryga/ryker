@@ -699,9 +699,10 @@ them without me doing a man in the middle"):
   one-line notice instead of the refusal card, and in the same transaction admits a host-written input
   into the task's episode (actor and source `system:publication-review`, turn
   `turn:publication-fix:<publication>:g<review generation>`). The input names the causes in the
-  host's words, says what to do about each, and carries `review.gate_failure` when Coop reported it.
-  Work runs it as a new turn in the same session. When that turn commits and completes, the
-  ordinary readiness path re-arms the same publication and the new commit is reviewed.
+  host's words, says what to do about each, and hands over the failed gate's complete output when
+  it was read (below). Work runs it as a new turn in the same session. When that turn commits and
+  completes, the ordinary readiness path re-arms the same publication and the new commit is
+  reviewed.
 - **Check again** — `parent_moved`, `source_moved`, `fork_owner_active` alone. Storing the review
   starts a fresh review generation 30 seconds later instead; nothing is posted and no turn is spent.
 - **A person** — any policy finding (a possible credential above all, even beside failed checks),
@@ -718,16 +719,23 @@ person's own follow-up runs leaves that turn alone, because its commit is review
 delivery takes the conversation and episode locks before the publication's, the order Work and
 admission already use, so a fix round and a completing turn never wait on each other.
 
-A failed gate's own output reaches the fix turn only when Coop reports it. Coop's proposed contract
-(2026-09-28, not shipped yet): a job opts in with `limits.max_gate_output_bytes` (1..65536), a failed
-gate's review then carries `gate_failure` (`command`, `exit_code`, redacted `output_tail`,
-`output_truncated`), and a worker that understands it advertises `review-gate-output:1`. A worker
-that does not refuses a job naming a limit it does not know, so `CoopFleet.ReviewGateOutput` pins a
-writable repository job with 16 KiB only when every current worker of its workspace advertises the
-capability, and placement puts a job that asks only on a worker that advertises it. Until Coop
-ships it, no worker advertises it, no job asks, and the fix turn is told to run the gate itself.
-`Review.prepare/2` keeps a well-formed report (at most 64 KiB, NUL bytes dropped) and drops any other
-shape rather than refusing the review it came with; the fix turn gets its last 16 KiB.
+The agent gets the failed gate's complete stdout and stderr, not an excerpt Ryker chose (Andrew,
+2026-09-28: "Ryker should get full access to errors, warnings and all other output to work, like
+any llm model would, it's a sandbox!!"). After a failed gate's review that could start a round,
+the publication executor reads the output page by page through the Coop API adapter's optional
+`read_review_gate_output/4` — `%{"output" => text, "next_cursor" => cursor | nil}` per page, or
+`%{"lost" => reason}` when Coop could not capture or keep it — and `Publication.GateOutput` keeps
+it as a `text/plain` input artifact, `gate-output.txt` (its last 4 MiB when longer; NUL bytes and
+invalid UTF-8 mended), recorded beside the review as `review_gate_output`. The fix input carries the
+file's descriptor, so the turn is handed the file, and its last 16 KiB inline as
+`review.gate_output_end`; when Coop said it lost the output, the input says why and asks the agent
+to run the gate itself. The read is best effort: an error, a reader that never finishes or an
+unreadable page leaves the output unread and never fails the review.
+
+Coop has no endpoint for that read yet; it is designing a paged or streamed read of the review
+gate's output from the job's own logs, with no opt-in and explicit capture and retention failures.
+`Ryker.CoopFleet.Client` does not implement the callback ("Waiting on Coop" marks it in `Ryker.Coop.API`),
+so until Coop ships it no output is read and every fix round tells the agent to run the gate itself.
 
 ## Retention and cleanup
 
