@@ -220,11 +220,15 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp carried_repository_notice(_notice, _path), do: nil
 
-  # Each visit to Add repositories lists what the GitHub App reaches afresh.
+  # Each visit to Add repositories lists what the GitHub App reaches afresh,
+  # giving up a listing the last visit left under way.
   defp reset_repository_discovery(socket, "/repositories/new", "/repositories/new"), do: socket
 
-  defp reset_repository_discovery(socket, "/repositories/new", _previous),
-    do: assign(socket, github_repositories: [], github_repository_discovery: :idle)
+  defp reset_repository_discovery(socket, "/repositories/new", _previous) do
+    socket
+    |> cancel_async(:github_repositories)
+    |> assign(github_repositories: [], github_repository_discovery: :idle)
+  end
 
   defp reset_repository_discovery(socket, _path, _previous), do: socket
 
@@ -417,6 +421,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     do:
       {:noreply,
        assign(socket, github_repository_discovery: {:error, IntegrationErrors.message(reason)})}
+
+  # A listing given up for the next visit's (`reset_repository_discovery/3`)
+  # did not fail; it says nothing.
+  def handle_async(:github_repositories, {:exit, {:shutdown, :cancel}}, socket),
+    do: {:noreply, socket}
 
   def handle_async(:github_repositories, {:exit, _reason}, socket),
     do:

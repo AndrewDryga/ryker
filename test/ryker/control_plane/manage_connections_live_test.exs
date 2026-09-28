@@ -22,12 +22,23 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
   setup do
     # What the GitHub App reaches, as Add repositories and Add it again ask
-    # for it, with how many times they asked.
+    # for it, with how many times they asked. A held answer waits until the
+    # test that holds it gives one.
     github = start_supervised!({Agent, fn -> %{asked: 0, answer: {:ok, []}} end})
 
     actions =
       Map.put(Actions.callbacks(), :github_repositories, fn ->
-        Agent.get_and_update(github, &{&1.answer, %{&1 | asked: &1.asked + 1}})
+        case Agent.get_and_update(github, &{&1.answer, %{&1 | asked: &1.asked + 1}}) do
+          {:held, test} ->
+            send(test, {:listing, self()})
+
+            receive do
+              {:answer, answer} -> answer
+            end
+
+          answer ->
+            answer
+        end
       end)
 
     start_supervised!(
@@ -162,6 +173,55 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
     assert has_element?(view, ".repository-discovery-error .form-feedback-error")
     refute has_element?(view, "#repository-picker")
+  end
+
+  # Leaving Add repositories while GitHub was still answering, then coming
+  # back, started a second listing beside the first, which went on asking
+  # GitHub for an answer nothing would read.
+  test "coming back to Add repositories gives up the listing the last visit left under way",
+       %{github: github} do
+    connect_github!()
+    test = self()
+    Agent.update(github, &%{&1 | answer: {:held, test}})
+
+    {:ok, view, _html} = open("/repositories/new")
+    assert_receive {:listing, first}
+    watch = Process.monitor(first)
+
+    render_patch(view, "/repositories")
+    render_patch(view, "/repositories/new")
+
+    assert_receive {:DOWN, ^watch, :process, ^first, _given_up}
+    assert_receive {:listing, second}
+
+    send(second, {:answer, {:ok, [repository("acme/api", 11)]}})
+    render_async(view)
+    assert has_element?(view, "#repository-picker li[data-repository-name='acme/api']")
+  end
+
+  # A listing given up with no new one after it, because GitHub was
+  # disconnected meanwhile, must not read as "Ryker could not list the
+  # repositories": the page would then never list them once GitHub is back.
+  test "a listing given up with none after it is not a failed listing", %{github: github} do
+    connect_github!()
+    test = self()
+    Agent.update(github, &%{&1 | answer: {:held, test}})
+
+    {:ok, view, _html} = open("/repositories/new")
+    assert_receive {:listing, first}
+    watch = Process.monitor(first)
+
+    render_patch(view, "/repositories")
+    {:ok, _disconnected} = IntegrationSetup.disconnect(:github)
+    render_patch(view, "/repositories/new")
+    assert_receive {:DOWN, ^watch, :process, ^first, _given_up}
+
+    connect_github!()
+    assert_receive {:listing, second}, 1_000
+
+    send(second, {:answer, {:ok, [repository("acme/api", 11)]}})
+    render_async(view)
+    assert has_element?(view, "#repository-picker li[data-repository-name='acme/api']")
   end
 
   # Andrew, 2026-09-27, of every add form opened in place over a list: "it
