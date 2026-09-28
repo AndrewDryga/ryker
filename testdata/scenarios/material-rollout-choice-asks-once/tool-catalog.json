@@ -1,7 +1,7 @@
 {
   "servers": [
     {
-      "name": "responder-state",
+      "name": "controller-tools",
       "tools": [
         {
           "description": "Read bounded durable state for this exact episode.",
@@ -81,9 +81,9 @@
                 "type": "string"
               },
               "source_ref": {
-                "maxLength": 256,
+                "maxLength": 500,
                 "minLength": 1,
-                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "pattern": "^\\S+$",
                 "type": "string"
               },
               "subject": {
