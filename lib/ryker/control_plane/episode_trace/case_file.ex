@@ -371,13 +371,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     }
   end
 
-  defp input_metadata(input) do
-    compact_details([
-      {"Input ID", "ingress-input:#{input.id}", identifier: true},
-      {"Source", source_label(input.source_kind)},
-      {"Sender ID", join_ref(input.actor_kind, input.actor_ref), identifier: true}
-    ])
-  end
+  # The card's header already says who sent it and where; a raw sender ID and
+  # "Slack" under Details told a person nothing (Andrew, 2026-09-28).
+  defp input_metadata(input),
+    do: compact_details([{"Input ID", "ingress-input:#{input.id}", identifier: true}])
 
   # A control-plane input is typed into Ryker itself, so no adapter stands
   # between the person and the record. Reporting that one failed to hand over a
@@ -423,12 +420,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       Keyword.merge(options, max_bytes: 64 * 1_024, disclosed: disclosed?)
     )
   end
-
-  defp source_label("slack"), do: "Slack"
-  defp source_label("github"), do: "GitHub"
-  defp source_label("control_plane"), do: "Direct conversation"
-  defp source_label("webhook"), do: "Webhook"
-  defp source_label(other), do: to_string(other)
 
   defp case_reply_status(%{
          delivered_at: %DateTime{},

@@ -421,7 +421,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   # "Who can manage Ryker" read "Slack user U0BHTNFCW6S" on 2026-09-26, and so
   # did every sender, note and routing candidate kept with a Slack ID in a
   # request's context. A Slack person reads as their name linked to their
-  # Slack profile; the raw ID stays only under "Sender ID", which says it is one.
+  # Slack profile; the raw ID stays only in the raw event, for support.
   test "a Slack person in a request's context reads as a linked name, never a raw ID" do
     message =
       %{
@@ -1274,10 +1274,9 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert text =~ "You"
     assert text =~ "21 Sep, 05:48:52 UTC"
     assert text =~ "Details"
-    assert text =~ "Chat"
     assert text =~ "Raw event (JSON)"
     refute text =~ "Copy raw event"
-    assert text =~ "Sender ID"
+    refute text =~ "Sender ID"
 
     assert Enum.empty?(
              LazyHTML.query(document, ".context-message-details dt")
@@ -1325,7 +1324,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     [attachments] =
       document
-      |> LazyHTML.query(".context-message-details div")
+      |> LazyHTML.query(".context-message-details dl.context-rows > div")
       |> Enum.filter(&(LazyHTML.text(LazyHTML.query(&1, "dt")) == "Attachments"))
 
     assert LazyHTML.text(LazyHTML.query(attachments, "dd")) ==
@@ -1384,7 +1383,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     [attachments] =
       document
-      |> LazyHTML.query(".context-message-details div")
+      |> LazyHTML.query(".context-message-details dl.context-rows > div")
       |> Enum.filter(&(LazyHTML.text(LazyHTML.query(&1, "dt")) == "Attachments"))
 
     assert LazyHTML.text(LazyHTML.query(attachments, "dd")) ==
@@ -1425,7 +1424,10 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       |> LazyHTML.from_fragment()
 
     assert LazyHTML.text(document) =~ "Related history"
-    assert LazyHTML.text(document) =~ "Earlier work this message may belong to."
+
+    assert LazyHTML.text(document) =~
+             "Earlier work this message may belong to, found by Search for related history."
+
     assert LazyHTML.text(document) =~ "Background matches"
 
     # Work the search found but did not offer was never sent: it belongs to the

@@ -91,7 +91,7 @@ defmodule Ryker.Admission.ExecutorTest do
     html = render_component(&EpisodePage.message_page/1, view: inspector)
 
     # How the search found earlier work is a card of its own before the briefing.
-    assert html =~ "Search for earlier work"
+    assert html =~ "Search for related history"
     refute html =~ "Selection evidence"
     assert html =~ "Raw routing response"
     refute html =~ "Observed execution milestones"

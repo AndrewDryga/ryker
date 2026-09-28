@@ -446,8 +446,7 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp happened(:running), do: "Ryker is reading these messages now."
 
   defp happened(:applied),
-    do:
-      "Ryker read these messages and updated what it knows."
+    do: "Ryker read these messages and updated what it knows."
 
   defp happened(:no_change),
     do:

@@ -66,6 +66,24 @@ defmodule Ryker.ControlPlane.Components do
     """
   end
 
+  attr(:class, :any, default: nil)
+
+  @doc """
+  Ryker's own mark, in Ryker mint, for what Ryker itself did: its two shapes
+  as brand/ryker draws them (`priv/static/brand/mark.svg`). Andrew,
+  2026-09-28, of the Timeline's tool chips: "make ryker calls branded too".
+  """
+  def ryker_mark(assigns) do
+    ~H"""
+    <svg class={["ryker-mark", @class]} viewBox="-28 -44 780 680" aria-hidden="true">
+      <g fill="currentColor">
+        <path d="M326 0H629V27C629 83 607 116 562 149L105 485C73 507 42 501 20 478C-1 456-5 428 7 403L168 100C204 38 265 0 326 0Z" />
+        <path d="M596 246H710Q724 246 724 261V271C724 451 568 591 359 591H337Q323 591 323 577V504C323 462 345 439 380 431C493 410 552 349 578 260Q582 246 596 246Z" />
+      </g>
+    </svg>
+    """
+  end
+
   attr(:name, :atom, required: true)
   attr(:class, :any, default: nil)
 

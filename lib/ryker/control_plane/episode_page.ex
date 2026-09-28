@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     FeedbackPage,
     Kit,
     RequestContextHTML,
+    ThreadContext,
     ToolCard
   }
 
@@ -52,7 +53,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
           review_groups(assigns.snapshot.trace.review)
       )
 
-    assigns = assign(assigns, :source_link, source_link(assigns.snapshot))
+    assigns =
+      assigns
+      |> assign(:source_link, source_link(assigns.snapshot))
+      |> assign(:thread_link, thread_link(assigns.snapshot.episode))
 
     ~H"""
     <div class="episode-workbench execution-document">
@@ -94,18 +98,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
             :if={@snapshot.episode[:conversation_link]}
             href={@snapshot.episode.conversation_link.href}
           >{@snapshot.episode.conversation_link.label} →</a>
-          <a
-            :if={@snapshot.episode[:transport] == "slack" && @snapshot.episode[:thread_ref]}
-            href={
-              Ryker.ControlPlane.Activity.conversation_path(
-                @snapshot.episode.transport,
-                @snapshot.episode.conversation_ref,
-                @snapshot.episode.thread_ref
-              )
-            }
-            target="_blank"
-            rel="noopener noreferrer"
-          >This Slack thread →</a>
+          <a :if={@thread_link} href={@thread_link.href}>{@thread_link.label} →</a>
         </p>
       </div>
       <section :if={@startup} class="task-start-failure" aria-labelledby="task-start-heading">
@@ -340,8 +333,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
   Message band in the request page's order. Intake is the message as it was
   sent and why Ryker read it; Routing is the queue, the search for earlier
   work, the briefing and the decision; Answer is what Ryker sent. Background
-  learning that read the message follows as its own chapter, and the thread
-  the message is part of closes the page.
+  learning that read the message follows as its own chapter. The header links
+  to every message of its thread (Andrew, 2026-09-28: "drop this, just add
+  link here to show all messages in thread too").
 
   Andrew, 2026-09-27, of these pages for Slack messages: "They have some
   previous messages mid-text, timeline is broken apart and not following the
@@ -378,8 +372,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     groups =
       [band] ++
         learning_groups(view[:learning] || []) ++
-        feedback_groups(view[:feedback] || [], view[:self_analysis] || []) ++
-        thread_groups(view.thread)
+        feedback_groups(view[:feedback] || [], view[:self_analysis] || [])
 
     source = view.heading.source
 
@@ -416,6 +409,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
             :if={@view.heading.conversation_link}
             href={@view.heading.conversation_link.href}
           >{@view.heading.conversation_link.label} →</a>
+          <a
+            :if={@view.heading[:thread_link]}
+            href={@view.heading.thread_link.href}
+          >{@view.heading.thread_link.label} →</a>
         </p>
       </div>
       <.admission_recovery :if={@view.recovery} recovery={@view.recovery} />
@@ -490,25 +487,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ]
   end
 
-  # The thread around the message is where it was said, not a step in what
-  # happened to it, so it closes the page as a chapter of its own.
-  defp thread_groups(nil), do: []
+  defp thread_link(%{transport: "slack", conversation_ref: conversation, thread_ref: thread})
+       when is_binary(conversation) and is_binary(thread),
+       do: ThreadContext.thread_link("slack", conversation, thread)
 
-  defp thread_groups(thread) do
-    [
-      %{
-        anchor: "in-this-thread",
-        band: :thread,
-        conversation_turn: nil,
-        description: thread.lede,
-        kind: :thread,
-        marker: "T",
-        phases: [],
-        thread: thread,
-        title: thread.title
-      }
-    ]
-  end
+  defp thread_link(_episode), do: nil
 
   @doc """
   The phases this page renders, grouped by the durable owner of each step.
@@ -663,7 +646,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </div>
         <.timeline_jumps links={message_jumps(@groups, group)} label="Message navigation" />
       </div>
-      <.thread :if={group.kind == :thread} thread={group.thread} />
       <section
         :for={{phase, phase_index} <- Enum.with_index(group.phases, 1)}
         class={"conversation-phase phase-#{phase.band}"}
@@ -695,37 +677,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </div>
       </section>
     </section>
-    """
-  end
-
-  attr(:thread, :map, required: true, doc: "`Ryker.ControlPlane.ThreadContext.around/2`")
-
-  # The messages around this one, each leading to its own page or to the
-  # request it started or joined.
-  defp thread(assigns) do
-    ~H"""
-    <div class="message-thread">
-      <Kit.entity_list label={@thread.title}>
-        <Kit.entity_row
-          :for={item <- @thread.items}
-          id={item.id}
-          name={item.name}
-          href={item.href}
-          navigate
-          link_row
-          tag={if item.current, do: "This message"}
-          state={item.state}
-          at={item.clock}
-          at_time={item.at}
-          group={item.group}
-          meta={item.meta}
-        />
-      </Kit.entity_list>
-      <p :if={@thread.truncated} class="message-thread-bound">
-        Showing the {@thread.limit} messages nearest this one.
-        <a href={@thread.all_href}>{@thread.all_label} →</a>
-      </p>
-    </div>
     """
   end
 
@@ -1079,9 +1030,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp service_badge(assigns) do
     ~H"""
-    <span class="tool-run-badge" data-service={@service}><.emisar_mark :if={@service == :emisar} />{service_name(
-      @service
-    )}</span>
+    <span class="tool-run-badge" data-service={@service}><.emisar_mark :if={@service == :emisar} /><.ryker_mark :if={
+      @service == :ryker
+    } />{service_name(@service)}</span>
     """
   end
 

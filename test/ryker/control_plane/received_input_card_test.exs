@@ -78,7 +78,8 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
       |> LazyHTML.query(".ui-disclosure-body > .ui-facts > div > dt")
       |> Enum.map(&LazyHTML.text/1)
 
-    assert labels == ["Input ID", "Source", "Sender ID"]
+    # Who sent it and where are in the card's header (Andrew, 2026-09-28).
+    assert labels == ["Input ID"]
 
     refute text =~ "time reported by the source"
     refute text =~ "time assigned at ingress"
@@ -89,7 +90,7 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     assert details
            |> LazyHTML.query("button[data-copy-value]")
            |> LazyHTML.attribute("data-copy-value")
-           |> Enum.take(2) == ["ingress-input:#{entry.id}", "user:U123"]
+           |> Enum.take(2) == ["ingress-input:#{entry.id}"]
 
     # Metadata precedes the three bodies, and the bodies come in the approved order.
     positions =

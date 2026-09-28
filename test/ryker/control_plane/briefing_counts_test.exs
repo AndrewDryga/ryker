@@ -202,10 +202,13 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
 
     html = rendered(episode)
     card = html |> LazyHTML.from_document() |> LazyHTML.query("##{search}") |> LazyHTML.text()
-    assert card =~ "Search for earlier work"
+    assert card =~ "Search for related history"
     assert card =~ "5 found, 2 offered"
     assert card =~ "Public channels Ryker is in: 3 conversations"
-    assert card =~ "5 found, 2 offered to routing · 3 left out (shortlist limit)"
+
+    assert card =~
+             "5 found, 2 offered to routing as Related history · 3 left out (shortlist limit)"
+
     assert card =~ "1 learned topic left out to fit"
 
     # Each of the four searches is its own line with what it found, even the
