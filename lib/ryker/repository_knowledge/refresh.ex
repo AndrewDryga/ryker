@@ -5,10 +5,10 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
 
   Ryker rewrites a document it wrote from a model's reading only once the
   default branch moved since that write, and then only when a file that
-  describes how to work in the repository changed (a README, AGENTS.md,
-  CLAUDE.md, a Makefile, mix.exs, go.mod, package.json or a CI workflow), or
-  when a week has passed since the write and any code changed. A model turn
-  reads the whole repository, so a push that touches none of that costs
+  describes how to work in the repository changed (a key file, as the
+  prompt shows the model: `Ryker.RepositoryKnowledge.Document.key_file?/1`),
+  or when a week has passed since the write and any code changed. A model
+  turn reads the whole repository, so a push that touches none of that costs
   nothing.
 
   A repository whose RYKER.md is missing, an outline, or the file-list summary
@@ -19,8 +19,6 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
 
   alias Ryker.RepositoryKnowledge.Document
 
-  @key_names ~w(AGENTS.md CLAUDE.md Makefile mix.exs go.mod package.json)
-  @vendored ~w(node_modules vendor deps _build third_party)
   @stale_after_seconds 7 * 86_400
 
   @typedoc """
@@ -85,7 +83,7 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
         {:write, "The default branch changed more than GitHub can list."}
 
       {:ok, paths} ->
-        key = Enum.filter(paths, &key_file?/1)
+        key = Enum.filter(paths, &Document.key_file?/1)
 
         cond do
           key != [] ->
@@ -105,21 +103,6 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
 
   defp week_old?(%{at: %DateTime{} = at}, now), do: DateTime.diff(now, at) >= @stale_after_seconds
   defp week_old?(_written, _now), do: true
-
-  @doc """
-  Whether a changed path is one of the files that say how to work in the
-  repository: a README, AGENTS.md, CLAUDE.md, a Makefile, mix.exs, go.mod or
-  package.json anywhere outside vendored code, or a CI workflow.
-  """
-  @spec key_file?(String.t()) :: boolean()
-  def key_file?(path) do
-    segments = String.split(path, "/")
-    name = List.last(segments)
-
-    String.starts_with?(path, ".github/workflows/") or
-      (not Enum.any?(segments, &(&1 in @vendored)) and
-         (String.starts_with?(String.upcase(name), "README") or name in @key_names))
-  end
 
   @doc "Whether a changed path is anything but RYKER.md itself, which Ryker writes."
   @spec code?(String.t()) :: boolean()
