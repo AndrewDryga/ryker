@@ -116,7 +116,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     selected = selected_id(params["item"])
 
     query =
-      if selected && kind == "knowledge",
+      if selected && kind in ["knowledge", "context"],
         do: from(item in query, where: item.id == ^selected),
         else: query
 
@@ -329,6 +329,11 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   @doc "Where one learned topic opens: its full text, history and sources."
   def topic_path(id), do: "/memory/learned?" <> URI.encode_query(%{"item" => id})
+
+  @doc "Where one conversation summary's page is."
+  @spec summary_path(String.t()) :: String.t()
+  def summary_path(id),
+    do: "/memory/learned?" <> URI.encode_query(%{"kind" => "context", "item" => id})
 
   defp source_path(_kind, _id, 0), do: nil
 

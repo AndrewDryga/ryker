@@ -276,6 +276,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  items: [
                    %{
                      ref: "summary:one",
+                     path: "/memory/learned?item=summary-one&kind=context",
                      title: "database",
                      text: "Replication is stalled",
                      groups: [{"Decisions", ["Fail over"]}],
@@ -427,6 +428,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             page: 1,
             pages: 1,
             q: params["q"] || "",
+            tone: FeedbackProjection.tone(params["tone"]),
             total: 0
           }
         end,

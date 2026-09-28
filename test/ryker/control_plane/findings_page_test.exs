@@ -236,6 +236,10 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
            |> LazyHTML.query("#finding-facts a[href='/timeline/episode%3Aone#event-record-1']")
            |> LazyHTML.text() == "Open the investigation"
 
+    # Evidence reads in the page's flow, not boxed with 52px of empty space
+    # above it, as a section straight under the page was (2026-09-28).
+    assert page |> LazyHTML.query("div.memory-view > section#evidence") |> Enum.count() == 1
+
     assert page |> LazyHTML.query("#evidence .entity-row") |> LazyHTML.text() =~
              "Retry counter climbed to 3"
 

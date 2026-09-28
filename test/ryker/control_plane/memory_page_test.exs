@@ -442,36 +442,51 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
                "No conversation summaries yet"
     end
 
-    test "a conversation summary shows its decisions and open work and never promises recall it cannot give" do
+    # Andrew, 2026-09-28, of the summaries list: "you forgot about those when
+    # working on design?!" Each summary printed whole, with its decisions and
+    # open work. The list is one row each; the rest is on the summary's page.
+    test "a conversation summary is one row in the list and a page with its decisions and open work" do
       document = learned(%{@learned | kind: "context", items: [@summary]})
       row = LazyHTML.query(document, "article#summary-summary-1")
-      assert LazyHTML.query(row, ".memory-summary-label") |> LazyHTML.text() =~ "Decisions"
 
-      assert LazyHTML.query(row, ".memory-summary-groups li") |> LazyHTML.text() =~
+      assert row |> LazyHTML.query("h3.entity-name a") |> LazyHTML.attribute("href") ==
+               ["/memory/learned?item=summary-1&kind=context"]
+
+      assert Enum.empty?(LazyHTML.query(row, ".memory-summary-groups, details, form, button"))
+      assert LazyHTML.query(row, ".entity-text") |> LazyHTML.text() =~ "Validating the nightly"
+
+      page = learned(%{@learned | kind: "context", selected: "summary-1", items: [@summary]})
+
+      assert LazyHTML.query(page, ".memory-summary-label") |> Enum.map(&LazyHTML.text/1) ==
+               ["Decisions", "Open work"]
+
+      assert LazyHTML.query(page, ".memory-summary-groups li") |> LazyHTML.text() =~
                "Run at 02:00 UTC"
 
-      assert LazyHTML.query(row, ".entity-meta") |> LazyHTML.text() =~ "Kept until"
+      facts = page |> LazyHTML.query("#summary-facts")
+      assert LazyHTML.text(facts) =~ "Kept until"
 
-      assert LazyHTML.query(row, ".entity-meta a[href='/timeline/episode%3Aone']")
-             |> LazyHTML.text() == "Open request"
+      assert LazyHTML.query(facts, "a[href='/timeline/episode%3Aone']") |> LazyHTML.text() ==
+               "Open request"
+
+      assert LearnedPage.heading(%{kind: "context", selected: "summary-1", items: [@summary]}).back ==
+               {"All summaries", "/memory/learned?kind=context"}
 
       for {warning, words, retention} <- [
             {:missing_source_history, "no complete record", "No automatic expiry"},
-            {:invalid_source_history, "is invalid", "Expiry unknown"}
+            {:invalid_source_history, "is invalid", "Unknown"}
           ] do
-        row =
-          learned(%{
-            @learned
-            | kind: "context",
-              items: [%{@summary | recall_warning: warning, expires_at: nil}]
-          })
-          |> LazyHTML.query("article#summary-summary-1")
+        item = %{@summary | recall_warning: warning, expires_at: nil}
 
-        assert LazyHTML.query(row, ".state-word[data-tone=warn]") |> LazyHTML.text() == "Not used"
-        assert LazyHTML.query(row, ".memory-note") |> LazyHTML.text() =~ words
-        meta = LazyHTML.query(row, ".entity-meta") |> LazyHTML.text()
-        assert meta =~ retention
-        refute meta =~ "Kept until"
+        state =
+          learned(%{@learned | kind: "context", items: [item]})
+          |> LazyHTML.query("article#summary-summary-1 .state-word[data-tone=warn]")
+
+        assert LazyHTML.text(state) == "Not used"
+
+        page = learned(%{@learned | kind: "context", selected: "summary-1", items: [item]})
+        assert LazyHTML.query(page, ".memory-note") |> LazyHTML.text() =~ words
+        assert LazyHTML.query(page, "#summary-facts") |> LazyHTML.text() =~ retention
       end
     end
 

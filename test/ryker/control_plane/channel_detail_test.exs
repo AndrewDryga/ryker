@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     Actions,
     Activity,
     ChannelDetail,
+    ConversationMemory,
     Endpoint,
     HTML,
     LearningActivity,
@@ -782,25 +783,26 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       refute Map.has_key?(item, :state)
       refute inspect(item) =~ "must-not-render"
 
+      # Andrew, 2026-09-28: no collapsibles in lists. The row says what the
+      # summary is about and opens its page; decisions, open work and the
+      # maintenance error are read there.
       html = page("/channels/T123/C456")
       document = LazyHTML.from_document(html)
       section = LazyHTML.query(document, "#summaries")
       text = LazyHTML.text(section)
       assert text =~ "database"
       assert text =~ "Replication is stalled on the primary"
-      assert text =~ "Fail over to the replica"
-      assert text =~ "Confirm the backup finished"
-      assert text =~ LearningActivity.error("source_capacity")
       assert text =~ "recalled 3 times"
       assert text =~ "ryker"
-      hrefs = section |> LazyHTML.query("a") |> LazyHTML.attribute("href")
-      assert item.request_path in hrefs
-      assert item.source in hrefs
+      assert Enum.empty?(LazyHTML.query(section, "details"))
+
+      assert section |> LazyHTML.query("h3.entity-name a") |> LazyHTML.attribute("href") ==
+               [ConversationMemory.summary_path(summary.id)]
+
       refute html =~ "must-not-render-dependency"
       refute html =~ String.duplicate("a", 64)
-      # The ref stays reachable, but it is not the heading.
+      # The ref names the row, never its heading.
       refute section |> LazyHTML.query("h3") |> LazyHTML.text() =~ summary.ref
-      assert html =~ summary.ref
     end
 
     test "learned knowledge for the exact conversation shows its topic, state and history link" do
