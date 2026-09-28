@@ -724,10 +724,8 @@ defmodule Ryker.CoopFleet.ClientTest do
       descriptor: checkpoint,
       bundle_sha256: checkpoint["bundle"]["sha256"],
       bundle_byte_size: byte_size(bundle),
-      encryption_key_sha256: String.duplicate("a", 64),
-      encryption_nonce: :binary.copy(<<1>>, 12),
-      encryption_tag: :binary.copy(<<2>>, 16),
-      ciphertext: :binary.copy(<<3>>, byte_size(bundle))
+      body_command_id: command.id,
+      encryption_key_sha256: String.duplicate("a", 64)
     }
     |> Repo.insert!()
 

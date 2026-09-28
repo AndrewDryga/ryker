@@ -106,7 +106,8 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
     {checkpoint, bundle}
   end
 
-  # Historical PostgreSQL rows remain readable, but production has no GCM writer.
+  # The columns of a version 1 checkpoint kept in PostgreSQL, the only kind of
+  # row without a body file. Ryker no longer reads or writes them.
   def seal_historical(key, checkpoint, bundle) do
     nonce = :crypto.strong_rand_bytes(12)
 

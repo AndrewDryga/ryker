@@ -68,10 +68,10 @@ defmodule Ryker.CoopFleet.ControlPlane do
   means the offer is a promise the fleet cannot keep, and the operator would
   lose the working copy by accepting it.
   """
-  @spec portable_workspace(Session.t(), map()) ::
+  @spec portable_workspace(Session.t(), map(), String.t()) ::
           %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
           | nil
-  defdelegate portable_workspace(session, requirements, body_root \\ nil), to: Placements
+  defdelegate portable_workspace(session, requirements, body_root), to: Placements
 
   @spec enqueue_command(Ecto.UUID.t(), String.t(), map(), String.t()) ::
           {:ok, Command.t()} | {:error, term()}

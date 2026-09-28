@@ -699,40 +699,14 @@ defmodule Ryker.CoopFleet.RouterTest do
     assert download.status == 200
     assert download.resp_body == bundle
 
-    # Existing installations retain their historical GCM rows; only new writes
-    # use the encrypted file store. Restore upgrades custody without plaintext disk.
-    sealed =
-      WorkspaceCheckpointFixture.seal_historical(options[:checkpoint_key], checkpoint, bundle)
-
-    transfer |> Ecto.Changeset.change(Map.put(sealed, :body_command_id, nil)) |> Repo.update!()
-
-    assert {:ok, historical_restore} =
-             ControlPlane.enqueue_command(
-               placement.id,
-               "ensure_workspace",
-               restore.payload,
-               "restore:historical:#{Ecto.UUID.generate()}"
-             )
-
-    assert :ok = Checkpoints.prepare_restore(historical_restore, options)
-
-    assert {:ok, historical_body, _} =
-             Bodies.fetch(options[:body_root], historical_restore.id, :request)
-
-    assert {:ok, ^bundle} =
-             Bodies.read(
-               historical_body,
-               options[:checkpoint_key],
-               byte_size(bundle)
-             )
-
     changed = put_in(response, ["checkpoint", "candidate_tree_sha256"], String.duplicate("a", 64))
 
     assert {:error, :checkpoint_not_authorized} =
              Checkpoints.capture(command.session_id, command.idempotency_key, changed, options)
 
-    # Historical encryption is still readable, but v1 content cannot reconstruct
-    # complete Git/LFS history. Refuse before copying or offering it for recovery.
+    # A version 1 checkpoint, kept in PostgreSQL before checkpoints became
+    # encrypted files, cannot reconstruct complete Git/LFS history. Refuse it
+    # before copying or offering it for recovery.
     {legacy, legacy_bundle} =
       WorkspaceCheckpointFixture.build(%{
         version: 1,

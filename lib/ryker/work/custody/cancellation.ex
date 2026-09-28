@@ -361,13 +361,17 @@ defmodule Ryker.Work.Custody.Cancellation do
   def completed_workspace_recoverable(_turn), do: :ok
 
   @doc false
-  @spec portable_workspace(Turn.t()) ::
+  @spec portable_workspace(Turn.t(), keyword()) ::
           %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
           | nil
-  def portable_workspace(%Turn{status: :blocked, session_id: session_id})
+  def portable_workspace(turn, options \\ [])
+
+  def portable_workspace(%Turn{status: :blocked, session_id: session_id}, options)
       when is_binary(session_id) do
     with %Session{} = session <- Repo.get(Session, session_id),
          workspace_ref when is_binary(workspace_ref) <- Settings.worker_workspace_ref() do
+      storage_root = Keyword.get_lazy(options, :storage_root, &Ryker.Bootstrap.storage_root!/0)
+
       FleetControlPlane.portable_workspace(
         session,
         %{
@@ -376,14 +380,14 @@ defmodule Ryker.Work.Custody.Cancellation do
           repository_ref: session.repository_ref,
           workspace_ref: workspace_ref
         },
-        Path.join(Ryker.Bootstrap.storage_root!(), "worker-bodies")
+        Path.join(storage_root, "worker-bodies")
       )
     else
       _unavailable -> nil
     end
   end
 
-  def portable_workspace(_turn), do: nil
+  def portable_workspace(_turn, _options), do: nil
 
   defp resumed_episode(%{episode: episode}), do: {:ok, episode}
 
