@@ -4,6 +4,121 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   alias Ryker.InspectionRedactor
   alias Ryker.StateTools.FixedTools
 
+  # Andrew, 2026-09-28, of a Work briefing's Related outcomes: it dumped every
+  # stored field, "Not supplied", refs, Slack's block JSON and ISO times, six
+  # outcomes some 19,000 pixels tall. Each outcome now reads as what was
+  # asked, by whom and when, what Ryker answered, and how it ended.
+  test "a related outcome reads as what was asked and what Ryker answered, not its stored fields" do
+    outcome = %{
+      "blocker" => nil,
+      "episode_ref" => "1c2f27cb-67dd-47cd-bd82-02ef378fc3d4",
+      "finished_at" => "2026-09-28T04:32:29.752010Z",
+      "records" => [],
+      "result" => %{
+        "decision_reason" => nil,
+        "delivery" => "reply",
+        "message" => "Yes, Emisar access is available now: *two* runners.",
+        "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+      },
+      "source_event_ref" => "a0ca5e83-237c-4fec-bd23-bdede7fa1a9e",
+      "source_turn_ref" => "66b851e0-8516-4ccf-9079-f885c13f3a47",
+      "state" => "complete",
+      "trigger" => %{
+        "actor" => %{"kind" => "user", "ref" => "U0BHTNFCW6S"},
+        "content" => %{
+          "blocks" => [%{"block_id" => "w0344", "type" => "rich_text"}],
+          "subtype" => nil,
+          "text" => "And now?"
+        },
+        "occurred_at" => "2026-09-28T04:29:46.896249Z",
+        "source" => %{"kind" => "slack", "ref" => "T0BHXKZJVDX"}
+      },
+      "verified" => false
+    }
+
+    document =
+      %{
+        "related_outcomes" => [
+          outcome,
+          %{outcome | "state" => "blocked", "blocker" => "The worker stopped."}
+        ]
+      }
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "outcomes")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    [finished, stopped] = document |> LazyHTML.query(".context-outcome") |> Enum.to_list()
+
+    assert LazyHTML.query(finished, "h4") |> LazyHTML.text() == "And now?"
+    assert LazyHTML.query(finished, "time") |> LazyHTML.text() == "finished 28 Sep, 04:32:29 UTC"
+    assert LazyHTML.query(finished, ".candidate-outcome") |> LazyHTML.text() == "Finished"
+
+    assert finished |> LazyHTML.query("dt") |> Enum.map(&LazyHTML.text/1) == [
+             "Asked",
+             "Ryker answered"
+           ]
+
+    assert LazyHTML.query(finished, ".candidate-message-meta") |> LazyHTML.text() =~
+             "28 Sep, 04:29:46 UTC"
+
+    assert LazyHTML.query(finished, ".markdown-preview strong") |> LazyHTML.text() == "two"
+    assert LazyHTML.text(stopped) =~ "Stopped: The worker stopped."
+
+    all = LazyHTML.text(document)
+
+    for plumbing <- [
+          "Not supplied",
+          "1c2f27cb",
+          "a0ca5e83",
+          "rich_text",
+          "w0344",
+          "2026-09-28T04"
+        ],
+        do: refute(all =~ plumbing, plumbing)
+  end
+
+  # "Other fields · $.work.connected" showed what the Work was told is
+  # connected as raw JSON, and routing's repository choices the same way.
+  test "connected services and repository choices have rows of their own, in words" do
+    work =
+      %{
+        "connected" => %{
+          "emisar" => true,
+          "github" => true,
+          "repositories" => ["andrewdryga-emisar"],
+          "slack" => true
+        }
+      }
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "connected")
+      |> IO.iodata_to_binary()
+      |> html_text()
+
+    refute work =~ "Other fields"
+    assert work =~ "Connected services"
+    assert work =~ "Slack, GitHub and Emisar were connected."
+    # Without the database the repository keeps its ref.
+    assert work =~ "Repositories it can reach: andrewdryga-emisar"
+
+    routing =
+      %{
+        "repository_choices" => [
+          %{"description" => "AndrewDryga/emisar", "ref" => "andrewdryga-emisar"},
+          %{"description" => "AndrewDryga/test", "ref" => "andrewdryga-test"}
+        ]
+      }
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.context", "choices")
+      |> IO.iodata_to_binary()
+      |> html_text()
+
+    refute routing =~ "Other fields"
+    assert routing =~ "Repositories to choose from"
+    assert routing =~ "AndrewDryga/emisar"
+    refute routing =~ "andrewdryga-test"
+  end
+
   test "retained Work history exposes its messages, limits and summary availability" do
     # The live Work card hid all eleven retained messages and both summaries
     # because their bundle/manifest envelope differs from routing's flat shape.
@@ -1508,4 +1623,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       "version" => 2
     }
   end
+
+  defp html_text(html),
+    do: html |> LazyHTML.from_fragment() |> LazyHTML.text() |> String.split() |> Enum.join(" ")
 end
