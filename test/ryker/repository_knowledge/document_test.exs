@@ -157,6 +157,52 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
     refute Document.cited?("./run help", "AGENTS.md", nil)
   end
 
+  # Review of the knowledge lane, 2026-09-28: a command counted as written
+  # wherever its words appeared, inside other words or as the start of
+  # other ones, so `npm install` was cited by a README that says
+  # `pnpm install`, and `make` by "make sure". A command counts only where
+  # it stands on its own: nothing runs into its start, and it ends there.
+  test "a command is cited only where it stands on its own" do
+    readme = """
+    # Widget
+
+    Make sure Docker is running, and make sure its ports are free.
+
+    Install the dependencies with `pnpm install`, then run every gate:
+
+    ```sh
+    make dev-check-all   # the whole gate
+    ```
+
+        ./run serve
+    """
+
+    refute Document.cited?("npm install", "README.md", readme)
+    assert Document.cited?("pnpm install", "README.md", readme)
+    refute Document.cited?("make", "README.md", readme)
+    refute Document.cited?("make dev-check", "README.md", readme)
+    assert Document.cited?("make dev-check-all", "README.md", readme)
+    assert Document.cited?("./run serve", "README.md", readme)
+    assert Document.cited?("make", "docs/BUILD.md", "Run `make` to build it.\n")
+
+    # The same in any file: a workflow and its comments.
+    workflow = """
+    jobs:
+      test:
+        steps:
+          # make sure the cache is warm
+          - run: pnpm install
+          - run: make test && make lint
+    """
+
+    refute Document.cited?("npm install", ".github/workflows/ci.yml", workflow)
+    refute Document.cited?("make", ".github/workflows/ci.yml", workflow)
+    assert Document.cited?("pnpm install", ".github/workflows/ci.yml", workflow)
+    assert Document.cited?("make test", ".github/workflows/ci.yml", workflow)
+    assert Document.cited?("make lint", ".github/workflows/ci.yml", workflow)
+    assert Document.cited?("make test", "docs/TESTING.md", "Before a push, run make test.\n")
+  end
+
   # PR 84's RYKER.md is what setup wrote for emisar and what its default
   # branch holds now: a refresh has to know it for the old summary it is.
   test "a document says who wrote it" do
