@@ -1,0 +1,941 @@
+name: CI
+
+# Reusable validation for pull requests and main-branch delivery. CD calls this
+# exact file from the same commit, so the image it publishes is the image these
+# jobs built and smoke-tested. The `changes` job computes which areas the diff
+# touches with plain git (no third-party path-filter action to trust), and each
+# area job runs only when selected.
+#
+# Two properties this buys over per-workflow `paths:` filters:
+#
+#   * A skipped area REPORTS as a skipped job, so if a check is ever marked
+#     required under branch protection, an untouched area satisfies it —
+#     with `paths:` the workflow never runs and the required check hangs
+#     "Expected" forever.
+#   * One file owns the CI security posture instead of six copies.
+#
+# Security posture (carried over from the workflows this replaces):
+#
+#   * GITHUB_TOKEN is read-only. Delivery permissions and secrets exist only in
+#     cd.yml; pull-request code cannot reach them.
+#   * `actions/checkout` always runs with `persist-credentials: false`.
+#   * Every action — first-party included — is pinned to a full commit SHA
+#     (the version tag rides along as a comment); an org-level setting
+#     enforces this repo-wide.
+#   * External tools (terraform, tflint, actionlint) are installed at a
+#     pinned version AND checksum-verified before use; Go tools are
+#     version-pinned `go install`s.
+#   * Caches key on lockfiles; a PR's cache writes are ref-scoped by GitHub
+#     Actions, so a malicious PR can't poison what main restores.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+    outputs:
+      packs_release:
+        description: Whether CD must publish the pack registry.
+        value: ${{ jobs.changes.outputs.packs_release }}
+
+# Cancel obsolete PR revisions. A reusable main call uses its caller's run ID,
+# so separate CD runs never cancel one another.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Select checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GOTOOLCHAIN: local
+    outputs:
+      portal: ${{ steps.detect.outputs.portal }}
+      mcp: ${{ steps.detect.outputs.mcp }}
+      runner: ${{ steps.detect.outputs.runner }}
+      packs: ${{ steps.detect.outputs.packs }}
+      infra: ${{ steps.detect.outputs.infra }}
+      deps: ${{ steps.detect.outputs.deps }}
+      mcp_listing: ${{ steps.detect.outputs.mcp_listing }}
+      go_modules: ${{ steps.detect.outputs.go_modules }}
+      portal_release: ${{ steps.detect.outputs.portal_release }}
+      packs_release: ${{ steps.detect.outputs.packs_release }}
+      runner_image: ${{ steps.detect.outputs.runner_image }}
+      pack_behavior: ${{ steps.detect.outputs.pack_behavior }}
+      signing_e2e: ${{ steps.detect.outputs.signing_e2e }}
+      sso_e2e: ${{ steps.detect.outputs.sso_e2e }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history: PR diffs use the merge-base, push diffs the
+          # pushed-over commit.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/go.mod
+          cache: true
+          cache-dependency-path: tools/go.*
+
+      - id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: go run ./tools/cmd/ci select "$EVENT" "$BASE"
+
+  portal:
+    name: Portal - Test
+    needs: changes
+    if: needs.changes.outputs.portal == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        # Track prod's Cloud SQL major (POSTGRES_18, infra/database.tf) so the
+        # suite runs against what production runs.
+        image: &postgres-image postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: emisar_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: portal
+
+    env:
+      MIX_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@localhost/emisar_test
+      # Hex's native release-age cooldown (hex >= 2.5). Mostly a no-op here —
+      # lock-pinned versions bypass it by design — but any resolution CI does
+      # perform can't pick up a release younger than the policy window. The
+      # dep-age job enforces the same windows on the lock diff itself.
+      HEX_COOLDOWN: 7d
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The canonical gate compares committed migrations against the PR
+          # merge-base or the push's before-SHA.
+          fetch-depth: 0
+
+      - name: Set up Erlang and Elixir
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          # Pinned in /.tool-versions (repo root) — the single source of
+          # truth shared with local asdf, so CI can't drift from dev.
+          # setup-beam resolves version-file against GITHUB_WORKSPACE and
+          # requires version-type: strict.
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/go.mod
+          cache: true
+          cache-dependency-path: tools/go.*
+
+      - name: Restore Elixir build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            portal/deps
+            portal/_build
+          key: ${{ runner.os }}-${{ runner.arch }}-mix-${{ hashFiles('.tool-versions', 'portal/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-mix-
+
+      # The key follows the lockfile, so the restored _build can hold the
+      # umbrella apps compiled at any earlier commit. Elixir's type checker then
+      # reads a module the change left untouched with its stale inferred types
+      # and can reject fresh code (a live clause reported as never used). Keep
+      # the dependency builds; compile the project itself from scratch.
+      - name: Drop cached project builds
+        run: rm -rf _build/test/lib/emisar _build/test/lib/emisar_web
+
+      - name: Install Hex and Rebar
+        env:
+          HEX_VERSION: "2.5.1"
+          REBAR3_VERSION: "3.27.0"
+          REBAR3_SHA512: 0d00494d849fdc521a55142278d1f6ba552954fbd65b80d40df8022f594f05d6c99ed1d731bc263691a04176e11d4c6e126c56ba20dca19c5e42d4ffab2e7e36
+        # The tooling gate's release-toolchain phase holds portal/Dockerfile's ARG
+        # defaults to these pins, and a Dockerfile change selects that gate.
+        run: |
+          set -euo pipefail
+          mix local.hex "$HEX_VERSION" --force
+          curl -fsSL "https://github.com/erlang/rebar3/releases/download/${REBAR3_VERSION}/rebar3" -o /tmp/rebar3
+          printf '%s  %s\n' "$REBAR3_SHA512" /tmp/rebar3 | sha512sum --check --
+          mix local.rebar rebar3 /tmp/rebar3 --force
+
+      - name: Fetch locked dependencies
+        run: mix deps.get --check-locked
+
+      - name: Run the canonical Portal gate
+        # Uses the CI-provided Postgres service. The same command starts
+        # workspace-isolated dependencies automatically outside CI. The
+        # dependency audit, Phoenix security scan, and compile-cycle budget
+        # run inside this gate so a green local run means a green job.
+        run: ../run gate portal
+
+  mcp-listing:
+    name: Portal - MCP Registry Listing
+    needs: changes
+    if: needs.changes.outputs.mcp_listing == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/go.mod
+          cache: true
+          cache-dependency-path: tools/go.*
+
+      # CI-only: validates the published registry contract with the registry's
+      # own publisher binary, which is fetched per run rather than vendored.
+      - name: Validate registry listing
+        run: |
+          set -euo pipefail
+          go run ./tools/cmd/ci install-mcp-publisher ./mcp-publisher
+          ./mcp-publisher validate server.json
+
+  portal-image:
+    name: Portal - Image
+    needs: changes
+    if: needs.changes.outputs.portal == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: *postgres-image
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: emisar_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Build release image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: portal/Dockerfile
+          load: true
+          tags: emisar/portal:ci
+          build-args: |
+            SOURCE_REVISION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=portal-release
+          cache-to: type=gha,mode=max,scope=portal-release
+
+      # CI-only: boots the image this run built against the job's Postgres
+      # service. The gate has neither.
+      - name: Smoke-test release image
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost/emisar_smoke
+          SECRET_KEY_BASE: smoke-key-base-64-chars-of-non-secret-text-aaaaaaaaaaaaaaaaaaaaaaa
+          PHX_HOST: localhost
+          PORT: "4000"
+          EMISAR_DISABLE_BILLING: "1"
+          # A production build refuses to boot without a mail provider; this one
+          # has none on purpose.
+          EMISAR_DISABLE_MAIL: "1"
+          # Validate the catalog bundled in this image. The published pointer can
+          # still name the previous pack version until CD publishes this commit.
+          EMISAR_PACK_CATALOG_URL: ""
+          EMISAR_SSO_ALLOWED_IDP_HOSTS: "private-idp.invalid:8443"
+          ELIXIR_ERL_OPTIONS: "-emisar_web dev_routes true"
+          ERL_AFLAGS: "-emisar_web dev_routes true"
+          FORCE_SSL: "false"
+        run: |
+          set -euo pipefail
+
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres \
+            -c 'CREATE DATABASE emisar_smoke;' >/dev/null
+
+          docker run --rm --network host \
+            -e DATABASE_URL -e SECRET_KEY_BASE -e PHX_HOST \
+            -e EMISAR_DISABLE_BILLING -e EMISAR_DISABLE_MAIL -e EMISAR_PACK_CATALOG_URL -e FORCE_SSL \
+            emisar/portal:ci /app/bin/emisar eval 'Emisar.Release.migrate()'
+
+          # config.exs sets enable_source_code_context, but Sentry reads a
+          # PACKAGED sentry.map rather than root_source_code_paths at runtime.
+          # The Dockerfile task that writes it is easy to drop, and the symptom
+          # is silent: every stack frame simply arrives with no source. Assert
+          # the release can actually load the map, not just that a file exists.
+          docker run --rm --network host \
+            -e DATABASE_URL -e SECRET_KEY_BASE -e PHX_HOST \
+            -e EMISAR_DISABLE_BILLING -e EMISAR_DISABLE_MAIL -e EMISAR_PACK_CATALOG_URL -e FORCE_SSL \
+            emisar/portal:ci /app/bin/emisar eval '
+              case Sentry.Sources.load_source_code_map_if_present() do
+                {:loaded, map} when map_size(map) > 0 -> :ok
+                other -> raise "Sentry source map missing from the release: #{inspect(other)}"
+              end'
+
+          cid=$(docker run -d --network host \
+            -e DATABASE_URL -e SECRET_KEY_BASE -e PHX_HOST -e PORT \
+            -e EMISAR_DISABLE_BILLING -e EMISAR_DISABLE_MAIL -e EMISAR_PACK_CATALOG_URL \
+            -e EMISAR_SSO_ALLOWED_IDP_HOSTS -e ELIXIR_ERL_OPTIONS \
+            -e ERL_AFLAGS -e FORCE_SSL \
+            emisar/portal:ci)
+
+          cleanup() {
+            rc=$?
+            trap - EXIT
+            if [ "$rc" -ne 0 ]; then
+              echo "::group::Portal container logs"
+              docker logs "$cid" 2>&1 | tail -80
+              echo "::endgroup::"
+            fi
+            docker rm -f "$cid" >/dev/null 2>&1 || true
+            exit "$rc"
+          }
+          trap cleanup EXIT
+
+          health_error=/tmp/emisar-healthz-error
+          for i in $(seq 1 30); do
+            if curl -fsS -H 'x-forwarded-proto: https' http://localhost:4000/healthz \
+              >/dev/null 2>"$health_error"; then
+              echo "healthz OK after ~${i}s"
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "::error::Portal image did not become healthy within 60 seconds"
+              sed 's/^/last health probe: /' "$health_error"
+              exit 1
+            fi
+            sleep 2
+          done
+
+          curl -fsS -H 'x-forwarded-proto: https' http://localhost:4000/readyz >/dev/null || {
+            echo "::error::Portal image is live but not ready to serve database-backed traffic"
+            exit 1
+          }
+          echo "readyz OK"
+
+          for endpoint in healthz readyz; do
+            curl -fsS -H 'x-forwarded-proto: https' "http://localhost:4000/${endpoint}" \
+              | jq -e '.status == "ok"' >/dev/null || {
+                  echo "::error::${endpoint} does not report status ok"
+                  exit 1
+                }
+          done
+          echo "health status OK"
+
+          # The Git revision is baked into the image and deliberately withheld from
+          # the anonymous health body (the repo is public), so verify it from the
+          # image itself rather than over HTTP.
+          baked_revision=$(docker exec "$cid" cat /app/REVISION | tr -d '[:space:]')
+          test "$baked_revision" = "$GITHUB_SHA" || {
+            echo "::error::baked revision ${baked_revision} does not match tested ${GITHUB_SHA}"
+            exit 1
+          }
+          echo "release revision OK"
+
+          docker exec "$cid" /app/bin/emisar rpc \
+            'case Application.fetch_env!(:emisar, :sso_allowed_idp_hosts) do
+               [] -> :ok
+               _ -> raise "production release accepted private IdP hosts"
+             end'
+
+          portal_logs=$(docker logs "$cid" 2>&1)
+          warning="EMISAR_SSO_ALLOWED_IDP_HOSTS is ignored outside development and test builds"
+          warning_count=$(printf '%s\n' "$portal_logs" | grep -Fc "$warning" || true)
+          if [ "$warning_count" -lt 1 ]; then
+            echo "::error::Expected an ignored private-IdP warning"
+            exit 1
+          fi
+          if printf '%s\n' "$portal_logs" | grep -Fq "$EMISAR_SSO_ALLOWED_IDP_HOSTS"; then
+            echo "::error::Private IdP warning leaked the configured endpoint"
+            exit 1
+          fi
+          echo "production private-IdP exemption refused"
+
+          if docker logs "$cid" 2>&1 | grep -Fq '[UNIX-ESSIO] Failed open sctp dynamic library'; then
+            echo "::error::Portal image is missing the SCTP runtime library"
+            exit 1
+          fi
+
+          location=$(curl -fsS -o /dev/null -w '%{redirect_url}' \
+            -H 'x-forwarded-proto: https' \
+            http://localhost:4000/packs/linux-core/pack.tar.gz)
+          pack_version=$(awk -F': ' '$1 == "version" {gsub(/"/, "", $2); print $2; exit}' packs/linux-core/pack.yaml)
+          prefix="https://registry.emisar.dev/v1/packs/linux-core/${pack_version}/"
+          object=${location#"$prefix"}
+          hash=${object%/pack.tar.gz}
+          if [ -z "$pack_version" ] || \
+            [ "$location" != "${prefix}${hash}/pack.tar.gz" ] || \
+            ! [[ "$hash" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "::error::Pack endpoint returned an invalid local-catalog redirect: ${location}"
+              exit 1
+          fi
+          curl -fsS -H 'x-forwarded-proto: https' http://localhost:4000/packs.json \
+            | grep -q '"linux-core"' \
+            || { echo "::error::Pack catalog does not contain linux-core"; exit 1; }
+          echo "pack registry endpoints OK"
+
+          docker stop --time 15 "$cid" >/dev/null
+
+      # CI-only: Trivy and the SBOM/export steps below operate on the image
+      # this run built and scan against a live advisory feed. Neither the image
+      # nor the feed exists at gate time.
+      - name: Install Trivy (pinned, checksum-verified)
+        env:
+          TRIVY_VERSION: "0.74.0"
+          TRIVY_SHA256: 2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a
+        run: |
+          set -euo pipefail
+          artifact="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${artifact}"
+          printf '%s  %s\n' "$TRIVY_SHA256" "$artifact" | sha256sum --check --
+          tar -xzf "$artifact" trivy
+          sudo install -m 0755 trivy /usr/local/bin/trivy
+
+      - name: Scan tested image vulnerabilities
+        run: >-
+          trivy image --exit-code 1 --severity HIGH,CRITICAL
+          --ignorefile .trivyignore.yaml emisar/portal:ci
+
+      - name: Generate tested image SBOM
+        run: trivy image --format cyclonedx --output /tmp/emisar-portal.cdx.json emisar/portal:ci
+
+      - name: Export tested image
+        if: github.event_name == 'push' && needs.changes.outputs.portal_release == 'true'
+        run: |
+          set -euo pipefail
+          docker save emisar/portal:ci | gzip -1 > /tmp/emisar-portal-image.tar.gz
+          test -s /tmp/emisar-portal-image.tar.gz
+
+      - name: Upload tested image
+        if: github.event_name == 'push' && needs.changes.outputs.portal_release == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: portal-image-${{ github.sha }}
+          path: /tmp/emisar-portal-image.tar.gz
+          retention-days: 2
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Upload tested image SBOM
+        if: github.event_name == 'push' && needs.changes.outputs.portal_release == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: portal-sbom-${{ github.sha }}
+          path: /tmp/emisar-portal.cdx.json
+          retention-days: 2
+          if-no-files-found: error
+          overwrite: true
+
+  go:
+    name: Go - ${{ matrix.module == 'runner' && 'Runner' || matrix.module == 'mcp' && 'MCP' || 'Tools' }}
+    needs: changes
+    if: needs.changes.outputs.go_modules != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.changes.outputs.go_modules) }}
+    env:
+      # Native toolchain pin: a go.mod/go.work `toolchain` directive in a
+      # malicious bump could otherwise make the go command download and run a
+      # remote toolchain; `local` locks CI to the setup-go-installed one.
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The tooling gate compares dependency manifests with origin/main.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache: true
+          # Every gate enters through the tools-backed root command.
+          cache-dependency-path: |
+            ${{ matrix.module }}/go.*
+            tools/go.*
+
+      - name: Install shell validator
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+
+      - name: Run canonical module gate
+        env:
+          # The runner and MCP gates exercise their public installers. The token
+          # avoids anonymous GitHub API limits without entering curl argv.
+          EMISAR_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # gh reads GH_TOKEN. Without it the installers' Sigstore provenance
+          # check has no authenticated verifier and degrades to a warning, so CI
+          # would only ever exercise the skip branch — the branch a broken
+          # signer pin hides in, since failing to check looks like nothing to
+          # check. Read-only, and the harness asserts which branch ran.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          target="${{ matrix.module }}"
+          if [ "$target" = tools ]; then
+            target=tooling
+          fi
+          ./run gate "$target" --coverage coverage.out
+
+      # CI-only: govulncheck resolves against the live vulnerability database,
+      # so a gate that ran it would fail an unchanged tree the day an advisory
+      # lands — and would need the network on every contributor's machine.
+      - name: Scan known vulnerabilities
+        # govulncheck reports reachable vulnerable symbols, not merely a module
+        # version. A reachable finding in client-shipped security code blocks.
+        working-directory: ${{ matrix.module }}
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          govulncheck ./...
+
+      - name: Summarize coverage
+        if: always()
+        working-directory: ${{ matrix.module }}
+        run: |
+          go tool cover -func=coverage.out | tail -50
+          total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}')
+          echo "**Go - ${{ matrix.module }}** coverage: ${total}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ matrix.module }}-coverage
+          path: ${{ matrix.module }}/coverage.out
+          retention-days: 7
+          overwrite: true
+
+  mcp-windows:
+    name: MCP - Windows (${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.mcp == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: windows-2025
+          - arch: arm64
+            runner: windows-11-arm
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: mcp/go.mod
+          cache: true
+          cache-dependency-path: |
+            mcp/go.*
+            tools/go.*
+
+      - name: Run canonical MCP gate natively
+        shell: bash
+        run: ./run gate mcp
+
+  runner-root:
+    name: Go - Runner (root)
+    needs: changes
+    if: needs.changes.outputs.runner == 'true'
+    runs-on: ubuntu-latest
+    # The supplementary-group test needs uid 0 to seed setgroups(2) and check
+    # that action children lose inherited groups. Elevate the entire suite;
+    # checkout and Go setup use the hosted runner's existing tools.
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: runner/go.mod
+          cache: true
+          cache-dependency-path: |
+            runner/go.*
+            tools/go.*
+
+      - name: Run the runner's privileged executor tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -n -H git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          sudo -n -H env "PATH=$PATH" GOTOOLCHAIN=local \
+            ./run test runner -count=1 -v ./internal/executor/... | tee privileged.log
+          # Require the actual test to pass, including when it is renamed or
+          # accidentally omitted from the suite.
+          grep -q -- '^--- PASS: TestApplyCredential_ClearsSupplementaryGroups ' privileged.log
+
+  runner-image:
+    name: Runner - Image
+    needs: changes
+    if: needs.changes.outputs.runner_image == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: runner/go.mod
+          cache: true
+          cache-dependency-path: runner/go.sum
+
+      - name: Build runner binary
+        # The release image consumes the release job's attested binaries; CI
+        # proves the same Dockerfile assembles and smokes with a from-source
+        # build, so image breakage surfaces on the PR, not on the next tag.
+        working-directory: runner
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          go build -trimpath \
+            -ldflags "-buildid= -s -w -X main.Version=0.0.0-ci" \
+            -o ../dist/image/linux-amd64/emisar .
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Build container image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: runner/release/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: emisar/runner:ci
+          build-contexts: |
+            dist=dist/image
+
+      - name: Smoke-test container image
+        run: runner/release/verify-image.sh emisar/runner:ci 0.0.0-ci
+
+  packs:
+    name: Packs - Validate
+    needs: changes
+    if: needs.changes.outputs.packs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Same toolchain pin as the go job (see its comment).
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: runner/go.mod
+          cache: true
+          cache-dependency-path: |
+            runner/go.sum
+            tools/go.sum
+
+      - name: Validate packs and cross-language hashes
+        run: ./run check packs
+
+      - name: Prove every published host-access recipe
+        run: ./run test pack-access
+
+  pack-behavior:
+    name: Packs - Behavior
+    needs: changes
+    if: needs.changes.outputs.pack_behavior != '[]'
+    uses: ./.github/workflows/pack-behavior-rows.yml
+    with:
+      matrix: ${{ needs.changes.outputs.pack_behavior }}
+
+  signing-e2e:
+    name: E2E - Signed dispatch
+    needs: changes
+    if: needs.changes.outputs.signing_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/go.mod
+          cache: true
+          cache-dependency-path: |
+            runner/go.sum
+            mcp/go.sum
+            tools/go.sum
+
+      - name: Exercise signed dispatch end to end
+        run: ./run e2e signing
+
+  sso-e2e:
+    name: E2E - SSO and SCIM
+    needs: changes
+    if: needs.changes.outputs.sso_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/go.mod
+          cache: true
+          cache-dependency-path: tools/go.*
+
+      - name: Exercise SSO and SCIM end to end
+        run: ./run e2e sso
+
+  infra:
+    name: Terraform - Validate
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TERRAFORM_VERSION: 1.16.2
+      TERRAFORM_SHA256: 0d17011f0c4664539b164b044903d04e296c86c13cb9f28040076c65cfb3985a
+      TFLINT_VERSION: v0.64.0
+      TFLINT_SHA256: cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The infra gate compares trusted release files to their pinned commit.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/go.mod
+          cache: true
+          cache-dependency-path: tools/go.*
+
+      # The infra gate's first phase proves these pins still match .tool-versions,
+      # and it runs in this job seconds later.
+      - name: Install Terraform (pinned, checksum-verified)
+        run: |
+          tmp="$(mktemp -d)" && cd "$tmp"
+          base="https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}"
+          curl -fsSLO "${base}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+          printf '%s  %s\n' "$TERRAFORM_SHA256" "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" | sha256sum --check --
+          unzip -q "terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+          sudo install -m 0755 terraform /usr/local/bin/terraform
+          terraform version
+
+      - name: Install TFLint (pinned, checksum-verified)
+        run: |
+          tmp="$(mktemp -d)" && cd "$tmp"
+          base="https://github.com/terraform-linters/tflint/releases/download/${TFLINT_VERSION}"
+          curl -fsSLO "${base}/tflint_linux_amd64.zip"
+          printf '%s  %s\n' "$TFLINT_SHA256" tflint_linux_amd64.zip | sha256sum --check --
+          unzip -q tflint_linux_amd64.zip
+          sudo install -m 0755 tflint /usr/local/bin/tflint
+          tflint --version
+
+      - name: Install template validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cloud-init shellcheck
+
+      - name: Run canonical Infra gate
+        run: ./run gate infra
+
+  dep-age:
+    name: Dependencies - Release age
+    needs: changes
+    if: needs.changes.outputs.deps == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Need the base commit in history to diff lockfile versions against.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/go.mod
+          cache: true
+          cache-dependency-path: tools/go.*
+
+      - name: Enforce dependency release age
+        # Supply-chain enforcement: reject a bump to a version published more
+        # recently than its release-age window. Dependabot's cooldown only
+        # throttles Dependabot's own PRs; this gate covers supported Hex and Go
+        # manifest changes. Terraform providers deliberately rely on
+        # Dependabot cooldown plus review of the resulting Terraform plan.
+        # PR: diff against the PR base. Push to main: diff against the prior
+        # tip. The gate's own logic is tested by the Go - Tools job whenever
+        # tools/cmd/depgate changes.
+        env:
+          DEP_AGE_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          GOTOOLCHAIN: local
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            DEP_AGE_BASE_REF=$(git merge-base "$DEP_AGE_BASE_REF" HEAD)
+            export DEP_AGE_BASE_REF
+          fi
+          ./run check deps
+
+  ci-gate:
+    name: Required - CI
+    if: always()
+    needs: [changes, portal, portal-image, mcp-listing, go, mcp-windows, runner-root, packs, runner-image, pack-behavior, signing-e2e, sso-e2e, infra, dep-age]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CHANGES: ${{ needs.changes.result }}
+      PORTAL: ${{ needs.portal.result }}
+      SELECT_PORTAL: ${{ needs.changes.outputs.portal }}
+      PORTAL_IMAGE: ${{ needs.portal-image.result }}
+      MCP_LISTING: ${{ needs.mcp-listing.result }}
+      SELECT_MCP_LISTING: ${{ needs.changes.outputs.mcp_listing }}
+      GO: ${{ needs.go.result }}
+      GO_MODULES: ${{ needs.changes.outputs.go_modules }}
+      MCP_WINDOWS: ${{ needs.mcp-windows.result }}
+      SELECT_MCP: ${{ needs.changes.outputs.mcp }}
+      RUNNER_ROOT: ${{ needs.runner-root.result }}
+      SELECT_RUNNER: ${{ needs.changes.outputs.runner }}
+      PACKS: ${{ needs.packs.result }}
+      SELECT_PACKS: ${{ needs.changes.outputs.packs }}
+      RUNNER_IMAGE: ${{ needs.runner-image.result }}
+      SELECT_RUNNER_IMAGE: ${{ needs.changes.outputs.runner_image }}
+      PACK_BEHAVIOR: ${{ needs.pack-behavior.result }}
+      SELECT_PACK_BEHAVIOR: ${{ needs.changes.outputs.pack_behavior }}
+      SIGNING_E2E: ${{ needs.signing-e2e.result }}
+      SELECT_SIGNING_E2E: ${{ needs.changes.outputs.signing_e2e }}
+      SSO_E2E: ${{ needs.sso-e2e.result }}
+      SELECT_SSO_E2E: ${{ needs.changes.outputs.sso_e2e }}
+      INFRA: ${{ needs.infra.result }}
+      SELECT_INFRA: ${{ needs.changes.outputs.infra }}
+      DEP_AGE: ${{ needs.dep-age.result }}
+      SELECT_DEP_AGE: ${{ needs.changes.outputs.deps }}
+    steps:
+      - name: Verify selected checks
+        run: |
+          set -euo pipefail
+          test "$CHANGES" = success || { echo "::error::Changes ended $CHANGES"; exit 1; }
+          require_selected() {
+            local gate=$1 selected=$2 result=${!1}
+            # Anything that is not literally true/false means the selection
+            # never reached us — an area added to Selection but forgotten in
+            # WriteSelection's format string yields an empty string here, which
+            # the else-branch below would read as "not selected" and accept a
+            # skipped job. Required - CI is the single required check, so that
+            # silently turns a whole area green.
+            case "$selected" in
+              true|false) ;;
+              *) echo "::error::$gate has no selection value (got '$selected')"; exit 1 ;;
+            esac
+            if [ "$selected" = true ]; then
+              test "$result" = success || {
+                echo "::error::$gate was selected but ended $result"
+                exit 1
+              }
+            else
+              case "$result" in
+                success|skipped) ;;
+                *) echo "::error::$gate ended $result"; exit 1 ;;
+              esac
+            fi
+          }
+          require_selected PORTAL "$SELECT_PORTAL"
+          require_selected PORTAL_IMAGE "$SELECT_PORTAL"
+          require_selected MCP_LISTING "$SELECT_MCP_LISTING"
+          if [ "$GO_MODULES" = '[]' ]; then
+            require_selected GO false
+          else
+            require_selected GO true
+          fi
+          require_selected MCP_WINDOWS "$SELECT_MCP"
+          require_selected RUNNER_ROOT "$SELECT_RUNNER"
+          require_selected PACKS "$SELECT_PACKS"
+          require_selected RUNNER_IMAGE "$SELECT_RUNNER_IMAGE"
+          if [ "$SELECT_PACK_BEHAVIOR" = '[]' ]; then
+            require_selected PACK_BEHAVIOR false
+          else
+            require_selected PACK_BEHAVIOR true
+          fi
+          require_selected SIGNING_E2E "$SELECT_SIGNING_E2E"
+          require_selected SSO_E2E "$SELECT_SSO_E2E"
+          require_selected INFRA "$SELECT_INFRA"
+          require_selected DEP_AGE "$SELECT_DEP_AGE"

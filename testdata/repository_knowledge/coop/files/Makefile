@@ -1,0 +1,227 @@
+# coop — see README.md
+.DEFAULT_GOAL := help
+
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -s -w -X github.com/AndrewDryga/coop/internal/cli.Version=$(VERSION)
+
+# The gate tool pins. CI installs exactly these versions (it reads them from here), and the
+# corresponding targets refuse any other build, so a laptop, a box, and CI cannot silently use
+# different analyzers. Bump them here AND in internal/box/image.go (the box ships the same binaries
+# for the in-box gate); tests in internal/box hold the copies together.
+STATICCHECK_VERSION := v0.7.0
+GOVULNCHECK_VERSION := v1.7.0
+
+build: ## Build the coop binary to ./coop
+	@go build -trimpath -ldflags "$(LDFLAGS)" -o coop .
+
+install: ## Build from source and install to ~/.local/bin/coop
+	@go build -trimpath -ldflags "$(LDFLAGS)" -o "$(HOME)/.local/bin/coop" .
+	@echo "installed $(HOME)/.local/bin/coop ($(VERSION)) — run 'coop build' to build the box image"
+
+test: ## Run unit tests (no container runtime needed)
+	@# -p 4 for the same reason as the race target: every package at once oversubscribes a laptop
+	@# until fixture guards and production grace periods expire in tests that pass alone.
+	@go test -p 4 ./...
+
+cover: ## Run unit tests with a coverage summary
+	@go test -cover ./...
+
+lint: ## gofmt check + go vet + Staticcheck at the pinned version, for Linux and macOS alike
+	@gofmt -l . | (! grep .) || { echo "gofmt: files need formatting (run: gofmt -w .)"; exit 1; }
+# Coop ships Linux and macOS and CI runs Linux, while this gate often runs on a Mac, where a
+# *_linux.go file never compiles: a stale Linux-only test kept CI red for a week while every local
+# gate passed. So each check below covers both platforms, whichever host runs it — with cgo off,
+# which the tree never uses, so the other platform never needs a C toolchain.
+	@for os in linux darwin; do CGO_ENABLED=0 GOOS=$$os go vet ./... || exit 1; done
+# The e2e/live files sit behind build tags, so the pass above never compiles them — a lost cancel
+# lived there unseen. Every tag in the tree in one pass; the untagged pass still covers !cooplivetest.
+	@for os in linux darwin; do CGO_ENABLED=0 GOOS=$$os go vet -tags acpe2e,boxruntimee2e,cooplivetest,networkruntimee2e,providere2e,providerlivee2e,reviewwritee2e ./... || exit 1; done
+	@command -v staticcheck >/dev/null 2>&1 || { echo "staticcheck is not installed — run: go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)"; exit 1; }
+	@staticcheck -version | grep -qF "($(STATICCHECK_VERSION))" || { echo "$$(staticcheck -version) is not the pinned $(STATICCHECK_VERSION) — run: go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)"; exit 1; }
+	@for os in linux darwin; do CGO_ENABLED=0 GOOS=$$os staticcheck ./... || exit 1; done
+
+# Plumbing for CI's install step, which reads the pin from here instead of repeating it.
+staticcheck-version:
+	@echo $(STATICCHECK_VERSION)
+
+govulncheck-version:
+	@echo $(GOVULNCHECK_VERSION)
+
+vuln: ## Report reachable Go vulnerabilities with the pinned govulncheck
+	@command -v govulncheck >/dev/null 2>&1 || { echo "govulncheck is not installed — run: go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)"; exit 1; }
+	@version="$$(govulncheck -version)" || { echo "govulncheck version check failed — run: go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)"; exit 1; }; \
+		scanner="$$(printf '%s\n' "$$version" | sed -n 's/^Scanner: govulncheck@//p')"; \
+		[ "$$scanner" = "$(GOVULNCHECK_VERSION)" ] || { echo "govulncheck@$${scanner:-unknown} is not the pinned $(GOVULNCHECK_VERSION) — run: go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)"; exit 1; }
+	@govulncheck ./...
+
+shellcheck: ## ShellCheck every tracked .sh: the installer, both sweep queue guards, the commit hook
+	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck is not installed — run: brew install shellcheck (macOS) or apt-get install -y shellcheck (Debian)"; exit 1; }
+# The file list comes from git, so a new .sh is covered the moment it is tracked — no list here to
+# forget to update. An empty list means git failed or the tree moved, never "nothing to check":
+# that is the one way a lint silently stops running, so it fails closed.
+	@git ls-files '*.sh' | grep -q . || { echo "shellcheck: no tracked .sh files found — refusing to pass by checking nothing"; exit 1; }
+	@git ls-files -z '*.sh' | xargs -0 shellcheck
+
+# Guard for the python-backed targets: name the fix instead of leaving make to print a bare
+# "python3: No such file or directory". No ## — it's a prerequisite, not something you run.
+require-python3:
+	@command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed — run: brew install python3 (macOS) or apt-get install -y python3 (Debian)"; exit 1; }
+
+# Signing is intentionally skipped: release signatures are keyless (Sigstore via GitHub
+# OIDC), which only exists in the release workflow — a local snapshot validates packaging.
+snapshot: ## Build a local release snapshot with GoReleaser (no publish, no signing)
+	@goreleaser release --snapshot --clean --skip=sign
+
+doctor: build ## Integration check: prove isolation holds (needs a runtime)
+	@./coop doctor
+
+docs: ## Regenerate docs/cli.md + site/llms.txt from internal/cli (help.go is the single source)
+	@go run ./tools/gendocs
+
+docs-check: ## Fail if the committed CLI docs drifted from help.go (run 'make docs' to fix)
+	@go run ./tools/gendocs -check
+
+align: require-python3 ## Check trailing-# comment alignment in README + site + CLI docs (--write to fix)
+	@python3 tools/align-comments.py --check
+
+casts: require-python3 ## Regenerate + safety-check site terminal casts (needs python3)
+	@python3 tools/gen_casts.py
+	@python3 tools/cast_hygiene.py site/casts
+
+casts-check: require-python3 ## Validate published casts for private paths, credentials, and secret-shaped values
+	@python3 tools/cast_hygiene.py site/casts
+
+tools-test: require-python3 ## Run standard-library tests for repository maintenance tools
+	@python3 -m unittest discover -s tools -p 'test_*.py'
+
+# Deliberately OUT of `check`: it launches real boxes, so it needs a container runtime and takes
+# minutes, and its numbers are a measurement to compare against — not a threshold to fail on. A
+# wall-clock assertion in the gate fails on a busy laptop and says nothing about the change.
+lifecycle-bench: require-python3 build ## Measure real box start/stop latency (needs a runtime; writes samples + a report)
+	@python3 tools/lifecycle_bench.py --coop ./coop --repo $(or $(WORKSPACE),$(CURDIR)) \
+	  --out $(or $(OUT),$(shell mktemp -d)/coop-lifecycle-bench) $(BENCH_ARGS)
+
+rules-check: require-python3 ## Fail if a .agent/kb card or rule is malformed, unindexed, or names a source/check that doesn't exist
+	@python3 tools/check_rules.py
+	@go test ./internal/agent -run 'TestProviderDecisionsStayInAdapters|TestProviderDecisionGuard'
+
+build-all: ## Compile every package (a package no test imports can still break the build)
+	@go build ./...
+
+# internal/acpproxy is concurrent (the editor-reader goroutine and the main loop share
+# p.mu-guarded state) — a data race there does not fail the plain `make test` run. Its own
+# target so a race failure is legible; -race is ~2-3× slower, which is why it runs last.
+race: ## Full unit suite under the race detector (the slowest gate step)
+	@# -p 4: the race detector multiplies each test binary's CPU, and running every package at
+	@# once oversubscribes the host badly enough that production grace periods (a 3 s TERM wait
+	@# before a fork's box is reaped) expire in tests that pass alone. Bounded parallelism, not a
+	@# longer grace, is the fix: the gate must fail on a real regression, not on a busy laptop.
+	@go test -race -p 4 ./...
+
+# THE GATE. One recipe, run identically on a laptop, in a box, and by CI's check job — which
+# installs the pinned tools and then calls this target. A new check belongs HERE, never in the
+# workflow's step list: the two were maintained separately, drifted in both directions (race and
+# build were CI-only; cast/rules/tools checks were local-only), and main rotted red with no local
+# gate able to see it. Ordered so the cheap and most common failures surface first and the race
+# suite runs last. Required tools hard-fail with their install line — a soft skip is how a check
+# silently stops running.
+# CI-only by necessity: the doctor runtime matrix and the review-writes job need a real container
+# runtime, so they stay separate CI jobs and this target stays runtime-independent. Run them by
+# hand with 'make doctor', 'make box-runtime-e2e', and 'make review-writes-e2e'.
+check: lint shellcheck build-all vuln align docs-check casts-check tools-test rules-check test provider-scripted-e2e live-process-control race ## The gate, identical to CI's check job: lint + vulnerability scan + freshness + tests (plain, e2e, race) + build
+
+provider-scripted-e2e: ## Deterministic all-provider process e2e (no runtime or credentials needed)
+	@go test ./internal/testutil/procharness ./internal/cli/testdata/providerfixture
+# The suite runs ~9 minutes on a quiet host, so Go's 10-minute default failed it under ordinary
+# load with every test passing. This is a hang guard; the behavior deadlines live inside the tests.
+	@go test -tags providere2e -run '^TestProviderScripted' -count=1 -timeout 20m -v ./internal/cli/
+
+live-process-control: ## Deterministic denial tests for tagged live-test process ownership
+	@go test -race -tags providerlivee2e,cooplivetest -run '^Test(LiveACPProcess|LiveInterruptible|LiveRunInterruptible|ProviderConsultLiveContract|ProviderLoopLiveContract|ProviderResumeLiveContract)' -count=1 ./internal/cli/ ./internal/acpctl/ ./internal/runtime/
+	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' 0; go test -c -tags acpe2e -o "$$tmp" ./internal/acpproxy/
+
+provider-live-e2e: ## Opt-in read-only upstream CLI probe (set COOP_LIVE_TARGETS=provider,...)
+	@test -n "$$COOP_LIVE_TARGETS" || { echo 'COOP_LIVE_TARGETS is required (for example: codex,gemini@work)'; exit 2; }
+	@go test -timeout 30m -tags providerlivee2e,cooplivetest -run '^TestProviderLiveCompatibility$$' -count=1 -v ./internal/cli/
+
+provider-live-e2e-all: ## Strict read-only upstream CLI probe for every registered provider
+	@COOP_LIVE_TARGETS="$${COOP_LIVE_TARGETS:-all}" COOP_LIVE_REQUIRE_ALL=1 \
+		go test -timeout 30m -tags providerlivee2e,cooplivetest -run '^TestProviderLiveCompatibility$$' -count=1 -v ./internal/cli/
+
+provider-resume-live-e2e: ## Opt-in two-process native session resume (set COOP_LIVE_TARGETS=provider,...)
+	@test -n "$$COOP_LIVE_TARGETS" || { echo 'COOP_LIVE_TARGETS is required (for example: codex,gemini@work)'; exit 2; }
+	@go test -timeout 30m -tags providerlivee2e,cooplivetest -run '^TestProviderResumeLiveCompatibility$$' -count=1 -v ./internal/cli/
+
+provider-resume-live-e2e-all: ## Strict two-process native session resume for every provider
+	@COOP_LIVE_TARGETS="$${COOP_LIVE_TARGETS:-all}" COOP_LIVE_REQUIRE_ALL=1 \
+		go test -timeout 30m -tags providerlivee2e,cooplivetest -run '^TestProviderResumeLiveCompatibility$$' -count=1 -v ./internal/cli/
+
+provider-network-live-e2e: ## Opt-in credentialed provider probe THROUGH the restricted gateway (set COOP_LIVE_TARGETS=provider,...)
+	@test -n "$$COOP_LIVE_TARGETS" || { echo 'COOP_LIVE_TARGETS is required (for example: claude,codex@work)'; exit 2; }
+	@go test -timeout 30m -tags providerlivee2e,cooplivetest -run '^TestProviderNetworkLiveCompatibility$$' -count=1 -v ./internal/cli/
+
+provider-network-live-e2e-all: ## Strict filtered-egress provider probe for every registered provider
+	@COOP_LIVE_TARGETS="$${COOP_LIVE_TARGETS:-all}" COOP_LIVE_REQUIRE_ALL=1 \
+		go test -timeout 30m -tags providerlivee2e,cooplivetest -run '^TestProviderNetworkLiveCompatibility$$' -count=1 -v ./internal/cli/
+
+provider-loop-live-e2e: ## Opt-in one-attempt live provider task completion (set COOP_LIVE_TARGETS=provider,...)
+	@test -n "$$COOP_LIVE_TARGETS" || { echo 'COOP_LIVE_TARGETS is required (for example: codex,gemini@work)'; exit 2; }
+	@go test -timeout 30m -tags providerlivee2e,cooplivetest -run '^TestProviderLoopLiveCompatibility$$' -count=1 -v ./internal/cli/
+
+provider-loop-live-e2e-all: ## Strict one-attempt task completion for every registered provider
+	@COOP_LIVE_TARGETS="$${COOP_LIVE_TARGETS:-all}" COOP_LIVE_REQUIRE_ALL=1 \
+		go test -timeout 30m -tags providerlivee2e,cooplivetest -run '^TestProviderLoopLiveCompatibility$$' -count=1 -v ./internal/cli/
+
+provider-consult-live-e2e: ## Opt-in four-provider real coop-consult probe (four peer CLI sessions)
+	@test -n "$$COOP_LIVE_TARGETS" || { echo 'COOP_LIVE_TARGETS is required (claude,codex,gemini,grok in that order)'; exit 2; }
+	@go test -timeout 30m -tags providerlivee2e,cooplivetest -run '^TestProviderConsultLiveCompatibility$$' -count=1 -v ./internal/cli/
+
+provider-consult-live-e2e-all: ## Strict real coop-consult probe for every provider
+	@COOP_LIVE_TARGETS="$${COOP_LIVE_TARGETS:-all}" COOP_LIVE_REQUIRE_ALL=1 \
+		go test -timeout 30m -tags providerlivee2e,cooplivetest -run '^TestProviderConsultLiveCompatibility$$' -count=1 -v ./internal/cli/
+
+# Qualifies the locked clients before a pin moves (package.json/package-lock.json, an adapter's
+# LockedClients): it rebuilds this host's box and filtered setup from the working tree, runs every
+# strict live suite against them, and records the result. PAID — every provider answers real
+# prompts. Full logs stay in the printed directory; a failure shows its tail.
+provider-qualify: ## PAID: qualify the locked clients on every provider and record it (qualification.json)
+	@go run ./tools/qualify -preflight
+	@logs="$$(mktemp -d)"; echo "logs: $$logs"; \
+	go build -o "$$logs/coop" . && mkdir "$$logs/repo" \
+	  && (cd "$$logs/repo" && git init -q && "$$logs/coop" build && "$$logs/coop" net setup) < /dev/null > "$$logs/setup.log" 2>&1 \
+	  || { tail -n 40 "$$logs/setup.log"; exit 1; }; \
+	for suite in provider-live-e2e-all provider-resume-live-e2e-all provider-loop-live-e2e-all provider-consult-live-e2e-all \
+	             provider-network-live-e2e-all acp-e2e native-roles-e2e; do \
+	  echo "== $$suite"; \
+	  COOP_LIVE_TARGETS=all $(MAKE) --no-print-directory $$suite < /dev/null > "$$logs/$$suite.log" 2>&1 || { tail -n 40 "$$logs/$$suite.log"; exit 1; }; \
+	done; \
+	targets="$$(go run ./tools/qualify -targets)" || exit 1; echo "== provider-live-e2e-effort ($$targets)"; \
+	COOP_LIVE_TARGETS="$$targets" $(MAKE) --no-print-directory provider-live-e2e-all < /dev/null > "$$logs/provider-live-e2e-effort.log" 2>&1 \
+	  || { tail -n 40 "$$logs/provider-live-e2e-effort.log"; exit 1; }; \
+	go run ./tools/qualify -logs "$$logs"
+
+acp-scripted-e2e: ## Deterministic ACP process e2e (no runtime or provider credentials needed)
+	@go test -run '^TestScriptedACP' -count=1 -v ./internal/acpproxy/
+
+acp-e2e: ## Real ACP adapter e2e (isolated binary; needs a configured runtime, built box, and credentials)
+	@COOP_ACP_LIVE_REQUIRE_ALL=1 go test -timeout 30m -tags acpe2e -run 'Test(LiveProviderConformance|LiveCrossProviderCarry|ForeignSessionLoadRejectsUnknownID|PresetOwnsSelectorState|CodexTargetRolloutTruth|FrontierStoredTargetTruth)$$' -count=1 -v ./internal/acpproxy/
+
+review-writes-e2e: ## Review mount-isolation e2e (needs Docker; pulls a small test image once)
+	@docker image inspect alpine:3.21 >/dev/null 2>&1 || docker pull alpine:3.21
+	@go test -tags reviewwritee2e -run '^TestReviewWritesDockerRuntime$$' -count=1 -v ./internal/box/
+
+native-roles-e2e: ## Each pinned client loads the native roles coop renders (needs the locked client image: coop net setup)
+	@go test -tags boxruntimee2e -run '^TestRuntimeNativeRolesAreDiscoveredByEveryPinnedClient$$' -count=1 -v ./internal/box/
+
+box-runtime-e2e: ## Init/reaping, signal, and entrypoint descendant-supervision contracts (set COOP_RUNTIME=docker)
+	@test -n "$$COOP_RUNTIME" || { echo 'COOP_RUNTIME is required (for example: COOP_RUNTIME=docker make box-runtime-e2e)'; exit 2; }
+	@go test -tags boxruntimee2e -run '^TestRuntime(Init|Entrypoint|Compose)' -count=1 -v ./internal/box/
+
+clean: ## Remove build artifacts
+	@rm -f coop
+	@rm -rf dist
+
+help: ## List targets
+	@grep -hE '^[a-z][a-z0-9-]*:.*##' $(MAKEFILE_LIST) | sed -E 's/:.*## / — /' | sort
+
+.PHONY: build install test cover lint staticcheck-version govulncheck-version vuln shellcheck require-python3 snapshot doctor docs docs-check align casts casts-check tools-test rules-check build-all race check provider-scripted-e2e live-process-control provider-live-e2e provider-live-e2e-all provider-resume-live-e2e provider-resume-live-e2e-all provider-network-live-e2e provider-network-live-e2e-all provider-loop-live-e2e provider-loop-live-e2e-all provider-consult-live-e2e provider-consult-live-e2e-all provider-qualify acp-scripted-e2e acp-e2e review-writes-e2e native-roles-e2e box-runtime-e2e clean help
