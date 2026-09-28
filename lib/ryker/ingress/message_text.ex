@@ -4,37 +4,67 @@ defmodule Ryker.Ingress.MessageText do
 
   Routing compares earlier work by what its messages said, including the
   alert, run or deployment identity an automated notification carries in its
-  attachments and fields. Slack-shaped content keeps its text, attachment
-  titles, fields as "title: value", block text and the transcript of a voice
-  message; structured payloads with no text become "path: value" lines.
-  Nothing is sent as JSON inside a string.
+  attachments and fields. A Slack message reads as its text. Slack sends a
+  person's message again as rich text blocks with the same words, so the
+  blocks are read only when a message has no text of its own. Attachment
+  titles, fields as "title: value" and the transcript of a voice message
+  follow. A message with none of these reads as the names of the files it
+  carried: its ids, types and flags are never words. Structured payloads with
+  no text become "path: value" lines. Nothing is sent as JSON inside a string.
   """
 
   @maximum_lines 200
 
   @spec from(term()) :: String.t()
   def from(%{} = content) do
-    case slack_parts(content) do
-      [] -> content |> flatten("") |> Enum.take(@maximum_lines) |> Enum.join("\n")
-      parts -> parts |> Enum.uniq() |> Enum.join("\n")
+    case parts(content) do
+      nil -> content |> flatten("") |> Enum.take(@maximum_lines) |> Enum.join("\n")
+      parts -> Enum.join(parts, "\n")
     end
   end
 
   def from(text) when is_binary(text), do: text
   def from(_content), do: ""
 
-  defp slack_parts(content) do
-    [content["text"]]
-    |> Kernel.++(Enum.flat_map(list(content["attachments"]), &attachment/1))
-    |> Kernel.++(Enum.flat_map(list(content["blocks"]), &block/1))
-    |> Kernel.++(Enum.flat_map(list(content["files"]), &file/1))
-    |> Enum.filter(&text?/1)
+  @doc """
+  A message's text in the order it reads, each part once, or nil when the
+  content is a structured payload rather than a message.
+  """
+  @spec parts(term()) :: [String.t()] | nil
+  def parts(%{} = content) do
+    parts =
+      (words(content) ++
+         Enum.flat_map(list(content["attachments"]), &attachment/1) ++
+         Enum.flat_map(list(content["files"]), &file/1))
+      |> Enum.filter(&text?/1)
+      |> Enum.uniq()
+
+    cond do
+      parts != [] -> parts
+      is_binary(content["text"]) -> file_names(content)
+      true -> nil
+    end
+  end
+
+  def parts(_content), do: nil
+
+  defp words(content) do
+    if text?(content["text"]),
+      do: [content["text"]],
+      else: Enum.flat_map(list(content["blocks"]), &block/1)
   end
 
   # A voice message says its transcript, or that it has none.
   defp file(%{"transcript" => words}) when is_binary(words), do: [words]
   defp file(%{"transcript_unavailable" => note}) when is_binary(note), do: [note]
   defp file(_file), do: []
+
+  defp file_names(content) do
+    content["files"]
+    |> list()
+    |> Enum.map(&if(is_map(&1), do: &1["name"]))
+    |> Enum.filter(&text?/1)
+  end
 
   defp attachment(%{} = attachment) do
     parts =

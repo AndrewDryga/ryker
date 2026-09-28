@@ -374,7 +374,7 @@ defmodule Ryker.Admission.ConversationContext do
       [
         %{
           "actor_ref" => provider_actor(message),
-          "content" => %{"text" => bounded_text(message["text"] || "")},
+          "content" => %{"text" => message |> RecallText.prose() |> bounded_text()},
           "occurred_at" => provider_time(ts),
           "revision" => nil,
           "retained" => false,
@@ -456,7 +456,7 @@ defmodule Ryker.Admission.ConversationContext do
   defp message_document(%Entry{} = entry, origin) do
     %{
       "actor_ref" => entry.actor_ref,
-      "content" => %{"text" => entry |> Map.get(:content) |> RecallText.from() |> bounded_text()},
+      "content" => %{"text" => entry |> Map.get(:content) |> RecallText.prose() |> bounded_text()},
       "occurred_at" => DateTime.to_iso8601(entry.occurred_at),
       "revision" => entry.revision,
       "retained" => origin != :provider,

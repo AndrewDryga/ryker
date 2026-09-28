@@ -13,6 +13,7 @@ defmodule Ryker.Admission.ConversationContextTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
+  alias Ryker.Ingress.MessageText
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.{Custody, Turn}
@@ -192,6 +193,67 @@ defmodule Ryker.Admission.ConversationContextTest do
     assert bundle["root"]["source_message_ref"] == root.source_item_ref
     assert bundle["root"]["status"] == "included"
     refute Enum.any?(bundle["messages"], &(&1["source_message_ref"] == root.source_item_ref))
+  end
+
+  # Andrew asked "And now?" in a #test thread on 2026-09-28. Routing read the
+  # thread's first message as "<@U0C1LCVNF52> check health of our infra\n
+  # check health of our infra": its text, then the same words again from the
+  # rich text blocks Slack sends beside a person's message.
+  test "a person's Slack message enters the conversation once, as its text" do
+    record_retained!("check_health")
+    record_retained!("pretty_much_all_access")
+    record_retained!("which_tools")
+    current = record_retained!("and_now")
+
+    %{bundle: bundle} = ConversationContext.capture(current)
+
+    assert Enum.map(bundle["messages"], & &1["content"]["text"]) == [
+             "<@U0C1LCVNF52> check health of our infra",
+             "You have pretty much all possible access via emisar mcp",
+             "Which tools are available? List runners and packs"
+           ]
+
+    assert bundle["current"]["content"]["text"] == "And now?"
+  end
+
+  # Blitz's VA1 alert of 2026-09-05 carries 1,033 characters in its
+  # attachment. Routing read the alert that fired before its recovery as its
+  # first 512, stopping at "*Alert:", with its links gone and nothing saying
+  # the message went on.
+  test "an earlier message reaches routing whole, or cut where it says so" do
+    [firing, resolved] =
+      "testdata/learning/retained-haproxy-lifecycle.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("inputs")
+
+    record_harvested!(firing)
+    current = record_harvested!(resolved)
+
+    %{bundle: bundle} = ConversationContext.capture(current)
+    [attachment] = firing["content"]["attachments"]
+    whole = attachment["title"] <> "\n" <> attachment["text"]
+
+    assert [%{"content" => %{"text" => text}}] = bundle["messages"]
+    assert text == String.byte_slice(whole, 0, 1_021) <> "..."
+  end
+
+  # HCP Terraform posts its run notifications as attachments with an empty
+  # text, as its "Run Planning" notice of 2026-09-27 shows. Read back from
+  # Slack after retention reclaimed Ryker's copy, it reached routing as "":
+  # a provider read took only the message's text.
+  test "a message read back from Slack reads as the words Ryker keeps for it" do
+    kept = retained_message("terraform_run_planning")
+    current = record_retained!("and_now")
+    reader = {Ryker.Admission.ConversationContextTest.FakeReader, [kept["envelope"]]}
+
+    %{bundle: bundle, manifest: manifest} = ConversationContext.capture(current, reader: reader)
+
+    assert manifest["source_read"] == "provider_paged"
+
+    assert [%{"content" => %{"text" => text}, "retained" => false}] = bundle["messages"]
+    assert text == MessageText.from(kept["content"])
+    assert text =~ "Run run-QJuP3FdKmSeFzoxM"
   end
 
   test "a bounded provider read fills what retention already reclaimed and says so" do
@@ -385,6 +447,55 @@ defmodule Ryker.Admission.ConversationContextTest do
 
   # When a summary was saved, relative to the message being decided.
   defp saved(entry, seconds), do: DateTime.add(entry.occurred_at, seconds, :second)
+
+  # A message Ryker recorded in #test on 2026-09-27, with its original sender,
+  # time, thread and content, in this module's own channel.
+  defp record_retained!(name) do
+    message = retained_message(name)
+
+    record_content!(
+      message["content"],
+      message["actor"],
+      message["ts"],
+      message["thread_ts"]
+    )
+  end
+
+  defp retained_message(name) do
+    "testdata/slack/retained-messages-2026-09-27.json"
+    |> File.read!()
+    |> Jason.decode!()
+    |> get_in(["messages", name])
+  end
+
+  # An input harvested from Blitz, with its original sender, time and content.
+  defp record_harvested!(input) do
+    record_content!(
+      input["content"],
+      %{"kind" => input["actor_kind"], "ref" => input["actor_ref"]},
+      input["source_item_ref"],
+      input["destination_thread_ref"]
+    )
+  end
+
+  defp record_content!(content, actor, ts, thread_ts) do
+    {:ok, input} =
+      SlackInput.new(%{
+        actor: %{kind: String.to_existing_atom(actor["kind"]), ref: actor["ref"]},
+        channel_ref: @channel,
+        content: content,
+        event_kind: :message,
+        event_ref: "Ev-#{ts}",
+        message_ref: ts,
+        occurred_at: slack_time(ts),
+        revision: 1,
+        thread_ref: if(thread_ts != ts, do: thread_ts),
+        workspace_ref: @workspace
+      })
+
+    {:ok, %{entry: entry}} = Inbox.record(input)
+    entry
+  end
 
   # A reply Ryker delivered into this Slack conversation. Only the turn's
   # delivered receipt matters to context capture.
