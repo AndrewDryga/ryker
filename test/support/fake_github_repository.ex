@@ -126,7 +126,7 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
   end
 
   @impl Ryker.RepositoryKnowledge.Remote
-  def publish(_binding, repository, %{document: document, body: body, proposed: proposed}) do
+  def publish(_binding, repository, %{document: document} = proposal) do
     case state().on_publish do
       nil -> :ok
       during -> during.()
@@ -145,42 +145,52 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
         state.document == :unreadable ->
           {{:error, :source_unavailable}, state}
 
-        # A branch that already says the same gets no commit.
-        state.open && Document.same?(state.open.document, document) ->
-          {{:ok, result(state, :updated, state.open)}, state}
-
-        # Ryker's own words are replaced; a person's edits are left alone.
-        state.open && is_binary(proposed) && Document.same?(state.open.document, proposed) ->
-          open = %{state.open | document: document, body: body}
-
-          {{:ok, result(state, :updated, open)}, %{state | open: open}}
-
         state.open ->
-          {{:error, :repository_knowledge_proposal_edited}, state}
+          update_open(state, proposal)
 
         Document.same?(state.document, document) ->
           {{:ok, %{result(state, :unchanged, nil) | url: nil, number: nil}}, state}
 
         true ->
-          number = state.next_number
-
-          open = %{
-            number: number,
-            url: "https://github.com/#{repository.github_repository}/pull/#{number}",
-            document: document,
-            body: body,
-            title: if(state.document, do: "Update", else: "Add") <> " Ryker repository knowledge"
-          }
-
-          {{:ok, result(state, :opened, open)},
-           %{
-             state
-             | open: open,
-               next_number: number + 1,
-               pull_requests: Map.put(state.pull_requests, number, :open)
-           }}
+          open_new(state, repository, proposal)
       end
     end)
+  end
+
+  # A branch that already says the same gets no commit; Ryker's own words
+  # are replaced, and a person's edits are left alone.
+  defp update_open(%{open: open} = state, %{document: document, body: body, proposed: proposed}) do
+    cond do
+      Document.same?(open.document, document) ->
+        {{:ok, result(state, :updated, open)}, state}
+
+      is_binary(proposed) and Document.same?(open.document, proposed) ->
+        open = %{open | document: document, body: body}
+        {{:ok, result(state, :updated, open)}, %{state | open: open}}
+
+      true ->
+        {{:error, :repository_knowledge_proposal_edited}, state}
+    end
+  end
+
+  defp open_new(state, repository, %{document: document, body: body}) do
+    number = state.next_number
+
+    open = %{
+      number: number,
+      url: "https://github.com/#{repository.github_repository}/pull/#{number}",
+      document: document,
+      body: body,
+      title: if(state.document, do: "Update", else: "Add") <> " Ryker repository knowledge"
+    }
+
+    {{:ok, result(state, :opened, open)},
+     %{
+       state
+       | open: open,
+         next_number: number + 1,
+         pull_requests: Map.put(state.pull_requests, number, :open)
+     }}
   end
 
   defp result(state, outcome, open) do
