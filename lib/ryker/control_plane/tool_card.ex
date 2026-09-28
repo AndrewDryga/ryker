@@ -147,10 +147,21 @@ defmodule Ryker.ControlPlane.ToolCard do
   defp service(%{kind: "ryker"}), do: :ryker
   defp service(_action), do: :workspace
 
-  # A run request says which action and why: cloud-init.log_tail · Inspect…
-  defp line_detail(%{tool: "run_action", facts: [{"Action", action} | _facts], text: reason})
-       when is_binary(reason),
-       do: String.slice(action <> " · " <> first_line(reason), 0, 160)
+  # A run request says which action ran where: cloud-init.log_tail ·
+  # emisar-3hgr. Its reason is the opened card's to show (Andrew, 2026-09-28:
+  # "should have not reason but runner name after it").
+  defp line_detail(%{tool: "run_action", facts: facts}) do
+    facts = Map.new(facts)
+
+    [facts["Action"], facts["Runner"] || facts["Runners"]]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+    |> String.slice(0, 160)
+    |> case do
+      "" -> nil
+      detail -> detail
+    end
+  end
 
   # The one fact that tells a step from the ones around it, on one line.
   defp line_detail(action) do
@@ -336,6 +347,7 @@ defmodule Ryker.ControlPlane.ToolCard do
         is_binary(args["diff"] || args["patch"])
 
   defp readable_text("cite_source", args), do: string(args["observation"])
+  defp readable_text("run_action", _args), do: nil
 
   defp readable_text("record_finding", args),
     do:
@@ -396,7 +408,6 @@ defmodule Ryker.ControlPlane.ToolCard do
       {"on_timeout", "If time runs out"}
     ],
     "get_action" => [{"action_id", "Action"}, {"pack_ref", "Pack"}],
-    "run_action" => [{"action_id", "Action"}, {"pack_ref", "Pack"}],
     "find_actions" => [{"query", "Search"}]
   }
   @shared_fact_keys [
@@ -408,12 +419,61 @@ defmodule Ryker.ControlPlane.ToolCard do
 
   defp fact_keys(tool), do: Map.get(@fact_keys, tool, @shared_fact_keys)
 
+  # Andrew, 2026-09-28, of an Emisar run's card: it needs "Action, Pack,
+  # Runner(s), Reason, Project and Expected outcome, evidence". The action's
+  # own arguments, such as its project, read between where it ran and why.
+  defp facts("run_action", args) do
+    runners =
+      for ref <- List.wrap(args["runner_refs"]), is_binary(ref), do: runner_name(ref)
+
+    ([
+       {"Action", string(args["action_id"])},
+       {"Pack", args["pack_ref"] |> string() |> then(&(&1 && fact_value("pack_ref", &1)))},
+       {if(length(runners) == 1, do: "Runner", else: "Runners"), present_join(runners)}
+     ] ++
+       action_arguments(args["args"]) ++
+       [
+         {"Reason", string(args["reason"])},
+         {"Expected outcome", string(args["expected"])},
+         {"Evidence", string(args["evidence"])}
+       ])
+    |> Enum.reject(fn {_label, value} -> is_nil(value) end)
+  end
+
   defp facts(tool, args) do
     for {key, label} <- fact_keys(tool),
         value = args[key],
         is_binary(value) && value != "",
         do: {label, fact_value(key, value)}
   end
+
+  # A runner as Emisar names it to people: emisar-3hgr, without the key
+  # fingerprint its ref carries after "~".
+  defp runner_name(ref), do: ref |> String.split("~", parts: 2) |> hd()
+
+  defp present_join([]), do: nil
+  defp present_join(values), do: Enum.join(values, ", ")
+
+  defp action_arguments(args) when is_map(args) do
+    args
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.flat_map(fn {key, value} ->
+      case argument_value(value) do
+        nil -> []
+        text -> [{argument_label(key), String.slice(text, 0, 300)}]
+      end
+    end)
+  end
+
+  defp action_arguments(_args), do: []
+
+  defp argument_label(key),
+    do: key |> to_string() |> String.replace(~r/[_.-]+/, " ") |> String.capitalize()
+
+  defp argument_value(value) when is_binary(value) and value != "", do: value
+  defp argument_value(value) when is_number(value) or is_boolean(value), do: to_string(value)
+  defp argument_value(value) when value in [nil, "", [], %{}], do: nil
+  defp argument_value(value), do: Jason.encode!(value)
 
   # A pack by its name and version, as Emisar lists it: cloud-init@0.1.19,
   # without the content digest it was pinned by.

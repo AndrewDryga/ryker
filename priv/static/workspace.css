@@ -738,7 +738,7 @@
 .action-warning { color:var(--ryker-text-secondary); font-size:12px; }
 .action-path { display:block; overflow-wrap:anywhere; white-space:pre-wrap; margin:12px 0; font-size:13px; }
 .action-facts { margin:12px 0; display:grid; grid-template-columns:minmax(0,1fr); gap:8px; }
-.action-facts > div { display:grid; grid-template-columns:90px minmax(0, 1fr); gap:12px; }
+.action-facts > div { display:grid; grid-template-columns:128px minmax(0, 1fr); gap:12px; }
 .action-facts dt { color:var(--secondary); font-size:13px; }
 .action-facts dd { margin:0; min-width:0; white-space:normal; overflow-wrap:anywhere; font-size:14px; }
 .action-raw { margin-top:12px; border-top:1px solid var(--stroke); padding-top:8px; }

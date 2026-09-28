@@ -153,8 +153,10 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
 
     tool!(work, 3, "run_action", %{
       "action_id" => "cloud-init.log_tail",
+      "args" => %{"lines" => 35},
       "pack_ref" => "cloud-init@0.1.19/sha256:" <> String.duplicate("c", 64),
-      "reason" => "Inspect the completed initialization."
+      "reason" => "Inspect the completed initialization.",
+      "runner_refs" => ["emisar-3hgr~" <> String.duplicate("1", 32)]
     })
 
     tool!(work, 4, "get_work_state", %{})
@@ -178,8 +180,8 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert lines == [
              {"Code", "Run command", "rg --files"},
              {"Emisar", "Emisar actions looked up", "gcp compute instances list"},
-             {"Emisar", "Emisar run requested",
-              "cloud-init.log_tail · Inspect the completed initialization."},
+             # Which action ran where; why is the opened card's (2026-09-28).
+             {"Emisar", "Emisar run requested", "cloud-init.log_tail · emisar-3hgr"},
              {"Ryker", "Work state read", ""}
            ]
 
@@ -195,6 +197,18 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     facts = run |> LazyHTML.query(".action-facts") |> LazyHTML.text()
     assert facts =~ "cloud-init@0.1.19"
     refute facts =~ "sha256"
+
+    # An Emisar run's card names where it ran, the action's own arguments and
+    # why, each under its name (Andrew, 2026-09-28).
+    labels =
+      run
+      |> LazyHTML.query(".action-facts dt")
+      |> Enum.map(&LazyHTML.text/1)
+
+    assert labels == ["Search", "Action", "Pack", "Runner", "Lines", "Reason"]
+    assert facts =~ "emisar-3hgr"
+    refute facts =~ "~111"
+    assert facts =~ "Inspect the completed initialization."
 
     # Each step keeps its own anchor and opens to its full card.
     assert run
