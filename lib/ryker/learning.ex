@@ -188,7 +188,14 @@ defmodule Ryker.Learning do
     end)
   end
 
-  @doc "Store the exact public candidate before any remote acknowledgment or knowledge write."
+  @doc """
+  Store the exact public candidate before any remote acknowledgment or knowledge write.
+
+  An offer not in the shape Coop promises (a result over 512 KB or not
+  encodable, an attempt that is not a whole number, a producer over 4 KB, or
+  a digest that does not match) cannot be kept: `{:error, :invalid_learning_result}`,
+  as for a result outside the contract.
+  """
   def record_candidate(id, turn, producer, claim \\ nil)
 
   def record_candidate(
@@ -210,8 +217,7 @@ defmodule Ryker.Learning do
         id |> save_result(result, producer) |> bind_candidate!(session_id, turn_id, attempt)
       end)
     else
-      {:error, _} = error -> error
-      _ -> {:error, :invalid_learning_candidate}
+      _out_of_shape -> {:error, :invalid_learning_result}
     end
   end
 
