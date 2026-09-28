@@ -292,8 +292,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         %{section: section, paths: paths} = socket.assigns
         # A new row is added and an existing one saved, whether or not the
         # list can name it.
+        added = key || saved_item_key(socket) || added_key(section, socket.assigns.view, view)
+
         message =
-          case {key, row_name(section, view, key || saved_item_key(socket))} do
+          case {key, row_name(section, view, added)} do
             {nil, nil} -> "The #{noun(section)} was added."
             {nil, name} -> "#{name} was added."
             {_key, nil} -> "The #{noun(section)} was saved."
@@ -431,6 +433,18 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       value when is_binary(value) and value != "" -> value
       _generated -> item_key
     end
+  end
+
+  # A new row whose key Ryker generates, such as a price, is the one row the
+  # save added: "The price was added." named nothing while its removal named
+  # the model.
+  defp added_key(section, before, view) do
+    known = MapSet.new(SettingsSections.items(section, before), &item_key(section, &1))
+
+    Enum.find_value(SettingsSections.items(section, view), fn item ->
+      key = item_key(section, item)
+      if not MapSet.member?(known, key), do: key
+    end)
   end
 
   # A section that is one choice saves as it changes; every other section

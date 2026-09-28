@@ -1663,7 +1663,8 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 /* Each model run that wrote a repository's knowledge: its line, a note, and
    the exact prompt and answer behind the Timeline's source disclosures. */
 .knowledge-run + .knowledge-run { margin-top:14px; padding-top:14px; border-top:1px solid var(--ryker-stroke); }
-.knowledge-run-line { display:flex; flex-wrap:wrap; align-items:center; gap:2px 6px; margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
+.knowledge-run-line { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
+.knowledge-run-line .state-word { margin-right:4px; }
 .knowledge-run-note { margin:4px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .knowledge-run .ui-disclosure { margin-top:8px; }
 /* One line naming a connection and the way to change it. */
@@ -1938,10 +1939,14 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 /* Several prices read as one row of short fields, not a tall stack. */
 .settings-group-row { grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); column-gap:16px; }
 .settings-group-row > .settings-group-title { grid-column:1 / -1; }
-/* A field in such a row is as tall as the row's tallest, one with help text;
-   its input keeps its own height at the bottom, level with its neighbours'. */
-.settings-group-row > .settings-field { align-content:space-between; }
-.settings-group-row > .settings-field > :is(input, select) { align-self:end; }
+/* A field in such a row keeps four lines level with its neighbours': label,
+   help, input and error. Spacing the field out instead lifted an input above
+   the others whenever an error showed under it (2026-09-28). */
+.settings-group-row > .settings-field { grid-row:span 4; display:grid; grid-template-rows:subgrid; row-gap:6px; align-content:start; }
+.settings-group-row > .settings-field > label { grid-row:1; }
+.settings-group-row > .settings-field > .settings-help { grid-row:2; margin:0; }
+.settings-group-row > .settings-field > :is(input, select) { grid-row:3; align-self:end; }
+.settings-group-row > .settings-field > .settings-error { grid-row:4; }
 .entity-row:has(> .entity-body details[open]) { align-items:start; }
 .settings-section > .settings-editor { max-width:720px; margin:20px 0 0; }
 .settings-conflict { padding:14px 16px; border:1px solid color-mix(in srgb, var(--ryker-warning) 45%, transparent); border-radius:8px; background:color-mix(in srgb, var(--ryker-warning) 6%, transparent); }
