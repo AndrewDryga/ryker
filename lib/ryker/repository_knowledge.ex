@@ -98,6 +98,12 @@ defmodule Ryker.RepositoryKnowledge do
   def failure(:repository_too_large),
     do: "The repository has too many files for Ryker to check a RYKER.md against them."
 
+  def failure(:repository_knowledge_proposal_edited),
+    do:
+      "Someone edited RYKER.md on Ryker's pull request, so Ryker left it as it is and did " <>
+        "not propose its newer RYKER.md. Ryker proposes again once that pull request is " <>
+        "merged, or when someone refreshes knowledge after closing it."
+
   def failure(:repository_knowledge_unreadable),
     do:
       "Ryker cannot read the RYKER.md on the default branch: it is too large, not text, or " <>

@@ -39,7 +39,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     {:github_onboarding, :not_found},
     :repository_empty,
     :repository_too_large,
-    :repository_knowledge_unreadable
+    :repository_knowledge_unreadable,
+    :repository_knowledge_proposal_edited
   ]
 
   # How a run ended, as the atom its release records. Never turn a code read
@@ -449,7 +450,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
 
     case settings.remote.publish(binding, repository, %{
            document: entry.document,
-           body: pull_request_body(entry)
+           body: pull_request_body(entry),
+           proposed: last_proposal(repository)
          }) do
       {:ok, result} ->
         recorded(claim, result, repository, settings)
@@ -462,6 +464,11 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
         failed(claim, reason, settings, &Custody.publication_failed/2)
     end
   end
+
+  # What Ryker last proposed: Work reads that proposal while its pull request
+  # is open (`follow_default_branch/4`), so it is what Ryker last wrote there.
+  defp last_proposal(%{knowledge_status: :proposed, knowledge_content: content}), do: content
+  defp last_proposal(_repository), do: nil
 
   # GitHub has the proposal; Work's copy of it is saved with the record. A
   # save the settings refused (another saved them a moment before) gives the
@@ -526,8 +533,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
 
   # A reason another try would meet again (archived, a permission, the
   # repository or its default branch gone, no commit yet, too many files, a
-  # RYKER.md Ryker cannot read) ends the step with a sentence and waits for
-  # the next check. Anything
+  # RYKER.md Ryker cannot read, a pull request a person edited) ends the step
+  # with a sentence and waits for the next check. Anything
   # else, a 5xx, a rate limit, a reply Ryker did not expect or none at all,
   # is tried again shortly.
   defp failed(claim, reason, settings, record) do

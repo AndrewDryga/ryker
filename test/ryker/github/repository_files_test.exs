@@ -163,19 +163,24 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
     assert RecordedGitHub.unanswered() == []
   end
 
+  # What Ryker last proposed is what Work reads while the pull request is
+  # open. A rewrite that said the same left the branch as it was, so its
+  # provenance line can be older than that copy's; the words are Ryker's.
   test "an open proposal Ryker wrote is replaced by the new one, and says why" do
-    proposed = document("It works.", "aaaaaaa")
+    branch = document("It works.", "aaaaaaa")
+    proposed = document("It works.", "ccccccc")
     rewrite = document("It works, and it ships.", "bbbbbbb")
 
     RecordedGitHub.reply(
-      open_proposal_reads(proposed) ++
+      open_proposal_reads(branch) ++
         [
           {:put, "/repos/acme/widget/contents/RYKER.md", ok(200, %{})},
           {:patch, "/repos/acme/widget/pulls/7", ok(200, %{})}
         ]
     )
 
-    assert {:ok, %{outcome: :updated, url: @url, number: 7}} = publish(rewrite, "Why now: A.")
+    assert {:ok, %{outcome: :updated, url: @url, number: 7}} =
+             publish(rewrite, "Why now: A.", proposed)
 
     assert [
              {:put, _path,
@@ -184,6 +189,33 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
            ] = Enum.reject(RecordedGitHub.requests(), &match?({:get, _, _}, &1))
 
     assert Base.decode64!(put["content"]) == rewrite
+  end
+
+  # Review of the knowledge lane, 2026-09-28: the pull request asks people
+  # to review and edit RYKER.md before merging, and the next update wrote
+  # over whatever they had changed on its branch, or put back a file they
+  # had removed there.
+  test "an open proposal a person edited is left as it is" do
+    proposed = document("It works.", "aaaaaaa")
+    rewrite = document("It works, and it ships.", "bbbbbbb")
+
+    for branch <- [
+          file(proposed <> "\nAsk #infra before a deploy.\n", "branch-blob"),
+          ok(404, %{"message" => "Not Found"}),
+          ok(200, %{"type" => "file", "encoding" => "none", "content" => "", "sha" => "x"})
+        ] do
+      RecordedGitHub.reply(open_proposal_reads(branch))
+
+      assert publish(rewrite, "Why now: A.", proposed) ==
+               {:error, :repository_knowledge_proposal_edited}
+
+      refute Enum.any?(RecordedGitHub.requests(), &match?({method, _, _} when method != :get, &1))
+      assert RecordedGitHub.unanswered() == []
+    end
+
+    # Nor is one whose last proposal Ryker cannot name.
+    RecordedGitHub.reply(open_proposal_reads(proposed))
+    assert publish(rewrite, "Why now: A.", nil) == {:error, :repository_knowledge_proposal_edited}
   end
 
   # GitHub answers a file over 1 MB with no content, a directory with a
@@ -233,8 +265,13 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
 
   # -- Helpers ---------------------------------------------------------------------
 
-  defp publish(document, body \\ "Why now: The repository has no RYKER.md yet."),
-    do: RepositoryFiles.publish(@binding, @repository, %{document: document, body: body})
+  defp publish(document, body \\ "Why now: The repository has no RYKER.md yet.", proposed \\ nil),
+    do:
+      RepositoryFiles.publish(@binding, @repository, %{
+        document: document,
+        body: body,
+        proposed: proposed
+      })
 
   # What a proposal reads first: the archived flag, the default branch head,
   # RYKER.md there, and Ryker's open pull request (none).
@@ -260,15 +297,17 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
       ]
   end
 
-  # An open proposal, and RYKER.md on its branch.
-  defp open_proposal_reads(branch_document) do
+  # An open proposal, and RYKER.md on its branch: a document, or the reply
+  # GitHub gives for it.
+  defp open_proposal_reads(branch) do
+    branch = if is_binary(branch), do: file(branch, "branch-blob"), else: branch
+
     [
       {:get, "/repos/acme/widget", ok(200, %{"archived" => false})},
       {:get, "/repos/acme/widget/git/ref/heads/main", ok(200, %{"object" => %{"sha" => @head}})},
       {:get, "/repos/acme/widget/contents/RYKER.md?ref=#{@head}", ok(404, %{})},
       {:get, @pulls, ok(200, [%{"html_url" => @url, "number" => 7}])},
-      {:get, "/repos/acme/widget/contents/RYKER.md?ref=ryker%2Frepository-knowledge",
-       file(branch_document, "branch-blob")}
+      {:get, "/repos/acme/widget/contents/RYKER.md?ref=ryker%2Frepository-knowledge", branch}
     ]
   end
 

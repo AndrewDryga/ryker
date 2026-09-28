@@ -4,9 +4,11 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
   (`Ryker.RepositoryKnowledge.Remote`): a default branch head, the tree and
   files at it, what changed between commits, RYKER.md on the default branch,
   and Ryker's knowledge pull requests. It behaves like
-  `Ryker.GitHub.RepositoryFiles` does against GitHub: an open proposal is
-  updated, a document the default branch already says opens nothing, an
-  archived repository refuses the write. It also pins, as setup does.
+  `Ryker.GitHub.RepositoryFiles` does against GitHub: an open proposal that
+  holds Ryker's last words is updated and one a person edited is left alone,
+  a document the default branch already says opens nothing, an archived
+  repository refuses the write. A file given as `:unreadable` is one Ryker
+  cannot read. It also pins, as setup does.
 
   Every call is recorded (`calls/0`), so a test can say what GitHub was never
   asked.
@@ -67,6 +69,11 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
     end)
   end
 
+  @doc "Someone edits RYKER.md on the branch of Ryker's open pull request."
+  def edit_open(document) do
+    update(fn %{open: %{} = open} = state -> %{state | open: %{open | document: document}} end)
+  end
+
   @doc "Someone closes Ryker's open pull request without merging it."
   def close_open do
     update(fn %{open: %{number: number}} = state ->
@@ -119,7 +126,7 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
   end
 
   @impl Ryker.RepositoryKnowledge.Remote
-  def publish(_binding, repository, %{document: document, body: body}) do
+  def publish(_binding, repository, %{document: document, body: body, proposed: proposed}) do
     case state().on_publish do
       nil -> :ok
       during -> during.()
@@ -138,10 +145,18 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
         state.document == :unreadable ->
           {{:error, :source_unavailable}, state}
 
-        state.open ->
+        # A branch that already says the same gets no commit.
+        state.open && Document.same?(state.open.document, document) ->
+          {{:ok, result(state, :updated, state.open)}, state}
+
+        # Ryker's own words are replaced; a person's edits are left alone.
+        state.open && is_binary(proposed) && Document.same?(state.open.document, proposed) ->
           open = %{state.open | document: document, body: body}
 
           {{:ok, result(state, :updated, open)}, %{state | open: open}}
+
+        state.open ->
+          {{:error, :repository_knowledge_proposal_edited}, state}
 
         Document.same?(state.document, document) ->
           {{:ok, %{result(state, :unchanged, nil) | url: nil, number: nil}}, state}
