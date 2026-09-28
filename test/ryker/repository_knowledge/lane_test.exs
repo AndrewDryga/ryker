@@ -7,7 +7,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   alias Ryker.ControlPlane.RepositoryProjection
   alias Ryker.GitHub.Onboarding
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
-  alias Ryker.RepositoryKnowledge.{Dispatcher, Document, Entry, Prompt, Run}
+  alias Ryker.RepositoryKnowledge.{Dispatcher, Entry, Prompt, Run}
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.TestSupport.{FakeCoopAPI, FakeGitHubRepository}
   alias Ryker.Work.Session
@@ -121,9 +121,15 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
   # Andrew, 2026-09-27: "those are pretty weak summaries for the repo, should
   # we do something better than that?!" A repository just added gets a
-  # document a model wrote from reading it, checked against it, in one draft
-  # pull request, and Work reads that proposal until it is merged.
-  test "a repository just set up gets a model-written RYKER.md, proposed in one pull request" do
+  # document a model wrote from reading it, checked against it.
+  #
+  # Andrew, 2026-09-28: "Since we refresh repo knowledge daily should we save
+  # its state locally instead of DB? I don't want to make daily PRs to update
+  # those files." Every write was proposed besides in a draft pull request,
+  # and four stood open (emisar#85, ryker#10, coop#17, test#1) for knowledge
+  # Ryker already kept and briefed Work with. A finished run is the
+  # repository's knowledge at once, and GitHub is only read.
+  test "a finished knowledge run becomes the repository's knowledge without a pull request" do
     github!()
     coop = coop!([answer_json()], turn_wait_polls: 2)
 
@@ -134,6 +140,14 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     results = drain(settings(coop))
     assert {:ok, :written} in results
 
+    # GitHub is only read: the head, the tree and the files the answer
+    # cites. Nothing is written there, and a RYKER.md the repository holds is
+    # never asked for by name.
+    assert FakeGitHubRepository.calls() |> Enum.map(&call_kind/1) |> Enum.uniq() |> Enum.sort() ==
+             [:head, :read, :tree]
+
+    refute Enum.any?(FakeGitHubRepository.calls(), &match?({:read, "RYKER.md", _ref}, &1))
+
     # The model read exactly the default branch head, read-only, alone.
     state = FakeCoopAPI.state(coop)
     assert state.create_sources == [%{"kind" => "commit", "sha" => @head}]
@@ -143,37 +157,21 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert submission["prompt"] =~ ~s("name":"AndrewDryga/emisar")
     assert submission["prompt"] =~ ~s("portal/mix.exs")
 
-    # One pull request holds the checked document, which pins no link.
-    assert %{number: 84, title: "Add Ryker repository knowledge", document: document, body: body} =
-             FakeGitHubRepository.state().open
+    # The checked document, which pins no link, is the repository's
+    # knowledge until tomorrow's check.
+    entry = RepositoryKnowledge.entry("emisar")
+    document = entry.document
+
+    assert {entry.phase, entry.document_by, entry.document_commit, entry.error} ==
+             {:idle, :model, @head, nil}
 
     assert String.starts_with?(document, "# RYKER.md\n\nWritten by Ryker from `783fc48` on ")
     assert document =~ "[portal/](portal/) — Elixir/Phoenix control plane"
     assert document =~ "- `./run help` — Lists every contributor command."
     refute document =~ "://"
     refute document =~ @head
-    assert Document.origin(document) == :model
-    assert body =~ "Why now: The repository has no RYKER.md yet."
-    assert body =~ "Ryker never merges it"
-
-    entry = RepositoryKnowledge.entry("emisar")
-    assert entry.phase == :idle
-    assert entry.document == document
-    assert {entry.document_by, entry.document_commit} == {:model, @head}
-
-    assert {entry.publication, entry.pull_request_number, entry.pull_request_state} ==
-             {:opened, 84, :open}
-
-    assert entry.error == nil
+    assert entry.reason == "Ryker has no RYKER.md for this repository yet."
     assert DateTime.diff(entry.next_check_at, Repo.now!()) in 86_000..86_400
-
-    # Work is briefed with the proposal.
-    assert repository().knowledge_content == document
-    assert repository().knowledge_status == :proposed
-    assert repository().knowledge_source_commit == @head
-
-    assert repository().knowledge_pull_request_url ==
-             "https://github.com/AndrewDryga/emisar/pull/84"
 
     # The turn stopped with proof, so cleanup may close its session, and it
     # is metered under the repository's GitHub conversation.
@@ -221,7 +219,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
   # Andrew, 2026-09-27: "also when those are updated?" Once a day each
   # repository is checked; a push that touches no file a teammate reads to
-  # learn it costs no model turn, and Work follows what was merged.
+  # learn it costs no model turn, and each rewrite is the knowledge at once.
   test "the daily check rewrites only when the default branch moved and a key file changed" do
     github!()
     changed = Map.put(answer(), "purpose", answer()["purpose"] <> " It is dual-licensed.")
@@ -229,175 +227,39 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     coop = coop!([answer_json(), Jason.encode!(changed), Jason.encode!(later)])
     written!(coop)
 
-    # PR 84 is merged; the merge commit changed only RYKER.md.
-    FakeGitHubRepository.merge_open(@merged)
-    FakeGitHubRepository.push(@head, @merged, ["RYKER.md", "portal/apps/emisar/lib/emisar.ex"])
+    # A push that changed only code: one step, the check, and no turn.
+    FakeGitHubRepository.push(@head, @merged, ["portal/apps/emisar/lib/emisar.ex"])
     due!()
 
-    # One step, the check, and no turn.
     assert drain(settings(coop)) == [{:ok, :step}, {:ok, :idle}]
     assert length(FakeCoopAPI.state(coop).submissions) == 1
-    entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.phase, entry.pull_request_state} == {:idle, :merged}
+    assert RepositoryKnowledge.entry("emisar").phase == :idle
 
-    # Work reads what was merged, as the default branch holds it.
-    assert repository().knowledge_status == :accepted
-    assert repository().knowledge_content == FakeGitHubRepository.state().document
-
-    # A README change is worth a turn; the proposal opens a new pull request.
+    # A README change is worth a turn, and its document is the knowledge.
     FakeGitHubRepository.push(@head, @pushed, ["README.md", "runner/main.go"])
     due!()
     drain(settings(coop))
 
     assert length(FakeCoopAPI.state(coop).submissions) == 2
+    entry = RepositoryKnowledge.entry("emisar")
+    assert entry.reason == "These files changed: README.md."
+    assert entry.document =~ "dual-licensed"
 
-    assert %{number: 85, title: "Update Ryker repository knowledge", body: body} =
-             FakeGitHubRepository.state().open
-
-    assert body =~ "Why now: These files changed: README.md."
-    assert RepositoryKnowledge.entry("emisar").reason == "These files changed: README.md."
-
-    # While it is open, the next rewrite updates it: never a second one.
+    # The next rewrite replaces it the same way.
     FakeGitHubRepository.push(@pushed, @later, ["portal/mix.exs"])
     due!()
     drain(settings(coop))
 
     assert length(FakeCoopAPI.state(coop).submissions) == 3
-    assert FakeGitHubRepository.state().pull_requests == %{84 => :merged, 85 => :open}
-    assert FakeGitHubRepository.state().open.document =~ "Written by Ryker from `3333333` on "
-
     entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.publication, entry.pull_request_number} == {:updated, 85}
-    assert repository().knowledge_status == :proposed
-    assert repository().knowledge_pull_request_url =~ "/pull/85"
-  end
-
-  # Review of the knowledge lane, 2026-09-28: closing Ryker's pull request
-  # is turning it down, and the setup before this lane never proposed again
-  # after one was closed unless someone asked. The lane opened a new one on
-  # the next key-file change, putting back what a person had just declined.
-  test "a pull request a person closed is not proposed again until someone asks" do
-    github!()
-    coop = coop!([answer_json(), answer_json()])
-    written!(coop)
-
-    FakeGitHubRepository.close_open()
-    FakeGitHubRepository.push(@head, @pushed, ["README.md", "runner/main.go"])
-    due!()
-    drain(settings(coop))
-
-    assert length(FakeCoopAPI.state(coop).submissions) == 1
-    assert FakeGitHubRepository.state().open == nil
-    assert FakeGitHubRepository.state().pull_requests == %{84 => :closed}
-
-    entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.phase, entry.pull_request_state} == {:idle, :closed}
-    assert DateTime.diff(entry.next_check_at, Repo.now!()) in 86_000..86_400
-
-    # Refresh knowledge is someone asking: it writes and proposes again.
-    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
-    drain(settings(coop))
-
-    assert length(FakeCoopAPI.state(coop).submissions) == 2
-    assert %{number: 85} = FakeGitHubRepository.state().open
-    assert RepositoryKnowledge.entry("emisar").pull_request_state == :open
-  end
-
-  # The same review: the pull request asks people to review and edit
-  # RYKER.md before merging, and the next update wrote over whatever they
-  # had changed on its branch.
-  test "a person's edits on Ryker's pull request are never written over" do
-    github!()
-    changed = Jason.encode!(Map.put(answer(), "purpose", answer()["purpose"] <> " It ships."))
-    coop = coop!([answer_json(), answer_json(), changed, changed])
-    written!(coop)
-
-    # A rewrite that says the same leaves the branch as it was, and the next
-    # one still finds Ryker's own words there and replaces them.
-    FakeGitHubRepository.push(@head, @pushed, ["README.md"])
-    due!()
-    drain(settings(coop))
-    assert FakeGitHubRepository.state().open.document =~ "Written by Ryker from `783fc48` on "
-
-    FakeGitHubRepository.push(@pushed, @later, ["AGENTS.md"])
-    due!()
-    drain(settings(coop))
-    assert FakeGitHubRepository.state().open.document =~ "It ships."
-
-    # A person edits it there: the next rewrite leaves it alone, and says so.
-    edited = FakeGitHubRepository.state().open.document <> "\nAsk #infra before a deploy.\n"
-    FakeGitHubRepository.edit_open(edited)
-    FakeGitHubRepository.push(@later, @fourth, ["README.md"])
-    due!()
-    drain(settings(coop))
-
-    assert length(FakeCoopAPI.state(coop).submissions) == 4
-    assert FakeGitHubRepository.state().open.document == edited
-    assert FakeGitHubRepository.state().pull_requests == %{84 => :open}
-
-    entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.phase, entry.published_at} == {:idle, nil}
-    assert entry.error =~ "Someone edited RYKER.md on Ryker's pull request"
-    assert DateTime.diff(entry.next_check_at, Repo.now!()) in 86_000..86_400
-  end
-
-  # Review of the knowledge lane, 2026-09-28: a proposal can fail after it
-  # writes Ryker's branch and before it records what it proposed. Refresh
-  # knowledge pressed before the retry then read Ryker's own words there as
-  # a person's edit, and its pull request was never updated again.
-  test "a rewrite Ryker wrote on its pull request but never recorded is still Ryker's to replace" do
-    github!()
-    ships = Jason.encode!(Map.put(answer(), "purpose", answer()["purpose"] <> " It ships."))
-    fast = Jason.encode!(Map.put(answer(), "purpose", answer()["purpose"] <> " It is fast."))
-    coop = coop!([answer_json(), ships, fast])
-    written!(coop)
-    unrecorded_rewrite!(coop)
-
-    # Someone asks for a refresh before the proposal is tried again.
-    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
-    drain(settings(coop, retry_delay_seconds: 60))
-
-    # Ryker's own words are replaced, not taken for a person's edit.
-    entry = RepositoryKnowledge.entry("emisar")
-
-    assert {FakeGitHubRepository.state().open.document == entry.document, entry.error} ==
-             {true, nil}
-
-    assert entry.document =~ "It is fast."
-    assert FakeGitHubRepository.state().pull_requests == %{84 => :open}
-    assert {entry.phase, entry.publication} == {:idle, :updated}
-    assert repository().knowledge_content == entry.document
-  end
-
-  # What Ryker records before it writes widens what it calls its own by
-  # exactly what it wrote: a person's edit over those words is theirs.
-  test "a person's edit over a rewrite Ryker never recorded is never written over" do
-    github!()
-    ships = Jason.encode!(Map.put(answer(), "purpose", answer()["purpose"] <> " It ships."))
-    fast = Jason.encode!(Map.put(answer(), "purpose", answer()["purpose"] <> " It is fast."))
-    coop = coop!([answer_json(), ships, fast])
-    written!(coop)
-    unrecorded = unrecorded_rewrite!(coop)
-
-    edited = unrecorded.document <> "\nAsk #infra before a deploy.\n"
-    FakeGitHubRepository.edit_open(edited)
-    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
-    drain(settings(coop, retry_delay_seconds: 60))
-
-    assert length(FakeCoopAPI.state(coop).submissions) == 3
-    entry = RepositoryKnowledge.entry("emisar")
-
-    assert {FakeGitHubRepository.state().open.document == edited, entry.phase, entry.published_at} ==
-             {true, :idle, nil}
-
-    assert entry.error =~ "Someone edited RYKER.md on Ryker's pull request"
+    assert entry.document =~ "Written by Ryker from `3333333` on "
+    assert entry.document =~ "MIT-licensed"
   end
 
   test "a week after the last write, any code change is enough" do
     github!()
     coop = coop!([answer_json(), answer_json()])
     written!(coop)
-    FakeGitHubRepository.merge_open(@merged)
 
     # Code only, six days after the write: nothing.
     age!(6)
@@ -414,66 +276,6 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     assert RepositoryKnowledge.entry("emisar").reason ==
              "A week has passed since the last write, and code changed."
-  end
-
-  # A rewrite names a new commit and a new date every time. When the model
-  # says what the default branch already says, a pull request would change
-  # only that line: nothing is opened, and Work reads the merged file.
-  test "a rewrite that says what the default branch says opens nothing" do
-    github!()
-    coop = coop!([answer_json(), answer_json()])
-    written!(coop)
-    FakeGitHubRepository.merge_open(@merged)
-    FakeGitHubRepository.push(@head, @pushed, ["AGENTS.md"])
-    due!()
-
-    drain(settings(coop))
-
-    assert length(FakeCoopAPI.state(coop).submissions) == 2
-    assert FakeGitHubRepository.state().open == nil
-    assert FakeGitHubRepository.state().pull_requests == %{84 => :merged}
-
-    entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.publication, entry.document_commit} == {:unchanged, @pushed}
-    assert repository().knowledge_status == :accepted
-    assert repository().knowledge_content == FakeGitHubRepository.state().document
-
-    # What Ryker sent is forgotten once a proposal is recorded, so daily
-    # rewrites that say the same never pile up.
-    assert entry.sent_sha256s == []
-  end
-
-  # The four repositories set up before this change hold the old file-list
-  # summary on their default branches (PR 84 is emisar's). Their first check
-  # has a model write them at once.
-  test "a repository whose RYKER.md is the old file-list summary is written again at once" do
-    old = File.read!(Path.join([@fixtures, "emisar", "old_scan_RYKER.md"]))
-    github!(document: old)
-    ready!()
-    coop = coop!([answer_json()])
-
-    drain(settings(coop))
-
-    assert %{number: 84, title: "Update Ryker repository knowledge", body: body} =
-             FakeGitHubRepository.state().open
-
-    assert body =~ "Why now: RYKER.md is the file-list summary setup wrote before."
-    assert RepositoryKnowledge.entry("emisar").document_by == :model
-  end
-
-  # A RYKER.md a person wrote is theirs: accepted as it is, and Work reads it.
-  test "a RYKER.md a person wrote is kept and never rewritten by the daily check" do
-    person = "# How we work\n\nRun `./run gate all` before pushing.\n"
-    github!(document: person)
-    ready!()
-    coop = coop!([answer_json()])
-
-    drain(settings(coop))
-
-    assert FakeCoopAPI.state(coop).create_keys == []
-    assert FakeGitHubRepository.state().open == nil
-    assert repository().knowledge_content == person
-    assert repository().knowledge_status == :accepted
   end
 
   # "Refresh knowledge" on the Repositories page: the same rewrite, at once,
@@ -495,9 +297,9 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     drain(settings(coop))
     assert length(FakeCoopAPI.state(coop).submissions) == 2
 
-    # PR 84 is still open: the same one is updated.
-    assert FakeGitHubRepository.state().pull_requests == %{84 => :open}
-    assert RepositoryKnowledge.entry("emisar").publication == :updated
+    # The rewrite is the repository's knowledge as soon as it is written.
+    assert applied_runs() == 2
+    assert RepositoryKnowledge.entry("emisar").phase == :idle
 
     assert {:error, :repository_not_found} = RepositoryKnowledge.refresh("missing", @actor)
   end
@@ -513,7 +315,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
 
     FakeGitHubRepository.update(
-      &%{&1 | errors: %{repository: {:error, {:github_onboarding, :response}}}}
+      &%{&1 | errors: %{head: {:error, {:github_onboarding, :response}}}}
     )
 
     assert {:ok, _yielded} = Dispatcher.run_once(settings(coop, retry_delay_seconds: 60))
@@ -527,74 +329,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     drain(settings(coop))
 
     assert length(FakeCoopAPI.state(coop).submissions) == 2
-    assert RepositoryKnowledge.entry("emisar").publication == :updated
-  end
-
-  # The same review: a 5xx while the pull request was opened, with the
-  # branch already written, left the document unproposed for a day.
-  test "a proposal GitHub failed to open is tried again shortly, not tomorrow" do
-    github!(errors: %{publish: {:error, {:github_onboarding, :pull_request}}})
-    ready!()
-    coop = coop!([answer_json()])
-
-    drain(settings(coop, retry_delay_seconds: 60))
-
-    entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.phase, entry.published_at, entry.error} == {:publish, nil, nil}
-    assert DateTime.diff(entry.next_attempt_at, Repo.now!()) in 55..60
-
-    FakeGitHubRepository.update(&%{&1 | errors: %{}})
-    retry_due!()
-    drain(settings(coop))
-
-    assert %{number: 84} = FakeGitHubRepository.state().open
-    assert RepositoryKnowledge.entry("emisar").publication == :opened
-  end
-
-  # The same review: a RYKER.md over 128,000 bytes, not text or not a file
-  # failed the daily check as if GitHub had not answered, so the check was
-  # tried again every minute, for good. One Ryker cannot read is not one it
-  # wrote: like a person's, it is left as it is, and the row says why.
-  test "a RYKER.md Ryker cannot read is left as it is, with a sentence, and checked tomorrow" do
-    github!(document: :unreadable)
-    ready!()
-    coop = coop!([answer_json()])
-
-    drain(settings(coop, retry_delay_seconds: 60))
-
-    entry = RepositoryKnowledge.entry("emisar")
-    assert entry.phase == :idle
-    assert entry.error =~ "Ryker cannot read the RYKER.md on the default branch"
-    assert DateTime.diff(entry.next_check_at, Repo.now!()) in 86_000..86_400
-
-    # Asking for it on the page meets the same sentence, before any turn.
-    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
-    drain(settings(coop, retry_delay_seconds: 60))
-
-    assert FakeCoopAPI.state(coop).create_keys == []
-    refute Enum.any?(FakeGitHubRepository.calls(), &match?({:publish, _document}, &1))
-    entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.phase, entry.error =~ "Ryker cannot read"} == {:idle, true}
-    assert DateTime.diff(entry.next_check_at, Repo.now!()) in 86_000..86_400
-  end
-
-  # A RYKER.md that became unreadable while Ryker wrote its own is not
-  # proposed over, and the proposal is not tried every minute either.
-  test "a document is not proposed over a RYKER.md Ryker cannot read" do
-    github!(errors: %{publish: {:error, {:github_onboarding, :response}}})
-    ready!()
-    coop = coop!([answer_json()])
-    drain(settings(coop, retry_delay_seconds: 60))
-    assert RepositoryKnowledge.entry("emisar").phase == :publish
-
-    FakeGitHubRepository.update(&%{&1 | errors: %{}, document: :unreadable})
-    retry_due!()
-    drain(settings(coop, retry_delay_seconds: 60))
-
-    assert FakeGitHubRepository.state().open == nil
-    entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.phase, entry.published_at} == {:idle, nil}
-    assert entry.error =~ "Ryker cannot read the RYKER.md on the default branch"
+    assert applied_runs() == 2
   end
 
   # The outline stands in when no model could finish, and a README Ryker
@@ -607,30 +342,9 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     drain(settings(coop), 60)
 
-    assert %{document: outline} = FakeGitHubRepository.state().open
-    assert Document.origin(outline) == :outline
+    outline = RepositoryKnowledge.entry("emisar").document
+    assert RepositoryKnowledge.entry("emisar").document_by == :outline
     assert outline =~ "The README does not say what the repository is for."
-  end
-
-  test "an archived repository is skipped with a sentence, and costs no model turn" do
-    github!(archived: true)
-    ready!()
-    coop = coop!([answer_json()])
-
-    drain(settings(coop))
-
-    assert FakeCoopAPI.state(coop).create_keys == []
-    refute Enum.any?(FakeGitHubRepository.calls(), &match?({:publish, _document}, &1))
-    entry = RepositoryKnowledge.entry("emisar")
-    assert entry.phase == :idle
-    assert entry.error =~ "archived on GitHub"
-    assert DateTime.diff(entry.next_check_at, Repo.now!()) in 86_000..86_400
-
-    # Asking for it on the page meets the same refusal before any turn.
-    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
-    drain(settings(coop))
-    assert FakeCoopAPI.state(coop).create_keys == []
-    assert RepositoryKnowledge.entry("emisar").error =~ "archived on GitHub"
   end
 
   test "a removed repository is never checked, and a turn already out is only stopped" do
@@ -649,31 +363,11 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     [run] = Repo.all(from(run in Run, where: run.repository_ref == "emisar"))
     assert run.error_code == "repository_knowledge_removed"
     assert %DateTime{} = run.remote_stopped_at
-    refute Enum.any?(FakeGitHubRepository.calls(), &match?({:publish, _document}, &1))
     assert Enum.map(FakeCoopAPI.state(coop).validations, & &1.verdict) == []
 
     # Due or not, it is never taken up again.
     Repo.update_all(Entry, set: [next_check_at: DateTime.add(DateTime.utc_now(), -60)])
     assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
-  end
-
-  # Setup saved a repository again when a step finished after Remove
-  # (2026-09-27). The knowledge lane saves Work's copy of RYKER.md on the same
-  # row, so a proposal that finishes after Remove must not bring it back.
-  test "a repository removed while its RYKER.md is proposed stays removed" do
-    remove = fn ->
-      {:ok, _removed} =
-        IntegrationSetup.remove_repository("emisar", storage_root: System.tmp_dir!())
-    end
-
-    github!(on_publish: remove)
-    ready!()
-    coop = coop!([answer_json()])
-
-    drain(settings(coop))
-
-    assert Settings.fetch!().repositories == []
-    assert Settings.fetch!().github_bindings == []
   end
 
   # The model's answer is an input: one that names nothing the repository
@@ -697,10 +391,8 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     [_first_prompt, second_prompt] = Enum.map(FakeCoopAPI.state(coop).submissions, & &1["prompt"])
     assert second_prompt =~ "named nothing Ryker"
 
-    %{document: outline, title: "Add Ryker repository knowledge"} =
-      FakeGitHubRepository.state().open
-
-    assert Document.origin(outline) == :outline
+    outline = RepositoryKnowledge.entry("emisar").document
+    assert RepositoryKnowledge.entry("emisar").document_by == :outline
     refute outline =~ "src/"
 
     entry = RepositoryKnowledge.entry("emisar")
@@ -733,7 +425,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     assert second.status == :applied
     assert length(FakeCoopAPI.state(coop).submissions) == 2
-    assert %{number: 84} = FakeGitHubRepository.state().open
+    assert RepositoryKnowledge.entry("emisar").document_by == :model
   end
 
   # Review of the knowledge lane, 2026-09-28: the rendered RYKER.md had no
@@ -773,31 +465,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
              {:rejected, "repository_knowledge_unusable", nil}
 
     assert second.status == :applied
-    assert %{number: 84} = FakeGitHubRepository.state().open
-  end
-
-  # The outline stands in only where there is nothing better: asking for a
-  # refresh of a RYKER.md a person wrote, and a model that cannot finish,
-  # must not propose the file list over their document.
-  test "a person's RYKER.md is never replaced by the outline when a refresh fails" do
-    person = "# How we work\n\nRun `./run gate all` before pushing.\n"
-    github!(document: person)
-    ready!()
-    invented = Jason.encode!(invented_answer())
-    coop = coop!([invented, invented])
-    drain(settings(coop))
-
-    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
-    drain(settings(coop), 60)
-
-    assert length(FakeCoopAPI.state(coop).submissions) == 2
-    refute Enum.any?(FakeGitHubRepository.calls(), &match?({:publish, _document}, &1))
-    assert FakeGitHubRepository.state().document == person
-
-    entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.phase, entry.document} == {:idle, nil}
-    assert entry.error =~ "the model named nothing Ryker could find"
-    assert repository().knowledge_content == person
+    assert RepositoryKnowledge.entry("emisar").document_by == :model
   end
 
   test "a model's RYKER.md is kept when a rewrite names nothing real" do
@@ -815,8 +483,6 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert entry.error ==
              "RYKER.md was not updated: the model named nothing Ryker could find in the " <>
                "repository. Ryker tries again with the next daily check, or refresh knowledge."
-
-    assert FakeGitHubRepository.state().open.document == written.document
   end
 
   # A repository row counts the tasks people asked for there. Reading the
@@ -857,32 +523,21 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert {:ok, :ready} = Onboarding.run("emisar", api: FakeGitHubRepository)
   end
 
-  # Set up, written by the model and proposed in PR 84.
+  # Set up and written by the model.
   defp written!(coop) do
     ready!()
     drain(settings(coop))
     entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.document_by, entry.pull_request_number} == {:model, 84}
+    assert entry.document_by == :model
     entry
   end
 
-  # A rewrite after a README change reaches the branch of the open pull
-  # request, and GitHub fails before the proposal is recorded: the file is
-  # there, Work still reads the one before, and the next try is a minute away.
-  defp unrecorded_rewrite!(coop) do
-    failing = {:error, {:github_onboarding, :pull_request}}
-    FakeGitHubRepository.update(&%{&1 | errors: %{after_write: failing}})
-    FakeGitHubRepository.push(@head, @pushed, ["README.md"])
-    due!()
-    drain(settings(coop, retry_delay_seconds: 60))
-    FakeGitHubRepository.update(&%{&1 | errors: %{}})
-
-    entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.phase, entry.published_at} == {:publish, nil}
-    assert FakeGitHubRepository.state().open.document == entry.document
-    refute repository().knowledge_content == entry.document
-    entry
-  end
+  defp applied_runs,
+    do:
+      Repo.aggregate(
+        from(run in Run, where: run.repository_ref == "emisar" and run.status == :applied),
+        :count
+      )
 
   defp due!,
     do: Repo.update_all(Entry, set: [next_check_at: DateTime.add(DateTime.utc_now(), -60)])
@@ -907,6 +562,10 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   end
 
   defp repository, do: Enum.find(Settings.fetch!().repositories, &(&1.ref == "emisar"))
+
+  # What GitHub was asked, without its arguments: `:head`, `:tree`, `:read`.
+  defp call_kind(call) when is_tuple(call), do: elem(call, 0)
+  defp call_kind(call), do: call
 
   defp settings(coop, overrides \\ []) do
     Map.merge(

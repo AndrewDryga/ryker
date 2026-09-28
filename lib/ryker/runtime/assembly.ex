@@ -628,9 +628,9 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  # RYKER.md is read by a model through Work's adapter and proposed through
-  # the GitHub App, so it runs only where both do. Each repository's own
-  # read-only policy is found when a turn is prepared
+  # RYKER.md is written by a model through Work's adapter and checked against
+  # the repository through the GitHub App, so it runs only where both do.
+  # Each repository's own read-only policy is found when a turn is prepared
   # (`Ryker.RepositoryKnowledge.Dispatcher`), so adding or setting up a
   # repository never restarts this lane.
   defp repository_knowledge(settings, %{api: api, client: client}, %{}) do

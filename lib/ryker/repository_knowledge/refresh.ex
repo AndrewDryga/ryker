@@ -7,14 +7,13 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
   default branch moved since that write, and then only when a file that
   describes how to work in the repository changed (a key file, as the
   prompt shows the model: `Ryker.RepositoryKnowledge.Document.key_file?/1`),
-  or when a week has passed since the write and any code changed. A model
-  turn reads the whole repository, so a push that touches none of that costs
-  nothing.
+  or when a week has passed since the write and anything else changed. A
+  model turn reads the whole repository, so a push that touches none of that
+  costs nothing.
 
-  A repository whose RYKER.md is missing, an outline, or the file-list summary
-  setup wrote before models did, is written at once. One a person wrote is
-  theirs: Ryker never rewrites it by itself, only when someone asks for it on
-  the Repositories page.
+  A repository Ryker has no document for, or only the outline from a try no
+  model could finish, is written at once. The rules read only what Ryker
+  wrote: a RYKER.md the repository holds is one more file the model may read.
   """
 
   alias Ryker.RepositoryKnowledge.Document
@@ -40,43 +39,24 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
 
   @doc """
   Whether RYKER.md is written again, and the plain reason, given the last
-  write, the file on the default branch now (`current`), the head commit,
-  what changed since the write, and the time now. `changes` is read only when
-  the rules need it, so a check that can decide without it asks GitHub for
-  nothing more.
+  write, the head commit, what changed since the write, and the time now.
+  `changes` is read only when the rules need it, so a check that can decide
+  without it asks GitHub for nothing more.
   """
   @spec decide(
           written(),
-          String.t() | nil,
           String.t(),
           (-> {:ok, changes()} | {:error, term()}),
           DateTime.t()
         ) ::
           {:write, String.t()} | :current | {:error, term()}
-  def decide(written, current, head, changes, now) do
-    case {Document.origin(current), written.by} do
-      {:person, _by} ->
-        :current
+  def decide(%{by: :model} = written, head, changes, now), do: rules(written, head, changes, now)
 
-      {origin, by} when origin in [:none, :old_scan, :outline] and by != :model ->
-        {:write, first_reason(origin)}
+  def decide(%{by: :outline}, _head, _changes, _now),
+    do: {:write, "RYKER.md is only an outline from the last try."}
 
-      {_origin, :model} ->
-        rules(written, head, changes, now)
-
-      {:model, _outline_or_none} ->
-        # The default branch holds a RYKER.md Ryker wrote from a model's
-        # reading, and this entry's last write was the outline or nothing:
-        # another installation of Ryker wrote it, or the repository was added
-        # again under another ref. A repository removed and added again under
-        # its ref keeps its entry, and its rules. It is read afresh.
-        {:write, "Ryker has no record of the RYKER.md it wrote here."}
-    end
-  end
-
-  defp first_reason(:none), do: "The repository has no RYKER.md yet."
-  defp first_reason(:old_scan), do: "RYKER.md is the file-list summary setup wrote before."
-  defp first_reason(:outline), do: "RYKER.md is only an outline from the last try."
+  def decide(_written, _head, _changes, _now),
+    do: {:write, "Ryker has no RYKER.md for this repository yet."}
 
   defp rules(%{commit: head}, head, _changes, _now), do: :current
 
@@ -92,7 +72,7 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
           key != [] ->
             {:write, "These files changed: #{Enum.join(Enum.take(key, 5), ", ")}."}
 
-          week_old?(written, now) and Enum.any?(paths, &code?/1) ->
+          week_old?(written, now) and paths != [] ->
             {:write, "A week has passed since the last write, and code changed."}
 
           true ->
@@ -106,10 +86,6 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
 
   defp week_old?(%{at: %DateTime{} = at}, now), do: DateTime.diff(now, at) >= @stale_after_seconds
   defp week_old?(_written, _now), do: true
-
-  @doc "Whether a changed path is anything but RYKER.md itself, which Ryker writes."
-  @spec code?(String.t()) :: boolean()
-  def code?(path), do: path != "RYKER.md"
 
   @doc "How long a week is, for the rules and the tests that hold them."
   @spec stale_after_seconds() :: pos_integer()

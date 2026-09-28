@@ -4,7 +4,6 @@ defmodule Ryker.RepositoryKnowledge.MigrationTest do
   use Ryker.DataCase, async: false
 
   alias Ecto.Adapters.SQL
-  alias Ryker.Settings
 
   @version 20_260_927_220_000
   @migration Ryker.Repo.Migrations.AddRepositoryKnowledge
@@ -12,48 +11,7 @@ defmodule Ryker.RepositoryKnowledge.MigrationTest do
   # The migrator's own lock holds the one sandboxed connection while its task
   # waits for that same connection, so it is skipped: nothing else migrates here.
   @options [log: false, migration_lock: false]
-  @actor "control-plane:local"
   @commit String.duplicate("a", 40)
-
-  # Setup no longer reads or publishes: RYKER.md is the knowledge lane's. A
-  # repository the previous release left reading or opening its pull request
-  # is set up when its commit was pinned, and starts over when it was not, so
-  # none is stranded in a state nothing takes up again.
-  test "a repository caught mid-setup is set up or starts over, and nothing is lost" do
-    {:ok, snapshot} = Settings.initialize(@actor)
-
-    snapshot =
-      Enum.reduce(~w(pinned unpinned finished), snapshot, fn ref, current ->
-        {:ok, saved} =
-          Settings.put_repository(
-            %{ref: ref, github_repository: "acme/#{ref}", onboarding_state: :ready},
-            current.installation.revision,
-            @actor
-          )
-
-        saved
-      end)
-
-    assert snapshot.installation.revision > 0
-    assert :ok = Ecto.Migrator.down(Repo, @version, migration(), @options)
-
-    set!("pinned", "publishing", @commit, "# RYKER.md\n")
-    set!("unpinned", "scanning", nil, nil)
-    set!("finished", "ready", @commit, "# RYKER.md\n")
-
-    assert :ok = Ecto.Migrator.up(Repo, @version, migration(), @options)
-
-    assert rows() == [
-             {"finished", "ready", @commit, "# RYKER.md\n"},
-             {"pinned", "ready", @commit, "# RYKER.md\n"},
-             {"unpinned", "pending", nil, nil}
-           ]
-
-    # Reading and publishing are no setup states any more.
-    assert_raise Postgrex.Error, ~r/repository_github_state_valid/, fn ->
-      Repo.transaction(fn -> set!("finished", "scanning", @commit, nil) end)
-    end
-  end
 
   # A knowledge session reads one repository at one commit and nothing else;
   # the previous release has nowhere to keep one, so rolling back refuses
@@ -111,30 +69,6 @@ defmodule Ryker.RepositoryKnowledge.MigrationTest do
         DateTime.utc_now()
       ]
     )
-  end
-
-  defp set!(ref, state, commit, knowledge) do
-    SQL.query!(
-      Repo,
-      """
-      UPDATE repository_settings
-      SET onboarding_state = $2, source_commit = $3, knowledge_content = $4,
-          knowledge_status = CASE WHEN $4::text IS NULL THEN NULL ELSE 'proposed' END,
-          knowledge_source_commit = CASE WHEN $4::text IS NULL THEN NULL ELSE $3 END,
-          knowledge_sha256 = CASE WHEN $4::text IS NULL THEN NULL ELSE $5 END
-      WHERE ref = $1
-      """,
-      [ref, state, commit, knowledge, String.duplicate("c", 64)]
-    )
-  end
-
-  defp rows do
-    SQL.query!(
-      Repo,
-      "SELECT ref, onboarding_state, source_commit, knowledge_content FROM repository_settings ORDER BY ref",
-      []
-    ).rows
-    |> Enum.map(&List.to_tuple/1)
   end
 
   # `ecto.migrate` loads a migration only while it is pending, so a database

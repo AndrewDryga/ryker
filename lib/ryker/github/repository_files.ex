@@ -1,16 +1,9 @@
 defmodule Ryker.GitHub.RepositoryFiles do
   @moduledoc """
-  A repository's files and its knowledge pull request, through the GitHub
-  App: the default branch head setup pins (`Ryker.GitHub.Onboarding`), and
-  everything the knowledge lane reads and proposes
-  (`Ryker.RepositoryKnowledge.Remote`).
-
-  RYKER.md is proposed on one stable branch, `ryker/repository-knowledge`, as a
-  draft pull request Ryker never merges. While it is open Ryker updates it
-  there, unless a person edited it there; once it is merged or closed the
-  branch starts again from the default branch head. An archived repository
-  refuses every write, which is checked before one is tried and read from
-  GitHub's refusal after.
+  A repository's files, through the GitHub App: the default branch head
+  setup pins (`Ryker.GitHub.Onboarding`), and everything the knowledge lane
+  reads (`Ryker.RepositoryKnowledge.Remote`). It only reads: RYKER.md is
+  Ryker's own, and nothing is written to the repository.
   """
 
   @behaviour Ryker.GitHub.Onboarding
@@ -19,15 +12,12 @@ defmodule Ryker.GitHub.RepositoryFiles do
   alias Ryker.Delivery.JSONClient
   alias Ryker.GitHub.Client.Transport
   alias Ryker.GitHub.InstallationTokens
-  alias Ryker.RepositoryKnowledge.Document
 
   @headers [
     {"accept", "application/vnd.github+json"},
     {"user-agent", "ryker"},
     {"x-github-api-version", "2022-11-28"}
   ]
-  @branch "ryker/repository-knowledge"
-  @path "RYKER.md"
   @maximum_tree_entries 10_000
   # GitHub sends a file's content inline up to 1 MB, and Ryker reads all of
   # it: a smaller bound dropped real commands from a 135,820-byte README
@@ -37,10 +27,6 @@ defmodule Ryker.GitHub.RepositoryFiles do
   @refused [401, 403, 429]
   # GitHub lists at most this many files of a comparison.
   @maximum_compared_files 300
-
-  @doc "The branch Ryker proposes RYKER.md on."
-  @spec branch() :: String.t()
-  def branch, do: @branch
 
   # -- Reading ---------------------------------------------------------------------
 
@@ -57,7 +43,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
     path =
       "/repos/#{repository.github_repository}/git/ref/heads/#{encode_ref(repository.base_branch)}"
 
-    case request(client, :get, path) do
+    case get(client, path) do
       {:ok, %{status: 200, body: %{"object" => %{"sha" => sha}}}} when is_binary(sha) ->
         commit(sha)
 
@@ -79,24 +65,11 @@ defmodule Ryker.GitHub.RepositoryFiles do
   end
 
   @impl Ryker.RepositoryKnowledge.Remote
-  def repository(binding, repository) do
-    with {:ok, client} <- client(binding.name) do
-      case request(client, :get, "/repos/#{repository.github_repository}") do
-        {:ok, %{status: 200, body: %{} = body}} -> {:ok, %{archived: body["archived"] == true}}
-        {:ok, %{status: 404}} -> {:error, {:github_onboarding, :not_found}}
-        {:ok, %{status: status} = response} when status in @refused -> refused(response)
-        {:ok, _other} -> {:error, {:github_onboarding, :response}}
-        {:error, _reason} = error -> error
-      end
-    end
-  end
-
-  @impl Ryker.RepositoryKnowledge.Remote
   def tree(binding, repository, commit) do
     path = "/repos/#{repository.github_repository}/git/trees/#{commit}?recursive=1"
 
     with {:ok, client} <- client(binding.name),
-         do: client |> request(:get, path) |> tree_entries()
+         do: client |> get(path) |> tree_entries()
   end
 
   defp tree_entries({:ok, %{status: 200, body: %{"tree" => entries} = body}})
@@ -120,12 +93,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   @impl Ryker.RepositoryKnowledge.Remote
   def read(binding, repository, path, ref) do
     with {:ok, client} <- client(binding.name),
-         {:ok, file} <- file(client, repository.github_repository, path, ref) do
-      case file do
-        :not_found -> {:ok, :not_found}
-        %{text: text} -> {:ok, text}
-      end
-    end
+         do: file(client, repository.github_repository, path, ref)
   end
 
   @impl Ryker.RepositoryKnowledge.Remote
@@ -133,7 +101,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
     path = "/repos/#{repository.github_repository}/compare/#{base}...#{head}"
 
     with {:ok, client} <- client(binding.name),
-         do: client |> request(:get, path) |> compared()
+         do: client |> get(path) |> compared()
   end
 
   defp compared({:ok, %{status: 200, body: %{"files" => files}}}) when is_list(files) do
@@ -166,303 +134,15 @@ defmodule Ryker.GitHub.RepositoryFiles do
 
   defp changed_paths(_file), do: []
 
-  @impl Ryker.RepositoryKnowledge.Remote
-  def pull_request(binding, repository, number) when is_integer(number) and number > 0 do
-    with {:ok, client} <- client(binding.name) do
-      case request(client, :get, "/repos/#{repository.github_repository}/pulls/#{number}") do
-        {:ok, %{status: 200, body: %{"state" => "open"}}} -> {:ok, :open}
-        {:ok, %{status: 200, body: %{"merged" => true}}} -> {:ok, :merged}
-        {:ok, %{status: 200, body: %{"state" => "closed"}}} -> {:ok, :closed}
-        {:ok, %{status: 404}} -> {:ok, :closed}
-        {:ok, %{status: status} = response} when status in @refused -> refused(response)
-        {:ok, _other} -> {:error, {:github_onboarding, :response}}
-        {:error, _reason} = error -> error
-      end
-    end
-  end
-
-  # -- Proposing RYKER.md ----------------------------------------------------------
-
-  @impl Ryker.RepositoryKnowledge.Remote
-  def publish(binding, repository, %{document: _, body: _, proposed: _, sent: _} = proposal) do
-    slug = repository.github_repository
-
-    with {:ok, client} <- client(binding.name),
-         :ok <- writable(client, slug),
-         {:ok, owner} <- owner(slug),
-         {:ok, head} <- head_commit(client, repository),
-         {:ok, base} <- file(client, slug, @path, head),
-         {:ok, open} <- open_pull(client, slug, owner) do
-      base_document = text(base)
-
-      with {:ok, outcome} <- propose(open, client, repository, owner, head, base, proposal),
-           do: {:ok, Map.merge(outcome, %{base_commit: head, base_document: base_document})}
-    end
-  end
-
-  defp propose(
-         %{"html_url" => url, "number" => number},
-         client,
-         repository,
-         _owner,
-         _head,
-         _base,
-         proposal
-       )
-       when is_binary(url) and is_integer(number) do
-    with :ok <- update_open(client, repository.github_repository, number, proposal),
-         do: {:ok, %{outcome: :updated, url: url, number: number}}
-  end
-
-  defp propose(
-         :not_found,
-         client,
-         repository,
-         owner,
-         head,
-         base,
-         %{document: document} = proposal
-       ) do
-    if Document.same?(text(base), document) do
-      {:ok, %{outcome: :unchanged, url: nil, number: nil}}
-    else
-      with {:ok, pull} <-
-             open_new(client, repository, owner, head, base, document, proposal.body),
-           do: {:ok, Map.put(pull, :outcome, :opened)}
-    end
-  end
-
-  # The open pull request holds Ryker's last proposal: the new one replaces
-  # its file, and its description says why. A branch that already says the
-  # same is left alone rather than given a commit that only moves the date.
-  # The pull request asks people to review and edit it, so a branch that
-  # holds anything but Ryker's own words (a person edited it, removed it, or
-  # made it one Ryker cannot read) is theirs, and is left alone too.
-  defp update_open(client, slug, number, %{document: document} = proposal) do
-    case file(client, slug, @path, @branch) do
-      {:ok, current} ->
-        cond do
-          Document.same?(text(current), document) ->
-            :ok
-
-          ryker_proposal?(current, proposal) ->
-            replace_proposal(client, slug, number, current, document, proposal.body)
-
-          true ->
-            {:error, :repository_knowledge_proposal_edited}
-        end
-
-      {:error, :source_unavailable} ->
-        {:error, :repository_knowledge_proposal_edited}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  # Ryker's own words: what it last proposed, compared as documents without
-  # their provenance lines, since a rewrite that said the same left the
-  # branch's older line in place; or, byte for byte, a document it sent
-  # since, which a step that failed before recording its proposal left there.
-  defp ryker_proposal?(%{text: text}, %{proposed: proposed, sent: sent}),
-    do: (is_binary(proposed) and Document.same?(text, proposed)) or sha256(text) in sent
-
-  defp ryker_proposal?(:not_found, _proposal), do: false
-
-  defp replace_proposal(client, slug, number, current, document, body) do
-    with :ok <- write_file(client, slug, current, document, "Update Ryker repository knowledge") do
-      case request(client, :patch, "/repos/#{slug}/pulls/#{number}", %{"body" => body}) do
-        {:ok, %{status: 200}} -> :ok
-        {:ok, %{status: status} = response} when status in @refused -> refused(response)
-        {:ok, _other} -> {:error, {:github_onboarding, :pull_request}}
-        {:error, _reason} = error -> error
-      end
-    end
-  end
-
-  # No proposal is open: the branch starts again at the default branch head,
-  # whatever an earlier, finished proposal left on it, so the pull request
-  # shows exactly this document.
-  defp open_new(client, repository, owner, head, base, document, body) do
-    slug = repository.github_repository
-    title = if base == :not_found, do: "Add", else: "Update"
-
-    message = "#{title} Ryker repository knowledge"
-
-    with :ok <- reset_branch(client, slug, head),
-         :ok <- write_file(client, slug, base, document, message),
-         do: create_pull(client, repository, owner, message, body, true)
-  end
-
-  defp reset_branch(client, slug, head) do
-    ref = "heads/#{encode_ref(@branch)}"
-
-    case request(client, :get, "/repos/#{slug}/git/ref/#{ref}") do
-      {:ok, %{status: 200}} ->
-        client
-        |> request(:patch, "/repos/#{slug}/git/refs/#{ref}", %{"sha" => head, "force" => true})
-        |> branch_written()
-
-      {:ok, %{status: 404}} ->
-        client
-        |> request(:post, "/repos/#{slug}/git/refs", %{
-          "ref" => "refs/heads/#{@branch}",
-          "sha" => head
-        })
-        |> branch_written()
-
-      {:ok, %{status: status} = response} when status in @refused ->
-        refused(response)
-
-      {:ok, _other} ->
-        {:error, {:github_onboarding, :branch}}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp branch_written({:ok, %{status: status}}) when status in [200, 201], do: :ok
-
-  defp branch_written({:ok, %{status: status} = response}) when status in @refused,
-    do: refused(response)
-
-  defp branch_written({:ok, _other}), do: {:error, {:github_onboarding, :branch}}
-  defp branch_written({:error, _reason} = error), do: error
-
-  # `current` is the file the branch holds now, whose blob a replacement names.
-  defp write_file(client, slug, current, document, message) do
-    body =
-      %{"branch" => @branch, "content" => Base.encode64(document), "message" => message}
-      |> then(fn body ->
-        case current do
-          %{sha: sha} when is_binary(sha) -> Map.put(body, "sha", sha)
-          _new -> body
-        end
-      end)
-
-    case request(client, :put, "/repos/#{slug}/contents/#{@path}", body) do
-      {:ok, %{status: status}} when status in [200, 201] -> :ok
-      {:ok, %{status: status} = response} when status in @refused -> refused(response)
-      {:ok, _other} -> {:error, {:github_onboarding, :write}}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  # A repository that cannot have draft pull requests (a private one on a
-  # free plan) gets an ordinary one; Ryker still never merges it.
-  defp create_pull(client, repository, owner, title, body, draft?) do
-    slug = repository.github_repository
-
-    request =
-      request(client, :post, "/repos/#{slug}/pulls", %{
-        "base" => repository.base_branch,
-        "body" => body,
-        "draft" => draft?,
-        "head" => @branch,
-        "title" => title
-      })
-
-    case request do
-      {:ok, %{status: 201, body: %{"html_url" => url, "number" => number}}}
-      when is_binary(url) and is_integer(number) ->
-        {:ok, %{url: url, number: number}}
-
-      {:ok, %{status: 422, body: refusal}} when draft? ->
-        if drafts_refused?(refusal),
-          do: create_pull(client, repository, owner, title, body, false),
-          else: refused_pull(client, slug, owner)
-
-      {:ok, %{status: status} = response} when status in @refused ->
-        refused(response)
-
-      # GitHub refused this pull request itself; asking again would only
-      # write the branch again for the same refusal.
-      {:ok, %{status: status}} when status in 400..499 ->
-        refused_pull(client, slug, owner)
-
-      {:ok, _other} ->
-        reconcile_pull(client, slug, owner)
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  # GitHub names drafts in its message, or in one of its validation errors
-  # under "Validation Failed".
-  defp drafts_refused?(%{} = refusal) do
-    errors = if is_list(refusal["errors"]), do: refusal["errors"], else: []
-
-    [refusal["message"] | Enum.map(errors, &(is_map(&1) && &1["message"]))]
-    |> Enum.any?(&(is_binary(&1) and &1 =~ ~r/draft/i))
-  end
-
-  defp drafts_refused?(_refusal), do: false
-
-  # A refusal can be GitHub saying Ryker's pull request already exists: that
-  # one is the proposal.
-  defp refused_pull(client, slug, owner) do
-    case reconcile_pull(client, slug, owner) do
-      {:ok, _pull} = found -> found
-      {:error, _none} -> {:error, {:github_onboarding, :pull_request_refused}}
-    end
-  end
-
-  defp reconcile_pull(client, slug, owner) do
-    case open_pull(client, slug, owner) do
-      {:ok, %{"html_url" => url, "number" => number}} -> {:ok, %{url: url, number: number}}
-      _other -> {:error, {:github_onboarding, :pull_request}}
-    end
-  end
-
-  defp open_pull(client, slug, owner) do
-    query =
-      URI.encode_query(%{"head" => "#{owner}:#{@branch}", "per_page" => 1, "state" => "open"})
-
-    case request(client, :get, "/repos/#{slug}/pulls?#{query}") do
-      {:ok, %{status: 200, body: [pull | _]}} -> {:ok, pull}
-      {:ok, %{status: 200, body: []}} -> {:ok, :not_found}
-      {:ok, %{status: status} = response} when status in @refused -> refused(response)
-      {:ok, _other} -> {:error, {:github_onboarding, :pull_request}}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  # An archived repository refuses every write, and GitHub's refusal of the
-  # branch does not always say why, so the repository's own flag does.
-  defp writable(client, slug) do
-    case request(client, :get, "/repos/#{slug}") do
-      {:ok, %{status: 200, body: %{"archived" => true}}} ->
-        {:error, {:github_onboarding, :archived}}
-
-      _writable_or_unknown ->
-        :ok
-    end
-  end
-
   # GitHub turned the request away. Its rate limits answer 403 as well as
-  # 429, and are a wait. It refuses every write to an archived repository
-  # with 403 "Repository was archived so is read-only", which read as a
-  # missing App permission (AndrewDryga/andrewdryga.github.com, 2026-09-27).
-  # Any other refusal is a permission the App lacks.
+  # 429, and are a wait. Any other refusal is a permission the App lacks.
   defp refused(response) do
-    cond do
-      Transport.rate_limited?(response) -> {:error, {:github_onboarding, :rate_limited}}
-      archived?(response) -> {:error, {:github_onboarding, :archived}}
-      true -> {:error, {:github_onboarding, :permission}}
-    end
+    if Transport.rate_limited?(response),
+      do: {:error, {:github_onboarding, :rate_limited}},
+      else: {:error, {:github_onboarding, :permission}}
   end
-
-  defp archived?(%{body: %{"message" => message}}) when is_binary(message),
-    do: message =~ ~r/archived/i
-
-  defp archived?(_response), do: false
 
   # -- Files -----------------------------------------------------------------------
-
-  defp text(%{text: text}), do: text
-  defp text(:not_found), do: nil
 
   defp file(client, slug, path, ref) do
     encoded =
@@ -472,13 +152,13 @@ defmodule Ryker.GitHub.RepositoryFiles do
 
     query = URI.encode_query(%{"ref" => ref})
 
-    case request(client, :get, "/repos/#{slug}/contents/#{encoded}?#{query}") do
+    case get(client, "/repos/#{slug}/contents/#{encoded}?#{query}") do
       {:ok, %{status: 404}} ->
         {:ok, :not_found}
 
-      {:ok, %{status: 200, body: %{"content" => content, "encoding" => "base64"} = body}}
+      {:ok, %{status: 200, body: %{"content" => content, "encoding" => "base64"}}}
       when is_binary(content) ->
-        decode_file(content, body["sha"])
+        decode_file(content)
 
       # A directory, a submodule, or a file over 1 MB, which GitHub sends
       # without its content: there, but nothing Ryker can read.
@@ -496,23 +176,16 @@ defmodule Ryker.GitHub.RepositoryFiles do
     end
   end
 
-  defp decode_file(content, sha) do
+  defp decode_file(content) do
     with {:ok, decoded} <- Base.decode64(String.replace(content, "\n", "")),
          true <- byte_size(decoded) <= @maximum_source_bytes and String.valid?(decoded) do
-      {:ok, %{text: decoded, sha: sha}}
+      {:ok, decoded}
     else
       _too_large_or_invalid -> {:error, :source_unavailable}
     end
   end
 
   # -- Plumbing --------------------------------------------------------------------
-
-  defp owner(slug) do
-    case String.split(slug, "/", parts: 2) do
-      [owner, _name] when owner != "" -> {:ok, owner}
-      _invalid -> {:error, {:github_onboarding, :repository}}
-    end
-  end
 
   defp commit(value) when is_binary(value) do
     value = String.downcase(value)
@@ -534,13 +207,11 @@ defmodule Ryker.GitHub.RepositoryFiles do
     })
   end
 
-  defp request(client, method, path, body \\ nil),
-    do: requester().request(client, method, path, body, @headers)
+  # Every request is a read.
+  defp get(client, path), do: requester().request(client, :get, path, nil, @headers)
 
   # GitHub itself; in tests, the replies each test records (config/test.exs).
   defp requester, do: Application.get_env(:ryker, :github_files_requester, JSONClient)
 
   defp encode_ref(ref), do: URI.encode(ref, &URI.char_unreserved?/1)
-
-  defp sha256(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
 end

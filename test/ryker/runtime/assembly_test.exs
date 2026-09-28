@@ -279,10 +279,8 @@ defmodule Ryker.Runtime.AssemblyTest do
   # Found live 2026-09-27: every step of a repository's setup saves its state
   # to settings, and any runtime whose configuration changed is restarted, so
   # the setup worker was stopped mid-run by its own progress and every added
-  # repository cycled through "cloning" and "scanning" for an hour. The
-  # knowledge lane saves Work's copy of RYKER.md the same way, so writing it
-  # must restart nothing either, the lane itself least of all.
-  test "a repository's setup and RYKER.md progress restart no runtime" do
+  # repository cycled through "cloning" and "scanning" for an hour.
+  test "a repository's setup progress restarts no runtime" do
     settings = connected!()
     assert {:ok, before} = Assembly.build(bootstrap(), settings)
 
@@ -298,24 +296,10 @@ defmodule Ryker.Runtime.AssemblyTest do
         @actor
       )
 
-    {:ok, settings} =
-      Settings.put_repository(
-        %{
-          ref: "ryker",
-          knowledge_content: "# RYKER.md\n",
-          knowledge_status: :proposed,
-          knowledge_source_commit: String.duplicate("b", 40),
-          knowledge_sha256: String.duplicate("c", 64),
-          knowledge_pull_request_url: "https://github.com/acme/ryker/pull/9"
-        },
-        settings.installation.revision,
-        "github:knowledge"
-      )
-
     assert {:ok, changed} = Assembly.build(bootstrap(), settings)
 
     for key <- Map.keys(before), Map.get(before, key) != Map.get(changed, key) do
-      flunk("#{key} changed with setup or RYKER.md progress")
+      flunk("#{key} changed with setup progress")
     end
   end
 

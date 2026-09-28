@@ -1,9 +1,11 @@
 defmodule Ryker.RepositoryKnowledge.WorkerTest do
   use Ryker.DataCase, async: false
 
+  import Ecto.Query
+
   alias Ryker.GitHub.Onboarding
   alias Ryker.{RepositoryKnowledge, Settings}
-  alias Ryker.RepositoryKnowledge.Worker
+  alias Ryker.RepositoryKnowledge.{Entry, Worker}
   alias Ryker.TestSupport.{FakeCoopAPI, FakeGitHubRepository}
 
   @actor "control-plane:local"
@@ -43,16 +45,26 @@ defmodule Ryker.RepositoryKnowledge.WorkerTest do
         @actor
       )
 
-    # A person's RYKER.md: the first check accepts it and asks the model
-    # nothing, so the lane goes idle until something wakes it.
-    start_supervised!(
-      {FakeGitHubRepository,
-       head: @head,
-       tree: [{"README.md", "blob"}, {"RYKER.md", "blob"}],
-       document: "# How we work\n\nRun `make check`.\n"}
+    start_supervised!({FakeGitHubRepository, head: @head, tree: [{"README.md", "blob"}]})
+    {:ok, :ready} = Onboarding.run("emisar", api: FakeGitHubRepository)
+
+    # Knowledge a model already wrote from this head: the first check finds
+    # nothing to write and asks the model nothing, so the lane goes idle
+    # until something wakes it.
+    document = "# RYKER.md\n\nWritten by Ryker from `783fc48` on 2026-09-28.\n"
+    now = DateTime.utc_now()
+
+    Repo.update_all(from(entry in Entry, where: entry.repository_ref == "emisar"),
+      set: [
+        document: document,
+        document_sha256: :crypto.hash(:sha256, document) |> Base.encode16(case: :lower),
+        document_commit: @head,
+        document_by: :model,
+        document_at: now,
+        next_check_at: now
+      ]
     )
 
-    {:ok, :ready} = Onboarding.run("emisar", api: FakeGitHubRepository)
     :ok
   end
 

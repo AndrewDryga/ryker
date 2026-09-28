@@ -7,8 +7,7 @@ defmodule Ryker.Settings.Repository do
   @primary_key {:ref, :string, autogenerate: false}
   @fields ~w(
     ref display_name description github_repository base_branch
-    github_access onboarding_state onboarding_error source_commit knowledge_pull_request_url
-    knowledge_content knowledge_status knowledge_source_commit knowledge_sha256
+    github_access onboarding_state onboarding_error source_commit
   )a
 
   schema "repository_settings" do
@@ -29,11 +28,6 @@ defmodule Ryker.Settings.Repository do
 
     field(:onboarding_error, :string)
     field(:source_commit, :string)
-    field(:knowledge_pull_request_url, :string)
-    field(:knowledge_content, :string)
-    field(:knowledge_status, Ecto.Enum, values: [:accepted, :proposed])
-    field(:knowledge_source_commit, :string)
-    field(:knowledge_sha256, :string)
     timestamps(type: :utc_datetime_usec)
   end
 
@@ -51,11 +45,7 @@ defmodule Ryker.Settings.Repository do
     |> validate_format(:github_repository, Validation.github_repository_pattern())
     |> Validation.validate_git_ref(:base_branch)
     |> validate_length(:onboarding_error, max: 1_024)
-    |> validate_length(:knowledge_content, max: 128_000)
     |> validate_format(:source_commit, ~r/\A[0-9a-f]{40}\z/)
-    |> validate_format(:knowledge_source_commit, ~r/\A[0-9a-f]{40}\z/)
-    |> validate_format(:knowledge_sha256, ~r/\A[0-9a-f]{64}\z/)
-    |> validate_format(:knowledge_pull_request_url, ~r/\Ahttps:\/\//)
     |> check_constraint(:github_access, name: :repository_github_state_valid)
   end
 

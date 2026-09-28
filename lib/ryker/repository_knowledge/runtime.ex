@@ -3,7 +3,7 @@ defmodule Ryker.RepositoryKnowledge.Runtime do
   The knowledge lane (`Ryker.RepositoryKnowledge`): one slot, running where
   Work and GitHub both run (`Ryker.Runtime.Assembly`). Its model turns go
   through Work's Coop adapter under each repository's own read-only policy,
-  and it reads and proposes RYKER.md through the GitHub App
+  and it reads each repository through the GitHub App
   (`Ryker.GitHub.RepositoryFiles`).
   """
   use Supervisor
@@ -49,7 +49,7 @@ defmodule Ryker.RepositoryKnowledge.Runtime do
     remote = Map.get(config, :remote, Ryker.GitHub.RepositoryFiles)
 
     unless is_atom(remote) and Code.ensure_loaded?(remote) and
-             function_exported?(remote, :publish, 3),
+             function_exported?(remote, :tree, 3),
            do: raise(ArgumentError, "repository knowledge requires a GitHub remote")
 
     %{

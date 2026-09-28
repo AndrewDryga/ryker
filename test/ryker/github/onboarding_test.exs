@@ -166,10 +166,6 @@ defmodule Ryker.GitHub.OnboardingTest do
     assert repository.source_commit == @commit
     assert repository.onboarding_error == nil
 
-    # Nothing is written or proposed by setup itself.
-    assert repository.knowledge_content == nil
-    assert repository.knowledge_pull_request_url == nil
-
     entry = RepositoryKnowledge.entry("repo")
     assert entry.phase == :idle
     assert DateTime.compare(entry.next_check_at, Repo.now!()) != :gt

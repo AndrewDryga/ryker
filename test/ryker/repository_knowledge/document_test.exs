@@ -38,8 +38,6 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
              document,
              "# RYKER.md\n\nWritten by Ryker from `783fc48` on 2026-09-27.\n\n## Purpose\n\n"
            )
-
-    assert Document.origin(document) == :model
   end
 
   # The old document said "No standard setup or test command was identified"
@@ -208,34 +206,6 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
     assert Document.cited?("make test", "README.md", "- make test - runs every test\n")
     assert Document.cited?("make test", "README.md", "Run **make test** first.\n")
     refute Document.cited?("make test", "README.md", "Run make test -- --watch.\n")
-  end
-
-  # PR 84's RYKER.md is what setup wrote for emisar and what its default
-  # branch holds now: a refresh has to know it for the old summary it is.
-  test "a document says who wrote it" do
-    old = File.read!(Path.join([@fixtures, "emisar", "old_scan_RYKER.md"]))
-    model = render!(answer())
-    outline = Document.outline(tree!("emisar"), sources!("emisar")["README.md"], @commit, @date)
-
-    assert Document.origin(old) == :old_scan
-    assert Document.origin(model) == :model
-    assert Document.origin(outline) == :outline
-    assert Document.origin("# How to work here\n\nRun `make`.\n") == :person
-    assert Document.origin(nil) == :none
-  end
-
-  # A rewrite names a new commit and date every time; a proposal that
-  # changed only that would be noise.
-  test "two documents that differ only in their provenance line say the same things" do
-    first = render!(answer())
-    {:ok, later} = Document.render(verified!(answer()), String.duplicate("b", 40), ~D[2026-10-05])
-
-    assert first != later
-    assert Document.same?(first, later)
-    assert Document.same?(first, String.replace(first, "\n", "\r\n"))
-    refute Document.same?(first, String.replace(later, "Lists every", "Shows every"))
-    refute Document.same?(nil, first)
-    refute Document.same?(first, nil)
   end
 
   # When no model can finish, the fallback is an outline from the file list,

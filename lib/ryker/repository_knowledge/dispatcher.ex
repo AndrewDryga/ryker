@@ -4,15 +4,16 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   lease the next repository due for a step, take that step, and give the
   lease back with what happened.
 
-  The steps are the daily check (what GitHub says now, and the rules in
-  `Ryker.RepositoryKnowledge.Refresh`), the write (a model turn through
+  The steps are the daily check (the default branch head, and the rules in
+  `Ryker.RepositoryKnowledge.Refresh`) and the write: a model turn through
   `Ryker.RepositoryKnowledge.Executor`, or the outline once no model could
-  finish a repository none ever wrote), and the proposal on GitHub. Only a
-  repository that is added, set up and still granted is checked, written or
-  proposed; one GitHub keeps archived is skipped with a sentence that says
-  so, and a run already out at Coop is followed to its stop whatever became
-  of its repository. Once a person closes Ryker's pull request, the check
-  writes and proposes nothing more until someone asks.
+  finish a repository none ever wrote. Only a repository that is added, set
+  up and still granted is checked or written, and a run already out at Coop
+  is followed to its stop whatever became of its repository.
+
+  GitHub is only read. The document is Ryker's own, and the repository's
+  knowledge the moment it is written; a RYKER.md the repository holds is one
+  more file the model may read.
   """
 
   alias Ryker.CoopFleet.JobTemplates
@@ -29,19 +30,13 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
 
   alias Ryker.Settings
 
-  @actor "github:knowledge"
-  @file_name "RYKER.md"
   @no_policy_hold_seconds 300
   @worker_hold_seconds 60
   @permanent [
-    {:github_onboarding, :archived},
     {:github_onboarding, :permission},
     {:github_onboarding, :not_found},
-    {:github_onboarding, :pull_request_refused},
     :repository_empty,
-    :repository_too_large,
-    :repository_knowledge_unreadable,
-    :repository_knowledge_proposal_edited
+    :repository_too_large
   ]
 
   # How a run ended, as the atom its release records. Never turn a code read
@@ -97,8 +92,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     end
   end
 
-  # Every repository the lane may check, write and propose: added from
-  # GitHub, set up, and still granted, with its binding.
+  # Every repository the lane may check and write: added from GitHub, set up,
+  # and still granted, with its binding.
   defp targets(snapshot) do
     bindings = Map.new(snapshot.github_bindings, &{&1.repository_ref, &1})
 
@@ -123,7 +118,6 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
         case claim.entry.phase do
           :idle -> check(claim, target, settings)
           :write -> write(claim, snapshot, target, settings)
-          :publish -> publish(claim, target, settings)
         end
     end
   end
@@ -134,116 +128,26 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     remote = settings.remote
     entry = claim.entry
 
-    result =
-      with :ok <- not_archived(remote, binding, repository),
-           {:ok, head} <- remote.head(binding, repository),
-           {:ok, current} <- knowledge_file(remote, binding, repository, head),
-           {:ok, pull_request} <- pull_request_state(remote, binding, repository, entry),
-           :ok <- follow_default_branch(repository, head, current, pull_request),
+    decision =
+      with {:ok, head} <- remote.head(binding, repository),
            do:
-             {:checked, decide(entry, head, current, pull_request, binding, repository, remote),
-              pull_request}
+             Refresh.decide(
+               written(entry),
+               head,
+               fn -> remote.changes(binding, repository, entry.document_commit, head) end,
+               DateTime.utc_now()
+             )
 
-    case result do
-      {:checked, {:error, reason}, _pull_request} ->
-        failed(claim, reason, settings, &check_failed/2)
-
-      {:checked, decision, pull_request} ->
-        Custody.checked(claim, decision, pull_request)
-
-      {:error, reason} ->
-        failed(claim, reason, settings, &check_failed/2)
+    case decision do
+      {:error, reason} -> failed(claim, reason, settings, &check_failed/2)
+      decision -> Custody.checked(claim, decision)
     end
-  end
-
-  # A person closed Ryker's pull request, turning it down: nothing is
-  # written or proposed again by itself, only when someone asks for it
-  # (refresh knowledge). A document written and never proposed is proposed
-  # first; otherwise the rules decide (`Ryker.RepositoryKnowledge.Refresh`).
-  defp decide(_entry, _head, _current, :closed, _binding, _repository, _remote), do: :current
-
-  defp decide(
-         %{document: document, published_at: nil},
-         _head,
-         _current,
-         _pull_request,
-         _binding,
-         _repository,
-         _remote
-       )
-       when is_binary(document),
-       do: :publish
-
-  defp decide(entry, head, current, _pull_request, binding, repository, remote) do
-    Refresh.decide(
-      written(entry),
-      current,
-      head,
-      fn -> remote.changes(binding, repository, entry.document_commit, head) end,
-      DateTime.utc_now()
-    )
   end
 
   defp check_failed(claim, reason), do: Custody.checked(claim, {:failed, reason})
 
   defp written(entry),
     do: %{commit: entry.document_commit, at: entry.document_at, by: entry.document_by}
-
-  defp not_archived(remote, binding, repository) do
-    case remote.repository(binding, repository) do
-      {:ok, %{archived: true}} -> {:error, {:github_onboarding, :archived}}
-      {:ok, %{archived: false}} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  # RYKER.md on the default branch, or nil. One Ryker cannot read (over
-  # 128,000 bytes, not text, not a file) is not one Ryker wrote: like a
-  # person's, it is left as it is, and the entry says why.
-  defp knowledge_file(remote, binding, repository, head) do
-    case remote.read(binding, repository, @file_name, head) do
-      {:ok, current} -> {:ok, text(current)}
-      {:error, :source_unavailable} -> {:error, :repository_knowledge_unreadable}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp pull_request_state(_remote, _binding, _repository, %{pull_request_number: nil}),
-    do: {:ok, nil}
-
-  defp pull_request_state(remote, binding, repository, %{pull_request_number: number}),
-    do: remote.pull_request(binding, repository, number)
-
-  # Work reads RYKER.md from the settings (`Ryker.Work.SubmissionBuilder`).
-  # While Ryker's proposal is open, that is the proposal; otherwise it is
-  # the file on the default branch, as people merged, edited or deleted it.
-  defp follow_default_branch(_repository, _head, _current, :open), do: :ok
-
-  defp follow_default_branch(repository, head, current, _pull_request) do
-    wanted =
-      case current do
-        nil ->
-          %{
-            knowledge_content: nil,
-            knowledge_status: nil,
-            knowledge_source_commit: nil,
-            knowledge_sha256: nil
-          }
-
-        text ->
-          %{
-            knowledge_content: text,
-            knowledge_status: :accepted,
-            knowledge_source_commit: head,
-            knowledge_sha256: sha256(text)
-          }
-      end
-
-    if repository.knowledge_content == wanted.knowledge_content and
-         repository.knowledge_status == wanted.knowledge_status,
-       do: :ok,
-       else: save_work_copy(repository.ref, wanted)
-  end
 
   # -- Writing -----------------------------------------------------------------------
 
@@ -256,12 +160,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
        when count >= limit,
        do: exhausted(claim, target, settings)
 
-  defp write(claim, snapshot, {repository, binding} = target, settings) do
-    case not_archived(settings.remote, binding, repository) do
-      :ok -> start(claim, policy(snapshot, repository.ref), target, settings)
-      {:error, reason} -> failed(claim, reason, settings, &Custody.give_up_write/2)
-    end
-  end
+  defp write(claim, snapshot, {repository, _binding} = target, settings),
+    do: start(claim, policy(snapshot, repository.ref), target, settings)
 
   # No read-only policy yet (the source is not pinned), or no worker would
   # take the session: the write waits, and no start is spent.
@@ -291,11 +191,10 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     result =
       with {:ok, head} <- remote.head(binding, repository),
            {:ok, entries} <- remote.tree(binding, repository, head),
-           {:ok, current} <- knowledge_file(remote, binding, repository, head),
            {:ok, run} <-
              Custody.prepare(
                claim,
-               attempt(claim.entry, repository, binding, policy, head, entries, current)
+               attempt(claim.entry, repository, binding, policy, head, entries)
              ),
            do: Custody.begin_execution(claim, run.id)
 
@@ -306,14 +205,13 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     end
   end
 
-  defp attempt(entry, repository, binding, policy, head, entries, current) do
+  defp attempt(entry, repository, binding, policy, head, entries) do
     tree = Document.tree(entries)
     facts = Document.outline_facts(tree)
 
-    # The document on the default branch is worth keeping in the words it
-    # has only when a model or a person wrote it; the old file-list summary
-    # and the outline would only teach the model their gaps.
-    kept = if Document.origin(current) in [:model, :person], do: current, else: nil
+    # What Ryker wrote last is worth keeping in the words it has only when a
+    # model wrote it; the outline would only teach the model its gaps.
+    kept = if entry.document_by == :model, do: entry.document
 
     request =
       Prompt.build(
@@ -357,9 +255,10 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
            do: Executor.step(claim, run, target, settings)
 
     case result do
+      # The document is the repository's knowledge, and the lease is given
+      # back with it.
       {:ok, {:applied, _entry}} ->
-        # The document is ready to propose; the next pass proposes it.
-        with {:ok, _released} <- Custody.yield(claim, 0), do: {:ok, :written}
+        {:ok, :written}
 
       {:ok, :waiting} ->
         Custody.yield(claim, settings.step_delay_seconds)
@@ -389,10 +288,9 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     end
   end
 
-  # Every start of this write is spent. The outline stands in only where
-  # there is nothing better: no RYKER.md, or only the old file-list summary
-  # or an earlier outline. A document a model or a person wrote stays, and
-  # the entry says why it was not updated.
+  # Every start of this write is spent. A document a model wrote stays, and
+  # the entry says why it was not updated; the outline stands in only where
+  # there is nothing better, no document or an earlier outline.
   defp exhausted(claim, {repository, binding}, settings) do
     entry = claim.entry
     reason = last_failure(entry.repository_ref)
@@ -402,7 +300,6 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     else
       case outline(settings.remote, binding, repository) do
         {:ok, {document, head}} -> Custody.store_outline(claim, document, head, reason)
-        {:ok, :kept} -> Custody.give_up_write(claim, reason)
         {:error, failure} -> failed(claim, failure, settings, &Custody.give_up_write/2)
       end
     end
@@ -410,15 +307,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
 
   defp outline(remote, binding, repository) do
     with {:ok, head} <- remote.head(binding, repository),
-         {:ok, current} <- knowledge_file(remote, binding, repository, head) do
-      if Document.origin(current) in [:none, :old_scan, :outline],
-        do: written_outline(remote, binding, repository, head),
-        else: {:ok, :kept}
-    end
-  end
-
-  defp written_outline(remote, binding, repository, head) do
-    with {:ok, entries} <- remote.tree(binding, repository, head),
+         {:ok, entries} <- remote.tree(binding, repository, head),
          tree = Document.tree(entries),
          {:ok, readme} <- readme(remote, binding, repository, tree, head),
          do: {:ok, {Document.outline(tree, readme, head, Date.utc_today()), head}}
@@ -446,105 +335,12 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     end
   end
 
-  # -- Proposing ---------------------------------------------------------------------
-
-  # What Ryker is about to write on its branch is recorded before it is
-  # sent, so a step that fails after the write still knows its own words.
-  defp publish(claim, {repository, binding}, settings) do
-    entry = claim.entry
-
-    with {:ok, %{sent_sha256s: sent}} <- Custody.sending(claim) do
-      case settings.remote.publish(binding, repository, %{
-             document: entry.document,
-             body: pull_request_body(entry),
-             proposed: last_proposal(repository),
-             sent: sent
-           }) do
-        {:ok, result} ->
-          recorded(claim, result, repository, settings)
-
-        # RYKER.md on the default branch became one Ryker cannot read.
-        {:error, :source_unavailable} ->
-          failed(claim, :repository_knowledge_unreadable, settings, &Custody.publication_failed/2)
-
-        {:error, reason} ->
-          failed(claim, reason, settings, &Custody.publication_failed/2)
-      end
-    end
-  end
-
-  # What Ryker last proposed: Work reads that proposal while its pull request
-  # is open (`follow_default_branch/4`), so it is what Ryker last recorded
-  # writing there.
-  defp last_proposal(%{knowledge_status: :proposed, knowledge_content: content}), do: content
-  defp last_proposal(_repository), do: nil
-
-  # GitHub has the proposal; Work's copy of it is saved with the record. A
-  # save the settings refused (another saved them a moment before) gives the
-  # lease back and proposes again shortly, which finds the same proposal.
-  defp recorded(claim, result, repository, settings) do
-    case Custody.published(claim, result, &save_published(repository.ref, &1, result)) do
-      {:ok, _entry} = recorded -> recorded
-      {:error, :repository_knowledge_lease_lost} = error -> error
-      {:error, _reason} -> Custody.yield(claim, settings.retry_delay_seconds)
-    end
-  end
-
-  defp save_published(ref, entry, %{outcome: outcome, url: url})
-       when outcome in [:opened, :updated],
-       do:
-         save_work_copy(ref, %{
-           knowledge_content: entry.document,
-           knowledge_status: :proposed,
-           knowledge_source_commit: entry.document_commit,
-           knowledge_sha256: entry.document_sha256,
-           knowledge_pull_request_url: url
-         })
-
-  defp save_published(ref, _entry, %{outcome: :unchanged} = result),
-    do:
-      save_work_copy(ref, %{
-        knowledge_content: result.base_document,
-        knowledge_status: :accepted,
-        knowledge_source_commit: result.base_commit,
-        knowledge_sha256: sha256(result.base_document)
-      })
-
-  @doc false
-  def pull_request_body(entry) do
-    short = String.slice(entry.document_commit, 0, 7)
-
-    [
-      if(entry.document_by == :outline,
-        do:
-          "Ryker could not finish reading this repository at `#{short}`, so this RYKER.md is " <>
-            "an outline from the file list. Ryker replaces it on its next refresh.",
-        else:
-          "Ryker read this repository at `#{short}` and wrote RYKER.md: what it is for, its " <>
-            "parts, how to build, test and run it, how it ships, its conventions and where to " <>
-            "look. Every path and command in it was checked against the repository at that commit."
-      ),
-      entry.reason && "Why now: #{entry.reason}",
-      (entry.dropped_count || 0) > 0 &&
-        "Ryker left out #{dropped(entry.dropped_count)} the model named that the repository " <>
-          "does not have.",
-      "Review and edit it before merging; Ryker never merges it. While this pull request is " <>
-        "open, Ryker updates it here instead of opening another."
-    ]
-    |> Enum.filter(&is_binary/1)
-    |> Enum.join("\n\n")
-  end
-
-  defp dropped(1), do: "1 path or command"
-  defp dropped(count), do: "#{count} paths or commands"
-
   # -- Shared ------------------------------------------------------------------------
 
-  # A reason another try would meet again (archived, a permission, the
-  # repository or its default branch gone, no commit yet, too many files, a
-  # RYKER.md Ryker cannot read, a pull request a person edited) ends the step
-  # with a sentence and waits for the next check. Anything else, a 5xx, a
-  # rate limit, a reply Ryker did not expect or none at all, is tried again
+  # A reason another try would meet again (a permission, the repository or
+  # its default branch gone, no commit yet, too many files) ends the step with
+  # a sentence and waits for the next check. Anything else, a 5xx, a rate
+  # limit, a reply Ryker did not expect or none at all, is tried again
   # shortly.
   defp failed(claim, reason, settings, record) do
     if reason in @permanent,
@@ -552,29 +348,6 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
       else: Custody.yield(claim, settings.retry_delay_seconds)
   end
 
-  # Work's copy of RYKER.md lives on the repository's settings row. A
-  # repository removed meanwhile keeps nothing: the write names the revision
-  # it found the repository at, so a removal in between refuses it instead
-  # of saving the repository again with nothing but its RYKER.md.
-  defp save_work_copy(ref, attributes) do
-    snapshot = Settings.fetch!()
-
-    if Enum.any?(snapshot.repositories, &(&1.ref == ref)) do
-      case Settings.put_repository(
-             Map.put(attributes, :ref, ref),
-             snapshot.installation.revision,
-             @actor
-           ) do
-        {:ok, _snapshot} -> :ok
-        {:error, _reason} = error -> error
-      end
-    else
-      :ok
-    end
-  end
-
   defp text(:not_found), do: nil
   defp text(text) when is_binary(text), do: text
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

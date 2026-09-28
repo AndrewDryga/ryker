@@ -37,7 +37,7 @@ defmodule Ryker.RepositoryKnowledge.Executor do
 
   @doc """
   Moves the run on by one step: `{:ok, {:applied, entry}}` once its checked
-  document is ready to propose, `{:ok, :waiting}` while Coop is still
+  document is the repository's knowledge, `{:ok, :waiting}` while Coop is still
   working, `{:ok, :stopped}` once the run ended without one and has stop
   proof, or an error for a step to try again. `target` is the repository and
   its GitHub binding, or nil once the repository is gone: a run that can no
@@ -498,9 +498,9 @@ defmodule Ryker.RepositoryKnowledge.Executor do
     end
   end
 
-  # The turn is over and its answer accepted: the document becomes the one to
-  # propose, with the turn's stop proof. One that cannot be applied ends the
-  # attempt, and the finished turn is still its stop proof.
+  # The turn is over and its answer accepted: the document becomes the
+  # repository's knowledge, with the turn's stop proof. One that cannot be
+  # applied ends the attempt, and the finished turn is still its stop proof.
   defp complete(claim, run, turn) do
     result =
       with {:ok, _confirmed} <- Custody.confirm_candidate(claim, run.id, turn),

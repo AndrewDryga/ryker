@@ -4,7 +4,7 @@ defmodule Ryker.GitHub.Onboarding do
 
   Setup pins the default branch head the repository's jobs start from, then
   hands the repository to the knowledge lane, which has a model read it and
-  proposes RYKER.md (`Ryker.RepositoryKnowledge`). Each externally visible
+  keeps its RYKER.md (`Ryker.RepositoryKnowledge`). Each externally visible
   phase is saved before the next remote operation, so a restart resumes from
   the pinned source revision.
   """
@@ -79,10 +79,9 @@ defmodule Ryker.GitHub.Onboarding do
   end
 
   # Set up, then its RYKER.md asked for: the knowledge lane's first check
-  # reads the repository at once. The two commit apart, never one inside the
-  # other, because the lane saves Work's copy of RYKER.md holding its own row
-  # first; a setup that stops between them is checked when the lane next
-  # finds the repository without a row (`Ryker.RepositoryKnowledge.Custody.ensure/1`).
+  # reads the repository at once. A setup that stops between the two is
+  # checked when the lane next finds the repository without a row
+  # (`Ryker.RepositoryKnowledge.Custody.ensure/1`).
   defp ready(ref) do
     with :ok <- transition(ref, %{onboarding_state: :ready, onboarding_error: nil}),
          do: RepositoryKnowledge.check_soon(ref)
@@ -132,7 +131,7 @@ defmodule Ryker.GitHub.Onboarding do
   defp failure(:repository_empty), do: "The repository has no commit to set up from."
 
   defp failure({:github_onboarding, :permission}),
-    do: "The GitHub App is missing contents or pull-request permission."
+    do: "The GitHub App cannot read this repository's code."
 
   defp failure({:github_onboarding, :not_found}),
     do: "The repository or base branch is no longer accessible."

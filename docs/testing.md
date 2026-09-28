@@ -37,7 +37,7 @@ Coop and inert delivery. It does not call a model or an external platform. The s
 inside `make dev-check`; the standalone target isolates them in their own database.
 
 It also replays the repository-knowledge answers the lane accepted, in
-`testdata/repository_knowledge/`. Each case holds one run's exact prompt, answer and proposed
+`testdata/repository_knowledge/`. Each case holds one run's exact prompt, answer and written
 RYKER.md from `repository_knowledge_runs`, the tree at its commit (`git ls-tree -r -t`) and the
 files its commands cite, as the lane read them; the host must write the same RYKER.md byte for
 byte. `Ryker.Evals.KnowledgeJudge` scores each answer: every path exists, every command is
