@@ -92,7 +92,7 @@ defmodule Ryker.Slack.TaskCardProjection do
         controls(record, episode, turn, session, publication, snapshot.workspace_hold),
       "episode_state" => Atom.to_string(episode.state),
       "publication" => publication(publication, publication_offer, fix),
-      "request" => compact(record.payload["prompt"], 12_000),
+      "request" => record.payload["prompt"] |> request_text() |> compact(12_000),
       "repository" => repository_name(record.payload["repository"]),
       "repository_url" => repository_url(publication),
       "session_generation" => session && session.generation,
@@ -150,6 +150,16 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp followup(%Publication{id: id}),
     do: Repo.one(from(followup in Followup, where: followup.publication_id == ^id))
+
+  # What the person asked for, as the task offer wrote it. The host appends
+  # the work's success checks, authority limits and the Slack references it
+  # came from (`Ryker.StateTools.TaskTools`), which the Work needs and a
+  # reader does not: the card showed "Sources: slack-source:v1:…" once it
+  # stopped cutting the request at 600 characters (2026-09-28).
+  defp request_text(prompt) when is_binary(prompt),
+    do: prompt |> String.split("\n\nSuccess checks: ", parts: 2) |> hd()
+
+  defp request_text(prompt), do: prompt
 
   # A repository by the name people know it by, owner/repo, from the
   # repository Ryker added; one no longer added keeps the name the task
@@ -607,7 +617,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp summary(record, progress) do
     case List.last(progress) do
       %{"summary" => summary} -> summary
-      _missing -> compact(record.payload["prompt"], 500)
+      _missing -> record.payload["prompt"] |> request_text() |> compact(500)
     end
   end
 

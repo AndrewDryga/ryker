@@ -88,6 +88,44 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     assert projection.document["task_card"]["repository"] == "since-removed"
   end
 
+  # The request travels whole since 2026-09-28, and with it came what the host
+  # appends for the Work: success checks, authority limits, and the Slack
+  # references the task came from, which read on #test as
+  # "Sources: slack-source:v1:T0BHXKZJVDX:C0BLU1GACKC:message:…". The card
+  # shows what the person asked for, and the Work still gets all of it.
+  test "a task card's request is what the person asked for, without the host's appended parts" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    asked =
+      "Restore the diagnostic log reads that were denied.\n\nTrace the log action's requested view first."
+
+    prompt =
+      Enum.join(
+        [
+          asked,
+          "Success checks: Log targeting and read grants align.; A focused commit is prepared.",
+          "Authority limits: Edit only acme-api.; Do not deploy.",
+          "Instruction: slack-source:v1:T123:C456:message:1790573171.598909",
+          "Sources: slack-source:v1:T123:C456:message:1790573171.598909"
+        ],
+        "\n\n"
+      )
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:request-only",
+      payload: %{"title" => "Fix log access", "repository" => "acme-api", "prompt" => prompt}
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+    assert projection.document["task_card"]["request"] == asked
+    refute Jason.encode!(projection.document) =~ "slack-source"
+  end
+
   test "a confirmed task with no turn yet reads as queued, not working" do
     # The 2026-09-12 coverage measurement: between confirming a task and a
     # worker being asked for anything, the card said "Working". Nothing was.
