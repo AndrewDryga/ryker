@@ -28,8 +28,10 @@ Ground rules for the whole pass:
 
 ## 1. Response corrections — inspect the episode and preserve the regression
 
-Use the episode timeline and its model request inspector to read retained response
-checks: what the model saw, what Ryker refused, and what happened next. The
+Use the episode's Timeline to read retained response checks: each model call's
+cards show what the model was sent and what it answered, each check card shows
+what Ryker refused and the response it checked, and the cards after them show
+what happened next. The
 current Elixir control plane has no fixture-candidate keep/discard queue. Do not
 invent a Decisions page or send its obsolete actions.
 
