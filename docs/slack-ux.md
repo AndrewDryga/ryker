@@ -620,6 +620,13 @@ host rejects them for nonoperators before any repository or session mutation:
 - transient publication failure: the card shows the bounded last error, preserves
   any existing **Open PR** link, and offers **Retry publication** for that exact recovery
   generation;
+- refused candidate: Action needed names why in plain words (the repository's checks failed,
+  the change conflicts with the latest base branch, the safety scan flagged it, and every other
+  reason Coop's review gives) and never Coop's code; only a review that names no cause says none
+  was recorded. The card offers **Review latest state** and **Discard candidate**. The review
+  message in the thread gives the same causes, lists up to five flagged files as code with the
+  problem in Ryker's words, and asks the reader to reply in the thread for a fix. It shows no gate
+  or rebase enum and no candidate tree;
 - push or pull-request identity conflict: automatic retry stops. When Ryker proves an exact
   App-owned PR and observed head, the card preserves **Open PR** and offers **Review latest state**
   plus **Discard candidate**. Without that remote identity, only the local **Discard candidate**

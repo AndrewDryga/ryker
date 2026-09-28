@@ -6,6 +6,7 @@ defmodule Ryker.Publication.CustodyTest do
 
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Observability
   alias Ryker.Operator.Publication, as: PublicationOperator
@@ -14,6 +15,7 @@ defmodule Ryker.Publication.CustodyTest do
   alias Ryker.Publication.{Followup, Publication, Review}
   alias Ryker.Records
   alias Ryker.Repo
+  alias Ryker.Slack.Renderer
 
   alias Ryker.Work.{
     Cancellation,
@@ -504,6 +506,61 @@ defmodule Ryker.Publication.CustodyTest do
     # before the crossed control ever matters. The crossed-target fence itself
     # is proved on a candidate that IS shareable, below.
     assert PublicationCustody.approve(crossed) == {:error, :publication_not_publishable}
+  end
+
+  # 2026-09-28, #test: Coop refused the committed change with the gate failed on
+  # a clean rebase and no policy findings, and the card posted into the task's
+  # thread read "Gate: `failed` · Rebase: `clean`", "Candidate tree: `99baf303…`"
+  # and "Blocked by: gate_failed". Two raw enums, an internal hash and a raw
+  # code, and not a word on what the person could do about any of it.
+  test "a refused review's card says why and what to do next in plain words" do
+    %{claim: claim, offer: offer, offer_receipt: offer_receipt} = delivered_offer!("refused-card")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(offer, offer_receipt))
+
+    assert {:ok, review_claim} = PublicationCustody.claim_next("publication:refused-card", 60)
+
+    assert {:ok, frozen} =
+             PublicationCustody.freeze_review_revision(publication.ref, review_claim.lease_ref, 7)
+
+    refusal =
+      Map.take(
+        PublicationFixture.harvested_refusal(),
+        ~w(candidate_head candidate_tree gate not_publishable_reasons policy_findings publishable rebase)
+      )
+
+    review = claim |> review_document() |> Map.merge(refusal)
+
+    assert {:ok, _ready} =
+             PublicationCustody.store_review(
+               publication.ref,
+               review_claim.lease_ref,
+               frozen.review_generation,
+               review
+             )
+
+    assert {:ok, delivery_claim} =
+             PublicationCustody.claim_next("publication:refused-card:delivery", 60)
+
+    assert {:ok, request} = PublicationCustody.delivery_request(delivery_claim.publication)
+    assert {:ok, rendered} = Renderer.render(request.document)
+    card = Jason.encode!(rendered)
+
+    refute card =~ "gate_failed"
+    refute card =~ review["candidate_tree"]
+    refute card =~ "Gate: `"
+    refute card =~ "Rebase: `"
+    refute card =~ "trusted review details"
+
+    assert rendered["text"] ==
+             "I can't open a draft pull request for the committed change yet."
+
+    assert card =~ "The repository's checks failed on the committed change."
+    assert card =~ "Reply in this thread to ask me to fix it"
+    assert card =~ "*Review latest state* on the task card"
+    assert card =~ "*Discard candidate*"
+    refute card =~ "ryker_publish_draft"
   end
 
   test "review mutations reconcile exact generations, revisions, leases, job authority, and retained candidates" do

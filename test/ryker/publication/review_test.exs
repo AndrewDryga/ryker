@@ -1,6 +1,7 @@
 defmodule Ryker.Publication.ReviewTest do
   use ExUnit.Case, async: true
 
+  alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.Review
 
   test "publication retains metadata even when Coop includes a large truncated display preview" do
@@ -144,6 +145,84 @@ defmodule Ryker.Publication.ReviewTest do
 
     # An unfinished check is a reason the host can read, so it stays shareable.
     assert Review.draft_shareable?(unpublishable())
+  end
+
+  # 2026-09-28, #test: Coop refused a committed change with
+  # `not_publishable_reasons: ["gate_failed"]`. The review card printed
+  # "Blocked by: gate_failed" and the task card said "no cause was recorded",
+  # so the one person who could act had to know Coop's vocabulary to learn that
+  # the repository's checks had failed. Every code Coop sends
+  # (internal/sessionsvc/review.go) needs words, and a code this host has never
+  # seen must still say the review refused the change without echoing it.
+  test "every reason a review can refuse a change for reads as plain words" do
+    codes =
+      ~w(fork_owner_active gate_failed gate_modified_candidate gate_not_configured gate_startup_error no_changes parent_moved policy_findings rebase_conflict source_moved)
+
+    for code <- codes do
+      assert [clause] = Review.refusal(%{"not_publishable_reasons" => [code]}), code
+      refute clause =~ "_", "#{code} read as #{inspect(clause)}"
+      refute clause =~ "review refused the change", "#{code} has no words of its own"
+    end
+
+    assert Review.refusal(PublicationFixture.harvested_refusal()) == [
+             "the repository's checks failed on the committed change"
+           ]
+
+    assert Review.refusal(%{"not_publishable_reasons" => ["lfs_object_missing"]}) == [
+             "the review refused the change for a reason I don't recognize"
+           ]
+
+    # The gate never runs on a change that no longer applies; that is the
+    # conflict, not a second thing to fix.
+    assert Review.refusal(%{
+             "gate" => "not_run",
+             "not_publishable_reasons" => ["rebase_conflict"],
+             "rebase" => "conflict"
+           }) == ["the change conflicts with the latest base branch"]
+
+    assert Review.refusal(%{"gate" => "not_run"}) == ["the repository's checks didn't run"]
+
+    # The typed fields name a cause even where no code repeats it, and the
+    # findings come last so the files they name can follow them.
+    assert Review.refusal(%{
+             "gate" => "failed",
+             "policy_findings" => ["secret-like file: .env", "secret-like file: id_rsa"],
+             "not_publishable_reasons" => ["policy_findings", "lfs_object_missing"]
+           }) == [
+             "the repository's checks failed on the committed change",
+             "the review refused the change for a reason I don't recognize",
+             "the safety scan flagged 2 issues in the change"
+           ]
+
+    assert Review.refusal(review_document()) == []
+    assert Review.refusal(nil) == []
+  end
+
+  # Coop's policy scan words each finding as one of a few sentences around the
+  # path it names (internal/sessionsvc/review_scan.go at the worker's Coop,
+  # 126f5d07). A card that prints them whole reads Coop's phrasing as Ryker's,
+  # and one Coop has not worded before would print unread.
+  test "a policy finding names its file and says what is wrong in the host's words" do
+    assert Review.findings([
+             "secret-like file: config/prod.secret.exs",
+             "possible secret in lib/token.ex — remove the credential before publication",
+             "package.json adds a postinstall script — npm runs it automatically on install",
+             "web/package.json cannot be inspected for automatic install scripts",
+             ".envrc — Runs when you enter the folder with direnv.",
+             ".github/workflows/deploy.yml — Runs on the project's CI runners.",
+             "SECRET_DETECTED lib/token.ex"
+           ]) == [
+             {"config/prod.secret.exs", "looks like a file that holds secrets"},
+             {"lib/token.ex", "may contain a credential"},
+             {"package.json",
+              "adds an npm postinstall script, which runs automatically on install"},
+             {"web/package.json", "couldn't be checked for automatic install scripts"},
+             {".envrc", "runs when you enter the folder with direnv"},
+             {".github/workflows/deploy.yml", "runs on the project's CI runners"},
+             :unrecognized
+           ]
+
+    assert Review.findings(nil) == []
   end
 
   defp unpublishable(overrides \\ %{}) do

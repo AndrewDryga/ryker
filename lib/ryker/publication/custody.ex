@@ -310,7 +310,7 @@ defmodule Ryker.Publication.Custody do
     if Review.publishable?(publication.review_document) do
       "The committed change passed the trusted review. An operator may publish this exact candidate as a draft pull request."
     else
-      "The committed change is not publishable. The trusted review details are below."
+      "I can't open a draft pull request for the committed change yet."
     end
   end
 

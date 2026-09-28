@@ -2365,8 +2365,7 @@ defmodule Ryker.Slack.RendererTest do
              })
 
     [_, summary, actions] = rendered["blocks"]
-    assert summary["text"]["text"] =~ "Gate: `passed`"
-    assert summary["text"]["text"] =~ "Candidate tree: `#{String.duplicate("7", 40)}`"
+    assert summary["text"]["text"] == "*Fix retry reconciliation*\nRepository: `ryker`"
     assert [%{"action_id" => "ryker_publish_draft"} = button] = actions["elements"]
     assert button["value"] == "publication:abc123"
 
@@ -2386,7 +2385,65 @@ defmodule Ryker.Slack.RendererTest do
              })
 
     refute inspect(blocked_rendered) =~ "ryker_publish_draft"
-    assert inspect(blocked_rendered) =~ "gate_failed"
+    refute inspect(blocked_rendered) =~ "gate_failed"
+
+    assert rendered_words(blocked_rendered) =~
+             "The repository's checks failed on the committed change."
+  end
+
+  # The review card joined Coop's findings and reason codes raw behind "Blocked
+  # by:", the way it printed "gate_failed" in #test on 2026-09-28. A finding is
+  # Coop's sentence around a path the change chose; each now reads as Ryker's
+  # sentence about its file, a finding or code in a shape Ryker has never seen
+  # is counted without being echoed, and a long list stays a bounded page.
+  test "a flagged change names each file in plain words and never echoes what it can't read" do
+    review = %{
+      "candidate_tree" => String.duplicate("7", 40),
+      "draft_authorized" => false,
+      "gate" => "passed",
+      "policy_findings" =>
+        [
+          "possible secret in lib/token.ex — remove the credential before publication",
+          ".envrc — Runs when you enter the folder with direnv.",
+          "docs/a`b.md — Runs on the project's CI runners.",
+          "SECRET_DETECTED lib/token.ex"
+        ] ++ List.duplicate("secret-like file: .env", 3),
+      "publishable" => false,
+      "reasons" => ["policy_findings", "lfs_object_missing"],
+      "rebase" => "clean",
+      "repository" => "ryker",
+      "title" => "Fix retry reconciliation"
+    }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "I can't open a draft pull request for the committed change yet.",
+               "records" => [
+                 %{
+                   "kind" => "publication_review",
+                   "payload" => review,
+                   "ref" => "publication:flagged",
+                   "status" => "open"
+                 }
+               ]
+             })
+
+    words = rendered_words(rendered)
+
+    refute words =~ "SECRET_DETECTED"
+    refute words =~ "lfs_object_missing"
+    refute words =~ "policy_findings"
+    refute words =~ "remove the credential before publication"
+    refute words =~ "a`b"
+    refute words =~ String.duplicate("7", 40)
+
+    assert words =~ "The review refused the change for a reason I don't recognize."
+    assert words =~ "The safety scan flagged 7 issues in the change."
+    assert words =~ "• `lib/token.ex` may contain a credential."
+    assert words =~ "• `.envrc` runs when you enter the folder with direnv."
+    assert words =~ "• An issue I can't describe."
+    assert words =~ "Showing 5 of 7 issues."
+    refute inspect(rendered) =~ "ryker_publish_draft"
   end
 
   # Every confirmed coding task ended on a button that could not change the

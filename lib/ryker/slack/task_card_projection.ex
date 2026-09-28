@@ -263,8 +263,16 @@ defmodule Ryker.Slack.TaskCardProjection do
   # episode for details" is what hid the runner's actual question for two days.
   defp public_error(_publication, _turn, hold) when is_map(hold), do: nil
 
-  defp public_error(%Publication{status: :blocked} = publication, _turn, _hold),
-    do: attention("Draft pull-request work is blocked", publication.last_error_code)
+  # A review's refusal never sets the publication's own error code, so reading
+  # only that code told #test on 2026-09-28 that no cause was recorded, beside a
+  # review saying the repository's checks had failed. The review's causes are
+  # the host's own words for Coop's codes, so they travel; the code never does.
+  defp public_error(%Publication{status: :blocked} = publication, _turn, _hold) do
+    case Review.refusal(publication.review_document) do
+      [] -> attention("Draft pull-request work is blocked", publication.last_error_code)
+      causes -> "Draft pull-request work is blocked: #{sentence_list(causes)}."
+    end
+  end
 
   defp public_error(%Publication{last_error_code: code}, _turn, _hold) when is_binary(code),
     do: attention("Draft pull-request work needs operator attention", code)
@@ -293,6 +301,13 @@ defmodule Ryker.Slack.TaskCardProjection do
     do: "#{statement}: `#{code}`."
 
   defp attention(statement, _code), do: "#{statement}; no cause was recorded."
+
+  defp sentence_list([only]), do: only
+
+  defp sentence_list(items) do
+    {leading, [last]} = Enum.split(items, -1)
+    Enum.join(leading, ", ") <> " and " <> last
+  end
 
   defp neutral(projection) do
     task = projection.document["task_card"]
