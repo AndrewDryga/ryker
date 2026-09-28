@@ -879,14 +879,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         end,
         memory: fn _params ->
           %{
-            behaviors: [
-              %{
-                kind: :standing_assignment,
-                ref: "behavior:one",
-                status: :active,
-                subject: "Triage deployment alerts"
-              }
-            ],
             memories: [
               %{
                 kind: :repository_binding,
@@ -944,14 +936,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                 "reason" => "Not recently used",
                 "review_ref" => "memory-review:two",
                 "status" => "pending"
-              }
-            ],
-            schedules: [
-              %{
-                next_occurrence_at: nil,
-                ref: "schedule:one",
-                status: :paused,
-                title: "Daily health check"
               }
             ]
           }

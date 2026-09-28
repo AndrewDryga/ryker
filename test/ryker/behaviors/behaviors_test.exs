@@ -81,7 +81,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert confirmed.behavior.confirmed_at == @now
   end
 
-  test "visible instructions remain actionable beyond the memory listing limit" do
+  test "visible instructions remain actionable beyond the library's first page" do
     # Paused instructions do not consume active capacity. A capped listing must
     # not strand their lifecycle controls when the library has more history.
     fixture = delivered_offers!("older-ui-actions")
@@ -100,7 +100,10 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       set: [status: :disabled]
     )
 
-    refute Enum.any?(Projection.memory().behaviors, &(&1.ref == confirmed.behavior.ref))
+    refute Enum.any?(
+             BehaviorLibrary.list(:guidance, %{}).items,
+             &(&1.ref == confirmed.behavior.ref)
+           )
 
     assert Enum.any?(
              BehaviorLibrary.list(:guidance, %{"page" => "21"}).items,
@@ -175,10 +178,8 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     {:ok, confirmed} = Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance"))
     confirmed.behavior |> BehaviorChangeset.update(%{expires_at: nil}) |> Repo.update!()
 
-    assert Enum.any?(
-             Projection.memory().behaviors,
-             &(&1.ref == confirmed.behavior.ref)
-           )
+    assert %{items: items} = BehaviorLibrary.list(:guidance, %{})
+    assert [%{status: "active"}] = Enum.filter(items, &(&1.ref == confirmed.behavior.ref))
   end
 
   test "the instruction library separates kinds expiry scopes and history without mutating them" do

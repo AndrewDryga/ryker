@@ -42,7 +42,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
   alias Ryker.Slack.Input, as: SlackInput
 
-  alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Records
   alias Ryker.Schedules.Schedule
@@ -2414,18 +2413,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     refute inspect(snapshot) =~ "private schema"
   end
 
-  test "memory projection returns every bounded operator-owned collection" do
-    assert %{behaviors: behaviors, memories: memories, schedules: schedules} = Projection.memory()
-    assert is_list(behaviors)
-    assert is_list(memories)
-    assert is_list(schedules)
-  end
-
   # A memory is a person's own words, confirmed as a fact. The channel page and
   # the behavior library redact those words before showing them; /memory read
   # the same payload straight off the row, so a credential someone asked Ryker
   # to remember rendered in full on one page and as `[redacted]` on the next.
-  test "operational memory and behaviour subjects are redacted like every other retained text" do
+  test "operational memory is redacted like every other retained text" do
     previous = Application.get_env(:ryker, :memory_redaction_probe, :missing)
 
     Application.put_env(:ryker, :memory_redaction_probe, %{api_token: "remembered-credential-9f3"})
@@ -2473,64 +2465,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                })
              )
 
-    source = start_episode!("memory-redaction")
-
-    assert {:ok, _session} =
-             Custody.pin_episode(source.episode.id, "policy:memory", String.duplicate("a", 64))
-
-    assert {:ok, claim} = Custody.claim_next("control-plane:memory-redaction", 60, :work)
-
-    behavior_payload = %{
-      "context_channel" => "slack:T123:C456",
-      "delivery_channel" => "slack:T123:C456",
-      "expires_at" => nil,
-      "filter" => %{"event" => "deploy"},
-      "hold" => nil,
-      "repository" => nil,
-      "source_kind" => "slack_message",
-      "task" => "Deploy the portal.",
-      "title" => "Deploy with remembered-credential-9f3"
-    }
-
-    assert {:ok, offer} =
-             Records.create(
-               Records.token(claim.turn),
-               "offer:#{id}",
-               "standing_assignment_offer",
-               behavior_payload
-             )
-
-    assert {:ok, _behavior} =
-             Repo.insert(
-               BehaviorChangeset.insert(%{
-                 id: Ecto.UUID.generate(),
-                 ref: "behavior:#{id}",
-                 kind: :standing_assignment,
-                 status: :active,
-                 identity_key: "behavior:#{id}",
-                 offer_record_id: offer.id,
-                 payload: behavior_payload,
-                 revision: 1,
-                 scope_kind: :conversation,
-                 scope_ref: "slack:T123:C456",
-                 workspace_ref: "slack:T123",
-                 source_transport: "slack",
-                 source_conversation_ref: "slack:T123:C456",
-                 source_message_ref: "1789038001.000001",
-                 confirmed_at: @now,
-                 confirmed_by_actor_ref: "slack:user:UOPERATOR",
-                 confirmation_ref: "confirmation:#{id}"
-               })
-             )
-
     snapshot = Projection.memory()
     assert [memory] = Enum.filter(snapshot.memories, &(&1.ref == "memory:#{id}"))
     assert memory.value == "use [redacted] for the portal"
     assert memory.applicability == "prod"
-    assert [behavior] = Enum.filter(snapshot.behaviors, &(&1.ref == "behavior:#{id}"))
-    assert behavior.subject == "Deploy with [redacted]"
     refute inspect(snapshot.memories) =~ "remembered-credential"
-    refute inspect(snapshot.behaviors) =~ "remembered-credential"
   end
 
   test "workspace storage previews exact targets and never estimates unmeasured bytes" do
