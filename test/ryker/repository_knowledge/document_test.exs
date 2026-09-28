@@ -201,6 +201,13 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
     assert Document.cited?("make test", ".github/workflows/ci.yml", workflow)
     assert Document.cited?("make lint", ".github/workflows/ci.yml", workflow)
     assert Document.cited?("make test", "docs/TESTING.md", "Before a push, run make test.\n")
+
+    # Wherever a command ends: a line in a file written on Windows, a list
+    # entry's dash, or emphasis.
+    assert Document.cited?("make test", "README.md", "Run:\r\n\r\n    make test\r\n")
+    assert Document.cited?("make test", "README.md", "- make test - runs every test\n")
+    assert Document.cited?("make test", "README.md", "Run **make test** first.\n")
+    refute Document.cited?("make test", "README.md", "Run make test -- --watch.\n")
   end
 
   # PR 84's RYKER.md is what setup wrote for emisar and what its default
