@@ -328,8 +328,8 @@ defmodule Ryker.GitHub.RepositoryFiles do
       when is_binary(url) and is_integer(number) ->
         {:ok, %{url: url, number: number}}
 
-      {:ok, %{status: 422, body: %{"message" => message}}} when draft? and is_binary(message) ->
-        if message =~ ~r/draft/i,
+      {:ok, %{status: 422, body: refusal}} when draft? ->
+        if drafts_refused?(refusal),
           do: create_pull(client, repository, owner, title, body, false),
           else: reconcile_pull(client, slug, owner)
 
@@ -343,6 +343,17 @@ defmodule Ryker.GitHub.RepositoryFiles do
         error
     end
   end
+
+  # GitHub names drafts in its message, or in one of its validation errors
+  # under "Validation Failed".
+  defp drafts_refused?(%{} = refusal) do
+    errors = if is_list(refusal["errors"]), do: refusal["errors"], else: []
+
+    [refusal["message"] | Enum.map(errors, &(is_map(&1) && &1["message"]))]
+    |> Enum.any?(&(is_binary(&1) and &1 =~ ~r/draft/i))
+  end
+
+  defp drafts_refused?(_refusal), do: false
 
   defp reconcile_pull(client, slug, owner) do
     case open_pull(client, slug, owner) do

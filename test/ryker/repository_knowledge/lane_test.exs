@@ -326,6 +326,55 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert {:error, :repository_not_found} = RepositoryKnowledge.refresh("missing", @actor)
   end
 
+  # Review of the knowledge lane, 2026-09-28: every reason GitHub gave was
+  # read as one another try would meet again, so a 502 while a refresh
+  # someone asked for read the repository gave the refresh up until the
+  # next day's check, with nothing on the page to say it had been dropped.
+  test "GitHub failing for a moment keeps a requested refresh, and tries it again shortly" do
+    github!()
+    coop = coop!([answer_json(), answer_json()])
+    written!(coop)
+    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
+
+    FakeGitHubRepository.update(
+      &%{&1 | errors: %{repository: {:error, {:github_onboarding, :response}}}}
+    )
+
+    assert {:ok, _yielded} = Dispatcher.run_once(settings(coop, retry_delay_seconds: 60))
+
+    entry = RepositoryKnowledge.entry("emisar")
+    assert {entry.phase, entry.requested_by, entry.error} == {:write, @actor, nil}
+    assert DateTime.diff(entry.next_attempt_at, Repo.now!()) in 55..60
+
+    FakeGitHubRepository.update(&%{&1 | errors: %{}})
+    retry_due!()
+    drain(settings(coop))
+
+    assert length(FakeCoopAPI.state(coop).submissions) == 2
+    assert RepositoryKnowledge.entry("emisar").publication == :updated
+  end
+
+  # The same review: a 5xx while the pull request was opened, with the
+  # branch already written, left the document unproposed for a day.
+  test "a proposal GitHub failed to open is tried again shortly, not tomorrow" do
+    github!(errors: %{publish: {:error, {:github_onboarding, :pull_request}}})
+    ready!()
+    coop = coop!([answer_json()])
+
+    drain(settings(coop, retry_delay_seconds: 60))
+
+    entry = RepositoryKnowledge.entry("emisar")
+    assert {entry.phase, entry.published_at, entry.error} == {:publish, nil, nil}
+    assert DateTime.diff(entry.next_attempt_at, Repo.now!()) in 55..60
+
+    FakeGitHubRepository.update(&%{&1 | errors: %{}})
+    retry_due!()
+    drain(settings(coop))
+
+    assert %{number: 84} = FakeGitHubRepository.state().open
+    assert RepositoryKnowledge.entry("emisar").publication == :opened
+  end
+
   test "an archived repository is skipped with a sentence, and costs no model turn" do
     github!(archived: true)
     ready!()
@@ -518,6 +567,9 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   defp due!,
     do: Repo.update_all(Entry, set: [next_check_at: DateTime.add(DateTime.utc_now(), -60)])
 
+  defp retry_due!,
+    do: Repo.update_all(Entry, set: [next_attempt_at: DateTime.add(DateTime.utc_now(), -60)])
+
   defp age!(days) do
     Repo.update_all(Entry,
       set: [document_at: DateTime.add(DateTime.utc_now(), -days * 86_400 - 60)]
@@ -536,19 +588,22 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
   defp repository, do: Enum.find(Settings.fetch!().repositories, &(&1.ref == "emisar"))
 
-  defp settings(coop) do
-    %{
-      api: API,
-      client: coop,
-      remote: FakeGitHubRepository,
-      worker_ref: "knowledge-test",
-      poll_interval_ms: 100,
-      idle_interval_ms: 10_000,
-      execution_timeout_seconds: 1_800,
-      lease_seconds: 300,
-      step_delay_seconds: 0,
-      retry_delay_seconds: 0
-    }
+  defp settings(coop, overrides \\ []) do
+    Map.merge(
+      %{
+        api: API,
+        client: coop,
+        remote: FakeGitHubRepository,
+        worker_ref: "knowledge-test",
+        poll_interval_ms: 100,
+        idle_interval_ms: 10_000,
+        execution_timeout_seconds: 1_800,
+        lease_seconds: 300,
+        step_delay_seconds: 0,
+        retry_delay_seconds: 0
+      },
+      Map.new(overrides)
+    )
   end
 
   defp coop!(answers, options \\ []) do

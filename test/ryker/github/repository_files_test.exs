@@ -56,24 +56,38 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
   end
 
   # A private repository on a free plan cannot have draft pull requests.
+  # GitHub may name that in its message or among its validation errors; a
+  # refusal missed there reads as a pull request that could not be opened,
+  # which is tried again every minute, each time resetting the branch and
+  # committing to it again.
   test "a repository that cannot have draft pull requests gets an ordinary one" do
-    refused = %{"message" => "Draft pull requests are not supported in this repository."}
+    sentence = "Draft pull requests are not supported in this repository."
 
-    RecordedGitHub.reply(
-      new_proposal(nil) ++
-        [
-          {:post, "/repos/acme/widget/pulls", ok(422, refused)},
-          {:post, "/repos/acme/widget/pulls", ok(201, %{"html_url" => @url, "number" => 7})}
-        ]
-    )
+    for refused <- [
+          %{"message" => sentence},
+          %{
+            "message" => "Validation Failed",
+            "errors" => [
+              %{"resource" => "PullRequest", "code" => "custom", "message" => sentence}
+            ]
+          }
+        ] do
+      RecordedGitHub.reply(
+        new_proposal(nil) ++
+          [
+            {:post, "/repos/acme/widget/pulls", ok(422, refused)},
+            {:post, "/repos/acme/widget/pulls", ok(201, %{"html_url" => @url, "number" => 7})}
+          ]
+      )
 
-    assert {:ok, %{outcome: :opened, url: @url, number: 7}} = publish("# RYKER.md\n")
+      assert {:ok, %{outcome: :opened, url: @url, number: 7}} = publish("# RYKER.md\n")
 
-    assert [true, false] =
-             for(
-               {:post, "/repos/acme/widget/pulls", pull} <- RecordedGitHub.requests(),
-               do: pull["draft"]
-             )
+      assert [true, false] =
+               for(
+                 {:post, "/repos/acme/widget/pulls", pull} <- RecordedGitHub.requests(),
+                 do: pull["draft"]
+               )
+    end
   end
 
   # A proposal whose first answer was lost is found, not opened twice.
