@@ -390,12 +390,6 @@ defmodule Ryker.ControlPlane.Components do
     """
   end
 
-  def status(label, tone) do
-    %{__changed__: nil, state: nil, lifecycle: nil, label: label, tone: tone}
-    |> status()
-    |> Safe.to_iodata()
-  end
-
   @doc """
   The word and tone of the enabled/paused family: a rule, schedule or memory
   that is active is a settled good state, not work in progress, so it carries
@@ -836,20 +830,4 @@ defmodule Ryker.ControlPlane.Components do
   def timestamp(%DateTime{} = value), do: Calendar.strftime(value, "%d %b, %H:%M UTC")
   def timestamp(%NaiveDateTime{} = value), do: Calendar.strftime(value, "%d %b, %H:%M UTC")
   def timestamp(_), do: "Not recorded"
-
-  def age(value, now) do
-    case value do
-      %DateTime{} -> duration(max(DateTime.diff(now, value), 0))
-      %NaiveDateTime{} -> duration(max(NaiveDateTime.diff(DateTime.to_naive(now), value), 0))
-      _ -> "—"
-    end
-  end
-
-  defp duration(seconds) when seconds < 60, do: "#{seconds}s"
-  defp duration(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"
-
-  defp duration(seconds) when seconds < 86_400,
-    do: "#{div(seconds, 3600)}h #{div(rem(seconds, 3600), 60)}m"
-
-  defp duration(seconds), do: "#{div(seconds, 86_400)}d"
 end

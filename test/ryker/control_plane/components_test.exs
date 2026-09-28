@@ -47,9 +47,6 @@ defmodule Ryker.ControlPlane.ComponentsTest do
 
     assert explicit =~
              ~s(<span class="ui-status status-done"><i aria-hidden="true"></i>Ready</span>)
-
-    # The string pages render through the same function, so the markup cannot drift.
-    assert IO.iodata_to_binary(Components.status("Ready", "done")) == String.trim(explicit)
   end
 
   test "form feedback carries one semantic tone, icon and message target" do

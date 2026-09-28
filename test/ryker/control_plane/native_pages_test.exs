@@ -491,12 +491,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
              1
   end
 
-  test "elapsed labels remain meaningful across missing, naive, future, and long-lived timestamps" do
-    assert Components.age(nil, @now) == "—"
-    assert Components.age(DateTime.add(@now, 60), @now) == "0s"
-    assert Components.age(DateTime.to_naive(DateTime.add(@now, -61)), @now) == "1m"
-    assert Components.age(DateTime.add(@now, -3660), @now) == "1h 1m"
-    assert Components.age(DateTime.add(@now, -172_800), @now) == "2d"
+  test "a naive timestamp and every episode state read in the page's words" do
     assert Components.timestamp(DateTime.to_naive(@now)) == "05 Sep, 12:00 UTC"
 
     for {state, expected} <- [
