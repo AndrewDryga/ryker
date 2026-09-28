@@ -4,12 +4,12 @@ defmodule Ryker.Learning.Observations do
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.RecallText
   alias Ryker.Publication.{LifecycleEvent, Publication}
   alias Ryker.Slack.{ChannelFence, ChannelMembership}
 
   alias Ryker.Continuity
   alias Ryker.Knowledge
-  alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
@@ -33,13 +33,10 @@ defmodule Ryker.Learning.Observations do
 
   def record_excerpt_in_transaction(_), do: {:error, :observation_source_not_decided}
 
+  # What the message said, as routing reads it among the others. The original
+  # values an anchor is checked against include ids and types no one wrote.
   defp excerpt(entry) do
-    text =
-      entry
-      |> List.wrap()
-      |> KnowledgeAnchors.source_texts()
-      |> Enum.join("\n")
-      |> String.trim()
+    text = entry.content |> RecallText.prose() |> String.trim()
 
     if text != "" do
       summary = if String.length(text) > 1200, do: String.slice(text, 0, 1199) <> "…", else: text

@@ -349,6 +349,25 @@ defmodule Ryker.Learning.ObservationsTest do
     assert Repo.one!(ConversationObservation).revision == 3
   end
 
+  # Routing read Andrew's #test request of 2026-09-27 back as the note
+  # "GAEY4\nuser\nU0C1LCVNF52\n New end-to-end test in AndrewDryga/test: …
+  # \ntext\nrich_text_section\nrich_text\nmessage\n<@U0C1LCVNF52> New
+  # end-to-end test in AndrewDryga/test: …": every string in the message, its
+  # block id, element types and Ryker's user id among them, and its words
+  # twice. Two such notes were in the prompt for "And now?" on 2026-09-28.
+  test "a conversation note quotes what the message said, never its Slack structure" do
+    content =
+      "testdata/slack/retained-messages-2026-09-27.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> get_in(["messages", "end_to_end_test", "content"])
+
+    entry = observe!("end-to-end-test", "C1", @note, content: content)
+
+    assert [%{"summary" => summary}] = Observations.context(entry, nil)
+    assert summary == content["text"]
+  end
+
   test "saved routing notes are rejected when destination or source access is revoked" do
     joined!("TNOTES", "CSOURCE")
     joined!("TNOTES", "CTARGET")
@@ -464,7 +483,8 @@ defmodule Ryker.Learning.ObservationsTest do
         revision: Keyword.get(options, :revision, 1),
         event_kind: Keyword.get(options, :kind, :message),
         occurred_at: @now,
-        content: %{"text" => Keyword.get(options, :text, @message)}
+        content:
+          Keyword.get(options, :content, %{"text" => Keyword.get(options, :text, @message)})
       })
 
     {:ok, %{entry: entry}} =

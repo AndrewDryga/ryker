@@ -19,6 +19,25 @@ defmodule Ryker.Ingress.RecallTextTest do
            }) == "A retained decision"
   end
 
+  # Routing's earlier messages, digests and searches read a person's Slack
+  # message this way. The first message of Andrew's #test thread went to
+  # routing on 2026-09-28 as "<@U0C1LCVNF52> check health of our infra\n
+  # check health of our infra": its text, then every "text" inside the rich
+  # text blocks Slack sends beside it with the same words.
+  test "a person's Slack message is searched and recalled once, as its text" do
+    retained =
+      "testdata/slack/retained-messages-2026-09-27.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("messages")
+
+    assert RecallText.from(retained["check_health"]["content"]) ==
+             "<@U0C1LCVNF52> check health of our infra"
+
+    livebook = retained["livebook_parked"]["content"]
+    assert RecallText.from(livebook) == livebook["text"]
+  end
+
   test "search extraction is bounded and never rewrites the original source" do
     content = %{
       "text" => String.duplicate("é", 20_000),

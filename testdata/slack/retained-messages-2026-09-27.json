@@ -1,0 +1,389 @@
+{
+  "workspace_ref": "T0BHXKZJVDX",
+  "ryker_user_ref": "U0C1LCVNF52",
+  "messages": {
+    "check_health": {
+      "input_id": "901af829-12b4-47da-a299-344d9e72cfdc",
+      "channel_ref": "C0BLU1GACKC",
+      "ts": "1790504146.985239",
+      "thread_ts": "1790504146.985239",
+      "actor": {
+        "kind": "user",
+        "ref": "U0BHTNFCW6S"
+      },
+      "audience": "mention",
+      "occurred_at": "2026-09-27T10:15:46.985239Z",
+      "revision": 7162016587940956,
+      "content": {
+        "attachments": [],
+        "blocks": [
+          {
+            "block_id": "JreFB",
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "type": "user",
+                    "user_id": "U0C1LCVNF52"
+                  },
+                  {
+                    "text": " check health of our infra",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_section"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": null,
+        "text": "<@U0C1LCVNF52> check health of our infra"
+      }
+    },
+    "pretty_much_all_access": {
+      "input_id": "dcc5bf3c-6c0a-410e-872f-cd81c0268cca",
+      "channel_ref": "C0BLU1GACKC",
+      "ts": "1790521940.193769",
+      "thread_ts": "1790504146.985239",
+      "actor": {
+        "kind": "user",
+        "ref": "U0BHTNFCW6S"
+      },
+      "audience": "ambient",
+      "occurred_at": "2026-09-27T15:12:20.193769Z",
+      "revision": 7162087760775076,
+      "content": {
+        "attachments": [],
+        "blocks": [
+          {
+            "block_id": "+LPZK",
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "text": "You have pretty much all possible access via emisar mcp",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_section"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": null,
+        "text": "You have pretty much all possible access via emisar mcp"
+      }
+    },
+    "which_tools": {
+      "input_id": "89ebc820-6f76-4a60-8ab3-2ebdcbe7bac9",
+      "channel_ref": "C0BLU1GACKC",
+      "ts": "1790522082.813039",
+      "thread_ts": "1790504146.985239",
+      "actor": {
+        "kind": "user",
+        "ref": "U0BHTNFCW6S"
+      },
+      "audience": "ambient",
+      "occurred_at": "2026-09-27T15:14:42.813039Z",
+      "revision": 7162088331252156,
+      "content": {
+        "attachments": [],
+        "blocks": [
+          {
+            "block_id": "9ctDF",
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "text": "Which tools are available? List runners and packs",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_section"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": null,
+        "text": "Which tools are available? List runners and packs"
+      }
+    },
+    "voice_no_tools_in_emisar": {
+      "input_id": "a60f0f99-56b8-42bf-8ee7-ae68e02502d6",
+      "channel_ref": "C0BLU1GACKC",
+      "ts": "1790539929.454209",
+      "thread_ts": "1790504146.985239",
+      "actor": {
+        "kind": "user",
+        "ref": "U0BHTNFCW6S"
+      },
+      "audience": "ambient",
+      "occurred_at": "2026-09-27T20:12:09.454209Z",
+      "revision": 7162159717816836,
+      "content": {
+        "attachments": [],
+        "blocks": [],
+        "files": [
+          {
+            "artifact_ref": "artifact:input:c969943ceb462556:c930fe5a48734f5d4eb8268681224a4073ad9378f658a824d8750cbb93565c1a",
+            "bytes": 44287,
+            "media_type": "audio/mp4",
+            "name": "audio_message.m4a",
+            "sha256": "c930fe5a48734f5d4eb8268681224a4073ad9378f658a824d8750cbb93565c1a",
+            "status": "available",
+            "transcript": "Just to confirm you don't see any tools in MSR itself right?"
+          }
+        ],
+        "slack_event_kind": "message",
+        "subtype": "file_share",
+        "text": ""
+      }
+    },
+    "and_now": {
+      "input_id": "1c2f27cb-67dd-47cd-bd82-02ef378fc3d4",
+      "channel_ref": "C0BLU1GACKC",
+      "ts": "1790569786.896249",
+      "thread_ts": "1790504146.985239",
+      "actor": {
+        "kind": "user",
+        "ref": "U0BHTNFCW6S"
+      },
+      "audience": "ambient",
+      "occurred_at": "2026-09-28T04:29:46.896249Z",
+      "revision": 7162279147584996,
+      "content": {
+        "attachments": [],
+        "blocks": [
+          {
+            "block_id": "wD344",
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "text": "And now?",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_section"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": null,
+        "text": "And now?"
+      }
+    },
+    "livebook_parked": {
+      "input_id": "fa01575f-f0ef-4c54-8a13-8094793b1c48",
+      "channel_ref": "C0BLU1GACKC",
+      "ts": "1790573171.598909",
+      "thread_ts": "1790504146.985239",
+      "actor": {
+        "kind": "user",
+        "ref": "U0BHTNFCW6S"
+      },
+      "audience": "ambient",
+      "occurred_at": "2026-09-28T05:26:11.598909Z",
+      "revision": 7162292686395636,
+      "content": {
+        "attachments": [],
+        "blocks": [
+          {
+            "block_id": "2YXJp",
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "text": "L",
+                    "type": "text"
+                  },
+                  {
+                    "text": "ivebook is parked you can see it in the repo.\n\nFor logs - do a PR to fix your access, and bump all pack versions while you at it",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_section"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": null,
+        "text": "Livebook is parked you can see it in the repo.\n\nFor logs - do a PR to fix your access, and bump all pack versions while you at it"
+      }
+    },
+    "readme_smoke_test": {
+      "input_id": "f6be18b2-0dd4-4990-b3e1-7382cbb5f613",
+      "channel_ref": "C0BLU1GACKC",
+      "ts": "1790511333.759719",
+      "thread_ts": "1790511333.759719",
+      "actor": {
+        "kind": "user",
+        "ref": "U0BHTNFCW6S"
+      },
+      "audience": "mention",
+      "occurred_at": "2026-09-27T12:15:33.759719Z",
+      "revision": 7162045335038876,
+      "content": {
+        "attachments": [],
+        "blocks": [
+          {
+            "block_id": "pcnS5",
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "type": "user",
+                    "user_id": "U0C1LCVNF52"
+                  },
+                  {
+                    "text": " In AndrewDryga/test, add a short \"Workflow smoke test\" section to README.md saying this repository exercises Ryker and Coop. Commit the change, push it to a branch, and open a draft PR. Leave main unchanged.",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_section"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": null,
+        "text": "<@U0C1LCVNF52> In AndrewDryga/test, add a short \"Workflow smoke test\" section to README.md saying this repository exercises Ryker and Coop. Commit the change, push it to a branch, and open a draft PR. Leave main unchanged."
+      }
+    },
+    "end_to_end_test": {
+      "input_id": "1ca0c98f-2079-41af-9aae-b5ba3ea19ede",
+      "channel_ref": "C0BLU1GACKC",
+      "ts": "1790512772.810889",
+      "thread_ts": "1790512772.810889",
+      "actor": {
+        "kind": "user",
+        "ref": "U0BHTNFCW6S"
+      },
+      "audience": "mention",
+      "occurred_at": "2026-09-27T12:39:32.810889Z",
+      "revision": 7162051091243556,
+      "content": {
+        "attachments": [],
+        "blocks": [
+          {
+            "block_id": "GAEY4",
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "type": "user",
+                    "user_id": "U0C1LCVNF52"
+                  },
+                  {
+                    "text": " New end-to-end test in AndrewDryga/test: add a short \"Workflow smoke test\" section to README.md saying this repository exercises Ryker and Coop. Commit the README-only change in the isolated working copy and run appropriate checks. Let Ryker handle the branch push and draft PR through its publication flow; do not push Git from the model runtime. Leave main unchanged.",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_section"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": null,
+        "text": "<@U0C1LCVNF52> New end-to-end test in AndrewDryga/test: add a short \"Workflow smoke test\" section to README.md saying this repository exercises Ryker and Coop. Commit the README-only change in the isolated working copy and run appropriate checks. Let Ryker handle the branch push and draft PR through its publication flow; do not push Git from the model runtime. Leave main unchanged."
+      }
+    },
+    "terraform_run_planning": {
+      "input_id": "394ecceb-0b9f-48e1-ae5c-dfcec8019116",
+      "channel_ref": "C0BHTRPHXP0",
+      "ts": "1790541353.727679",
+      "thread_ts": "1790541353.727679",
+      "actor": {
+        "kind": "bot",
+        "ref": "B0BHPQTBMA7"
+      },
+      "audience": "ambient",
+      "occurred_at": "2026-09-27T20:35:53.727679Z",
+      "revision": 7162165414910716,
+      "content": {
+        "attachments": [
+          {
+            "author_icon": "https://www.gravatar.com/avatar/e5d8777aae0a5dddaa722c82024834ed?s=100&d=mm",
+            "author_name": "api-team_3765287",
+            "color": "5c4ee5",
+            "fallback": "Run run-QJuP3FdKmSeFzoxM",
+            "footer": "HCP Terraform",
+            "footer_icon": "https://app.terraform.io/favicon.ico",
+            "id": 1,
+            "pretext": "Run notification for <https://app.terraform.io/app/Dryga/emisar|Dryga/emisar>",
+            "text": "main 162c01814dcfe24dd1472ae107c437cd54de3e77 (@AndrewDryga, gh run 36348136738)",
+            "title": "Run run-QJuP3FdKmSeFzoxM",
+            "title_link": "https://app.terraform.io/app/Dryga/emisar/runs/run-QJuP3FdKmSeFzoxM",
+            "ts": 1790541351
+          },
+          {
+            "color": "1563ff",
+            "fallback": "Run run-QJuP3FdKmSeFzoxM - Run Planning",
+            "id": 2,
+            "title": "Run Planning",
+            "ts": 1790541353
+          }
+        ],
+        "blocks": [],
+        "bot_id": "B0BHPQTBMA7",
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": "bot_message",
+        "text": ""
+      },
+      "envelope": {
+        "attachments": [
+          {
+            "author_icon": "https://www.gravatar.com/avatar/e5d8777aae0a5dddaa722c82024834ed?s=100&d=mm",
+            "author_name": "api-team_3765287",
+            "color": "5c4ee5",
+            "fallback": "Run run-QJuP3FdKmSeFzoxM",
+            "footer": "HCP Terraform",
+            "footer_icon": "https://app.terraform.io/favicon.ico",
+            "id": 1,
+            "pretext": "Run notification for <https://app.terraform.io/app/Dryga/emisar|Dryga/emisar>",
+            "text": "main 162c01814dcfe24dd1472ae107c437cd54de3e77 (@AndrewDryga, gh run 36348136738)",
+            "title": "Run run-QJuP3FdKmSeFzoxM",
+            "title_link": "https://app.terraform.io/app/Dryga/emisar/runs/run-QJuP3FdKmSeFzoxM",
+            "ts": 1790541351
+          },
+          {
+            "color": "1563ff",
+            "fallback": "Run run-QJuP3FdKmSeFzoxM - Run Planning",
+            "id": 2,
+            "title": "Run Planning",
+            "ts": 1790541353
+          }
+        ],
+        "bot_id": "B0BHPQTBMA7",
+        "channel": "C0BHTRPHXP0",
+        "channel_type": "channel",
+        "event_ts": "1790541353.727679",
+        "subtype": "bot_message",
+        "text": "",
+        "ts": "1790541353.727679",
+        "type": "message"
+      }
+    }
+  }
+}
