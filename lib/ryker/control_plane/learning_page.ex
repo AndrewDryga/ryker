@@ -286,6 +286,30 @@ defmodule Ryker.ControlPlane.LearningPage do
         <p :if={@batch.retry_blocked}>{@batch.retry_blocked}</p>
       </div>
     </article>
+    <section :if={@batch[:learned]} id="learned" class="memory-section">
+      <Kit.section_head
+        title="What Ryker learned"
+        lede="What the model decided, in its own words, and the topics it wrote."
+      >
+        <:actions :if={@batch.learned.path}>
+          <a href={@batch.learned.path}>Open on the Timeline</a>
+        </:actions>
+      </Kit.section_head>
+      <Kit.facts id="learned-reason" facts={[{"Reason", @batch.learned.reason}]} />
+      <Kit.entity_list :if={@batch.learned.updates != []} label="Topics">
+        <Kit.entity_row
+          :for={{update, index} <- Enum.with_index(@batch.learned.updates, 1)}
+          id={"learned-#{index}"}
+          icon={:book}
+          name={update.title}
+          href={update.path}
+          link_row={not is_nil(update.path)}
+          state={update_state(update.action)}
+          text={update.summary}
+          meta={[update.key && "key " <> update.key]}
+        />
+      </Kit.entity_list>
+    </section>
     <section
       :if={@batch.status == :deferred and (@batch.relearn != [] or @retry or @drop)}
       id="what-you-can-do"
@@ -423,7 +447,7 @@ defmodule Ryker.ControlPlane.LearningPage do
 
   defp happened(:applied),
     do:
-      "Ryker read these messages and updated what it knows. Each attempt below shows what it changed."
+      "Ryker read these messages and updated what it knows."
 
   defp happened(:no_change),
     do:
@@ -549,6 +573,12 @@ defmodule Ryker.ControlPlane.LearningPage do
       encoded -> "/memory/learning?" <> encoded
     end
   end
+
+  # What an attempt did to one topic.
+  defp update_state("create"), do: {:on, "Created"}
+  defp update_state("update"), do: {:on, "Updated"}
+  defp update_state("defer"), do: {:off, "Left as it was"}
+  defp update_state(_action), do: nil
 
   defp attempts_path(batch, page),
     do:

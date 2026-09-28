@@ -108,7 +108,8 @@ from a clean git worktree of HEAD, then pauses Ryker and backs up the database a
 into `.ryker/backups/pre-deploy-<time>.tar.gz`, and replaces only the `ryker` container with
 `docker compose up --detach --no-build --wait --no-deps ryker` (migrations run when the container
 boots), waits from the host's side for `/healthz`, `/readyz` and the exact `x-ryker-version`
-header, and only then pins the new version in `.ryker/compose.env`. On failure it prints the
+header, and only then pins the new version in `.ryker/compose.env` and keeps the newest ten
+pre-deploy backups. On failure it prints the
 container's log tail, stops the unverified replacement and leaves the previous version pinned.
 Check whether the failed release migrated the database before restarting the previous image;
 restore the pre-deploy backup first if it did. PostgreSQL

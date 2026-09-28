@@ -285,6 +285,25 @@ refute "a tagged release is never pruned" "image rm ryker:1.0.0" "$calls"
 refute "a hand-made tag is never pruned" "image rm ryker:production-audit" "$calls"
 
 # ---------------------------------------------------------------------------
+# Old backups. Every deploy writes one of about 20 MB and none was ever
+# removed: 140 of them held 2.4 GB on 2026-09-28. The newest ten stay.
+seed
+mkdir -p "$state/backups"
+for day in $(seq -w 1 12); do
+  : >"$state/backups/pre-deploy-202001${day}T000000Z.tar.gz"
+done
+: >"$state/backups/ryker-20200101T000000Z.tar.gz"
+out=$(run)
+check "a deploy with old backups succeeds" "exit=0" "$out"
+check "the newest ten pre-deploy backups stay" "10" "$(backups)"
+check "the deploy says it removed the older ones" "removed 3 older pre-deploy backup(s)" "$out"
+check "the backup this deploy wrote stays" "1" \
+  "$(find "$state/backups" -name "pre-deploy-$(date -u +%Y)*.tar.gz" | wc -l | tr -d ' ')"
+check "the oldest kept backup is the fourth" "pre-deploy-20200104T000000Z.tar.gz" "$(ls "$state/backups")"
+refute "the oldest backups are removed" "pre-deploy-20200103T000000Z.tar.gz" "$(ls "$state/backups")"
+check "other archives are never touched" "ryker-20200101T000000Z.tar.gz" "$(ls "$state/backups")"
+
+# ---------------------------------------------------------------------------
 # An image that does not build. On 2026-09-26 mix.exs read a file the
 # Dockerfile copied too late, the build failed, and the script blamed the
 # container's health and printed the old container's log.
