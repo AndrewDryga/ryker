@@ -18,8 +18,21 @@ defmodule Ryker.ControlPlane.LearningRequests do
   """
   import Ecto.Query
 
+  import Ryker.ControlPlane.BackgroundCards,
+    only: [
+      artifact_options: 2,
+      decode: 1,
+      identifier: 2,
+      present: 1,
+      record_text: 2,
+      submitted: 5,
+      target: 2,
+      time: 2,
+      timestamp: 1
+    ]
+
   alias Ryker.Accounting.Execution
-  alias Ryker.ControlPlane.{CallRun, ConversationMemory, LearningActivity}
+  alias Ryker.ControlPlane.{BackgroundCards, CallRun, ConversationMemory, LearningActivity}
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor, as: Redactor
@@ -30,7 +43,6 @@ defmodule Ryker.ControlPlane.LearningRequests do
   alias Ryker.Work.Session
 
   @limit 50
-  @max_bytes 2 * 1_024 * 1_024
 
   @doc """
   The briefing and result cards of the learning attempts that read any of
@@ -248,20 +260,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
         section("instructions", "Learning instructions", prompt["instructions"], options),
         section("context", "What learning was given", briefing_context(prompt), options),
         section("contract", "Required output contract", run.output_schema, options),
-        %{
-          id: "request",
-          title: "Submitted prompt",
-          source_kind: :learning,
-          artifact_id: request_id,
-          artifact:
-            Redactor.artifact(
-              run.prompt,
-              Keyword.merge(options,
-                preserve_format: true,
-                disclosed: disclosed?(context.disclosed, request_id)
-              )
-            )
-        }
+        submitted(run.prompt, request_id, :learning, context, options)
       ]
     })
   end
@@ -325,18 +324,6 @@ defmodule Ryker.ControlPlane.LearningRequests do
     }
   end
 
-  defp artifact_options(run, context),
-    do: [secrets: context.secrets, max_bytes: @max_bytes, expired: not is_nil(run.pruned_at)]
-
-  defp section(id, title, value, options),
-    do: %{
-      id: id,
-      title: title,
-      source_kind: :learning,
-      artifact_id: nil,
-      artifact: Redactor.artifact(value, options)
-    }
-
   # Everything the model was given beside its instructions: the custom
   # instructions, the messages, the topics it could update and, on a retry,
   # what went wrong before.
@@ -346,14 +333,6 @@ defmodule Ryker.ControlPlane.LearningRequests do
       context -> context
     end
   end
-
-  defp disclosed?(%MapSet{} = disclosed, id), do: MapSet.member?(disclosed, id)
-  defp disclosed?(_no_disclosure_tracking, _id), do: true
-
-  # The model and effort the worker ran, as its report named them; the
-  # attempt's own record keeps it only until retention.
-  defp target(_run, %Execution{execution_target: target}) when is_binary(target), do: target
-  defp target(run, _execution), do: get_in(run.producer || %{}, ["target"])
 
   # A retry says which attempt it followed and why that one ended, as routing
   # does; the reason is the Learning page's own sentence for it.
@@ -539,44 +518,9 @@ defmodule Ryker.ControlPlane.LearningRequests do
     }
   end
 
-  # The receipts exactly as recorded, redacted like every other artifact.
-  defp record_text(record, secrets) do
-    text = Redactor.artifact(record, secrets: secrets).text
-
-    case Jason.decode(text || "") do
-      {:ok, value} -> Jason.encode!(value, pretty: true)
-      _unreadable -> text
-    end
-  end
-
-  defp identifier(_label, nil), do: nil
-  defp identifier(label, value), do: %{label: label, value: value, identifier: true}
-
-  defp time(_label, nil), do: nil
-
-  defp time(label, %DateTime{} = at),
-    do: %{label: label, value: Calendar.strftime(at, "%d %b %Y, %H:%M:%S UTC")}
-
-  defp timestamp(at), do: Calendar.strftime(at, "%d %b %Y, %H:%M UTC")
-
   defp plural(1, noun), do: "1 #{noun}"
   defp plural(count, noun), do: "#{count} #{noun}s"
 
-  defp present(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      text -> text
-    end
-  end
-
-  defp present(_value), do: nil
-
-  defp decode(value) when is_binary(value) do
-    case Jason.decode(value) do
-      {:ok, %{} = document} -> document
-      _unreadable -> %{}
-    end
-  end
-
-  defp decode(_value), do: %{}
+  defp section(id, title, value, options),
+    do: BackgroundCards.section(id, title, value, :learning, options)
 end

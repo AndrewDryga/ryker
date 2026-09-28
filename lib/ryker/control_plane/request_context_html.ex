@@ -352,7 +352,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           ),
         else: []
       ),
-      if(context, do: assembly(context.artifact, root, prefix, counts), else: []),
+      cond do
+        is_nil(context) -> []
+        kind == :improvement -> analysis_assembly(context.artifact, prefix, counts)
+        true -> assembly(context.artifact, root, prefix, counts)
+      end,
       # The output contract is shown once, under the retained submission it was
       # sent beside; repeating it above the prompt said the same thing twice.
       []
@@ -532,6 +536,34 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp routing?(root), do: root == "$.context"
+
+  # A self-analysis is sent the evidence about one request and none of the
+  # parts routing and Work are briefed with, so its briefing has one group,
+  # its parts in reading order. Routing's rows for parts it sends only when
+  # full ("Not configured", "None") read here as missing (2026-09-28).
+  @analysis_order ~w(request conversation routing work feedback omitted)
+
+  defp analysis_assembly(%{state: :retained, truncated: false, text: text}, prefix, counts) do
+    case Jason.decode(text) do
+      {:ok, %{} = context} ->
+        entries =
+          for key <- @analysis_order,
+              Map.has_key?(context, key),
+              do: {key, context[key], "$.context"}
+
+        group(
+          "The evidence",
+          "What the analysis was given about the request, as Ryker kept it.",
+          [Enum.map(entries, &assembled_source(&1, prefix, counts, context))],
+          group: "memory"
+        )
+
+      _unreadable ->
+        []
+    end
+  end
+
+  defp analysis_assembly(_artifact, _prefix, _counts), do: []
 
   defp absent_rows(group, context, parts, root, prefix) do
     dedicated =
@@ -2064,7 +2096,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
             SlackMarkdown.preview(text, workspace),
             "</div>"
           ],
-          else: ["<p>", escape(present(item["note"]) || "No words kept."), "</p>"]
+          else: ["<p>", escape(analysis_note(item["note"])), "</p>"]
         )
       ]
     )
@@ -2077,10 +2109,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       [
         "<dl class=\"context-rows\">",
         context_row("Model", present(item["model"])),
-        context_row(
-          "Prompt",
-          if(is_binary(item["prompt"]), do: "Sent in full", else: present(item["kept"]))
-        ),
+        context_row("Prompt", analysis_prompt(item)),
         "</dl>",
         analysis_answer("Answer", item["answer"], workspace)
       ]
@@ -2125,6 +2154,26 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       ]
     )
   end
+
+  # Why a message's words or a routing prompt were not in the evidence, in
+  # words; the values are the ones `Ryker.Improvement.Evidence` records.
+  defp analysis_note("deleted by the person"),
+    do: "Deleted by the person; its words are not kept."
+
+  defp analysis_note("edited by the person"),
+    do: "Changed by the person; the words it had first are not kept."
+
+  defp analysis_note("expired"), do: "Its words expired under retention."
+  defp analysis_note(note), do: present(note) || "No words kept."
+
+  defp analysis_prompt(%{"prompt" => prompt}) when is_binary(prompt), do: "Sent in full"
+
+  defp analysis_prompt(%{"kept" => "forgotten"}),
+    do: "Not sent: it quoted words that were later changed, deleted or forgotten"
+
+  defp analysis_prompt(%{"kept" => "expired"}), do: "Not sent: retention removed it"
+  defp analysis_prompt(%{"kept" => "left out for length"}), do: "Left out for length"
+  defp analysis_prompt(_item), do: "Not sent"
 
   defp analysis_card(title, at, body) do
     [
