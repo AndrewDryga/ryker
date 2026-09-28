@@ -22,14 +22,15 @@ defmodule Ryker.RoutingExamples do
   every example whose prompt quoted that message, topic or conversation, in
   the same transaction, what improvement candidates hold about it
   (`Ryker.Improvement`), and the local routing comparisons of such a prompt
-  (`Ryker.LocalRouting`). An edit takes back the words it replaced; one that
-  left them as they were, as Slack reports a link's preview arriving, takes
-  back nothing. An erased example keeps only its identity, so it is never
-  copied again. One whose message was forgotten before its turn to be copied
-  is checked at the copy, which then records only that identity. Each copy
-  and each forgetting holds one lock (shared by copies, exclusive to
-  forgetting), so a copy in flight can never slip past a forgetting that is
-  committing.
+  (`Ryker.LocalRouting`). A person's edit takes back the words it replaced;
+  one that left them as they were, as Slack reports a link's preview
+  arriving, takes back nothing, and so does an app updating its own message,
+  as an alert does when it resolves. An erased example keeps only its
+  identity, so it is never copied again. One whose message was forgotten
+  before its turn to be copied is checked at the copy, which then records
+  only that identity. Each copy and each forgetting holds one lock (shared by
+  copies, exclusive to forgetting), so a copy in flight can never slip past a
+  forgetting that is committing.
 
   What the prompt quotes and forgetting can reach: the message itself, the
   earlier messages of its thread or channel, learned observations and topics,
@@ -440,9 +441,9 @@ defmodule Ryker.RoutingExamples do
 
   @doc false
   # The revisions among `entries`' messages whose words a person replaced by
-  # editing them: each one before the message's latest edit that says
-  # something else. The analysis of a request people were unhappy with leaves
-  # their words out, as it does a deleted message's
+  # editing them: each one before the message's latest edit by a person that
+  # says something else. The analysis of a request people were unhappy with
+  # leaves their words out, as it does a deleted message's
   # (`Ryker.Improvement.Evidence`).
   @spec edited_revisions([Entry.t()]) :: MapSet.t(Ecto.UUID.t())
   def edited_revisions(entries) when is_list(entries) do
@@ -451,27 +452,35 @@ defmodule Ryker.RoutingExamples do
     |> Enum.uniq()
     |> edit_histories()
     |> Enum.flat_map(fn {_message, history} ->
-      latest = history |> Enum.filter(&(&1.event_kind == :edit)) |> List.last()
-
-      for revision <- history,
-          revision.revision < latest.revision and not same_words?(revision, latest),
-          do: revision.id
+      replaced(history, history |> Enum.filter(&person_edit?/1) |> List.last())
     end)
     |> MapSet.new()
   end
 
-  # An edit replaced the words when the revision before it said something
-  # else, or Ryker no longer holds what it said. Only the text a person wrote
-  # counts: Slack reports a link's preview arriving as an edit with the text
-  # untouched, and taking that for an edit would take back nearly every
-  # prompt, each quoting a channel's last twenty messages.
+  defp replaced(_history, nil), do: []
+
+  defp replaced(history, latest) do
+    for revision <- history,
+        revision.revision < latest.revision and not same_words?(revision, latest),
+        do: revision.id
+  end
+
+  # An edit replaced the words when a person made it and the revision before
+  # it said something else, or Ryker no longer holds what it said. Only the
+  # text a person wrote counts: Slack reports a link's preview arriving as an
+  # edit with the text untouched, and taking that for an edit would take back
+  # nearly every prompt, each quoting a channel's last twenty messages. An app
+  # updating its own message, as an alert does when it resolves, takes nothing
+  # back either.
   defp replaced_words?(history) do
     [nil | history]
     |> Enum.zip(history)
     |> Enum.any?(fn {before, revision} ->
-      revision.event_kind == :edit and (is_nil(before) or not same_words?(before, revision))
+      person_edit?(revision) and (is_nil(before) or not same_words?(before, revision))
     end)
   end
+
+  defp person_edit?(revision), do: revision.event_kind == :edit and revision.actor_kind == :user
 
   # Text that cannot be read, pruned or never text at all, such as a GitHub
   # comment's, is never the same: forgetting then errs toward erasing.
@@ -506,6 +515,7 @@ defmodule Ryker.RoutingExamples do
           revision: revision.revision,
           inserted_at: revision.inserted_at,
           event_kind: revision.event_kind,
+          actor_kind: revision.actor_kind,
           text: fragment("(?::jsonb)->>'text'", revision.content)
         }
       )
@@ -698,14 +708,15 @@ defmodule Ryker.RoutingExamples do
 
   @doc """
   Whether recording `entry` takes back what its message said: a deletion
-  does, and an edit does when its text differs from the revision before it.
-  An edit that leaves the text as it was, as Slack reports a link's preview
-  arriving, takes nothing back.
+  does, and a person's edit does when its text differs from the revision
+  before it. An edit that leaves the text as it was, as Slack reports a
+  link's preview arriving, takes nothing back, and neither does an app or a
+  bot updating its own message.
   """
   @spec takes_back_words?(Entry.t()) :: boolean()
   def takes_back_words?(%Entry{event_kind: :delete}), do: true
 
-  def takes_back_words?(%Entry{event_kind: :edit} = entry),
+  def takes_back_words?(%Entry{event_kind: :edit, actor_kind: :user} = entry),
     do: edited_messages([own_message(entry)]) != []
 
   def takes_back_words?(%Entry{}), do: false

@@ -225,13 +225,19 @@ defmodule Ryker.Publication.Followups.Signals do
     end
   end
 
-  # A review comment deleted or edited on GitHub takes its words back, as a
-  # person's message does when Ryker receives it (`Ryker.Ingress.Inbox`): the
-  # cases built from it are withdrawn (`Ryker.Memories.Cases`). GitHub reports
-  # an edit only when the words change. A repeated delivery withdrew them the
-  # first time.
-  defp withdraw_cases(%Input{event_kind: kind, native_input_id: native_input_id}, :ok)
-       when kind in [:edit, :delete],
+  # A review comment deleted on GitHub, or edited by the person who wrote it,
+  # takes its words back, as a person's message does when Ryker receives it
+  # (`Ryker.Ingress.Inbox`): the cases built from it are withdrawn
+  # (`Ryker.Memories.Cases`). GitHub reports an edit only when the words
+  # change; a bot updating its own comment takes nothing back. A repeated
+  # delivery withdrew them the first time.
+  defp withdraw_cases(%Input{event_kind: :delete, native_input_id: native_input_id}, :ok),
+    do: Cases.withdraw_message_in_transaction(native_input_id)
+
+  defp withdraw_cases(
+         %Input{event_kind: :edit, actor: %{kind: :user}, native_input_id: native_input_id},
+         :ok
+       ),
        do: Cases.withdraw_message_in_transaction(native_input_id)
 
   defp withdraw_cases(_input, _status), do: :ok
