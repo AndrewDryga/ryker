@@ -179,7 +179,7 @@
       <li>It cannot change a read-only repository, push an arbitrary branch, or open anything but a draft pull request.</li>
       <li>It cannot save a fact, preference, rule or schedule on its own. It can only propose one for a person to confirm.</li>
       <li>It cannot discard uncommitted work. Not through cleanup, not through Slack, not through the control plane.</li>
-      <li>It cannot widen its own reach. A payload, a reaction or a model answer never adds a repository or an Emisar account: the environment decides those, and the worker’s policy decides what each kind of work may run.</li>
+      <li>It cannot widen its own reach. A payload, a reaction or a model answer never adds a repository or an Emisar account: Ryker freezes each job’s permitted resources and execution bounds, and Coop enforces the isolated run.</li>
     </ul>
 
     <h2 id="next">Where to go next</h2>
