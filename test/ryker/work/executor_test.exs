@@ -2130,6 +2130,77 @@ defmodule Ryker.Work.ExecutorTest do
     assert FakeAPI.state(fake).turn["state"] == "cancelled"
   end
 
+  # Found live 2026-09-28: the worker's state was started afresh, so it no
+  # longer had the #test thread's session. The next turn stopped on
+  # {:coop_error, 404, "session_not_found"}, and its stop asked the worker
+  # about that session and got the same 404 on every attempt: the request
+  # read "stopping" and held Andrew's next messages behind it. The worker is
+  # the authority on its own sessions; nothing can run in one it does not have.
+  test "a stop whose session the worker no longer has completes" do
+    work = claim_with_bound_session!("cancel-session-gone")
+    {:ok, fake} = fake_for(work, [reply("Never delivered.")])
+
+    assert {:ok, _requested} =
+             Custody.request_cancel(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               "cancel:session-gone:#{work.turn.id}",
+               "Stop a turn whose session the worker lost."
+             )
+
+    assert {:ok, cancel_claim} = Custody.claim_next("worker:cancel-session-gone", 60)
+
+    gone =
+      protocol_options(fake, %{
+        get_session: {:error, {:coop_error, 404, "session_not_found", "session not found"}}
+      })
+
+    assert {:ok, execution} = Executor.run(cancel_claim, gone)
+    assert execution.status == :cancelled
+    assert execution.episode.state == :cancelled
+
+    stopped = Repo.get!(Ryker.Work.Turn, work.turn.id)
+    assert stopped.cancellation_receipt["kind"] == "absent_turn"
+    assert stopped.cancellation_receipt["remote_session_id"] == work.session.coop_session_id
+    assert stopped.cancellation_receipt["session_state"] == "discarded"
+  end
+
+  # The same worker reset, before any stop: a turn whose bound session the
+  # worker says it does not have starts a new session, as a lost placement
+  # does, instead of stopping the request.
+  test "a turn whose session the worker no longer has continues on a new one" do
+    claim = claim_with_bound_empty_session!("session-gone-rotation")
+    {:ok, fake} = fake_for(claim, [reply("Answered on a new session.")])
+
+    # The fake then creates a session of a new id, as a worker does.
+    FakeAPI.update(fake, fn state ->
+      %{state | session: Map.put(state.session, "state", "discarded")}
+    end)
+
+    {:ok, seen} = Agent.start_link(fn -> false end)
+
+    get_session = fn fallback ->
+      if Agent.get_and_update(seen, &{&1, true}),
+        do: fallback.(),
+        else: {:error, {:coop_error, 404, "session_not_found", "session not found"}}
+    end
+
+    assert {:ok, %{status: :accepted}} =
+             Executor.run(claim, protocol_options(fake, %{get_session: get_session}))
+
+    generations =
+      Repo.all(
+        from(session in Ryker.Work.Session,
+          where: session.episode_id == ^claim.episode.id,
+          select: session.generation,
+          order_by: [asc: session.generation]
+        )
+      )
+
+    assert generations == [1, 2]
+  end
+
   test "stop fences a frozen submit without creating work after authority was revoked" do
     work = claim_with_bound_session!("cancel-submit-before-operation-journal")
     {:ok, fake} = fake_for(work, [reply("This turn must be cancelled, not delivered.")])

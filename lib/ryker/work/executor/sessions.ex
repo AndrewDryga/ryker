@@ -33,6 +33,11 @@ defmodule Ryker.Work.Executor.Sessions do
       {:error, {:coop_session_replacement_required, _session_id, _generation}} ->
         replace_lost_session(claim, settings)
 
+      # The worker holding it does not have it: its state was started afresh
+      # (2026-09-28). It is as lost as a session whose placement is gone.
+      {:error, {:coop_error, 404, "session_not_found", _detail}} ->
+        replace_lost_session(claim, settings)
+
       {:error, _reason} = error ->
         error
     end

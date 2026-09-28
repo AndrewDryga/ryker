@@ -29,10 +29,47 @@ defmodule Ryker.Work.Executor.Cancellation do
       end
 
     case result do
-      {:error, _reason} = error -> settle_removed_worker(claim, error)
-      success -> success
+      {:error, reason} = error ->
+        if session_gone?(reason) and is_nil(claim.turn.coop_turn_id),
+          do: settle_gone_session(claim),
+          else: settle_removed_worker(claim, error)
+
+      success ->
+        success
     end
   end
+
+  # The worker holding the session says it does not have it (its state was
+  # started afresh, 2026-09-28), so no turn of this one can be running there.
+  # Asking again got the same answer on every attempt, and the stop never
+  # finished. A turn Coop never bound is settled as absent, its session gone.
+  defp settle_gone_session(claim) do
+    with {:ok, receipt} <- absent_receipt(claim, claim.session.coop_session_id, "discarded", nil),
+         {:ok, settled} <-
+           Custody.settle_cancellation(
+             claim.episode.id,
+             claim.episode.key,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             receipt
+           ) do
+      {:ok,
+       %{
+         episode: settled.episode,
+         remote_session_id: claim.session.coop_session_id,
+         remote_turn_id: nil,
+         status: cancellation_status(claim.turn.cancellation_intent),
+         turn: settled.turn
+       }}
+    end
+  end
+
+  defp session_gone?({:coop_error, 404, "session_not_found", _detail}), do: true
+
+  defp session_gone?(reason) when is_tuple(reason),
+    do: reason |> Tuple.to_list() |> Enum.any?(&session_gone?/1)
+
+  defp session_gone?(_reason), do: false
 
   # A run whose worker was removed from Ryker can never answer, so every
   # attempt to reach it failed the same way and was deferred without end: the
