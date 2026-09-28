@@ -19,7 +19,7 @@ defmodule Ryker.Slack.TaskCardDetails do
 
   @goal_states InvestigationPayload.goal_states()
   @stage_states ~w(pending running waiting completed failed stale skipped stopped unknown)
-  @stage_keys ~w(current detail stage state subtasks subtasks_total url your_turn)
+  @stage_keys ~w(current detail reason stage state subtasks subtasks_total url your_turn)
   @subtask_keys ~w(current detail id outcome state)
   @maximum_subtasks 6
   @maximum_section_characters 3_000
@@ -73,8 +73,13 @@ defmodule Ryker.Slack.TaskCardDetails do
         do: ["    Showing #{shown} of #{total} subtasks"],
         else: []
 
-    [stage_line(stage) | subtasks] ++ coverage
+    [stage_line(stage) | reason_line(stage["reason"])] ++ subtasks ++ coverage
   end
+
+  # Why a stage failed reads on its own line under it, not after a "·" where
+  # it blended into the row (Andrew, 2026-09-28).
+  defp reason_line(nil), do: []
+  defp reason_line(reason), do: ["    " <> display(reason, 500)]
 
   defp stage_line(stage) do
     text =
@@ -143,7 +148,8 @@ defmodule Ryker.Slack.TaskCardDetails do
   defp stage?(stage) when is_map(stage) do
     Enum.sort(Map.keys(stage)) == Enum.sort(@stage_keys) and stage["state"] in @stage_states and
       is_boolean(stage["current"]) and is_boolean(stage["your_turn"]) and
-      optional_text?(stage["detail"], 200) and url?(stage["url"]) and
+      optional_text?(stage["detail"], 200) and optional_text?(stage["reason"], 500) and
+      url?(stage["url"]) and
       subtasks?(stage["subtasks"], stage["subtasks_total"])
   end
 

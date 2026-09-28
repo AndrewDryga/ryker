@@ -129,6 +129,14 @@ The agent self-corrects and creates/updates an authorized draft PR without norma
 publication clicks. Human decisions, publication authority, merge and deployment remain distinct.
 Use exact host evidence for checks, revision and PR status; never fabricate historical subtask counts.
 
+A stage row carries short facts after “·” (a count, #617, “no checks set up”); why a stage failed
+is a sentence on its own indented line under the row, never another “·” clause (Andrew,
+2026-09-29: the reason "blends in too much"). The same situation reads the same everywhere: a
+repository with no checks is `−` on Self-review and checks exactly as on CI, never `!`. Why the
+checks did not verify a change is said once, on the Self-review row; the publication line only
+offers the choice it leaves. A newer change for an open draft waits on the Draft PR row with its
+number, link and “← 🙋 your turn”, and its button is Update draft PR, never Create draft PR.
+
 Progress is never folded (Block Kit `expand`); the request is shown whole and may fold behind
 Slack's own "Show more" (Andrew, 2026-09-28). A pull request that cannot be made is said once, on
 the publication line directly above its buttons: "⚠️ PR creation failed: <cause in the host's

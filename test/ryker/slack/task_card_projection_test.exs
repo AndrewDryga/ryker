@@ -555,19 +555,29 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     task = opened.document["task_card"]
 
     assert stage(opened, "self_review")["state"] == "failed"
-    assert stage(opened, "self_review")["detail"] == "docker: command not found"
+
+    assert stage(opened, "self_review")["reason"] ==
+             "The repository's checks couldn't start: docker: command not found."
 
     # The pull request exists and stays reachable; only the check is missing.
     assert stage(opened, "draft_pr")["state"] == "completed"
     assert stage(opened, "draft_pr")["url"] == "https://github.com/acme/ryker/pull/91"
     assert task["publication"]["controls"] == ["open", "check"]
-    assert task["publication"]["unverified"] == "docker: command not found"
+
+    assert task["publication"]["unverified"] ==
+             "The repository's checks couldn't start: docker: command not found."
+
     refute "publish" in task["publication"]["controls"]
 
     assert {:ok, rendered} = Renderer.render(opened.document)
     json = Jason.encode!(rendered)
-    assert json =~ "! Self-review and checks · docker: command not found"
-    assert json =~ "the checks still haven't finished (docker: command not found)"
+
+    assert json =~
+             "*! Self-review and checks*\\n    The repository's checks couldn't start: docker: command not found."
+
+    assert json =~ "Draft PR created from the saved change. It isn't verified"
+    assert length(String.split(json, "command not found")) == 2
+
     assert json =~ "Open PR"
     refute json =~ "Create draft PR"
 

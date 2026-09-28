@@ -123,11 +123,23 @@ defmodule Ryker.Publication.Review do
       "shareable" => false
     }
 
+  @doc """
+  Whether the repository has no checks to run at all.
+
+  Nothing failed and nothing is missing that the change could fix, the same
+  as a pull request whose CI has no checks: the task card marks both skipped.
+  """
+  @spec no_checks?(term()) :: boolean()
+  def no_checks?(%{"gate" => "none"} = document),
+    do: not (is_binary(document["gate_error"]) and document["gate_error"] != "")
+
+  def no_checks?(_document), do: false
+
   @spec draft_shareable?(term()) :: boolean()
   def draft_shareable?(document), do: draft_verdict(document)["shareable"]
 
   @doc """
-  How the trusted gate failed, in the operator's words, or `nil` when it did not.
+  How the repository's checks failed, as a sentence, or `nil` when they did not.
 
   A gate that ran and failed is deliberately not an incomplete check: it has a
   result, and `incomplete_checks/1` answers why a required check has none. Both
@@ -135,14 +147,15 @@ defmodule Ryker.Publication.Review do
   this is the other half, named apart rather than folded in.
   """
   @spec gate_failure(term()) :: String.t() | nil
-  def gate_failure(%{"gate" => "failed"} = document) do
-    case document["gate_error"] do
-      error when is_binary(error) -> presence(String.trim(error)) || gate_reason("failed")
-      _absent -> gate_reason("failed")
-    end
-  end
+  def gate_failure(%{"gate" => "failed"} = document),
+    do: with_gate_error(gate_reason("failed"), document["gate_error"])
 
   def gate_failure(_document), do: nil
+
+  @doc "Whether the repository's checks said anything about why they stopped."
+  @spec gate_error?(term()) :: boolean()
+  def gate_error?(%{"gate_error" => error}) when is_binary(error), do: String.trim(error) != ""
+  def gate_error?(_document), do: false
 
   @doc """
   Why the trusted review refused a candidate, one clause per cause, each
@@ -302,9 +315,9 @@ defmodule Ryker.Publication.Review do
   defp unexplained_reason(_document, []),
     do: "The trusted review refused this candidate without a reason the host can read."
 
-  defp gate_reason("failed"), do: "The trusted gate failed."
+  defp gate_reason("failed"), do: "The repository's checks failed."
   defp gate_reason(gate) when gate in ~w(passed startup_error not_run none), do: nil
-  defp gate_reason(_gate), do: "The trusted gate result is unknown."
+  defp gate_reason(_gate), do: "The repository's checks have no known result."
 
   defp rebase_reason("clean"), do: nil
   defp rebase_reason(_rebase), do: "The change no longer applies to the current base."
@@ -331,21 +344,30 @@ defmodule Ryker.Publication.Review do
   defp incomplete_checks(%{"gate" => "passed"}), do: []
 
   defp incomplete_checks(%{"gate" => gate} = document)
-       when gate in ~w(startup_error not_run none) do
-    case document["gate_error"] do
-      error when is_binary(error) and error != "" -> [error]
-      _absent -> incomplete_check_label(gate)
-    end
-  end
+       when gate in ~w(startup_error not_run none),
+       do: [with_gate_error(incomplete_check_label(gate), document["gate_error"])]
 
   defp incomplete_checks(_document), do: []
 
-  defp incomplete_check_label("startup_error"), do: ["The trusted gate could not start."]
-  defp incomplete_check_label("not_run"), do: ["The trusted gate did not run."]
-  defp incomplete_check_label("none"), do: ["This workspace has no trusted gate configured."]
+  # In the words the refusals above use for the same checks.
+  defp incomplete_check_label("startup_error"), do: "The repository's checks couldn't start."
+  defp incomplete_check_label("not_run"), do: "The repository's checks didn't run."
+  defp incomplete_check_label("none"), do: "No checks are set up for the repository."
 
-  defp presence(""), do: nil
-  defp presence(value), do: value
+  # The gate's own error is a fragment ("docker: command not found"), so it
+  # follows the sentence that says which checks it belongs to: every surface
+  # can then print it as a sentence instead of in brackets.
+  defp with_gate_error(sentence, error) when is_binary(error) do
+    case String.trim(error) do
+      "" -> sentence
+      error -> String.trim_trailing(sentence, ".") <> ": " <> full_stop(error)
+    end
+  end
+
+  defp with_gate_error(sentence, _error), do: sentence
+
+  defp full_stop(text),
+    do: if(String.ends_with?(text, [".", "!", "?"]), do: text, else: text <> ".")
 
   defp fields(document) do
     keys = Map.keys(document)
