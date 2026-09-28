@@ -31,6 +31,7 @@ defmodule Ryker.Ingress.Inbox do
   alias Ryker.InspectionRedactor
   alias Ryker.Learning.Observations
   alias Ryker.Memories
+  alias Ryker.Memories.Cases
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.Transcription
@@ -698,24 +699,31 @@ defmodule Ryker.Ingress.Inbox do
          :ok <- attach_artifacts(input, receipt),
          :ok <- revoke_answer_memory(receipt),
          :ok <- receive_observation(receipt),
-         :ok <- forget_routing_examples(receipt),
+         :ok <- take_back(receipt),
          :ok <- Projections.observe(input, ref(receipt.entry)) do
       {:ok, receipt}
     end
   end
 
-  # Somebody deleting their message, or replacing its words by editing it,
-  # takes those words back: the routing examples kept for training that quote
-  # it are erased as the change is recorded. That takes the lock every
-  # forgetting takes (`Ryker.RoutingExamples`), so it comes after the
-  # message's note is written: forgetting what was learned from a message
-  # holds its note and then takes that lock, and the other order deadlocked
-  # with it.
-  defp forget_routing_examples(%{status: :recorded, entry: %Entry{event_kind: kind} = entry})
-       when kind in [:edit, :delete],
-       do: RoutingExamples.forget_revised_in_transaction(entry)
+  # Somebody deleting their message, or editing it to say something else,
+  # takes its words back as the change is recorded
+  # (`Ryker.RoutingExamples.takes_back_words?/1`): the routing examples kept
+  # for training that quote it are erased, and the cases built from it
+  # withdrawn (`Ryker.Memories.Cases`). Erasing takes the lock every
+  # forgetting takes, so it comes after the message's note is written:
+  # forgetting what was learned from a message holds its note and then takes
+  # that lock, and the other order deadlocked with it.
+  defp take_back(%{status: :recorded, entry: %Entry{event_kind: kind} = entry})
+       when kind in [:edit, :delete] do
+    if RoutingExamples.takes_back_words?(entry) do
+      :ok = RoutingExamples.forget_message_in_transaction(entry)
+      Cases.withdraw_message_in_transaction(entry.native_input_id)
+    else
+      :ok
+    end
+  end
 
-  defp forget_routing_examples(_receipt), do: :ok
+  defp take_back(_receipt), do: :ok
 
   defp revoke_answer_memory(%{status: :recorded, entry: entry}),
     do: Memories.revoke_answer_source_in_transaction(entry)

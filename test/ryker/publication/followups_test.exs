@@ -24,6 +24,7 @@ defmodule Ryker.Publication.FollowupsTest do
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.Memories.{CaseRecord, Cases}
 
   alias Ryker.Work.Cancellation
   alias Ryker.Work.Custody, as: WorkCustody
@@ -472,6 +473,59 @@ defmodule Ryker.Publication.FollowupsTest do
              {:error, :publication_review_feedback_ambiguous}
 
     assert Repo.aggregate(LifecycleEvent, :count) == 0
+  end
+
+  # A reviewer's comment on Ryker's pull request joins the task it reviews, and
+  # the case kept of that task quotes it. Deleting or editing the comment on
+  # GitHub reaches Ryker as review feedback, never as a message routing reads,
+  # so it has to withdraw the case as it arrives, as a person's message does
+  # (found in review, 2026-09-28).
+  for {kind, revised} <- [edit: "edited", delete: "deleted"] do
+    test "a review comment #{revised} on GitHub withdraws the case of the task it reviews" do
+      %{episode: episode} =
+        PublicationFixture.published!("review-case-#{unquote(kind)}",
+          github_repository: "octo/feedback-equivalence",
+          pull_request_number: 74
+        )
+
+      comment = %{feedback_input("review-case-#{unquote(kind)}") | event_kind: :message}
+
+      assert {:ok, %{event: event, status: :recorded}} =
+               Followups.observe_github_feedback(comment)
+
+      assert {:ok, claim} = Followups.claim_delivery("publication-followup:review-case", 60)
+      assert claim.event.id == event.id
+
+      assert {:ok, %{wakeup_state: :admitted}} =
+               Followups.admit_wakeup(event.ref, claim.lease_ref)
+
+      revision = %{
+        comment
+        | event_kind: unquote(kind),
+          event_ref: comment.event_ref <> ":#{unquote(revised)}",
+          revision: 2
+      }
+
+      assert {:ok, %{status: :recorded}} = Followups.observe_github_feedback(revision)
+
+      # The task finishes, and retention keeps its case.
+      current = Repo.get!(Episodes.Episode, episode.id)
+
+      assert {:ok, %{episode: %{state: :complete}}} =
+               Episodes.apply(%Command.AcceptResult{
+                 decision_reason: "The review was addressed.",
+                 delivery: :none,
+                 delivery_ref: nil,
+                 episode_key: current.key,
+                 expected_turn_ref: current.owner_ref,
+                 next_turn_ref: nil,
+                 occurred_at: DateTime.add(@now, 600, :second),
+                 result_ref: "result:review-case:#{unquote(kind)}"
+               })
+
+      assert {:ok, %CaseRecord{status: :deleted, problem: "(deleted)", search_text: ""}} =
+               Cases.capture(episode.id)
+    end
   end
 
   test "authorized GitHub bot edits retain their actor and edit semantics on continuation" do

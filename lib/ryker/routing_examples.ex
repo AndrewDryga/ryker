@@ -697,22 +697,26 @@ defmodule Ryker.RoutingExamples do
     do: erase_in_transaction([], Enum.map(ids, &knowledge_key/1))
 
   @doc """
-  Erases the examples that quote a message somebody deleted, or whose words
-  somebody replaced by editing it, inside the transaction that records the
-  deletion or the edit (`entry` is that revision). An edit that left the
-  words as they were erases nothing.
+  Whether recording `entry` takes back what its message said: a deletion
+  does, and an edit does when its text differs from the revision before it.
+  An edit that leaves the text as it was, as Slack reports a link's preview
+  arriving, takes nothing back.
   """
-  @spec forget_revised_in_transaction(Entry.t()) :: :ok
-  def forget_revised_in_transaction(%Entry{event_kind: :delete} = entry),
-    do: forget_message_in_transaction(entry)
+  @spec takes_back_words?(Entry.t()) :: boolean()
+  def takes_back_words?(%Entry{event_kind: :delete}), do: true
 
-  def forget_revised_in_transaction(%Entry{event_kind: :edit} = entry) do
-    if edited_messages([own_message(entry)]) == [],
-      do: :ok,
-      else: forget_message_in_transaction(entry)
-  end
+  def takes_back_words?(%Entry{event_kind: :edit} = entry),
+    do: edited_messages([own_message(entry)]) != []
 
-  defp forget_message_in_transaction(entry) do
+  def takes_back_words?(%Entry{}), do: false
+
+  @doc """
+  Erases the examples that quote a message somebody took back
+  (`takes_back_words?/1`), inside the transaction that records it (`entry`
+  is that revision).
+  """
+  @spec forget_message_in_transaction(Entry.t()) :: :ok
+  def forget_message_in_transaction(%Entry{} = entry) do
     {conversation, message} = own_message(entry)
 
     erase_in_transaction(
