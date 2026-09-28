@@ -1637,7 +1637,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              pages: 1
            }
 
-    assert map_size(Projection.callbacks()) == 44
+    assert map_size(Projection.callbacks()) == 45
     # One repository's row, for the questions its Remove and Refresh knowledge ask.
     assert is_function(Projection.callbacks().repository, 1)
     # The requests to improve and the eval cases accepted from them, for
@@ -2237,6 +2237,46 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     # row in the list exactly; part of a ref finds nothing.
     assert RepositoryProjection.fetch("ryker") == {:ok, repository}
     assert RepositoryProjection.fetch("ryk") == :error
+
+    # Its page adds the model runs that wrote its knowledge, newest first,
+    # each with the exact prompt and answer it kept.
+    Repo.insert!(%Ryker.RepositoryKnowledge.Entry{repository_ref: "ryker"})
+    {:ok, row} = RepositoryProjection.fetch("ryker")
+
+    for {generation, status, at} <- [
+          {1, :rejected, ~U[2026-08-27 10:00:00.000000Z]},
+          {2, :applied, ~U[2026-08-28 10:00:00.000000Z]}
+        ] do
+      Repo.insert!(%Ryker.RepositoryKnowledge.Run{
+        id: Ecto.UUID.generate(),
+        repository_ref: "ryker",
+        generation: generation,
+        status: status,
+        source_commit: String.duplicate("a", 40),
+        policy: "ryker-learning",
+        policy_digest: String.duplicate("b", 64),
+        transport: "github",
+        conversation_ref: "github:acme/ryker",
+        prompt: ~s({"instructions":"Write it.","context":{"generation":#{generation}}}),
+        prompt_sha256: String.duplicate("c", 64),
+        output_schema: %{"type" => "object"},
+        manifest: %{},
+        result: ~s({"purpose":"Ryker."}),
+        document: if(status == :applied, do: "# ryker\n\nRyker.\n"),
+        started_at: at,
+        inserted_at: at,
+        updated_at: at
+      })
+    end
+
+    assert {:ok, %{knowledge_runs: [newest, oldest]} = detail} =
+             RepositoryProjection.detail("ryker")
+
+    assert Map.delete(detail, :knowledge_runs) == row
+    assert {newest.status, oldest.status} == {:applied, :rejected}
+    assert newest.prompt == ~s({"instructions":"Write it.","context":{"generation":2}})
+    assert newest.result == ~s({"purpose":"Ryker."})
+    assert RepositoryProjection.detail("ryk") == :error
 
     assert {:ok, episode_detail} = EpisodeProjection.fetch(source.episode.key)
     # Completion/retry state used to rewrite cards at their original creation time.

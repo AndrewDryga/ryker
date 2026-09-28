@@ -338,7 +338,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   test "the route opens a repository's page under its name, and one not added is not found" do
     options = %{
       projection: %{
-        repository: fn
+        repository_detail: fn
           "acme-checkout-api" -> {:ok, @repository}
           _other -> :error
         end
@@ -352,6 +352,79 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert IO.iodata_to_binary(page.body) =~ ~s(id="remove-repository")
 
     assert Pages.page(["repositories", "gone"], %{}, options).status == 404
+  end
+
+  # Andrew, 2026-09-28: every model call shows the exact prompt it was sent,
+  # as routing, work and learning do on the Timeline. The runs that write a
+  # repository's knowledge were shown nowhere.
+  test "a repository's page shows each knowledge run with the exact prompt and answer" do
+    prompt =
+      ~s({"instructions":"Write the repository knowledge.","context":{"repository":{"name":"acme/checkout-api"}}})
+
+    answer = ~s({"purpose":"The checkout service."})
+
+    runs = [
+      %{
+        id: "run-2",
+        at: @now,
+        status: :applied,
+        commit: "0123456789abcdef",
+        target: "codex:gpt-5.3/medium",
+        tokens: "12,000 in · 800 out",
+        cost: "≈ $0.021",
+        total_ms: 42_000,
+        error_code: nil,
+        dropped: 2,
+        prompt: prompt,
+        result: answer
+      },
+      %{
+        id: "run-1",
+        at: DateTime.add(@now, -86_400, :second),
+        status: :rejected,
+        commit: nil,
+        target: nil,
+        tokens: nil,
+        cost: nil,
+        total_ms: nil,
+        error_code: "repository_knowledge_result_invalid",
+        dropped: nil,
+        prompt: prompt,
+        result: ~s({"purpose":1})
+      }
+    ]
+
+    card =
+      @repository
+      |> Map.put(:knowledge_runs, runs)
+      |> detail()
+      |> LazyHTML.query("#repository-knowledge-runs")
+
+    lines = card |> LazyHTML.query(".knowledge-run-line") |> Enum.map(&squeeze(LazyHTML.text(&1)))
+    assert [written, refused] = lines
+    assert written =~ "Written"
+
+    assert written =~
+             "codex:gpt-5.3/medium · 12,000 in · 800 out · ≈ $0.021 · 42.0 s · commit 0123456"
+
+    assert refused =~ "Not used"
+
+    notes = card |> LazyHTML.query(".knowledge-run-note") |> Enum.map(&LazyHTML.text/1)
+
+    assert notes == [
+             "Ryker left out 2 paths or commands it could not find in the repository.",
+             "The answer did not match what Ryker asked for, so Ryker did not use it."
+           ]
+
+    assert card |> LazyHTML.query("#knowledge-run-run-2-prompt pre") |> LazyHTML.text() == prompt
+    assert card |> LazyHTML.query("#knowledge-run-run-2-answer pre") |> LazyHTML.text() == answer
+    refute squeeze(LazyHTML.text(card)) =~ "repository_knowledge_result_invalid"
+
+    assert @repository
+           |> Map.put(:knowledge_runs, [])
+           |> detail()
+           |> LazyHTML.query("#repository-knowledge-runs")
+           |> Enum.count() == 0
   end
 
   test "an empty list says how to add one, and a search miss says so" do

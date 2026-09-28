@@ -77,6 +77,7 @@ defmodule Ryker.ControlPlane.Projection do
       readiness: &ProductReadiness.current/0,
       repositories: &RepositoryProjection.list/1,
       repository: &RepositoryProjection.fetch/1,
+      repository_detail: &RepositoryProjection.detail/1,
       routing_examples: &Export.reduce/2,
       schedule: &ScheduleProjection.fetch/1,
       schedules: &ScheduleProjection.list/1,
