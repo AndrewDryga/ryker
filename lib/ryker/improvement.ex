@@ -40,7 +40,7 @@ defmodule Ryker.Improvement do
   (`subscribe_improvement/0`). A candidate names its request without a
   foreign key, like a routing example: it expires on its own window
   (`Ryker.Retention.Data`), and a person forgetting a message, a topic or a
-  channel it quotes erases what it holds (`forget_in_transaction/2`).
+  channel it quotes erases what it holds (`forget_in_transaction/1`).
   """
 
   import Ecto.Query
@@ -184,15 +184,6 @@ defmodule Ryker.Improvement do
       )
 
     broadcast_improvement_updated(id)
-  end
-
-  @doc "One candidate by id, or nil."
-  @spec fetch(term()) :: Candidate.t() | nil
-  def fetch(id) do
-    case Ecto.UUID.cast(id) do
-      {:ok, id} -> Repo.get(Candidate, id)
-      :error -> nil
-    end
   end
 
   @doc "The candidate about a request, or nil."

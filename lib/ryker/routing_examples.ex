@@ -678,11 +678,4 @@ defmodule Ryker.RoutingExamples do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [@lock])
     :ok
   end
-
-  # -- Reading ---------------------------------------------------------------------
-
-  @doc "How many examples are kept for training now, forgotten ones aside."
-  @spec count() :: non_neg_integer()
-  def count,
-    do: Repo.aggregate(from(example in Example, where: is_nil(example.forgotten_at)), :count)
 end
