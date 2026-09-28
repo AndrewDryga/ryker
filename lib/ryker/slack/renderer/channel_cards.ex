@@ -233,9 +233,17 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
       {"Alerts", alert_summary(settings)},
       {"Environment", environment_fact(settings)},
       {"Repositories", repositories_fact(settings)},
-      {"Incident invitations", {:markup, String.capitalize(audience_phrase(settings))}},
+      {"Incident invitations", {:markup, invitations_fact(settings)}},
       {"Observation mode", observation_fact(settings)}
     ]
+  end
+
+  # A fact starts with a capital letter. String.capitalize also lowercased every
+  # invitee's Slack id, which Slack then could not resolve, so only the first
+  # letter changes: a mention starts with "<" and is left exactly as it is.
+  defp invitations_fact(settings) do
+    <<first::utf8, rest::binary>> = audience_phrase(settings)
+    String.upcase(<<first::utf8>>) <> rest
   end
 
   defp participation_summary(%{"observation" => %{"on" => true}}), do: "Observe without replying"
