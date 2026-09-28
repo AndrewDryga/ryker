@@ -37,10 +37,6 @@ defmodule Ryker.LocalRouting.Verdict do
           invalid_reason: String.t() | nil
         }
 
-  @doc "The decision fields that decide what Ryker does next, in the order a difference is named."
-  @spec compared_fields() :: [String.t()]
-  def compared_fields, do: @compared
-
   @spec judge(String.t() | nil, String.t() | nil, Context.t(), map()) :: t()
   def judge(content, finish_reason, %Context{} = context, provider) when is_map(provider) do
     with {:ok, document} <- decode(content, finish_reason),
