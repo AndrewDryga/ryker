@@ -586,7 +586,13 @@ defmodule Ryker.Slack.ChannelConfigurations do
     end
   end
 
+  # Deleting a channel erases what memory kept of it, under the memory review
+  # lock. Every memory write takes that lock before a channel's lock, the
+  # recording of a message's edit or deletion among them, so a deletion takes
+  # it first too: after the channel's lock, it deadlocked with an edit
+  # recorded in the channel.
   defp observe_membership_locked(attributes, catalog) do
+    if attributes.kind == :deleted, do: :ok = Memories.lock_reviews_in_transaction()
     lock_channel!(attributes.workspace_ref, attributes.channel_ref)
     broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
     fingerprint = membership_fingerprint(attributes)
