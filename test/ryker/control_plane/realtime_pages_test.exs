@@ -229,7 +229,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
         })
       )
 
-    {:ok, page, _html} = open("/memory/feedback")
+    {:ok, page, _html} = open("/feedback")
     assert has_element?(page, ".kit-empty-title", "No feedback yet")
     {:ok, timeline, _html} = open("/timeline/" <> URI.encode_www_form(episode.key))
     refute has_element?(timeline, "#feedback")
@@ -277,7 +277,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
         })
       )
 
-    {:ok, page, _html} = open("/memory/feedback/fix")
+    {:ok, page, _html} = open("/feedback/fix")
     assert has_element?(page, ".kit-empty-title", "Nothing to decide")
 
     assert {:ok, %{status: :recorded}} =

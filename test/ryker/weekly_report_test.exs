@@ -62,11 +62,11 @@ defmodule Ryker.WeeklyReportTest do
 
            **Feedback**
            None.
-           Open [Feedback](http://ryker.test/memory/feedback).
+           Open [Feedback](http://ryker.test/feedback).
 
            **What to fix**
            None.
-           Open [What to fix](http://ryker.test/memory/feedback/fix).
+           Open [What to fix](http://ryker.test/feedback/fix).
 
            **Corrections**
            None.
@@ -192,7 +192,7 @@ defmodule Ryker.WeeklyReportTest do
              "- A request in a private conversation · [Timeline](#{@base}#{timeline(closed_key)})",
              "- “Is the staging database healthy?” in #{Names.destination(public)} · " <>
                "[Timeline](#{@base}#{timeline(open_key)})",
-             "Open [Feedback](http://ryker.test/memory/feedback)."
+             "Open [Feedback](http://ryker.test/feedback)."
            ]
   end
 
@@ -253,7 +253,7 @@ defmodule Ryker.WeeklyReportTest do
              "5 new: 1 host bug, 1 prompt bug, 1 model mistake, 1 not a problem and 1 still to analyze. " <>
                "1 accepted as an eval case and 1 dismissed.",
              "Newest sure diagnosis: “Ryker asked for access it had: no Emisar tool reached the Work turn.”",
-             "Open [What to fix](http://ryker.test/memory/feedback/fix)."
+             "Open [What to fix](http://ryker.test/feedback/fix)."
            ]
 
     # The newest sure diagnosis from a private channel is not quoted at all.

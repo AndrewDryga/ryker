@@ -322,7 +322,7 @@ defmodule Ryker.ControlPlane.Pages do
 
   # What people said about Ryker's answers; one category is a sub-page with
   # its own heading and the way back to all feedback.
-  def page(["memory", "feedback"], params, options) do
+  def page(["feedback"], params, options) do
     view = options.projection.feedback.(Map.take(params, FeedbackProjection.query_keys()))
     body = FeedbackPage.html(view)
 
@@ -334,7 +334,7 @@ defmodule Ryker.ControlPlane.Pages do
 
   # Requests people were unhappy with, with Ryker's own diagnosis: a
   # sub-page of Feedback with the way back to it.
-  def page(["memory", "feedback", "fix"], params, options) do
+  def page(["feedback", "fix"], params, options) do
     view = options.projection.improvement.(Map.take(params, ImprovementProjection.query_keys()))
     view |> ImprovementPage.heading() |> sub_page(ImprovementPage.html(view))
   end
@@ -382,10 +382,8 @@ defmodule Ryker.ControlPlane.Pages do
   def subscriptions(["memory", "learned"], _params), do: LearnedPage.subscriptions()
   def subscriptions(["memory", "learning"], _params), do: LearningPage.subscriptions()
   def subscriptions(["memory", "findings"], _params), do: FindingsPage.subscriptions()
-  def subscriptions(["memory", "feedback"], _params), do: FeedbackPage.subscriptions()
-
-  def subscriptions(["memory", "feedback", "fix"], _params),
-    do: ImprovementPage.subscriptions()
+  def subscriptions(["feedback"], _params), do: FeedbackPage.subscriptions()
+  def subscriptions(["feedback", "fix"], _params), do: ImprovementPage.subscriptions()
 
   def subscriptions(["rules"], _params), do: BehaviorPage.subscriptions(:rules)
   def subscriptions(["usage"], _params), do: UsagePage.subscriptions()

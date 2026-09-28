@@ -30,11 +30,12 @@ defmodule Ryker.ControlPlane.WebRouter do
       live("/#{path}", Ryker.ControlPlane.WorkbenchLive)
     end
 
-    for page <- ~w(learned findings learning feedback) do
+    for page <- ~w(learned findings learning) do
       live("/memory/#{page}", Ryker.ControlPlane.WorkbenchLive)
     end
 
-    live("/memory/feedback/fix", Ryker.ControlPlane.WorkbenchLive)
+    live("/feedback", Ryker.ControlPlane.WorkbenchLive)
+    live("/feedback/fix", Ryker.ControlPlane.WorkbenchLive)
 
     for page <- ~w(slack github emisar webhooks) do
       live("/integrations/#{page}", Ryker.ControlPlane.WorkbenchLive)

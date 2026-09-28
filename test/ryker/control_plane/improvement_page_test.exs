@@ -62,10 +62,10 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
 
   test "lists each request with its diagnosis, surest first within a day, each opening its Timeline",
        %{staging: staging, access: access, waiting: waiting} do
-    page = Pages.page(["memory", "feedback", "fix"], %{}, options())
+    page = Pages.page(["feedback", "fix"], %{}, options())
 
     assert {page.status, page.title, page.back} ==
-             {200, "What to fix", {"All feedback", "/memory/feedback"}}
+             {200, "What to fix", {"All feedback", "/feedback"}}
 
     # Nothing is accepted yet, so there is nothing to download.
     refute Map.has_key?(page, :action)
@@ -74,8 +74,8 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
 
     assert counts(document) == [
              {"3 to decide", nil},
-             {"1 host bug", "/memory/feedback/fix?category=host_bug&status=open"},
-             {"1 prompt bug", "/memory/feedback/fix?category=prompt_bug&status=open"}
+             {"1 host bug", "/feedback/fix?category=host_bug&status=open"},
+             {"1 prompt bug", "/feedback/fix?category=prompt_bug&status=open"}
            ]
 
     assert document |> LazyHTML.query(".segmented a") |> Enum.map(&text/1) ==
@@ -118,21 +118,21 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
 
     accepted = confirm("/actions/improvement/#{access.id}/accept")
     assert accepted.status == 303
-    assert Plug.Conn.get_resp_header(accepted, "location") == ["/memory/feedback/fix"]
+    assert Plug.Conn.get_resp_header(accepted, "location") == ["/feedback/fix"]
     assert confirm("/actions/improvement/#{staging.id}/dismiss").status == 303
 
-    open = Pages.page(["memory", "feedback", "fix"], %{}, options())
+    open = Pages.page(["feedback", "fix"], %{}, options())
     assert ids(LazyHTML.from_fragment(open.body)) == [waiting.id]
 
     # Accepted cases download from the button opposite the title.
-    assert open.action =~ ~s(href="/memory/feedback/fix/eval-cases.zip")
+    assert open.action =~ ~s(href="/feedback/fix/eval-cases.zip")
 
-    decided = Pages.page(["memory", "feedback", "fix"], %{"status" => "accepted"}, options())
+    decided = Pages.page(["feedback", "fix"], %{"status" => "accepted"}, options())
     document = LazyHTML.from_fragment(decided.body)
     assert ids(document) == [access.id]
     assert actions(row(document, access.id)) == ["Dismiss"]
 
-    dismissed = Pages.page(["memory", "feedback", "fix"], %{"status" => "dismissed"}, options())
+    dismissed = Pages.page(["feedback", "fix"], %{"status" => "dismissed"}, options())
     document = LazyHTML.from_fragment(dismissed.body)
     assert ids(document) == [staging.id]
     assert actions(row(document, staging.id)) == ["Accept as eval case"]
@@ -143,7 +143,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
 
     # The download holds the accepted case.
     download =
-      Plug.Test.conn(:get, "/memory/feedback/fix/eval-cases.zip")
+      Plug.Test.conn(:get, "/feedback/fix/eval-cases.zip")
       |> Map.put(:host, "localhost")
       |> Router.call(router())
 
@@ -171,7 +171,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
       )
 
       document =
-        Pages.page(["memory", "feedback", "fix"], %{}, options())
+        Pages.page(["feedback", "fix"], %{}, options())
         |> Map.fetch!(:body)
         |> LazyHTML.from_fragment()
 
@@ -222,7 +222,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     )
 
     document =
-      Pages.page(["memory", "feedback", "fix"], %{}, options())
+      Pages.page(["feedback", "fix"], %{}, options())
       |> Map.fetch!(:body)
       |> LazyHTML.from_fragment()
 
@@ -250,7 +250,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     assert {:ok, _accepted} = Improvement.accept(access.id, "control-plane:local")
     assert {:ok, _dismissed} = Improvement.dismiss(staging.id, "control-plane:local")
 
-    assert week(Pages.page(["memory", "feedback", "fix"], %{}, options())) ==
+    assert week(Pages.page(["feedback", "fix"], %{}, options())) ==
              "Last 7 days 3 new: 1 host bug, 1 prompt bug and 1 still to analyze. 1 accepted as an eval case and 1 dismissed."
 
     # A quiet week says so, rather than leaving the line out.
@@ -260,7 +260,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
       set: [decided_at: eight_days_ago]
     )
 
-    assert week(Pages.page(["memory", "feedback", "fix"], %{"status" => "accepted"}, options())) ==
+    assert week(Pages.page(["feedback", "fix"], %{"status" => "accepted"}, options())) ==
              "Last 7 days Nothing new, and nothing accepted or dismissed."
   end
 
@@ -269,7 +269,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     assert {:ok, _accepted} = Improvement.accept(access.id, "control-plane:local")
 
     document =
-      Pages.page(["memory", "feedback"], %{}, options())
+      Pages.page(["feedback"], %{}, options())
       |> Map.fetch!(:body)
       |> LazyHTML.from_fragment()
 
@@ -277,9 +277,9 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     assert text(LazyHTML.query(fix, ".section-head h2")) == "What to fix"
 
     assert fix |> LazyHTML.query(".kit-count") |> Enum.map(&{text(&1), href(&1)}) == [
-             {"2 to decide", "/memory/feedback/fix"},
-             {"1 accepted", "/memory/feedback/fix?status=accepted"},
-             {"1 prompt bug", "/memory/feedback/fix?category=prompt_bug&status=open"}
+             {"2 to decide", "/feedback/fix"},
+             {"1 accepted", "/feedback/fix?status=accepted"},
+             {"1 prompt bug", "/feedback/fix?category=prompt_bug&status=open"}
            ]
   end
 

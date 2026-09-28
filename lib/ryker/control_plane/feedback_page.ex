@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.FeedbackPage do
   @moduledoc """
-  Feedback (`/memory/feedback`): what people told Ryker about its answers,
-  by category, frustrated first, and over time (`Ryker.Feedback`,
+  Feedback (`/feedback`): what people told Ryker about its answers, by
+  category, frustrated first, and over time (`Ryker.Feedback`,
   `Ryker.ControlPlane.FeedbackProjection`).
 
   Andrew, 2026-09-27: "let users see feedback by category in UI, do
@@ -10,9 +10,13 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   kind there is, then a table of the latest days, then the newest few of
   each kind, frustrated first, each opening the request's Timeline where it
   happened. One kind is a page of its own, every signal newest first under
-  day headings. It is a page of the Memory group: what people said about
-  the answers is what the learning and self-improvement loops read, and it
-  is history, not live work.
+  day headings.
+
+  Andrew, 2026-09-28: Feedback "should be own section not in memory and
+  needs toggle-buttons to see positive/negative feedbacks", and By day
+  "should be a graph like in usage and above table". It has its own place in
+  the sidebar; All, Negative and Positive narrow the whole page; By day is a
+  chart (`Ryker.ControlPlane.FeedbackChart`) over its table.
 
   Everything here is a Kit part. The words each signal reads in (`state/1`,
   `text/1`, `icon/1`) are shared with the request's Feedback chapter on its
@@ -23,11 +27,20 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1]
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Emoji, FeedbackProjection, ImprovementPage, Kit, ShortTime}
+
+  alias Ryker.ControlPlane.{
+    Emoji,
+    FeedbackChart,
+    FeedbackProjection,
+    ImprovementPage,
+    Kit,
+    ShortTime
+  }
+
   alias Ryker.Improvement
   alias Ryker.Improvement.Candidate
 
-  @path "/memory/feedback"
+  @path "/feedback"
 
   @doc """
   The topics an open Feedback page listens to, as the context functions that
@@ -76,7 +89,7 @@ defmodule Ryker.ControlPlane.FeedbackPage do
     ~H"""
     <div class="memory-view memory-feedback">
       <Kit.counts label="Feedback" items={counts(@view)} />
-      <Kit.toolbar :if={@view.total > 0 or @view.q != ""}>
+      <Kit.toolbar :if={@view.total > 0 or @view.q != "" or @view.tone}>
         <.filter_toolbar
           id="feedback-search"
           path={@path}
@@ -85,6 +98,13 @@ defmodule Ryker.ControlPlane.FeedbackPage do
           placeholder="Search feedback"
           query={@view.q}
           filtered={@view.q != ""}
+          clear={if @view.tone, do: tone_path(@view.tone, "")}
+        />
+        <Kit.segmented
+          :if={is_nil(@view.category)}
+          label="Which feedback"
+          options={tones(@view)}
+          patch
         />
       </Kit.toolbar>
       <%= if @view.category do %>
@@ -106,14 +126,20 @@ defmodule Ryker.ControlPlane.FeedbackPage do
     <Kit.empty
       :if={@view.total == 0 and @view.q != ""}
       icon={:search}
-      title={"No feedback matches “#{@view.q}”"}
-      text="Try other words, or clear the search to see all feedback."
+      title={"No #{tone_word(@view.tone)}feedback matches “#{@view.q}”"}
+      text="Try other words, or clear the search to see all of it."
     />
     <Kit.empty
-      :if={@view.total == 0 and @view.q == ""}
+      :if={@view.total == 0 and @view.q == "" and is_nil(@view.tone)}
       icon={:chat}
       title="No feedback yet"
       text="When people react to Ryker's answers, ask the same thing again, change their message after an answer or say how an answer landed, it shows here."
+    />
+    <Kit.empty
+      :if={@view.total == 0 and @view.q == "" and not is_nil(@view.tone)}
+      icon={:chat}
+      title={"No #{tone_word(@view.tone)}feedback yet"}
+      text={tone_lede(@view.tone)}
     />
     <section
       :if={@view.q == "" and fix_total(Map.get(@view, :improvement)) > 0}
@@ -140,8 +166,9 @@ defmodule Ryker.ControlPlane.FeedbackPage do
       <Kit.section_head
         id="feedback-by-day"
         title="By day"
-        lede="How much of each kind came in on each of the latest days, newest first."
+        lede="How much came in on each of the latest days with any, and which way it went."
       />
+      <FeedbackChart.chart days={@view.days} />
       <Kit.table rows={@view.days} label="Feedback by day">
         <:col :let={day} label="Day">{Kit.day_label(day.day, @today)}</:col>
         <:col :let={day} :for={category <- @columns} label={label(category)} numeric>
@@ -424,9 +451,35 @@ defmodule Ryker.ControlPlane.FeedbackPage do
     Enum.filter(FeedbackProjection.categories(), &MapSet.member?(present, &1))
   end
 
-  # A search on one category's page stays on that page.
-  defp hidden(%{category: nil}), do: []
+  # A search stays on the category's page, or on Negative or Positive.
+  defp hidden(%{category: nil, tone: nil}), do: []
+  defp hidden(%{category: nil, tone: tone}), do: [{"tone", Atom.to_string(tone)}]
   defp hidden(%{category: category}), do: [{"category", Atom.to_string(category)}]
+
+  # All, Negative and Positive: which way the feedback the page lists went.
+  defp tones(view) do
+    for {label, tone} <- [{"All", nil}, {"Negative", :negative}, {"Positive", :positive}],
+        do: {label, tone_path(tone, view.q), view.tone == tone}
+  end
+
+  defp tone_path(tone, q) do
+    [{"tone", tone && Atom.to_string(tone)}, {"q", q}]
+    |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+    |> URI.encode_query()
+    |> case do
+      "" -> @path
+      query -> @path <> "?" <> query
+    end
+  end
+
+  defp tone_word(nil), do: ""
+  defp tone_word(:negative), do: "negative "
+  defp tone_word(:positive), do: "positive "
+
+  defp tone_lede(:negative),
+    do: "Frustrated people, questions asked again and messages changed after an answer show here."
+
+  defp tone_lede(:positive), do: "People who said or showed that an answer helped show here."
 
   defp category_path(category, ""), do: "#{@path}?category=#{category}"
 

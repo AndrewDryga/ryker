@@ -78,11 +78,11 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
     # one candidate, however many negative signals it got.
     assert counts(document) == [
              {"5 pieces of feedback", nil},
-             {"2 frustrated", "/memory/feedback?category=frustrated"},
-             {"1 asked again", "/memory/feedback?category=asked_again"},
-             {"1 satisfied", "/memory/feedback?category=satisfied"},
-             {"1 reviewed", "/memory/feedback?category=reviewed"},
-             {"1 to decide", "/memory/feedback/fix"}
+             {"2 frustrated", "/feedback?category=frustrated"},
+             {"1 asked again", "/feedback?category=asked_again"},
+             {"1 satisfied", "/feedback?category=satisfied"},
+             {"1 reviewed", "/feedback?category=reviewed"},
+             {"1 to decide", "/feedback/fix"}
            ]
 
     assert document |> LazyHTML.query(".section-head h2") |> Enum.map(&text/1) ==
@@ -123,10 +123,10 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
 
   test "one kind is a page of its own, newest first under day headings, with the way back",
        %{day: day} do
-    page = Pages.page(["memory", "feedback"], %{"category" => "frustrated"}, options())
+    page = Pages.page(["feedback"], %{"category" => "frustrated"}, options())
 
     assert {page.status, page.title, page.back} ==
-             {200, "Frustrated", {"All feedback", "/memory/feedback"}}
+             {200, "Frustrated", {"All feedback", "/feedback"}}
 
     assert page.description =~ "frustrated or angry"
     document = LazyHTML.from_fragment(page.body)
@@ -146,7 +146,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
     assert counts(page(%{"q" => "down for them"})) == [
              {"1 matching", nil},
              {"1 frustrated",
-              "/memory/feedback?" <>
+              "/feedback?" <>
                 URI.encode_query(%{"category" => "frustrated", "q" => "down for them"})}
            ]
 
@@ -154,6 +154,77 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
 
     empty = page(%{"q" => "nothing like this"})
     assert empty |> LazyHTML.query(".kit-empty-title") |> text() =~ "No feedback matches"
+  end
+
+  # Andrew, 2026-09-28: Feedback "needs toggle-buttons to see
+  # positive/negative feedbacks". Negative and Positive narrow everything on
+  # the page, the counts, By day and the lists, and a search keeps the choice.
+  test "Negative and Positive narrow the whole page to the feedback that went that way" do
+    negative = page(%{"tone" => "negative"})
+
+    assert counts(negative) == [
+             {"3 pieces of feedback", nil},
+             {"2 frustrated", "/feedback?category=frustrated"},
+             {"1 asked again", "/feedback?category=asked_again"},
+             {"1 to decide", "/feedback/fix"}
+           ]
+
+    assert negative |> LazyHTML.query(".section-head h2") |> Enum.map(&text/1) ==
+             ["What to fix", "By day", "Frustrated", "Asked again"]
+
+    assert negative |> LazyHTML.query("nav.segmented a") |> Enum.map(&text/1) ==
+             ["All", "Negative", "Positive"]
+
+    assert negative |> LazyHTML.query("nav.segmented a") |> LazyHTML.attribute("href") ==
+             ["/feedback", "/feedback?tone=negative", "/feedback?tone=positive"]
+
+    assert negative |> LazyHTML.query("nav.segmented a[aria-current=page]") |> text() ==
+             "Negative"
+
+    assert negative
+           |> LazyHTML.query("form.filter-toolbar input[type=hidden][name=tone]")
+           |> LazyHTML.attribute("value") == ["negative"]
+
+    # What to fix is about unhappy requests, so Positive leaves it out.
+    positive = page(%{"tone" => "positive"})
+
+    assert counts(positive) == [
+             {"1 piece of feedback", nil},
+             {"1 satisfied", "/feedback?category=satisfied"}
+           ]
+
+    assert positive |> LazyHTML.query(".section-head h2") |> Enum.map(&text/1) ==
+             ["By day", "Satisfied"]
+
+    assert page(%{"tone" => "positive", "q" => "checkout"})
+           |> LazyHTML.query(".kit-empty-title")
+           |> text() =~ "No positive feedback matches"
+  end
+
+  # Andrew, 2026-09-28: By day "should be a graph like in usage and above
+  # table". A bar a day, negative at its foot, then the table.
+  test "By day draws a bar a day, negative at its foot, above its table", %{day: _day} do
+    by_day = page(%{}) |> LazyHTML.query("section[aria-labelledby=feedback-by-day]")
+
+    assert by_day |> LazyHTML.query("figure.feedback-chart + .kit-table-wrap .kit-table") |> Enum.count() == 1
+
+    [bar] = by_day |> LazyHTML.query("g.feedback-chart-day") |> Enum.to_list()
+    date = Calendar.strftime(Date.utc_today(), "%d %b")
+    assert LazyHTML.attribute(bar, "aria-label") == ["#{date}: 3 negative, 1 neutral, 1 positive"]
+
+    rects = LazyHTML.query(bar, "rect")
+
+    assert rects |> LazyHTML.attribute("class") ==
+             [
+               "feedback-bar feedback-bar-negative",
+               "feedback-bar feedback-bar-neutral",
+               "feedback-bar feedback-bar-positive"
+             ]
+
+    [foot | _] = Enum.to_list(rects)
+    [y] = LazyHTML.attribute(foot, "y")
+    [height] = LazyHTML.attribute(foot, "height")
+    assert_in_delta String.to_float(y) + String.to_float(height), 190.0, 0.01
   end
 
   test "a request's Timeline has a Feedback chapter, and a message routing answered has its own",
@@ -188,7 +259,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
 
   test "an empty Feedback page says what would put something there" do
     document =
-      %{category: nil, counts: %{}, days: [], groups: [], q: "", total: 0}
+      %{category: nil, counts: %{}, days: [], groups: [], q: "", tone: nil, total: 0}
       |> FeedbackPage.html()
       |> IO.iodata_to_binary()
       |> LazyHTML.from_fragment()
@@ -200,7 +271,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
   end
 
   defp page(params) do
-    Pages.page(["memory", "feedback"], params, options())
+    Pages.page(["feedback"], params, options())
     |> Map.fetch!(:body)
     |> LazyHTML.from_fragment()
   end

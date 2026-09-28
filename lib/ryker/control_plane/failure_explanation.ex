@@ -102,7 +102,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   def request(%{execution_kind: :learning}), do: %{text: "Background learning"}
 
   def request(%{execution_kind: :improvement}),
-    do: %{text: "Self-analysis", href: "/memory/feedback/fix"}
+    do: %{text: "Self-analysis", href: "/feedback/fix"}
 
   def request(%{episode_ref: ref} = row) when is_binary(ref),
     do: %{text: Map.get(row, :request_title) || "Open the request", href: timeline(ref)}

@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.ImprovementProjection do
   @moduledoc """
-  Memory › Feedback › What to fix (`/memory/feedback/fix`) and the What to
+  Feedback › What to fix (`/feedback/fix`) and the What to
   fix counts on the Feedback page: requests people were unhappy with
   (`Ryker.Improvement`), each with Ryker's own diagnosis.
 

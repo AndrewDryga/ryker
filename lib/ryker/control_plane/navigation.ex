@@ -8,7 +8,10 @@ defmodule Ryker.ControlPlane.Navigation do
     {:activity, "Activity", "/"},
     {:incident, "Incident rooms", "/incident-rooms"},
     {:incident, "Failures", "/failures"},
-    {:usage, "Usage & cost", "/usage"}
+    {:usage, "Usage & cost", "/usage"},
+    # What people said about the answers: its own place since 2026-09-28,
+    # when Andrew asked for it out of Memory.
+    {:smile, "Feedback", "/feedback"}
   ]
   # The places people manage Ryker, each named for what it holds. A place with
   # several pages folds open in the sidebar; a single page is a plain link.
@@ -32,8 +35,7 @@ defmodule Ryker.ControlPlane.Navigation do
        {"Facts", "/memory"},
        {"Learned", "/memory/learned"},
        {"Findings", "/memory/findings"},
-       {"Learning", "/memory/learning"},
-       {"Feedback", "/memory/feedback"}
+       {"Learning", "/memory/learning"}
      ]}
   ]
   # At the bottom, apart from the everyday places: the services Ryker is

@@ -25,11 +25,23 @@ defmodule Ryker.ControlPlane.NavigationTest do
             {"/memory/learned", "Learned"},
             {"/memory/findings", "Findings"},
             {"/memory/learning", "Learning"},
-            {"/memory/feedback", "Feedback"}
+            {"/feedback", "Feedback"}
           ] do
         assert document |> LazyHTML.query("a[href='#{path}']") |> LazyHTML.text() =~ title
       end
     end
+  end
+
+  test "Feedback is a place of its own in the sidebar, not a page of Memory" do
+    # Andrew, 2026-09-28: "should be own section not in memory".
+    document =
+      render_component(&Navigation.sidebar/1, path: "/feedback/fix", live: true)
+      |> LazyHTML.from_fragment()
+
+    feedback = LazyHTML.query(document, "nav.primary-nav a[href='/feedback']")
+    assert feedback |> LazyHTML.text() |> String.trim() == "Feedback"
+    assert LazyHTML.attribute(feedback, "aria-current") == ["page"]
+    assert LazyHTML.query(document, "details#nav-book a[href='/feedback']") |> Enum.count() == 0
   end
 
   test "the Work group holds where Ryker works, environments first" do

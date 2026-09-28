@@ -1,8 +1,8 @@
 defmodule Mix.Tasks.Ryker.EvalCases do
   @moduledoc """
-  Writes every request accepted as an eval case on Memory › Feedback › What
-  to fix as a world scenario directory (`Ryker.Improvement.Export`), the same
-  files the page downloads.
+  Writes every request accepted as an eval case on Feedback › What to fix as
+  a world scenario directory (`Ryker.Improvement.Export`), the same files the
+  page downloads.
 
       MIX_ENV=prod mix ryker.eval_cases --output DIR
 
