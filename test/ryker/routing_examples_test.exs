@@ -18,6 +18,7 @@ defmodule Ryker.RoutingExamplesTest do
   use Ryker.DataCase, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
   import Ryker.TestHelpers, only: [digest: 1]
 
   # The executor reads routing's context under the isolation it runs with.
@@ -207,6 +208,35 @@ defmodule Ryker.RoutingExamplesTest do
 
       # The operational copy is untouched; only the kept one is redacted.
       assert attempt!(entry).submission["prompt"] == prompt
+    end
+
+    # A pass copies every settled decision, oldest first. One that cannot be
+    # copied must be left for a later pass rather than stop every decision
+    # after it, and the log may name only which one and the kind of error:
+    # an error can quote the prompt it failed on.
+    test "a decision that cannot be copied is skipped, and logged without its words" do
+      keep_examples!()
+      broken = route!("Ev-examples-uncopyable", "the staging account is acme-staging", @ignore)
+      after_it = route!("Ev-examples-uncopyable-2", "hello there", @ignore, message: 2)
+
+      # Its frozen submission lost the contract routing held the answer to:
+      # the example's own check refuses a kept example without one.
+      Repo.update_all(from(attempt in Attempt, where: attempt.input_id == ^broken.id),
+        set: [submission: Map.put(attempt!(broken).submission, "output_schema", nil)]
+      )
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{copied: 1, forgotten: 0}} = RoutingExamples.capture(@options)
+        end)
+
+      assert kept(after_it)
+      refute Repo.get_by(Example, input_id: broken.id)
+
+      assert [line] = log |> String.trim() |> String.split("\n")
+
+      assert line =~
+               ~r/\[error\] routing example copy failed input=#{broken.id} category=Ecto.ConstraintError$/
     end
   end
 
