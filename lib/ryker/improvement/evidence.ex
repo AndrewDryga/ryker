@@ -68,8 +68,56 @@ defmodule Ryker.Improvement.Evidence do
   (`improvement_evidence_automated`).
   """
   @spec gather(Candidate.t(), [String.t()] | nil) :: t()
-  def gather(%Candidate{} = candidate, secrets \\ nil) do
-    secrets = secrets || InspectionRedactor.configured_secrets()
+  def gather(%Candidate{} = candidate, secrets \\ nil),
+    do: read(candidate, secrets || InspectionRedactor.configured_secrets()).evidence
+
+  @doc """
+  What an accepted case keeps: the request, the person's messages with who
+  sent them and where (so the case can be replayed as a world scenario), the
+  answers Ryker gave, each routing decision's exact prompt and answer, and
+  the feedback, with the keys forgetting reaches them by. `snapshot` is nil
+  when none of the person's words is left, and `missing` says why.
+  """
+  @spec case_snapshot(Candidate.t()) :: %{
+          snapshot: map() | nil,
+          missing: missing() | nil,
+          message_keys: [String.t()],
+          conversation_refs: [String.t()]
+        }
+  def case_snapshot(%Candidate{} = candidate) do
+    %{evidence: evidence, messages: messages} =
+      read(candidate, InspectionRedactor.configured_secrets())
+
+    events =
+      for {entry, %{"text" => text}} <- messages,
+          entry.actor_kind == :user,
+          words?(text),
+          do: event(entry, text)
+
+    snapshot =
+      if evidence.available? and events != [] do
+        %{
+          "version" => 1,
+          "request" => evidence.request,
+          "events" => events,
+          "conversation" => evidence.conversation,
+          "routing" => evidence.routing,
+          "feedback" => evidence.feedback
+        }
+      end
+
+    %{
+      snapshot: snapshot,
+      missing: evidence.missing,
+      message_keys: evidence.message_keys,
+      conversation_refs: evidence.conversation_refs
+    }
+  end
+
+  # One read of everything kept about the request: the evidence, and each of
+  # the person's messages it was built from beside what it keeps of it, so a
+  # case's events come from the same read as its conversation.
+  defp read(candidate, secrets) do
     request = Candidate.request(candidate)
     episode = episode(request)
     entries = entries(request)
@@ -94,62 +142,19 @@ defmodule Ryker.Improvement.Evidence do
       |> Enum.sort()
 
     %{
-      available?: is_nil(missing),
-      missing: missing,
-      request: request_document(candidate, episode, entries),
-      conversation: conversation(messages, answers),
-      routing: routing,
-      work: work,
-      feedback: Enum.map(feedback, &Map.delete(&1, :key)),
-      omitted: omitted(messages, routing, entries),
-      message_keys: keys,
-      conversation_refs: conversations
-    }
-  end
-
-  @doc """
-  What an accepted case keeps: the request, the person's messages with who
-  sent them and where (so the case can be replayed as a world scenario), the
-  answers Ryker gave, each routing decision's exact prompt and answer, and
-  the feedback, with the keys forgetting reaches them by. `snapshot` is nil
-  when none of the person's words is left, and `missing` says why.
-  """
-  @spec case_snapshot(Candidate.t()) :: %{
-          snapshot: map() | nil,
-          missing: missing() | nil,
-          message_keys: [String.t()],
-          conversation_refs: [String.t()]
-        }
-  def case_snapshot(%Candidate{} = candidate) do
-    secrets = InspectionRedactor.configured_secrets()
-    evidence = gather(candidate, secrets)
-    entries = entries(Candidate.request(candidate))
-    deleted = deleted_messages(entries)
-
-    events =
-      for entry <- entries,
-          entry.actor_kind == :user,
-          %{"text" => text} <- [message(entry, deleted, secrets)],
-          words?(text),
-          do: event(entry, text)
-
-    snapshot =
-      if evidence.available? and events != [] do
-        %{
-          "version" => 1,
-          "request" => evidence.request,
-          "events" => events,
-          "conversation" => evidence.conversation,
-          "routing" => evidence.routing,
-          "feedback" => evidence.feedback
-        }
-      end
-
-    %{
-      snapshot: snapshot,
-      missing: evidence.missing,
-      message_keys: evidence.message_keys,
-      conversation_refs: evidence.conversation_refs
+      evidence: %{
+        available?: is_nil(missing),
+        missing: missing,
+        request: request_document(candidate, episode, entries),
+        conversation: conversation(messages, answers),
+        routing: routing,
+        work: work,
+        feedback: Enum.map(feedback, &Map.delete(&1, :key)),
+        omitted: omitted(messages, routing, entries),
+        message_keys: keys,
+        conversation_refs: conversations
+      },
+      messages: Enum.zip(entries, messages)
     }
   end
 
