@@ -27,6 +27,8 @@ defmodule Ryker.RepositoryKnowledge.Document do
   @shell_operators ["&&", "||", ";", "|", ">", "<", "`", "$("]
   # What `repository_knowledge` and its runs keep of a document.
   @maximum_bytes 128_000
+  # The most entries of the tree the prompt and the outline list at once.
+  @listed 200
 
   @type tree :: %{String.t() => :tree | :blob}
 
@@ -47,25 +49,43 @@ defmodule Ryker.RepositoryKnowledge.Document do
   @doc """
   What the prompt tells the model about the tree before it reads anything:
   the root's entries, directories first and marked with a slash, and the
-  build and guidance files anywhere in it, shallowest first.
+  build and guidance files anywhere in it, shallowest first. Each list
+  holds its first #{@listed}, and `more` says how many of each it left out.
   """
-  @spec outline_facts(tree()) :: %{top_level: [String.t()], key_files: [String.t()]}
+  @spec outline_facts(tree()) :: %{
+          top_level: [String.t()],
+          key_files: [String.t()],
+          more: %{top_level: non_neg_integer(), key_files: non_neg_integer()}
+        }
   def outline_facts(tree) do
-    root = Enum.reject(tree, fn {path, _kind} -> String.contains?(path, "/") end)
+    {directories, files} = root(tree)
+    top_level = Enum.map(directories, &(&1 <> "/")) ++ files
 
-    {directories, files} = Enum.split_with(root, fn {_path, kind} -> kind == :tree end)
+    key_files =
+      tree
+      |> Enum.filter(fn {path, kind} -> kind == :blob and key_file?(path) end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.sort_by(&{length(String.split(&1, "/")), &1})
 
     %{
-      top_level:
-        Enum.map(Enum.sort(directories), fn {path, _} -> path <> "/" end) ++
-          Enum.map(Enum.sort(files), fn {path, _} -> path end),
-      key_files:
-        tree
-        |> Enum.filter(fn {path, kind} -> kind == :blob and key_file?(path) end)
-        |> Enum.map(&elem(&1, 0))
-        |> Enum.sort_by(&{length(String.split(&1, "/")), &1})
-        |> Enum.take(200)
+      top_level: Enum.take(top_level, @listed),
+      key_files: Enum.take(key_files, @listed),
+      more: %{
+        top_level: max(length(top_level) - @listed, 0),
+        key_files: max(length(key_files) - @listed, 0)
+      }
     }
+  end
+
+  # The names of the root's directories and of its files, each sorted.
+  defp root(tree) do
+    {directories, files} =
+      tree
+      |> Enum.reject(fn {path, _kind} -> String.contains?(path, "/") end)
+      |> Enum.split_with(fn {_path, kind} -> kind == :tree end)
+
+    {directories |> Enum.map(&elem(&1, 0)) |> Enum.sort(),
+     files |> Enum.map(&elem(&1, 0)) |> Enum.sort()}
   end
 
   @doc """
@@ -394,16 +414,16 @@ defmodule Ryker.RepositoryKnowledge.Document do
   The fallback RYKER.md when no model could finish reading the repository:
   marked as an outline in its provenance line, and made only of what the
   file list shows, the README's own words and links to the files that
-  describe the repository. It invents no command.
+  describe the repository. It invents no command, and links the first
+  #{@listed} directories at the root, saying how many more there are.
   """
   @spec outline(tree(), String.t() | nil, String.t(), Date.t()) :: String.t()
   def outline(tree, readme, commit, %Date{} = date) do
     facts = outline_facts(tree)
+    {directories, _files} = root(tree)
 
-    directories =
-      facts.top_level
-      |> Enum.filter(&String.ends_with?(&1, "/"))
-      |> Enum.reject(&(String.starts_with?(&1, ".") and &1 != ".github/"))
+    components =
+      Enum.reject(directories, &(String.starts_with?(&1, ".") and &1 != ".github"))
 
     guidance =
       facts.key_files
@@ -418,7 +438,7 @@ defmodule Ryker.RepositoryKnowledge.Document do
         " #{@outline_note}: Ryker could not finish reading the repository, and replaces it " <>
         "on its next refresh.",
       section("Purpose", [readme_purpose(readme, tree)]),
-      list("Components", directories, &"- #{link(String.trim_trailing(&1, "/"), :tree)}"),
+      listed("Components", components, &"- #{link(&1, :tree)}"),
       list("Files that describe it", guidance, &"- #{link(&1, :blob)}"),
       workflows &&
         section("CI", [
@@ -469,6 +489,18 @@ defmodule Ryker.RepositoryKnowledge.Document do
 
   defp list(_title, [], _line), do: nil
   defp list(title, items, line), do: "## #{title}\n\n" <> Enum.map_join(items, "\n", line)
+
+  # A list of the tree's entries names its first ones, and says how many
+  # more there are.
+  defp listed(title, items, line) do
+    case Enum.split(items, @listed) do
+      {shown, []} -> list(title, shown, line)
+      {shown, more} -> list(title, shown, line) <> "\n\n…and #{number(length(more))} more."
+    end
+  end
+
+  defp number(count),
+    do: count |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
 
   # A plain relative link: GitHub resolves it against the branch the reader
   # is on, so it never points at an old commit.

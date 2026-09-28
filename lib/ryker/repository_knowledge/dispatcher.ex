@@ -323,6 +323,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
           commit: head,
           top_level: facts.top_level,
           key_files: facts.key_files,
+          more: facts.more,
           current_document: kept
         },
         Custody.retry?(entry)

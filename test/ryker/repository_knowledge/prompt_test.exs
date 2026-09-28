@@ -97,6 +97,42 @@ defmodule Ryker.RepositoryKnowledge.PromptTest do
     assert "portal/" in context["top_level"]
   end
 
+  # Review of the knowledge lane, 2026-09-28: every entry at the root went
+  # into the prompt, which calls top_level what the root holds. The model
+  # gets the first 200 of each list, and is told how many there are, so it
+  # never takes them for all of the repository.
+  test "a root with thousands of entries gives the model its first 200, and says how many" do
+    entries =
+      for n <- 1..1_800,
+          entry <- [
+            %{"path" => "dir-#{n}", "type" => "tree"},
+            %{"path" => "dir-#{n}/README.md", "type" => "blob"}
+          ],
+          do: entry
+
+    context = Prompt.build(facts(entries))["context"]
+
+    assert length(context["top_level"]) == 200
+    assert length(context["key_files"]) == 200
+
+    assert context["omitted"] == [
+             "Only the first 200 of 1,800 top-level entries, cut for length.",
+             "Only the first 200 of 1,800 key files, cut for length."
+           ]
+  end
+
+  # A list cut again to fit the request would otherwise carry two notes, the
+  # first naming a length the list no longer has.
+  test "a list cut again to fit says once how many of how many it shows" do
+    deep = String.duplicate("deep/", 80)
+    entries = for n <- 1..1_800, do: %{"path" => "#{deep}#{n}/README.md", "type" => "blob"}
+
+    context = Prompt.build(facts(entries))["context"]
+
+    assert length(context["key_files"]) == 60
+    assert context["omitted"] == ["Only the first 60 of 1,800 key files, cut for length."]
+  end
+
   test "the answer is held to seven fields, and the host checks them again" do
     schema = Prompt.output_schema()
 
@@ -152,18 +188,18 @@ defmodule Ryker.RepositoryKnowledge.PromptTest do
     assert words(Prompt.build(facts(), true)["instructions"]) =~ "named nothing Ryker could find"
   end
 
-  defp facts do
-    tree = tree!("emisar")
-    outline = Document.outline_facts(tree)
-
-    %{
+  # What the tree shows the prompt (`Document.outline_facts/1`), for emisar
+  # unless other entries are given.
+  defp facts(entries \\ entries!("emisar")) do
+    entries
+    |> Document.tree()
+    |> Document.outline_facts()
+    |> Map.merge(%{
       name: "AndrewDryga/emisar",
       default_branch: "main",
       commit: @commit,
-      top_level: outline.top_level,
-      key_files: outline.key_files,
       current_document: nil
-    }
+    })
   end
 
   defp words(text), do: String.replace(text, ~r/\s+/, " ")
@@ -172,7 +208,7 @@ defmodule Ryker.RepositoryKnowledge.PromptTest do
     do: Path.join([@fixtures, "emisar", "answer.json"]) |> File.read!() |> Jason.decode!()
 
   # The tree GitHub lists for the repository at the commit, as harvested.
-  defp tree!(name) do
+  defp entries!(name) do
     [@fixtures, name, "tree.tsv"]
     |> Path.join()
     |> File.read!()
@@ -181,6 +217,5 @@ defmodule Ryker.RepositoryKnowledge.PromptTest do
       [type, path] = String.split(line, "\t", parts: 2)
       %{"type" => type, "path" => path}
     end)
-    |> Document.tree()
   end
 end
