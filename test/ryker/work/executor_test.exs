@@ -6,7 +6,7 @@ defmodule Ryker.Work.ExecutorTest do
 
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Outputs
-  alias Ryker.ControlPlane.{EpisodeProjection, FailureProjection}
+  alias Ryker.ControlPlane.{EpisodeProjection, FailureProjection, ModelRequests}
   alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -612,7 +612,7 @@ defmodule Ryker.Work.ExecutorTest do
     prompt_id = "work-#{turn.id}-request"
 
     assert {:ok, timeline} =
-             Ryker.ControlPlane.ModelRequests.timeline(claim.episode.key, %{
+             ModelRequests.timeline(claim.episode.key, %{
                "disclosed" => [prompt_id]
              })
 
