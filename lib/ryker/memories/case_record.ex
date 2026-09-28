@@ -32,6 +32,7 @@ defmodule Ryker.Memories.CaseRecord do
     field(:anchor_keys, {:array, :string}, default: [])
     field(:search_text, :string)
     field(:source_refs, {:array, :string}, default: [])
+    field(:conversation_refs, {:array, :string}, default: [])
     field(:status, Ecto.Enum, values: [:active, :deleted], default: :active)
     field(:closed_at, :utc_datetime_usec)
     field(:content_fingerprint, :string)

@@ -20,6 +20,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.Memories
+  alias Ryker.Memories.Cases
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.Settings.Environment
@@ -952,6 +953,15 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     :ok =
       RoutingExamples.forget_conversation_in_transaction(
+        "slack:#{membership.workspace_ref}:#{membership.channel_ref}"
+      )
+
+    # The cases built from the channel's messages go after the lock every
+    # forgetting takes, the order a message's own deletion takes them in
+    # (`Ryker.Ingress.Inbox`).
+    :ok =
+      Cases.withdraw_conversation_in_transaction(
+        "slack",
         "slack:#{membership.workspace_ref}:#{membership.channel_ref}"
       )
 

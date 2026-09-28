@@ -735,7 +735,10 @@ redacted. Work that is still running, or finished but not yet captured, keeps it
 withdrawn, so capture never builds it. A typo fixed while the work runs therefore drops that work's
 case. An edit that leaves the text as it was, as Slack reports a link's preview arriving, takes
 nothing back, and neither does an app or a bot updating its own message, as an alert does when it
-resolves.
+resolves. Deleting a Slack channel withdraws, the same way, every case of work that lived there or
+that one of its messages joined: a case records every conversation its messages came from. A case
+kept before 2026-09-28 is found by the conversation its work lived in, and by those of its messages
+Ryker still held that day.
 
 Large ingress, prompt, candidate, validation, delivery, and artifact bodies are redacted on the
 operational horizon only after all of the episode's Coop sessions are proven discarded. The episode
