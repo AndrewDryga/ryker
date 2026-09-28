@@ -7,12 +7,14 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   alias Ryker.{Artifacts, Episodes, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
+  alias Ryker.Fixtures.SavedEntities
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
   alias Ryker.Slack.SourceRef
 
   alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Memories
   alias Ryker.Memories.Cases
+  alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Records.RecordChangeset
 
@@ -1189,16 +1191,16 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     claim = %{next | session: rotated.session, turn: rotated.turn}
     workspace = %{"description" => String.duplicate("w", 15_000)}
     # Saved now, so only this turn's briefing can have recalled it.
-    source = Ryker.Fixtures.SavedEntities.source!("slack:TRECALLONCE:CFIT")
+    source = SavedEntities.source!("slack:TRECALLONCE:CFIT")
 
     fact =
-      Ryker.Fixtures.SavedEntities.memory!(source, "staging-account", "Staging is acme-stg.")
+      SavedEntities.memory!(source, "staging-account", "Staging is acme-stg.")
 
     assert {:ok, submission} = SubmissionBuilder.build(claim, workspace: workspace)
     assert submission["context"]["inputs"]["omitted_count"] > 1
     assert [%{"memory_ref" => ref}] = submission["context"]["operator_context"]["memory"]
     assert ref == fact.ref
-    assert Repo.get!(Ryker.Memories.MemoryEntry, fact.id).recall_count == 1
+    assert Repo.get!(MemoryEntry, fact.id).recall_count == 1
   end
 
   test "optional learned notes leave room for the current continuation and final workspace metadata" do
