@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.MemoryFormat
   alias Ryker.ControlPlane.PromptDocument
+  alias Ryker.ControlPlane.RepositoryProjection
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Slack.Names
@@ -87,12 +88,18 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Similar past cases", "memory", nil, "Earlier cases recalled as worked examples."},
     "repository_knowledge" =>
       {"Repository knowledge", "memory", nil,
-       "The saved knowledge document for the pinned repository."}
+       "The saved knowledge document for the pinned repository."},
+    "connected" =>
+      {"Connected services", "tools", nil,
+       "What this work was told is connected, and the repositories it can reach."},
+    "repository_choices" =>
+      {"Repositories to choose from", "tools", nil,
+       "The repositories this request could be routed to work in."}
   }
   # Historical inspection keeps the label of the saved tool catalog; no execution
   # producer emits the old key.
   @sources Map.put(@sources, "responder_state_tools", @sources["controller_tools"])
-  @order ~w(custom_instructions input slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
+  @order ~w(custom_instructions input slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools responder_state_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
   @instruction_not_recorded :instruction_not_recorded
   # What each tool a request could use is for, in a line an on-call engineer
   # reads without the tool's contract. The name stays beside it: the
@@ -214,6 +221,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "Previous accepted answer",
     "Similar past cases",
     "Repository knowledge",
+    "Connected services",
+    "Repositories to choose from",
     "Ryker state tools",
     "Source and action tools",
     "Workspace access",
@@ -1834,7 +1843,136 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        when audience in ~w(direct mention ambient),
        do: ["<p>", escape(reached_ryker(audience)), "</p>"]
 
+  defp body("related_outcomes", items, _path, _prefix) when is_list(items),
+    do: outcomes(items)
+
+  defp body("connected", value, _path, _prefix) when is_map(value), do: connected(value)
+
+  defp body("repository_choices", items, _path, _prefix) when is_list(items),
+    do: repository_choices(items)
+
   defp body(_key, value, _path, _prefix), do: fields(value, 0)
+
+  # Each earlier outcome as what it was: what was asked, by whom and when,
+  # what Ryker answered, and how it ended. Andrew, 2026-09-28: the row dumped
+  # every stored field, "Not supplied", refs, Slack's block JSON and raw
+  # timestamps, six outcomes some 19,000 pixels tall. The exact values stay in
+  # the prompt text below the briefing.
+  defp outcomes(items) do
+    case Enum.filter(items, &is_map/1) do
+      [] ->
+        []
+
+      items ->
+        ["<section class=\"context-candidates\">", Enum.map(items, &outcome/1), "</section>"]
+    end
+  end
+
+  defp outcome(item) do
+    trigger = if is_map(item["trigger"]), do: item["trigger"], else: %{}
+    asked = trigger |> get_in(["content", "text"]) |> present()
+    answer = answer_text(item["result"])
+
+    [
+      "<article class=\"context-candidate context-record context-outcome\"><header class=\"candidate-heading\"><h4>",
+      escape((asked && first_line(asked)) || "Earlier request"),
+      "</h4>",
+      finished(item["finished_at"]),
+      "</header><div class=\"candidate-readable\">",
+      candidate_outcome(ended(item)),
+      "<dl class=\"candidate-messages\">",
+      if(asked,
+        do: [
+          "<div><dt>Asked</dt><dd>",
+          message_body(asked, trigger),
+          "<span class=\"candidate-message-meta\">",
+          byline(who(trigger), readable_candidate_time(trigger["occurred_at"])),
+          "</span></dd></div>"
+        ],
+        else: []
+      ),
+      if(answer,
+        do: [
+          "<div><dt>Ryker answered</dt><dd class=\"markdown-preview\">",
+          message_body(answer, trigger),
+          "</dd></div>"
+        ],
+        else: []
+      ),
+      "</dl></div></article>"
+    ]
+  end
+
+  defp answer_text(%{"message" => message}), do: present(message)
+  defp answer_text(_result), do: nil
+
+  defp finished(at) do
+    case readable_candidate_time(at) do
+      nil -> []
+      at -> ["<time>finished ", escape(at), "</time>"]
+    end
+  end
+
+  defp ended(%{"state" => "blocked", "blocker" => blocker}) when is_binary(blocker),
+    do: "Stopped: " <> blocker
+
+  defp ended(%{"state" => "blocked"}), do: "Stopped before it finished"
+  defp ended(%{"verified" => true}), do: "Finished, with its result checked"
+  defp ended(_outcome), do: "Finished"
+
+  # What the work was told is connected, in words, with each repository by the
+  # name people know it by rather than its ref.
+  defp connected(value) do
+    services =
+      for {key, label} <- [{"slack", "Slack"}, {"github", "GitHub"}, {"emisar", "Emisar"}],
+          value[key] == true,
+          do: label
+
+    repositories = value["repositories"] |> List.wrap() |> Enum.filter(&is_binary/1)
+    names = if repositories == [], do: %{}, else: repository_names()
+
+    [
+      "<p>",
+      if(services == [],
+        do: "Slack, GitHub and Emisar were not connected.",
+        else:
+          escape(sentence(services)) <>
+            " " <> if(length(services) == 1, do: "was", else: "were") <> " connected."
+      ),
+      "</p>",
+      if(repositories == [],
+        do: [],
+        else: [
+          "<p>Repositories it can reach: ",
+          repositories |> Enum.map(&Map.get(names, &1, &1)) |> Enum.map_join(", ", &escape/1),
+          "</p>"
+        ]
+      )
+    ]
+  end
+
+  # Without the database the briefing still reads, naming repositories by ref.
+  defp repository_names do
+    RepositoryProjection.names()
+  rescue
+    _error in [DBConnection.ConnectionError, DBConnection.OwnershipError, Postgrex.Error] -> %{}
+  end
+
+  defp repository_choices(items) do
+    names =
+      for item <- items,
+          is_map(item),
+          name = present(item["description"]) || present(item["ref"]),
+          do: name
+
+    ["<ul class=\"context-list\">", Enum.map(names, &["<li>", escape(&1), "</li>"]), "</ul>"]
+  end
+
+  defp sentence([only]), do: only
+  defp sentence([first, second]), do: first <> " and " <> second
+
+  defp sentence(items),
+    do: Enum.join(Enum.drop(items, -1), ", ") <> " and " <> List.last(items)
 
   defp reached_ryker("direct"), do: "A direct message to Ryker."
   defp reached_ryker("mention"), do: "The message mentions @Ryker."
@@ -1931,7 +2069,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "<li class=\"context-note\" data-memory-kind=\"observation\" title=\"",
       escape(item["source_ref"]),
       "\"><p class=\"context-note-text\">",
-      escape(present(item["summary"]) || "No summary was recorded."),
+      note_text(item),
       "</p>",
       if(meta != [], do: ["<p class=\"context-note-meta\">", meta, "</p>"], else: []),
       if(topics != [],
@@ -1944,6 +2082,15 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       ),
       "</li>"
     ]
+  end
+
+  # A person mentioned in a note reads as their name (Andrew, 2026-09-28:
+  # "always render usernames and channel names, not Slack ids").
+  defp note_text(item) do
+    case present(item["summary"]) do
+      nil -> "No summary was recorded."
+      summary -> SlackMarkdown.mentions(summary, slack_workspace(item) || Names.workspace())
+    end
   end
 
   defp recall_title("current"), do: "This conversation"
@@ -2375,13 +2522,23 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp slack_workspace(_), do: nil
 
   defp message_body(body, input) do
-    case slack_workspace(input) do
+    case slack_workspace(input) || compact_slack_workspace(input, body) do
       workspace when is_binary(workspace) ->
         SlackMarkdown.render(body, workspace)
 
       _ ->
         escape(body)
     end
+  end
+
+  # Routing reads earlier messages as actor, at and text alone. One that names
+  # a person or a channel the way Slack writes them is from Slack, so it reads
+  # in the installation's workspace: "@Ryker check health of our infra", never
+  # "<@U0C1LCVNF52> check health…" (Andrew, 2026-09-28).
+  defp compact_slack_workspace(%{"source" => _source}, _body), do: nil
+
+  defp compact_slack_workspace(_input, body) do
+    if Regex.match?(~r/<[@#][UWCGD][A-Z0-9]+(?:\|[^>]*)?>/, body), do: Names.workspace()
   end
 
   defp actor_name("slack:user:" <> _, _actor), do: "Slack user"
