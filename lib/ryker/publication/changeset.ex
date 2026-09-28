@@ -19,6 +19,8 @@ defmodule Ryker.Publication.Changeset do
     :discarded_reason,
     :episode_id,
     :expected_remote_head_sha,
+    :fix_review_generation,
+    :fix_rounds,
     :id,
     :last_error_code,
     :last_error_detail,
@@ -35,6 +37,7 @@ defmodule Ryker.Publication.Changeset do
     :published_at,
     :published_delivery_receipt,
     :published_delivery_receipt_fingerprint,
+    :recheck_rounds,
     :record_id,
     :recovery_generation,
     :ref,
@@ -102,6 +105,9 @@ defmodule Ryker.Publication.Changeset do
     |> validate_number(:review_generation, greater_than: 0)
     |> validate_number(:recovery_generation, greater_than: 0)
     |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
+    |> validate_number(:fix_rounds, greater_than_or_equal_to: 0)
+    |> validate_number(:recheck_rounds, greater_than_or_equal_to: 0)
+    |> check_constraint(:fix_rounds, name: :episode_publication_fix_loop_valid)
     |> check_constraint(:status, name: :episode_publication_identity_valid)
     |> check_constraint(:status, name: :episode_publication_review_valid)
     |> check_constraint(:status, name: :episode_publication_approval_valid)

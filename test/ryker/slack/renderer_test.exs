@@ -858,6 +858,7 @@ defmodule Ryker.Slack.RendererTest do
     # console URL to go and look. The branch is a fact the host already held.
     blocked =
       publication_task_card(%{
+        "automatic_fix" => nil,
         "branch" => "refs/heads/ryker/publication-42",
         "controls" => ["update", "discard"],
         "discarded_reason" => nil,
@@ -883,6 +884,7 @@ defmodule Ryker.Slack.RendererTest do
   # could not tell a closed session from somebody's decision.
   test "a discarded publication says why in words" do
     publication = %{
+      "automatic_fix" => nil,
       "branch" => nil,
       "controls" => [],
       "discarded_reason" => "review_session_closed",
@@ -922,6 +924,7 @@ defmodule Ryker.Slack.RendererTest do
       "controls" => ["view_diff", "timeline", "evidence", "handoff"],
       "episode_state" => "complete",
       "publication" => %{
+        "automatic_fix" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["open", "check"],
         "discarded_reason" => nil,
@@ -966,6 +969,7 @@ defmodule Ryker.Slack.RendererTest do
 
     reviewed =
       put_in(task, ["publication"], %{
+        "automatic_fix" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["publish"],
         "discarded_reason" => nil,
@@ -985,6 +989,7 @@ defmodule Ryker.Slack.RendererTest do
 
     recoverable =
       put_in(task, ["publication"], %{
+        "automatic_fix" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["update", "discard"],
         "discarded_reason" => nil,
@@ -1012,6 +1017,7 @@ defmodule Ryker.Slack.RendererTest do
 
     stale =
       put_in(task, ["publication"], %{
+        "automatic_fix" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["open", "check", "update", "discard"],
         "discarded_reason" => nil,
@@ -1048,6 +1054,7 @@ defmodule Ryker.Slack.RendererTest do
       "controls" => ["view_diff", "timeline", "evidence", "handoff"],
       "episode_state" => "complete",
       "publication" => %{
+        "automatic_fix" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["open", "check"],
         "discarded_reason" => nil,
@@ -2524,6 +2531,7 @@ defmodule Ryker.Slack.RendererTest do
   test "an unverified draft offer names its repository and its missing check" do
     task =
       publication_task_card(%{
+        "automatic_fix" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["publish", "update", "discard"],
         "discarded_reason" => nil,
@@ -2572,6 +2580,7 @@ defmodule Ryker.Slack.RendererTest do
   test "a reviewed candidate explains the missing grant rather than handing work back" do
     task =
       publication_task_card(%{
+        "automatic_fix" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["publish", "update", "discard"],
         "discarded_reason" => nil,
@@ -2601,6 +2610,7 @@ defmodule Ryker.Slack.RendererTest do
     # click and never re-poses the question.
     publishing =
       publication_task_card(%{
+        "automatic_fix" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => [],
         "discarded_reason" => nil,
@@ -3211,6 +3221,7 @@ defmodule Ryker.Slack.RendererTest do
     readiness =
       task_document("reviewing")
       |> put_in(["publication"], %{
+        "automatic_fix" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => [],
         "discarded_reason" => nil,
@@ -3525,6 +3536,7 @@ defmodule Ryker.Slack.RendererTest do
     malformed_publication =
       task_document("working")
       |> put_in(["publication"], %{
+        "automatic_fix" => nil,
         "branch" => "refs/heads/ryker/card",
         "controls" => ["open"],
         "publication_ref" => nil,

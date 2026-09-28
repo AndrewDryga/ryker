@@ -21,6 +21,7 @@ defmodule Ryker.Publication.Custody do
     Card,
     Changeset,
     ConflictReceipt,
+    FixLoop,
     Followups,
     Publication,
     Receipt,
@@ -278,14 +279,19 @@ defmodule Ryker.Publication.Custody do
       Review.publishable?(publication.review_document) and
         is_binary(draft_grant(publication))
 
-    message = review_delivery_message(publication, authorized?)
-
-    delivery_request(
-      publication,
-      review_delivery_ref(publication),
-      message,
-      Card.review(publication, authorized?)
-    )
+    # A refusal the task's own work is about to fix is news, not a question:
+    # the card asked the reader to relay the review to the agent, which is
+    # the step the fix round takes for them.
+    if fix_round?(publication) do
+      delivery_request(publication, review_delivery_ref(publication), FixLoop.notice(publication))
+    else
+      delivery_request(
+        publication,
+        review_delivery_ref(publication),
+        review_delivery_message(publication, authorized?),
+        Card.review(publication, authorized?)
+      )
+    end
   end
 
   def delivery_request(%Publication{status: :published_ready} = publication) do
@@ -307,10 +313,15 @@ defmodule Ryker.Publication.Custody do
       "The committed change passed the trusted review. I'm opening the draft pull request for it now; merging and deploying stay with you."
 
   defp review_delivery_message(publication, false) do
-    if Review.publishable?(publication.review_document) do
-      "The committed change passed the trusted review. An operator may publish this exact candidate as a draft pull request."
-    else
-      "I can't open a draft pull request for the committed change yet."
+    cond do
+      Review.publishable?(publication.review_document) ->
+        "The committed change passed the trusted review. An operator may publish this exact candidate as a draft pull request."
+
+      exhausted = FixLoop.exhausted(publication) ->
+        exhausted
+
+      true ->
+        "I can't open a draft pull request for the committed change yet."
     end
   end
 
@@ -318,8 +329,17 @@ defmodule Ryker.Publication.Custody do
     with :ok <- reference(publication_ref, :publication_ref),
          :ok <- reference(lease_ref, :lease_ref),
          {:ok, receipt} <- DeliveryReceipt.prepare(external_receipt) do
-      Repo.transaction(fn -> confirm_delivery_locked(publication_ref, lease_ref, receipt) end)
+      Repo.transaction(fn -> confirm_delivery_after_task(publication_ref, lease_ref, receipt) end)
       |> transaction_result()
+    end
+  end
+
+  # A delivered refusal may start a fix round, which admits input into the
+  # task's episode; its locks come before the publication's.
+  defp confirm_delivery_after_task(publication_ref, lease_ref, receipt) do
+    case FixLoop.lock_task_in_transaction(publication_ref) do
+      :ok -> confirm_delivery_locked(publication_ref, lease_ref, receipt)
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 
@@ -694,7 +714,11 @@ defmodule Ryker.Publication.Custody do
              session_id: session.coop_session_id
            }),
          :ok <- exact_review_job(prepared, session) do
-      persist_review(publication, prepared, now)
+      # Something moved while the change was being checked, which says nothing
+      # about the change: ask again as it is, without posting a refusal.
+      if FixLoop.recheck?(publication, prepared),
+        do: update!(publication, FixLoop.recheck_attributes(publication, now), now),
+        else: persist_review(publication, prepared, now)
     else
       false -> Repo.rollback(:publication_review_generation_stale)
       {:error, reason} -> Repo.rollback(reason)
@@ -1064,12 +1088,28 @@ defmodule Ryker.Publication.Custody do
       review_delivery_receipt_fingerprint: fp
     }
 
-    attributes =
-      if Review.publishable?(publication.review_document),
-        do: reviewed_or_authorized_draft(publication, delivered, now),
-        else: Map.put(delivered, :status, :blocked)
+    cond do
+      Review.publishable?(publication.review_document) ->
+        update!(publication, reviewed_or_authorized_draft(publication, delivered, now), now)
 
-    update!(publication, attributes, now)
+      # The notice just delivered said the task's work is fixing it; its round
+      # starts in the same transaction, or not at all.
+      fix_round?(publication) ->
+        attributes =
+          delivered
+          |> Map.put(:status, :blocked)
+          |> Map.merge(FixLoop.round_attributes(publication))
+
+        fixing = update!(publication, attributes, now)
+
+        case FixLoop.admit_in_transaction(fixing, now) do
+          :ok -> fixing
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+      true ->
+        update!(publication, Map.put(delivered, :status, :blocked), now)
+    end
   end
 
   defp confirm_phase_delivery(
@@ -1139,6 +1179,11 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp draft_grant(_publication), do: nil
+
+  # The same confirmation that grants the task's draft grants its own work
+  # another turn; without it there is nobody's task left to continue.
+  defp fix_round?(publication),
+    do: FixLoop.round_due?(publication) and is_binary(draft_grant(publication))
 
   @doc false
   def publication_authorized?(%Publication{status: :publish_pending} = publication) do
@@ -1284,10 +1329,16 @@ defmodule Ryker.Publication.Custody do
   defp result_delivery_ref(publication),
     do: "publication-result:#{publication.id}:g#{publication.review_generation}"
 
-  defp delivery_request(publication, ref, message, record) do
+  defp delivery_request(publication, ref, message, record),
+    do: publication_message(publication, ref, %{"message" => message, "records" => [record]})
+
+  defp delivery_request(publication, ref, message),
+    do: publication_message(publication, ref, %{"message" => message})
+
+  defp publication_message(publication, ref, document) do
     Request.new(%{
       conversation_ref: publication.destination_conversation_ref,
-      document: %{"message" => message, "records" => [record]},
+      document: document,
       kind: :message,
       ref: ref,
       source_item_ref: nil,

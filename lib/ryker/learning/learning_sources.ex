@@ -15,7 +15,9 @@ defmodule Ryker.Learning.LearningSources do
 
   @maximum_sources 10_000
   @maximum_bytes 8 * 1_024 * 1_024
-  @system_source_refs ["ryker", "emisar", "publication-lifecycle"]
+  # `publication-review` is a refused review sent back to its task's work
+  # (`Ryker.Publication.FixLoop`): the host's own words and Coop's report.
+  @system_source_refs ["ryker", "emisar", "publication-lifecycle", "publication-review"]
   @receipt_fields ~w(observation_id source_input_id revision fingerprint transport workspace_ref conversation_ref repository_ref visibility retained_at)
   @utc_timestamp_pattern ~S/\A[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])[T ]([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.,][0-9]+)?(Z|[+]00(:?00)?|-00(00)?)\Z/
 
