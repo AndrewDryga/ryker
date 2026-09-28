@@ -1642,6 +1642,7 @@
 .entity-row-grouped { padding-top:0; row-gap:10px; }
 .entity-list > .entity-row-grouped:first-child > .entity-group { padding-top:16px; }
 .entity-icon { grid-column:icon; display:grid; place-items:center; width:36px; height:36px; margin-right:16px; border-radius:10px; background:var(--ryker-surface-emphasis); color:var(--ryker-text-secondary); }
+a.entity-icon { color:var(--ryker-text-secondary); }
 .entity-icon .ui-icon { width:18px; height:18px; }
 .entity-icon[data-tone=accent] { background:var(--ryker-accent-soft); color:var(--ryker-accent); }
 .entity-icon[data-tone=info] { background:var(--ryker-info-soft); color:var(--ryker-info); }

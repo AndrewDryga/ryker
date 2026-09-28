@@ -1027,9 +1027,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
               phx-click={if account.enabled_for_new_work, do: "disable-emisar", else: "enable-emisar"}
               phx-value-ref={account.ref}
             >{if account.enabled_for_new_work, do: "Pause", else: "Resume"}</button>
-            <.link patch={"/integrations/emisar/#{account.ref}/edit"} class="ui-button secondary">
-              Edit<span class="sr-only">{" " <> account.display_name}</span>
-            </.link>
+            <.link patch={"/integrations/emisar/#{account.ref}/edit"} class="ui-button secondary">Edit<span class="sr-only">{" " <>
+              account.display_name}</span></.link>
           </:actions>
         </Kit.entity_row>
       </Kit.entity_list>
