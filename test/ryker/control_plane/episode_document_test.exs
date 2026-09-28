@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   use Ryker.DataCase, async: true
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Activity, EpisodePage, EpisodeRequest, Projection}
+  alias Ryker.ControlPlane.{Activity, EpisodePage, EpisodeProjection, EpisodeRequest}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -29,7 +29,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   test "routing decisions jump to the selected candidate in their own briefing" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     candidate = %{
       "episode_ref" => "candidate:52af063",
@@ -119,7 +119,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   # IDs.
   test "a request's page ends with its chapters, not an identity box that repeats its header" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     document = snapshot |> render_episode([]) |> LazyHTML.from_fragment()
 
@@ -131,7 +131,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   test "a visible input and answer do not acquire duplicate receipt cards" do
     # The replay repeated one delivery as a response, kernel receipt and turn receipt.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     [step | _] = snapshot.trace.steps
     at = snapshot.trace.received_at
 
@@ -181,7 +181,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   test "the same accepted result is not repeated as a kernel card and a turn card" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     [base | _] = snapshot.trace.steps
 
     kernel =
@@ -211,7 +211,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     # Pruned response bodies left the same delivery repeated as a kernel receipt
     # and a turn receipt. The receipt must remain visible without repeating it.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     [base | _] = snapshot.trace.steps
 
     kernel =
@@ -359,7 +359,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     # The full timeline needs both the checked candidate and the delivery
     # outcome; a link to one must not erase the other.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     at = snapshot.trace.received_at
     text = "The check is **partial**"
 
@@ -418,7 +418,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     # A one-word greeting looked like two executions with tiny repeated phases.
     # Routing is one model execution, but its input and result have distinct times.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     at = snapshot.trace.received_at
     [step | _] = snapshot.trace.steps
 
@@ -494,7 +494,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   test "a follow-up and earlier work stay in their own causal message groups" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     at = snapshot.trace.received_at
     [step | _] = snapshot.trace.steps
 
@@ -534,7 +534,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   test "timeline jumps visit adjacent messages and existing stages without dead end controls" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     at = snapshot.trace.received_at
     [step | _] = snapshot.trace.steps
 
@@ -846,7 +846,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     # open each stage's cards to learn what it produced. The label summarizes
     # the stage from its own recorded entries; no card is rewritten.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     at = snapshot.trace.received_at
     [step | _] = snapshot.trace.steps
 
@@ -927,7 +927,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     # The real September 5 "Hi" took 11,151 pixels and 63 disclosures to explain;
     # its accepted reply was separated from delivery by a second answer chapter.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     at = snapshot.trace.received_at
 
     request = %{
@@ -1047,7 +1047,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   test "model input keeps source-aware instructions and context accessible in the same timeline" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     input = %{
       id: "request-input",
@@ -1132,7 +1132,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   test "the outcome shortcut lands on the reply and wall time uses minutes and seconds" do
     # Jumping past the answer left the operator at a bookkeeping footer instead.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     at = snapshot.trace.received_at
 
     reply = %{
@@ -1197,7 +1197,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     # The latest-outcome shortcut landed on an empty message surface: the link
     # to the validated attempt replaced the very reply the operator came to see.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     at = snapshot.trace.received_at
 
     reply = %{
@@ -1249,7 +1249,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, _} = Episodes.apply(EpisodeFixtures.accept_result())
     {:ok, _} = Episodes.apply(EpisodeFixtures.confirm_delivery())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     snapshot =
       put_in(snapshot, [:trace, :source], %{
@@ -1333,7 +1333,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   test "untimed historical events do not inflate the projected wall time" do
     # Unknown timeline timestamps and late episode bookkeeping are not timing boundaries.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     [step | _] = snapshot.trace.steps
 
     snapshot =
@@ -1353,7 +1353,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   test "silent outcomes stay visible and never jump to an older answer" do
     # Collapsing bookkeeping must not hide the decision to send no reply.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     at = snapshot.trace.received_at
     [step | _] = snapshot.trace.steps
 
@@ -1403,7 +1403,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   test "every receipt has its own visible action block without hiding failures or losing order" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     [step | _] = snapshot.trace.steps
     at = snapshot.trace.received_at
 
@@ -1500,7 +1500,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   test "the episode summary groups timing, conversation and cost with concise response statistics" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     metrics = %{
       wall: %{state: :complete, milliseconds: 120_000, reason: nil},
@@ -1577,7 +1577,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       })
 
     # Ended and nobody has looked: a quiet line, no chapter.
-    {:ok, ended} = Projection.episode(episode.key)
+    {:ok, ended} = EpisodeProjection.fetch(episode.key)
     document = ended |> render_episode([]) |> LazyHTML.from_fragment()
 
     assert document |> LazyHTML.query("#review-awaiting") |> LazyHTML.text() |> words() =~
@@ -1592,7 +1592,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
         "Stopped on purpose; the deploy was rolled back."
       )
 
-    {:ok, reviewed} = Projection.episode(episode.key)
+    {:ok, reviewed} = EpisodeProjection.fetch(episode.key)
     document = reviewed |> render_episode([]) |> LazyHTML.from_fragment()
     chapter = LazyHTML.query(document, "section.background-chapter.phase-review")
 
@@ -1637,7 +1637,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   test "a request still working says nothing about reviews" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     document = snapshot |> render_episode([]) |> LazyHTML.from_fragment()
 
@@ -1694,7 +1694,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   test "active work calls its pending response waiting without missing-measurement prose" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     metrics = %{
       wall: %{state: :active, milliseconds: 48_000, reason: nil},
@@ -1724,7 +1724,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   test "unknown response measurements remain unknown instead of reading as zero" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     metrics = %{
       wall: %{

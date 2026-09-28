@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   use Ryker.DataCase, async: true
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{ActivityPage, Assets, Components, EpisodePage, Projection}
+  alias Ryker.ControlPlane.{ActivityPage, Assets, Components, EpisodePage, EpisodeProjection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
 
@@ -380,7 +380,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
   test "the episode shows cost coverage, recovery evidence, and confirmed answers together" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     step = List.last(snapshot.trace.steps)
 
     message = %{
@@ -470,7 +470,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   # episode as an empty timeline: indistinguishable from one that never ran.
   test "pruned episode history reads as retention, not as an empty timeline" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     refute episode_html(snapshot) =~ "history-pruned"
 
@@ -511,7 +511,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     # Slow admission happens before episode creation; measuring from creation
     # made that whole wait appear as zero and understated every later offset.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     [step | _] = snapshot.trace.steps
 
     snapshot =

@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
 
   alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
@@ -361,7 +361,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
   end
 
   defp rendered(episode) do
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
 
     render_component(&EpisodePage.render/1,

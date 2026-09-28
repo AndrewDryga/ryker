@@ -5,7 +5,7 @@ defmodule Ryker.Continuity.ContinuityTest do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{LearnedPage, Projection}
+  alias Ryker.ControlPlane.{ConversationMemory, LearnedPage}
   alias Ryker.Episodes
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -1329,7 +1329,7 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     # Hundreds of saved summaries were invisible on Memory, making replay look empty.
     html =
-      Projection.learned(%{"kind" => "context"})
+      ConversationMemory.project(%{"kind" => "context"})
       |> LearnedPage.html("test-secret")
       |> IO.iodata_to_binary()
 

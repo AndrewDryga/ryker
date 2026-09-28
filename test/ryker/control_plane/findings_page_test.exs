@@ -1,7 +1,17 @@
 defmodule Ryker.ControlPlane.FindingsPageTest do
   use Ryker.DataCase, async: false
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{Actions, FindingsPage, Pages, Projection, Router}
+
+  alias Ryker.ControlPlane.{
+    Actions,
+    EpisodeProjection,
+    FindingsPage,
+    FindingsProjection,
+    Pages,
+    Projection,
+    Router
+  }
+
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Records
@@ -38,7 +48,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     }
 
     assert {:ok, %{"record_ref" => ref}} = Tools.call("record_finding", args, options)
-    view = Projection.findings(%{})
+    view = FindingsProjection.list(%{})
     assert view.total == 1
     assert [finding] = view.items
     assert finding.classification == "expected"
@@ -102,7 +112,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     end
 
     counts = fn params ->
-      render_component(&FindingsPage.render/1, view: Projection.findings(params))
+      render_component(&FindingsPage.render/1, view: FindingsProjection.list(params))
       |> LazyHTML.from_fragment()
       |> LazyHTML.query(".kit-counts .kit-count")
       |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
@@ -113,7 +123,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     assert counts.(%{"q" => "intentional"}) == ["1 matching"]
 
     document =
-      render_component(&FindingsPage.render/1, view: Projection.findings(%{"q" => "absent"}))
+      render_component(&FindingsPage.render/1, view: FindingsProjection.list(%{"q" => "absent"}))
       |> LazyHTML.from_fragment()
 
     assert LazyHTML.query(
@@ -127,7 +137,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
   end
 
   test "an empty findings page says what puts a finding there and offers no way to make one" do
-    html = render_component(&FindingsPage.render/1, view: Projection.findings(%{}))
+    html = render_component(&FindingsPage.render/1, view: FindingsProjection.list(%{}))
     assert html =~ "No findings yet"
     assert html =~ "When Ryker investigates a problem, it saves what it concluded here"
     refute html =~ "Create finding"
@@ -281,9 +291,9 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
       end)
 
     Repo.insert_all(Ryker.Records.Record, newer)
-    assert {:ok, detail} = Projection.episode(claim.episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(claim.episode.key)
     refute Enum.any?(detail.trace.steps, &(&1.id == "record-#{original.id}"))
-    assert [finding] = Projection.findings(%{}).items
+    assert [finding] = FindingsProjection.list(%{}).items
     assert finding.what == "An older useful conclusion"
     assert finding.path == "/timeline/" <> URI.encode_www_form(claim.episode.key)
   end
@@ -304,13 +314,13 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
                options
              )
 
-    view = Projection.findings(%{})
+    view = FindingsProjection.list(%{})
     refute inspect(view) =~ "findings-hidden-secret"
     html = render_component(&FindingsPage.render/1, view: view)
     refute html =~ "<script>"
     refute html =~ "findings-hidden-secret"
     assert html =~ "Not explained yet"
-    assert {:ok, episode} = Projection.episode(claim.episode.key)
+    assert {:ok, episode} = EpisodeProjection.fetch(claim.episode.key)
     refute inspect(episode.trace.steps) =~ "findings-hidden-secret"
   end
 
@@ -373,7 +383,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
   end
 
   defp findings do
-    render_component(&FindingsPage.render/1, view: Projection.findings(%{}))
+    render_component(&FindingsPage.render/1, view: FindingsProjection.list(%{}))
     |> LazyHTML.from_fragment()
   end
 

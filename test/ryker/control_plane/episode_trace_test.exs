@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   alias Ryker.Work.Turn
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.Projection
+  alias Ryker.ControlPlane.EpisodeProjection
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -72,7 +72,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
     block_before_start!(claim.turn, session, source)
 
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
 
     html =
@@ -113,7 +113,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       set: [coop_session_id: "previously-started-session"]
     )
 
-    {:ok, with_session} = Projection.episode(episode.key)
+    {:ok, with_session} = EpisodeProjection.fetch(episode.key)
     assert with_session.trace.startup == nil
 
     Repo.update_all(from(s in Ryker.Work.Session, where: s.id == ^session.id),
@@ -132,7 +132,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
              )
 
     assert Repo.get!(Turn, claim.turn.id).status == :superseded
-    {:ok, closed} = Projection.episode(episode.key)
+    {:ok, closed} = EpisodeProjection.fetch(episode.key)
     assert closed.trace.startup == nil
     assert closed.trace.stopped.headline == "Request stopped"
     refute Enum.any?(closed.trace.actions, &String.contains?(&1.href, "/retry"))
@@ -248,7 +248,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, _} = Episodes.apply(EpisodeFixtures.accept_result())
     {:ok, _} = Episodes.apply(EpisodeFixtures.confirm_delivery())
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     receipt = Enum.find(detail.trace.steps, &(&1.id =~ ~r/^kernel-/ and &1.stage == "Delivery"))
     assert receipt.summary == "Delivery was confirmed."
     refute receipt.summary =~ "Slack"
@@ -260,7 +260,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   # were treated as the same identity.
   test "the source is resolved through the admitted input rather than the command hash" do
     {entry, episode} = admitted_input!()
-    assert {:ok, detail} = Projection.episode(episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
 
     assert detail.trace.source == %{
              href: "https://slack.com/archives/C456/p1788562304000100",
@@ -275,7 +275,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
   test "elapsed includes admission before the episode was created" do
     {_entry, episode} = admitted_input!()
-    assert {:ok, detail} = Projection.episode(episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
     metric = Enum.find(detail.trace.metrics, &(&1.label == "Elapsed"))
     assert metric.value == "2.3m"
   end
@@ -322,7 +322,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       set: [updated_at: DateTime.add(entry.occurred_at, 1_200)]
     )
 
-    assert {:ok, detail} = Projection.episode(episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.response_metrics.wall.milliseconds == 120_000
     assert detail.trace.response_metrics.messages == %{received: 1, sent: 1, total: 2}
     assert detail.trace.response_metrics.response.measured == 1
@@ -334,7 +334,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     {_entry, episode} = admitted_input!()
     {:ok, session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
-    {:ok, before} = Projection.episode(episode.key)
+    {:ok, before} = EpisodeProjection.fetch(episode.key)
 
     Repo.update_all(from(s in Ryker.Work.Session, where: s.id == ^session.id),
       set: [cleanup_status: :blocked, retained_reason: "Later cleanup failure"]
@@ -344,7 +344,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       set: [status: :blocked, lease_ref: nil, lease_owner: nil, lease_expires_at: nil]
     )
 
-    {:ok, after_update} = Projection.episode(episode.key)
+    {:ok, after_update} = EpisodeProjection.fetch(episode.key)
 
     earlier = fn trace ->
       Enum.filter(trace.steps, &(&1.band in [:input, :ready] and &1.stage != "Work setup"))
@@ -372,7 +372,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       # The Lab fallback validated this field, but the timeline's direct warning
       # path leaked retained text and crashed the whole page on JSON objects.
       {_entry, episode} = admitted_input!()
-      {:ok, detail} = Projection.episode(episode.key)
+      {:ok, detail} = EpisodeProjection.fetch(episode.key)
 
       record = %Ryker.Records.Record{
         id: Ecto.UUID.generate(),
@@ -413,7 +413,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       set: [content: %{"retention" => "pruned"}, operational_pruned_at: @received]
     )
 
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.case_file.expired_at == @received
   end
 
@@ -423,14 +423,14 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   # the page could not say the history was removed rather than never written.
   test "pruned episode history is reported as retention, not as an empty timeline" do
     {_entry, episode} = admitted_input!()
-    {:ok, before} = Projection.episode(episode.key)
+    {:ok, before} = EpisodeProjection.fetch(episode.key)
     assert before.trace.history.pruned_at == nil
 
     Repo.update_all(from(e in Ryker.Episodes.Episode, where: e.id == ^episode.id),
       set: [history_pruned_at: @received]
     )
 
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.history.pruned_at == @received
     assert detail.episode.history_pruned_at == @received
   end
@@ -460,7 +460,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       ]
     )
 
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     accepted = Enum.find(detail.trace.steps, &(&1.id == "turn-#{claim.turn.id}-accepted"))
     refute accepted.summary =~ "Unique reply body"
     refute Enum.any?(accepted.details, &(&1.label == "Reply preview"))
@@ -485,7 +485,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       ]
     )
 
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.case_file.title =~ "Traefik config reload frequency high"
     [message] = Enum.filter(detail.trace.case_file.conversation, &(&1.actor != "Ryker"))
     assert message.available
@@ -495,7 +495,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
   test "an input request addresses the episode it joined without a redirect" do
     {entry, episode} = admitted_input!()
-    {:ok, detail} = Projection.episode("ingress-input:#{entry.id}")
+    {:ok, detail} = EpisodeProjection.fetch("ingress-input:#{entry.id}")
     assert detail.episode.ref == episode.key
     assert {:ok, _} = ModelRequests.timeline("ingress-input:#{entry.id}", %{})
   end
@@ -510,7 +510,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     content = fixture["context"]["inputs"]["items"] |> hd() |> get_in(["content", "content"])
     {entry, episode} = admitted_input!()
     Repo.update_all(from(i in Entry, where: i.id == ^entry.id), set: [content: content])
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     [message] = Enum.filter(detail.trace.case_file.conversation, &(&1.actor != "Ryker"))
     assert message.text =~ "45,840 errors over 2.0h"
     refute message.text =~ "[no preview available]"
@@ -531,7 +531,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       set: [content: %{"text" => "<@U1> is checkout healthy?"}]
     )
 
-    assert {:ok, detail} = Projection.episode(episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.case_file.title == "@emisar is checkout healthy?"
   end
 
@@ -540,7 +540,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   # heading; until then the first message still is.
   test "the page is headed by the name Work gave the episode once it has one" do
     {_entry, episode} = admitted_input!()
-    assert {:ok, before} = Projection.episode(episode.key)
+    assert {:ok, before} = EpisodeProjection.fetch(episode.key)
     refute before.trace.case_file.title == "Investigate checkout health"
 
     {1, _} =
@@ -553,7 +553,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
         ]
       )
 
-    assert {:ok, detail} = Projection.episode(episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.case_file.title == "Investigate checkout health"
     # The label above the heading no longer claims it is the initial request.
     assert detail.trace.case_file.title_kind == :episode
@@ -568,7 +568,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
           %{"text" => "Check health", "payload" => %{"result" => "ready"}}
         ] do
       Repo.update_all(from(i in Entry, where: i.id == ^entry.id), set: [content: content])
-      assert {:ok, detail} = Projection.episode(episode.key)
+      assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
       assert detail.trace.case_file.title == "Check health"
     end
   end
@@ -639,7 +639,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       inserted_at: DateTime.add(DateTime.utc_now(), 1)
     })
 
-    assert {:ok, detail} = Projection.episode(episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.case_file.reply == "The first confirmed answer"
     assert detail.trace.case_file.reply_status == "Response sent"
     assert detail.trace.case_file.reply_request_id == claim.turn.id
@@ -664,7 +664,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
         })
 
       {:ok, _} = Inbox.record(input)
-      {:ok, detail} = Projection.episode(episode.key)
+      {:ok, detail} = EpisodeProjection.fetch(episode.key)
 
       assert detail.trace.case_file.title ==
                if(kind == :delete, do: "Message deleted", else: text)
@@ -711,7 +711,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       ]
     )
 
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     messages = Enum.reject(detail.trace.case_file.conversation, &(&1.actor == "Ryker"))
 
     assert [original, edited] = messages
@@ -747,7 +747,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       set: [status: :blocked, lease_ref: nil, lease_owner: nil, lease_expires_at: nil]
     )
 
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.stopped
     html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
 
@@ -771,7 +771,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       set: [status: :blocked, lease_ref: nil, lease_owner: nil, lease_expires_at: nil]
     )
 
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     timeline = "/timeline/" <> URI.encode(episode.key, &URI.char_unreserved?/1)
 
     assert [retry] =
@@ -791,7 +791,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       set: [content: %{"text" => text}]
     )
 
-    assert {:ok, detail} = Projection.episode(episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.case_file.title =~ "Investigate"
     refute detail.trace.case_file.title =~ "ghp_abcdefghijklmnopqrstuvwxyz"
     html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
@@ -817,7 +817,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   test "operator correction notes remain visible without becoming executable markup" do
     # Historical audit corrections must be discoverable without rewriting accepted model records.
     {_entry, episode} = admitted_input!()
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
 
     detail =
       put_in(detail, [:trace, :review, :reviews], [

@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.ActionsTest do
   use Ryker.DataCase, async: false
 
-  alias Ryker.ControlPlane.{Actions, Projection}
+  alias Ryker.ControlPlane.{Actions, EpisodeProjection}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -142,7 +142,7 @@ defmodule Ryker.ControlPlane.ActionsTest do
   end
 
   defp awaiting_review?(episode_key) do
-    {:ok, %{trace: trace}} = Projection.episode(episode_key)
+    {:ok, %{trace: trace}} = EpisodeProjection.fetch(episode_key)
     reviewable = Enum.any?(trace.actions, &(&1.label == "Mark ending reviewed"))
     assert reviewable == trace.review.awaiting
     reviewable

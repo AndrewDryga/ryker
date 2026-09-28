@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
@@ -214,7 +214,7 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     do: card |> LazyHTML.query(".participation-summary") |> LazyHTML.text() |> String.trim()
 
   defp rendered(episode) do
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
 
     render_component(&EpisodePage.render/1,

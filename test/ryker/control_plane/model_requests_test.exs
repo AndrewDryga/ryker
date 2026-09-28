@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   import Phoenix.LiveViewTest
   alias Ryker.Admission.Attempt
   alias Ryker.ControlPlane.ConversationLab
-  alias Ryker.ControlPlane.{EpisodePage, EpisodeRequest, Projection}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, EpisodeRequest}
   alias Ryker.ControlPlane.ModelRequests
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.{InputCustodyTransition, WorkProfile}
@@ -279,7 +279,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     assert timeline.truncated == false
     assert :not_found == ModelRequests.timeline("absent", %{})
 
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     html =
       render_component(&EpisodePage.render/1,
@@ -390,7 +390,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     assert Enum.map(result.run.segments, &{&1.kind, &1.ms}) == [prepare: 2_000, model: 60_000]
     assert result.run.total_ms == nil
 
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     html =
       render_component(&EpisodePage.render/1,
@@ -487,7 +487,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     first = Enum.find(timeline.items, &(&1.id == "admission-#{entry.id}-1-result"))
     assert first.retried_after == nil
 
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     html =
       render_component(&EpisodePage.render/1, snapshot: snapshot, timeline: timeline, params: %{})
@@ -537,7 +537,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     assert result = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}-result"))
     assert result.at == nil
     assert Enum.any?(result.sections, &(&1.artifact.text && &1.artifact.text =~ "rejected"))
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     html =
       render_component(&EpisodePage.render/1,
@@ -651,7 +651,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     assert bounded.call_history.more == 2
     refute Enum.any?(bounded.items, &missing_prompt?/1)
 
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     html =
       render_component(&EpisodePage.render/1,
@@ -741,7 +741,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
 
   defp timeline_html(episode) do
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     render_component(&EpisodePage.render/1,
       snapshot: snapshot,

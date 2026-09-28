@@ -90,48 +90,4 @@ defmodule Ryker.ControlPlane.Projection do
       workspaces: &WorkspaceProjection.list/1
     }
   end
-
-  defdelegate admission(ref), to: FailureProjection
-  defdelegate behavior(ref), to: BehaviorLibrary, as: :fetch
-  defdelegate channel(workspace_ref, channel_ref, params), to: ChannelDetail, as: :fetch
-  defdelegate channels(params), to: ChannelDirectory, as: :list
-  defdelegate delivery(ref), to: FailureProjection
-  defdelegate emisar(ref), to: FailureProjection
-  defdelegate episode(ref, params \\ %{}), to: EpisodeProjection, as: :fetch
-  defdelegate failures(params), to: FailureProjection, as: :list
-  defdelegate findings(params), to: FindingsProjection, as: :list
-  defdelegate incident(ref), to: IncidentProjection, as: :fetch
-  defdelegate incidents(params), to: IncidentProjection, as: :list
-
-  defdelegate lab_artifact(conversation_id, turn_id, artifact_ref),
-    to: ConversationProjection,
-    as: :artifact
-
-  defdelegate lab_changes(conversation_id, since, limit \\ ConversationProjection.page_size()),
-    to: ConversationProjection,
-    as: :changes
-
-  defdelegate lab_conversation(conversation_id), to: ConversationProjection, as: :fetch
-
-  defdelegate lab_history(conversation_id, cursor, limit \\ ConversationProjection.page_size()),
-    to: ConversationProjection,
-    as: :history
-
-  defdelegate lab_index(), to: ConversationProjection, as: :index
-  defdelegate learned(params \\ %{}), to: ConversationMemory, as: :project
-  defdelegate memory(params \\ %{}), to: MemoryProjection, as: :fetch
-  defdelegate operator_configuration(), to: ConfigurationProjection, as: :fetch
-  defdelegate overview(), to: OverviewProjection
-  defdelegate repositories(params), to: RepositoryProjection, as: :list
-  defdelegate repository(ref), to: RepositoryProjection, as: :fetch
-  defdelegate schedule(ref), to: ScheduleProjection, as: :fetch
-  defdelegate schedules(params), to: ScheduleProjection, as: :list
-  defdelegate slack_incident(ref), to: FailureProjection
-  defdelegate slack_interaction(ref), to: FailureProjection
-  defdelegate subscriptions(params), to: SubscriptionProjection, as: :list
-  defdelegate usage(params), to: UsageProjection, as: :page
-  defdelegate work(ref), to: FailureProjection
-  defdelegate workspace(ref), to: WorkspaceProjection, as: :fetch
-  defdelegate workspace_storage(), to: WorkspaceProjection, as: :storage
-  defdelegate workspaces(params), to: WorkspaceProjection, as: :list
 end

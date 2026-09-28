@@ -4,7 +4,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   import Ecto.Query
   alias Ryker.{Admission, Repo}
   alias Ryker.Admission.{Context, Decision, Prompt}
-  alias Ryker.ControlPlane.{ConversationMemory, LearnedPage, Projection}
+  alias Ryker.ControlPlane.{ConversationMemory, LearnedPage}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Ingress.Inbox
@@ -710,7 +710,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     # Inspection removes URL queries, but must preserve the readable linked summary.
     assert item.text == String.replace(@resolved["summary"], "?orgId=1", "")
 
-    topic = Projection.learned(%{"item" => item.id})
+    topic = ConversationMemory.project(%{"item" => item.id})
     html = topic |> LearnedPage.html("test-secret") |> IO.iodata_to_binary()
 
     # A topic is a page of its own, leading back to all topics above its title.
@@ -765,7 +765,12 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     params = %{"kind" => "knowledge", "item" => item.id, "history_page" => "2"}
     view = ConversationMemory.project(params)
     assert Enum.map(view.history, & &1.version) == [1]
-    html = Projection.learned(params) |> LearnedPage.html("test-secret") |> IO.iodata_to_binary()
+
+    html =
+      ConversationMemory.project(params)
+      |> LearnedPage.html("test-secret")
+      |> IO.iodata_to_binary()
+
     assert html =~ "Newer updates"
     assert html =~ "Page 2 of 2"
   end

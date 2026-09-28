@@ -17,7 +17,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Endpoint, EpisodePage, ModelRequests, Projection}
+  alias Ryker.ControlPlane.{Endpoint, EpisodePage, EpisodeProjection, ModelRequests, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Work.{Custody, Submission, Turn}
@@ -168,7 +168,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
   end
 
   defp rendered(episode, timeline) do
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
 
     render_component(&EpisodePage.render/1,
       snapshot: detail,

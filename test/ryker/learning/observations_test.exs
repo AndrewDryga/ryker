@@ -4,7 +4,7 @@ defmodule Ryker.Learning.ObservationsTest do
   import Ecto.Query
   alias Ryker.{Admission, CanonicalJSON, Repo}
   alias Ryker.Admission.{Context, Decision, Executor, Prompt}
-  alias Ryker.ControlPlane.{Components, ConversationMemory, LearnedPage, Projection}
+  alias Ryker.ControlPlane.{Components, ConversationMemory, LearnedPage}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Ingress.Inbox
@@ -55,7 +55,7 @@ defmodule Ryker.Learning.ObservationsTest do
     summary = summary!(LearningSources.for_entry(entry))
 
     view =
-      Projection.learned(%{
+      ConversationMemory.project(%{
         "kind" => "sources",
         "related_to" => "context:#{summary.id}"
       })
@@ -81,7 +81,7 @@ defmodule Ryker.Learning.ObservationsTest do
     summary = summary!(LearningSources.for_entry(entry))
 
     html =
-      Projection.learned(%{
+      ConversationMemory.project(%{
         "kind" => "sources",
         "related_to" => "context:#{summary.id}"
       })

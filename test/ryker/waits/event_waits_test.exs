@@ -3,7 +3,7 @@ defmodule Ryker.Waits.EventWaitsTest do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.Projection
+  alias Ryker.ControlPlane.SubscriptionProjection
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -273,7 +273,7 @@ defmodule Ryker.Waits.EventWaitsTest do
       assert fixture.subscription.matcher == %{}
 
       assert [%{trigger_type: trigger_type, source_kind: nil}] =
-               Projection.subscriptions(%{"q" => fixture.subscription.ref})
+               SubscriptionProjection.list(%{"q" => fixture.subscription.ref})
 
       assert trigger_type == unquote(timer_type)
       assert EventWaits.resume_due() == {:ok, :idle}

@@ -17,7 +17,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
-  alias Ryker.ControlPlane.{ConversationLab, Projection, TranscriptCursor}
+  alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, TranscriptCursor}
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -41,7 +41,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     history = long_history!()
 
     assert length(history.expected) == 232
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     assert length(conversation.messages) == @page_size
     assert conversation.history.exhausted == false
     assert is_binary(conversation.history.before)
@@ -65,9 +65,9 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
 
   test "page boundaries split exact timestamp ties without skipping or repeating" do
     history = long_history!()
-    assert {:ok, first} = Projection.lab_history(@conversation_id, nil, 50)
-    assert {:ok, second} = Projection.lab_history(@conversation_id, first.before, 50)
-    assert {:ok, third} = Projection.lab_history(@conversation_id, second.before, 50)
+    assert {:ok, first} = ConversationProjection.history(@conversation_id, nil, 50)
+    assert {:ok, second} = ConversationProjection.history(@conversation_id, first.before, 50)
+    assert {:ok, third} = ConversationProjection.history(@conversation_id, second.before, 50)
 
     # Four rows from three sources share one microsecond exactly where the
     # first page ends. The oldest two of them open the second page.
@@ -81,7 +81,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     refute Enum.any?(third.messages, &(&1.identity in tied))
 
     # A page cut at a tie cannot move because the cursor carries the tie-breaker.
-    assert {:ok, again} = Projection.lab_history(@conversation_id, first.before, 50)
+    assert {:ok, again} = ConversationProjection.history(@conversation_id, first.before, 50)
     assert Enum.map(again.messages, & &1.identity) == Enum.map(second.messages, & &1.identity)
   end
 
@@ -90,7 +90,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
 
     all =
       @conversation_id
-      |> Projection.lab_conversation()
+      |> ConversationProjection.fetch()
       |> elem(1)
       |> traverse!()
       |> Enum.reverse()
@@ -116,7 +116,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
 
     all =
       @conversation_id
-      |> Projection.lab_conversation()
+      |> ConversationProjection.fetch()
       |> elem(1)
       |> traverse!()
       |> Enum.reverse()
@@ -142,15 +142,17 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     # A conversation whose only message expired is not a new conversation.
     {:ok, %{entry: only}} = send!(@other_conversation_id, "Only message", 1)
     expire_input!(only)
-    assert {:ok, other} = Projection.lab_conversation(@other_conversation_id)
+    assert {:ok, other} = ConversationProjection.fetch(@other_conversation_id)
     assert [%{actor: :operator, retained: false}] = other.messages
     assert other.history.exhausted
   end
 
   test "arrivals after a page was cut do not shift the older page" do
     history = long_history!()
-    assert {:ok, first} = Projection.lab_history(@conversation_id, nil, 50)
-    assert {:ok, before_arrivals} = Projection.lab_history(@conversation_id, first.before, 50)
+    assert {:ok, first} = ConversationProjection.history(@conversation_id, nil, 50)
+
+    assert {:ok, before_arrivals} =
+             ConversationProjection.history(@conversation_id, first.before, 50)
 
     # Three newer messages land after the first page was cut, and one lands
     # with a commit timestamp older than the newest loaded rows.
@@ -158,12 +160,13 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     {:ok, %{entry: backdated}} = send!(@conversation_id, "Backdated arrival", 499)
     place_input!(backdated, history.backdated_position)
 
-    assert {:ok, after_arrivals} = Projection.lab_history(@conversation_id, first.before, 50)
+    assert {:ok, after_arrivals} =
+             ConversationProjection.history(@conversation_id, first.before, 50)
 
     assert Enum.map(after_arrivals.messages, & &1.identity) ==
              Enum.map(before_arrivals.messages, & &1.identity)
 
-    assert {:ok, latest} = Projection.lab_history(@conversation_id, nil, 50)
+    assert {:ok, latest} = ConversationProjection.history(@conversation_id, nil, 50)
     latest_identities = Enum.map(latest.messages, & &1.identity)
 
     assert Enum.take(latest_identities, -3) ==
@@ -182,10 +185,12 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
 
   test "each history page costs a bounded number of bounded queries" do
     long_history!()
-    assert {:ok, first} = Projection.lab_history(@conversation_id, nil, 50)
-    first_page = measure(fn -> Projection.lab_history(@conversation_id, nil, 50) end)
-    assert {:ok, third} = Projection.lab_history(@conversation_id, first.before, 50)
-    deep_page = measure(fn -> Projection.lab_history(@conversation_id, third.before, 50) end)
+    assert {:ok, first} = ConversationProjection.history(@conversation_id, nil, 50)
+    first_page = measure(fn -> ConversationProjection.history(@conversation_id, nil, 50) end)
+    assert {:ok, third} = ConversationProjection.history(@conversation_id, first.before, 50)
+
+    deep_page =
+      measure(fn -> ConversationProjection.history(@conversation_id, third.before, 50) end)
 
     # No query ever returns more than a page plus one row of lookahead, and a
     # deep page costs the same number of queries as the first one.
@@ -202,23 +207,24 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   test "a cursor from another conversation or a malformed cursor is refused" do
     long_history!()
     {:ok, %{entry: _other}} = send!(@other_conversation_id, "Other conversation", 1)
-    assert {:ok, first} = Projection.lab_history(@conversation_id, nil, 50)
+    assert {:ok, first} = ConversationProjection.history(@conversation_id, nil, 50)
 
-    assert Projection.lab_history(@other_conversation_id, first.before, 50) ==
+    assert ConversationProjection.history(@other_conversation_id, first.before, 50) ==
              {:error, :invalid_cursor}
 
-    assert Projection.lab_history(@conversation_id, "not-a-cursor", 50) ==
+    assert ConversationProjection.history(@conversation_id, "not-a-cursor", 50) ==
              {:error, :invalid_cursor}
 
-    assert Projection.lab_history(@conversation_id, "", 50) == {:error, :invalid_cursor}
-    assert Projection.lab_history(@conversation_id, 42, 50) == {:error, :invalid_cursor}
+    assert ConversationProjection.history(@conversation_id, "", 50) == {:error, :invalid_cursor}
+    assert ConversationProjection.history(@conversation_id, 42, 50) == {:error, :invalid_cursor}
 
     forged =
       Base.url_encode64(~s({"v":1,"c":"#{@conversation_id}","t":"soon","k":0,"i":"x"}),
         padding: false
       )
 
-    assert Projection.lab_history(@conversation_id, forged, 50) == {:error, :invalid_cursor}
+    assert ConversationProjection.history(@conversation_id, forged, 50) ==
+             {:error, :invalid_cursor}
 
     # A well-formed cursor whose microsecond no calendar can hold is refused
     # too. Decoding accepted any integer and the page then raised turning it
@@ -230,12 +236,12 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
           padding: false
         )
 
-      assert Projection.lab_history(@conversation_id, out_of_range, 50) ==
+      assert ConversationProjection.history(@conversation_id, out_of_range, 50) ==
                {:error, :invalid_cursor}
     end
 
-    assert Projection.lab_history("not-a-uuid", nil, 50) == :not_found
-    assert Projection.lab_history(Ecto.UUID.generate(), nil, 50) == :not_found
+    assert ConversationProjection.history("not-a-uuid", nil, 50) == :not_found
+    assert ConversationProjection.history(Ecto.UUID.generate(), nil, 50) == :not_found
 
     # The boundary names the oldest row on the page, tie-breaker included.
     assert {:ok, key} = TranscriptCursor.decode(first.before, @conversation_id)
@@ -251,11 +257,11 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     # so the projection can name every row changed since the last sync.
     history = long_history!()
     since = DateTime.utc_now()
-    assert {:ok, []} = Projection.lab_changes(@conversation_id, since)
+    assert {:ok, []} = ConversationProjection.changes(@conversation_id, since)
 
     all =
       @conversation_id
-      |> Projection.lab_conversation()
+      |> ConversationProjection.fetch()
       |> elem(1)
       |> traverse!()
       |> Enum.reverse()
@@ -276,7 +282,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
       ]
     )
 
-    assert {:ok, changed} = Projection.lab_changes(@conversation_id, since)
+    assert {:ok, changed} = ConversationProjection.changes(@conversation_id, since)
 
     assert Enum.map(changed, &{&1.identity, &1.text}) == [
              {history.edited_input, "Fourth wording"},
@@ -286,8 +292,8 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     assert changed == Enum.sort_by(changed, & &1.sort_key)
     assert Enum.find(changed, &(&1.identity == history.edited_input)).sort_key == edited.sort_key
 
-    assert Projection.lab_changes("not-a-uuid", since) == :not_found
-    assert Projection.lab_changes(@conversation_id, "yesterday") == :not_found
+    assert ConversationProjection.changes("not-a-uuid", since) == :not_found
+    assert ConversationProjection.changes(@conversation_id, "yesterday") == :not_found
   end
 
   test "processing state does not depend on which page is loaded" do
@@ -298,7 +304,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     turn = accepted_reply!(entry, @other_conversation_id)
     decide_all_inputs!(@other_conversation_id)
 
-    assert {:ok, settled} = Projection.lab_conversation(@other_conversation_id)
+    assert {:ok, settled} = ConversationProjection.fetch(@other_conversation_id)
     refute settled.live
     assert settled.pending == 0
 
@@ -308,7 +314,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     end
 
     pending_action!(turn, DateTime.add(@epoch, 5, :second), @other_conversation_id)
-    assert {:ok, live} = Projection.lab_conversation(@other_conversation_id)
+    assert {:ok, live} = ConversationProjection.fetch(@other_conversation_id)
     assert live.live
     assert length(live.messages) == @page_size
     refute Enum.any?(live.messages, &(&1.status == :pending))
@@ -323,7 +329,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
         {messages, :done}
 
       {:page, messages, %{before: cursor}} when is_binary(cursor) ->
-        assert {:ok, next} = Projection.lab_history(@conversation_id, cursor, @page_size)
+        assert {:ok, next} = ConversationProjection.history(@conversation_id, cursor, @page_size)
         {messages, {:page, next.messages, %{before: next.before, exhausted: next.exhausted}}}
     end)
     |> Enum.to_list()

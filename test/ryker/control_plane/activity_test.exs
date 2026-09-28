@@ -2,7 +2,17 @@ defmodule Ryker.ControlPlane.ActivityTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{Activity, ActivityPage, Projection, UsagePage}
+
+  alias Ryker.ControlPlane.{
+    Activity,
+    ActivityPage,
+    EpisodeProjection,
+    OverviewProjection,
+    UsagePage,
+    UsageProjection,
+    WorkspaceProjection
+  }
+
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Fixtures.SavedEntities
@@ -153,7 +163,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
       recorded_at: DateTime.utc_now()
     })
 
-    assert Projection.usage(%{}).totals.attempts == 1
+    assert UsageProjection.page(%{}).totals.attempts == 1
 
     for params <- [
           %{"usage_profile" => "emisar"},
@@ -217,7 +227,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     {:ok, _session} = Custody.pin_episode(episode.id, "label-test", String.duplicate("a", 64))
 
     # Direct conversation work has a worker session but no repository checkout.
-    assert Projection.workspaces(%{}) == []
+    assert WorkspaceProjection.list(%{}) == []
 
     # The native list shows source text; moving off the metadata-only listing
     # must retain HTML escaping and never surface credentials or raw artifacts.
@@ -370,7 +380,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
 
   test "Usage drill-downs retain shadow and all execution modes" do
     for mode <- ~w(shadow all) do
-      snapshot = Projection.usage(%{"mode" => mode})
+      snapshot = UsageProjection.page(%{"mode" => mode})
       measurements = %{attempts: 1, measured: 0, tokens: 0, costed: 0, cost_usd: nil}
 
       snapshot = %{
@@ -463,7 +473,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
       )
     end
 
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.case_file.title == "Request message 1"
     assert length(detail.trace.case_file.messages) == 20
     assert List.first(detail.trace.case_file.messages).text == "Request message 186"
@@ -680,7 +690,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     counts =
       render_component(&ActivityPage.render/1,
         activity: Activity.list(%{}),
-        overview: Projection.overview(),
+        overview: OverviewProjection.overview(),
         params: %{},
         path: "/activity",
         now: DateTime.utc_now(),

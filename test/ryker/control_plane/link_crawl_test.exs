@@ -17,6 +17,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   alias Ryker.ControlPlane.{
     Actions,
     Endpoint,
+    EpisodeProjection,
     InstructionSettings,
     ModelRequests,
     PageHelp,
@@ -96,7 +97,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
       Projection.callbacks()
       |> Map.merge(Map.drop(fixture.projection, [:lab_conversation, :lab_index, :lab_artifact]))
       |> Map.merge(%{
-        episode: fn _ref, params -> Projection.episode(episode.key, params) end,
+        episode: fn _ref, params -> EpisodeProjection.fetch(episode.key, params) end,
         model_timeline: fn _ref, params -> ModelRequests.timeline(episode.key, params) end
       })
 

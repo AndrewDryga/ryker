@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
   import Phoenix.LiveViewTest
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{EpisodePage, EpisodeRequest, ModelRequests, Projection}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, EpisodeRequest, ModelRequests}
   alias Ryker.InspectionRedactor
   alias Ryker.Work.{CandidateResponse, Custody, Submission, Turn}
 
@@ -106,7 +106,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
 
     {:ok, older} = ModelRequests.timeline(episode.key, params)
     assert Map.keys(validation(older, turn).responses) |> Enum.sort() == Enum.to_list(1..10)
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     html =
       render_component(&EpisodePage.render/1,
@@ -133,7 +133,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     # because response controls occupied the event grid's right-hand column.
     {episode, _turn, _bodies} = recorded_turn!(12)
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     document =
       render_component(&EpisodePage.render/1,
@@ -208,7 +208,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     # Historical custody has the latest exact body but no per-attempt archive.
     Repo.delete_all(from(r in CandidateResponse, where: r.turn_id == ^turn.id))
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     html =
       render_component(&EpisodePage.render/1,
@@ -434,7 +434,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
 
   defp timeline_html(episode) do
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     render_component(&EpisodePage.render/1,
       snapshot: snapshot,

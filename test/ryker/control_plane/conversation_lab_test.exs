@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Artifact
   alias Ryker.Behaviors.Behavior
-  alias Ryker.ControlPlane.{Actions, ConversationLab, HTML, Projection}
+  alias Ryker.ControlPlane.{Actions, ConversationLab, ConversationProjection, HTML}
   alias Ryker.ControlPlane.WorkChanges
   alias Ryker.Episodes
   alias Ryker.Fixtures.ChannelEnvironments
@@ -82,7 +82,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     {:ok, %{entry: entry}} =
       ConversationLab.send_message(@conversation_id, "Show admission progress", profile())
 
-    assert {:ok, queued} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, queued} = ConversationProjection.fetch(@conversation_id)
     assert [waiting] = queued.admission_progress
     assert waiting.phase == "Queued"
     assert waiting.href == "/timeline/ingress-input%3A#{entry.id}"
@@ -108,7 +108,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
         settings
       )
 
-    assert {:ok, running} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, running} = ConversationProjection.fetch(@conversation_id)
     assert [observed] = running.admission_progress
     assert observed.phase == "Working"
     assert observed.target == "recorded-target"
@@ -132,7 +132,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     assert {:ok, _rearmed} = Inbox.rearm(Inbox.ref(entry))
 
-    assert {:ok, snapshot} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, snapshot} = ConversationProjection.fetch(@conversation_id)
     assert [retried] = snapshot.admission_progress
     assert retried.elapsed_ms < 60_000
   end
@@ -146,7 +146,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                attachments: [%{data: "first", media_type: "text/plain", name: "note.txt"}]
              )
 
-    assert {:ok, queued} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, queued} = ConversationProjection.fetch(@conversation_id)
     assert [waiting] = queued.admission_progress
     assert waiting.title == "Incoming event"
   end
@@ -289,7 +289,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                receipt
              )
 
-    assert {:ok, before_confirmation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, before_confirmation} = ConversationProjection.fetch(@conversation_id)
     [offer_card] = before_confirmation.messages |> List.last() |> Map.fetch!(:cards)
     assert offer_card.label == "Local incident"
     assert offer_card.action == :open_incident
@@ -313,7 +313,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert confirmation.session.policy_digest == profile().policy_digest
     assert confirmation.session.repository_ref == nil
 
-    assert {:ok, after_confirmation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, after_confirmation} = ConversationProjection.fetch(@conversation_id)
     [incident_card] = after_confirmation.messages |> List.last() |> Map.fetch!(:cards)
     assert incident_card.label == "Local incident"
     assert incident_card.kind == "task"
@@ -422,7 +422,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                now: fn -> @now end
              )
 
-    assert {:ok, sent} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, sent} = ConversationProjection.fetch(@conversation_id)
     assert [message] = sent.messages
     assert message.input_id == original.id
     assert message.native_input_id == original.native_input_id
@@ -443,7 +443,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     assert edited.id != original.id
-    assert {:ok, revised} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, revised} = ConversationProjection.fetch(@conversation_id)
     assert [%{input_id: input_id, native_input_id: native_input_id}] = revised.messages
     assert input_id == edited.id
     assert native_input_id == original.native_input_id
@@ -469,14 +469,14 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                now: fn -> DateTime.add(@now, 1, :second) end
              )
 
-    assert {:ok, edited} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, edited} = ConversationProjection.fetch(@conversation_id)
     assert [%{actor: :operator} = message] = edited.messages
     assert message.text == "Corrected wording"
     assert message.event_kind == :edit
     assert message.item_id == @event_id
     assert message.editable == true
     assert Enum.all?(edited.admission_progress, &(&1.title == "Corrected wording"))
-    assert [%{message_count: 1, title: "Corrected wording"}] = Projection.lab_index()
+    assert [%{message_count: 1, title: "Corrected wording"}] = ConversationProjection.index()
 
     assert Enum.all?(
              Activity.list(%{}).items,
@@ -492,14 +492,14 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                now: fn -> DateTime.add(@now, 2, :second) end
              )
 
-    assert {:ok, deleted} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, deleted} = ConversationProjection.fetch(@conversation_id)
     assert [%{actor: :operator} = message] = deleted.messages
     assert message.text == "Message deleted"
     assert message.event_kind == :delete
     assert message.editable == false
     assert message.attachments == []
     assert Enum.all?(deleted.admission_progress, &(&1.title == "Message deleted"))
-    assert [%{message_count: 1, title: "Message deleted"}] = Projection.lab_index()
+    assert [%{message_count: 1, title: "Message deleted"}] = ConversationProjection.index()
 
     assert Enum.all?(
              Activity.list(%{}).items,
@@ -544,7 +544,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                "The older revision needs operator reconciliation."
              )
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     assert conversation.blocked
     assert conversation.live
     assert conversation.pending == 1
@@ -595,7 +595,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                now: fn -> DateTime.add(@now, 2, :second) end
              )
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
 
     assert [message] = conversation.messages
     assert message.text == "Please acknowledge the corrected request."
@@ -664,7 +664,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              {"status.json", ~s({"service":"emisar","healthy":true})}
            ]
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     assert [%{attachments: projected}] = conversation.messages
 
     assert Enum.map(projected, &Map.take(&1, [:bytes, :media_type, :name, :status])) == [
@@ -712,7 +712,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     assert {:ok, [%{data: ^audio}]} = Artifacts.fetch_many([file["artifact_ref"]])
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     assert [message] = conversation.messages
     shown = message |> HTML.lab_message_extras() |> IO.iodata_to_binary()
     assert shown =~ ~r{<dt>Transcript</dt>\s*<dd>Check the error rate on checkout</dd>}
@@ -986,9 +986,9 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                "validation-receipt:conversation-lab"
              )
 
-    assert [%{id: @conversation_id, message_count: 1}] = Projection.lab_index()
+    assert [%{id: @conversation_id, message_count: 1}] = ConversationProjection.index()
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     assert conversation.live
     assert conversation.pending == 1
 
@@ -1077,7 +1077,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     assert duplicate_reaction.status == :duplicate
 
-    assert {:ok, reacted_conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, reacted_conversation} = ConversationProjection.fetch(@conversation_id)
 
     assert [%{actor_ref: "control-plane:user:local-operator", emoji_name: "heart"}] =
              reacted_conversation.messages
@@ -1095,7 +1095,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     assert removed.event.payload["action"] == "remove"
-    assert {:ok, unreacted_conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, unreacted_conversation} = ConversationProjection.fetch(@conversation_id)
 
     assert [] ==
              unreacted_conversation.messages
@@ -1191,7 +1191,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              environment_ref: "production"
            } = confirmation.session
 
-    assert {:ok, updated_conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, updated_conversation} = ConversationProjection.fetch(@conversation_id)
     updated_ryker = Enum.find(updated_conversation.messages, &(&1.actor == :ryker))
 
     assert [task_status, _memory_offer, _schedule_offer, _preference_offer] =
@@ -1254,7 +1254,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     # QA, 2026-09-25: after "Schedule this" or "Remember this" the button went
     # away and nothing in the conversation said it had worked. Each confirmed
     # card now says what was saved, from the row its confirmation wrote.
-    assert {:ok, saved_conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, saved_conversation} = ConversationProjection.fetch(@conversation_id)
     saved_ryker = Enum.find(saved_conversation.messages, &(&1.actor == :ryker))
     assert [_task, memory_saved, schedule_saved, preference_saved] = saved_ryker.cards
 
@@ -1353,7 +1353,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
         %{coop_api: FakeWorkCoopAPI, coop_client: coop}
       )
 
-    assert {:ok, working_conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, working_conversation} = ConversationProjection.fetch(@conversation_id)
     working_ryker = Enum.find(working_conversation.messages, &(&1.actor == :ryker))
 
     assert [working_task, _memory_offer, _schedule_offer, _preference_offer] =
@@ -1505,7 +1505,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert stopping.turn.status == :cancel_pending
 
     refute inspect(conversation) =~ candidate
-    assert Projection.lab_conversation("not-a-uuid") == :not_found
+    assert ConversationProjection.fetch("not-a-uuid") == :not_found
   end
 
   test "blocked work stops live polling and tells the operator it needs attention" do
@@ -1569,7 +1569,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                cancellation_receipt
              )
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     assert conversation.blocked
     refute conversation.live
     assert [%{next_action: "operator_recovery", work_status: :blocked}] = conversation.episodes
@@ -1608,7 +1608,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                })
              )
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     assert conversation.live
     assert [%{next_action: "external_event", state: :waiting_for_event}] = conversation.episodes
   end
@@ -1628,13 +1628,15 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                )
     end)
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     assert length(conversation.messages) == 50
     assert List.last(conversation.messages).text == "Bounded transcript message 200"
     assert hd(conversation.messages).text == "Bounded transcript message 151"
     assert conversation.history.exhausted == false
 
-    assert {:ok, older} = Projection.lab_history(@conversation_id, conversation.history.before)
+    assert {:ok, older} =
+             ConversationProjection.history(@conversation_id, conversation.history.before)
+
     assert hd(older.messages).text == "Bounded transcript message 101"
     assert List.last(older.messages).text == "Bounded transcript message 150"
 
@@ -1642,7 +1644,8 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              Enum.reduce_while(1..10, older, fn _step, page ->
                if page.exhausted,
                  do: {:halt, {:ok, page}},
-                 else: {:cont, elem(Projection.lab_history(@conversation_id, page.before), 1)}
+                 else:
+                   {:cont, elem(ConversationProjection.history(@conversation_id, page.before), 1)}
              end)
 
     assert hd(oldest.messages).text == "Bounded transcript message 0"
@@ -1765,7 +1768,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     earlier = started.(:default)
     Repo.query!("DELETE FROM control_plane_conversations WHERE id = $1::text::uuid", [earlier])
 
-    listed = Map.new(Projection.lab_index(), &{&1.id, Map.fetch!(&1, :environment_ref)})
+    listed = Map.new(ConversationProjection.index(), &{&1.id, Map.fetch!(&1, :environment_ref)})
 
     assert Map.take(listed, [platform, staging, outside, earlier]) == %{
              platform => "platform",

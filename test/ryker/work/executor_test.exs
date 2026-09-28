@@ -6,7 +6,7 @@ defmodule Ryker.Work.ExecutorTest do
 
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Outputs
-  alias Ryker.ControlPlane.{FailureProjection, Projection}
+  alias Ryker.ControlPlane.{EpisodeProjection, FailureProjection}
   alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -919,7 +919,7 @@ defmodule Ryker.Work.ExecutorTest do
     |> Ecto.Changeset.change(last_error_detail: "{:coop_unavailable, :checkpoint_store}")
     |> Repo.update!()
 
-    assert {:ok, recovery} = Projection.work(claim.episode.key)
+    assert {:ok, recovery} = FailureProjection.work(claim.episode.key)
     assert recovery.action == nil
     assert recovery.work_recovery.next_step =~ "restore the work"
     assert {:error, :work_completed_workspace_recovery_required} = retry_inspected_work(claim)
@@ -963,13 +963,13 @@ defmodule Ryker.Work.ExecutorTest do
                "unavailable"
              )
 
-    assert {:ok, detail} = Projection.episode(claim.episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(claim.episode.key)
     assert detail.trace.stopped.headline == "The reply could not be delivered"
 
     assert detail.trace.stopped.href ==
              "/failures/delivery/" <> URI.encode_www_form(delivery.turn.delivery_ref)
 
-    assert :not_found = Projection.work(claim.episode.key)
+    assert :not_found = FailureProjection.work(claim.episode.key)
 
     assert {:ok, _} =
              FailureProjection.fetch("delivery", delivery.turn.delivery_ref)

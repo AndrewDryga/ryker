@@ -1,5 +1,5 @@
 defmodule Ryker.Work.ActivityTest do
-  alias Ryker.ControlPlane.{Projection, ToolCard}
+  alias Ryker.ControlPlane.{EpisodeProjection, ToolCard}
   use Ryker.DataCase, async: false
   import Phoenix.LiveViewTest
 
@@ -92,7 +92,7 @@ defmodule Ryker.Work.ActivityTest do
 
     Application.put_env(:ryker, :activity_path_test_secret, secret)
 
-    {:ok, detail} = Projection.episode(started.episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(started.episode.key)
     steps = Enum.filter(detail.trace.steps, &String.starts_with?(&1.id, "activity-"))
     assert length(steps) == 2
 
@@ -190,7 +190,7 @@ defmodule Ryker.Work.ActivityTest do
     assert last.payload["text"] =~ "[redacted]"
     refute last.payload["text"] =~ "opaque-configured-secret"
 
-    {:ok, detail} = Projection.episode(started.episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(started.episode.key)
     tool = Enum.find(detail.trace.steps, &(&1.stage == "Tool call" && &1.state == "failed"))
     refute Enum.any?(detail.trace.steps, &(&1.stage == "Tool call" && &1.state == "started"))
     assert tool.duration_ms == 1_000
@@ -221,7 +221,7 @@ defmodule Ryker.Work.ActivityTest do
                })
              ])
 
-    {:ok, detail} = Projection.episode(started.episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(started.episode.key)
     reads = Enum.filter(detail.trace.steps, &(&1.title == "Read file 'config.ex'"))
     assert [read] = reads
     assert Map.get(read, :path_context) == paths

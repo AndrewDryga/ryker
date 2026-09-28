@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   alias Ryker.ControlPlane.{
     Actions,
     Activity,
+    ChannelDetail,
     Endpoint,
     HTML,
     LearningActivity,
@@ -75,14 +76,14 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     refute page("/channels/T123/C999") =~ summary.ref
     refute page("/channels/T999/C456") =~ summary.ref
 
-    assert {:ok, view} = Projection.channel("T123", "C456", %{})
+    assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
     assert view.summaries.total == 1
     assert [%{ref: ref}] = view.summaries.items
     assert ref == summary.ref
 
-    assert {:ok, other_channel} = Projection.channel("T123", "C999", %{})
+    assert {:ok, other_channel} = ChannelDetail.fetch("T123", "C999", %{})
     assert other_channel.summaries.total == 0
-    assert {:ok, other_workspace} = Projection.channel("T999", "C456", %{})
+    assert {:ok, other_workspace} = ChannelDetail.fetch("T999", "C456", %{})
     assert other_workspace.summaries.total == 0
   end
 
@@ -106,15 +107,18 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
              "#{channel} external sharing"
     end
 
-    assert {:ok, %{channel: %{membership: public}}} = Projection.channel("T123", "CPUBLIC", %{})
+    assert {:ok, %{channel: %{membership: public}}} = ChannelDetail.fetch("T123", "CPUBLIC", %{})
     assert public.private == false and public.external_shared == false
-    assert {:ok, %{channel: %{membership: unknown}}} = Projection.channel("T123", "CUNKNOWN", %{})
+
+    assert {:ok, %{channel: %{membership: unknown}}} =
+             ChannelDetail.fetch("T123", "CUNKNOWN", %{})
+
     assert is_nil(unknown.private) and is_nil(unknown.external_shared)
   end
 
   test "the scope contract exposes raw and canonical refs side by side" do
     membership!("T123", "C456", private: false, external_shared: false)
-    assert {:ok, view} = Projection.channel("T123", "C456", %{})
+    assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
 
     assert %{
              workspace_ref: "T123",
@@ -161,7 +165,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       saved_at: @now
     )
 
-    assert {:ok, view} = Projection.channel("T123", "C456", %{})
+    assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
 
     assert %{
              status: :joined,
@@ -257,7 +261,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       left_at: DateTime.add(@now, 3_600, :second)
     )
 
-    assert {:ok, view} = Projection.channel("T123", "C456", %{})
+    assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
     assert is_nil(view.channel.configuration)
     assert is_nil(view.channel.incident_room)
     assert %{ref: nil, source: :default, repositories: []} = view.channel.environment
@@ -289,7 +293,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     room = incident_room!(source, "T123", "CINCIDENT")
     membership!("T123", "CINCIDENT", private: true, external_shared: false)
 
-    assert {:ok, view} = Projection.channel("T123", "CINCIDENT", %{})
+    assert {:ok, view} = ChannelDetail.fetch("T123", "CINCIDENT", %{})
     assert view.channel.kind == :incident_room
 
     assert %{
@@ -354,16 +358,16 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   end
 
   test "a channel nobody recorded is not found, and a broken read is unavailable rather than empty" do
-    assert Projection.channel("T123", "C456", %{}) == :not_found
-    assert Projection.channel(nil, nil, %{}) == :not_found
-    assert Projection.channel("T:123", "C456", %{}) == :not_found
-    assert Projection.channel("", "C456", %{}) == :not_found
+    assert ChannelDetail.fetch("T123", "C456", %{}) == :not_found
+    assert ChannelDetail.fetch(nil, nil, %{}) == :not_found
+    assert ChannelDetail.fetch("T:123", "C456", %{}) == :not_found
+    assert ChannelDetail.fetch("", "C456", %{}) == :not_found
     assert page_status("/channels/T123/C456") == 404
 
     membership!("T123", "C456", private: false, external_shared: false)
     # Transactional DDL: the sandbox rolls this back with the test.
     Repo.query!("DROP TABLE conversation_summaries CASCADE")
-    assert Projection.channel("T123", "C456", %{}) == {:error, :unavailable}
+    assert ChannelDetail.fetch("T123", "C456", %{}) == {:error, :unavailable}
   end
 
   test "loading the page changes nothing and calls nobody" do
@@ -463,7 +467,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       episodes!("slack:T123:C456", 201)
       episodes!("slack:T123:C999", 2)
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
       assert view.episodes.total == 201
       assert view.episodes.pages == 9
       assert length(view.episodes.items) == @page_size
@@ -611,8 +615,8 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
             {:guidance, "guidance_page", guidance_refs},
             {:memory, "memory_page", memory_refs}
           ] do
-        assert {:ok, first} = Projection.channel("T123", "C456", %{})
-        assert {:ok, second} = Projection.channel("T123", "C456", %{key => "2"})
+        assert {:ok, first} = ChannelDetail.fetch("T123", "C456", %{})
+        assert {:ok, second} = ChannelDetail.fetch("T123", "C456", %{key => "2"})
         first_page = Map.fetch!(first, section)
         second_page = Map.fetch!(second, section)
 
@@ -627,12 +631,12 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
         # Invalid and out-of-range pages resolve to a valid page, never to an
         # empty section.
         for value <- ["0", "-1", "two", "", "2.5", ["2"]] do
-          assert {:ok, view} = Projection.channel("T123", "C456", %{key => value})
+          assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{key => value})
           assert Map.fetch!(view, section).page == 1, "#{section} with #{inspect(value)}"
           assert length(Map.fetch!(view, section).items) == @page_size
         end
 
-        assert {:ok, past_end} = Projection.channel("T123", "C456", %{key => "40"})
+        assert {:ok, past_end} = ChannelDetail.fetch("T123", "C456", %{key => "40"})
         assert Map.fetch!(past_end, section).page == 2
         assert length(Map.fetch!(past_end, section).items) == 1
       end
@@ -646,7 +650,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       html = page("/channels/T123/C456?episode_page=2&summary_page=2&schedule_page=7&q=ignored")
 
       assert {:ok, view} =
-               Projection.channel("T123", "C456", %{
+               ChannelDetail.fetch("T123", "C456", %{
                  "episode_page" => "2",
                  "summary_page" => "2"
                })
@@ -685,11 +689,11 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     test "a row deleted between requests moves the reader to the last valid page, not to an empty one" do
       membership!("T123", "C456", private: false, external_shared: false)
       [first | _] = for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
-      assert {:ok, view} = Projection.channel("T123", "C456", %{"summary_page" => "2"})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{"summary_page" => "2"})
       assert view.summaries.page == 2
 
       Repo.delete_all(from(summary in ConversationSummary, where: summary.id == ^first.id))
-      assert {:ok, view} = Projection.channel("T123", "C456", %{"summary_page" => "2"})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{"summary_page" => "2"})
       assert %{page: 1, pages: 1, total: 25} = view.summaries
       assert length(view.summaries.items) == @page_size
 
@@ -739,7 +743,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
           source_dependencies: [%{"secret-dependency" => "must-not-render-dependency"}]
         )
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
       assert [item] = view.summaries.items
       assert item.ref == summary.ref
       assert item.title == "database"
@@ -800,7 +804,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
           retention: "pruned"
         )
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
       assert view.knowledge.total == 2
       titles = Enum.map(view.knowledge.items, & &1.title)
       assert "Keep draft-ai-suggestions" in titles
@@ -863,7 +867,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       batch!("slack:T123:C456", status: :no_change, completed_at: @now)
       batch!("slack:T123:C999", status: :deferred, error_code: "learning_judgment_deferred")
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
       assert %{needs_attention: 1, waiting: 0} = view.learning
 
       html = page("/channels/T123/C456")
@@ -873,7 +877,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       refute html =~ "must-not-render-lease"
       refute html =~ "must-not-render-policy"
 
-      assert {:ok, quiet} = Projection.channel("T123", "C999", %{})
+      assert {:ok, quiet} = ChannelDetail.fetch("T123", "C999", %{})
       assert quiet.learning.needs_attention == 1
     end
 
@@ -888,7 +892,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
         set: [summary_error_code: "no_sources"]
       )
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
       assert view.continuity == %{drafts: 1, handover_failures: 1}
       assert view.summaries.total == 0
 
@@ -905,7 +909,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert LazyHTML.text(section) =~ "Ryker has not learned anything here yet"
       refute html =~ "must-not-render-draft"
 
-      assert {:ok, quiet} = Projection.channel("T123", "C999", %{})
+      assert {:ok, quiet} = ChannelDetail.fetch("T123", "C999", %{})
       assert quiet.continuity == %{drafts: 1, handover_failures: 0}
     end
   end
@@ -931,7 +935,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       rule!(source, "Deleted", scope_ref: "slack:T123:C456", status: :deleted)
       expire!(rule!(source, "Expired", scope_ref: "slack:T123:C456"))
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
       assert view.rules.total == 2
       by_ref = Map.new(view.rules.items, &{&1.ref, &1})
       assert by_ref[active.ref].status == "active"
@@ -997,7 +1001,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
       expire!(preference!(source, "health_check_depth", "standard", scope_ref: "slack:T123:C456"))
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
 
       assert Enum.map(view.preferences.items, &{&1.ref, &1.scope}) == [
                {channel.ref, :conversation},
@@ -1040,7 +1044,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
         text: "must-not-render-personal"
       )
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
 
       assert Enum.map(view.guidance.items, & &1.scope) ==
                [:conversation, :conversation, :repository, :workspace]
@@ -1122,7 +1126,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
       expire!(memory!(source, "stale", "x", scope_kind: :workspace, scope_ref: "slack:T123"))
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
 
       assert Enum.map(view.memory.items, &{&1.ref, &1.scope}) == [
                {channel.ref, :conversation},
@@ -1176,7 +1180,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
         scope_ref: "ryker"
       )
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
       assert is_nil(view.scope.repository_ref)
       assert view.preferences.total == 0
       assert view.memory.total == 0
@@ -1211,10 +1215,10 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       )
 
       # A channel's usage opens on the same work as Usage and Activity.
-      assert {:ok, opened} = Projection.channel("T123", "C456", %{})
+      assert {:ok, opened} = ChannelDetail.fetch("T123", "C456", %{})
       assert %{window: "7d", mode: "live", executions: 2} = opened.usage
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{"mode" => "all"})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{"mode" => "all"})
 
       assert %{
                window: "7d",
@@ -1240,10 +1244,10 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert view.usage.usage_path ==
                "/usage?" <> URI.encode_query(%{"mode" => "all", "window" => "7d"})
 
-      assert {:ok, live} = Projection.channel("T123", "C456", %{"mode" => "live"})
+      assert {:ok, live} = ChannelDetail.fetch("T123", "C456", %{"mode" => "live"})
       assert %{executions: 2, measured: 1, costed: 1, mode: "live"} = live.usage
       assert URI.decode_query(URI.parse(live.usage.link).query)["mode"] == "live"
-      assert {:ok, shadow} = Projection.channel("T123", "C456", %{"mode" => "shadow"})
+      assert {:ok, shadow} = ChannelDetail.fetch("T123", "C456", %{"mode" => "shadow"})
       assert %{executions: 1, measured: 1, costed: 0, mode: "shadow"} = shadow.usage
 
       html = page("/channels/T123/C456?mode=all")
@@ -1275,7 +1279,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
         tokens: {0, 0, 0, 0}
       )
 
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
       assert %{executions: 1, measured: 1, costed: 0, input_tokens: 0, cost_usd: nil} = view.usage
       measured_zero = page("/channels/T123/C456") |> usage_text()
       assert measured_zero =~ "1 of 1 reported tokens"
@@ -1285,7 +1289,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
       Repo.delete_all(Execution)
       execution!("slack:T123:C456", recorded_at: DateTime.add(now, -1, :hour), tokens: nil)
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
       assert %{executions: 1, measured: 0, costed: 0} = view.usage
       missing = page("/channels/T123/C456") |> usage_text()
       assert missing =~ "0 of 1 reported tokens"
@@ -1312,7 +1316,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
             {"all", 4, "All time"},
             {"yesterday", 2, "Last 7 days"}
           ] do
-        assert {:ok, view} = Projection.channel("T123", "C456", %{"usage_window" => window})
+        assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{"usage_window" => window})
         assert view.usage.executions == expected, "#{window} counted #{view.usage.executions}"
 
         assert URI.decode_query(URI.parse(view.usage.link).query)["usage_window"] ==

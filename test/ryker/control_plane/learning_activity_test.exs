@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     ConversationMemory,
     CSRF,
     EpisodePage,
+    EpisodeProjection,
     FailureProjection,
     LearningActivity,
     LearningPage,
@@ -814,7 +815,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   defp timeline_card("/timeline/" <> rest) do
     [ref, anchor] = String.split(rest, "#")
     ref = URI.decode_www_form(ref)
-    {:ok, snapshot} = Projection.episode(ref)
+    {:ok, snapshot} = EpisodeProjection.fetch(ref)
     {:ok, timeline} = ModelRequests.timeline(ref, %{})
 
     card =

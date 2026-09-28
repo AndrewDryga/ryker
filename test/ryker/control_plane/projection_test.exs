@@ -8,13 +8,26 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
   alias Ryker.ControlPlane.{
     Activity,
+    BehaviorLibrary,
+    ChannelDetail,
+    ChannelDirectory,
+    ConfigurationProjection,
     EpisodePage,
+    EpisodeProjection,
     FailureProjection,
+    FindingsProjection,
+    IncidentProjection,
+    MemoryProjection,
+    OverviewProjection,
     Projection,
+    RepositoryProjection,
     RequestFilters,
+    ScheduleProjection,
+    SubscriptionProjection,
     UsagePage,
     UsageProjection,
-    WorkingCopiesPage
+    WorkingCopiesPage,
+    WorkspaceProjection
   }
 
   alias Ryker.CoopFleet.{Event, Placement, Worker}
@@ -102,7 +115,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         })
       )
 
-    {:ok, snapshot} = Projection.episode(applying.episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(applying.episode.key)
 
     assert Enum.map(snapshot.related_episodes.items, & &1.ref) == [
              planning.episode.key,
@@ -142,7 +155,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       set: [inserted_at: DateTime.add(DateTime.utc_now(), 1, :second)]
     )
 
-    assert %{progress: %{admission: queued}} = Projection.overview()
+    assert %{progress: %{admission: queued}} = OverviewProjection.overview()
     assert queued.queued == 1
     assert queued.admitting == 0
     assert is_integer(queued.oldest_active_ms) and queued.oldest_active_ms >= 0
@@ -151,7 +164,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert {:ok, %{entry: claimed}} = Inbox.claim_next("control:timing", claim_now, 30)
     assert claimed.id == entry.id
 
-    assert %{progress: %{admission: admitting}} = Projection.overview()
+    assert %{progress: %{admission: admitting}} = OverviewProjection.overview()
     assert admitting.queued == 0
     assert admitting.admitting == 1
   end
@@ -208,7 +221,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       ]
     )
 
-    overview = Projection.overview()
+    overview = OverviewProjection.overview()
     assert overview.counts.active == 2
     assert overview.counts.waiting == 2
     assert is_map(overview.fleet)
@@ -219,7 +232,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Enum.map(page.items, & &1.id) == [target.episode.id]
     assert page.pages == 1
 
-    assert {:ok, detail} = Projection.episode(target.episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(target.episode.key)
     assert detail.episode.ref == target.episode.key
     assert Enum.map(detail.events, & &1.summary) == ["input admitted", "input wait started"]
     # Getting ready always carries Participation, including its recorded or
@@ -346,7 +359,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       ]
     )
 
-    assert {:ok, detail} = Projection.episode(transition.episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(transition.episode.key)
 
     assert detail.trace.source == %{
              href: "https://github.com/acme/ryker/pull/42#issuecomment-9001",
@@ -394,7 +407,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         set: [content: %{"payload" => payload}, source_item_ref: source_item_ref]
       )
 
-      assert {:ok, linked} = Projection.episode(transition.episode.key)
+      assert {:ok, linked} = EpisodeProjection.fetch(transition.episode.key)
       assert linked.trace.source.href == expected
       refute inspect(linked.trace.source, limit: :infinity) =~ "secret"
     end
@@ -417,7 +430,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         ]
       )
 
-      assert {:ok, unlinked} = Projection.episode(transition.episode.key)
+      assert {:ok, unlinked} = EpisodeProjection.fetch(transition.episode.key)
       assert unlinked.trace.source == nil
     end
   end
@@ -437,7 +450,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       end)
     end)
 
-    %{rows: rows} = Projection.operator_configuration()
+    %{rows: rows} = ConfigurationProjection.fetch()
     assert %{key: "control_plane", value: "enabled", source: "durable settings"} in rows
     assert %{key: "emisar", value: "enabled", source: "durable settings"} in rows
     assert %{key: "retention", value: "enabled", source: "durable settings"} in rows
@@ -451,7 +464,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     measured = measured_turn!("measured", "claude:opus/high@work", now)
     unmeasured = measured_turn!("unmeasured", "codex:gpt-5.6-sol/xhigh@work", now, false)
 
-    snapshot = Projection.usage(%{"window" => "24h"})
+    snapshot = UsageProjection.page(%{"window" => "24h"})
 
     assert snapshot.window == "24h"
     assert snapshot.totals.attempts == 2
@@ -468,7 +481,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert snapshot.totals.average_provider_ms == 5_000
     assert snapshot.totals.average_host_ms == measured.usage_host_ms
 
-    assert {:ok, detail} = Projection.episode(episode_key!(measured.episode_id))
+    assert {:ok, detail} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
     prepared = Enum.find(detail.trace.steps, &(&1.title == "Run 1 queued"))
     prepared_details = Map.new(prepared.details, &{&1.label, &1.value})
 
@@ -484,7 +497,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert model_work.summary == nil
     assert model_work.details == []
 
-    assert {:ok, unmeasured_detail} = Projection.episode(episode_key!(unmeasured.episode_id))
+    assert {:ok, unmeasured_detail} = EpisodeProjection.fetch(episode_key!(unmeasured.episode_id))
     unmeasured_work = Enum.find(unmeasured_detail.trace.steps, &(&1.title == "Run 1 finished"))
     assert unmeasured_work.at == unmeasured.accepted_at
     assert unmeasured_work.duration_ms == nil
@@ -505,7 +518,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         set: [validation_history: history]
       )
 
-      {:ok, checked} = Projection.episode(episode_key!(measured.episode_id))
+      {:ok, checked} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
       validation = Enum.find(checked.trace.steps, &(&1.title == "Answer validated"))
       assert validation.band == band
     end
@@ -537,7 +550,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         ]
       )
 
-      assert {:ok, legacy_detail} = Projection.episode(episode_key!(measured.episode_id))
+      assert {:ok, legacy_detail} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
       validation = Enum.find(legacy_detail.trace.steps, &(&1.title == "Answer validated"))
       assert validation.details == []
     end
@@ -582,7 +595,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       set: [validation_history: validation_history]
     )
 
-    assert {:ok, validation_detail} = Projection.episode(episode_key!(measured.episode_id))
+    assert {:ok, validation_detail} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
     validation_steps = Enum.filter(validation_detail.trace.steps, &(&1.stage == "Validation"))
 
     # QA re-test, 2026-09-26: a rejected answer's step quoted the correction
@@ -604,7 +617,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         set: [usage_provider_ms: provider_ms]
       )
 
-      assert {:ok, duration_detail} = Projection.episode(episode_key!(measured.episode_id))
+      assert {:ok, duration_detail} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
       work_step = Enum.find(duration_detail.trace.steps, &(&1.title == "Run 1 finished"))
       work_details = Map.new(work_step.details, &{&1.label, &1.value})
       assert work_step.duration_ms == provider_ms
@@ -675,7 +688,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       set: [usage_cost_recorded: false, usage_cost_usd: nil]
     )
 
-    snapshot = Projection.usage(%{"window" => "24h"})
+    snapshot = UsageProjection.page(%{"window" => "24h"})
     assert snapshot.totals.costed == 1
     assert snapshot.totals.estimated == 1
     assert Decimal.equal?(snapshot.totals.cost_usd, Decimal.new("0.0125"))
@@ -709,7 +722,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       turn |> Ecto.Changeset.change(turn_ref: prefix <> turn.id) |> Repo.update!()
     end
 
-    snapshot = Projection.usage(%{"window" => "24h"})
+    snapshot = UsageProjection.page(%{"window" => "24h"})
 
     assert Enum.sort(Enum.map(snapshot.kinds, & &1.work_kind)) ==
              Enum.sort(Map.values(families))
@@ -777,7 +790,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     # A legacy execution with no retained sender must not invent a person either.
     measured_turn!("people-missing", "codex:gpt-5.6-sol/medium@emisar", now)
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
 
     assert Enum.sort(Enum.map(snapshot.users, &{&1.source, &1.actor, &1.attempts})) == [
              {"github", "andrew", 2},
@@ -842,7 +855,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     measured_turn!("profile-c", "codex:gpt-5.6-sol/medium@personal", now)
     measured_turn!("profile-unknown", "codex:gpt-5.6-sol/medium", now, false)
 
-    snapshot = Projection.usage(%{"window" => "24h"})
+    snapshot = UsageProjection.page(%{"window" => "24h"})
     assert snapshot.totals.tokens == 6_900
     assert snapshot.totals.requests == 4
     assert snapshot.totals.reasoning_tokens == 75
@@ -888,7 +901,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
   test "profile attribution never guesses a credential from an account ladder" do
     measured_turn!("profile-ladder", "codex:gpt-5.6-sol/medium@work,personal", DateTime.utc_now())
-    snapshot = Projection.usage(%{"window" => "24h"})
+    snapshot = UsageProjection.page(%{"window" => "24h"})
     assert [%{profile: nil, attempts: 1}] = snapshot.profiles
     assert Activity.list(%{"usage_profile" => %{"unexpected" => "nested query"}}).total == 0
     assert Activity.list(%{"usage_profile" => String.duplicate("x", 513)}).total == 0
@@ -932,7 +945,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         ],
         do: measured_turn!(suffix, target, now)
 
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
 
     assert Enum.sort(Enum.map(snapshot.models, &{Map.get(&1, :effort), &1.attempts})) ==
              [{nil, 1}, {"high", 1}, {"medium", 2}]
@@ -962,7 +975,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     end
 
     measured_turn!("slack-one", "codex:gpt-5.6-sol/medium", now)
-    snapshot = Projection.usage(%{"window" => "24h"})
+    snapshot = UsageProjection.page(%{"window" => "24h"})
 
     assert [%{attempts: 1, conversation_ref: "slack:T123:C456"}] =
              snapshot.channels
@@ -977,12 +990,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       set: [execution_mode: "shadow"]
     )
 
-    assert Projection.usage(%{}).totals.attempts == 0
-    assert Projection.usage(%{}).mode == "live"
-    assert Projection.usage(%{"mode" => "all"}).totals.attempts == 1
-    assert Projection.usage(%{"mode" => "live"}).totals.attempts == 0
-    assert Projection.usage(%{"mode" => "shadow"}).totals.attempts == 1
-    refute Map.has_key?(Projection.usage(%{}), :executions)
+    assert UsageProjection.page(%{}).totals.attempts == 0
+    assert UsageProjection.page(%{}).mode == "live"
+    assert UsageProjection.page(%{"mode" => "all"}).totals.attempts == 1
+    assert UsageProjection.page(%{"mode" => "live"}).totals.attempts == 0
+    assert UsageProjection.page(%{"mode" => "shadow"}).totals.attempts == 1
+    refute Map.has_key?(UsageProjection.page(%{}), :executions)
   end
 
   # Provider work still costs money when the host never accepts the answer.
@@ -1004,7 +1017,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       )
     end
 
-    snapshot = Projection.usage(%{"window" => "24h"})
+    snapshot = UsageProjection.page(%{"window" => "24h"})
     assert snapshot.totals.attempts == 2
     assert snapshot.totals.usage_measured == 2
     assert Decimal.equal?(snapshot.totals.cost_usd, Decimal.new("0.025"))
@@ -1045,7 +1058,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       set: [delivery_document: document]
     )
 
-    assert {:ok, pending} = Projection.episode(episode.key)
+    assert {:ok, pending} = EpisodeProjection.fetch(episode.key)
     assert queued = Enum.find(pending.trace.steps, &(&1.title == "Response queued for delivery"))
     refute Enum.any?(pending.trace.case_file.conversation, &(&1.actor == "Ryker"))
     # Retrying delivery must not rewrite or move the earlier queue event.
@@ -1057,7 +1070,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       ]
     )
 
-    assert {:ok, retried} = Projection.episode(episode.key)
+    assert {:ok, retried} = EpisodeProjection.fetch(episode.key)
     assert Enum.find(retried.trace.steps, &(&1.id == queued.id)) == queued
     accepted = Enum.find(pending.trace.steps, &(&1.title == "Run 1 answer accepted"))
     accepted_details = Map.new(accepted.details, &{&1.label, &1.value})
@@ -1093,7 +1106,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              )
 
     assert settled.turn.status == :settled
-    assert {:ok, delivered} = Projection.episode(episode.key)
+    assert {:ok, delivered} = EpisodeProjection.fetch(episode.key)
     assert Enum.find(delivered.trace.steps, &(&1.id == queued.id)) == queued
     assert Enum.any?(delivered.trace.steps, &(&1.title == "Delivery confirmed"))
 
@@ -1120,7 +1133,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       ]
     )
 
-    assert {:ok, detail} = Projection.episode(episode_key!(turn.episode_id))
+    assert {:ok, detail} = EpisodeProjection.fetch(episode_key!(turn.episode_id))
     assert candidate = Enum.find(detail.trace.steps, &(&1.title == "Response recorded"))
     assert candidate.tone == nil
     refute Enum.any?(detail.trace.steps, &(&1.title == "Answer validated"))
@@ -1163,7 +1176,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       set: [delivery_document: %{"delivery" => "reply", "message" => "A safe reply"}]
     )
 
-    assert {:ok, detail} = Projection.episode(episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.case_file.reply == "A safe reply"
   end
 
@@ -1186,7 +1199,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       "tool_call_id" => "tool:nomad"
     })
 
-    {:ok, before_completion} = Projection.episode(working.episode.key)
+    {:ok, before_completion} = EpisodeProjection.fetch(working.episode.key)
     started = Enum.find(before_completion.trace.steps, &(&1.stage == "Tool call"))
 
     record_activity!(working.episode.id, session.id, 3, "tool.completed", %{
@@ -1196,7 +1209,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     # A completed tool used to leave its earlier start card behind, so one call
     # appeared as two separate operations in the timeline.
-    {:ok, after_completion} = Projection.episode(working.episode.key)
+    {:ok, after_completion} = EpisodeProjection.fetch(working.episode.key)
     refute Enum.any?(after_completion.trace.steps, &(&1.id == started.id))
 
     completed_tools =
@@ -1335,9 +1348,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     # Repository-less conversation sessions are not repository checkouts and do
     # not belong on the Workspaces page.
-    assert [] = Projection.workspaces(%{})
+    assert [] = WorkspaceProjection.list(%{})
 
-    assert {:ok, detail} = Projection.episode(working.episode.key)
+    assert {:ok, detail} = EpisodeProjection.fetch(working.episode.key)
     assert Enum.flat_map(detail.trace.chapters, & &1.steps) == detail.trace.steps
 
     assert Enum.map(detail.trace.chapters, & &1.band) ==
@@ -1418,7 +1431,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                cancellation_receipt
              )
 
-    assert {:ok, blocked_detail} = Projection.episode(working.episode.key)
+    assert {:ok, blocked_detail} = EpisodeProjection.fetch(working.episode.key)
     assert blocked_detail.trace.stopped.headline == "The task stopped before it could finish"
     assert blocked_detail.episode.next_action == "operator recovery"
 
@@ -1489,7 +1502,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                })
              )
 
-    assert {:ok, transferred_detail} = Projection.episode(transferred.episode.key)
+    assert {:ok, transferred_detail} = EpisodeProjection.fetch(transferred.episode.key)
     assert Enum.any?(transferred_detail.trace.steps, &(&1.title == "Handed to a new run"))
 
     resumed = start_episode!("resumed")
@@ -1531,11 +1544,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                })
              )
 
-    assert {:ok, resumed_detail} = Projection.episode(resumed.episode.key)
+    assert {:ok, resumed_detail} = EpisodeProjection.fetch(resumed.episode.key)
     assert Enum.any?(resumed_detail.trace.steps, &(&1.title == "Picked up again after waiting"))
     refute inspect(resumed_detail.trace) =~ "Continue without exposing"
 
-    overview = Projection.overview()
+    overview = OverviewProjection.overview()
     assert overview.counts.blocked == 1
 
     assert %{kind: :blocked_work, ref: working_ref} =
@@ -1552,16 +1565,16 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert %{state: "complete", bucket: "done"} = listed_request(complete.episode.id)
     assert %{state: "cancelled", bucket: "done"} = listed_request(cancelled.episode.id)
 
-    assert {:ok, waiting_detail} = Projection.episode(waiting_event.episode.key)
+    assert {:ok, waiting_detail} = EpisodeProjection.fetch(waiting_event.episode.key)
     assert waiting_detail.trace.stopped.headline == "Waiting for an event"
 
-    assert {:ok, delivery_detail} = Projection.episode(delivery.episode.key)
+    assert {:ok, delivery_detail} = EpisodeProjection.fetch(delivery.episode.key)
     assert Enum.any?(delivery_detail.trace.steps, &(&1.title == "Answer accepted"))
 
-    assert {:ok, complete_detail} = Projection.episode(complete.episode.key)
+    assert {:ok, complete_detail} = EpisodeProjection.fetch(complete.episode.key)
     assert Enum.any?(complete_detail.trace.steps, &(&1.title == "Answer accepted"))
 
-    assert {:ok, cancelled_detail} = Projection.episode(cancelled.episode.key)
+    assert {:ok, cancelled_detail} = EpisodeProjection.fetch(cancelled.episode.key)
     assert cancelled_detail.trace.stopped.headline == "Request stopped"
 
     assert {:ok, _reaction} =
@@ -1582,7 +1595,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              )
 
     assert delivered.episode.state == :complete
-    assert {:ok, delivered_detail} = Projection.episode(delivery.episode.key)
+    assert {:ok, delivered_detail} = EpisodeProjection.fetch(delivery.episode.key)
     assert Enum.any?(delivered_detail.trace.steps, &(&1.title == "Delivery confirmed"))
     assert Enum.any?(delivered_detail.trace.steps, &(&1.title == "Reaction recorded"))
 
@@ -1599,7 +1612,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                 summary: "work_execution_blocked"
               }
             ]} =
-             Projection.failures(%{})
+             FailureProjection.list(%{})
 
     assert blocked_ref == working.episode.key
     assert attempt_count >= 1
@@ -1608,14 +1621,14 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert String.starts_with?(destination, "slack:T123:C456 / thread:")
 
     assert {:ok, %{action: :retry, ref: ^blocked_ref, status: :blocked}} =
-             Projection.work(blocked_ref)
+             FailureProjection.work(blocked_ref)
 
-    assert Projection.delivery(:invalid) == :not_found
-    assert Projection.delivery("missing") == :not_found
-    assert Projection.episode(:invalid) == :not_found
-    assert Projection.episode("missing") == :not_found
+    assert FailureProjection.delivery(:invalid) == :not_found
+    assert FailureProjection.delivery("missing") == :not_found
+    assert EpisodeProjection.fetch(:invalid) == :not_found
+    assert EpisodeProjection.fetch("missing") == :not_found
 
-    assert Projection.findings(%{}) == %{
+    assert FindingsProjection.list(%{}) == %{
              items: [],
              q: "",
              total: 0,
@@ -1667,30 +1680,30 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   end
 
   test "operator workbench projections stay bounded and explicit with no durable rows" do
-    assert Projection.incidents(%{}) == []
-    assert Projection.schedules(%{}) == []
-    assert Projection.channels(%{}) == []
-    assert Projection.repositories(%{}) == []
-    assert Projection.usage(%{"window" => "24h"}).performance == []
+    assert IncidentProjection.list(%{}) == []
+    assert ScheduleProjection.list(%{}) == []
+    assert ChannelDirectory.list(%{}) == []
+    assert RepositoryProjection.list(%{}) == []
+    assert UsageProjection.page(%{"window" => "24h"}).performance == []
 
-    assert Projection.incident("missing") == :not_found
-    assert Projection.schedule("missing") == :not_found
-    assert Projection.channel("T123", "C456", %{}) == :not_found
+    assert IncidentProjection.fetch("missing") == :not_found
+    assert ScheduleProjection.fetch("missing") == :not_found
+    assert ChannelDetail.fetch("T123", "C456", %{}) == :not_found
 
-    assert %{grants: grants, rows: rows, source: source} = Projection.operator_configuration()
+    assert %{grants: grants, rows: rows, source: source} = ConfigurationProjection.fetch()
     assert is_list(grants)
     assert is_list(rows)
     assert is_binary(source)
     refute inspect(%{grants: grants, rows: rows}) =~ "secret"
 
-    assert Projection.incidents(:invalid) == []
-    assert Projection.schedules(:invalid) == []
-    assert Projection.channels(:invalid) == []
-    assert Projection.repositories(:invalid) == []
-    assert Projection.usage(:invalid).performance == []
-    assert Projection.incident(nil) == :not_found
-    assert Projection.schedule(nil) == :not_found
-    assert Projection.channel(nil, nil, %{}) == :not_found
+    assert IncidentProjection.list(:invalid) == []
+    assert ScheduleProjection.list(:invalid) == []
+    assert ChannelDirectory.list(:invalid) == []
+    assert RepositoryProjection.list(:invalid) == []
+    assert UsageProjection.page(:invalid).performance == []
+    assert IncidentProjection.fetch(nil) == :not_found
+    assert ScheduleProjection.fetch(nil) == :not_found
+    assert ChannelDetail.fetch(nil, nil, %{}) == :not_found
   end
 
   test "operator workbench joins incidents schedules channels and repository freshness without payload leaks" do
@@ -2096,9 +2109,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                status: :blocked
              }
            ] =
-             Projection.incidents(%{"q" => "Operator incident", "status" => "blocked"})
+             IncidentProjection.list(%{"q" => "Operator incident", "status" => "blocked"})
 
-    assert {:ok, incident} = Projection.incident(room.ref)
+    assert {:ok, incident} = IncidentProjection.fetch(room.ref)
     assert incident.room.episode_ref == source.episode.key
     assert [%{kind: :observed_active}] = incident.lifecycle
     assert Enum.map(incident.records, & &1.ref) == [record.ref, followup_record.ref]
@@ -2116,9 +2129,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     refute inspect(incident) =~ "must-not-render-publication"
 
     assert [%{ref: "schedule:operator"}] =
-             Projection.schedules(%{"q" => "Operator", "status" => "active"})
+             ScheduleProjection.list(%{"q" => "Operator", "status" => "active"})
 
-    assert {:ok, schedule_detail} = Projection.schedule(schedule.ref)
+    assert {:ok, schedule_detail} = ScheduleProjection.fetch(schedule.ref)
 
     # The saved recurrence reaches the page as saved; the page words it.
     assert %{"every_seconds" => 3_600, "kind" => "interval"} = schedule_detail.schedule.recurrence
@@ -2137,7 +2150,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert episode_ref == source.episode.key
 
     assert [projected_subscription] =
-             Projection.subscriptions(%{"q" => "github", "view" => "current"})
+             SubscriptionProjection.list(%{"q" => "github", "view" => "current"})
 
     assert projected_subscription.ref == subscription.ref
     assert projected_subscription.episode_ref == source.episode.key
@@ -2148,7 +2161,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     refute inspect(projected_subscription) =~ "private-matcher-marker"
     refute inspect(projected_subscription) =~ "private-cursor-marker"
 
-    assert [%{ref: subscription_ref}] = Projection.subscriptions(:all)
+    assert [%{ref: subscription_ref}] = SubscriptionProjection.list(:all)
     assert subscription_ref == subscription.ref
 
     for {recurrence, once_local} <- [
@@ -2164,19 +2177,19 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       )
 
       assert {:ok, %{schedule: %{recurrence: ^recurrence, once_local: ^once_local}}} =
-               Projection.schedule(schedule.ref)
+               ScheduleProjection.fetch(schedule.ref)
     end
 
     assert [%{membership: :joined, private: true, environment_ref: "production"}] =
-             Projection.channels(%{"q" => "C456"})
+             ChannelDirectory.list(%{"q" => "C456"})
 
-    assert {:ok, channel} = Projection.channel("T123", "C456", %{})
+    assert {:ok, channel} = ChannelDetail.fetch("T123", "C456", %{})
     assert channel.channel.configuration.revision == configuration.revision
     assert channel.channel.membership.status == membership.status
     assert Enum.any?(channel.schedules.items, &(&1.ref == schedule.ref))
     assert Enum.any?(channel.episodes.items, &(&1.ref == source.episode.key))
 
-    assert {:ok, incident_channel} = Projection.channel("T123", "CINCIDENT", %{})
+    assert {:ok, incident_channel} = ChannelDetail.fetch("T123", "CINCIDENT", %{})
     assert incident_channel.channel.kind == :incident_room
     assert incident_channel.channel.incident_room.channel_state == :active
     assert incident_channel.channel.incident_room.private
@@ -2184,7 +2197,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     refute inspect(incident_channel) =~ "private-incident-marker"
 
     assert [%{ref: "ryker", freshness: receipt} = repository] =
-             Projection.repositories(%{"q" => "ryk"})
+             RepositoryProjection.list(%{"q" => "ryk"})
 
     assert repository.channels == 1
     assert repository.environments == ["Production"]
@@ -2202,10 +2215,10 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     # Read on its own for the questions its buttons ask, a repository is its
     # row in the list exactly; part of a ref finds nothing.
-    assert Projection.repository("ryker") == {:ok, repository}
-    assert Projection.repository("ryk") == :error
+    assert RepositoryProjection.fetch("ryker") == {:ok, repository}
+    assert RepositoryProjection.fetch("ryk") == :error
 
-    assert {:ok, episode_detail} = Projection.episode(source.episode.key)
+    assert {:ok, episode_detail} = EpisodeProjection.fetch(source.episode.key)
     # Completion/retry state used to rewrite cards at their original creation time.
     frozen_ids = [
       "incident-#{room.id}",
@@ -2232,7 +2245,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       set: [status: :blocked, attempt_count: 5, last_error_code: "later-error"]
     )
 
-    assert {:ok, later} = Projection.episode(source.episode.key)
+    assert {:ok, later} = EpisodeProjection.fetch(source.episode.key)
     assert Enum.filter(later.trace.steps, &(&1.id in frozen_ids)) == frozen
     # Freezing history must not hide a failure that the operator can act on now.
     assert %{state: "Blocked", error: "later-error", href: action_href} =
@@ -2324,7 +2337,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       set: [turn_ref: "ingress-turn:#{entry.id}", validation_generation: 2]
     )
 
-    assert %{window: "all", performance: [row]} = Projection.usage(%{"window" => "all"})
+    assert %{window: "all", performance: [row]} = UsageProjection.page(%{"window" => "all"})
     assert row.work_kind == "standard"
     assert row.provider == "codex"
     assert row.model == "gpt-5.6-sol"
@@ -2337,7 +2350,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       set: [validation_history: [%{"candidate_attempt" => 1, "verdict" => "reject"}]]
     )
 
-    assert [%{corrections: 1}] = Projection.usage(%{"window" => "all"}).performance
+    assert [%{corrections: 1}] = UsageProjection.page(%{"window" => "all"}).performance
     assert row.average_provider_ms == 5_000
     assert Decimal.equal?(row.cost_usd, Decimal.new("0.0125"))
 
@@ -2356,7 +2369,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     # Usage reads the frozen execution ledger, not a later mutation of the custody row.
     assert %{performance: [%{average_provider_ms: 5_000}], window: "7d"} =
-             Projection.usage(%{"window" => "7d"})
+             UsageProjection.page(%{"window" => "7d"})
   end
 
   test "effective configuration exposes provenance and grant names but never secrets or callbacks" do
@@ -2387,7 +2400,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       end)
     end)
 
-    snapshot = Projection.operator_configuration()
+    snapshot = ConfigurationProjection.fetch()
     # Effective values come from the applied settings, not from a file path an
     # operator could be pointed at.
     assert snapshot.source == "durable settings"
@@ -2465,7 +2478,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                })
              )
 
-    snapshot = Projection.memory()
+    snapshot = MemoryProjection.fetch()
     assert [memory] = Enum.filter(snapshot.memories, &(&1.ref == "memory:#{id}"))
     assert memory.value == "use [redacted] for the portal"
     assert memory.applicability == "prod"
@@ -2527,7 +2540,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       workspace_ref: "workspace-main"
     })
 
-    storage = Projection.workspace_storage()
+    storage = WorkspaceProjection.storage()
     measured = Enum.find(storage.workers, &(&1.id == "worker-measured"))
     silent = Enum.find(storage.workers, &(&1.id == "worker-silent"))
 
@@ -2582,7 +2595,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                "private session transport detail"
              )
 
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
 
     assert %{detail: detail, kind: "publication", ref: ref, summary: summary} =
              Enum.find(failures, &(&1.kind == "publication"))
@@ -2625,7 +2638,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                "private transport detail"
              )
 
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
 
     assert %{
              detail: detail,
@@ -2638,7 +2651,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert ref == session.external_ref
     assert detail =~ "stored diagnostic sha256:"
     refute detail =~ "private transport detail"
-    assert {:ok, workspace} = Projection.workspace(session.external_ref)
+    assert {:ok, workspace} = WorkspaceProjection.fetch(session.external_ref)
     assert workspace.action == :rearm
     assert workspace.status == :blocked
     assert workspace.summary == "coop_unavailable"
@@ -2647,7 +2660,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     refute Map.has_key?(workspace, :discard_plan_fingerprint)
     # A repository-less Chat cleanup failure remains inspectable from Failures,
     # but it is not presented as a repository checkout on Workspaces.
-    refute workspace in Projection.workspaces(%{})
+    refute workspace in WorkspaceProjection.list(%{})
 
     fixture = File.read!("testdata/control_plane/legacy_cleanup_failure.json") |> Jason.decode!()
 
@@ -2673,32 +2686,32 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert failure.closed_at == ~U[2026-09-02 13:56:40.115749Z]
     assert is_binary(failure.request_title)
     refute inspect(failure) =~ fixture["error_detail"]
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
     assert failure in failures
   end
 
   test "detail lookups and usage windows fail closed without leaking arbitrary references" do
     for callback <- [
-          &Projection.admission/1,
-          &Projection.behavior/1,
-          &Projection.delivery/1,
-          &Projection.incident/1,
-          &Projection.schedule/1,
-          &Projection.emisar/1,
-          &Projection.slack_incident/1,
-          &Projection.slack_interaction/1,
-          &Projection.work/1,
-          &Projection.workspace/1
+          &FailureProjection.admission/1,
+          &BehaviorLibrary.fetch/1,
+          &FailureProjection.delivery/1,
+          &IncidentProjection.fetch/1,
+          &ScheduleProjection.fetch/1,
+          &FailureProjection.emisar/1,
+          &FailureProjection.slack_incident/1,
+          &FailureProjection.slack_interaction/1,
+          &FailureProjection.work/1,
+          &WorkspaceProjection.fetch/1
         ] do
       assert callback.(:invalid) == :not_found
       assert callback.("missing-ref") == :not_found
     end
 
-    assert Projection.usage(%{}).window == "7d"
-    assert Projection.usage([]).window == "7d"
-    assert Projection.usage(%{"window" => "unknown"}).window == "7d"
-    assert Projection.usage(%{"window" => "30d"}).window == "30d"
-    assert Projection.usage(%{"window" => "all"}).window == "all"
+    assert UsageProjection.page(%{}).window == "7d"
+    assert UsageProjection.page([]).window == "7d"
+    assert UsageProjection.page(%{"window" => "unknown"}).window == "7d"
+    assert UsageProjection.page(%{"window" => "30d"}).window == "30d"
+    assert UsageProjection.page(%{"window" => "all"}).window == "all"
   end
 
   defp waiting_episode!(key, secret) do

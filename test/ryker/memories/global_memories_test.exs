@@ -2,7 +2,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
   use Ryker.DataCase, async: false
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{FactsPage, Projection}
+  alias Ryker.ControlPlane.{FactsPage, MemoryProjection}
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.AnswerMemory
@@ -99,7 +99,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
 
   test "the existing memory controls show the global value and applicability for inspection and forgetting" do
     entry = insert_fact!("Production portal", "portal-prod")
-    snapshot = Projection.memory()
+    snapshot = MemoryProjection.fetch()
     assert [item] = snapshot.memories
     assert item.ref == entry.ref
 

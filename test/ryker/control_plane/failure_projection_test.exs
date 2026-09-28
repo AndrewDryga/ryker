@@ -111,7 +111,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
                "private reaction diagnostic"
              )
 
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
     assert %{} = row = Enum.find(failures, &(&1.ref == claim.response.delivery_ref))
     assert row.kind == "delivery"
     assert row.destination == "slack:TBLOCKEDREACTION:C456 / 1787832000.000100"
@@ -199,7 +199,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
                "close refused"
              )
 
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
     assert %{} = row = Enum.find(failures, &(&1.ref == session.external_ref))
     assert row.kind == "retention"
     assert row.action == :rearm
@@ -269,7 +269,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
       )
       |> Repo.update!()
 
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
     refute Enum.any?(failures, &(&1.kind == "learning"))
 
     # Its worker confirmed the stop and every start is used: nothing moves it now.
@@ -282,7 +282,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
     batch |> Ecto.Changeset.change(error_code: "learning_retry_exhausted") |> Repo.update!()
 
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
     assert %{kind: "learning", action: nil} = row = Enum.find(failures, &(&1.ref == batch.id))
 
     explained = FailureExplanation.explain(row)
@@ -461,7 +461,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
     encoded = URI.encode(session.external_ref, &URI.char_unreserved?/1)
 
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
 
     assert %{worker: %{reporting: true, job_valid: false, free_slot: false}} =
              Enum.find(failures, &(&1.ref == session.external_ref))
@@ -546,7 +546,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
     encoded = URI.encode(work.episode.key, &URI.char_unreserved?/1)
 
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
 
     assert %{kind: "stopping", action: nil, worker: %{reporting: false}} =
              Enum.find(failures, &(&1.ref == work.episode.key and &1.kind == "stopping"))
@@ -587,7 +587,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
                receipt
              )
 
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
     refute Enum.any?(failures, &(&1.kind == "stopping"))
     assert FailureProjection.fetch("stopping", work.episode.key) == :not_found
   end

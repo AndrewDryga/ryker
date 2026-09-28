@@ -4,7 +4,7 @@ defmodule Ryker.Ingress.InboxTest do
   import Ecto.Query
 
   alias Ryker.Artifacts
-  alias Ryker.ControlPlane.Projection
+  alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
   alias Ryker.Ingress.WorkProfile
@@ -863,7 +863,7 @@ defmodule Ryker.Ingress.InboxTest do
              )
 
     assert {:ok, %{action: :rearm, ref: blocked_ref, status: :blocked}} =
-             Projection.admission(Inbox.ref(entry))
+             FailureProjection.admission(Inbox.ref(entry))
 
     assert blocked_ref == Inbox.ref(entry)
 

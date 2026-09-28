@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{ConversationLab, Endpoint, Projection}
+  alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, Endpoint, Projection}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Repo
@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
 
             if failures > 0,
               do: raise(DBConnection.ConnectionError, "history store unavailable"),
-              else: Projection.lab_history(conversation_id, cursor, limit)
+              else: ConversationProjection.history(conversation_id, cursor, limit)
           end,
           schedules: fn _params -> [] end,
           readiness: fn ->

@@ -13,7 +13,9 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     Actions,
     CapabilityTools,
     ConversationLab,
+    ConversationProjection,
     EpisodePage,
+    EpisodeProjection,
     HTML,
     LabControls,
     LabPage,
@@ -125,7 +127,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
         ]
       )
 
-      assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+      assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
       assert [%{cards: [card]}] = Enum.filter(conversation.messages, &(&1.actor == :ryker))
       assert card.ref == record.ref
       assert card.wait_warning =~ unquote(phrase)
@@ -263,7 +265,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert {:ok, {:delivered, :message, _second_delivery_ref}} =
              Ryker.Delivery.Dispatcher.run_once(delivery_options("second"))
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
 
     assert Enum.map(conversation.messages, &{&1.actor, &1.text}) == [
              {:operator, "Explain what the durable runtime knows about this request."},
@@ -272,7 +274,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              {:ryker, "The follow-up continued the same episode and Coop session."}
            ]
 
-    assert [%{id: @conversation_id, message_count: 2}] = Projection.lab_index()
+    assert [%{id: @conversation_id, message_count: 2}] = ConversationProjection.index()
     refute conversation.live
     assert conversation.pending == 0
 
@@ -341,7 +343,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert %RoutingResponse{status: :delivered} =
              Repo.get_by!(RoutingResponse, input_id: admitted.result.entry.id)
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     assert [message] = Enum.filter(conversation.messages, &(&1.actor == :operator))
 
     assert message.reactions == [
@@ -367,13 +369,13 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert admitted.result.entry.decision_action == :quick_reply
     assert admitted.result.episode == nil
 
-    assert {:ok, waiting} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, waiting} = ConversationProjection.fetch(@conversation_id)
     assert waiting.live
 
     assert {:ok, {:delivered, :routing, delivery_ref}} =
              Ryker.Delivery.Dispatcher.run_once(delivery_options("quick-reply", :routing))
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
 
     assert [
              %{actor: :operator, text: "hi"},
@@ -429,7 +431,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
 
     delivered =
       Enum.map(1..3, fn step ->
-        assert {:ok, waiting} = Projection.lab_conversation(@conversation_id)
+        assert {:ok, waiting} = ConversationProjection.fetch(@conversation_id)
         assert waiting.live
 
         assert {:ok, {:delivered, :routing, ref}} =
@@ -441,7 +443,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert {:ok, :idle} =
              Ryker.Delivery.Dispatcher.run_once(delivery_options("several-done", :routing))
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     [first_ref, second_ref, reaction_ref] = delivered
 
     assert [
@@ -516,7 +518,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert {:ok, {:delivered, :message, _delivery_ref}} =
              Ryker.Delivery.Dispatcher.run_once(delivery_options("artifact"))
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
 
     assert [%{attachments: [attachment]}] =
              Enum.filter(conversation.messages, &(&1.actor == :ryker))
@@ -526,7 +528,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert attachment.bytes == byte_size(data)
 
     assert {:ok, artifact} =
-             Projection.lab_artifact(@conversation_id, turn.id, artifact_ref)
+             ConversationProjection.artifact(@conversation_id, turn.id, artifact_ref)
 
     assert artifact.data == data
     assert artifact.sha256 == sha256
@@ -537,16 +539,19 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert generated.name == "generated-1.png"
 
     assert {:ok, %{data: ^unselected_data}} =
-             Projection.lab_artifact(@conversation_id, turn.id, unselected["id"])
+             ConversationProjection.artifact(@conversation_id, turn.id, unselected["id"])
 
-    assert Projection.lab_artifact(Ecto.UUID.generate(), turn.id, unselected["id"]) == :not_found
-
-    assert Projection.lab_artifact(Ecto.UUID.generate(), turn.id, artifact_ref) == :not_found
-
-    assert Projection.lab_artifact(@conversation_id, Ecto.UUID.generate(), artifact_ref) ==
+    assert ConversationProjection.artifact(Ecto.UUID.generate(), turn.id, unselected["id"]) ==
              :not_found
 
-    assert Projection.lab_artifact(@conversation_id, turn.id, "artifact_missing") == :not_found
+    assert ConversationProjection.artifact(Ecto.UUID.generate(), turn.id, artifact_ref) ==
+             :not_found
+
+    assert ConversationProjection.artifact(@conversation_id, Ecto.UUID.generate(), artifact_ref) ==
+             :not_found
+
+    assert ConversationProjection.artifact(@conversation_id, turn.id, "artifact_missing") ==
+             :not_found
   end
 
   test "Slack-compatible model actions stay local, render, and require the same host confirmation" do
@@ -683,7 +688,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert {:ok, {:delivered, :message, _delivery_ref}} =
              Ryker.Delivery.Dispatcher.run_once(delivery_options("capability-reply"))
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     [operator, ryker] = conversation.messages
 
     assert operator.reactions == [
@@ -701,7 +706,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert {:ok, {:delivered, :action, ^post_action_ref}} =
              Ryker.Delivery.Dispatcher.run_once(delivery_options("capability-post", :action))
 
-    assert {:ok, updated} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, updated} = ConversationProjection.fetch(@conversation_id)
 
     assert Enum.map(updated.messages, &{&1.actor, &1.text}) == [
              {:operator, "React to this, then offer a second local message for my confirmation."},
@@ -779,7 +784,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert {:ok, {:delivered, :message, _delivery_ref}} =
              Ryker.Delivery.Dispatcher.run_once(delivery_options("update-answer"))
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
 
     assert Enum.map(conversation.messages, &{&1.actor, &1.text}) ==
              [
@@ -787,7 +792,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
                | Enum.map(updates, &{:ryker, &1})
              ] ++ [{:ryker, answer}]
 
-    {:ok, detail} = Projection.episode(claim.episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(claim.episode.key)
     {:ok, timeline} = ModelRequests.timeline(claim.episode.key, %{})
 
     html =
@@ -875,7 +880,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert {:ok, %{"accepted" => true}} =
              WorkStateTools.validate_final(%{"candidate" => candidate}, binding)
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     assert [message] = Enum.filter(conversation.messages, &(&1.actor == :operator))
 
     assert message.reactions ==
@@ -926,7 +931,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
       ]
     )
 
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
 
     html =
@@ -1025,7 +1030,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     Repo.update_all(Record, set: [updated_at: hour_ago])
 
     since = DateTime.add(DateTime.utc_now(), -60, :second)
-    assert {:ok, changed} = Projection.lab_changes(@conversation_id, since)
+    assert {:ok, changed} = ConversationProjection.changes(@conversation_id, since)
 
     assert [%{text: @follow_up_reply}] =
              Enum.filter(changed, &(&1.actor == :ryker and &1[:answered_earlier]))
@@ -1050,7 +1055,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     [entry | _rest] =
       Repo.all(from(entry in Entry, order_by: entry.inserted_at))
 
-    {:ok, detail} = Projection.episode("ingress-input:" <> entry.id)
+    {:ok, detail} = EpisodeProjection.fetch("ingress-input:" <> entry.id)
     {:ok, timeline} = ModelRequests.timeline(detail.episode.ref, %{})
 
     # The real request, and every step the timeline can show that this one
@@ -1243,7 +1248,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     render_component(&LabPage.render/1,
       snapshot: snapshot,
       token: token,
-      items: Projection.lab_index(),
+      items: ConversationProjection.index(),
       messages: Enum.map(snapshot.messages, &{"lab-message-#{&1.ref}", &1}),
       history: %{before: nil, exhausted: true, failed: false, page_size: 50},
       announcement: "",
