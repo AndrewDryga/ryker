@@ -352,7 +352,8 @@ defmodule Ryker.Slack.TaskEndToEndTest do
            ]
 
     assert ready_card["publication"]["publication_ref"] == automatic_review.ref
-    assert ready_card["publication"]["controls"] == []
+    # While the check runs the change can only be dropped.
+    assert ready_card["publication"]["controls"] == ["discard"]
 
     publication = Repo.get!(Publication, automatic_review.id)
     assert publication.episode_id == task_episode.id

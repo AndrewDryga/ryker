@@ -443,7 +443,9 @@ defmodule Ryker.Publication.Custody do
   state. Update invalidates the prior review and queues a fresh one, including a
   review_pending phase whose own failure no retry can clear. Discard is terminal
   and preserves the prior review as operator evidence. Every action is fenced by
-  `recovery_generation`, and an active executor lease always wins.
+  `recovery_generation`, and an active executor lease wins over every action but
+  a discard of a review still running: a review changes nothing outside Ryker,
+  and each write its executor makes afterwards is fenced by the lease it lost.
   """
   @spec recover(String.t(), :retry | :update | :discard, pos_integer()) ::
           {:ok, %{previous: map(), publication: Publication.t()}} | {:error, term()}
@@ -465,7 +467,7 @@ defmodule Ryker.Publication.Custody do
         now = database_now!()
 
         with :ok <- recovery_generation(publication, expected_generation),
-             :ok <- no_live_recovery_lease(publication, now),
+             :ok <- no_live_recovery_lease(publication, action, now),
              {:ok, attributes} <- recovery_attributes(publication, action, now) do
           previous = recovery_snapshot(publication)
           recovered = update!(publication, attributes, now)
@@ -481,15 +483,23 @@ defmodule Ryker.Publication.Custody do
   defp recovery_generation(_publication, _expected),
     do: {:error, :publication_recovery_generation_stale}
 
-  defp no_live_recovery_lease(%Publication{lease_ref: nil}, _now), do: :ok
+  # Andrew, 2026-09-28: after "Review latest state" the card offered nothing for
+  # the minutes Coop checked. Any other running phase may be midway through a
+  # change on GitHub or Slack, and keeps its lease.
+  defp no_live_recovery_lease(%Publication{status: :review_pending}, :discard, _now), do: :ok
+  defp no_live_recovery_lease(%Publication{lease_ref: nil}, _action, _now), do: :ok
 
-  defp no_live_recovery_lease(%Publication{lease_expires_at: %DateTime{} = expires_at}, now) do
+  defp no_live_recovery_lease(
+         %Publication{lease_expires_at: %DateTime{} = expires_at},
+         _action,
+         now
+       ) do
     if DateTime.compare(expires_at, now) == :gt,
       do: {:error, :publication_recovery_lease_active},
       else: :ok
   end
 
-  defp no_live_recovery_lease(_publication, _now),
+  defp no_live_recovery_lease(_publication, _action, _now),
     do: {:error, :publication_recovery_lease_active}
 
   defp recovery_attributes(
@@ -629,7 +639,7 @@ defmodule Ryker.Publication.Custody do
          :discard,
          _now
        )
-       when status in [:reviewed, :blocked] do
+       when status in [:review_pending, :reviewed, :blocked] do
     {:ok, discard_attributes(generation)}
   end
 

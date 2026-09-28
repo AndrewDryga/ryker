@@ -690,9 +690,13 @@ defmodule Ryker.Slack.TaskCardProjection do
        when code in @publication_conflicts,
        do: ["discard"]
 
+  # A check takes minutes, and the card offered nothing while it ran (Andrew,
+  # 2026-09-28): a person can always drop a change that is being checked.
+  defp publication_controls(%Publication{status: :review_pending, last_error_code: code}),
+    do: if(is_binary(code), do: ["retry", "discard"], else: ["discard"])
+
   defp publication_controls(%Publication{status: status, last_error_code: code})
-       when status in [:review_pending, :review_ready, :publish_pending, :published_ready] and
-              is_binary(code),
+       when status in [:review_ready, :publish_pending, :published_ready] and is_binary(code),
        do: ["retry"]
 
   # A reviewed candidate only rests here when no task grant covers its draft,

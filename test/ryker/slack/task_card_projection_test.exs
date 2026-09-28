@@ -367,6 +367,41 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
              "the worker session holding these changes closed before they could be checked"
   end
 
+  # Andrew, 2026-09-28: "I clicked review latest state and now all actions are
+  # gone and I can't do anything with the task?" For the minutes Coop checked
+  # the change, the card offered no publication control at all.
+  test "a change being checked can still be discarded from its task card" do
+    %{episode: episode, publication: publication} =
+      PublicationFixture.review_requested!("discard-while-checking")
+
+    assert {:ok, _running} = PublicationCustody.claim_next("publication:discard-checking", 60)
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:discard-while-checking",
+      payload: %{
+        "title" => "Implement discard-while-checking",
+        "repository" => "ryker",
+        "prompt" => "Implement the change."
+      }
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+    card = projection.document["task_card"]["publication"]
+    assert card["status"] == "review_pending"
+    assert card["controls"] == ["discard"]
+    assert card["recovery_generation"] == publication.recovery_generation
+
+    assert {:ok, rendered} = Renderer.render(projection.document)
+    json = Jason.encode!(rendered)
+    assert json =~ "Checking the changes before creating a PR."
+    assert json =~ "ryker_task_discard_publication"
+  end
+
   test "a stopped task offers a resume bound to the turn it was rendered against" do
     # The card that offers Stop has to offer the way back, or stopping from
     # Slack means finishing from the control plane.

@@ -721,6 +721,39 @@ defmodule Ryker.Publication.CustodyTest do
              {:error, :publication_recovery_generation_stale}
   end
 
+  # Andrew, 2026-09-28: "I clicked review latest state and now all actions are gone and I can't
+  # do anything with the task?" Custody refused every recovery while the review held its lease,
+  # so for the minutes Coop checked, a person could not even drop the change. A review changes
+  # nothing outside Ryker, so a person's discard ends it; the review's every later write is
+  # fenced by the lease it lost, while retry and update still wait for it.
+  test "a person can discard a change while its review runs, and the review cannot write after" do
+    %{offer: offer, offer_receipt: receipt} = delivered_offer!("discard-running-review")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(offer, receipt))
+
+    assert {:ok, running} = PublicationCustody.claim_next("publication:discard-running", 60)
+
+    assert PublicationCustody.recover(publication.ref, :retry, 1) ==
+             {:error, :publication_recovery_lease_active}
+
+    assert {:ok, %{previous: %{"status" => "review_pending"}, publication: discarded}} =
+             PublicationCustody.recover(publication.ref, :discard, 1)
+
+    assert discarded.status == :discarded
+    assert discarded.recovery_generation == 2
+    assert discarded.lease_ref == nil
+    assert discarded.next_attempt_at == nil
+
+    assert PublicationCustody.renew(publication.ref, running.lease_ref, 60) ==
+             {:error, :publication_lease_lost}
+
+    assert PublicationCustody.freeze_review_revision(publication.ref, running.lease_ref, 7) ==
+             {:error, :publication_lease_lost}
+
+    assert Repo.get!(Publication, publication.id).status == :discarded
+  end
+
   # A review phase can fail permanently: reconciliation reads its operation on the placement that
   # owns it, and once that placement is replaced no retry can ever clear the error. Before this,
   # review_pending had no update or discard clause, so the publication deferred once a minute
