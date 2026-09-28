@@ -889,9 +889,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
     }
   ]
 
-  @spec sections() :: [map()]
-  def sections, do: @sections
-
   @doc "Fields grouped for a readable form while preserving their declared order."
   def field_groups(section) do
     section.fields
