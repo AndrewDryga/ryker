@@ -625,16 +625,17 @@ host rejects them for nonoperators before any repository or session mutation:
   conflicts with the latest base branch, or running the checks changed its files): nobody is asked
   to relay the review. The thread gets one line — `The repository's checks failed on the committed
   change. I'm fixing it now, attempt 1 of 3, and I'll check the new change when I'm done.` — and
-  the task's work continues in the same session with the review's causes (and the failed gate's own
-  output when Coop reports it) as a new turn; its next commit is reviewed like any other. While that
-  runs the card says `Fixing: the repository's checks failed · attempt 1 of 3`, reads as working
-  rather than action required, and offers only **Discard candidate**. Ryker tries three times per
-  publication; after that the refusal is delivered as below, and Action needed says `I tried to
-  fix it 3 times; the repository's checks still fail.` A fix round starts only when the task is at
-  rest: a refusal that lands while a person's own follow-up runs leaves that turn alone, since its
-  commit is reviewed afresh. A review refused only because the base branch or the working copy
-  moved, or the working copy was still in use, while it ran is checked again as it is, up to three
-  times, with nothing posted;
+  the task's work continues in the same session with the review's causes (and the failed gate's
+  complete output as a file, once Coop can serve it) as a new turn; its next commit is reviewed like
+  any other. While that runs the card says
+  `Fixing: the repository's checks failed · attempt 1 of 3`, reads as working rather than action
+  required, and offers only **Discard candidate**. Ryker tries three times per publication; after
+  that the refusal is delivered as below, and Action needed says
+  `I tried to fix it 3 times; the repository's checks still fail.` A fix round starts only when the
+  task is at rest: a refusal that lands while a person's own follow-up runs leaves that turn alone,
+  since its commit is reviewed afresh. A review refused only because the base branch or the working
+  copy moved, or the working copy was still in use, while it ran is checked again as it is, up to
+  three times, with nothing posted;
 - refused candidate that needs a person — a policy finding such as a possible credential (even
   beside failed checks), a change with no differences from its base, a repository with no checks
   or checks that could not start, a reason Ryker cannot read, or a fixable one after the three
