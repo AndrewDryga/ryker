@@ -61,10 +61,6 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  # What the button of a confirmed action does to the thing it names: these
-  # remove, delete or forget, so their question is in the danger tone.
-  @removals ~w(deleted discard forget merge)
-
   @doc """
   The question a confirmed action asks before it runs, for the live page to
   show in `Kit.confirm_modal/1` over the list it was asked from: the same
@@ -87,13 +83,13 @@ defmodule Ryker.ControlPlane.Router do
 
     with ["actions", kind, encoded, action] <- String.split(uri.path || "", "/", trim: true),
          {:ok, resource_ref} <- PathRef.decode(encoded),
-         {:ok, title, explanation, canonical_action} <-
+         {:ok, title, explanation, canonical_action, tone} <-
            confirmation(kind, resource_ref, action, options) do
       {:ok,
        %{
          title: title,
          text: explanation,
-         tone: if(action in @removals, do: :danger, else: :primary),
+         tone: tone,
          action: action_path(kind, resource_ref, action) <> back_query(back_param(uri.query)),
          token: CSRF.token(options.csrf_secret, canonical_action, resource_ref)
        }}
@@ -522,7 +518,7 @@ defmodule Ryker.ControlPlane.Router do
          options
        ) do
     with {:ok, resource_ref} <- PathRef.decode(resource_ref),
-         {:ok, title, explanation, canonical_action} <-
+         {:ok, title, explanation, canonical_action, _tone} <-
            confirmation(kind, resource_ref, action, options) do
       back = back(conn)
       path = action_path(kind, resource_ref, action) <> back_query(back)
@@ -550,7 +546,7 @@ defmodule Ryker.ControlPlane.Router do
          options
        ) do
     with {:ok, resource_ref} <- PathRef.decode(resource_ref),
-         {:ok, _title, _explanation, canonical_action} <-
+         {:ok, _title, _explanation, canonical_action, _tone} <-
            confirmation(kind, resource_ref, action, options),
          {:ok, token, conn} <- form_token(conn),
          true <- CSRF.valid?(options.csrf_secret, canonical_action, resource_ref, token),
@@ -702,6 +698,10 @@ defmodule Ryker.ControlPlane.Router do
   defp view_action(:handoff), do: :view_handoff
   defp view_action(:postmortem), do: :view_postmortem
 
+  # Each question: its title and sentence, the intent its token is bound to,
+  # and its tone, which each one says beside its words. A step that removes,
+  # deletes, drops or forgets what it names is asked in the danger tone; any
+  # other in the primary one.
   defp confirmation("memory", resource_ref, "forget", options) do
     snapshot = options.projection.memory.(%{})
 
@@ -713,7 +713,7 @@ defmodule Ryker.ControlPlane.Router do
         {:ok, "Forget #{memory.subject}?",
          "Ryker stops using this fact and erases what it saved. You can ask it to remember again later." <>
            forgetting_consequences(options.projection.forgetting.({:memory, resource_ref})),
-         "memory:forget"}
+         "memory:forget", :danger}
     end
   end
 
@@ -724,7 +724,7 @@ defmodule Ryker.ControlPlane.Router do
       {:ok, preview} ->
         {:ok, "Forget #{preview.title}?",
          "Ryker stops using this topic, erases what it learned, and never learns from the messages it came from again. The topic stays listed as forgotten." <>
-           forgetting_consequences({:ok, preview}), "knowledge:forget"}
+           forgetting_consequences({:ok, preview}), "knowledge:forget", :danger}
 
       :error ->
         {:error, :not_found}
@@ -738,7 +738,7 @@ defmodule Ryker.ControlPlane.Router do
       {:ok, %{status: :open} = finding} ->
         {:ok, "Forget “#{finding.what}”?",
          "Ryker stops using this finding: later requests no longer read it, and the investigation that reached it no longer counts on it. It stays in the investigation's history and is listed here as forgotten. You can't undo this.",
-         "finding:forget"}
+         "finding:forget", :danger}
 
       _unavailable ->
         {:error, :not_found}
@@ -750,7 +750,7 @@ defmodule Ryker.ControlPlane.Router do
       {:ok, %{status: :open, classification: "unexplained"} = finding} ->
         {:ok, "Mark “#{finding.what}” as explained?",
          "It stops counting as not explained yet, and Ryker stops bringing it up as an open question in later requests. It stays in the investigation's history. You can't undo this.",
-         "finding:mark-explained"}
+         "finding:mark-explained", :primary}
 
       _unavailable ->
         {:error, :not_found}
@@ -767,7 +767,7 @@ defmodule Ryker.ControlPlane.Router do
 
         {:ok, "Drop this learning batch?",
          "Ryker stops trying to learn from #{messages} in #{batch.conversation}. Nothing it already learned changes, and replies are unaffected. Its attempts and the model starts they used stay recorded. You can't undo this.",
-         "learning:drop:#{batch.budget_version}"}
+         "learning:drop:#{batch.budget_version}", :danger}
 
       _unavailable ->
         {:error, :not_found}
@@ -782,8 +782,8 @@ defmodule Ryker.ControlPlane.Router do
       %{"kind" => kind, "status" => "pending"} = review
       when action != "merge" or kind == "duplicate" ->
         subjects = Enum.map_join(review["entries"], ", ", & &1["subject"])
-        {title, explanation} = review_confirmation(action, kind, subjects)
-        {:ok, title, explanation, "memory-review:#{action}"}
+        {title, explanation, tone} = review_confirmation(action, kind, subjects)
+        {:ok, title, explanation, "memory-review:#{action}", tone}
 
       _missing_or_incompatible ->
         {:error, :not_found}
@@ -794,23 +794,26 @@ defmodule Ryker.ControlPlane.Router do
        when action in ["active", "disabled", "deleted"] do
     case options.projection.behavior.(resource_ref) do
       {:ok, %{status: status} = behavior} when status in ["active", "disabled"] ->
-        {verb, explanation} =
+        {verb, explanation, tone} =
           case action do
             "active" ->
               {"Resume",
-               "This saved instruction will apply again within its existing scope until it expires."}
+               "This saved instruction will apply again within its existing scope until it expires.",
+               :primary}
 
             "disabled" ->
               {"Pause",
-               "Future requests will not use this instruction. Work already started is unchanged. You can resume it later."}
+               "Future requests will not use this instruction. Work already started is unchanged. You can resume it later.",
+               :primary}
 
             "deleted" ->
               {"Delete",
-               "This instruction will no longer apply. Its history is retained. To use it again, ask Ryker to propose a new one."}
+               "This instruction will no longer apply. Its history is retained. To use it again, ask Ryker to propose a new one.",
+               :danger}
           end
 
         subject = BehaviorPage.subject(behavior)
-        {:ok, "#{verb} #{subject}?", explanation, "behavior:#{action}"}
+        {:ok, "#{verb} #{subject}?", explanation, "behavior:#{action}", tone}
 
       _unavailable ->
         {:error, :not_found}
@@ -823,7 +826,7 @@ defmodule Ryker.ControlPlane.Router do
       when status in [:active, :paused, :completed] ->
         {:ok, "Run #{schedule.title} now?",
          "Ryker starts one extra run now, in the same place as its scheduled runs. The regular schedule does not change.",
-         "schedule:run-now:#{schedule.revision}"}
+         "schedule:run-now:#{schedule.revision}", :primary}
 
       _unavailable ->
         {:error, :not_found}
@@ -834,21 +837,23 @@ defmodule Ryker.ControlPlane.Router do
        when action in ["active", "paused", "deleted"] do
     case options.projection.schedule.(resource_ref) do
       {:ok, %{schedule: %{status: status} = schedule}} when status in [:active, :paused] ->
-        {verb, explanation} =
+        {verb, explanation, tone} =
           case action do
             "paused" ->
               {"Pause",
-               "Ryker stops starting new runs until you resume it. A run that has already started keeps going."}
+               "Ryker stops starting new runs until you resume it. A run that has already started keeps going.",
+               :primary}
 
             "active" ->
-              {"Resume", "Ryker runs it again on its regular schedule."}
+              {"Resume", "Ryker runs it again on its regular schedule.", :primary}
 
             "deleted" ->
               {"Delete",
-               "Ryker stops running it for good. Its past runs stay listed. To run it again, ask Ryker for a new schedule."}
+               "Ryker stops running it for good. Its past runs stay listed. To run it again, ask Ryker for a new schedule.",
+               :danger}
           end
 
-        {:ok, "#{verb} #{schedule.title}?", explanation, "schedule:#{action}"}
+        {:ok, "#{verb} #{schedule.title}?", explanation, "schedule:#{action}", tone}
 
       _unavailable ->
         {:error, :not_found}
@@ -866,7 +871,7 @@ defmodule Ryker.ControlPlane.Router do
            options.projection.failure.(kind, resource_ref),
          {:ok, title, explanation} <- FailureExplanation.confirmation(row, action),
          {:ok, intent} <- failure_intent(row) do
-      {:ok, title, explanation, intent}
+      {:ok, title, explanation, intent, :primary}
     else
       _unavailable -> {:error, :not_found}
     end
@@ -878,7 +883,7 @@ defmodule Ryker.ControlPlane.Router do
         if Enum.any?(actions, &String.ends_with?(&1.href, "/resolve")) do
           {:ok, "Close this request as no longer needed?",
            "Ryker ends this request and stops waiting for an answer, an event or a retry. Its history stays here, and nothing is posted or changed anywhere else. You can't reopen it; to continue, ask again in the conversation.",
-           "episode:resolve"}
+           "episode:resolve", :primary}
         else
           {:error, :not_found}
         end
@@ -893,7 +898,7 @@ defmodule Ryker.ControlPlane.Router do
       {:ok, %{trace: %{review: %{awaiting: true}}}} ->
         {:ok, "Mark how this request ended as reviewed?",
          "Ryker notes that you read how this request ended and stops asking you to review it. Nothing else changes, and you can't unmark it. If the request ends again later, Ryker asks for a review again.",
-         "episode:review"}
+         "episode:review", :primary}
 
       _unavailable ->
         {:error, :not_found}
@@ -905,7 +910,7 @@ defmodule Ryker.ControlPlane.Router do
       {:ok, %{action: :discard_unmerged, status: :retained}} ->
         {:ok, "Delete this working copy and its unmerged commits?",
          "Ryker asks the worker to delete this working copy, including commits that were never merged anywhere. The worker checks the copy again first and keeps it if it has uncommitted changes. This can't be undone.",
-         "retention:discard_unmerged"}
+         "retention:discard_unmerged", :danger}
 
       _unavailable ->
         {:error, :not_found}
@@ -919,7 +924,7 @@ defmodule Ryker.ControlPlane.Router do
     with {:ok, item} <- options.projection.improvement_candidate.(resource_ref),
          true <- improvement_decidable?(action, item) do
       {title, explanation} = improvement_confirmation(action, item)
-      {:ok, title, explanation, "improvement:#{action}"}
+      {:ok, title, explanation, "improvement:#{action}", :primary}
     else
       _unavailable -> {:error, :not_found}
     end
@@ -1047,26 +1052,30 @@ defmodule Ryker.ControlPlane.Router do
   defp review_confirmation("keep", "duplicate", subjects),
     do:
       {"Keep these facts separate?",
-       "Ryker keeps #{subjects} as separate facts and stops asking about them."}
+       "Ryker keeps #{subjects} as separate facts and stops asking about them.", :primary}
 
   defp review_confirmation("keep", _kind, subjects),
     do:
       {"Keep #{subjects}?",
-       "Ryker keeps using this as it is and stops asking about it for now. Nothing is changed."}
+       "Ryker keeps using this as it is and stops asking about it for now. Nothing is changed.",
+       :primary}
 
   defp review_confirmation("merge", _kind, subjects),
     do:
       {"Merge these facts?",
-       "Ryker keeps the most recently changed of #{subjects} and forgets the other copies. This can't be undone."}
+       "Ryker keeps the most recently changed of #{subjects} and forgets the other copies. This can't be undone.",
+       :danger}
 
   defp review_confirmation("forget", _kind, subjects),
     do:
       {"Forget #{subjects}?",
-       "Ryker stops using this and erases what it saved. You can ask it to remember again later."}
+       "Ryker stops using this and erases what it saved. You can ask it to remember again later.",
+       :danger}
 
   defp review_confirmation("dismiss", _kind, subjects),
     do:
-      {"Stop reviewing #{subjects}?", "Nothing changes, and Ryker stops asking about it for now."}
+      {"Stop reviewing #{subjects}?", "Nothing changes, and Ryker stops asking about it for now.",
+       :primary}
 
   defp memory_review_action("keep"), do: :keep
   defp memory_review_action("merge"), do: :merge
