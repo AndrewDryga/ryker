@@ -12,7 +12,8 @@ defmodule Ryker.Emisar.Tools do
   decides what the key may do; Ryker adds no permission of its own.
 
   The key goes to Emisar in the authorization header and nowhere else. An
-  answer that carries it is withheld rather than shown to the model.
+  answer, a refusal or a tool list that carries it is withheld rather than
+  shown to the model.
 
   A tool Emisar does not mark read-only is a mutation. Ryker names each
   mutation's operation before sending it, so when the answer is lost the
@@ -64,20 +65,20 @@ defmodule Ryker.Emisar.Tools do
   def catalog(%{connection_ref: ref, rpc_url: url}) when is_binary(ref) and is_binary(url) do
     with {:ok, key} <- key(ref),
          {:ok, client} <- client(url, key, catalog_budget_ms()),
-         do: cached_catalog({ref, url, fingerprint(key)}, client)
+         do: cached_catalog({ref, url, fingerprint(key)}, client, key)
   end
 
   def catalog(_pin), do: {:error, :not_configured}
 
-  defp cached_catalog(cache_key, client) do
+  defp cached_catalog(cache_key, client, key) do
     case ToolCache.get(cache_key) do
       {:ok, answer} -> answer
-      :miss -> remember(cache_key, bounded_read(client))
+      :miss -> remember(cache_key, bounded_read(client, key))
     end
   end
 
-  defp bounded_read(client) do
-    task = Task.async(fn -> safe_read(client) end)
+  defp bounded_read(client, key) do
+    task = Task.async(fn -> safe_read(client, key) end)
 
     case Task.yield(task, catalog_budget_ms()) || Task.shutdown(task, :brutal_kill) do
       {:ok, answer} -> answer
@@ -87,8 +88,9 @@ defmodule Ryker.Emisar.Tools do
 
   # The read runs linked to the tool server's request: a raise in it must be
   # an unavailable Emisar, not a failed request.
-  defp safe_read(client) do
-    read_catalog(client)
+  defp safe_read(client, key) do
+    with {:ok, catalog} <- read_catalog(client),
+         do: withheld_or(catalog, key, {:ok, catalog}, {:error, :unavailable})
   rescue
     _error -> {:error, :unavailable}
   end
@@ -144,6 +146,9 @@ defmodule Ryker.Emisar.Tools do
        when code in [-32_600, -32_601, -32_602] and is_binary(message),
        do: withheld_or(message, key, {:error, {:rejected, String.slice(message, 0, 500)}})
 
+  defp call_answer({:error, {:turned_away, status}}, _key, _operation_id),
+    do: {:error, {:rejected, turned_away(status)}}
+
   defp call_answer({:error, :key_refused}, _key, _operation_id), do: {:error, :key_refused}
   defp call_answer({:error, :never_sent}, _key, _operation_id), do: {:error, :unavailable}
 
@@ -151,9 +156,13 @@ defmodule Ryker.Emisar.Tools do
   defp call_answer(_no_answer, _key, nil), do: {:error, :unavailable}
   defp call_answer(_no_answer, _key, operation_id), do: {:error, {:no_answer, operation_id}}
 
-  defp withheld_or(answer, key, result) do
-    if String.contains?(Jason.encode!(answer), key), do: {:error, :answer_withheld}, else: result
+  defp withheld_or(answer, key, result, withheld \\ {:error, :answer_withheld}) do
+    if String.contains?(Jason.encode!(answer), key), do: withheld, else: result
   end
+
+  defp turned_away(429), do: "too many requests (HTTP 429); wait a minute before trying again"
+  defp turned_away(413), do: "the request was too large (HTTP 413)"
+  defp turned_away(status), do: "HTTP #{status}"
 
   defp read_catalog(client) do
     with {:ok, %{"result" => %{} = initialized}} <-
@@ -215,6 +224,12 @@ defmodule Ryker.Emisar.Tools do
 
       {:ok, %{status: status}} when status in [401, 403] ->
         {:error, :key_refused}
+
+      # Turned away before Emisar ran anything: too many requests, no such
+      # address, too large. Only a server error or a lost connection may come
+      # after a mutation ran.
+      {:ok, %{status: status}} when status in 400..499 ->
+        {:error, {:turned_away, status}}
 
       {:ok, _response} ->
         {:error, :no_answer}
