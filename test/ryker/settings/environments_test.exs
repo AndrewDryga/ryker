@@ -338,12 +338,10 @@ defmodule Ryker.Settings.EnvironmentsTest do
     end
   end
 
-  # Any repository of an environment may be the one a task changes, and then
-  # every other one is mounted read-only beside it under its own name. Coop
-  # cannot mount a repository named "primary" or one over 48 characters that
-  # way, so an environment with several repositories refuses such a name in
-  # any position. The first pass exempted the first repository, which
-  # environments with a choice would then have been unable to mount.
+  # Any writable repository may be the one a task changes, and every other
+  # repository is mounted read-only beside it. Coop cannot mount one named
+  # "primary" or over 48 characters that way; a sole writable default with
+  # read-only companions never needs to be mounted as a companion itself.
   test "every repository of a shared environment can be mounted beside the one a task changes",
        %{snapshot: snapshot} do
     long = String.duplicate("r", 49)
@@ -377,6 +375,22 @@ defmodule Ryker.Settings.EnvironmentsTest do
       {:ok, _deleted} =
         Settings.delete_environment("solo", Settings.fetch!().installation.revision, @actor)
     end
+
+    # The long working repository never becomes a companion when the other
+    # repository is read-only, so its name does not need the mount-name limit.
+    assert {:ok, saved} =
+             Settings.put_environment(
+               %{
+                 ref: "reference",
+                 display_name: "Reference",
+                 repositories: [long, "payments"],
+                 access: %{"payments" => :read_only}
+               },
+               Settings.fetch!().installation.revision,
+               @actor
+             )
+
+    assert Environment.writable_refs(hd(saved.environments)) == [long]
 
     assert Settings.fetch!().installation.revision > snapshot.installation.revision
   end

@@ -130,15 +130,15 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
     "I work in the *#{escape(name)}* environment here: I can #{uses(repositories, emisar)}."
   end
 
-  # Work can use every repository of its environment; a task changes the one
-  # it needs.
+  # Work can read every repository; only read/write ones can be changed.
   defp uses([repository], emisar),
     do: "work on #{repository_link(repository)}" <> if(emisar, do: " and use Emisar", else: "")
 
   defp uses(repositories, emisar),
     do:
       "work on #{repositories |> Enum.map(&repository_link/1) |> join_names()}, " <>
-        "changing whichever one a task needs" <> if(emisar, do: ", and use Emisar", else: "")
+        "changing only ones with read/write access" <>
+        if(emisar, do: ", and use Emisar", else: "")
 
   # The control that opens the setup Q&A, named as the welcome shows it.
   defp configure_label(%{"participation" => %{"source" => "incident_room"}}),

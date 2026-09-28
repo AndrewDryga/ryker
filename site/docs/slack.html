@@ -181,7 +181,7 @@
 
     <p>When someone explicitly asks for a change to code, the reply can carry a <strong>Start task</strong> button. Any active full member of the workspace can press it. Nothing writable exists until then.</p>
 
-    <p>The task runs in an isolated working copy, in the same Slack thread, inside the conversation’s environment. It changes one of the environment’s repositories, the one the task names, and reads the others without changing them. A conversation with no environment has no repository a task could change. Later replies in the thread continue the task without a mention; messages elsewhere in the channel stay out of it.</p>
+    <p>The task runs in an isolated working copy, in the same Slack thread, inside the conversation’s environment. It changes one repository with read/write access, the one the task names, and reads the others without changing them. A conversation with no environment has no repository a task could change. Later replies in the thread continue the task without a mention; messages elsewhere in the channel stay out of it.</p>
 
     <p>The task card lists its stages: Workspace setup, Planning, Implementation, Self-review and checks, Draft PR, CI, and Review and merge. When the changes are ready, Ryker checks them on its own: it compares them with the current repository, rebases, runs your configured checks, and says whether the result is ready for review.</p>
 
@@ -199,7 +199,7 @@
 
     <p>While a request is in progress, Slack’s own status line says where it stands in plain words (queued, deciding how to respond, working, preparing the response) until it is answered, settled silently, handed off, or stopped. When Ryker needs a decision from you, it asks with buttons: up to five choices as buttons, six to ten as a list with <strong>Submit answer</strong>. A typed reply works too.</p>
 
-    <p>You can attach up to four files to a message, 8 MiB in all: screenshots (PNG, JPEG, WebP, GIF), text, Markdown, CSV, JSON, YAML, or PDF. Ryker checks each file’s type and size before the model sees it, and refuses content it cannot verify rather than guessing.</p>
+    <p>You can attach up to two files to a message, 8 MiB in all: screenshots (PNG, JPEG, WebP, GIF), text, Markdown, CSV, JSON, YAML, or PDF. Ryker checks each file’s type and size before the model sees it, and refuses content it cannot verify rather than guessing.</p>
 
     <p>Replies use Slack’s Markdown, with headings, lists, tables and code blocks. Buttons, mentions and approval links are always Ryker’s own, never the model’s. A reply is one message; posting somewhere else as well needs the requester to confirm it.</p>
 

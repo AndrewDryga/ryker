@@ -18,8 +18,8 @@
 #      daemon keep running and are never rebuilt here;
 #   5. wait, from the host's side, for /healthz, /readyz and the exact
 #      x-ryker-version header, and only then pin the new version in
-#      compose.env — a failed deploy leaves the previous version pinned and
-#      prints the container's log tail instead;
+#      compose.env — a failed deploy prints the container's log tail, stops
+#      the unverified replacement and leaves the previous version pinned;
 #   6. remove the worktree whatever happened, and say what is running.
 #
 # PostgreSQL custody resumes pending admission, Work, delivery, schedule and
@@ -167,8 +167,14 @@ report_failure() {
   echo "--- docker compose logs --tail 60 ryker ---" >&2
   "${compose[@]}" logs --no-color --tail 60 ryker >&2 2>/dev/null || true
   echo "--- end of logs ---" >&2
-  echo "deploy: $env_file still pins ${previous_version:-nothing}; scripts/compose.sh start recreates the container from it," >&2
-  echo "deploy: and $backup holds the database from before this deploy (scripts/compose.sh restore) in case the new release migrated it" >&2
+  if "${compose[@]}" stop ryker >/dev/null; then
+    echo "deploy: stopped the unverified ryker container" >&2
+  else
+    echo "deploy: could not confirm the unverified ryker container is stopped; inspect Docker before restarting" >&2
+  fi
+  echo "deploy: $env_file still pins ${previous_version:-nothing}; inspect migrations before restarting that image" >&2
+  echo "deploy: if the new release migrated the database, restore $backup with scripts/compose.sh restore" >&2
+  echo "deploy: otherwise scripts/compose.sh start recreates the previously pinned container" >&2
   exit 1
 }
 

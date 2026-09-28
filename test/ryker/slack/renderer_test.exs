@@ -264,7 +264,7 @@ defmodule Ryker.Slack.RendererTest do
     text = Jason.encode!(rendered)
 
     assert text =~
-             "I work in the *Production* environment here: I can work on <https://github.com/acme/backend|backend> and `infrastructure`, changing whichever one a task needs."
+             "I work in the *Production* environment here: I can work on <https://github.com/acme/backend|backend> and `infrastructure`, changing only ones with read/write access."
 
     assert text =~ "I'll reply when you mention <@UBOT>"
     assert text =~ "When an alert is posted here, I'll investigate proactively in its thread"
@@ -345,7 +345,7 @@ defmodule Ryker.Slack.RendererTest do
     production = settings_document()["environment"]
 
     assert welcome.(%{production | "emisar" => true}, 2) =~
-             "I can work on <https://github.com/acme/backend|backend> and `infrastructure`, changing whichever one a task needs, and use Emisar."
+             "I can work on <https://github.com/acme/backend|backend> and `infrastructure`, changing only ones with read/write access, and use Emisar."
 
     single = %{production | "repositories" => [hd(production["repositories"])]}
 
@@ -538,7 +538,7 @@ defmodule Ryker.Slack.RendererTest do
     [explanation, actions] = rendered["blocks"]
 
     assert explanation["text"]["text"] =~
-             "*Production* — I'll work on `ryker` and `docs`, changing whichever one a task needs, and use Emisar."
+             "*Production* — I'll work on `ryker` and `docs`, changing only ones with read/write access, and use Emisar."
 
     assert explanation["text"]["text"] =~
              "*No environment* — I'll still answer here, but without any repos or Emisar."

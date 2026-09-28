@@ -229,12 +229,11 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   defp environment_sentence(%{"repositories" => [repository], "emisar" => emisar}),
     do: "I'll work on #{code(repository)}#{if emisar, do: " and use Emisar"}."
 
-  # Work can use every repository of the environment; a task changes the one
-  # it needs.
+  # Work can read every repository; only read/write ones can be changed.
   defp environment_sentence(%{"repositories" => repositories, "emisar" => emisar}),
     do:
       "I'll work on #{repositories |> Enum.map(&code/1) |> names()}, " <>
-        "changing whichever one a task needs#{if emisar, do: ", and use Emisar"}."
+        "changing only ones with read/write access#{if emisar, do: ", and use Emisar"}."
 
   defp code(ref), do: "`#{escape(ref)}`"
 

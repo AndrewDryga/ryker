@@ -109,8 +109,9 @@ into `.ryker/backups/pre-deploy-<time>.tar.gz`, and replaces only the `ryker` co
 `docker compose up --detach --no-build --wait --no-deps ryker` (migrations run when the container
 boots), waits from the host's side for `/healthz`, `/readyz` and the exact `x-ryker-version`
 header, and only then pins the new version in `.ryker/compose.env`. On failure it prints the
-container's log tail and leaves the previous version pinned, so `scripts/compose.sh start`
-returns to it (restore the pre-deploy backup first if the new release migrated). PostgreSQL
+container's log tail, stops the unverified replacement and leaves the previous version pinned.
+Check whether the failed release migrated the database before restarting the previous image;
+restore the pre-deploy backup first if it did. PostgreSQL
 custody resumes pending admission, Work, delivery, schedule, and remote-worker state after the
 normal one-writer restart; there is no canary/promote deployment state. The worktree is removed
 whatever happens, and the script ends by saying what is running and how long it took.

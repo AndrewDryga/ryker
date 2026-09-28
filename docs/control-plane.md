@@ -783,7 +783,8 @@ episode.
   networking and limits. Digests are derived, never typed. Each session freezes
   those settings before placement; later edits do not repoint it. Workers are
   eligible by capability and capacity, not advertised policy names. An environment
-  configures each kind of work once per repository, since its work may change any of them
+  configures each kind of work once per read/write repository, since read-only repositories
+  are available only as companions
 - Saved revision and running revision as two separate facts, with the reason a
   saved revision could not be applied
 - Which deployment credentials are configured, missing or unusable — presence

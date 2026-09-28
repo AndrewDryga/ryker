@@ -561,6 +561,12 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert {:ok, profile} = WorkProfile.new(attributes)
     assert profile.environment_ref == "production"
     assert profile.repositories == ["ryker", "docs"]
+    assert WorkProfile.repository_refs(profile) == ["ryker"]
+    assert WorkProfile.read_only_refs(profile) == ["docs"]
+
+    assert {:error, {:invalid_work_profile, :repository_ref}} =
+             WorkProfile.policy_for(profile, :standard, "docs")
+
     assert profile.parallel_goal_limit == 2
 
     assert {:ok, %{name: "incident-investigate", repository_context: @source_context}} =
@@ -1431,7 +1437,8 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              shadow: %{source: :incident_room, value: false}
            }
 
-    # Every repository the room froze runs under the room's own policy.
+    # Only the working repository runs under the incident policy; the frozen
+    # companion stays readable without becoming a writable task target.
     incident = %{policy: "incident-investigate", policy_digest: @policy_digest}
     classes = %{conversational: incident, deep: incident, standard: incident}
 
@@ -1440,7 +1447,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
               %{
                 environment_ref: "production",
                 parallel_goal_limit: 2,
-                policies: %{"docs" => classes, "ryker" => classes},
+                policies: %{"ryker" => classes},
                 policy: "incident-investigate",
                 policy_digest: @policy_digest,
                 repositories: ["ryker", "docs"],

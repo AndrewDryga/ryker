@@ -143,13 +143,13 @@
 
     <ul>
       <li>It refuses a dirty tree, and a commit that is not <code>main</code>’s unless you pass <code>--allow-not-main</code> on purpose.</li>
-      <li>It backs the database up into <code>.ryker/backups/</code> before anything changes.</li>
       <li>It builds the image from a clean copy of the commit, so nothing git does not know about reaches it.</li>
+      <li>After the build succeeds, it backs the database up into <code>.ryker/backups/</code> before replacing the container.</li>
       <li>It replaces only the <code>ryker</code> container. PostgreSQL, the bundled worker and its Docker daemon keep running.</li>
       <li>Only once health, readiness and the exact version check out does it pin the new version in <code>.ryker/compose.env</code>.</li>
     </ul>
 
-    <p>If the new version fails, the script prints the container’s last log lines and leaves the previous version pinned, so <code>scripts/compose.sh start</code> returns to it. Restore the pre-deploy backup first if the new version had already migrated the database.</p>
+    <p>If the new version fails, the script prints the container’s last log lines, stops the unverified replacement and leaves the previous version pinned. Check whether the failed release migrated the database before starting the previous image; restore the pre-deploy backup first if it did.</p>
 
     <h2 id="backup">Backup and restore</h2>
 
