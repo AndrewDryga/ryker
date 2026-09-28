@@ -156,6 +156,10 @@ defmodule Ryker.Work.DispatcherTest do
       # retrying reconciles that same command once the worker polls again.
       {:coop_worker_command_timeout, "3b0c6f7e-8f1e-4d53-9c1f-2f4f0d7f9a11"},
       {:coop_transport_error, :closed},
+      # A repository fetch that stalled past its deadline, or a mirror still
+      # held by another fetch, blocked the turn for an operator (2026-09-28
+      # review); the next attempt fetches again.
+      :coop_worker_source_unavailable,
       {:coop_error, 429, "rate_limited", "try later"},
       {:coop_error, 503, "unavailable", "try later"}
     ]
