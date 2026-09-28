@@ -2,9 +2,10 @@
 
 Docker Compose is the supported Ryker deployment. The canonical project contains PostgreSQL and
 the immutable Ryker image, stores their data in named volumes, and keeps installation roots in the
-owner-only `.ryker/compose.env` file. Do not copy Slack, GitHub, Emisar, model-provider, or webhook
-credentials into that file; configure integrations in the local setup UI, where Ryker encrypts
-them in PostgreSQL.
+owner-only `.ryker/compose.env` file. Do not copy Slack, GitHub, Emisar, or webhook credentials
+into that file; configure those integrations in the local setup UI, where Ryker encrypts them in
+PostgreSQL. Sign the Coop worker in to its model account during install or with
+`scripts/compose.sh model-login`; that sign-in stays in the worker's private volume.
 
 PostgreSQL is the durable authority for ingress, episodes, Work, delivery, waits, schedules,
 approvals, publication, worker placement and retention. Restarting containers recovers that
