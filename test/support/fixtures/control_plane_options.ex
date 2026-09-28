@@ -84,8 +84,8 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {:retried_work, ref})
           {:ok, %{key: ref}}
         end,
-        review_episode: fn ref ->
-          send(parent, {:reviewed_episode, ref})
+        rate_episode: fn ref, rating ->
+          send(parent, {:rated_episode, ref, rating})
           {:ok, %{key: ref}}
         end,
         act_on_lab_record: fn conversation_id, record_ref, action, choice_index ->
@@ -351,11 +351,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                      href: "/actions/episode/episode%3Aone/resolve",
                      label: "Close as no longer needed",
                      tone: :danger
-                   },
-                   %{
-                     href: "/actions/episode/episode%3Aone/review",
-                     label: "Mark ending reviewed",
-                     tone: :secondary
                    }
                  ],
                  chapters: [
@@ -392,7 +387,13 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                    }
                  ],
                  next_action: "continue work",
-                 review: %{awaiting: true, current: false, reviews: []},
+                 rating: %{
+                   awaiting: true,
+                   good:
+                     "/actions/episode/episode%3Aone/rate-good?back=%2Ftimeline%2Fepisode%253Aone",
+                   needs_work:
+                     "/actions/episode/episode%3Aone/rate-needs-work?back=%2Ftimeline%2Fepisode%253Aone"
+                 },
                  source: %{
                    href: "https://slack.com/archives/C456/p1787832000001000",
                    label: "Open in Slack",

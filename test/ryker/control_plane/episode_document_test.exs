@@ -1268,8 +1268,11 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.query(document, ".episode-location .ui-status") |> LazyHTML.text() ==
              "Completed"
 
-    assert LazyHTML.query(document, ".episode-title-actions button") |> LazyHTML.text() =~
-             "Mark ending reviewed"
+    # How it went is asked where the timeline ends, not in the header.
+    assert LazyHTML.query(document, ".episode-title-actions button") |> Enum.empty?()
+
+    assert LazyHTML.query(document, "#rate-request button") |> Enum.map(&LazyHTML.text/1) ==
+             ["Went well", "Needs work"]
 
     links = LazyHTML.query(document, ".episode-location > a")
 
@@ -1554,10 +1557,10 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute text =~ "Tool calls"
   end
 
-  # Andrew, 2026-09-27, of the "Review history · Not reviewed" disclosure at
-  # the foot of a request: "reviews can be own section like [the Cleanup
-  # background chapter] with own cards."
-  test "each review of how a request ended is its own card in a Reviews chapter" do
+  # Andrew, 2026-09-28, of "Mark how this request ended as reviewed?": "WHAT
+  # IS THE POINT OF THIS? i just mark it so what next? this is half baked!"
+  # Marking it recorded that someone looked and nothing followed.
+  test "a finished request asks how it went, and a rating is feedback that can start self-analysis" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
 
     {:ok, _cancelled} =
@@ -1569,74 +1572,61 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
         reason: "Stopped."
       })
 
-    # Ended and nobody has looked: a quiet line, no chapter.
     {:ok, ended} = EpisodeProjection.fetch(episode.key)
     document = ended |> render_episode([]) |> LazyHTML.from_fragment()
+    rate = LazyHTML.query(document, "#rate-request")
 
-    assert document |> LazyHTML.query("#review-awaiting") |> LazyHTML.text() |> words() =~
-             "Not reviewed yet"
+    assert rate |> LazyHTML.query("h2") |> LazyHTML.text() == "How did this go?"
+    assert LazyHTML.text(rate) =~ "Needs work sends it to Self-improvement"
 
-    assert document |> LazyHTML.query(".phase-review") |> Enum.empty?()
+    assert rate |> LazyHTML.query("form") |> LazyHTML.attribute("action") == [
+             "/actions/episode/#{URI.encode(episode.key, &URI.char_unreserved?/1)}/rate-good",
+             "/actions/episode/#{URI.encode(episode.key, &URI.char_unreserved?/1)}/rate-needs-work"
+           ]
 
-    {:ok, _review} =
+    {:ok, _rated} =
       EpisodeReviews.review(
         episode.key,
         "control-plane:local",
-        "Stopped on purpose; the deploy was rolled back."
+        :needs_work,
+        "It stopped for good; the deploy needed a retry."
       )
 
-    {:ok, reviewed} = EpisodeProjection.fetch(episode.key)
-    document = reviewed |> render_episode([]) |> LazyHTML.from_fragment()
-    chapter = LazyHTML.query(document, "section.background-chapter.phase-review")
+    # Rated: nothing asks again, the rating is in the Feedback chapter with
+    # its note, and the request waits for Ryker's own analysis.
+    {:ok, rated} = EpisodeProjection.fetch(episode.key)
+    document = rated |> render_episode([]) |> LazyHTML.from_fragment()
+    assert document |> LazyHTML.query("#rate-request") |> Enum.empty?()
 
-    assert chapter |> LazyHTML.query(".chapter-heading h3") |> LazyHTML.text() == "Reviews"
-    assert chapter |> LazyHTML.query(".phase-number") |> LazyHTML.text() == "R"
-    assert [card] = chapter |> LazyHTML.query("article.case-review") |> Enum.to_list()
-    assert card |> LazyHTML.text() |> words() =~ "Ending reviewed"
-    assert card |> LazyHTML.text() |> words() =~ "Current ending"
+    card = LazyHTML.query(document, "#feedback .feedback-card")
 
-    assert card |> LazyHTML.query(".case-event-summary") |> LazyHTML.text() ==
-             "Stopped on purpose; the deploy was rolled back."
+    assert card |> LazyHTML.query("h3") |> LazyHTML.text() == "Rated: needs work"
+    assert card |> LazyHTML.query(".state-word") |> LazyHTML.text() == "Needs work"
 
-    assert document |> LazyHTML.query("#review-awaiting") |> Enum.empty?()
+    assert card |> LazyHTML.query(".case-event-summary") |> LazyHTML.text() |> String.trim() ==
+             "“It stopped for good; the deploy needed a retry.”"
 
-    # The chapter is the page's last, and Jump to reaches it.
-    assert document
-           |> LazyHTML.query(".timeline-index a")
-           |> Enum.map(&LazyHTML.text/1)
-           |> List.last() ==
-             "Reviews"
+    assert %{reasons: ["rated"]} =
+             Repo.get_by(Ryker.Improvement.Candidate, episode_id: episode.id)
 
-    # A request that went on after the review and ended again keeps that
-    # review as a card, and says its new ending has not been reviewed.
-    continued =
-      update_in(reviewed.trace.review, fn review ->
-        %{
-          review
-          | awaiting: true,
-            current: false,
-            reviews: Enum.map(review.reviews, &%{&1 | current: false})
-        }
-      end)
+    # A request that went on after the rating and ended again asks again.
+    document =
+      rated
+      |> update_in([:trace, :rating], &%{&1 | awaiting: true})
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
 
-    document = continued |> render_episode([]) |> LazyHTML.from_fragment()
-
-    assert document |> LazyHTML.query("article.case-review") |> LazyHTML.text() |> words() =~
-             "An earlier ending"
-
-    assert document |> LazyHTML.query("#review-awaiting .kit-empty-title") |> LazyHTML.text() ==
-             "How it ended this time is not reviewed yet"
+    refute document |> LazyHTML.query("#rate-request") |> Enum.empty?()
   end
 
-  test "a request still working says nothing about reviews" do
+  test "a request still working asks nothing about how it went" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     document = snapshot |> render_episode([]) |> LazyHTML.from_fragment()
 
-    assert document |> LazyHTML.query("#review-awaiting") |> Enum.empty?()
-    assert document |> LazyHTML.query(".phase-review") |> Enum.empty?()
-    refute LazyHTML.text(document) =~ "Not reviewed"
+    assert document |> LazyHTML.query("#rate-request") |> Enum.empty?()
+    refute LazyHTML.text(document) =~ "How did this go?"
   end
 
   # The same question, on the card of the model call: "Passed first time"

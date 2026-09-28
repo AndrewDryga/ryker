@@ -895,12 +895,12 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  defp confirmation("episode", resource_ref, "review", options) do
+  defp confirmation("episode", resource_ref, action, options)
+       when action in ["rate-good", "rate-needs-work"] do
     case options.projection.episode.(resource_ref, %{}) do
-      {:ok, %{trace: %{review: %{awaiting: true}}}} ->
-        {:ok, "Mark how this request ended as reviewed?",
-         "Ryker notes that you read how this request ended and stops asking you to review it. Nothing else changes, and you can't unmark it. If the request ends again later, Ryker asks for a review again.",
-         "episode:review", :primary}
+      {:ok, %{trace: %{rating: %{awaiting: true}}}} ->
+        {title, explanation} = rating_confirmation(action)
+        {:ok, title, explanation, "episode:#{action}", :primary}
 
       _unavailable ->
         {:error, :not_found}
@@ -933,6 +933,16 @@ defmodule Ryker.ControlPlane.Router do
   end
 
   defp confirmation(_kind, _resource_ref, _action, _snapshot), do: {:error, :not_found}
+
+  defp rating_confirmation("rate-good"),
+    do:
+      {"Did this request go well?",
+       "Ryker counts it as positive feedback on the Feedback page and stops asking about this ending. You can't change the rating afterwards."}
+
+  defp rating_confirmation("rate-needs-work"),
+    do:
+      {"Does this request need work?",
+       "Ryker counts it as negative feedback and adds the request to Self-improvement: once it is quiet, Ryker works out what went wrong and proposes a test case you can accept or dismiss. Nothing is posted anywhere, and you can't change the rating afterwards."}
 
   # Accept only what can become an eval case and is not one yet; dismiss
   # anything not dismissed already.
@@ -1034,8 +1044,11 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("episode", resource_ref, "resolve", actions),
     do: actions.resolve_episode.(resource_ref)
 
-  defp perform("episode", resource_ref, "review", actions),
-    do: actions.review_episode.(resource_ref)
+  defp perform("episode", resource_ref, "rate-good", actions),
+    do: actions.rate_episode.(resource_ref, :good)
+
+  defp perform("episode", resource_ref, "rate-needs-work", actions),
+    do: actions.rate_episode.(resource_ref, :needs_work)
 
   defp perform("behavior", resource_ref, action, actions)
        when action in ["active", "disabled", "deleted"],

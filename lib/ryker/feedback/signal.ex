@@ -6,12 +6,13 @@ defmodule Ryker.Feedback.Signal do
 
   - `kind` is what happened: `reaction_added`, `reaction_removed`,
     `message_edited`, `message_deleted`, `asked_again`, `sentiment` (how
-    routing read the person's next message) or `reviewed` (an operator marked
-    how the request ended as reviewed).
+    routing read the person's next message) or `reviewed` (a person rated
+    how a finished request went).
   - `value` is the emoji name of a reaction, the feeling of a sentiment
-    (satisfied, neutral, frustrated or angry), the ending a review covered
-    (complete or cancelled), and nil for the rest.
-  - `note` is a sentiment's reason or a review's note, when there is one.
+    (satisfied, neutral, frustrated or angry), a rating (good or needs_work;
+    a review recorded before ratings holds the ending it covered, complete
+    or cancelled), and nil for the rest.
+  - `note` is a sentiment's reason or a rating's note, when there is one.
   - `category` is how the Feedback page groups it, frustrated first; it is
     written once, when the signal is recorded.
   - `actor_ref` is who gave it, as its `source` names people (a Slack user,
@@ -120,7 +121,8 @@ defmodule Ryker.Feedback.Signal do
   end
 
   @sentiments ~w(satisfied neutral frustrated angry)
-  @endings ~w(complete cancelled)
+  # A rating; or, on a review recorded before ratings, the ending it covered.
+  @reviews ~w(good needs_work complete cancelled)
   @emoji ~r/\A[a-z0-9_+\-]{1,100}\z/
 
   defp validate_value(changeset) do
@@ -129,7 +131,7 @@ defmodule Ryker.Feedback.Signal do
     valid? =
       case get_field(changeset, :kind) do
         :sentiment -> value in @sentiments
-        :reviewed -> value in @endings
+        :reviewed -> value in @reviews
         kind when kind in [:reaction_added, :reaction_removed] -> emoji?(value)
         _kind -> is_nil(value)
       end

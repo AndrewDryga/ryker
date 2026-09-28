@@ -282,6 +282,7 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   defp reason("reaction"), do: "reacted with a thumbs down"
   defp reason("asked_again"), do: "asked again"
   defp reason("edited"), do: "changed their message"
+  defp reason("rated"), do: "a person rated it as needing work"
   defp reason("stopped"), do: "the request was stopped"
   defp reason(other), do: other
 

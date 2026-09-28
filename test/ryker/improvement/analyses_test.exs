@@ -406,7 +406,7 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     candidate = Improvement.for_request(request)
     assert {candidate.analysis, candidate.error_code} == {:done, nil}
-    assert candidate.reasons == ["stopped"]
+    assert candidate.reasons == ["rated"]
     assert [submission] = FakeCoopAPI.state(coop).submissions
     assert submission["prompt"] =~ "the payments export failed again on PR 42, why?"
     assert submission["prompt"] =~ ~s("channel":"github")
@@ -642,7 +642,7 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert {:ok, _recorded} =
              Feedback.record(%{
                kind: :reviewed,
-               value: "cancelled",
+               value: "needs_work",
                note: "It answered about the wrong run.",
                actor_ref: "control-plane:local",
                source: "control_plane",

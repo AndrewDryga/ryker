@@ -114,7 +114,8 @@ defmodule Ryker.ControlPlane.RouterTest do
       {"/actions/schedule/schedule%3Aone/paused", :primary},
       {"/actions/schedule/schedule%3Aone/run-now", :primary},
       {"/actions/episode/episode%3Aone/resolve", :primary},
-      {"/actions/episode/episode%3Aone/review", :primary},
+      {"/actions/episode/episode%3Aone/rate-good", :primary},
+      {"/actions/episode/episode%3Aone/rate-needs-work", :primary},
       {"/actions/work/episode%3Ablocked/retry", :primary},
       {"/actions/admission/ingress-input%3Aone/rearm", :primary}
     ]
@@ -1024,24 +1025,31 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert html =~ "Open in Slack"
     assert html =~ "https://slack.com/archives/C456/p1787832000001000"
     assert html =~ "/actions/episode/episode%3Aone/resolve"
-    assert html =~ "/actions/episode/episode%3Aone/review"
+    assert html =~ "/actions/episode/episode%3Aone/rate-good"
+    assert html =~ "/actions/episode/episode%3Aone/rate-needs-work"
     refute html =~ "raw-secret-value"
     document = LazyHTML.from_document(html)
     assert LazyHTML.query(document, "a[href^='/actions/']") |> LazyHTML.to_tree() == []
 
+    # Close in the header; Went well and Needs work where the timeline ends.
     assert LazyHTML.query(
              document,
              "form[method='get'][action^='/actions/'] button[type='submit']"
            )
-           |> Enum.count() == 2
+           |> Enum.map(&LazyHTML.text/1) == [
+             "Close as no longer needed",
+             "Went well",
+             "Needs work"
+           ]
   end
 
-  test "episode resolution and review use exact confirmed local actions" do
+  test "episode resolution and rating use exact confirmed local actions" do
     for {action, title, received} <- [
           {"resolve", "Close this request as no longer needed?",
            {:resolved_episode, "episode:one"}},
-          {"review", "Mark how this request ended as reviewed?",
-           {:reviewed_episode, "episode:one"}}
+          {"rate-good", "Did this request go well?", {:rated_episode, "episode:one", :good}},
+          {"rate-needs-work", "Does this request need work?",
+           {:rated_episode, "episode:one", :needs_work}}
         ] do
       path = "/actions/episode/episode%3Aone/#{action}"
       confirmation = request(:get, path)
@@ -1057,13 +1065,14 @@ defmodule Ryker.ControlPlane.RouterTest do
     end
   end
 
-  test "closing, reviewing and discarding are confirmed in words, and say whether they can be undone" do
+  test "closing, rating and discarding are confirmed in words, and say whether they can be undone" do
     # QA 2026-09-25 read "Ryker will cancel the exact blocked or waiting owner"
     # and "the local operator read this exact terminal semantic version" on the
     # pages that ask a person to confirm. A person confirms what they understand.
     for {path, undo} <- [
           {"/actions/episode/episode%3Aone/resolve", "You can't reopen it"},
-          {"/actions/episode/episode%3Aone/review", "you can't unmark it"},
+          {"/actions/episode/episode%3Aone/rate-good", "You can't change the rating afterwards."},
+          {"/actions/episode/episode%3Aone/rate-needs-work", "you can't change the rating"},
           {"/actions/retention/workspace%3Aunmerged/discard", "This can't be undone."}
         ] do
       page = request(:get, path)

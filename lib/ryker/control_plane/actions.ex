@@ -83,7 +83,7 @@ defmodule Ryker.ControlPlane.Actions do
       rearm_slack_thread_status: &retry_failure("slack_thread_status", &1),
       react_to_lab_message: &ConversationLab.react_to_message/4,
       retry_work: &retry_work/2,
-      review_episode: &EpisodeReviews.review(&1, @actor_ref),
+      rate_episode: &EpisodeReviews.review(&1, @actor_ref, &2),
       run_schedule: run_schedule(schedule_policy_resolver),
       send_lab_message: lab_sender(placements),
       set_behavior_status: &Behaviors.set_status/2,

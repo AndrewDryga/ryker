@@ -187,7 +187,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"After the answer",
        [
          "Learning shows what Ryker learned from these messages in the background, with its prompt, answer and cost. Cleanup shows how the worker's session was closed and its working copy removed or kept.",
-         "Reviews come last: each time someone checked how the request ended, with the note they left. Mark ending reviewed at the top adds one."
+         "Feedback comes last: what people said about the answers, and how someone rated the request. When a request has finished, the end of the page asks how it went: Needs work sends it to Self-improvement, where Ryker works out what went wrong."
        ]},
       {"The summary at the top",
        [

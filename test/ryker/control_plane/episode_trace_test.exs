@@ -814,21 +814,23 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     refute html =~ "ghp_abcdefghijklmnopqrstuvwxyz"
   end
 
-  test "operator correction notes remain visible without becoming executable markup" do
+  test "a person's rating note stays visible without becoming executable markup" do
     # Historical audit corrections must be discoverable without rewriting accepted model records.
     {_entry, episode} = admitted_input!()
+
+    assert {:ok, _recorded} =
+             Ryker.Feedback.record(%{
+               kind: :reviewed,
+               value: "needs_work",
+               note: "Correction: backup citation retained. <script>bad()</script>",
+               actor_ref: "control-plane:local",
+               source: "control_plane",
+               source_ref: "episode-review:#{Ecto.UUID.generate()}",
+               occurred_at: DateTime.utc_now(),
+               request: {:episode, episode.id}
+             })
+
     {:ok, detail} = EpisodeProjection.fetch(episode.key)
-
-    detail =
-      put_in(detail, [:trace, :review, :reviews], [
-        %{
-          id: Ecto.UUID.generate(),
-          at: DateTime.utc_now(),
-          current: true,
-          note: "Correction: backup citation retained. <script>bad()</script>"
-        }
-      ])
-
     html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
     assert html =~ "Correction: backup citation retained."
     assert html =~ "&lt;script&gt;"

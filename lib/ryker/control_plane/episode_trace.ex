@@ -33,7 +33,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.InspectionRedactor
   alias Ryker.Operator.EpisodeReview
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -99,7 +98,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
          do: CaseFile.task_start(episode, current_turn)
 
     totals = totals(episode.id, events, records, sessions, turns)
-    review = review_state(episode, events)
+    rating = rating_state(episode, events)
     received_at = Input.first_received_at(episode)
     platform_actions = Outcome.platform_actions(episode.id)
     publications = Outcome.publications(episode.id)
@@ -138,7 +137,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
           :more,
           next_activity_page(activity_page, Keyword.get(options, :activity_pages, 1))
         ),
-      actions: operator_actions(episode, current_turn, review),
+      actions: operator_actions(episode, current_turn),
       case_file: CaseFile.build(episode.id, turns, sessions, disclosed),
       startup: startup,
       causality: causality,
@@ -149,7 +148,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       next_action: next_action(episode, current_turn),
       received_at: received_at,
       response_metrics: response_metrics,
-      review: review,
+      rating: rating,
       source: source,
       state: page_state(episode, stopped),
       stats: stats(steps, activity_page, totals),
@@ -556,42 +555,33 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   defp metric(label, value, detail, tone \\ nil),
     do: %{detail: to_string(detail), label: label, tone: tone, value: to_string(value)}
 
-  # Every review of how the request ended, oldest first, each saying whether
-  # it covers the ending the request has now: a request that continued after
-  # a review ends again, and that ending is reviewable on its own.
-  defp review_state(%Episode{} = episode, events) do
-    reviews =
-      Repo.all(
+  # A finished request asks how it went until someone rates the ending it has
+  # now: a request that continued after a rating ends again, and that ending
+  # is rated on its own. What people said, ratings included, is the Feedback
+  # chapter's to show.
+  defp rating_state(%Episode{} = episode, events) do
+    rated =
+      Repo.exists?(
         from(review in EpisodeReview,
-          where: review.episode_id == ^episode.id,
-          order_by: [desc: review.reviewed_at, desc: review.id],
-          limit: 20
+          where:
+            review.episode_id == ^episode.id and
+              review.semantic_version == ^episode.semantic_version
         )
       )
-      |> Enum.reverse()
-      |> Enum.map(fn review ->
-        note = InspectionRedactor.artifact(review.note, max_bytes: 2_048).text
 
-        %{
-          id: review.id,
-          at: review.reviewed_at,
-          current: review.semantic_version == episode.semantic_version,
-          note: if(note not in [nil, ""], do: note)
-        }
-      end)
-
-    terminal = episode.state in [:complete, :cancelled]
-    current = Enum.any?(reviews, & &1.current)
+    back = URI.encode_query(%{"back" => "/timeline/#{segment(episode.key)}"})
 
     %{
-      awaiting: terminal and not current and not closed_here?(episode, events),
-      current: current,
-      reviews: reviews
+      awaiting:
+        episode.state in [:complete, :cancelled] and not rated and
+          not closed_here?(episode, events),
+      good: "/actions/episode/#{segment(episode.key)}/rate-good?" <> back,
+      needs_work: "/actions/episode/#{segment(episode.key)}/rate-needs-work?" <> back
     }
   end
 
   # An ending the person chose here, by closing the request from its timeline
-  # or its chat task card, is not waiting for them to review it; the timeline
+  # or its chat task card, is not waiting for them to rate it; the timeline
   # asked them to the moment after. A stopped task's close settles later, so
   # it is read from the cancel itself rather than recorded when closing.
   defp closed_here?(%Episode{state: :cancelled}, events) do
@@ -606,7 +596,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
   defp closed_here?(_episode, _events), do: false
 
-  defp operator_actions(episode, current_turn, review) do
+  defp operator_actions(episode, current_turn) do
     recovery =
       if current_blocked_turn?(episode, current_turn) and is_nil(current_turn.delivery_ref),
         do: Recovery.brief(current_turn)
@@ -624,12 +614,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       "Close as no longer needed",
       "/actions/episode/#{segment(episode.key)}/resolve",
       :danger
-    )
-    |> maybe_action(
-      review.awaiting,
-      "Mark ending reviewed",
-      "/actions/episode/#{segment(episode.key)}/review",
-      :secondary
     )
   end
 

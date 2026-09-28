@@ -1,14 +1,19 @@
 defmodule Ryker.Operator.EpisodeReviews do
   @moduledoc """
-  Append-only operator acknowledgement of one exact terminal episode version.
+  A person's rating of how one exact ending of a request went: good, or
+  needs work. Append-only, one per terminal episode version.
 
-  A later semantic ending is reviewable again. Replays of the same local act
-  return the existing receipt instead of rewriting who reviewed it.
+  Andrew, 2026-09-28, of the "Mark how this request ended as reviewed"
+  this replaced: "i just mark it so what next? this is half baked!" A rating
+  is kept as feedback on the request (`Ryker.Feedback`) in the same
+  transaction, and "needs work" makes the request a candidate for Ryker's
+  self-analysis (`Ryker.Improvement`), which works out what went wrong.
 
-  A review recorded is announced after the outermost commit
-  (`subscribe_reviews/0`), on the reviewed request's topics too. It is also
-  kept as feedback on the request (`Ryker.Feedback`), with the ending it
-  covered and its note, in the same transaction.
+  A later semantic ending is rateable again. The same rating given again
+  returns the existing receipt; a different one for the same ending is
+  refused rather than rewriting who rated it and how. A rating recorded is
+  announced after the outermost commit (`subscribe_reviews/0`), on the
+  request's topics too.
   """
 
   import Ecto.Changeset
@@ -21,18 +26,21 @@ defmodule Ryker.Operator.EpisodeReviews do
   alias Ryker.Operator.{EpisodeReview, Reference}
   alias Ryker.Repo
 
-  @spec review(String.t(), String.t(), String.t()) ::
+  @ratings [:good, :needs_work]
+
+  @spec review(String.t(), String.t(), :good | :needs_work, String.t()) ::
           {:ok, %{review: EpisodeReview.t(), status: :recorded | :duplicate}} | {:error, term()}
-  def review(episode_key, actor_ref, note \\ "") do
+  def review(episode_key, actor_ref, rating, note \\ "") do
     with :ok <- reference(episode_key, :episode_key),
          :ok <- reference(actor_ref, :actor_ref),
+         :ok <- rating(rating),
          :ok <- note(note) do
-      Repo.transaction(fn -> review_locked(episode_key, actor_ref, note) end)
+      Repo.transaction(fn -> review_locked(episode_key, actor_ref, rating, note) end)
       |> transaction_result()
     end
   end
 
-  defp review_locked(episode_key, actor_ref, note) do
+  defp review_locked(episode_key, actor_ref, rating, note) do
     episode =
       Repo.one(from(episode in Episode, where: episode.key == ^episode_key, lock: "FOR UPDATE")) ||
         Repo.rollback(:episode_not_found)
@@ -43,7 +51,7 @@ defmodule Ryker.Operator.EpisodeReviews do
            episode_id: episode.id,
            semantic_version: episode.semantic_version
          ) do
-      %EpisodeReview{actor_ref: ^actor_ref, note: ^note} = review ->
+      %EpisodeReview{actor_ref: ^actor_ref, rating: ^rating, note: ^note} = review ->
         %{review: review, status: :duplicate}
 
       %EpisodeReview{} ->
@@ -55,6 +63,7 @@ defmodule Ryker.Operator.EpisodeReviews do
           episode_id: episode.id,
           id: Ecto.UUID.generate(),
           note: note,
+          rating: rating,
           reviewed_at: database_now!(),
           semantic_version: episode.semantic_version
         }
@@ -65,6 +74,7 @@ defmodule Ryker.Operator.EpisodeReviews do
                :episode_id,
                :id,
                :note,
+               :rating,
                :reviewed_at,
                :semantic_version
              ])
@@ -72,6 +82,7 @@ defmodule Ryker.Operator.EpisodeReviews do
                :actor_ref,
                :episode_id,
                :id,
+               :rating,
                :reviewed_at,
                :semantic_version
              ])
@@ -93,12 +104,12 @@ defmodule Ryker.Operator.EpisodeReviews do
     end
   end
 
-  # The review is the act; the feedback is what it says about the answer.
-  # A signal that cannot be kept is logged and never undoes the review.
+  # The rating is the act; the feedback is what it says about the answer.
+  # A signal that cannot be kept is logged and never undoes the rating.
   defp record_feedback(%EpisodeReview{} = review, %Episode{} = episode) do
     case Feedback.record_in_transaction(%{
            kind: :reviewed,
-           value: Atom.to_string(episode.state),
+           value: Atom.to_string(review.rating),
            note: if(review.note == "", do: nil, else: review.note),
            actor_ref: review.actor_ref,
            source: "control_plane",
@@ -116,6 +127,9 @@ defmodule Ryker.Operator.EpisodeReviews do
   end
 
   defp reference(value, field), do: Reference.check(value, field, :invalid_episode_review)
+
+  defp rating(rating) when rating in @ratings, do: :ok
+  defp rating(_rating), do: {:error, {:invalid_episode_review, :rating}}
 
   defp note(value) when is_binary(value) and byte_size(value) <= 2_048 do
     if String.valid?(value) and not String.contains?(value, <<0>>),
@@ -136,8 +150,8 @@ defmodule Ryker.Operator.EpisodeReviews do
   # -- PubSub ------------------------------------------------------------------
 
   @doc """
-  Subscribes the caller to request reviews: `{:episode_reviewed, review_id}`
-  once an operator marks a finished request reviewed, and that change has
+  Subscribes the caller to request ratings: `{:episode_reviewed, review_id}`
+  once a person rates how a finished request went, and that change has
   committed.
   """
   def subscribe_reviews, do: Ryker.PubSub.subscribe(reviews_topic())
