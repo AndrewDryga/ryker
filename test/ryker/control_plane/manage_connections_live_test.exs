@@ -324,6 +324,49 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert Enum.map(Settings.fetch!().repositories, & &1.ref) == ["acme-web"]
   end
 
+  # The question read the repository from the whole list searched for its
+  # ref, and the list stops at a hundred. A repository whose ref is part of
+  # more than a hundred other refs fell off the end, so its Remove answered
+  # "That repository is no longer added." about a repository that was. The
+  # question reads the one repository it asks about.
+  test "a repository's question finds it however many other refs contain its own" do
+    connect_github!()
+
+    {:ok, %{added: ["acme/api"]}} =
+      IntegrationSetup.import_github_repositories([repository("acme/api", 11)])
+
+    {:ok, _snapshot} =
+      Settings.put_repository(%{ref: "acme-api", onboarding_state: :ready}, :current, @actor)
+
+    now = DateTime.utc_now()
+
+    Repo.insert_all(
+      Settings.Repository,
+      for(index <- 1..100, do: %{ref: "a-acme-api-#{index}", inserted_at: now, updated_at: now})
+    )
+
+    {:ok, view, _html} = open("/repositories?q=acme/api")
+
+    view
+    |> element("#repository-acme-api button[phx-value-action=remove-repository]", "Remove")
+    |> render_click()
+
+    assert has_element?(view, "#confirm-remove-repository .kit-modal-title", "Remove acme/api?")
+    refute has_element?(view, "#repository-notice")
+
+    view |> element("#confirm-remove-repository button", "Cancel") |> render_click()
+
+    view
+    |> element("#repository-acme-api button[phx-value-action=refresh-knowledge]")
+    |> render_click()
+
+    assert has_element?(
+             view,
+             "#confirm-refresh-knowledge .kit-modal-title",
+             "Refresh knowledge of acme/api?"
+           )
+  end
+
   # Andrew, 2026-09-27: RYKER.md was written once, at setup, and never
   # again. Refresh knowledge has a model read the repository again now, after
   # a question over the list that says what it does.

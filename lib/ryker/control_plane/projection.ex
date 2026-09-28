@@ -76,6 +76,7 @@ defmodule Ryker.ControlPlane.Projection do
       overview: &OverviewProjection.overview/0,
       readiness: &ProductReadiness.current/0,
       repositories: &RepositoryProjection.list/1,
+      repository: &RepositoryProjection.fetch/1,
       routing_examples: &Export.reduce/2,
       schedule: &ScheduleProjection.fetch/1,
       schedules: &ScheduleProjection.list/1,
@@ -124,6 +125,7 @@ defmodule Ryker.ControlPlane.Projection do
   defdelegate operator_configuration(), to: ConfigurationProjection, as: :fetch
   defdelegate overview(), to: OverviewProjection
   defdelegate repositories(params), to: RepositoryProjection, as: :list
+  defdelegate repository(ref), to: RepositoryProjection, as: :fetch
   defdelegate schedule(ref), to: ScheduleProjection, as: :fetch
   defdelegate schedules(params), to: ScheduleProjection, as: :list
   defdelegate slack_incident(ref), to: FailureProjection
