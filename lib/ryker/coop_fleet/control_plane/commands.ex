@@ -404,25 +404,22 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         Shared.rollback({:coop_worker_operation_key_mismatch, command.id})
 
       not Placements.current?(placement, now) ->
-        command
-        |> change(%{
-          completed_at: now,
-          error: %{
-            "code" => "placement_not_authorized",
-            "detail" => "worker result arrived after placement authority ended",
-            "status" => 409
-          },
-          operation_key: result["operation_key"],
-          result_fingerprint: fingerprint,
-          status: :uncertain
+        record_uncertain(command, result, fingerprint, now, %{
+          "code" => "placement_not_authorized",
+          "detail" => "worker result arrived after placement authority ended",
+          "status" => 409
         })
-        |> check_constraint(:status, name: :coop_worker_command_result_valid)
-        |> Repo.update()
-        |> Shared.unwrap_write()
+
+      # Refusing the whole poll failed every later one from this worker too,
+      # and a worker that had reported the result cannot upload its body again.
+      not response_body_received?(command.id, body_root, result) ->
+        record_uncertain(command, result, fingerprint, now, %{
+          "code" => "response_body_missing",
+          "detail" => "the worker reported a response body Ryker never received",
+          "status" => 409
+        })
 
       true ->
-        verify_response_body(command.id, body_root, get_in(result, ["resource", "body_ref"]))
-
         attributes = %{
           completed_at: now,
           error: result["error"],
@@ -442,12 +439,24 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     command.id
   end
 
-  defp verify_response_body(_id, _root, nil), do: :ok
+  defp record_uncertain(command, result, fingerprint, now, error) do
+    command
+    |> change(%{
+      completed_at: now,
+      error: error,
+      operation_key: result["operation_key"],
+      result_fingerprint: fingerprint,
+      status: :uncertain
+    })
+    |> check_constraint(:status, name: :coop_worker_command_result_valid)
+    |> Repo.update()
+    |> Shared.unwrap_write()
+  end
 
-  defp verify_response_body(id, root, reference) do
-    case Bodies.fetch(root, id, :response, reference) do
-      {:ok, _path, _identity} -> :ok
-      _ -> Shared.rollback({:coop_worker_response_body_missing, id})
+  defp response_body_received?(id, root, result) do
+    case get_in(result, ["resource", "body_ref"]) do
+      nil -> true
+      reference -> match?({:ok, _body, _identity}, Bodies.fetch(root, id, :response, reference))
     end
   end
 

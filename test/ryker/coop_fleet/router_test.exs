@@ -74,9 +74,6 @@ defmodule Ryker.CoopFleet.RouterTest do
     completed =
       poll() |> Map.put("poll_ref", "poll:body-result") |> Map.put("command_results", [result])
 
-    assert {:error, {:coop_worker_response_body_missing, _}} =
-             ControlPlane.handle_poll_certificate(certificate, completed, body_root: root)
-
     upload = fn id, hash ->
       :put
       |> conn("/v1/coop-workers/commands/#{id}/response-body", bytes)
