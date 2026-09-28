@@ -160,9 +160,9 @@ defmodule Ryker.Memories.Cases do
   Redacts every retained case built from one explicitly withdrawn source.
 
   Routine expiry of a transcript is not a withdrawal, and a case exists exactly
-  so it can outlive one. Somebody deleting the message is different: no derived
-  record may keep quoting what they removed, so the case is redacted rather
-  than revalidated into silence later.
+  so it can outlive one. Somebody deleting the message, or editing it to say
+  something else, is different: no derived record may keep quoting what they
+  removed, so the case is redacted rather than revalidated into silence later.
   """
   @spec withdraw_source(String.t()) :: non_neg_integer()
   def withdraw_source(native_input_id) when is_binary(native_input_id) do

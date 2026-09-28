@@ -117,12 +117,52 @@ defmodule Ryker.Memories.CasesTest do
     episode = finished!("case:withdrawn", @outage)
     record = capture!(episode)
 
-    withdraw!(episode)
+    revise!(episode, :delete, %{})
 
     assert %CaseRecord{status: :deleted, problem: "(deleted)"} =
              Repo.get_by!(CaseRecord, case_ref: record.case_ref)
 
     assert Cases.recall(finished!("case:after-withdrawal", "The #{@outage} again")) == []
+  end
+
+  # Editing a message takes back the words it replaced, as deleting it takes
+  # back all of them. Only deleting reached the case, so a case, kept without
+  # an age limit, went on quoting words the person had replaced.
+  test "editing the words of the original message redacts the case built from it" do
+    episode = finished!("case:edited", @outage)
+    record = capture!(episode)
+
+    revise!(episode, :edit, %{"text" => "Postgres replica pgsql-prod-02 is lagging"})
+
+    assert %CaseRecord{status: :deleted, problem: "(deleted)"} =
+             Repo.get_by!(CaseRecord, case_ref: record.case_ref)
+  end
+
+  # A case is kept after its work's history is gone, so an edit that comes
+  # later can join other work, which never saw what the message said before.
+  test "an edit that joins other work still redacts the case built from the message" do
+    episode = finished!("case:edited-later", @outage)
+    record = capture!(episode)
+
+    revise!(episode, :edit, %{"text" => "Postgres replica pgsql-prod-02 is lagging"},
+      into: :new_work
+    )
+
+    assert %CaseRecord{status: :deleted, problem: "(deleted)"} =
+             Repo.get_by!(CaseRecord, case_ref: record.case_ref)
+  end
+
+  # Slack reports a link's preview arriving as an edit with the words
+  # untouched; that takes nothing back.
+  test "an edit that leaves the words as they were, such as a link preview, keeps the case" do
+    episode = finished!("case:previewed", @outage)
+    record = capture!(episode)
+
+    preview = %{"title" => "pgsql-prod-01", "from_url" => "https://grafana.example.com/d/pg"}
+    revise!(episode, :edit, %{"text" => @outage, "attachments" => [preview]})
+
+    assert %CaseRecord{status: :active, problem: @outage} =
+             Repo.get_by!(CaseRecord, case_ref: record.case_ref)
   end
 
   test "repeated capture keeps one case per intended revision" do
@@ -147,7 +187,9 @@ defmodule Ryker.Memories.CasesTest do
     assert {:ok, %CaseRecord{status: :deleted}} = Cases.capture(record.episode_id)
   end
 
-  defp withdraw!(%Episode{} = episode) do
+  # The person edits or deletes the message the work started from, and the
+  # revision joins that work, or starts new work `into: :new_work`.
+  defp revise!(%Episode{} = episode, kind, content, options \\ []) do
     [native_input_id] =
       Repo.all(
         from(origin in Origin,
@@ -156,13 +198,13 @@ defmodule Ryker.Memories.CasesTest do
         )
       )
 
-    {:ok, deletion} =
+    {:ok, revision} =
       SlackInput.new(%{
         actor: %{kind: :user, ref: "UALICE"},
         channel_ref: "CDEVOPS",
-        content: %{},
-        event_kind: :delete,
-        event_ref: "Ev-delete-#{System.unique_integer([:positive])}",
+        content: content,
+        event_kind: kind,
+        event_ref: "Ev-#{kind}-#{System.unique_integer([:positive])}",
         message_ref: episode.destination_thread_ref,
         occurred_at: DateTime.add(@now, 120, :second),
         revision: 2,
@@ -170,19 +212,30 @@ defmodule Ryker.Memories.CasesTest do
         workspace_ref: "TCASES"
       })
 
+    {episode_id, episode_key} =
+      case Keyword.get(options, :into) do
+        :new_work -> new_work()
+        nil -> {episode.id, episode.key}
+      end
+
     {:ok, _transition} =
       Episodes.apply(%Command.AdmitInput{
-        actor_ref: Input.actor_ref(deletion),
-        destination: deletion.destination,
-        episode_id: episode.id,
-        episode_key: episode.key,
+        actor_ref: Input.actor_ref(revision),
+        destination: revision.destination,
+        episode_id: episode_id,
+        episode_key: episode_key,
         linked_episode_id: nil,
         native_input_id: native_input_id,
-        occurred_at: deletion.occurred_at,
-        payload: deletion |> Input.document() |> Map.put("native_input_id", native_input_id),
+        occurred_at: revision.occurred_at,
+        payload: revision |> Input.document() |> Map.put("native_input_id", native_input_id),
         revision: 2,
-        turn_ref: "turn:#{episode.id}"
+        turn_ref: "turn:#{episode_id}"
       })
+  end
+
+  defp new_work do
+    id = Ecto.UUID.generate()
+    {id, "case:new-work:#{id}"}
   end
 
   # A finished episode whose work turn exists, for records written during it.

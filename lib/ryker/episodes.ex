@@ -225,14 +225,13 @@ defmodule Ryker.Episodes do
     end
   end
 
-  # Somebody deleting their message is a withdrawal, not expiry: every durable
-  # record derived from it is redacted in the same transaction, so nothing can
-  # keep quoting text that was explicitly removed.
-  defp withdraw_retained_sources(%Event{kind: :input_admitted, payload: %{} = command}) do
-    document = command["payload"]
-
-    if is_map(document) and document["event_kind"] == "delete" and
-         is_binary(command["native_input_id"]) do
+  # Somebody deleting their message, or editing it to say something else, is
+  # a withdrawal, not expiry: every durable record derived from it is redacted
+  # in the same transaction, so nothing can keep quoting text that was
+  # explicitly removed. An edit that leaves the words as they were, as Slack
+  # reports a link's preview arriving, withdraws nothing.
+  defp withdraw_retained_sources(%Event{kind: :input_admitted, payload: %{} = command} = event) do
+    if is_binary(command["native_input_id"]) and withdrawn?(event, command["payload"]) do
       _redacted = Cases.withdraw_source(command["native_input_id"])
     end
 
@@ -240,6 +239,39 @@ defmodule Ryker.Episodes do
   end
 
   defp withdraw_retained_sources(%Event{}), do: :ok
+
+  defp withdrawn?(_event, %{"event_kind" => "delete"}), do: true
+
+  defp withdrawn?(event, %{"event_kind" => "edit"} = document),
+    do: replaced_words?(event, document)
+
+  defp withdrawn?(_event, _document), do: false
+
+  # Whether an edit says something other than the revision of the message
+  # this work admitted before it. Only the text a person wrote counts, as for
+  # the copies routing keeps (`Ryker.RoutingExamples`): text that cannot be
+  # read, or a message with no earlier revision here, is never the same, so a
+  # withdrawal errs toward erasing.
+  defp replaced_words?(%Event{} = event, document) do
+    earlier =
+      Repo.one(
+        from(stored in Event,
+          where:
+            stored.episode_id == ^event.episode_id and stored.kind == :input_admitted and
+              stored.sequence < ^event.sequence and
+              fragment("(?::jsonb)->>'native_input_id'", stored.payload) ==
+                ^event.payload["native_input_id"],
+          order_by: [desc: stored.sequence],
+          limit: 1,
+          select: fragment("(?::jsonb)#>>'{payload,content,text}'", stored.payload)
+        )
+      )
+
+    case document["content"] do
+      %{"text" => ^earlier} when is_binary(earlier) -> false
+      _other_words -> true
+    end
+  end
 
   # The claim fences concurrent active work, not the identity forever. Once an
   # episode is finished or cancelled its occurrences are free again, so a later
