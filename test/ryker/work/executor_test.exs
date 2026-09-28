@@ -588,6 +588,45 @@ defmodule Ryker.Work.ExecutorTest do
     assert [%{kind: "model.thought"}] = Activity.list_for_episode(claim.episode.id)
   end
 
+  test "the Timeline shows a Work turn the exact prompt Coop received" do
+    # Andrew, 2026-09-28: "make sure we don't render one but send other one".
+    # The worker is sent the frozen submission, and the Timeline must draw the
+    # same stored bytes rather than anything rebuilt, including every field
+    # the host added, such as what Ryker can reach from the conversation.
+    claim =
+      claim_episode!("prompt-truth", %{
+        "text" => "Which tools are available? List runners and packs"
+      })
+
+    {:ok, fake} = FakeAPI.start_link([reply("Two runners are connected.")])
+
+    assert {:ok, %{status: :accepted, turn: turn}} =
+             Executor.run(claim, [connected: %{github: true, slack: true}] ++ options(fake))
+
+    assert [sent] = FakeAPI.state(fake).submissions
+    stored = Repo.get!(Ryker.Work.Turn, turn.id).submission
+    assert sent.prompt == stored["prompt"]
+    assert sent.schema == stored["output_schema"]
+    assert Jason.decode!(sent.prompt)["work"]["connected"]["github"]
+
+    prompt_id = "work-#{turn.id}-request"
+
+    assert {:ok, timeline} =
+             Ryker.ControlPlane.ModelRequests.timeline(claim.episode.key, %{
+               "disclosed" => [prompt_id]
+             })
+
+    briefing =
+      Enum.find(timeline.items, &(&1[:request_id] == turn.id and &1.phase == :submission))
+
+    shown = Enum.find(briefing.sections, &(&1.id == "request")).artifact
+    assert shown.text == sent.prompt
+    refute shown.redacted
+
+    contract = Enum.find(briefing.sections, &(&1.id == "contract")).artifact
+    assert Jason.decode!(contract.text) == sent.schema
+  end
+
   test "activity narration failure never costs the accepted answer" do
     claim = claim_episode!("activity-unavailable")
 
