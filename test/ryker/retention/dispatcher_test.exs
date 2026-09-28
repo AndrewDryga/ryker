@@ -392,6 +392,33 @@ defmodule Ryker.Retention.DispatcherTest do
            )
   end
 
+  # One session whose discard Coop failed with a 500 read as its worker being
+  # away, so every pass stopped at it and skipped the rest of that worker's
+  # cleanup: ten retired routing sessions piled up behind it overnight, and a
+  # worker restart then held all of them (live, 2026-09-28). A worker that
+  # answers is there.
+  test "a session its worker fails on does not hold up that worker's other cleanup" do
+    broken = terminal_session!("broken")
+    siblings = for index <- 1..2, do: terminal_session!("sibling-#{index}")
+    Enum.each([broken | siblings], &place!(&1, "worker-shared"))
+
+    {:ok, api} =
+      FakeAPI.start_link(
+        sessions: Enum.map([broken | siblings], &remote_session/1),
+        broken_sessions: [broken.coop_session_id]
+      )
+
+    assert {:ok, %{executed: 3}} = run_pass(api, "cleanup:broken:grace", batch_limit: 6)
+
+    assert {:ok, pass} = run_pass(api, "cleanup:broken", batch_limit: 6)
+    assert {pass.deferred, pass.executed} == {1, 2}
+    assert Enum.all?(siblings, &(Repo.get!(Session, &1.id).cleanup_status == :plan_pending))
+
+    # Its own cleanup is tried again later, not given up at once.
+    assert Repo.get!(Session, broken.id).cleanup_last_error_code == "coop_error"
+    refute Repo.get!(Session, broken.id).cleanup_status == :blocked
+  end
+
   test "a reconnected worker makes its own deferred cleanup due before the backoff" do
     session = terminal_session!("reconnect")
     place!(session, "worker-reconnect")

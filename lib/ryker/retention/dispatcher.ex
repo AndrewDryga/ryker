@@ -192,6 +192,9 @@ defmodule Ryker.Retention.Dispatcher do
 
   defp transient?({:retention_generation_spent, _phase, _reason}), do: true
   defp transient?({:coop_mutation_response_unresolved, _phase, _reason}), do: true
+  # The worker answered that it failed this one session: worth trying again,
+  # up to the attempts, but no reason to stop cleaning its other sessions.
+  defp transient?({:coop_error, status, _code, _detail}) when status >= 500, do: true
   defp transient?(reason), do: outage?(reason)
 
   defp outage?({:coop_unavailable, _reason}), do: true
@@ -199,7 +202,12 @@ defmodule Ryker.Retention.Dispatcher do
   defp outage?({:coop_worker_capacity_unavailable, _session_id}), do: true
   defp outage?({:coop_worker_command_timeout, _command_id}), do: true
   defp outage?({:coop_error, 429, _code, _detail}), do: true
-  defp outage?({:coop_error, status, _code, _detail}) when status >= 500, do: true
+  # A gateway that cannot reach the worker, or a worker that says it is
+  # unavailable. A 500 is the worker answering that it failed this one
+  # session; it is still there for every other session (2026-09-28).
+  defp outage?({:coop_error, status, _code, _detail}) when status in [502, 503, 504],
+    do: true
+
   # The worker holding the session is handing it over (for at most a lease) or
   # is away; both are the worker's state, not a verdict about the session.
   defp outage?({:coop_session_replacement_pending, _session_id, _generation, _until}), do: true
