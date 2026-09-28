@@ -133,7 +133,7 @@ defmodule Ryker.Work.TaskStagesTest do
          },
          plan: plan([goal("drain", "implementation", "completed")])
        ), ~w(completed completed completed completed completed failed pending)},
-      {"no checks configured",
+      {"no checks set up",
        facts(
          episode: %Episode{state: :complete, owner_kind: :turn},
          turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
@@ -462,10 +462,12 @@ defmodule Ryker.Work.TaskStagesTest do
       )
 
     assert row(refused, "workspace_setup")["state"] == "failed"
-    detail = row(refused, "workspace_setup")["detail"]
+    assert row(refused, "workspace_setup")["detail"] == "work never started"
+    # Why reads on its own line under the row (Andrew, 2026-09-28).
+    detail = row(refused, "workspace_setup")["reason"]
 
     assert detail ==
-             ~S|work never started · The worker rejected the operation: invalid_request: policy "emisar-standard-v1" has no operator-configured remote, so only its default source can be selected|
+             ~S|The worker rejected the operation: invalid_request: policy "emisar-standard-v1" has no operator-configured remote, so only its default source can be selected|
 
     # Nothing of the term travels: not the enum the ladder exhausted, not the
     # operation code it nested, not tuple syntax, not the escaping it was
@@ -479,6 +481,7 @@ defmodule Ryker.Work.TaskStagesTest do
     # one thing it does know, and invents no cause.
     silent = never_started("work_execution_failed: {:work_execution_failed, :unknown}")
     assert row(silent, "workspace_setup")["detail"] == "work never started"
+    assert row(silent, "workspace_setup")["reason"] == nil
 
     # The refusal is a provider's own sentence: untrusted text, bounded like
     # every other detail this ledger carries.
@@ -487,13 +490,9 @@ defmodule Ryker.Work.TaskStagesTest do
         ~s|work_retry_exhausted: {:coop_operation_failed, "invalid_request", "#{String.duplicate("a", 4_000)}"}|
       )
 
-    flooded = row(flood, "workspace_setup")["detail"]
-    assert String.length(flooded) == 200
-
-    assert String.starts_with?(
-             flooded,
-             "work never started · The worker rejected the operation: aaaa"
-           )
+    flooded = row(flood, "workspace_setup")["reason"]
+    assert String.length(flooded) == 500
+    assert String.starts_with?(flooded, "The worker rejected the operation: aaaa")
 
     refute flooded =~ "{:"
 
@@ -547,7 +546,9 @@ defmodule Ryker.Work.TaskStagesTest do
     assert Enum.map(rows, & &1["state"]) ==
              ~w(completed completed completed failed completed completed pending)
 
-    assert row(rows, "self_review")["detail"] == "docker: command not found"
+    assert row(rows, "self_review")["reason"] ==
+             "The repository's checks couldn't start: docker: command not found."
+
     refute row(rows, "review_and_merge")["your_turn"]
 
     # The same ledger with a gate that actually passed still hands over.
@@ -556,12 +557,73 @@ defmodule Ryker.Work.TaskStagesTest do
     assert row(TaskStages.build(passed), "review_and_merge")["your_turn"]
   end
 
+  test "a repository with no checks reads the same on the check stage as on CI" do
+    # Andrew, 2026-09-28, of PR #2's card: "why '! Self-review and checks' has !
+    # and '− CI · no checks configured' uses - in similar case?" Nothing failed
+    # in either: the repository has no checks to run.
+    none =
+      facts(
+        episode: %Episode{state: :complete, owner_kind: :turn},
+        turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
+        publication: %{published() | review_document: shareable_review("none")},
+        followup: %Followup{pr_state: "open", checks_state: "none"},
+        plan: plan([goal("readme", "self_review", "completed")])
+      )
+
+    rows = TaskStages.build(none)
+    review = row(rows, "self_review")
+
+    assert {review["state"], review["detail"], review["reason"]} ==
+             {"skipped", "no checks set up", nil}
+
+    assert Map.take(row(rows, "ci"), ~w(state detail)) == Map.take(review, ~w(state detail))
+  end
+
+  test "a newer change waiting for a person names the pull request it updates" do
+    # PR #2's continuation, 2026-09-28: its newer change waited for someone to
+    # publish it, and the card said "! Draft PR" with no number, no link and no
+    # hand-over, while PR #2 was open with the earlier change.
+    waiting =
+      facts(
+        episode: %Episode{state: :complete, owner_kind: :turn},
+        turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
+        publication: %Publication{
+          status: :blocked,
+          pull_request_number: 2,
+          pull_request_url: "https://github.com/acme/ryker/pull/2",
+          review_document: shareable_review("none")
+        },
+        plan: plan([goal("readme", "implementation", "completed")])
+      )
+
+    rows = TaskStages.build(waiting)
+    draft = row(rows, "draft_pr")
+
+    assert {draft["state"], draft["detail"], draft["url"], draft["your_turn"], draft["current"]} ==
+             {"waiting", "#2 · the newer change waits for you",
+              "https://github.com/acme/ryker/pull/2", true, true}
+
+    # Before any pull request exists the same wait says so without a number.
+    first = put_in(waiting.publication.pull_request_number, nil)
+    first = put_in(first.publication.pull_request_url, nil)
+
+    assert Map.take(row(TaskStages.build(first), "draft_pr"), ~w(state detail your_turn)) ==
+             %{"state" => "waiting", "detail" => "waits for you", "your_turn" => true}
+
+    # A pull request GitHub refused is a failure with its reason on its own line.
+    refused = put_in(waiting.publication.last_error_detail, "GitHub refused the branch push.")
+    refused_row = row(TaskStages.build(refused), "draft_pr")
+
+    assert {refused_row["state"], refused_row["reason"], refused_row["your_turn"]} ==
+             {"failed", "GitHub refused the branch push.", false}
+  end
+
   test "a gate that ran and failed fails the check stage instead of completing it" do
     # A ✓ on the stage whose whole job is to say whether the change was checked.
     # A failed gate is a result, not a missing check, so it never entered
     # incomplete_checks; the ledger asked only that list, found it empty and
-    # turned the row green over a review that had already said "The trusted gate
-    # failed." on the same card.
+    # turned the row green over a review that had already said the checks failed
+    # on the same card.
     failed =
       facts(
         episode: %Episode{state: :complete, owner_kind: :turn},
@@ -587,13 +649,16 @@ defmodule Ryker.Work.TaskStagesTest do
     assert Enum.map(rows, & &1["state"]) ==
              ~w(completed completed completed failed waiting pending pending)
 
-    assert row(rows, "self_review")["detail"] ==
-             "2 tests failed in test/ryker/work/executor_test.exs"
+    assert row(rows, "self_review")["reason"] ==
+             "The repository's checks failed: 2 tests failed in test/ryker/work/executor_test.exs."
 
     # A gate that failed without naming the failure still fails its own stage.
     unnamed = pop_in(failed.publication.review_document["gate_error"]) |> elem(1)
     assert row(TaskStages.build(unnamed), "self_review")["state"] == "failed"
-    assert row(TaskStages.build(unnamed), "self_review")["detail"] == "The trusted gate failed."
+
+    # Its card's publication line says the checks failed; the row repeats
+    # nothing when the checks said nothing more.
+    assert row(TaskStages.build(unnamed), "self_review")["reason"] == nil
 
     # The same ledger with a gate that passed still completes the stage.
     passed = put_in(failed.publication.review_document["gate"], "passed")
@@ -643,6 +708,28 @@ defmodule Ryker.Work.TaskStagesTest do
       },
       Map.new(overrides)
     )
+  end
+
+  # A review Coop returned for an exact retained snapshot whose checks did not
+  # pass: shareable as a draft, never publishable on its own.
+  defp shareable_review(gate) do
+    identity = fn char -> String.duplicate(char, 40) end
+
+    %{
+      "candidate_head" => identity.("a"),
+      "candidate_retained" => true,
+      "candidate_tree" => identity.("b"),
+      "creation_base" => identity.("c"),
+      "gate" => gate,
+      "parent_head" => identity.("c"),
+      "parent_tree" => identity.("d"),
+      "patch_truncated" => false,
+      "policy_findings" => [],
+      "publishable" => false,
+      "rebase" => "clean",
+      "source_head" => identity.("a"),
+      "source_tree" => identity.("b")
+    }
   end
 
   defp published(published_at \\ ~U[2026-09-11 10:00:00.000000Z]) do

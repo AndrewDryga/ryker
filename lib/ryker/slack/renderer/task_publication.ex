@@ -79,7 +79,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
       cond do
         is_binary(automatic_fix) -> escape(automatic_fix)
         status == "discarded" -> discarded_message(discarded_reason)
-        status == "blocked" -> blocked_message(controls, unverified, blocked_reason)
+        status == "blocked" -> blocked_message(controls, unverified, blocked_reason, number)
         true -> publication_status_message(status, controls, unverified)
       end
 
@@ -90,12 +90,12 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
         "publish" ->
           button(
             "ryker_task_publish",
-            "Create draft PR",
+            publish_label(number),
             "#{task_ref}|#{publication_ref}",
             "primary",
-            "Create draft pull request",
-            publish_confirmation(repository, unverified),
-            "Create draft PR"
+            publish_title(number),
+            repository |> publish_confirmation(number, unverified) |> truncate(300),
+            publish_label(number)
           )
 
         "open" ->
@@ -159,10 +159,11 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
   # A draft opened because a check could not run stays explicitly unverified
   # after it exists. Saying only "open it to review the changes" is how an
-  # unrun gate reads as a checked change one message later.
-  defp publication_status_message("published", _controls, unverified),
+  # unrun gate reads as a checked change one message later. Which check, and
+  # why, is the Self-review row's to say.
+  defp publication_status_message("published", _controls, _unverified),
     do:
-      "Draft PR created from the saved change, but the checks still haven't finished (#{unverified}). It isn't verified, and a draft doesn't merge or deploy anything."
+      "Draft PR created from the saved change. It isn't verified, and a draft doesn't merge or deploy anything."
 
   defp publication_status_message("published_ready", _controls, _unverified),
     do: "Draft PR created. Sending the publication update."
@@ -184,17 +185,38 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   # (Andrew, 2026-09-28: "⚠️ PR creation failed: the repository's checks
   # failed on the committed change. [buttons]"). The reason is the host's own
   # words, set only when the card's sources may be shown.
-  defp blocked_message(controls, unverified, reason) when is_binary(unverified) do
+  #
+  # A change whose checks could not run is a person's call, and the words say
+  # which pull request it goes to: a task's newer change belongs on the draft
+  # the task already opened.
+  #
+  # Why the checks did not verify it is said once, on the Self-review row
+  # right above; this line offers the choice it leaves.
+  defp blocked_message(controls, unverified, reason, number) when is_binary(unverified) do
     if "publish" in controls,
-      do:
-        "I couldn't finish the checks (#{escape(unverified)}). The exact change is saved, so I can open it as an explicitly unverified draft pull request, or check the latest state again.",
-      else: blocked_message(controls, nil, reason)
+      do: unverified_offer(number),
+      else: blocked_message(controls, nil, reason, number)
   end
 
-  defp blocked_message(_controls, _unverified, reason) when is_binary(reason),
+  defp blocked_message(_controls, _unverified, reason, _number) when is_binary(reason),
     do: ":warning: *PR creation failed:* #{escape(reason)}"
 
-  defp blocked_message(_controls, _unverified, _reason), do: ":warning: *PR creation failed.*"
+  defp blocked_message(_controls, _unverified, _reason, _number),
+    do: ":warning: *PR creation failed.*"
+
+  defp unverified_offer(number) when is_integer(number),
+    do:
+      "I saved the newer change exactly as it is. I can add it to draft PR ##{number} marked unverified, or review the latest state again."
+
+  defp unverified_offer(_number),
+    do:
+      "I saved the change exactly as it is. I can open it as a draft PR marked unverified, or review the latest state again."
+
+  defp publish_label(number) when is_integer(number), do: "Update draft PR"
+  defp publish_label(_number), do: "Create draft PR"
+
+  defp publish_title(number) when is_integer(number), do: "Update the draft pull request"
+  defp publish_title(_number), do: "Create draft pull request"
 
   # A closed worker session can never be reviewed, so Ryker ends that request
   # itself; the task's next finished run is checked afresh.
@@ -206,18 +228,25 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
     do:
       "Someone discarded these changes, so I stopped preparing their PR. The review history is saved."
 
-  defp publish_confirmation(repository, nil),
-    do:
-      "Publish the exact reviewed candidate to #{repository} as a draft pull request? This does not merge or deploy it."
+  defp publish_confirmation(repository, number, unverified) do
+    target =
+      if is_integer(number),
+        do: "Update draft PR ##{number} in #{repository} with this exact",
+        else: "Open a draft pull request in #{repository} from this exact"
 
-  defp publish_confirmation(repository, unverified),
-    do:
-      "Open a draft pull request in #{repository} from this exact saved change? The checks did not finish (#{unverified}). A draft does not waive them, and it does not merge or deploy anything."
+    case unverified do
+      nil -> "#{target} reviewed change? This does not merge or deploy it."
+      text -> "#{target} saved change? #{text} A draft does not merge or deploy anything."
+    end
+  end
 
   # Which branch is stuck is a fact the host holds and the card withheld, so
   # "PR creation is blocked" sent the reader to a web console this installation
   # publishes no URL for. Only the blocked state needs it: every other state
   # either links the pull request or has no branch worth naming yet.
+  defp publication_branch_line("blocked", "refs/heads/" <> branch),
+    do: publication_branch_line("blocked", branch)
+
   defp publication_branch_line("blocked", branch) when is_binary(branch) and branch != "",
     do: " · `#{escape(branch)}`"
 

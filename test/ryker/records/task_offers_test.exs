@@ -622,8 +622,10 @@ defmodule Ryker.Records.TaskOffersTest do
 
     assert stage(task, "workspace_setup")["state"] == "failed"
 
-    assert stage(task, "workspace_setup")["detail"] ==
-             ~S|work never started · The worker rejected the operation: invalid_request: policy "emisar-standard-v1" has no operator-configured remote, so only its default source can be selected|
+    assert stage(task, "workspace_setup")["detail"] == "work never started"
+
+    assert stage(task, "workspace_setup")["reason"] ==
+             ~S|The worker rejected the operation: invalid_request: policy "emisar-standard-v1" has no operator-configured remote, so only its default source can be selected|
 
     assert task["action_needed"] ==
              ~S|The worker rejected the operation: invalid_request: policy "emisar-standard-v1" has no operator-configured remote, so only its default source can be selected| <>
@@ -633,7 +635,7 @@ defmodule Ryker.Records.TaskOffersTest do
 
     assert {:ok, rendered} = Renderer.render(projection.document)
     json = Jason.encode!(rendered)
-    assert json =~ "Workspace setup · work never started · The worker rejected the operation"
+    assert json =~ "*! Workspace setup · work never started*\\n    The worker rejected the operation"
     assert json =~ "has no operator-configured remote"
     refute json =~ "work_retry_exhausted"
     refute json =~ "coop_operation_failed"
@@ -652,7 +654,7 @@ defmodule Ryker.Records.TaskOffersTest do
 
     assert String.length(flooded_task["action_needed"]) <= 2_000
     assert flooded_task["action_needed"] =~ "Correct the condition the worker named"
-    assert String.length(stage(flooded_task, "workspace_setup")["detail"]) == 200
+    assert String.length(stage(flooded_task, "workspace_setup")["reason"]) == 500
     assert {:ok, _bounded} = Renderer.render(flooded.document)
 
     # An error the host genuinely cannot characterise still never prints the term

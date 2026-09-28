@@ -872,11 +872,13 @@ defmodule Ryker.Slack.RendererTest do
       })
 
     assert {:ok, rendered} = Renderer.render(%{"task_card" => blocked})
-    assert Jason.encode!(rendered) =~ "refs/heads/ryker/publication-42"
+    # The branch as a person names it, not Git's full ref.
+    assert Jason.encode!(rendered) =~ "`ryker/publication-42`"
+    refute Jason.encode!(rendered) =~ "refs/heads/"
 
     reviewed = put_in(blocked, ["publication", "status"], "reviewed")
     assert {:ok, reviewed_rendered} = Renderer.render(%{"task_card" => reviewed})
-    refute Jason.encode!(reviewed_rendered) =~ "refs/heads/ryker/publication-42"
+    refute Jason.encode!(reviewed_rendered) =~ "ryker/publication-42"
   end
 
   # Andrew, 2026-09-28, of a blocked task card: "PR creation is blocked.
@@ -1129,7 +1131,7 @@ defmodule Ryker.Slack.RendererTest do
   # A draft opened because a required check could not run stays unverified after
   # it exists. "Draft PR created. Open it to review the changes." said nothing
   # about the gate that never started, one message after a card that had named it.
-  test "an opened draft keeps naming the check that never finished" do
+  test "an opened draft names the check that never finished once, on its Self-review row" do
     task = %{
       "action_needed" => nil,
       "confirmed_at" => "2026-08-28T12:00:00.000000Z",
@@ -1147,11 +1149,22 @@ defmodule Ryker.Slack.RendererTest do
         "pull_request_url" => "https://github.com/acme/ryker/pull/91",
         "recovery_generation" => 1,
         "status" => "published",
-        "unverified" => "docker: command not found"
+        "unverified" => "The repository's checks couldn't start: docker: command not found."
       },
       "repository" => "ryker",
       "session_generation" => 1,
-      "stages" => task_stages(),
+      "stages" =>
+        Enum.map(task_stages(), fn
+          %{"stage" => "self_review"} = stage ->
+            %{
+              stage
+              | "reason" => "The repository's checks couldn't start: docker: command not found.",
+                "state" => "failed"
+            }
+
+          stage ->
+            stage
+        end),
       "status" => "published",
       "summary" => "The saved change is available as an unverified draft PR.",
       "task_ref" => "task-card:abc123",
@@ -1163,8 +1176,19 @@ defmodule Ryker.Slack.RendererTest do
 
     assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
     json = Jason.encode!(rendered)
-    assert json =~ "the checks still haven't finished (docker: command not found)"
-    assert json =~ "It isn't verified, and a draft doesn't merge or deploy anything."
+
+    assert json =~
+             "Draft PR created from the saved change. It isn't verified, and a draft doesn't merge or deploy anything."
+
+    # Said once: the card repeated the cause on the publication line (2026-09-29).
+    sections =
+      rendered["blocks"]
+      |> Enum.map(&get_in(&1, ["text", "text"]))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.join("\n")
+
+    assert length(String.split(sections, "docker: command not found")) == 2
+
     assert json =~ "Open PR"
     refute json =~ "Open it to review the changes"
 
@@ -2625,7 +2649,7 @@ defmodule Ryker.Slack.RendererTest do
         "pull_request_url" => nil,
         "recovery_generation" => 3,
         "status" => "blocked",
-        "unverified" => "docker: command not found"
+        "unverified" => "The repository's checks couldn't start: docker: command not found."
       })
 
     assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
@@ -2642,9 +2666,10 @@ defmodule Ryker.Slack.RendererTest do
     assert publish["text"]["text"] == "Create draft PR"
     confirmation = publish["confirm"]["text"]["text"]
     assert confirmation =~ "ryker"
+    assert confirmation =~ "Open a draft pull request in ryker from this exact saved change?"
     assert confirmation =~ "docker: command not found"
-    assert confirmation =~ "does not waive them"
     assert confirmation =~ "does not merge or deploy"
+    assert String.length(confirmation) <= 300
 
     # Nothing here says the gate passed, and the older wording that treated a
     # publishable candidate and an unverified snapshot as one thing is gone.
@@ -3167,6 +3192,43 @@ defmodule Ryker.Slack.RendererTest do
     assert length(Enum.filter(rendered["blocks"], &(&1["type"] == "actions"))) == 2
   end
 
+  test "a newer change for an open pull request offers to update it, not to create another" do
+    # PR #2's continuation, 2026-09-28: its newer change waited for a person
+    # under "Create draft PR", beside the link to the draft it would update.
+    task =
+      publication_task_card(%{
+        "automatic_fix" => nil,
+        "blocked_reason" => "no checks are set up for the repository.",
+        "branch" => "refs/heads/ryker/readme-smoke-test",
+        "controls" => ["publish", "update", "discard"],
+        "discarded_reason" => nil,
+        "publication_ref" => "publication:def456",
+        "pull_request_number" => 2,
+        "pull_request_url" => "https://github.com/acme/ryker/pull/2",
+        "recovery_generation" => 3,
+        "status" => "blocked",
+        "unverified" => "No checks are set up for the repository."
+      })
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+    encoded = Jason.encode!(rendered)
+
+    assert encoded =~
+             "I saved the newer change exactly as it is. I can add it to draft PR #2 marked unverified, or review the latest state again."
+
+    refute encoded =~ "Create draft PR"
+
+    assert [publish] =
+             rendered["blocks"]
+             |> Enum.flat_map(&Map.get(&1, "elements", []))
+             |> Enum.filter(&(&1["action_id"] == "ryker_task_publish"))
+
+    assert publish["text"]["text"] == "Update draft PR"
+
+    assert publish["confirm"]["text"]["text"] ==
+             "Update draft PR #2 in ryker with this exact saved change? No checks are set up for the repository. A draft does not merge or deploy anything."
+  end
+
   # Since 2026-09-12 the Workspace setup row quotes the worker's own refusal when
   # work never started, so a stage detail is the first part of the ledger that is
   # not host-authored end to end. The escape that keeps it inert is what stands
@@ -3177,8 +3239,9 @@ defmodule Ryker.Slack.RendererTest do
         %{"stage" => "workspace_setup"} = stage ->
           %{
             stage
-            | "detail" =>
-                "work never started · The worker rejected the operation: <!everyone> & <https://example.invalid|urgent>",
+            | "detail" => "work never started",
+              "reason" =>
+                "The worker rejected the operation: <!everyone> & <https://example.invalid|urgent>",
               "state" => "failed"
           }
 
@@ -3192,19 +3255,22 @@ defmodule Ryker.Slack.RendererTest do
     json = Jason.encode!(rendered)
 
     assert json =~
-             "Workspace setup · work never started · The worker rejected the operation: &lt;!everyone&gt; &amp; &lt;https://example.invalid|urgent&gt;"
+             "Workspace setup · work never started\\n    The worker rejected the operation: &lt;!everyone&gt; &amp; &lt;https://example.invalid|urgent&gt;"
 
     refute json =~ "<!everyone>"
 
     # The row is bounded before it is escaped, and a detail over the bound is
     # not a card the host will send.
-    over_bound =
-      put_in(task, ["stages"], [
-        %{Enum.at(stages, 0) | "detail" => String.duplicate("a", 201)} | Enum.drop(stages, 1)
-      ])
+    for {key, bound} <- [{"detail", 200}, {"reason", 500}] do
+      over_bound =
+        put_in(task, ["stages"], [
+          Map.put(Enum.at(stages, 0), key, String.duplicate("a", bound + 1))
+          | Enum.drop(stages, 1)
+        ])
 
-    assert Renderer.render(%{"task_card" => over_bound}) ==
-             {:error, {:invalid_slack_render, :task_card}}
+      assert Renderer.render(%{"task_card" => over_bound}) ==
+               {:error, {:invalid_slack_render, :task_card}}
+    end
   end
 
   # Every card escaped its model-authored values in the blocks, but the task,
@@ -3789,6 +3855,7 @@ defmodule Ryker.Slack.RendererTest do
       %{
         "current" => stage == "implementation",
         "detail" => nil,
+        "reason" => nil,
         "stage" => stage,
         "state" => if(stage == "implementation", do: "running", else: "pending"),
         "subtasks" => [],

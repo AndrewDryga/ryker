@@ -70,7 +70,7 @@ defmodule Ryker.Slack.TaskCardDetailsTest do
         "detail" => "#617",
         "url" => "https://github.com/tenantcorp/tenant-app-svelte/pull/617"
       }),
-      stage("ci", "skipped", %{"detail" => "no checks configured"}),
+      stage("ci", "skipped", %{"detail" => "no checks set up"}),
       stage("review_and_merge", "running", %{"current" => true})
     ]
 
@@ -85,7 +85,7 @@ defmodule Ryker.Slack.TaskCardDetailsTest do
     assert progress =~
              "✓ <https://github.com/tenantcorp/tenant-app-svelte/pull/617|Draft PR #617>"
 
-    assert progress =~ "− CI · no checks configured"
+    assert progress =~ "− CI · no checks set up"
     assert progress =~ "*▸ Review and merge*"
     refute progress =~ "Passed"
   end
@@ -269,6 +269,7 @@ defmodule Ryker.Slack.TaskCardDetailsTest do
       %{
         "current" => false,
         "detail" => nil,
+        "reason" => nil,
         "stage" => id,
         "state" => state,
         "subtasks" => [],

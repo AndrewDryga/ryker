@@ -61,7 +61,10 @@ defmodule Ryker.Publication.ReviewTest do
     verdict = Review.draft_verdict(unavailable)
     assert verdict["shareable"]
     assert verdict["gate"] == "startup_error"
-    assert verdict["incomplete_checks"] == ["docker: command not found"]
+
+    assert verdict["incomplete_checks"] == [
+             "The repository's checks couldn't start: docker: command not found."
+           ]
 
     passed = review_document()
     assert Review.publishable?(passed)
@@ -78,15 +81,22 @@ defmodule Ryker.Publication.ReviewTest do
 
     failed = unpublishable(%{"gate" => "failed", "gate_error" => "2 tests failed"})
     refute Review.draft_shareable?(failed)
-    assert Review.draft_verdict(failed)["reasons"] == ["The trusted gate failed."]
+    assert Review.draft_verdict(failed)["reasons"] == ["The repository's checks failed."]
 
     # A gate that ran and failed has a result, so it is never a missing check —
     # and the stage ledger that asked only for missing checks put a ✓ on the one
     # stage whose whole job is to say whether the change was checked.
     assert Review.draft_verdict(failed)["incomplete_checks"] == []
-    assert Review.gate_failure(failed) == "2 tests failed"
-    assert Review.gate_failure(Map.delete(failed, "gate_error")) == "The trusted gate failed."
-    assert Review.gate_failure(%{failed | "gate_error" => "  "}) == "The trusted gate failed."
+    assert Review.gate_failure(failed) == "The repository's checks failed: 2 tests failed."
+    assert Review.gate_error?(failed)
+    refute Review.gate_error?(%{failed | "gate_error" => "  "})
+    refute Review.gate_error?(Map.delete(failed, "gate_error"))
+
+    assert Review.gate_failure(Map.delete(failed, "gate_error")) ==
+             "The repository's checks failed."
+
+    assert Review.gate_failure(%{failed | "gate_error" => "  "}) ==
+             "The repository's checks failed."
 
     for gate <- ~w(passed startup_error not_run none) do
       assert Review.gate_failure(unpublishable(%{"gate" => gate})) == nil

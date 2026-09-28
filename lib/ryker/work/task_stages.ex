@@ -18,6 +18,7 @@ defmodule Ryker.Work.TaskStages do
   @terminal_goal_states ~w(completed excluded cancelled)
   @current_states ~w(running waiting failed)
   @published_statuses [:published, :published_ready]
+  @no_checks "no checks set up"
   @maximum_subtasks 6
 
   @type facts :: %{
@@ -78,7 +79,11 @@ defmodule Ryker.Work.TaskStages do
   # identifiers in it are bookkeeping, not an explanation. Printing it put
   # `{:work_retry_exhausted, {:coop_operation_failed, …}}` on an operator's card.
   defp workspace_setup(%{turn: %Turn{status: :blocked, coop_turn_id: nil} = turn}),
-    do: row("workspace_setup", "failed", detail: never_started(turn.last_error_detail))
+    do:
+      row("workspace_setup", "failed",
+        detail: "work never started",
+        reason: never_started(turn.last_error_detail)
+      )
 
   defp workspace_setup(%{episode: %Episode{state: :cancelled}}),
     do: row("workspace_setup", "stopped")
@@ -88,8 +93,8 @@ defmodule Ryker.Work.TaskStages do
 
   defp never_started(detail) do
     case FailureCause.explain(detail) do
-      %{cause: cause} -> "work never started · " <> cause
-      nil -> "work never started"
+      %{cause: cause} -> cause
+      nil -> nil
     end
   end
 
@@ -142,10 +147,24 @@ defmodule Ryker.Work.TaskStages do
   # change, and neither is one whose gate ran and failed. Marking this stage
   # complete for either said the opposite on the one card whose whole job is to
   # say whether the change was checked.
+  #
+  # A repository with no checks at all is neither: nothing failed, the same as
+  # a pull request whose CI has none, and the two rows say so alike (Andrew,
+  # 2026-09-28: "! Self-review and checks" beside "− CI · no checks
+  # configured" for the same case).
   defp review_row(%{publication: %Publication{review_document: review}}, bucket) do
-    case Review.gate_failure(review) || incomplete_check(review) do
-      nil -> row("self_review", "completed", subtasks(bucket))
-      reason -> row("self_review", "failed", [detail: reason] ++ subtasks(bucket))
+    cond do
+      Review.no_checks?(review) ->
+        row("self_review", "skipped", [detail: @no_checks] ++ subtasks(bucket))
+
+      Review.gate_failure(review) ->
+        row("self_review", "failed", [reason: gate_detail(review)] ++ subtasks(bucket))
+
+      reason = incomplete_check(review) ->
+        row("self_review", "failed", [reason: reason] ++ subtasks(bucket))
+
+      true ->
+        row("self_review", "completed", subtasks(bucket))
     end
   end
 
@@ -188,8 +207,31 @@ defmodule Ryker.Work.TaskStages do
   defp draft_pr(%{publication: %Publication{status: :publish_pending}}, _stale?),
     do: row("draft_pr", "running", detail: "creating the draft")
 
-  defp draft_pr(%{publication: %Publication{status: :blocked} = publication}, _stale?),
-    do: row("draft_pr", "failed", detail: publication.last_error_detail)
+  # A safe snapshot whose checks could not run waits for a person to publish
+  # it; the host never does. The pull request a newer change belongs to is
+  # still the task's, so the row keeps its number and link.
+  defp draft_pr(%{publication: %Publication{status: :blocked} = publication}, _stale?) do
+    cond do
+      is_binary(publication.last_error_detail) ->
+        row("draft_pr", "failed", reason: publication.last_error_detail)
+
+      Review.draft_shareable?(publication.review_document) and
+          is_integer(publication.pull_request_number) ->
+        row("draft_pr", "waiting",
+          detail: "##{publication.pull_request_number} · the newer change waits for you",
+          url: publication.pull_request_url,
+          your_turn: true
+        )
+
+      Review.draft_shareable?(publication.review_document) ->
+        row("draft_pr", "waiting", detail: "waits for you", your_turn: true)
+
+      # Why the pull request cannot be made is said once, on the publication
+      # line above its buttons.
+      true ->
+        row("draft_pr", "failed")
+    end
+  end
 
   defp draft_pr(%{publication: %Publication{status: :reviewed}}, _stale?),
     do: row("draft_pr", "waiting", detail: "the reviewed candidate is ready to publish")
@@ -236,7 +278,7 @@ defmodule Ryker.Work.TaskStages do
     do: row("ci", "completed", detail: checks, url: url)
 
   defp ci_state(%Followup{checks_state: "none"}, _checks, _url),
-    do: row("ci", "skipped", detail: "no checks configured")
+    do: row("ci", "skipped", detail: @no_checks)
 
   defp ci_state(%Followup{checks_state: "failing"}, checks, url),
     do: row("ci", "failed", detail: checks, url: url)
@@ -420,6 +462,10 @@ defmodule Ryker.Work.TaskStages do
 
   defp stale_work?(_facts), do: false
 
+  # The card's publication line already says the checks failed; this row adds
+  # only what the checks said, when they said anything.
+  defp gate_detail(review), do: if(Review.gate_error?(review), do: Review.gate_failure(review))
+
   # The one required check this review has no result for, in the same words the
   # publication card uses, or nil when every required check has an answer.
   defp incomplete_check(review) do
@@ -461,10 +507,14 @@ defmodule Ryker.Work.TaskStages do
       else: value
   end
 
+  # A detail is a short fact read on the stage's own line ("2/2 subtasks",
+  # "#617"); a reason is the sentence saying why it failed, which Andrew
+  # (2026-09-28) wanted on a line of its own instead of blending into the row.
   defp row(stage, state, options \\ []) do
     %{
       "current" => false,
       "detail" => compact(options[:detail], 200),
+      "reason" => compact(options[:reason], 500),
       "stage" => stage,
       "state" => state,
       "subtasks" => options[:subtasks] || [],
