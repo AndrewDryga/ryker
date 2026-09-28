@@ -356,16 +356,6 @@ defmodule Ryker.ControlPlane.Pages do
 
   def subscriptions(["follow-ups"], _params), do: SubscriptionsPage.subscriptions()
   def subscriptions(["channels"], _params), do: ChannelsPage.subscriptions()
-
-  def subscriptions(["channels", workspace_ref, channel_ref], _params) do
-    with {:ok, workspace_ref} <- PathRef.decode(workspace_ref),
-         {:ok, channel_ref} <- PathRef.decode(channel_ref) do
-      ChannelPage.subscriptions(workspace_ref, channel_ref)
-    else
-      {:error, :path_ref} -> []
-    end
-  end
-
   def subscriptions(["repositories"], _params), do: RepositoriesPage.subscriptions()
   def subscriptions(["repositories", "new"], _params), do: RepositoriesPage.subscriptions()
   def subscriptions(["memory"], _params), do: FactsPage.subscriptions()
