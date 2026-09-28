@@ -199,7 +199,7 @@
 
     <p>While a request is in progress, Slack’s own status line says where it stands in plain words (queued, deciding how to respond, working, preparing the response) until it is answered, settled silently, handed off, or stopped. When Ryker needs a decision from you, it asks with buttons: up to five choices as buttons, six to ten as a list with <strong>Submit answer</strong>. A typed reply works too.</p>
 
-    <p>You can attach up to two files to a message, 8 MiB in all: screenshots (PNG, JPEG, WebP, GIF), text, Markdown, CSV, JSON, YAML, or PDF. Ryker checks each file’s type and size before the model sees it, and refuses content it cannot verify rather than guessing.</p>
+    <p>You can attach up to two files to a message, 8 MiB in all: screenshots (PNG, JPEG, WebP, GIF), text, Markdown, CSV, JSON, YAML, PDF, or supported voice and video recordings. Recordings are limited to five minutes; Ryker uses Slack’s transcript or transcribes them locally, so the model receives words, not recording bytes. Ryker verifies each file’s type and size and refuses content it cannot verify rather than guessing.</p>
 
     <p>Replies use Slack’s Markdown, with headings, lists, tables and code blocks. Buttons, mentions and approval links are always Ryker’s own, never the model’s. A reply is one message; posting somewhere else as well needs the requester to confirm it.</p>
 
