@@ -1591,8 +1591,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp ask_remove_repository(socket, ref) do
     %{projection: projection} = Endpoint.config(:control_plane)
 
-    case Enum.find(projection.repositories.(%{"q" => ref}), &(&1.ref == ref)) do
-      %{configured: %{}} = item ->
+    case projection.repository.(ref) do
+      {:ok, %{configured: %{}} = item} ->
         assign(socket,
           settings_confirm: {"remove-repository", ref},
           repository_question: Map.put(RepositoriesPage.removal(item), :error, nil),
@@ -1609,8 +1609,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp ask_refresh_knowledge(socket, ref) do
     %{projection: projection} = Endpoint.config(:control_plane)
 
-    case Enum.find(projection.repositories.(%{"q" => ref}), &(&1.ref == ref)) do
-      %{configured: %{}} = item ->
+    case projection.repository.(ref) do
+      {:ok, %{configured: %{}} = item} ->
         assign(socket,
           settings_confirm: {"refresh-knowledge", ref},
           knowledge_question:

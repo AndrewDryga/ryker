@@ -1625,7 +1625,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              pages: 1
            }
 
-    assert map_size(Projection.callbacks()) == 43
+    assert map_size(Projection.callbacks()) == 44
+    # One repository's row, for the questions its Remove and Refresh knowledge ask.
+    assert is_function(Projection.callbacks().repository, 1)
     # The requests to improve and the eval cases accepted from them, for
     # Memory › Feedback › What to fix and its download.
     assert is_function(Projection.callbacks().improvement, 1)
@@ -2198,6 +2200,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert receipt.version == 2
     assert receipt.remote_identity == "origin"
     refute inspect(repository) =~ "must-not-render"
+
+    # Read on its own for the questions its buttons ask, a repository is its
+    # row in the list exactly; part of a ref finds nothing.
+    assert Projection.repository("ryker") == {:ok, repository}
+    assert Projection.repository("ryk") == :error
 
     assert {:ok, episode_detail} = Projection.episode(source.episode.key)
     # Completion/retry state used to rewrite cards at their original creation time.
