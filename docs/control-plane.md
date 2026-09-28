@@ -136,13 +136,12 @@ summary strip carries its response time (to the first thing Ryker sent) and
 routing cost when they are known and leaves out what a single message never has;
 and one Message band reads in the request page's order, with the request page's
 cards: Intake is the message as it was sent and its Participation card; Routing
-is the Queue, Search for earlier work and Routing briefing cards, then routing's
+is the Queue, Search for related history and Routing briefing cards, then routing's
 decision; Answer is what Ryker sent (each message and each reaction in the order
 they went out, or that it stayed quiet and why). Learning that read the message
-follows as its own chapter. The thread or Chat conversation around it closes
-the page as a chapter of its own: the 20 messages nearest it, oldest first, each
-once however many times it was edited or delivered, with what came of it and a
-link to its own page or to the request it started or joined. A Slack message's
+follows as its own chapter. For a message in a Slack thread with other
+messages, the header links to all of them ("All messages in this thread →",
+Activity narrowed to the thread), as a request's header does. A Slack message's
 page and a Chat message's page differ only in the facts of where it was sent.
 
 Each Work run's **Context selection** card, before its briefing, says in a

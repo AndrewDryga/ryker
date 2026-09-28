@@ -186,6 +186,10 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert LazyHTML.query(run, ".tool-run-badge[data-service=emisar] svg.emisar-mark")
            |> Enum.count() == 2
 
+    # Ryker's own calls carry Ryker's mark, as Emisar's carry Emisar's.
+    assert LazyHTML.query(run, ".tool-run-badge[data-service=ryker] svg.ryker-mark")
+           |> Enum.count() == 1
+
     # The full card names the pack without the digest it was pinned by; the
     # raw arguments keep it, as they keep everything exactly.
     facts = run |> LazyHTML.query(".action-facts") |> LazyHTML.text()

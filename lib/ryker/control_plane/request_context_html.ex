@@ -1014,7 +1014,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     do: {title, nil}
 
   defp group_presentation("history", title, _description, _entries, _conversation, _counts),
-    do: {title, "Earlier work this message may belong to."}
+    do: {title, "Earlier work this message may belong to, found by Search for related history."}
 
   defp group_presentation(_group, title, description, _entries, _conversation, _counts),
     do: {title, description}
@@ -2621,9 +2621,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         Components.disclosure_html(
           "Details",
           [
+            # Where it came from and who sent it are in the card's header;
+            # a raw sender ID told a person nothing (Andrew, 2026-09-28).
             "<dl class=\"context-rows\">",
-            message_detail("Source", message_source(input)),
-            message_detail("Sender ID", message_sender(input)),
             message_detail("Attachments", attachments(input)),
             "</dl>",
             Components.disclosure_html(
@@ -2653,19 +2653,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp message_detail(label, value),
     do: ["<div><dt>", escape(label), "</dt><dd>", escape(value), "</dd></div>"]
-
-  defp message_source(%{"source" => %{"kind" => "control_plane"}}), do: "Chat"
-  defp message_source(%{"source" => %{"kind" => "slack"}}), do: "Slack"
-  defp message_source(%{"source" => %{"kind" => "github"}}), do: "GitHub"
-  defp message_source(%{"source" => %{"kind" => kind}}) when is_binary(kind), do: human(kind)
-  defp message_source(_input), do: nil
-
-  defp message_sender(%{"actor" => actor}) when is_binary(actor), do: actor
-
-  defp message_sender(input) do
-    actor = if is_map(input["actor"]), do: input["actor"], else: %{}
-    actor["display_name"] || actor["name"] || actor["ref"] || input["actor_ref"]
-  end
 
   # The files a message carried by name, so the card says which log or
   # screenshot it was and that one was refused (manual testing, 2026-09-26:

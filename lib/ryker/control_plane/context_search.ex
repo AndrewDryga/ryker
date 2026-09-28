@@ -135,12 +135,16 @@ defmodule Ryker.ControlPlane.ContextSearch do
   defp result(%{"examined" => 0}),
     do: "Nothing found, so routing had no earlier work to consider."
 
+  # What it found is the routing briefing's Related history (Andrew,
+  # 2026-09-28: "why not to call card Search for Related history? so it's
+  # obvious").
   defp result(%{"examined" => found, "offered" => found}) when is_integer(found),
-    do: "#{found} found, all offered to routing."
+    do: "#{found} found, all offered to routing as Related history."
 
   defp result(%{"offered" => offered, "examined" => examined} = receipt)
        when is_integer(offered) and is_integer(examined) and examined > offered do
-    "#{examined} found, #{offered} offered to routing · #{examined - offered} left out" <>
+    "#{examined} found, #{offered} offered to routing as Related history · " <>
+      "#{examined - offered} left out" <>
       cutoff(receipt["cutoff_reason"])
   end
 

@@ -348,7 +348,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
                 details: [],
                 stage: "Search",
                 summary: nil,
-                title: "Search for earlier work"
+                title: "Search for related history"
               })
           }
         ]
@@ -609,7 +609,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
                entry.destination_transport,
                entry.destination_conversation_ref,
                entry.execution_mode
-             )
+             ),
+           thread_link: ThreadContext.link(entry)
          },
          message: message,
          metrics: %{response_ms: response_ms(entry, responses), cost: routing_cost(entry)},
@@ -624,7 +625,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
              scope: :message
            )
            |> with_model_choice(),
-         thread: ThreadContext.around(entry, now),
          recovery: admission_recovery(entry),
          names: Names.revision()
        }}

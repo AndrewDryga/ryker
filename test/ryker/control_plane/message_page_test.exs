@@ -128,58 +128,37 @@ defmodule Ryker.ControlPlane.MessagePageTest do
 
   # Andrew, 2026-09-26, of a second greeting routing answered in the same
   # thread: "not joined to an episode so each message looks separate, is that
-  # normal?" A message that starts no work has a page of its own; that page
-  # shows the thread around it, and where a later message started work, the
-  # link leads to that request.
-  test "a message's page lists the rest of its thread, linking the request a later message started" do
+  # normal?" The page closed with the thread around the message; on
+  # 2026-09-28: "drop this, just add link here to show all messages in thread
+  # too". The header links to the thread in Activity; a message alone in its
+  # thread has nothing to link.
+  test "a message's header links to every message of its thread, and a lone message has no link" do
     greeting = message!(@root, nil, "Hi <@#{@ryker}>", @sent)
     answered!(greeting, "Hi! How can I help?", DateTime.add(@sent, 27, :second))
+
+    {:ok, lone, _html} = open(greeting)
+    refute has_element?(lone, ".episode-location a", "All messages in this thread")
 
     question =
       message!("1788562400.000200", @root, "Why is checkout returning 502s?", at(96))
 
-    episode = starts_request!(question)
-
-    follow_up =
-      message!("1788562460.000300", @root, "Can you check payments too?", at(156))
-
-    joins!(follow_up, episode)
-
-    thanks = message!("1788562520.000400", @root, "thanks <@#{@ryker}>", at(216))
-    answered!(thanks, "Anytime!", at(220))
+    starts_request!(question)
 
     {:ok, view, _html} = open(greeting)
+    refute has_element?(view, "section#in-this-thread")
 
-    thread = "section#in-this-thread"
-    assert has_element?(view, "#{thread} .chapter-heading h3", "In this thread")
+    thread =
+      Ryker.ControlPlane.Activity.conversation_path(
+        "slack",
+        greeting.destination_conversation_ref,
+        @root
+      )
 
-    rows =
-      view
-      |> render()
-      |> LazyHTML.from_document()
-      |> LazyHTML.query("#{thread} [role=listitem]")
-      |> Enum.map(fn row ->
-        name = LazyHTML.query(row, ".entity-name > a, .entity-name > span:not(.entity-tag)")
-
-        {name |> LazyHTML.text() |> squish(),
-         row |> LazyHTML.query(".entity-name > a") |> LazyHTML.attribute("href") |> List.first(),
-         row |> LazyHTML.query(".entity-tag") |> LazyHTML.text() |> squish(),
-         row |> LazyHTML.query(".state-word") |> LazyHTML.text() |> squish(),
-         row |> LazyHTML.query(".entity-meta") |> LazyHTML.text() |> squish()}
-      end)
-
-    request = "/timeline/" <> URI.encode_www_form(episode.key)
-
-    assert [
-             {"Hi @Ryker", nil, "This message", "Answered right away", _},
-             {"Why is checkout returning 502s?", ^request, "", _started_state, started},
-             {"Can you check payments too?", ^request, "", _joined_state, joined},
-             {"thanks @Ryker", thanks_page, "", "Answered right away", _}
-           ] = rows
-
-    assert started =~ "Started a request"
-    assert joined =~ "Added to a request"
-    assert thanks_page == "/timeline/" <> URI.encode_www_form("ingress-input:#{thanks.id}")
+    assert has_element?(
+             view,
+             ".episode-location a[href='#{thread}']",
+             "All messages in this thread →"
+           )
   end
 
   # Andrew, 2026-09-27, of these pages for Slack messages: "the slack
@@ -214,7 +193,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
       {:card, "Quick reply"}
     ]
 
-    assert reading_order(page) == story ++ [{:chapter, "In this thread"}]
+    assert reading_order(page) == story
 
     # The same message sent in Chat reads the same; only the name of the
     # place it was said in differs.
@@ -227,15 +206,14 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     {:ok, chat_view, _html} = open(chat_greeting)
     chat_page = chat_view |> render() |> LazyHTML.from_document()
 
-    assert reading_order(chat_page) == story ++ [{:chapter, "In this conversation"}]
+    assert reading_order(chat_page) == story
 
-    # Nothing of the message's own story is left below its thread, and Jump
+    # Nothing of the message's own story is left in a section of its own, and Jump
     # to lists the chapters in the order they are read.
     assert page |> LazyHTML.query("#routing-details") |> Enum.empty?()
 
     assert page |> LazyHTML.query(".timeline-index a") |> Enum.map(&LazyHTML.text/1) == [
-             "Message",
-             "In this thread"
+             "Message"
            ]
 
     # The routing card's earlier-work links lead up, to the briefing above it.
@@ -557,15 +535,6 @@ defmodule Ryker.ControlPlane.MessagePageTest do
 
     decide!(entry, :start_episode, %{"action" => "start_episode"}, episode.id)
     episode
-  end
-
-  defp joins!(entry, episode) do
-    decide!(
-      entry,
-      :continue_episode,
-      %{"action" => "continue_episode", "episode_ref" => episode.key},
-      episode.id
-    )
   end
 
   defp decide!(entry, action, decision, episode_id) do

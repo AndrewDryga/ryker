@@ -1278,20 +1278,13 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert Enum.map(links, &LazyHTML.text/1) == [
              "Jump to latest outcome ↓",
              "Open in Slack →",
-             "This Slack thread →"
+             "All messages in this thread →"
            ]
 
+    # Only Slack opens in a new tab; the thread's messages are a page of Ryker.
     blank_links = LazyHTML.query(document, ".episode-location > a[target='_blank']")
-
-    assert Enum.map(blank_links, &LazyHTML.text/1) == [
-             "Open in Slack →",
-             "This Slack thread →"
-           ]
-
-    assert LazyHTML.attribute(blank_links, "rel") == [
-             "noopener noreferrer",
-             "noopener noreferrer"
-           ]
+    assert Enum.map(blank_links, &LazyHTML.text/1) == ["Open in Slack →"]
+    assert LazyHTML.attribute(blank_links, "rel") == ["noopener noreferrer"]
 
     assert Enum.empty?(LazyHTML.query(document, ".case-actions"))
   end

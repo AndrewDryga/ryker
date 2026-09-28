@@ -721,6 +721,8 @@
 .tool-run-badge[data-service=emisar] { background:color-mix(in srgb, var(--ryker-mint) 14%, transparent); color:var(--ryker-text); }
 .emisar-mark .emisar-accent { stroke:var(--ryker-mint); }
 .tool-run-badge .emisar-mark { width:12px; height:12px; flex:none; }
+.tool-run-badge[data-service=ryker] { background:color-mix(in srgb, var(--ryker-mint) 14%, transparent); color:var(--ryker-text); }
+.tool-run-badge .ryker-mark { width:12px; height:12px; flex:none; color:var(--ryker-mint); }
 .tool-run-title { color:var(--ryker-text); font-weight:500; white-space:nowrap; }
 .tool-run-text { overflow:hidden; color:var(--ryker-text-secondary); text-overflow:ellipsis; white-space:nowrap; }
 .tool-run-duration { color:var(--ryker-text-secondary); font-variant-numeric:tabular-nums; white-space:nowrap; }
