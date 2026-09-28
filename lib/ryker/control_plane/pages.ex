@@ -339,6 +339,17 @@ defmodule Ryker.ControlPlane.Pages do
     view |> ImprovementPage.heading() |> sub_page(ImprovementPage.html(view))
   end
 
+  # One finding is a sub-page of its own, with the way back to all of them.
+  def page(["memory", "findings"], %{"finding" => id}, options) when is_binary(id) do
+    case options.projection.finding.(id) do
+      {:ok, finding} ->
+        sub_page(FindingsPage.heading(finding), FindingsPage.finding_html(finding))
+
+      :error ->
+        not_found("Finding")
+    end
+  end
+
   def page(["memory", "findings"], params, options) do
     ok(
       "Findings",

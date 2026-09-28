@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.Router do
     CSRF,
     FactsPage,
     FailureExplanation,
+    FindingsPage,
     HTML,
     ImprovementPage,
     LabControls,
@@ -1088,7 +1089,7 @@ defmodule Ryker.ControlPlane.Router do
   defp action_return_path("memory", _resource_ref), do: "/memory"
   defp action_return_path("memory-review", _resource_ref), do: "/memory#review"
   defp action_return_path("knowledge", _resource_ref), do: "/memory/learned"
-  defp action_return_path("finding", _resource_ref), do: "/memory/findings"
+  defp action_return_path("finding", resource_ref), do: FindingsPage.path(resource_ref)
   defp action_return_path("improvement", _resource_ref), do: "/feedback/fix"
   defp action_return_path("learning", resource_ref), do: LearningActivity.path(resource_ref)
 

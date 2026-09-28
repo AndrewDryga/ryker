@@ -1607,6 +1607,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert FindingsProjection.list(%{}) == %{
              items: [],
              q: "",
+             view: nil,
+             views: %{},
              total: 0,
              unexplained: 0,
              page: 1,

@@ -256,7 +256,12 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     # retention prune on a row four pages back must still reach the window,
     # so the projection can name every row changed since the last sync.
     history = long_history!()
-    since = DateTime.utc_now()
+    # The edit below is stamped by the database's clock and the prune by this
+    # host's; either can run a few milliseconds behind the other, and an edit
+    # stamped before `since` went unreported (a dev-check flake, 2026-09-28).
+    # Both clocks pass `since` before anything changes.
+    since = Enum.max([DateTime.utc_now(), Repo.now!()], DateTime)
+    await_clocks_past!(since)
     assert {:ok, []} = ConversationProjection.changes(@conversation_id, since)
 
     all =
@@ -814,6 +819,13 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
 
   defp conversation_ref(conversation_id \\ @conversation_id),
     do: "control-plane:lab:#{conversation_id}"
+
+  defp await_clocks_past!(moment) do
+    unless Enum.all?([DateTime.utc_now(), Repo.now!()], &DateTime.after?(&1, moment)) do
+      Process.sleep(1)
+      await_clocks_past!(moment)
+    end
+  end
 
   defp profile do
     {:ok, profile} =

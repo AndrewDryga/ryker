@@ -53,26 +53,30 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     assert [finding] = view.items
     assert finding.classification == "expected"
     assert finding.what == args["what"]
-    assert [%{text: observation, path: path}] = finding.evidence
-    assert observation =~ "deliberately disables"
     evidence = Repo.get_by!(Ryker.Records.Record, ref: evidence_ref)
     record = Repo.get_by!(Ryker.Records.Record, ref: ref)
+    assert {:ok, detail} = FindingsProjection.fetch(record.id)
+    assert [%{text: observation, path: path}] = detail.evidence
+    assert observation =~ "deliberately disables"
     episode_path = "/timeline/" <> URI.encode_www_form(claim.episode.key)
     # Findings and evidence must land on actual timeline cards, not dead fragments.
     assert path == episode_path <> "#event-record-" <> evidence.id
-    assert finding.path == episode_path <> "#event-record-" <> record.id
+    assert detail.path == episode_path <> "#event-record-" <> record.id
     html = render_component(&FindingsPage.render/1, view: view)
     # The populated page used to wrap every finding inside a second tall white
     # panel, shrinking the mobile reading column with redundant nested padding.
     refute html =~ "memory-card"
     assert html =~ "Zero instances are intentional"
     assert html =~ "Expected"
-    assert html =~ observation
-    assert html =~ "1 piece of evidence"
-    assert html =~ "Open investigation"
     refute html =~ ">Open<"
-    refute html =~ Repo.get_by!(Ryker.Records.Record, ref: ref).payload_fingerprint
+    refute html =~ record.payload_fingerprint
     assert FindingsPage.html(view) |> IO.iodata_to_binary() =~ "Zero instances are intentional"
+
+    page = detail |> FindingsPage.finding_html() |> IO.iodata_to_binary()
+    assert page =~ observation
+    assert page =~ "Open the investigation"
+    assert page =~ "Show on the timeline"
+    refute page =~ record.payload_fingerprint
   end
 
   test "findings lead with how many there are and how many are unexplained, and can be searched" do
@@ -145,10 +149,14 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     refute html =~ "page-help"
   end
 
-  test "a finding is a row on the page: the conclusion, its state, why, and the evidence one click away" do
+  test "a finding is one line in the list and opens its own page with why and the evidence" do
     # Before 2026-09-24 each finding was a framed card headed by its
     # classification ("Explained by evidence"), under a "How findings work"
     # disclosure and a separate count; the conclusion itself was body text.
+    # Andrew, 2026-09-28: the rows that followed, each with its reason, a
+    # collapsible of evidence and buttons, were "REALLY heavy, too much text
+    # and nobody will be able to use it". A row is one line now; the rest is
+    # on the finding's own page.
     empty = render_stub(%{items: [], total: 0, page: 1, pages: 1})
     assert outline(empty, "div.memory-view > *") == ["p.kit-counts", "div.kit-empty"]
 
@@ -156,27 +164,22 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
              LazyHTML.query(empty, "h1, h2, details.page-help, p.result-count, a[href='/lab']")
            )
 
+    long = String.duplicate("Latency came from the retry storm ", 8)
+
     populated =
       render_stub(%{
         total: 1,
         page: 1,
         pages: 1,
+        views: %{"explained" => 1},
         items: [
           %{
             id: "finding-1",
             classification: "explained",
-            what: "Latency came from the retry storm",
-            reason: "Every timeout retried three times",
+            status: :open,
+            what: long,
             scope: "Portal API",
-            at: ~U[2026-09-10 09:00:00Z],
-            path: "/timeline/episode%3Aone#event-record-1",
-            evidence: [
-              %{
-                text: "Retry counter climbed to 3",
-                label: "Show on the timeline",
-                path: "/timeline/episode%3Aone#event-record-2"
-              }
-            ]
+            at: ~U[2026-09-10 09:00:00Z]
           }
         ]
       })
@@ -188,27 +191,65 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
            ]
 
     row = LazyHTML.query(populated, "article.entity-row#finding-finding-1")
+    name = row |> LazyHTML.query("h3.entity-name") |> LazyHTML.text() |> String.trim()
+    assert String.starts_with?(name, "Latency came from the retry storm")
+    assert String.ends_with?(name, "…")
+    assert String.length(name) < String.length(long)
 
-    assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~
-             "Latency came from the retry storm"
+    assert LazyHTML.query(row, "h3.entity-name a") |> LazyHTML.attribute("href") ==
+             ["/memory/findings?finding=finding-1"]
 
     assert LazyHTML.query(row, ".state-word[data-tone=on]") |> LazyHTML.text() == "Explained"
+    assert LazyHTML.query(row, ".entity-meta") |> LazyHTML.text() =~ "Portal API"
+    assert Enum.empty?(LazyHTML.query(row, ".entity-text, details, form, button"))
 
-    assert LazyHTML.query(row, ".entity-text") |> LazyHTML.text() ==
-             "Every timeout retried three times"
+    page =
+      %{
+        id: "finding-1",
+        classification: "unexplained",
+        status: :open,
+        what: "Latency came from the retry storm",
+        reason: "Every timeout retried three times",
+        scope: "Portal API",
+        at: ~U[2026-09-10 09:00:00Z],
+        path: "/timeline/episode%3Aone#event-record-1",
+        evidence: [
+          %{
+            text: "Retry counter climbed to 3",
+            label: "Show on the timeline",
+            path: "/timeline/episode%3Aone#event-record-2"
+          }
+        ]
+      }
+      |> FindingsPage.finding_html()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
 
-    meta = LazyHTML.query(row, ".entity-meta")
-    assert LazyHTML.text(meta) =~ "Portal API"
+    assert page |> LazyHTML.query("#finding-status .state-word") |> LazyHTML.text() ==
+             "Not explained yet"
 
-    assert LazyHTML.query(meta, "a[href='/timeline/episode%3Aone#event-record-1']")
-           |> LazyHTML.text() == "Open investigation"
+    facts = page |> LazyHTML.query("#finding-facts") |> LazyHTML.text()
+    assert facts =~ "Every timeout retried three times"
+    assert facts =~ "Portal API"
 
-    evidence = LazyHTML.query(row, "details.memory-evidence:not([open])")
-    assert LazyHTML.query(evidence, "summary") |> LazyHTML.text() =~ "1 piece of evidence"
-    assert LazyHTML.text(evidence) =~ "Retry counter climbed to 3"
+    assert page
+           |> LazyHTML.query("#finding-facts a[href='/timeline/episode%3Aone#event-record-1']")
+           |> LazyHTML.text() == "Open the investigation"
 
-    assert LazyHTML.query(evidence, "a[href='/timeline/episode%3Aone#event-record-2']")
+    assert page |> LazyHTML.query("#evidence .entity-row") |> LazyHTML.text() =~
+             "Retry counter climbed to 3"
+
+    assert page
+           |> LazyHTML.query("#evidence a[href='/timeline/episode%3Aone#event-record-2']")
            |> LazyHTML.text() == "Show on the timeline"
+
+    assert Enum.empty?(LazyHTML.query(page, "details"))
+
+    # What a person can do comes last, forgetting at the very end.
+    assert outline(page, "section.kit-card") == ["section.kit-card", "section.kit-card"]
+
+    assert page |> LazyHTML.query("section.kit-card") |> LazyHTML.attribute("id") ==
+             ["mark-explained", "forget-finding"]
 
     for {classification, tone, word} <- [
           {"unexplained", "warn", "Not explained yet"},
@@ -224,26 +265,66 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
             %{
               id: "finding-1",
               classification: classification,
+              status: :open,
               what: "A conclusion",
-              reason: nil,
               scope: nil,
-              at: ~U[2026-09-10 09:00:00Z],
-              path: "/timeline/episode%3Aone",
-              evidence: []
+              at: ~U[2026-09-10 09:00:00Z]
             }
           ]
         })
 
       assert LazyHTML.query(document, ".state-word[data-tone=#{tone}]") |> LazyHTML.text() == word
-      assert Enum.empty?(LazyHTML.query(document, ".entity-text, details"))
     end
 
     paged = render_stub(%{items: [], total: 60, page: 2, pages: 2})
     assert outline(paged, "div.memory-view > *") |> List.last() == "nav.pagination"
 
-    assert LazyHTML.query(paged, "nav.pagination a[href='/memory/findings?page=1']")
+    assert LazyHTML.query(paged, "nav.pagination a[href='/memory/findings']")
            |> LazyHTML.text() =~
              "Previous"
+  end
+
+  # Andrew, 2026-09-28: Findings "need a toggle filter to see only explained,
+  # unexplained, etc".
+  test "the toggle shows only the findings in one view, and a search keeps it" do
+    {_claim, options} = claim!()
+    open = finding!(options, "Checkout pods restart after every deploy", "unexplained")
+    _elsewhere = finding!(options, "The probe timeout is shorter than warm-up", "out_of_scope")
+    _expected = finding!(options, "Zero replicas in staging are intentional", "expected")
+
+    all = findings()
+
+    assert all |> LazyHTML.query("nav.segmented a") |> Enum.map(&LazyHTML.text/1) ==
+             ["All", "Not explained yet", "Expected", "Out of scope"]
+
+    assert all |> LazyHTML.query("nav.segmented a") |> LazyHTML.attribute("href") == [
+             "/memory/findings",
+             "/memory/findings?view=unexplained",
+             "/memory/findings?view=expected",
+             "/memory/findings?view=out_of_scope"
+           ]
+
+    unexplained = findings(%{"view" => "unexplained"})
+    assert counts(unexplained) == ["1 matching"]
+
+    assert unexplained |> LazyHTML.query("article.entity-row") |> LazyHTML.attribute("id") ==
+             ["finding-#{open.id}"]
+
+    assert unexplained
+           |> LazyHTML.query("form.filter-toolbar input[type=hidden][name=view]")
+           |> LazyHTML.attribute("value") == ["unexplained"]
+
+    # Marked explained, it moves to Explained.
+    assert {:ok, _} = Findings.mark_explained(open.id)
+
+    assert findings(%{"view" => "unexplained"})
+           |> LazyHTML.query("article.entity-row")
+           |> Enum.count() == 0
+
+    explained = findings(%{"view" => "explained"})
+
+    assert explained |> LazyHTML.query("article.entity-row") |> LazyHTML.attribute("id") ==
+             ["finding-#{open.id}"]
   end
 
   test "the findings route carries its title and plain description, and no help" do
@@ -295,7 +376,8 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     refute Enum.any?(detail.trace.steps, &(&1.id == "record-#{original.id}"))
     assert [finding] = FindingsProjection.list(%{}).items
     assert finding.what == "An older useful conclusion"
-    assert finding.path == "/timeline/" <> URI.encode_www_form(claim.episode.key)
+    assert {:ok, detail} = FindingsProjection.fetch(original.id)
+    assert detail.path == "/timeline/" <> URI.encode_www_form(claim.episode.key)
   end
 
   test "finding prose and linked evidence cross the redaction and escaping boundary" do
@@ -335,21 +417,26 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
 
     rows = findings()
     assert counts(rows) == ["2 findings", "1 not explained yet"]
-    assert actions(rows, open.id) == ["Mark explained", "Forget"]
-    assert actions(rows, wrong.id) == ["Forget"]
+    assert actions(open.id) == ["Mark explained", "Forget finding"]
+    assert actions(wrong.id) == ["Forget finding"]
 
-    # Each opens its confirmation first, and confirming comes back to Findings.
+    # Each opens its confirmation first, and confirming comes back to the
+    # finding's own page.
     marked = confirm("/actions/finding/#{open.id}/mark-explained")
     assert marked.status == 303
-    assert Plug.Conn.get_resp_header(marked, "location") == ["/memory/findings"]
+
+    assert Plug.Conn.get_resp_header(marked, "location") == [
+             "/memory/findings?finding=#{open.id}"
+           ]
+
     assert confirm("/actions/finding/#{wrong.id}/forget").status == 303
 
     rows = findings()
     assert counts(rows) == ["2 findings"]
     assert state(rows, open.id) == "Marked explained"
     assert state(rows, wrong.id) == "Forgotten"
-    assert actions(rows, open.id) == []
-    assert actions(rows, wrong.id) == []
+    assert actions(open.id) == []
+    assert actions(wrong.id) == []
 
     # Ryker no longer reads either: the investigation's own next turns and
     # the related outcomes of later requests read only what it stands by.
@@ -382,8 +469,8 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     Repo.get_by!(Ryker.Records.Record, ref: ref)
   end
 
-  defp findings do
-    render_component(&FindingsPage.render/1, view: FindingsProjection.list(%{}))
+  defp findings(params \\ %{}) do
+    render_component(&FindingsPage.render/1, view: FindingsProjection.list(params))
     |> LazyHTML.from_fragment()
   end
 
@@ -393,19 +480,18 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
   end
 
-  # An open finding carries its buttons, so its state sits beside its name; a
-  # settled one has none and keeps its state at the far edge.
-  defp state(document, id) do
-    row = LazyHTML.query(document, "#finding-#{id}")
+  defp state(document, id),
+    do: document |> LazyHTML.query("#finding-#{id} .state-word") |> LazyHTML.text()
 
-    if Enum.empty?(LazyHTML.query(row, ".entity-actions")),
-      do: row |> LazyHTML.query(".entity-side .state-word") |> LazyHTML.text(),
-      else: row |> LazyHTML.query("h3.entity-name .state-word") |> LazyHTML.text()
-  end
+  # The buttons on the finding's own page.
+  defp actions(id) do
+    {:ok, finding} = FindingsProjection.fetch(id)
 
-  defp actions(document, id) do
-    document
-    |> LazyHTML.query("#finding-#{id} .entity-actions form[method=get] button")
+    finding
+    |> FindingsPage.finding_html()
+    |> IO.iodata_to_binary()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("form[method=get] button")
     |> Enum.map(&LazyHTML.text/1)
   end
 

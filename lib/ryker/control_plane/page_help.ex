@@ -656,18 +656,18 @@ defmodule Ryker.ControlPlane.PageHelp do
        [
          "Explained: the evidence shows why it happened. Expected and Out of scope come with Ryker's reason. Not explained yet: the question is still open. Point at a state to see what it means."
        ]},
-      {"Settle a finding",
-       [
-         "Mark explained settles a finding Ryker could not explain once you know why it happened. Forget is for a finding that is wrong or no longer matters.",
-         "Either way Ryker stops using the finding in later requests. It stays in the investigation's history and here, marked as such. Each asks you to confirm first and can't be undone."
-       ]},
       {"Find a finding",
        [
-         "The counts at the top say how many findings there are and how many are not explained yet. Search matches what a finding concluded, why, and where it applies."
+         "The counts at the top say how many findings there are and how many are not explained yet. The buttons beside the search show only one kind, such as Not explained yet. Search matches what a finding concluded, why, and where it applies."
        ]},
-      {"Check the evidence",
+      {"Open a finding",
        [
-         "Open a finding's evidence to see what supports it, and Open investigation for the work behind it. Evidence that has expired says so."
+         "Each row opens the finding's own page: all of what Ryker concluded, why, where it applies, the evidence behind it and the investigation that reached it. Evidence that has expired says so."
+       ]},
+      {"Settle a finding",
+       [
+         "On a finding's page, Mark explained settles one Ryker could not explain once you know why it happened. Forget finding is for one that is wrong or no longer matters.",
+         "Either way Ryker stops using the finding in later requests. It stays in the investigation's history and here, marked as such. Each asks you to confirm first and can't be undone."
        ]}
     ])
   end
