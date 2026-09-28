@@ -429,11 +429,16 @@ defmodule Ryker.GitHub.RepositoryFiles do
       when is_binary(content) ->
         decode_file(content, body["sha"])
 
+      # A directory, a submodule, or a file over 1 MB, which GitHub sends
+      # without its content: there, but nothing Ryker can read.
+      {:ok, %{status: 200}} ->
+        {:error, :source_unavailable}
+
       {:ok, %{status: status} = response} when status in @refused ->
         refused(response)
 
-      {:ok, _unavailable} ->
-        {:error, :source_unavailable}
+      {:ok, _other} ->
+        {:error, {:github_onboarding, :response}}
 
       {:error, _reason} = error ->
         error
