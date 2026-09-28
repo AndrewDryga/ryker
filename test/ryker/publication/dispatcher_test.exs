@@ -4,6 +4,7 @@ defmodule Ryker.Publication.DispatcherTest do
 
   import Ecto.Query
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Delivery.Adapters
   alias Ryker.Episodes
@@ -693,7 +694,7 @@ defmodule Ryker.Publication.DispatcherTest do
     owner = self()
 
     discard = fn ->
-      Ecto.Adapters.SQL.Sandbox.allow(Repo, owner, self())
+      Sandbox.allow(Repo, owner, self())
 
       send(
         owner,
