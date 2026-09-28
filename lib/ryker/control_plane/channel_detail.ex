@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
     ChannelScope,
     Environments,
     PagedRelation,
+    RepositoryProjection,
     UsageProjection
   }
 
@@ -101,6 +102,9 @@ defmodule Ryker.ControlPlane.ChannelDetail do
            environment: environment
          },
          environments: choices(settings),
+         # The name people know each repository by, for the rules, summaries
+         # and saved instructions that name one by its ref.
+         repository_names: RepositoryProjection.names(),
          participation: participation(scope, settings),
          continuity: ChannelContext.continuity(scope),
          learning: ChannelContext.learning_status(scope)

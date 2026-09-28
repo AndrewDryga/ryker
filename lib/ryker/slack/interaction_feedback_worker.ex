@@ -104,7 +104,7 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
              audit.channel_ref,
              audit.actor_ref,
              audit.thread_ref,
-             "Your press was recorded. I couldn't update the message to show it, so what you see may be out of date."
+             "Got it. I couldn't update this message to show your click, so it may be out of date."
            ) do
         :ok -> :ok
         {:error, reason} -> note_failed(audit, inspect(reason))

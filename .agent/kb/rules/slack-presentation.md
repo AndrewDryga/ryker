@@ -129,6 +129,12 @@ The agent self-corrects and creates/updates an authorized draft PR without norma
 publication clicks. Human decisions, publication authority, merge and deployment remain distinct.
 Use exact host evidence for checks, revision and PR status; never fabricate historical subtask counts.
 
+Progress is never folded (Block Kit `expand`); the request is shown whole and may fold behind
+Slack's own "Show more" (Andrew, 2026-09-28). A pull request that cannot be made is said once, on
+the publication line directly above its buttons: "⚠️ PR creation failed: <cause in the host's
+words>." with Review latest state and Discard candidate, never again as a separate Action needed.
+A repository is named as owner/repo, never by its ref.
+
 ## Governed review
 
 One Emisar pending-review message updates on the authoritative review outcome. Review in Emisar

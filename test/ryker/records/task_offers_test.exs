@@ -865,12 +865,14 @@ defmodule Ryker.Records.TaskOffersTest do
     assert task["status"] == "action_required"
 
     # The review names the cause, so the card does, rather than sending the
-    # reader to a page their Slack client cannot open or echoing the saved detail.
-    assert task["action_needed"] ==
-             "Draft pull-request work is blocked: the repository's checks failed on the committed change."
+    # reader to a page their Slack client cannot open or echoing the saved
+    # detail; it says it once, on the publication's line, not again as Action
+    # needed (Andrew, 2026-09-28).
+    assert task["publication"]["blocked_reason"] ==
+             "the repository's checks failed on the committed change."
 
-    refute task["action_needed"] =~ "Open the episode for details"
-    refute task["action_needed"] =~ "branch protection"
+    assert task["action_needed"] == nil
+    refute task["publication"]["blocked_reason"] =~ "branch protection"
     assert task["publication"]["controls"] == ["update", "discard"]
   end
 
@@ -898,19 +900,23 @@ defmodule Ryker.Records.TaskOffersTest do
     assert {:ok, projection} = TaskCardProjection.build(fixture.card)
     task = projection.document["task_card"]
 
-    refute task["action_needed"] =~ "no cause was recorded"
+    assert task["publication"]["blocked_reason"] ==
+             "the repository's checks failed on the committed change."
 
-    assert task["action_needed"] ==
-             "Draft pull-request work is blocked: the repository's checks failed on the committed change."
-
+    assert task["action_needed"] == nil
     assert task["publication"]["controls"] == ["update", "discard"]
 
     assert {:ok, rendered} = Renderer.render(projection.document)
     card = Jason.encode!(rendered)
-    assert card =~ "the repository's checks failed on the committed change"
+
+    assert card =~
+             ":warning: *PR creation failed:* the repository's checks failed on the committed change."
+
+    refute card =~ "no cause was recorded"
+    refute card =~ "Action needed"
     refute card =~ "gate_failed"
 
-    # Only a refusal that names nothing at all keeps the old words.
+    # A refusal that names nothing at all:
     update_publication!(publication, %{
       review_document:
         Map.merge(PublicationFixture.harvested_refusal(), %{
@@ -919,10 +925,12 @@ defmodule Ryker.Records.TaskOffersTest do
         })
     })
 
+    # One naming nothing at all still says what failed, and no more.
     assert {:ok, unexplained} = TaskCardProjection.build(fixture.card)
-
-    assert unexplained.document["task_card"]["action_needed"] ==
-             "Draft pull-request work is blocked; no cause was recorded."
+    assert unexplained.document["task_card"]["publication"]["blocked_reason"] == nil
+    assert unexplained.document["task_card"]["action_needed"] == nil
+    assert {:ok, rendered} = Renderer.render(unexplained.document)
+    assert Jason.encode!(rendered) =~ ":warning: *PR creation failed.*"
   end
 
   # Andrew's request, 2026-09-28: while Ryker's own fix round runs on a refused
@@ -963,9 +971,10 @@ defmodule Ryker.Records.TaskOffersTest do
     task = stopped.document["task_card"]
     assert task["status"] == "action_required"
 
-    assert task["action_needed"] ==
+    assert task["publication"]["blocked_reason"] ==
              "I tried to fix it 3 times; the repository's checks still fail."
 
+    assert task["action_needed"] == nil
     assert task["publication"]["controls"] == ["update", "discard"]
   end
 

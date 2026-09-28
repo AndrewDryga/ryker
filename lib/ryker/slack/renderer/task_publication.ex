@@ -17,6 +17,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   def validate(
         %{
           "automatic_fix" => automatic_fix,
+          "blocked_reason" => _blocked_reason,
           "branch" => branch,
           "controls" => controls,
           "discarded_reason" => discarded_reason,
@@ -28,9 +29,10 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
           "unverified" => unverified
         } = publication
       )
-      when map_size(publication) == 10 and discarded_reason in @discarded_reasons do
+      when map_size(publication) == 11 and discarded_reason in @discarded_reasons do
     with :ok <- bounded_text(status, 120),
          :ok <- optional_bounded_text(automatic_fix, 300),
+         :ok <- optional_bounded_text(publication["blocked_reason"], 700),
          :ok <- optional_bounded_text(branch, 512),
          :ok <- publication_controls(controls),
          :ok <- optional_publication_reference(publication_ref),
@@ -55,6 +57,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
   def blocks(task_ref, repository, %{
         "automatic_fix" => automatic_fix,
+        "blocked_reason" => blocked_reason,
         "branch" => branch,
         "controls" => controls,
         "discarded_reason" => discarded_reason,
@@ -76,6 +79,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
       cond do
         is_binary(automatic_fix) -> escape(automatic_fix)
         status == "discarded" -> discarded_message(discarded_reason)
+        status == "blocked" -> blocked_message(controls, unverified, blocked_reason)
         true -> publication_status_message(status, controls, unverified)
       end
 
@@ -150,14 +154,6 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
     do:
       "The changes passed their checks. I don't have a draft-PR grant for this task, so open the draft when you want one."
 
-  defp publication_status_message("blocked", controls, unverified) do
-    if "publish" in controls and is_binary(unverified) do
-      "I couldn't finish the checks (#{unverified}). The exact change is saved, so I can open it as an explicitly unverified draft pull request, or check the latest state again."
-    else
-      "PR creation is blocked. Review the latest state to check the changes again, or discard this candidate to stop publishing it."
-    end
-  end
-
   defp publication_status_message("published", _controls, nil),
     do: "Draft PR created. Open it to review the changes."
 
@@ -173,11 +169,32 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
   defp publication_status_message(status, controls, _unverified) do
     cond do
-      "retry" in controls -> "PR preparation stopped after an error. Retry the saved step below."
-      status == "publish_pending" -> "Creating the draft PR. Waiting for GitHub to confirm."
-      true -> "Checking the changes before creating a PR."
+      "retry" in controls ->
+        "PR preparation stopped after an error. Retry the saved step below."
+
+      status == "publish_pending" ->
+        "Creating the draft PR. Waiting for GitHub to confirm."
+
+      true ->
+        "Checking the changes before creating a PR. It takes a few minutes; this card updates when the check is done."
     end
   end
+
+  # One line says what failed and why, above the buttons that act on it
+  # (Andrew, 2026-09-28: "⚠️ PR creation failed: the repository's checks
+  # failed on the committed change. [buttons]"). The reason is the host's own
+  # words, set only when the card's sources may be shown.
+  defp blocked_message(controls, unverified, reason) when is_binary(unverified) do
+    if "publish" in controls,
+      do:
+        "I couldn't finish the checks (#{escape(unverified)}). The exact change is saved, so I can open it as an explicitly unverified draft pull request, or check the latest state again.",
+      else: blocked_message(controls, nil, reason)
+  end
+
+  defp blocked_message(_controls, _unverified, reason) when is_binary(reason),
+    do: ":warning: *PR creation failed:* #{escape(reason)}"
+
+  defp blocked_message(_controls, _unverified, _reason), do: ":warning: *PR creation failed.*"
 
   # A closed worker session can never be reviewed, so Ryker ends that request
   # itself; the task's next finished run is checked afresh.

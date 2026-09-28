@@ -243,7 +243,11 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
     assert channel_ref == audit.channel_ref
     assert actor_ref == audit.actor_ref
     assert thread_ref == audit.thread_ref
-    assert text =~ "recorded"
+    # In plain words (Andrew, 2026-09-28: "should it's content be simpler to
+    # understand?"), and never the host's reason.
+    assert text ==
+             "Got it. I couldn't update this message to show your click, so it may be out of date."
+
     refute text =~ "slack_unavailable"
   end
 

@@ -20,7 +20,6 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Environments, Integrations, Kit, SettingsView, ShortTime}
   alias Ryker.{Episodes, RepositoryKnowledge, Schedules}
-  alias Ryker.Episodes.Words
   alias Ryker.GitHub.Events, as: GitHubEvents
   alias Ryker.Publication.Custody, as: Publications
   alias Ryker.Work.Custody, as: WorkCustody
@@ -580,8 +579,8 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         <dl class="kit-facts">
           <.fact label="Last used">
             <%= if @item.freshness do %>
-              <code>{@item.freshness.resolved_revision}</code>
-              from {@item.freshness.requested_revision}<ShortTime.time
+              <strong>{short(@item.freshness.resolved_revision || "")}</strong>
+              from {branch(@item.freshness.requested_revision)}<ShortTime.time
                 :if={parse(@item.freshness.fetched_at)}
                 at={parse(@item.freshness.fetched_at)}
                 now={@now}
@@ -590,12 +589,6 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
             <% else %>
               None yet. It appears after Ryker's first task in this repository.
             <% end %>
-          </.fact>
-          <.fact :if={@item.freshness} label="Base">
-            {Words.label(@item.freshness.stale_base_status || "not recorded")}
-            <code :if={@item.freshness.workspace_base_revision}>
-              {@item.freshness.workspace_base_revision}
-            </code>
           </.fact>
         </dl>
       </Kit.section_card>
@@ -655,6 +648,11 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   defp knowledge(_knowledge), do: "Not yet"
 
   defp short(commit), do: String.slice(commit, 0, 7)
+
+  # The branch a task asked for, as people name it: main, not refs/heads/main.
+  defp branch("refs/heads/" <> name), do: name
+  defp branch(revision) when is_binary(revision), do: revision
+  defp branch(_none), do: "its default branch"
 
   defp permissions(permissions) when is_map(permissions) do
     case {missing_permissions(permissions),

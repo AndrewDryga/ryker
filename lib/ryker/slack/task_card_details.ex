@@ -2,12 +2,17 @@ defmodule Ryker.Slack.TaskCardDetails do
   @moduledoc """
   The task request and its stable stage ledger. Never private reasoning.
 
-  Every stage stays visible for the whole task; its glyph carries the current
-  disposition. The active stage and the active subtask are bold, and a human
-  handoff is marked beside the item that needs the person.
+  The request is shown whole: Slack folds a long one behind "Show more", and
+  opening it shows all of it (Andrew, 2026-09-28: "when its open I want to see
+  all of it"). Progress is never folded (Block Kit's `expand`: "Progress
+  should be always fully visible"). Every stage stays visible for the whole
+  task; its glyph carries the current disposition. The active stage and the
+  active subtask are bold, and a human handoff is marked beside the item that
+  needs the person.
   """
 
-  import Ryker.Slack.Renderer.Blocks, only: [escape: 1, section: 1, truncate: 2]
+  import Ryker.Slack.Renderer.Blocks,
+    only: [escape: 1, expanded_section: 1, section: 1, truncate: 2]
 
   alias Ryker.Records.InvestigationPayload
   alias Ryker.Work.TaskStages
@@ -18,22 +23,44 @@ defmodule Ryker.Slack.TaskCardDetails do
   @subtask_keys ~w(current detail id outcome state)
   @maximum_subtasks 6
   @maximum_section_characters 3_000
+  # As long as a task offer's request can be (`Ryker.Records.RecordPayload`).
+  @maximum_request_characters 12_000
 
-  def valid?(task), do: optional_text?(task["request"], 600) and stages?(task["stages"])
+  def valid?(task),
+    do: optional_text?(task["request"], @maximum_request_characters) and stages?(task["stages"])
 
-  def blocks(task) do
-    [request(task) | progress(task["stages"])] |> Enum.reject(&is_nil/1)
-  end
+  def blocks(task), do: request(task) ++ progress(task["stages"])
 
   defp request(%{"request" => request, "title" => title})
-       when is_binary(request) and request != title,
-       do: section("*The request*\n" <> display(request, 600))
+       when is_binary(request) and request != title do
+    lines = request |> escape() |> String.split("\n") |> Enum.flat_map(&pieces/1)
+    sections(["*The request*" | lines], &section/1)
+  end
 
-  defp request(_task), do: nil
+  defp request(_task), do: []
 
   defp progress(stages) do
-    ["*Progress*" | Enum.flat_map(stages, &stage_lines/1)] |> sections()
+    ["*Progress*" | Enum.flat_map(stages, &stage_lines/1)] |> sections(&expanded_section/1)
   end
+
+  # A line longer than one section is cut at word boundaries into lines that
+  # fit, so no part of the request is lost to a section's limit.
+  defp pieces(line) do
+    if String.length(line) <= @maximum_section_characters - 200,
+      do: [line],
+      else: line |> String.split(" ") |> Enum.chunk_while("", &fit/2, &done/1)
+  end
+
+  defp fit(word, ""), do: {:cont, word}
+
+  defp fit(word, line) do
+    if String.length(line) + 1 + String.length(word) > @maximum_section_characters - 200,
+      do: {:cont, line, word},
+      else: {:cont, line <> " " <> word}
+  end
+
+  defp done(""), do: {:cont, ""}
+  defp done(line), do: {:cont, line, ""}
 
   defp stage_lines(stage) do
     subtasks = Enum.map(stage["subtasks"], &subtask_line/1)
@@ -88,9 +115,9 @@ defmodule Ryker.Slack.TaskCardDetails do
   defp emphasize(text, true), do: "*#{text}*"
   defp emphasize(text, _current), do: text
 
-  # Slack bounds one section; the ledger splits on whole lines so no stage row
-  # is ever cut in half.
-  defp sections(lines) do
+  # Slack bounds one section; text splits on whole lines so no line, and no
+  # stage row, is ever cut in half.
+  defp sections(lines, block) do
     lines
     |> Enum.reduce([[]], fn line, [current | rest] ->
       if current != [] and length_of(current ++ [line]) > @maximum_section_characters,
@@ -98,7 +125,7 @@ defmodule Ryker.Slack.TaskCardDetails do
         else: [current ++ [line] | rest]
     end)
     |> Enum.reverse()
-    |> Enum.map(&section(Enum.join(&1, "\n")))
+    |> Enum.map(&block.(Enum.join(&1, "\n")))
   end
 
   defp length_of(lines), do: lines |> Enum.join("\n") |> String.length()
