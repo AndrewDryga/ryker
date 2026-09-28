@@ -371,19 +371,6 @@ defmodule Ryker.ControlPlane.ChannelPage do
   # all dropdowns so I can edit settings in-place?"). The form names the
   # revision it was drawn from, so a change made in Slack since is never saved
   # over; the page redraws with it instead.
-  # A channel with no saved setup yet has nothing a change could be checked
-  # against, so its value reads as words until it is set up in Slack; it
-  # crashed the page before (2026-09-27).
-  defp choice(%{view: %{channel: %{configuration: configuration}}} = assigns)
-       when not is_map(configuration) or not is_map_key(configuration, :id) do
-    ~H"""
-    <span class="channel-setting-value">
-      {Enum.find_value(@options, @value, fn {value, words} -> value == @value && words end)}
-    </span>
-    {render_slot(@inner_block)}
-    """
-  end
-
   defp choice(assigns) do
     assigns = assign(assigns, :configuration, assigns.view.channel.configuration)
 
