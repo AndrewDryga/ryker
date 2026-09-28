@@ -465,9 +465,20 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert submission["prompt"] =~ "host owns destination, identity, repository scope"
   end
 
-  test "repository work receives the exact retained RYKER.md with proposal provenance" do
-    content = "# RYKER.md\n\nUse `mix test` for focused checks.\n"
+  # Andrew, 2026-09-28: "I don't want to make daily PRs to update those
+  # files." Work was briefed only from a copy of RYKER.md on the repository's
+  # settings row, which the knowledge lane saved when it proposed a document
+  # in a pull request or read the file its default branch held. Without a
+  # proposal nothing would write that copy again, and every task would start
+  # without what Ryker knows about its repository. Work is briefed from the
+  # document Ryker keeps, the moment it is written.
+  test "Work is briefed with knowledge that was never proposed" do
+    content =
+      "# RYKER.md\n\nWritten by Ryker from `bbbbbbb` on 2026-09-28.\n\n## Purpose\n\n" <>
+        "Use `mix test` for focused checks.\n"
+
     commit = String.duplicate("b", 40)
+    sha256 = :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
     {:ok, settings} = Settings.initialize("control-plane:local")
 
     assert {:ok, _settings} =
@@ -475,15 +486,20 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                %{
                  ref: "knowledge-repo",
                  github_repository: "owner/knowledge-repo",
-                 base_branch: "main",
-                 knowledge_content: content,
-                 knowledge_status: :proposed,
-                 knowledge_source_commit: commit,
-                 knowledge_sha256: Ryker.CanonicalJSON.digest(content)
+                 base_branch: "main"
                },
                settings.installation.revision,
                "control-plane:local"
              )
+
+    Repo.insert!(%Ryker.RepositoryKnowledge.Entry{
+      repository_ref: "knowledge-repo",
+      document: content,
+      document_sha256: sha256,
+      document_commit: commit,
+      document_by: :model,
+      document_at: Repo.now!()
+    })
 
     id = Ecto.UUID.generate()
 
@@ -510,15 +526,14 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, claim} = Custody.claim_next("worker:repository-knowledge", 60)
     assert {:ok, submission} = SubmissionBuilder.build(claim)
 
+    # The document, the commit it was written from and its digest: no path
+    # in the repository, since the repository holds no copy of it.
     assert submission["context"]["repository_knowledge"] == %{
              "content" => content,
-             "path" => "RYKER.md",
-             "sha256" => Ryker.CanonicalJSON.digest(content),
-             "source_commit" => commit,
-             "status" => "proposed"
+             "sha256" => sha256,
+             "source_commit" => commit
            }
 
-    assert submission["prompt"] =~ "RYKER.md"
     assert submission["prompt"] =~ "Use `mix test`"
   end
 
