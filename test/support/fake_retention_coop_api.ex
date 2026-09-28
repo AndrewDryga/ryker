@@ -20,6 +20,7 @@ defmodule Ryker.FakeRetentionCoopAPI do
       %{
         calls: [],
         default_workspace: default_workspace,
+        broken_sessions: MapSet.new(Keyword.get(options, :broken_sessions, [])),
         fail_first: MapSet.new(Keyword.get(options, :fail_first, [])),
         failed: MapSet.new(),
         offline: Keyword.get(options, :offline, false),
@@ -199,6 +200,11 @@ defmodule Ryker.FakeRetentionCoopAPI do
         cond do
           unreachable?(state, body["session_id"]) ->
             {offline(), state}
+
+          # The worker answers, but fails this one session's cleanup, as
+          # discard did for a repository with services on 2026-09-27.
+          MapSet.member?(state.broken_sessions, body["session_id"]) ->
+            {{:error, {:coop_error, 500, "internal_error", "internal server error"}}, state}
 
           match?(%{body: ^body, phase: ^phase}, state.operations[key]) ->
             {state.operations[key].response, state}
