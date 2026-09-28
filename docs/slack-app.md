@@ -51,9 +51,9 @@ subscribed events are delivered over Socket Mode and do not need a public reques
 manifest uses Slack's current `agent_view`; applying it to an older `assistant_view` app performs
 Slack's irreversible Messages-tab migration.
 
-Slack messages may include up to four bounded Slack-hosted files per turn. Ryker supports PNG,
+Each Slack message may include up to two bounded Slack-hosted files. Ryker supports PNG,
 JPEG, WebP, and GIF screenshots; UTF-8 text, Markdown, CSV, JSON, and YAML; and PDF documents.
-Defaults cap each file and the whole turn at 8 MiB. The ordered worker downloads a private Slack
+The combined files in one message are capped at 8 MiB. The ordered worker downloads a private Slack
 URL with the bot token, verifies the Slack host, declared type, detected content, size, and SHA-256
 digest, and submits a typed read-only artifact to Coop. Private URLs and bytes never enter model
 prompts, Slack output, compact summaries, or long-term memory. Ryker retains only bounded

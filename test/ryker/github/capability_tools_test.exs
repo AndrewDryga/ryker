@@ -730,6 +730,66 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
            ) == {:error, "temporarily_unavailable"}
   end
 
+  test "a GitHub event from a read-only repository cannot mutate it by omitting repository" do
+    options =
+      update_in(
+        context_options(),
+        [:clients, "github-main", :grants],
+        &MapSet.put(&1, "cancel_ci")
+      )
+
+    binding =
+      Map.put(work_binding(), :session, %Session{
+        id: "session-environment",
+        repository_ref: "repo-write",
+        repository_context: %{
+          "context_ref" => "platform",
+          "primary_repository" => "repo-write",
+          "read_only_repositories" => ["repo-main"]
+        }
+      })
+
+    assert {:ok, _result} =
+             CapabilityTools.call(
+               "read_github_ci",
+               %{"attempt" => 1, "repository" => nil, "run_id" => 99},
+               binding,
+               options
+             )
+
+    assert CapabilityTools.call(
+             "submit_github_review",
+             %{
+               "body" => "Reviewed",
+               "comments" => [],
+               "event" => "comment",
+               "head_sha" => String.duplicate("a", 40),
+               "number" => 42,
+               "repository" => nil
+             },
+             binding,
+             options
+           ) == {:error, "unauthorized"}
+
+    assert CapabilityTools.call(
+             "rerun_github_ci",
+             %{"attempt" => 1, "repository" => nil, "run_id" => 99},
+             binding,
+             options
+           ) == {:error, "unauthorized"}
+
+    assert CapabilityTools.call(
+             "cancel_github_ci",
+             %{"attempt" => 1, "repository" => nil, "run_id" => 99},
+             binding,
+             options
+           ) == {:error, "unauthorized"}
+
+    refute_received {:submit_review, "octo/example", _, _, _, _, _}
+    refute_received {:rerun_ci, "octo/example", _, _}
+    refute_received {:cancel_ci, "octo/example", _, _}
+  end
+
   defp options do
     %{
       bindings: %{"github-main" => :trusted},
