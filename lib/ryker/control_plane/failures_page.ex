@@ -220,16 +220,28 @@ defmodule Ryker.ControlPlane.FailuresPage do
       <Kit.section_card id="failure-summary" title="What happened" class="failure-summary">
         <dl class="failure-rows">
           <div :if={@e.happened != []}>
-            <dt>Cause</dt>
-            <dd><p :for={paragraph <- @e.happened}>{paragraph}</p></dd>
+            <dt>What stopped</dt>
+            <dd>
+              <p :for={paragraph <- @e.happened}>{paragraph}</p>
+            </dd>
+          </div>
+          <div :if={@e.cause != []}>
+            <dt>Why</dt>
+            <dd>
+              <p :for={paragraph <- @e.cause}>{paragraph}</p>
+            </dd>
           </div>
           <div :if={@e.affects != []}>
             <dt>Who is waiting</dt>
-            <dd><p :for={paragraph <- @e.affects}>{paragraph}</p></dd>
+            <dd>
+              <p :for={paragraph <- @e.affects}>{paragraph}</p>
+            </dd>
           </div>
           <div :if={@e.tried != []}>
             <dt>What Ryker tried</dt>
-            <dd><p :for={paragraph <- @e.tried}>{paragraph}</p></dd>
+            <dd>
+              <p :for={paragraph <- @e.tried}>{paragraph}</p>
+            </dd>
           </div>
         </dl>
         <details :if={@report} class="recovery-worker-report failure-report">
@@ -256,7 +268,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
             state={option[:outlook]}
             text={option.effect}
             meta={List.wrap(option[:note])}
-            class={["failure-option", !option[:path] and !option[:href] && "failure-option-passive"]}
+            class={["failure-option", (!option[:path] and !option[:href]) && "failure-option-passive"]}
           >
             <:actions :if={option[:path] || option[:href]}>
               <Components.action_button

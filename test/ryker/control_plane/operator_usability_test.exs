@@ -400,9 +400,9 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     explained = FailureExplanation.explain(row, @now)
     assert explained.summary =~ "usage limit"
-    # The recovery page shows what happened, not the list's summary: the
-    # provider's words, with when it runs again, must be there too.
-    assert Enum.any?(explained.happened, &(&1 =~ "Sep 29th, 2026 8:59 PM"))
+    # The recovery page's Why row, not only the list's summary, carries the
+    # provider's words with when it runs again.
+    assert Enum.any?(explained.cause, &(&1 =~ "Sep 29th, 2026 8:59 PM"))
     assert explained.outlook == :fix_first
     assert %{href: "/settings/models", recommended: true} = hd(explained.options)
 
@@ -662,7 +662,12 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
            ]
 
     assert LazyHTML.query(document, "#failure-summary .failure-rows dt")
-           |> Enum.map(&LazyHTML.text/1) == ["Cause", "Who is waiting", "What Ryker tried"]
+           |> Enum.map(&LazyHTML.text/1) == [
+             "What stopped",
+             "Why",
+             "Who is waiting",
+             "What Ryker tried"
+           ]
 
     assert html =~ "Open the request"
     assert html =~ "Direct conversation"
@@ -677,6 +682,46 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     [primary | _] = String.split(html, "id=\"failure-technical\"")
     refute primary =~ "session:one"
     refute primary =~ "sha256"
+  end
+
+  test "a stopped task's page says the cause the worker gave, not only that it stopped" do
+    # The page's Cause row read "The task stopped before the worker finished
+    # it." while the worker's actual refusal (a repository had moved) reached
+    # only the Failures list, so the one page meant to explain the failure
+    # explained nothing.
+    cause =
+      "The worker refused to set up the task's code: a repository it reads has moved since the task began."
+
+    document =
+      %{
+        kind: "work",
+        ref: "task-offer:record:task_offer:one",
+        episode_ref: "task-offer:record:task_offer:one",
+        action: :retry,
+        attempt_count: 8,
+        status: :blocked,
+        summary: "work_execution_blocked",
+        destination: "slack:T1:C1",
+        updated_at: ~U[2026-09-05 12:00:00Z],
+        work_recovery: %{action: :retry, cause: cause, explained: true}
+      }
+      |> FailuresPage.detail(@now)
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    rows =
+      document
+      |> LazyHTML.query("#failure-summary .failure-rows > div")
+      |> Enum.map(fn row ->
+        {LazyHTML.query(row, "dt") |> LazyHTML.text(),
+         LazyHTML.query(row, "dd") |> LazyHTML.text()}
+      end)
+      |> Map.new()
+
+    assert rows["Why"] =~ cause
+
+    assert LazyHTML.query(document, "#failure-options .section-head") |> LazyHTML.text() =~
+             "depends on the cause above"
   end
 
   test "search keeps an accessible label bound to its input instead of an extra column" do
