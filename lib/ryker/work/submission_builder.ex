@@ -36,7 +36,6 @@ defmodule Ryker.Work.SubmissionBuilder do
   @retained_cases 3
   @maximum_context_bytes 160 * 1_024
   @input_content_bytes 1_024
-  @continuity_content_bytes 256
   @record_payload_bytes 2_048
   @default_state_tool_capabilities [:event_waits, :publication, :schedules]
   @state_tool_capabilities [:emisar_approvals, :event_waits, :publication, :schedules]
@@ -805,13 +804,16 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   defp continuity_input(nil), do: nil
 
+  # The message that began the work, shortened as any earlier message is. A
+  # shorter preview kept only a message's envelope: its sender and the start
+  # of its block list, and none of its words.
   defp continuity_input(event) do
     sources = LearningSources.for_work_input(event.payload["payload"])
 
     document =
       %{
         "actor_ref" => event.payload["actor_ref"],
-        "content" => compact_value(event.payload["payload"], @continuity_content_bytes),
+        "content" => compact_value(event.payload["payload"], @input_content_bytes),
         "occurred_at" => DateTime.to_iso8601(event.occurred_at)
       }
       |> put_source_ref(event.payload["payload"])

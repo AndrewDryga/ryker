@@ -990,7 +990,12 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert delta["context"]["continuity"]["first_input"]["source_ref"] ==
              first_submission["context"]["inputs"]["items"] |> hd() |> Map.fetch!("source_ref")
 
-    assert byte_size(delta["prompt"]) < byte_size(first_submission["prompt"])
+    # The session already holds the briefing, so a delta sends none of its
+    # history again: only the new messages and a bounded reminder of the first.
+    for part <- ~w(inputs origins conversation_context related_outcomes retained_cases) do
+      assert Map.has_key?(first_submission["context"], part)
+      refute Map.has_key?(delta["context"], part)
+    end
 
     assert {:ok, rotated} =
              Custody.rotate_session(
@@ -1008,6 +1013,59 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
     assert replacement_submission["context"]["prior_outcome"]["submission_ref"] ==
              Submission.fingerprint(first_submission)
+  end
+
+  test "a continuation reminds the model of the first message in its words" do
+    # Every one of the 12 continuations kept on 2026-09-28 cut the first
+    # message to a 256-byte preview of its envelope. For a Slack message that
+    # is the sender and the start of its block list, so the model was reminded
+    # what began the work by a preview holding none of its words. Harvested
+    # from the first message of the emisar access case (ingress-input:901af829),
+    # IDs renamed as in test/ryker/improvement/fixtures. Its custody fields are
+    # left out: this episode has no retained source for them to name.
+    first = %{
+      "actor" => %{"kind" => "user", "ref" => "UPERSON"},
+      "content" => %{
+        "attachments" => [],
+        "blocks" => [
+          %{
+            "block_id" => "JreFB",
+            "elements" => [
+              %{
+                "elements" => [
+                  %{"type" => "user", "user_id" => "URYKER"},
+                  %{"text" => " check health of our infra", "type" => "text"}
+                ],
+                "type" => "rich_text_section"
+              }
+            ],
+            "type" => "rich_text"
+          }
+        ],
+        "files" => [],
+        "slack_event_kind" => "message",
+        "subtype" => nil,
+        "text" => "<@URYKER> check health of our infra"
+      },
+      "destination" => %{
+        "conversation_ref" => "slack:TEVAL:CEVAL",
+        "thread_ref" => "1790504146.985239",
+        "transport" => "slack"
+      },
+      "event_kind" => "message",
+      "event_ref" => "Ev0C5LPPHMCY",
+      "occurred_at" => "2026-09-27T10:15:46.985239Z",
+      "revision" => 7_162_016_587_940_956,
+      "source_item_ref" => "1790504146.985239"
+    }
+
+    claim = claim_episode_payload!("first-input-words", first)
+    next = next_claim!(claim, ["You have pretty much all possible access via emisar mcp"])
+
+    assert {:ok, delta} = SubmissionBuilder.build(next)
+    assert delta["context"]["mode"] == "continuation"
+    reminder = delta["context"]["continuity"]["first_input"]["content"]
+    assert get_in(reminder, ["content", "text"]) == "<@URYKER> check health of our infra"
   end
 
   test "the builder rejects a value that is not a complete leased claim" do
