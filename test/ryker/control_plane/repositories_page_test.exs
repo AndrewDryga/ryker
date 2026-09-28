@@ -535,8 +535,15 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     |> LazyHTML.from_fragment()
   end
 
+  # An added repository's row carries Remove, so its state sits beside its
+  # name; one Ryker only saw in past work has no buttons and keeps it at the
+  # far edge.
   defp state(row) do
-    state = LazyHTML.query(row, ".entity-side .state-word")
+    state =
+      if Enum.empty?(LazyHTML.query(row, ".entity-actions")),
+        do: LazyHTML.query(row, ".entity-side .state-word"),
+        else: LazyHTML.query(row, "h3.entity-name .state-word")
+
     {LazyHTML.text(state), LazyHTML.attribute(state, "data-tone")}
   end
 

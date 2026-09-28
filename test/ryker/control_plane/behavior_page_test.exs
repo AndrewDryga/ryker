@@ -55,7 +55,9 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
           view(:standing_assignment, [%{item(:standing_assignment) | status: status}])
         )
 
-      state = LazyHTML.query(document, "article .entity-side .state-word")
+      # Each row carries its menu, which opens the original conversation, so
+      # its state sits beside its name rather than against its buttons.
+      state = LazyHTML.query(document, "article h3.entity-name .state-word")
       assert LazyHTML.text(state) == word, status
       assert LazyHTML.attribute(state, "data-tone") == [tone], status
 

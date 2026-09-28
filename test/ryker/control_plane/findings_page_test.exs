@@ -383,8 +383,15 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
   end
 
-  defp state(document, id),
-    do: document |> LazyHTML.query("#finding-#{id} h3 .state-word") |> LazyHTML.text()
+  # An open finding carries its buttons, so its state sits beside its name; a
+  # settled one has none and keeps its state at the far edge.
+  defp state(document, id) do
+    row = LazyHTML.query(document, "#finding-#{id}")
+
+    if Enum.empty?(LazyHTML.query(row, ".entity-actions")),
+      do: row |> LazyHTML.query(".entity-side .state-word") |> LazyHTML.text(),
+      else: row |> LazyHTML.query("h3.entity-name .state-word") |> LazyHTML.text()
+  end
 
   defp actions(document, id) do
     document

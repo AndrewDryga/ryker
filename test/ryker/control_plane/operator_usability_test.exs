@@ -126,7 +126,9 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       document = entry.(status)
       assert Enum.empty?(LazyHTML.query(document, "form.action-control"))
 
-      assert LazyHTML.query(document, "article .entity-side .state-word") |> LazyHTML.text() ==
+      # Its menu still opens the original conversation, so its state sits
+      # beside its name rather than against the menu.
+      assert LazyHTML.query(document, "article h3.entity-name .state-word") |> LazyHTML.text() ==
                word
     end
   end

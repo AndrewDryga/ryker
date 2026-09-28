@@ -216,7 +216,8 @@ defmodule Ryker.ControlPlane.NativePagesTest do
       assert LazyHTML.query(document, ".kit-count[href='#workers'][data-tone=warn]")
              |> Enum.count() == 1
 
-      assert LazyHTML.query(document, "#workers .entity-side .state-word[data-tone=warn]")
+      # The row carries its two buttons, so its state sits beside its name.
+      assert LazyHTML.query(document, "#workers h3.entity-name .state-word[data-tone=warn]")
              |> Enum.count() == 1
 
       assert LazyHTML.query(document, "#workers a[href='/settings/advanced']") |> Enum.count() ==

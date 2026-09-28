@@ -123,7 +123,6 @@ defmodule Ryker.ControlPlane.LearnedPage do
         name={item.title}
         href={ConversationMemory.topic_path(item.id)}
         state={topic_state(item)}
-        state_by_name
         text={MemoryFormat.excerpt(item.text, item.workspace)}
         meta={topic_facts(item)}
       >

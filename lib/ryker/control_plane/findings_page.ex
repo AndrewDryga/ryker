@@ -53,7 +53,6 @@ defmodule Ryker.ControlPlane.FindingsPage do
           icon={:search}
           name={MemoryFormat.inline(item.what)}
           state={state(item)}
-          state_by_name
           text={MemoryFormat.inline(item.reason)}
           meta={[
             item.scope,
