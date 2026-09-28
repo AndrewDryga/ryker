@@ -13,26 +13,31 @@ defmodule Ryker.GitHub.Server do
   def child_spec(configuration) do
     options = options!(configuration)
 
-    router_options =
-      [
-        bindings: options.bindings,
-        bot_login: options.bot_login,
-        repository_access: options.repository_access,
-        secret: options.secret
-      ]
-      |> then(fn router_options ->
-        if options.confirmations,
-          do: Keyword.put(router_options, :confirmations, options.confirmations),
-          else: router_options
-      end)
-
     Bandit.child_spec(
       ip: options.ip,
-      plug: {Router, router_options},
+      plug: {Router, router_options(options)},
       port: options.port,
       startup_log: false
     )
     |> Map.put(:id, __MODULE__)
+  end
+
+  @doc """
+  The `Ryker.GitHub.Router` options for normalized server options: what the
+  listener serves, and what `Ryker.GitHub.DeliveryPoller` hands deliveries to.
+  """
+  @spec router_options(map()) :: keyword()
+  def router_options(options) do
+    router_options = [
+      bindings: options.bindings,
+      bot_login: options.bot_login,
+      repository_access: options.repository_access,
+      secret: options.secret
+    ]
+
+    if options.confirmations,
+      do: Keyword.put(router_options, :confirmations, options.confirmations),
+      else: router_options
   end
 
   @doc false
