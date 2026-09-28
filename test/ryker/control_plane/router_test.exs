@@ -42,6 +42,56 @@ defmodule Ryker.ControlPlane.RouterTest do
                ~s({"messages":[{"role":"user","content":"two"}]}\n)
   end
 
+  # The download sent its 200 before it read a row. A database that could not
+  # answer handed the browser an empty file, as if no example were kept, and
+  # one that failed part-way could end the file cleanly after the lines it
+  # had: a truncated training set that read as complete.
+  test "routing examples that cannot be read answer 503, and a download that stops part-way is left unfinished" do
+    path = "/settings/retention/routing-examples.jsonl"
+
+    unreadable = fn _acc, _fun ->
+      raise DBConnection.ConnectionError, "password=sensitive-example"
+    end
+
+    {response, log} =
+      ExUnit.CaptureLog.with_log(fn ->
+        request_with_options(:get, path, nil, routing_examples(unreadable))
+      end)
+
+    assert response.status == 503
+    assert response.resp_body == "Routing examples unavailable\n"
+    assert get_resp_header(response, "content-disposition") == []
+    assert log =~ "Routing examples download unavailable category=DBConnection.ConnectionError"
+    refute log =~ "sensitive-example"
+
+    part_way = fn acc, fun ->
+      {:cont, _sent} = fun.(~s({"messages":[{"role":"user","content":"one"}]}\n), acc)
+      raise DBConnection.ConnectionError, "password=sensitive-example"
+    end
+
+    # Raised on, the server closes the connection before the file ends, so
+    # the browser reports a failed download instead of keeping one line.
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert_raise DBConnection.ConnectionError, fn ->
+          request_with_options(:get, path, nil, routing_examples(part_way))
+        end
+      end)
+
+    assert log =~
+             "Routing examples download stopped part-way category=DBConnection.ConnectionError"
+
+    refute log =~ "sensitive-example"
+
+    # Nothing kept is an empty file, not a failure.
+    empty =
+      request_with_options(:get, path, nil, routing_examples(fn acc, _fun -> {:ok, acc} end))
+
+    assert empty.status == 200
+    assert empty.resp_body == ""
+    assert [_attachment] = get_resp_header(empty, "content-disposition")
+  end
+
   test "removed admission pages are not redirects or compatibility aliases" do
     id = Ecto.UUID.generate()
     options = options()
@@ -2034,6 +2084,11 @@ defmodule Ryker.ControlPlane.RouterTest do
   end
 
   defp options, do: ControlPlaneOptions.options(self())
+
+  defp routing_examples(export) do
+    options = options()
+    %{options | projection: Map.put(options.projection, :routing_examples, export)}
+  end
 
   # The live conversation page as the shell renders it: the snapshot decorated
   # with the exact edit, reaction and record controls the HTTP router accepts.

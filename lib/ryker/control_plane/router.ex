@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.Router do
   """
 
   import Plug.Conn
+  require Logger
 
   alias Plug.Conn.Query
   alias Ryker.Artifacts
@@ -145,7 +146,9 @@ defmodule Ryker.ControlPlane.Router do
 
   # The routing examples kept for training, as a JSON Lines file, from the
   # Data retention page. Each line is sent as it is read, so the download never
-  # holds the whole set; a reader who stops reading ends the export.
+  # holds the whole set; a reader who stops reading ends the export. The
+  # headers go out with the first line, once the first batch is read, so an
+  # export that cannot start answers 503 rather than an empty file.
   defp route(
          %Plug.Conn{
            method: "GET",
@@ -153,26 +156,30 @@ defmodule Ryker.ControlPlane.Router do
          } = conn,
          options
        ) do
-    conn =
-      conn
-      |> put_resp_content_type("application/jsonl")
-      |> put_resp_header(
-        "content-disposition",
-        ~s(attachment; filename="ryker-routing-examples-#{Date.utc_today()}.jsonl")
-      )
-      |> send_chunked(200)
+    case export_routing_examples(conn, options) do
+      {:ok, %Plug.Conn{state: :chunked} = conn} ->
+        halt(conn)
 
-    exported =
-      options.projection.routing_examples.(conn, fn line, conn ->
-        case chunk(conn, line) do
-          {:ok, conn} -> {:cont, conn}
-          {:error, _closed} -> {:halt, conn}
-        end
-      end)
+      # Nothing is kept: the file is empty.
+      {:ok, conn} ->
+        conn |> routing_examples_file() |> send_resp(200, "") |> halt()
 
-    case exported do
-      {:ok, conn} -> halt(conn)
-      {:error, _reason} -> halt(conn)
+      {:error, error, _stack, :unsent} ->
+        Logger.warning(
+          "Routing examples download unavailable category=#{inspect(error.__struct__)}"
+        )
+
+        text(conn, 503, "Routing examples unavailable\n")
+
+      # Raised again, the file is left unfinished: the server closes the
+      # connection before it ends, so the browser reports a failed download
+      # instead of keeping the lines sent so far as the whole file.
+      {:error, error, stack, :sent} ->
+        Logger.warning(
+          "Routing examples download stopped part-way category=#{inspect(error.__struct__)}"
+        )
+
+        reraise(error, stack)
     end
   end
 
@@ -576,6 +583,50 @@ defmodule Ryker.ControlPlane.Router do
     do: html(conn, 404, "Not found", HTML.not_found("Page"))
 
   defp route(conn, _options), do: text(conn, 405, "Method not allowed")
+
+  # Set once the routing examples file has begun. An export that raises drops
+  # the conn that would say so, so its failure reads this instead.
+  @routing_examples_sent {__MODULE__, :routing_examples_sent}
+
+  # The export, or why it failed and whether the file had begun by then. Only
+  # a category is ever logged: an export's error can carry what it read.
+  defp export_routing_examples(conn, options) do
+    Process.delete(@routing_examples_sent)
+
+    case options.projection.routing_examples.(conn, &send_routing_example/2) do
+      {:ok, conn} -> {:ok, conn}
+      {:error, _reason} -> raise "the routing examples export failed"
+    end
+  rescue
+    error ->
+      {:error, error, __STACKTRACE__,
+       if(Process.delete(@routing_examples_sent), do: :sent, else: :unsent)}
+  end
+
+  # One line of the file; the first also sends the file's headers.
+  defp send_routing_example(line, %Plug.Conn{state: :chunked} = conn),
+    do: send_routing_line(conn, line)
+
+  defp send_routing_example(line, conn) do
+    Process.put(@routing_examples_sent, true)
+    conn |> routing_examples_file() |> send_chunked(200) |> send_routing_line(line)
+  end
+
+  defp send_routing_line(conn, line) do
+    case chunk(conn, line) do
+      {:ok, conn} -> {:cont, conn}
+      {:error, _closed} -> {:halt, conn}
+    end
+  end
+
+  defp routing_examples_file(conn) do
+    conn
+    |> put_resp_content_type("application/jsonl")
+    |> put_resp_header(
+      "content-disposition",
+      ~s(attachment; filename="ryker-routing-examples-#{Date.utc_today()}.jsonl")
+    )
+  end
 
   defp lab_record_view("diff"), do: {:ok, :diff}
   defp lab_record_view("timeline"), do: {:ok, :timeline}
