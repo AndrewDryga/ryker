@@ -146,15 +146,18 @@ defmodule Ryker.RepositoryKnowledge.Executor do
                do: {:ok, :stopped}
 
         :not_found ->
-          with :ok <-
-                 API.prepare_create_session(
-                   settings.api,
-                   settings.client,
-                   key,
-                   run.policy,
-                   FleetSession.external_ref(run),
-                   source
-                 ) do
+          prepare = fn ->
+            API.prepare_create_session(
+              settings.api,
+              settings.client,
+              key,
+              run.policy,
+              FleetSession.external_ref(run),
+              source
+            )
+          end
+
+          with :ok <- with_lease_kept(claim, settings, prepare) do
             call(claim, settings, :create_session, [
               key,
               run.policy,
@@ -190,6 +193,47 @@ defmodule Ryker.RepositoryKnowledge.Executor do
   end
 
   defp bind(claim, run, id), do: Custody.with_lease(claim, fn -> FleetSession.bind(run, id) end)
+
+  # Mirroring a large repository before its session can be created can take
+  # minutes. The lease is renewed meanwhile, beside the preparation, so no
+  # other worker takes the run over halfway (as Work's is, 2026-09-28).
+  defp with_lease_kept(claim, settings, function) do
+    heartbeat = Task.async(fn -> keep_lease(claim, settings) end)
+
+    try do
+      result = function.()
+      send(heartbeat.pid, :stop)
+
+      case Task.await(heartbeat, :infinity) do
+        :ok -> result
+        {:error, _lost} = lost -> lost
+      end
+    after
+      Task.shutdown(heartbeat, :brutal_kill)
+    end
+  end
+
+  defp keep_lease(claim, settings) do
+    receive do
+      :stop -> :ok
+    after
+      max(div(settings.lease_seconds * 1_000, 3), 100) ->
+        case renew_lease(claim, settings) do
+          :ok -> keep_lease(claim, settings)
+          {:error, _lost} = lost -> lost
+        end
+    end
+  end
+
+  defp renew_lease(claim, settings) do
+    case Custody.renew(claim, settings.lease_seconds) do
+      {:ok, _renewed} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    # A lease another worker holds now is not ours to renew.
+    _lost -> {:error, :repository_knowledge_lease_lost}
+  end
 
   defp located_session(
          {:ok, %{"id" => id, "state" => state, "revision" => revision} = remote},

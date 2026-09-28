@@ -54,6 +54,40 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
       do: Fake.validate_candidate(client, session_id, turn_id, key, sha256, verdict)
   end
 
+  # A mirror of a large repository that takes longer than the lease to
+  # prepare. Halfway through, a rival worker tries to take the run.
+  defmodule SlowPreparationAPI do
+    alias Ryker.RepositoryKnowledge.Custody
+    alias Ryker.RepositoryKnowledge.LaneTest.API
+
+    def prepare_create_session(client, key, policy, ref, source) do
+      Process.sleep(1_600)
+      rival = Custody.claim("knowledge-rival", %{lease_seconds: 60}, ["emisar"])
+      send(self(), {:rival_claim, rival})
+      API.prepare_create_session(client, key, policy, ref, source)
+    end
+
+    defdelegate create_session(client, key, policy, ref, source), to: API
+    defdelegate get_session(client, id), to: API
+    defdelegate get_turn(client, session_id, turn_id), to: API
+    defdelegate cancel_turn(client, session_id, turn_id, key, revision), to: API
+    defdelegate operation_by_key(client, key), to: API
+
+    defdelegate submit_frozen_turn(client, session_id, key, revision, submission, gate, extra),
+      to: API
+
+    defdelegate validate_frozen_candidate(
+                  client,
+                  session_id,
+                  turn_id,
+                  key,
+                  attempt,
+                  sha,
+                  verdict
+                ),
+                to: API
+  end
+
   setup do
     {:ok, snapshot} = Settings.initialize(@actor)
 
@@ -168,6 +202,21 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     # Written once: nothing is due until tomorrow's check.
     assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
+  end
+
+  # Mirroring a large repository before its session can be created can take
+  # minutes, and nothing renewed the lease meanwhile: another worker took the
+  # run over mid-preparation. The 2026-09-28 review found it in Work first.
+  test "a source preparation that outlasts the lease keeps the run" do
+    github!()
+    coop = coop!([answer_json()], turn_wait_polls: 2)
+    assert {:ok, :ready} = Onboarding.run("emisar", api: FakeGitHubRepository)
+
+    results = drain(settings(coop, api: SlowPreparationAPI, lease_seconds: 1))
+
+    assert_received {:rival_claim, {:ok, :idle}}
+    assert {:ok, :written} in results
+    assert RepositoryKnowledge.entry("emisar").document_by == :model
   end
 
   # Andrew, 2026-09-27: "also when those are updated?" Once a day each
