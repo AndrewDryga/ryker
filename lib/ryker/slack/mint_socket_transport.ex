@@ -193,6 +193,12 @@ defmodule Ryker.Slack.MintSocketTransport do
       {:error, ^request_ref, reason}, _state ->
         {:halt, {:error, {:slack_socket_upgrade_failed, reason}}}
 
+      # Slack refused the upgrade and said why in a body. The status is what
+      # the log keeps; the body is not logged.
+      {:data, ^request_ref, _body}, {:continue, status, _headers}
+      when is_integer(status) and status != 101 ->
+        {:halt, {:error, {:slack_socket_upgrade_failed, {:status, status}}}}
+
       _unexpected, _state ->
         {:halt, {:error, {:slack_socket_upgrade_failed, :response}}}
     end)
