@@ -29,15 +29,25 @@ defmodule Ryker.Publication.Followups.Leases do
     end
   end
 
+  # A follow-up polls only while its publication is published. A task whose
+  # newer change is back in review, or blocked there, leaves its pull request's
+  # poll due and waiting on purpose; readiness counts by this same query.
+  def pollable_query do
+    from(followup in Followup,
+      as: :followup,
+      join: publication in Publication,
+      as: :publication,
+      on:
+        publication.id == followup.publication_id and
+          publication.episode_id == followup.episode_id,
+      where: publication.status == :published
+    )
+  end
+
   def next_due_at(%DateTime{} = since) do
     polls =
       Repo.one(
-        from(followup in Followup,
-          join: publication in Publication,
-          on:
-            publication.id == followup.publication_id and
-              publication.episode_id == followup.episode_id,
-          where: publication.status == :published,
+        from(followup in pollable_query(),
           select: [
             filter(min(followup.next_poll_at), followup.next_poll_at > ^since),
             filter(min(followup.lease_expires_at), followup.lease_expires_at > ^since)
@@ -144,14 +154,9 @@ defmodule Ryker.Publication.Followups.Leases do
     now = Repo.now!()
 
     query =
-      from(followup in Followup,
-        join: publication in Publication,
-        on:
-          publication.id == followup.publication_id and
-            publication.episode_id == followup.episode_id,
+      from([followup: followup, publication: publication] in pollable_query(),
         where:
-          publication.status == :published and
-            followup.next_poll_at <= ^now and
+          followup.next_poll_at <= ^now and
             (is_nil(followup.lease_expires_at) or followup.lease_expires_at <= ^now),
         order_by: [asc: followup.next_poll_at, asc: followup.id],
         limit: 1,

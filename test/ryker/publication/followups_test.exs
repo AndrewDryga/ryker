@@ -44,6 +44,45 @@ defmodule Ryker.Publication.FollowupsTest do
   # The next check of a follow-up that is never checked again.
   @never ~U[9999-01-01 00:00:00.000000Z]
 
+  test "a follow-up waiting on its pull request's newer change is not a stalled queue" do
+    # On 2026-09-28 PR #2's continuation committed a change that self-review
+    # blocked. Its publication left :published, so the poller rightly stopped
+    # checking the pull request, but readiness still counted the due poll:
+    # /readyz said "queue not draining: publication_followup" and every
+    # deploy stopped the verified release and refused to pin it.
+    %{publication: publication} = PublicationFixture.published!("waits-for-review")
+    overdue = DateTime.add(DateTime.utc_now(), -3_600, :second)
+
+    Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
+      set: [next_poll_at: overdue]
+    )
+
+    # What re-arming the task's review leaves once self-review blocks it.
+    Repo.update_all(from(p in Publication, where: p.id == ^publication.id),
+      set: [
+        status: :blocked,
+        approval_ref: nil,
+        approved_at: nil,
+        approved_by_actor_ref: nil,
+        publication_receipt: nil,
+        publication_receipt_fingerprint: nil,
+        published_at: nil,
+        published_delivery_receipt: nil,
+        published_delivery_receipt_fingerprint: nil
+      ]
+    )
+
+    assert Followups.claim_poll("publication-followup:waits", 60) == {:ok, nil}
+    assert {:ok, snapshot} = Ryker.Observability.snapshot(900)
+    assert Enum.find(snapshot.queues, &(&1.name == :publication_followup)).claimable == 0
+    refute :publication_followup in snapshot.stalled_queues
+
+    # The same poll of a published pull request is overdue work.
+    Repo.insert!(publication, on_conflict: :replace_all, conflict_target: :id)
+    assert {:ok, snapshot} = Ryker.Observability.snapshot(900)
+    assert :publication_followup in snapshot.stalled_queues
+  end
+
   test "published work survives checks, merge, exact deployment correlation, and verification wakeup" do
     %{episode: episode, publication: publication} = PublicationFixture.published!("followup")
 
