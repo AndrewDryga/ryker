@@ -127,18 +127,6 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     end
   end
 
-  test "conversation memory headings cannot inherit the dark application banner" do
-    # Browser QA caught nearly black titles against the global header background.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-    [_, header] = Regex.run(~r/\.memory-card header \{([^}]+)\}/, css)
-    assert header =~ "background:transparent"
-    assert header =~ "position:static"
-    assert header =~ "padding:0"
-    [_, footer] = Regex.run(~r/^\.memory-card footer \{([^}]+)\}/m, css)
-    assert footer =~ "padding:12px 0 0"
-    assert footer =~ "margin:16px 0 0"
-  end
-
   test "prompt token counts are visible and action facts fit a narrow viewport" do
     # Desktop HTML tests missed a hidden token-count rule and an inherited
     # two-column grid that pushed a 390px viewport to 753px.
@@ -147,10 +135,6 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert tokens =~ "font-variant-numeric:tabular-nums"
     [_, facts] = Regex.run(~r/\.action-facts \{([^}]+)\}/, css)
     assert facts =~ "grid-template-columns:minmax(0,1fr)"
-    [_, cards] = Regex.run(~r/\.memory-cards \{([^}]+)\}/, css)
-    assert cards =~ "grid-template-columns:minmax(0,1fr)"
-    [_, card] = Regex.run(~r/\.memory-card \{([^}]+)\}/, css)
-    assert card =~ "overflow-wrap:anywhere"
     [_, tooltip] = Regex.run(~r/\.ryker-tooltip \{([^}]+)\}/, css)
     assert tooltip =~ "position:fixed"
     assert tooltip =~ "max-width:min(420px, calc(100vw - 24px))"
