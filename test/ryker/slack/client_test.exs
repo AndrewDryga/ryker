@@ -193,6 +193,7 @@ defmodule Ryker.Slack.ClientTest do
                   "event_type" => "ryker_delivery"
                 },
                 "mrkdwn" => false,
+                "parse" => "none",
                 "text" => "Investigation is waiting for an operator.",
                 "ts" => "1787832001.000200",
                 "unfurl_links" => false,
@@ -202,15 +203,16 @@ defmodule Ryker.Slack.ClientTest do
   end
 
   # chat.postMessage takes a message whose text runs past 4,000 characters, but
-  # chat.update refuses it with msg_too_long. On 2026-09-28 a 4,246-character
-  # reply that asked Andrew a question was posted. When he typed his answer,
-  # Slack refused the repaint eight times, and the question stayed open in
-  # the thread.
-  test "a reply longer than Slack's text bound can still be edited" do
+  # chat.update refuses it with msg_too_long, counting it after linking each
+  # URL. On 2026-09-28 a 4,246-character reply with 15 links asked Andrew a
+  # question in #test. When he typed his answer, Slack refused the repaint
+  # eight times and the question stayed open in the thread. It refused again
+  # with the text cut to 4,000 characters.
+  test "a long reply with links can still be edited" do
     {:ok, requester} =
       FakeRequester.start([slack(%{"channel" => "C123", "ts" => "1787832001.000200"})])
 
-    message = String.duplicate("word ", 799) <> "ab&cd " <> String.duplicate("tail ", 100)
+    message = String.duplicate("Checked https://runner.example/logs & metrics – fine. ", 120)
 
     assert Client.update_message(
              client(requester),
@@ -221,11 +223,17 @@ defmodule Ryker.Slack.ClientTest do
            ) == :ok
 
     assert [{:post, "/chat.update", document, []}] = FakeRequester.requests(requester)
-    assert String.length(document["text"]) <= 4_000
+    assert document["parse"] == "none"
     assert [%{"type" => "markdown", "text" => whole}] = document["blocks"]
     assert whole == String.replace(message, "&", "&amp;")
-    # The cut does not leave half an escape for the notification to show.
-    assert document["text"] == String.duplicate("word ", 799) <> "ab…"
+
+    # However Slack counts it: in bytes, with each URL linked.
+    text = document["text"]
+    links = length(Regex.scan(~r/https:\/\//, text))
+    assert byte_size(text) + 2 * links <= 4_000
+
+    # The cut leaves no half an escape for a notification to show.
+    assert length(Regex.scan(~r/&/, text)) == length(Regex.scan(~r/&amp;/, text))
   end
 
   test "sets and clears the native assistant thread status with the verified Slack shape" do

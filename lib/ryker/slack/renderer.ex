@@ -36,11 +36,12 @@ defmodule Ryker.Slack.Renderer do
   @maximum_message_characters 20_000
   @maximum_blocks 50
 
-  # Slack asks that a message's text stay within 4,000 characters: the blocks
-  # carry the whole message, and the text is what a notification shows.
-  # chat.postMessage takes a longer one, but chat.update refuses it with
-  # msg_too_long, so a long reply could be posted and never repainted.
-  @maximum_text_characters 4_000
+  # chat.update refuses a message whose text is over 4,000 characters as Slack
+  # counts them, which is after it has linked each URL, while chat.postMessage
+  # takes one ten times as long: a long reply could be posted and never
+  # repainted. The blocks carry the whole message and the text is what a
+  # notification shows, so it stays well inside Slack's count.
+  @maximum_text_characters 3_000
 
   @spec render(map()) :: {:ok, map()} | {:error, term()}
   def render(document) do

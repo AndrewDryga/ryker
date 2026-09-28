@@ -77,10 +77,12 @@ defmodule Ryker.Slack.Client.Messages do
          :ok <- Fields.text(channel),
          :ok <- Fields.text(message_ref),
          :ok <- Fields.text(delivery_ref),
+         # An edit is parsed as the post was: chat.update otherwise parses
+         # the text as a client would, and keeps that for the message.
          document <-
            channel
            |> message_document(rendered, delivery_ref)
-           |> Map.put("ts", message_ref),
+           |> Map.merge(%{"parse" => "none", "ts" => message_ref}),
          {:ok, response} <- Transport.request(client, :post, "/chat.update", document),
          {:ok, response_body} <- Transport.response(response),
          true <- response_body["ts"] == message_ref and response_body["channel"] == channel do
