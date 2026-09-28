@@ -10,6 +10,7 @@ defmodule Ryker.Work.Executor.Sessions do
   """
 
   alias Ryker.Coop.API
+  alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Work.{Custody, Session}
   alias Ryker.Work.Executor.Remote
@@ -43,7 +44,16 @@ defmodule Ryker.Work.Executor.Sessions do
     end
   end
 
+  # A session never created whose frozen job still names a repository Ryker
+  # has since removed could only fail "fetch job source" on the worker, on
+  # every attempt (2026-09-28). Its replacement gives that repository up.
   defp create_or_bind_session(claim, settings) do
+    if JobAuthority.removed_repositories?(claim.session),
+      do: replace_lost_session(claim, settings),
+      else: create_or_bind_current_session(claim, settings)
+  end
+
+  defp create_or_bind_current_session(claim, settings) do
     key = Remote.create_key(claim.session)
 
     result =
