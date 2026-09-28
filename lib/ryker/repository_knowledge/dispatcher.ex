@@ -37,7 +37,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     {:github_onboarding, :permission},
     {:github_onboarding, :not_found},
     :repository_empty,
-    :repository_too_large
+    :repository_too_large,
+    :repository_knowledge_unreadable
   ]
 
   # How a run ended, as the atom its release records. Never turn a code read
@@ -132,12 +133,10 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     result =
       with :ok <- not_archived(remote, binding, repository),
            {:ok, head} <- remote.head(binding, repository),
-           {:ok, current} <- remote.read(binding, repository, @file_name, head),
+           {:ok, current} <- knowledge_file(remote, binding, repository, head),
            {:ok, pull_request} <- pull_request_state(remote, binding, repository, entry),
-           :ok <- follow_default_branch(repository, head, text(current), pull_request),
-           do:
-             {:checked, decide(entry, head, text(current), binding, repository, remote),
-              pull_request}
+           :ok <- follow_default_branch(repository, head, current, pull_request),
+           do: {:checked, decide(entry, head, current, binding, repository, remote), pull_request}
 
     case result do
       {:checked, {:error, reason}, _pull_request} ->
@@ -183,6 +182,17 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     case remote.repository(binding, repository) do
       {:ok, %{archived: true}} -> {:error, {:github_onboarding, :archived}}
       {:ok, %{archived: false}} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  # RYKER.md on the default branch, or nil. One Ryker cannot read (over
+  # 128,000 bytes, not text, not a file) is not one Ryker wrote: like a
+  # person's, it is left as it is, and the entry says why.
+  defp knowledge_file(remote, binding, repository, head) do
+    case remote.read(binding, repository, @file_name, head) do
+      {:ok, current} -> {:ok, text(current)}
+      {:error, :source_unavailable} -> {:error, :repository_knowledge_unreadable}
       {:error, _reason} = error -> error
     end
   end
@@ -270,7 +280,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     result =
       with {:ok, head} <- remote.head(binding, repository),
            {:ok, entries} <- remote.tree(binding, repository, head),
-           {:ok, current} <- remote.read(binding, repository, @file_name, head),
+           {:ok, current} <- knowledge_file(remote, binding, repository, head),
            {:ok, run} <-
              Custody.prepare(
                claim,
@@ -288,7 +298,6 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   defp attempt(entry, repository, binding, policy, head, entries, current) do
     tree = Document.tree(entries)
     facts = Document.outline_facts(tree)
-    current = text(current)
 
     # The document on the default branch is worth keeping in the words it
     # has only when a model or a person wrote it; the old file-list summary
@@ -389,8 +398,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
 
   defp outline(remote, binding, repository) do
     with {:ok, head} <- remote.head(binding, repository),
-         {:ok, current} <- remote.read(binding, repository, @file_name, head) do
-      if Document.origin(text(current)) in [:none, :old_scan, :outline],
+         {:ok, current} <- knowledge_file(remote, binding, repository, head) do
+      if Document.origin(current) in [:none, :old_scan, :outline],
         do: written_outline(remote, binding, repository, head),
         else: {:ok, :kept}
     end
@@ -410,13 +419,18 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     end
   end
 
+  # A README Ryker cannot read gives the outline no words, as none would.
   defp readme(remote, binding, repository, tree, head) do
     case Enum.find(["README.md", "README.rst", "README.txt", "README"], &(tree[&1] == :blob)) do
       nil ->
         {:ok, nil}
 
       path ->
-        with {:ok, text} <- remote.read(binding, repository, path, head), do: {:ok, text(text)}
+        case remote.read(binding, repository, path, head) do
+          {:ok, text} -> {:ok, text(text)}
+          {:error, :source_unavailable} -> {:ok, nil}
+          {:error, _reason} = error -> error
+        end
     end
   end
 
@@ -431,6 +445,10 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
          }) do
       {:ok, result} ->
         recorded(claim, result, repository, settings)
+
+      # RYKER.md on the default branch became one Ryker cannot read.
+      {:error, :source_unavailable} ->
+        failed(claim, :repository_knowledge_unreadable, settings, &Custody.publication_failed/2)
 
       {:error, reason} ->
         failed(claim, reason, settings, &Custody.publication_failed/2)
@@ -499,8 +517,9 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   # -- Shared ------------------------------------------------------------------------
 
   # A reason another try would meet again (archived, a permission, the
-  # repository or its default branch gone, no commit yet, too many files)
-  # ends the step with a sentence and waits for the next check. Anything
+  # repository or its default branch gone, no commit yet, too many files, a
+  # RYKER.md Ryker cannot read) ends the step with a sentence and waits for
+  # the next check. Anything
   # else, a 5xx, a rate limit, a reply Ryker did not expect or none at all,
   # is tried again shortly.
   defp failed(claim, reason, settings, record) do

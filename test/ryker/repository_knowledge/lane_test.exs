@@ -375,6 +375,67 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert RepositoryKnowledge.entry("emisar").publication == :opened
   end
 
+  # The same review: a RYKER.md over 128,000 bytes, not text or not a file
+  # failed the daily check as if GitHub had not answered, so the check was
+  # tried again every minute, for good. One Ryker cannot read is not one it
+  # wrote: like a person's, it is left as it is, and the row says why.
+  test "a RYKER.md Ryker cannot read is left as it is, with a sentence, and checked tomorrow" do
+    github!(document: :unreadable)
+    ready!()
+    coop = coop!([answer_json()])
+
+    drain(settings(coop, retry_delay_seconds: 60))
+
+    entry = RepositoryKnowledge.entry("emisar")
+    assert entry.phase == :idle
+    assert entry.error =~ "Ryker cannot read the RYKER.md on the default branch"
+    assert DateTime.diff(entry.next_check_at, Repo.now!()) in 86_000..86_400
+
+    # Asking for it on the page meets the same sentence, before any turn.
+    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
+    drain(settings(coop, retry_delay_seconds: 60))
+
+    assert FakeCoopAPI.state(coop).create_keys == []
+    refute Enum.any?(FakeGitHubRepository.calls(), &match?({:publish, _document}, &1))
+    entry = RepositoryKnowledge.entry("emisar")
+    assert {entry.phase, entry.error =~ "Ryker cannot read"} == {:idle, true}
+    assert DateTime.diff(entry.next_check_at, Repo.now!()) in 86_000..86_400
+  end
+
+  # A RYKER.md that became unreadable while Ryker wrote its own is not
+  # proposed over, and the proposal is not tried every minute either.
+  test "a document is not proposed over a RYKER.md Ryker cannot read" do
+    github!(errors: %{publish: {:error, {:github_onboarding, :response}}})
+    ready!()
+    coop = coop!([answer_json()])
+    drain(settings(coop, retry_delay_seconds: 60))
+    assert RepositoryKnowledge.entry("emisar").phase == :publish
+
+    FakeGitHubRepository.update(&%{&1 | errors: %{}, document: :unreadable})
+    retry_due!()
+    drain(settings(coop, retry_delay_seconds: 60))
+
+    assert FakeGitHubRepository.state().open == nil
+    entry = RepositoryKnowledge.entry("emisar")
+    assert {entry.phase, entry.published_at} == {:idle, nil}
+    assert entry.error =~ "Ryker cannot read the RYKER.md on the default branch"
+  end
+
+  # The outline stands in when no model could finish, and a README Ryker
+  # cannot read failed it as if GitHub had not answered, every minute.
+  test "the outline stands in without a README Ryker cannot read" do
+    github!(files: Map.put(files!(), "README.md", :unreadable))
+    ready!()
+    invented = Jason.encode!(invented_answer())
+    coop = coop!([invented, invented])
+
+    drain(settings(coop), 60)
+
+    assert %{document: outline} = FakeGitHubRepository.state().open
+    assert Document.origin(outline) == :outline
+    assert outline =~ "The README does not say what the repository is for."
+  end
+
   test "an archived repository is skipped with a sentence, and costs no model turn" do
     github!(archived: true)
     ready!()

@@ -89,12 +89,17 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
 
   @impl Ryker.RepositoryKnowledge.Remote
   def read(_binding, _repository, "RYKER.md", ref) do
-    call({:read, "RYKER.md", ref}, &{:ok, &1.document || :not_found})
+    call({:read, "RYKER.md", ref}, &readable(&1.document || :not_found))
   end
 
   def read(_binding, _repository, path, ref) do
-    call({:read, path, ref}, &{:ok, Map.get(&1.files, path, :not_found)})
+    call({:read, path, ref}, &readable(Map.get(&1.files, path, :not_found)))
   end
+
+  # A file given as `:unreadable` is one Ryker cannot read (too large, not
+  # text, not a file), as `Ryker.GitHub.RepositoryFiles` reports it.
+  defp readable(:unreadable), do: {:error, :source_unavailable}
+  defp readable(file), do: {:ok, file}
 
   @impl Ryker.RepositoryKnowledge.Remote
   def changes(_binding, _repository, base, head) do
@@ -122,6 +127,9 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
 
         state.archived ->
           {{:error, {:github_onboarding, :archived}}, state}
+
+        state.document == :unreadable ->
+          {{:error, :source_unavailable}, state}
 
         state.open ->
           open = %{state.open | document: document, body: body}

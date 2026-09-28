@@ -210,6 +210,27 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
     assert RepositoryFiles.read(@binding, @repository, "RYKER.md", @head) == {:ok, "# RYKER.md\n"}
   end
 
+  # A 5xx while reading a file came back as a file Ryker cannot read, which
+  # the lane leaves alone as a person's: a moment's outage would settle the
+  # day's check, and drop the commands a model cited from that file.
+  test "GitHub failing while a file is read is GitHub failing, not a file Ryker cannot read" do
+    read = "/repos/acme/widget/contents/RYKER.md?ref=#{@head}"
+
+    RecordedGitHub.reply([
+      {:get, read, {:ok, %{status: 502, body: "<html>502 Bad Gateway</html>", headers: []}}},
+      {:get, read, ok(503, %{"message" => "Service Unavailable"})},
+      {:get, read, ok(429, %{"message" => "Too many requests"}, [{"retry-after", "30"}])}
+    ])
+
+    for _failing <- 1..2 do
+      assert RepositoryFiles.read(@binding, @repository, "RYKER.md", @head) ==
+               {:error, {:github_onboarding, :response}}
+    end
+
+    assert RepositoryFiles.read(@binding, @repository, "RYKER.md", @head) ==
+             {:error, {:github_onboarding, :rate_limited}}
+  end
+
   # -- Helpers ---------------------------------------------------------------------
 
   defp publish(document, body \\ "Why now: The repository has no RYKER.md yet."),
