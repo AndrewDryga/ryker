@@ -43,18 +43,22 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
       assert item.recall_warning == :missing_source_history
       assert item.expires_at == nil
 
-      html = render_summaries()
-      row = html |> LazyHTML.from_document() |> LazyHTML.query("article.entity-row")
-      assert LazyHTML.query(row, ".state-word[data-tone=warn]") |> LazyHTML.text() == "Not used"
-      warning = LazyHTML.query(row, ".memory-note") |> LazyHTML.text()
+      # The list says it is not used, and why on hover; its page says why in
+      # words and what it keeps.
+      row = render_summaries() |> LazyHTML.from_document() |> LazyHTML.query("article.entity-row")
+      state = LazyHTML.query(row, ".state-word[data-tone=warn]")
+      assert LazyHTML.text(state) == "Not used"
+      assert [hint] = LazyHTML.attribute(state, "title")
+      assert hint =~ "Not used in answers"
+
+      page = render_summary(summary.id) |> LazyHTML.from_document()
+      warning = LazyHTML.query(page, ".memory-note") |> LazyHTML.text()
       assert warning =~ "Not used in answers"
       assert warning =~ "no complete record of the messages behind it was saved"
       assert warning =~ "kept so you can read it"
       refute warning =~ "rebuild this topic"
-      retention = LazyHTML.query(row, ".entity-meta") |> LazyHTML.text()
-      assert retention =~ "No automatic expiry"
-      refute retention =~ "Kept until"
-      assert html =~ "Retained summary text for inspection."
+      assert LazyHTML.query(page, "#summary-facts") |> LazyHTML.text() =~ "No automatic expiry"
+      assert LazyHTML.text(page) =~ "Retained summary text for inspection."
       assert Repo.get!(ConversationSummary, summary.id) == summary
     end
   end
@@ -84,12 +88,12 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
     [item] = ConversationMemory.project(%{"kind" => "context"}).items
     assert item.source_at == entry.occurred_at
     assert item.changed_at != item.source_at
-    html = render_summaries()
+    html = render_summary(summary.id)
     assert html =~ "source history is too large to combine safely"
     assert html =~ "Retained summary text for inspection."
     # Two dates, two words: when Ryker changed it and when the message was said.
     assert html =~ "Latest message"
-    assert html =~ "Updated"
+    assert html =~ "updated just now"
   end
 
   for retained_at <- [nil, "not-a-timestamp"] do
@@ -104,18 +108,30 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
       assert item.recall_warning == :invalid_source_history
       assert item.expires_at == nil
 
-      html = render_summaries()
+      html = render_summary(summary.id)
       document = LazyHTML.from_document(html)
       warning = document |> LazyHTML.query(".memory-note") |> LazyHTML.text()
       assert warning =~ "Not used in answers"
       assert warning =~ "the record of the messages behind it is invalid"
-      retention = document |> LazyHTML.query(".entity-meta") |> LazyHTML.text()
-      assert retention =~ "Expiry unknown"
-      refute retention =~ "Kept until"
+
+      retention =
+        document
+        |> LazyHTML.query("#summary-facts")
+        |> LazyHTML.text()
+        |> String.split()
+        |> Enum.join(" ")
+
+      assert retention =~ "Kept until Unknown"
       refute retention =~ "No automatic expiry"
       assert html =~ "Retained summary text for inspection."
       assert Repo.get!(ConversationSummary, summary.id) == summary
     end
+  end
+
+  defp render_summary(id) do
+    ConversationMemory.project(%{"kind" => "context", "item" => id})
+    |> LearnedPage.html("test-secret")
+    |> IO.iodata_to_binary()
   end
 
   defp render_summaries do

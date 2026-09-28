@@ -1719,9 +1719,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .channel-page .channel-health { display:flex; flex-wrap:wrap; gap:4px 16px; margin:0 0 8px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .channel-page .channel-relation .pagination { margin:8px 0 0; }
 .channel-page .channel-entry-text { margin:0; max-width:720px; white-space:pre-line; font-size:14px; line-height:20px; color:var(--ryker-text); }
-.channel-page .channel-fact-group h4 { margin:8px 0 4px; font-size:13px; line-height:18px; color:var(--ryker-text); }
-.channel-page .channel-fact-group ul { margin:0; padding-left:18px; color:var(--ryker-text); }
-.channel-page .channel-links { display:flex; flex-wrap:wrap; gap:4px 16px; margin:8px 0 0; }
 .channel-page .section-actions a { font-size:13px; line-height:18px; }
 .channel-page .channel-usage { display:flex; flex-wrap:wrap; gap:4px 16px; margin:0; font-size:14px; line-height:20px; color:var(--ryker-text); }
 .channel-page .channel-usage-note { margin:4px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }

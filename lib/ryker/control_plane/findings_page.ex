@@ -127,60 +127,65 @@ defmodule Ryker.ControlPlane.FindingsPage do
   # last.
   defp finding(assigns) do
     ~H"""
-    <article class="memory-topic memory-finding" id={"finding-" <> @item.id}>
-      <Kit.status_line id="finding-status" state={state(@item) || unclassified()}>
-        <span>{MemoryFormat.time(@item.at, "found ")}</span>
-      </Kit.status_line>
-      <div class="memory-topic-text">{MemoryFormat.inline(@item.what)}</div>
-      <Kit.facts
-        id="finding-facts"
-        facts={[
-          {"Why", MemoryFormat.inline(@item.reason)},
-          {"Scope", @item.scope},
-          {"Investigation", MemoryFormat.link("Open the investigation", @item.path)}
-        ]}
-      />
-    </article>
-    <section :if={@item.evidence != []} id="evidence" class="memory-section">
-      <Kit.section_head
-        title="Evidence"
-        lede="What Ryker saw that this conclusion rests on."
-      />
-      <div class="entity-list" role="list" aria-label="Evidence">
-        <MemoryFormat.row
-          :for={{evidence, index} <- Enum.with_index(@item.evidence, 1)}
-          id={"evidence-#{index}"}
-          name={MemoryFormat.inline(evidence.text)}
-          meta={[MemoryFormat.link(evidence.label, evidence.path)]}
+    <%!-- Inside the memory view like a topic's page: a section straight under
+    the page was boxed by the secondary pages' rule, with 52px of empty space
+    above Evidence (Andrew, 2026-09-28). --%>
+    <div class="memory-view memory-finding-page">
+      <article class="memory-topic memory-finding" id={"finding-" <> @item.id}>
+        <Kit.status_line id="finding-status" state={state(@item) || unclassified()}>
+          <span>{MemoryFormat.time(@item.at, "found ")}</span>
+        </Kit.status_line>
+        <div class="memory-topic-text">{MemoryFormat.inline(@item.what)}</div>
+        <Kit.facts
+          id="finding-facts"
+          facts={[
+            {"Why", MemoryFormat.inline(@item.reason)},
+            {"Scope", @item.scope},
+            {"Investigation", MemoryFormat.link("Open the investigation", @item.path)}
+          ]}
         />
-      </div>
-    </section>
-    <section
-      :if={@item.status == :open and @item.classification == "unexplained"}
-      id="mark-explained"
-      class="kit-card"
-      aria-label="Mark explained"
-    >
-      <Kit.section_head
-        title="Mark explained"
-        lede="When you know why it happened. Ryker then stops bringing it up as an open question."
-      >
-        <:actions>
-          <.action_button
-            path={action_path(@item.id, "mark-explained")}
-            label="Mark explained"
-            tone={:primary}
+      </article>
+      <section :if={@item.evidence != []} id="evidence" class="memory-section">
+        <Kit.section_head
+          title="Evidence"
+          lede="What Ryker saw that this conclusion rests on."
+        />
+        <div class="entity-list" role="list" aria-label="Evidence">
+          <MemoryFormat.row
+            :for={{evidence, index} <- Enum.with_index(@item.evidence, 1)}
+            id={"evidence-#{index}"}
+            name={MemoryFormat.inline(evidence.text)}
+            meta={[MemoryFormat.link(evidence.label, evidence.path)]}
           />
-        </:actions>
-      </Kit.section_head>
-    </section>
-    <Kit.remove_card
-      :if={@item.status == :open}
-      id="forget-finding"
-      title="Forget finding"
-      text="Ryker stops using it: later requests no longer read it. The investigation keeps it in its history."
-      path={action_path(@item.id, "forget")}
-    />
+        </div>
+      </section>
+      <section
+        :if={@item.status == :open and @item.classification == "unexplained"}
+        id="mark-explained"
+        class="kit-card"
+        aria-label="Mark explained"
+      >
+        <Kit.section_head
+          title="Mark explained"
+          lede="When you know why it happened. Ryker then stops bringing it up as an open question."
+        >
+          <:actions>
+            <.action_button
+              path={action_path(@item.id, "mark-explained")}
+              label="Mark explained"
+              tone={:primary}
+            />
+          </:actions>
+        </Kit.section_head>
+      </section>
+      <Kit.remove_card
+        :if={@item.status == :open}
+        id="forget-finding"
+        title="Forget finding"
+        text="Ryker stops using it: later requests no longer read it. The investigation keeps it in its history."
+        path={action_path(@item.id, "forget")}
+      />
+    </div>
     """
   end
 

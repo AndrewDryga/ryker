@@ -283,6 +283,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
         ])
         |> Map.merge(%{
           ref: summary.ref,
+          path: ConversationMemory.summary_path(summary.id),
           thread_ref: summary.thread_ref,
           repository_ref: summary.repository_ref,
           updated_at: summary.updated_at,

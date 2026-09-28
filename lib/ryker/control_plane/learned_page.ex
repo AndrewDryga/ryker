@@ -62,6 +62,17 @@ defmodule Ryker.ControlPlane.LearnedPage do
 
   def heading(%{kind: "knowledge", selected: id}) when is_binary(id), do: :not_found
 
+  def heading(%{kind: "context", selected: id, items: [item | _]}) when is_binary(id) do
+    %{
+      title: item.title,
+      description: nil,
+      back: {"All summaries", "/memory/learned?kind=context"},
+      action: nil
+    }
+  end
+
+  def heading(%{kind: "context", selected: id}) when is_binary(id), do: :not_found
+
   def heading(%{kind: "sources", source_parent: %{} = parent}) do
     %{
       title: "Messages behind “#{parent.title}”",
@@ -91,7 +102,8 @@ defmodule Ryker.ControlPlane.LearnedPage do
         csrf_secret={@csrf_secret}
       />
       <.topics :if={@view.kind == "knowledge" and is_nil(@view.selected)} view={@view} />
-      <.summaries :if={@view.kind == "context"} view={@view} />
+      <.summary :if={@view.kind == "context" and not is_nil(@view.selected)} view={@view} />
+      <.summaries :if={@view.kind == "context" and is_nil(@view.selected)} view={@view} />
     </div>
     """
   end
@@ -127,52 +139,35 @@ defmodule Ryker.ControlPlane.LearnedPage do
     """
   end
 
+  # A summary's row: its title and whether Ryker uses it, the start of what it
+  # says, and where and when. Andrew, 2026-09-28: the list printed every
+  # summary whole, with its decisions and open work ("you forgot about those
+  # when working on design?!"); the rest is on the summary's own page.
   defp summaries(assigns) do
     ~H"""
     <.tools view={@view} />
-    <div
+    <Kit.entity_list
       :if={@view.items != []}
-      class="entity-list memory-excerpts"
-      role="list"
-      aria-label="Conversation summaries"
+      class="memory-excerpts"
+      label="Conversation summaries"
     >
-      <MemoryFormat.row
+      <Kit.entity_row
         :for={item <- @view.items}
         id={"summary-" <> item.id}
+        icon={:chat}
         name={item.title}
-        state={if summary_warning(item), do: {:warn, "Not used"}}
+        href={ConversationMemory.summary_path(item.id)}
+        link_row
+        navigate
+        state={summary_state(item)}
+        text={MemoryFormat.excerpt(item.text, item.workspace)}
         meta={[
-          MemoryFormat.link(item.conversation, item.conversation_path),
+          item.conversation,
           item.repository,
-          MemoryFormat.time(item.changed_at, "Updated "),
-          MemoryFormat.time(item.source_at, "Latest message "),
-          retention(item),
-          source_link(item),
-          MemoryFormat.link("Open request", item.request_path)
+          MemoryFormat.time(item.changed_at, "Updated ")
         ]}
-      >
-        <p :if={item.text not in [nil, ""]} class="entity-text">
-          {MemoryFormat.excerpt(item.text, item.workspace)}
-        </p>
-        <div :if={item.groups != []} class="memory-summary-groups">
-          <div :for={{label, values} <- item.groups}>
-            <p class="memory-summary-label">{label}</p>
-            <ul>
-              <li :for={value <- values}>{MemoryFormat.inline(value, item.workspace)}</li>
-            </ul>
-          </div>
-        </div>
-        <:notes>
-          <p :if={summary_warning(item)} class="memory-note">{summary_warning(item)}</p>
-          <p :if={item[:maintenance_error]} class="memory-note">
-            Ryker could not update this summary: {item.maintenance_error}
-            <span :if={item[:maintenance_retry_at]}>
-              {MemoryFormat.time(item.maintenance_retry_at, "Next try ")}.
-            </span>
-          </p>
-        </:notes>
-      </MemoryFormat.row>
-    </div>
+      />
+    </Kit.entity_list>
     <.nothing view={@view} />
     <.pager
       page={@view.page}
@@ -180,6 +175,41 @@ defmodule Ryker.ControlPlane.LearnedPage do
       path={&list_path(@view, "context", &1)}
       label="Summary pages"
     />
+    """
+  end
+
+  # One summary's page under the shell's heading: whether Ryker uses it, what
+  # it says, what was decided and what is open, then its facts.
+  defp summary(assigns) do
+    assigns = assign(assigns, :item, List.first(assigns.view.items))
+
+    ~H"""
+    <%= if @item do %>
+      <article class="memory-topic memory-summary" id={"summary-" <> @item.id}>
+        <Kit.status_line id="summary-status" state={summary_state(@item) || summary_in_use()}>
+          <span>{MemoryFormat.time(@item.changed_at, "updated ")}</span>
+        </Kit.status_line>
+        <div :if={@item.text not in [nil, ""]} class="memory-topic-text">
+          <p>{MemoryFormat.inline(@item.text, @item.workspace)}</p>
+        </div>
+        <div :if={@item.groups != []} class="memory-summary-groups">
+          <div :for={{label, values} <- @item.groups}>
+            <p class="memory-summary-label">{label}</p>
+            <ul>
+              <li :for={value <- values}>{MemoryFormat.inline(value, @item.workspace)}</li>
+            </ul>
+          </div>
+        </div>
+        <p :if={summary_warning(@item)} class="memory-note">{summary_warning(@item)}</p>
+        <p :if={@item[:maintenance_error]} class="memory-note">
+          Ryker could not update this summary: {@item.maintenance_error}
+          <span :if={@item[:maintenance_retry_at]}>
+            {MemoryFormat.time(@item.maintenance_retry_at, "Next try ")}.
+          </span>
+        </p>
+        <Kit.facts id="summary-facts" facts={summary_facts(@item)} />
+      </article>
+    <% end %>
     """
   end
 
@@ -415,6 +445,35 @@ defmodule Ryker.ControlPlane.LearnedPage do
     do: "Not used in answers: the record of the messages behind it is invalid."
 
   defp summary_warning(_item), do: nil
+
+  # A summary Ryker cannot use says why on hover; one in use says so only on
+  # its own page, as a topic does.
+  defp summary_state(item) do
+    case summary_warning(item) do
+      nil -> nil
+      warning -> {:warn, "Not used", warning}
+    end
+  end
+
+  defp summary_in_use,
+    do:
+      {:on, "In use",
+       "Ryker uses this summary to pick up where work in this conversation stopped."}
+
+  defp summary_facts(item) do
+    [
+      {"Conversation", MemoryFormat.link(item.conversation, item.conversation_path)},
+      {"Repository", item.repository},
+      {"Latest message", MemoryFormat.time(item.source_at)},
+      {"Kept until", summary_kept(item)},
+      {"Learned from", messages_link(item)},
+      {"Request", MemoryFormat.link("Open request", item.request_path)}
+    ]
+  end
+
+  defp summary_kept(%{recall_warning: :invalid_source_history}), do: "Unknown"
+  defp summary_kept(%{recall_warning: :missing_source_history}), do: "No automatic expiry"
+  defp summary_kept(item), do: kept_until(item)
 
   # Retention is only stated when it is known: a summary without a valid
   # source record has no expiry to promise.

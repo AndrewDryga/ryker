@@ -713,13 +713,16 @@ defmodule Ryker.ControlPlane.ChannelPage do
         relation={@view.summaries}
         many="conversation summaries"
       >
+        <%!-- Andrew, 2026-09-28: no collapsibles in lists. A summary's row
+        opens its own page, with what was decided, what is open and why it
+        is not used. --%>
         <Kit.entity_row
           :for={item <- @view.summaries.items}
           id={"summary-" <> item.ref}
           name={item.title}
-          href={item.request_path}
+          href={item.path}
           link_row
-          state={if item.recall_warning, do: {:off, "Not in use"}}
+          state={summary_state(item)}
           text={clamp(item.text)}
           meta={[
             "Conversation summary",
@@ -728,47 +731,21 @@ defmodule Ryker.ControlPlane.ChannelPage do
             recalled(item),
             ShortTime.time(%{__changed__: nil, at: item.updated_at, now: @now, prefix: "updated "})
           ]}
-        >
-          <:details>
-            <p :if={item.recall_warning} class="channel-note">
-              {if item.recall_warning == :missing_source_history,
-                do: "Not used: no complete source history was saved. Kept so you can inspect it.",
-                else: "Not used: its source history is invalid. Kept so you can inspect it."}
-            </p>
-            <p :if={item.maintenance_error} class="channel-note">
-              Could not update: {item.maintenance_error}
-              <ShortTime.time
-                :if={item.maintenance_retry_at}
-                at={item.maintenance_retry_at}
-                now={@now}
-                prefix="Next try "
-              />
-            </p>
-            <details id={"summary-" <> item.ref <> "-details"} class="entity-details">
-              <summary>Details</summary>
-              <p :if={long?(item.text)} class="channel-entry-text">{item.text}</p>
-              <div :for={{heading, values} <- item.groups} class="channel-fact-group">
-                <h4>{heading}</h4>
-                <ul>
-                  <li :for={value <- values}>{value}</li>
-                </ul>
-              </div>
-              <p class="channel-links">
-                <a :if={item.source} href={item.source} rel="noopener noreferrer">
-                  Source message in Slack
-                </a>
-                <span :if={item.expires_at}>
-                  Kept until {Components.timestamp(item.expires_at)}
-                </span>
-                <code>{item.ref}</code>
-              </p>
-            </details>
-          </:details>
-        </Kit.entity_row>
+        />
       </.relation>
     </Kit.section_card>
     """
   end
+
+  defp summary_state(%{recall_warning: :missing_source_history}),
+    do:
+      {:off, "Not in use",
+       "No complete record of the messages behind it was saved. It is kept so you can read it."}
+
+  defp summary_state(%{recall_warning: :invalid_source_history}),
+    do: {:off, "Not in use", "The record of the messages behind it is invalid."}
+
+  defp summary_state(_item), do: nil
 
   attr(:learning, :map, required: true)
   attr(:continuity, :map, required: true)
@@ -1008,8 +985,6 @@ defmodule Ryker.ControlPlane.ChannelPage do
   end
 
   defp clamp(_empty), do: nil
-
-  defp long?(text), do: is_binary(text) and String.length(text) > @clamp
 
   defp lifecycle("active"), do: {:on, "On"}
   defp lifecycle("disabled"), do: {:off, "Paused"}
