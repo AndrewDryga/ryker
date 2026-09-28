@@ -1873,9 +1873,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     asked = trigger |> get_in(["content", "text"]) |> present()
     answer = answer_text(item["result"])
 
+    workspace = slack_workspace(trigger) || Names.workspace()
+
     [
       "<article class=\"context-candidate context-record context-outcome\"><header class=\"candidate-heading\"><h4>",
-      escape((asked && first_line(asked)) || "Earlier request"),
+      if(asked,
+        do: SlackMarkdown.mentions(first_line(asked), workspace),
+        else: "Earlier request"
+      ),
       "</h4>",
       finished(item["finished_at"]),
       "</header><div class=\"candidate-readable\">",
@@ -1883,9 +1888,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "<dl class=\"candidate-messages\">",
       if(asked,
         do: [
-          "<div><dt>Asked</dt><dd>",
-          message_body(asked, trigger),
-          "<span class=\"candidate-message-meta\">",
+          "<div><dt>Asked</dt><dd><div class=\"markdown-preview\">",
+          SlackMarkdown.preview(asked, workspace),
+          "</div><span class=\"candidate-message-meta\">",
           byline(who(trigger), readable_candidate_time(trigger["occurred_at"])),
           "</span></dd></div>"
         ],
@@ -1894,7 +1899,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       if(answer,
         do: [
           "<div><dt>Ryker answered</dt><dd class=\"markdown-preview\">",
-          message_body(answer, trigger),
+          SlackMarkdown.preview(answer, workspace),
           "</dd></div>"
         ],
         else: []

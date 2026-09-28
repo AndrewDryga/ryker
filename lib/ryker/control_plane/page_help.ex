@@ -461,7 +461,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Cleanup",
        [
          "Ryker removes a copy on its own once that is safe. It keeps a copy with uncommitted changes, or with commits that were never merged, so no work is lost.",
-         "Ready for cleanup lists what goes next, oldest first."
+         "Ready for cleanup, when there is any, lists what goes next, oldest first. Removed lists the copies cleanup already removed."
        ]},
       {"When cleanup needs you",
        [

@@ -358,7 +358,7 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
     [
       {"A channel", empty_channel(), 5},
       {"Rules", rules(), 1},
-      {"Working copies", empty_working_copies(), 2},
+      {"Working copies", empty_working_copies(), 1},
       {"Failures", [] |> FailuresPage.list() |> fragment(), 1},
       {"Usage & cost", empty_usage(), 8}
     ]

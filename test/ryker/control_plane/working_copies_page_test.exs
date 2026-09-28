@@ -84,18 +84,35 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     ]
   }
 
-  test "the page is storage, the copies, what is ready for cleanup, then removed copies" do
+  # Andrew, 2026-09-28: "design the bottom half properly". The page reads as
+  # every list page does: its counts, the storage line, Current or Removed,
+  # and what is ready for cleanup above the current copies when there is any;
+  # no closed history under the list.
+  test "the page is its counts, storage, the view switch, what is ready, then the copies" do
     # Before 2026-09-24 the page opened with a help disclosure explaining that
     # these are "not Slack workspaces", then three tables. The new name makes
     # the disclaimer unnecessary; the lists are rows.
     document = render([@blocked, @unmerged, @removed])
 
     assert outline(document, "div.working-copies-page > *") == [
+             "p.kit-counts",
              "section.working-copies-storage",
-             "div.entity-list",
+             "div.kit-toolbar",
              "section.working-copies-section",
-             "details.working-copies-history"
+             "div.entity-list"
            ]
+
+    assert document
+           |> LazyHTML.query(".kit-counts .kit-count")
+           |> Enum.map(&squeeze(LazyHTML.text(&1))) ==
+             ["2 copies in use", "1 ready for cleanup", "1 removed"]
+
+    assert LazyHTML.query(document, "nav.segmented a") |> LazyHTML.attribute("href") == [
+             "/working-copies",
+             "/working-copies?view=removed"
+           ]
+
+    assert Enum.empty?(LazyHTML.query(document, "details"))
 
     assert Enum.empty?(LazyHTML.query(document, "table, .page-help, .result-count"))
     refute LazyHTML.text(document) =~ "Slack workspaces"
@@ -164,11 +181,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     assert meta(kept) =~ "removed after tomorrow 09:00"
     assert meta(active) =~ "cleanup starts when the task ends"
 
-    # The working copy's id is for support, so it waits in the closed Details.
-    refute blocked |> LazyHTML.query("p") |> LazyHTML.text() =~ "workspace:blocked"
-
-    assert LazyHTML.query(blocked, "details:not([open]) code") |> LazyHTML.text() ==
-             "workspace:blocked"
+    # The working copy's id is support plumbing; the row never shows it.
+    refute LazyHTML.text(blocked) =~ "workspace:blocked"
   end
 
   test "two requests in one repository stay distinguishable before cleanup" do
@@ -177,7 +191,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
         %{@removed | episode_ref: title, ref: title, request_title: title}
       end
 
-    html = rows |> render() |> LazyHTML.to_html()
+    html = rows |> render(@storage, "removed") |> LazyHTML.to_html()
     assert html =~ ">Investigate portal errors</a>"
     assert html =~ ">Update runner version</a>"
   end
@@ -215,19 +229,27 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     refute LazyHTML.text(ready) =~ "Background learning"
   end
 
-  test "removed copies stay out of the current list and wait in a closed history" do
+  test "removed copies stay out of the current list and have a view of their own" do
     document = render([@blocked, @removed])
 
     assert Enum.count(
              LazyHTML.query(document, "div.working-copies-page > .entity-list > article")
            ) == 1
 
-    history = LazyHTML.query(document, "details#removed-copies:not([open])")
+    refute LazyHTML.text(document) =~ "Removed copies"
 
-    assert LazyHTML.query(history, "details#removed-copies > summary") |> LazyHTML.text() ==
-             "Removed copies (1)"
+    removed = render([@blocked, @removed], @storage, "removed")
+    rows = LazyHTML.query(removed, "div.working-copies-page > .entity-list > article")
+    assert Enum.count(rows) == 1
+    assert LazyHTML.query(rows, ".state-word") |> LazyHTML.text() == "Removed"
 
-    assert LazyHTML.query(history, ".state-word") |> LazyHTML.text() == "Removed"
+    assert LazyHTML.query(removed, "nav.segmented a[aria-current=page]") |> LazyHTML.text() ==
+             "Removed"
+
+    assert render([@blocked], @storage, "removed")
+           |> LazyHTML.query(".kit-empty-title")
+           |> LazyHTML.text() ==
+             "No removed copies yet"
   end
 
   # QA re-test, 2026-09-26: "0.54 GiB in use" still sat beside "No working
@@ -282,7 +304,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     assert LazyHTML.query(none, ".kit-empty-title") |> LazyHTML.text() =~
              "No working copies right now"
 
-    assert LazyHTML.text(none) =~ "Nothing is ready for cleanup right now"
+    # Nothing ready for cleanup is no section at all, not an empty box.
+    assert Enum.empty?(LazyHTML.query(none, "#ready-for-cleanup"))
   end
 
   test "the help names a worker's storage in the words its storage line uses" do
@@ -328,8 +351,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
 
   defp meta(row), do: row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze()
 
-  defp render(rows, storage \\ @storage) do
-    %{rows: rows, storage: storage, now: @now}
+  defp render(rows, storage \\ @storage, view \\ "current") do
+    %{rows: rows, storage: storage, now: @now, view: view}
     |> WorkingCopiesPage.html()
     |> LazyHTML.from_fragment()
   end
