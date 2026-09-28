@@ -48,6 +48,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   @codes %{
     "output_contract_failed" => :output_contract_failed,
     "invalid_repository_knowledge" => :invalid_repository_knowledge,
+    "invalid_repository_knowledge_candidate" => :invalid_repository_knowledge_candidate,
     "repository_knowledge_unusable" => :repository_knowledge_unusable,
     "repository_knowledge_provider_failed" => :repository_knowledge_provider_failed,
     "repository_knowledge_execution_timeout" => :repository_knowledge_execution_timeout,

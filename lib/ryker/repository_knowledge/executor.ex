@@ -332,17 +332,19 @@ defmodule Ryker.RepositoryKnowledge.Executor do
     # Coop records the selected target on the session, not on the turn.
     producer = turn |> Map.take(~w(id session_id)) |> Map.put("target", session["target"])
 
-    with {:ok, saved} <- Custody.record_candidate(claim, run.id, turn, producer) do
-      case checked_document(claim, saved, target, settings) do
-        {:ok, _document} ->
-          accept(claim, saved, session, turn, settings)
+    case Custody.record_candidate(claim, run.id, turn, producer) do
+      {:ok, saved} ->
+        check_candidate(claim, saved, session, turn, target, settings)
 
-        {:error, reason} when is_atom(reason) ->
-          stop(claim, saved, session, reason, target, settings)
+      # An answer the run cannot keep (larger than it holds, or not what its
+      # digest names) is refused the same way every time it is asked for:
+      # the attempt ends and its turn is cancelled, so the next start comes.
+      {:error, reason}
+      when reason in [:invalid_repository_knowledge, :invalid_repository_knowledge_candidate] ->
+        stop(claim, run, session, reason, target, settings)
 
-        {:retry, reason} ->
-          {:error, reason}
-      end
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -368,6 +370,14 @@ defmodule Ryker.RepositoryKnowledge.Executor do
 
   defp process_turn(_claim, _run, _session, _turn, _target, _settings),
     do: {:error, :repository_knowledge_remote_protocol_error}
+
+  defp check_candidate(claim, run, session, turn, target, settings) do
+    case checked_document(claim, run, target, settings) do
+      {:ok, _document} -> accept(claim, run, session, turn, settings)
+      {:error, reason} when is_atom(reason) -> stop(claim, run, session, reason, target, settings)
+      {:retry, reason} -> {:error, reason}
+    end
+  end
 
   # The answer, checked against the contract and then against the repository
   # at the run's commit, as the document the host writes from it. A document
