@@ -20,6 +20,56 @@ defmodule Ryker.ConcurrencyCase do
     end
   end
 
+  # An unboxed test commits for real, and a row it forgets outlives it: every
+  # later test that needs an empty database refuses to start, far from the
+  # cause. Nineteen such failures in a dev-check on 2026-09-11, and 67 in
+  # `make check` on 2026-09-28 from one withdrawn case. In a database this run
+  # owns alone, the test that left a row fails and names its table.
+  setup do
+    if exclusive_database?() do
+      before = committed_rows()
+      on_exit(fn -> assert_no_rows_left!(before) end)
+    end
+
+    :ok
+  end
+
+  # `scripts/elixir-test.sh` names an isolated database ryker_test_<pid>_<n>;
+  # the shared ryker_test may hold other runs' committed rows at any moment.
+  defp exclusive_database?,
+    do: Regex.match?(~r/\Aryker_test_\d+_\d+\z/, Repo.config()[:database] || "")
+
+  defp committed_rows do
+    Sandbox.unboxed_run(Repo, fn ->
+      %{rows: tables} =
+        Repo.query!("""
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'
+        ORDER BY table_name
+        """)
+
+      counts =
+        Enum.map_join(tables, " UNION ALL ", fn [table] ->
+          "SELECT '#{table}', count(*) FROM \"#{table}\""
+        end)
+
+      Repo.query!(counts).rows |> Map.new(fn [table, count] -> {table, count} end)
+    end)
+  end
+
+  defp assert_no_rows_left!(before) do
+    left =
+      for {table, count} <- committed_rows(),
+          count > Map.get(before, table, 0),
+          do: "#{table} +#{count - Map.get(before, table, 0)}"
+
+    if left != [] do
+      raise ExUnit.AssertionError,
+        message:
+          "the test left committed rows: #{Enum.join(left, ", ")}; delete them in its cleanup"
+    end
+  end
+
   def unboxed_task(fun) do
     Task.async(fn ->
       Process.delete(:"$callers")
