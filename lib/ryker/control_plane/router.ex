@@ -498,7 +498,7 @@ defmodule Ryker.ControlPlane.Router do
              %{"subject" => subject, "value" => value}
            ) do
       conn
-      |> put_resp_header("location", "/memory")
+      |> put_resp_header("location", action_return_path("memory-review", resource_ref))
       |> send_resp(303, "")
       |> halt()
     else
@@ -509,7 +509,8 @@ defmodule Ryker.ControlPlane.Router do
         text(conn, 400, "Invalid form")
 
       {:error, reason} ->
-        html(conn, 409, "Not done", HTML.action_refused(ActionRefusal.explain(reason), "/memory"))
+        back = action_return_path("memory-review", resource_ref)
+        html(conn, 409, "Not done", HTML.action_refused(ActionRefusal.explain(reason), back))
     end
   end
 
@@ -1088,12 +1089,18 @@ defmodule Ryker.ControlPlane.Router do
   defp action_return_path(kind, _resource_ref) when kind in @recoverable_failures,
     do: "/failures"
 
+  # Facts list their reviews below them, so a review returns to the reviews,
+  # where the next one waits, rather than to the top of the facts.
+  defp action_return_path("memory", _resource_ref), do: "/memory"
+  defp action_return_path("memory-review", _resource_ref), do: "/memory#review"
   defp action_return_path("knowledge", _resource_ref), do: "/memory/learned"
   defp action_return_path("finding", _resource_ref), do: "/memory/findings"
   defp action_return_path("improvement", _resource_ref), do: "/memory/feedback/fix"
   defp action_return_path("learning", resource_ref), do: LearningActivity.path(resource_ref)
 
-  defp action_return_path(_kind, _resource_ref), do: "/memory"
+  # Only a refused action of a kind no page offers gets here; like one whose
+  # reference does not decode, it leads home.
+  defp action_return_path(_kind, _resource_ref), do: "/"
 
   defp action_return_path("behavior", resource_ref, options) do
     case options.projection.behavior.(resource_ref) do
