@@ -32,8 +32,19 @@ defmodule Ryker.Learning.DispatcherTest do
 
     def get_turn(client, sid, tid) do
       record_call(client, :get_turn)
-      Fake.get_turn(client, sid, tid)
+      client |> Fake.get_turn(sid, tid) |> offered(client)
     end
+
+    # While a test sets `:offered_digest`, Coop offers each answer under that
+    # digest instead of its own.
+    defp offered({:ok, %{"candidate" => %{} = candidate} = turn}, client) do
+      case Fake.state(client)[:offered_digest] do
+        nil -> {:ok, turn}
+        digest -> {:ok, %{turn | "candidate" => %{candidate | "sha256" => digest}}}
+      end
+    end
+
+    defp offered(result, _client), do: result
 
     def fence_create_session(client, key, policy, ref, source) do
       Agent.update(client, &Map.update(&1, :fence_keys, [key], fn keys -> keys ++ [key] end))
@@ -758,8 +769,48 @@ defmodule Ryker.Learning.DispatcherTest do
     assert FakeCoopAPI.state(fake).submit_count == 1
   end
 
+  # The host keeps an offered answer only in the shape Coop promises: at most
+  # 512 KB, a whole attempt number, a producer within 4 KB and a digest that
+  # matches. One that was not came back as a Coop step still to settle, so
+  # the batch read the same turn again twelve times, then gave the start up
+  # as unresolved without cancelling the turn or telling the next start why
+  # (found in review, 2026-09-28). It fails the host's check like an answer
+  # outside the contract.
+  test "an offered answer the host cannot keep ends that start, and the next start is told so" do
+    entries = inputs!()
+    {:ok, fake} = FakeCoopAPI.start_link([result(entries), result(entries)])
+    Agent.update(fake, &Map.put(&1, :offered_digest, String.duplicate("0", 64)))
+    settings = Map.put(@settings, :client, fake)
+
+    first = drive_until_first_run_stops(settings, 6)
+
+    assert {first.status, first.error_code} == {:rejected, "invalid_learning_result"},
+           "the batch is still reading an answer it cannot keep " <>
+             "(#{first.reconcile_attempt_count} failed reads so far)"
+
+    # Coop was never told to accept it, and its turn was cancelled.
+    assert FakeCoopAPI.state(fake).validations == []
+    assert %{"state" => "cancelled"} = first.stop_receipt
+
+    Agent.update(fake, &Map.delete(&1, :offered_digest))
+    assert %{status: :applied} = drive_to_applied!(settings, 8)
+
+    assert [_first, second] = Repo.all(from(run in LearningRun, order_by: run.inserted_at))
+    assert second.prompt =~ "did not match the output contract"
+  end
+
   defp make_due! do
     Repo.update_all(Batch, set: [next_attempt_at: ~U[2000-01-01 00:00:00.000000Z]])
+  end
+
+  defp drive_until_first_run_stops(settings, left) do
+    make_due!()
+    assert {:ok, _batch} = Dispatcher.run_once(settings)
+    first = Repo.one!(from(run in LearningRun, order_by: run.inserted_at, limit: 1))
+
+    if is_nil(first.remote_stopped_at) and left > 1,
+      do: drive_until_first_run_stops(settings, left - 1),
+      else: first
   end
 
   defp withdraw!(entry) do
