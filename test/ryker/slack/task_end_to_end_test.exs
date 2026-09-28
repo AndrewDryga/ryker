@@ -467,14 +467,13 @@ defmodule Ryker.Slack.TaskEndToEndTest do
                worker_ref: "task-e2e-github-review-followup"
              )
 
-    assert {
-             :slack_posted,
-             "C456",
-             "1788268000.000100",
-             _lifecycle_document,
-             _lifecycle_delivery_ref,
-             _lifecycle_message_ref
-           } = receive_post_containing!("Authenticated GitHub review feedback")
+    # The task's card shows the task continuing, so the review feedback is
+    # settled on the card and nothing is posted under it: each GitHub event
+    # had posted the same notice, four in a row on 2026-09-28.
+    refute_post_containing("Authenticated GitHub review feedback")
+
+    assert Repo.get_by!(LifecycleEvent, ref: event_ref).delivery_receipt["message_ref"] ==
+             card.message_ref
 
     assert {:ok, resumed} = Episodes.fetch_by_key(task_episode.key)
     assert resumed.id == task_episode.id
@@ -862,6 +861,20 @@ defmodule Ryker.Slack.TaskEndToEndTest do
              })
 
     binding
+  end
+
+  # Without taking anything from the mailbox: no post so far says `text`.
+  defp refute_post_containing(text) do
+    {:messages, messages} = Process.info(self(), :messages)
+
+    refute Enum.any?(messages, fn
+             {:slack_posted, _channel, _thread, document, _delivery_ref, _message_ref} ->
+               Jason.encode!(document) =~ text
+
+             _other ->
+               false
+           end),
+           "a Slack post said #{inspect(text)}"
   end
 
   defp receive_post_containing!(expected) do

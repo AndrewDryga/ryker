@@ -13,6 +13,7 @@ defmodule Ryker.Publication.DispatcherTest do
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Dispatcher, Publication}
   alias Ryker.Records
+  alias Ryker.Slack.TaskCard
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -225,6 +226,86 @@ defmodule Ryker.Publication.DispatcherTest do
     assert body["expected_head"] == ""
     assert body["pull_request_number"] == 0
     refute Map.has_key?(body, "patch")
+  end
+
+  # Andrew, 2026-09-28: the review's result and "Published draft pull request"
+  # each posted a message under a task card that already showed both, with
+  # every control they needed ("spam that is not actionable by users"). With
+  # the task's card in the thread nothing is posted: the card's message settles
+  # both deliveries, and Publish pressed on the card is the approval.
+  test "a task with a card in its thread is reviewed and published without another message" do
+    %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} = delivered_offer!("carded")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
+
+    ["slack", workspace, channel] =
+      String.split(work_claim.episode.destination_conversation_ref, ":")
+
+    card =
+      Repo.insert!(%TaskCard{
+        id: Ecto.UUID.generate(),
+        record_id: offer.id,
+        episode_id: work_claim.episode.id,
+        ref: "task-card:#{offer.id}",
+        workspace_ref: workspace,
+        channel_ref: channel,
+        thread_ref: work_claim.episode.destination_thread_ref,
+        message_ref: "1787832001.000200"
+      })
+
+    review = review_document(work_claim)
+
+    {:ok, coop} =
+      Agent.start_link(fn ->
+        %{
+          review: review,
+          review_calls: [],
+          session: %{
+            "external_ref" => work_claim.session.external_ref,
+            "id" => work_claim.session.coop_session_id,
+            "job_ref" => work_claim.session.external_ref,
+            "job_digest" => work_claim.session.worker_job_digest,
+            "revision" => 7,
+            "state" => "exhausted"
+          }
+        }
+      end)
+
+    {:ok, effects} =
+      Agent.start_link(fn ->
+        %{delivery_requests: [], publication_id: publication.id, publication_requests: []}
+      end)
+
+    options = dispatcher_options(coop, effects)
+
+    assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
+    assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)
+    reviewed = Repo.get!(Publication, publication.id)
+    assert reviewed.status == :reviewed
+    assert reviewed.review_delivery_receipt["message_ref"] == card.message_ref
+
+    assert {:ok, %{status: :approved}} =
+             PublicationCustody.approve(%{
+               actor_ref: "slack:user:U-operator",
+               approval_ref: "interaction:publish:carded",
+               occurred_at: DateTime.add(@now, 2, :second),
+               publication_ref: publication.ref,
+               target: %{
+                 conversation_ref: work_claim.episode.destination_conversation_ref,
+                 message_ref: card.message_ref,
+                 thread_ref: work_claim.episode.destination_thread_ref,
+                 transport: "slack"
+               }
+             })
+
+    assert {:ok, {:executed, %{phase: :published}}} = Dispatcher.run_once(options)
+    assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)
+    published = Repo.get!(Publication, publication.id)
+    assert published.status == :published
+    assert published.published_delivery_receipt["message_ref"] == card.message_ref
+
+    assert Agent.get(effects, & &1).delivery_requests == []
   end
 
   # The result card is painted after the draft exists, so a Slack failure there
