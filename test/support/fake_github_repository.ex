@@ -5,10 +5,12 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
   files at it, what changed between commits, RYKER.md on the default branch,
   and Ryker's knowledge pull requests. It behaves like
   `Ryker.GitHub.RepositoryFiles` does against GitHub: an open proposal that
-  holds Ryker's last words is updated and one a person edited is left alone,
+  holds Ryker's own words is updated and one a person edited is left alone,
   a document the default branch already says opens nothing, an archived
   repository refuses the write. A file given as `:unreadable` is one Ryker
-  cannot read. It also pins, as setup does.
+  cannot read. `errors` fails a call of that kind, and `errors.after_write`
+  a proposal once its file is written on the open pull request's branch.
+  It also pins, as setup does.
 
   Every call is recorded (`calls/0`), so a test can say what GitHub was never
   asked.
@@ -158,18 +160,38 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
   end
 
   # A branch that already says the same gets no commit; Ryker's own words
-  # are replaced, and a person's edits are left alone.
-  defp update_open(%{open: open} = state, %{document: document, body: body, proposed: proposed}) do
+  # (what it last proposed, or a document it sent since) are replaced, and a
+  # person's edits are left alone.
+  defp update_open(
+         %{open: open} = state,
+         %{document: document, body: body, proposed: proposed, sent: sent}
+       ) do
     cond do
       Document.same?(open.document, document) ->
         {{:ok, result(state, :updated, open)}, state}
 
       is_binary(proposed) and Document.same?(open.document, proposed) ->
-        open = %{open | document: document, body: body}
-        {{:ok, result(state, :updated, open)}, %{state | open: open}}
+        replace(state, open, document, body)
+
+      sha256(open.document) in sent ->
+        replace(state, open, document, body)
 
       true ->
         {{:error, :repository_knowledge_proposal_edited}, state}
+    end
+  end
+
+  # The file is written first, then the description. GitHub failing between
+  # them (`errors.after_write`) leaves the new file on the branch and the
+  # description as it was.
+  defp replace(state, open, document, body) do
+    case state.errors do
+      %{after_write: error} ->
+        {error, %{state | open: %{open | document: document}}}
+
+      _none ->
+        open = %{open | document: document, body: body}
+        {{:ok, result(state, :updated, open)}, %{state | open: open}}
     end
   end
 
@@ -218,4 +240,6 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
   defp call_kind(name), do: name
 
   defp record(state, call), do: %{state | calls: [call | state.calls]}
+
+  defp sha256(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
 end

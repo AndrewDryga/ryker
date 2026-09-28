@@ -43,14 +43,17 @@ defmodule Ryker.RepositoryKnowledge.Remote do
   Proposes `document` as RYKER.md: updates Ryker's knowledge pull request
   while one is open, opens one when the default branch says something else,
   and opens nothing when it already says the same. `proposed` is the
-  document Ryker last proposed, as Work reads it, or nil: an open pull
-  request whose RYKER.md says anything else was edited by a person, and is
-  left as it is (`{:error, :repository_knowledge_proposal_edited}`).
+  document Ryker last proposed, as Work reads it, or nil, and `sent` the
+  sha256 of each document Ryker was about to write since, `document` among
+  them: an open pull request whose RYKER.md says anything but the first and
+  is none of the others was edited by a person, and is left as it is
+  (`{:error, :repository_knowledge_proposal_edited}`).
   """
   @callback publish(binding(), repository(), %{
               document: String.t(),
               body: String.t(),
-              proposed: String.t() | nil
+              proposed: String.t() | nil,
+              sent: [String.t()]
             }) ::
               {:ok,
                %{

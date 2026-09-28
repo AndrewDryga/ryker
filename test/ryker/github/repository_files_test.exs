@@ -243,6 +243,45 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
     # Nor is one whose last proposal Ryker cannot name.
     RecordedGitHub.reply(open_proposal_reads(proposed))
     assert publish(rewrite, "Why now: A.", nil) == {:error, :repository_knowledge_proposal_edited}
+
+    # Nor one a person edited after Ryker wrote it there.
+    sent = document("It works, and it is fast.", "ccccccc")
+    RecordedGitHub.reply(open_proposal_reads(sent <> "\nAsk #infra before a deploy.\n"))
+
+    assert publish(rewrite, "Why now: A.", proposed, [sha256(sent)]) ==
+             {:error, :repository_knowledge_proposal_edited}
+
+    refute Enum.any?(RecordedGitHub.requests(), &match?({method, _, _} when method != :get, &1))
+    assert RecordedGitHub.unanswered() == []
+  end
+
+  # Review of the knowledge lane, 2026-09-28: a proposal that failed after
+  # it wrote the branch, before it was recorded, left Ryker's own words
+  # there, and the next proposal read them as a person's edit and left the
+  # pull request alone for good. Ryker records what it sends before sending.
+  test "an open proposal holding what Ryker sent but never recorded is replaced" do
+    proposed = document("It works.", "aaaaaaa")
+    sent = document("It works, and it is fast.", "ccccccc")
+    rewrite = document("It works, and it ships.", "bbbbbbb")
+
+    RecordedGitHub.reply(
+      open_proposal_reads(sent) ++
+        [
+          {:put, "/repos/acme/widget/contents/RYKER.md", ok(200, %{})},
+          {:patch, "/repos/acme/widget/pulls/7", ok(200, %{})}
+        ]
+    )
+
+    assert {:ok, %{outcome: :updated, url: @url, number: 7}} =
+             publish(rewrite, "Why now: A.", proposed, [sha256(sent)])
+
+    assert [
+             {:put, _path, %{"sha" => "branch-blob"} = put},
+             {:patch, _pull, %{"body" => "Why now: A."}}
+           ] = Enum.reject(RecordedGitHub.requests(), &match?({:get, _, _}, &1))
+
+    assert Base.decode64!(put["content"]) == rewrite
+    assert RecordedGitHub.unanswered() == []
   end
 
   # GitHub answers a file over 1 MB with no content and a directory with a
@@ -305,13 +344,22 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
 
   # -- Helpers ---------------------------------------------------------------------
 
-  defp publish(document, body \\ "Why now: The repository has no RYKER.md yet.", proposed \\ nil),
-    do:
-      RepositoryFiles.publish(@binding, @repository, %{
-        document: document,
-        body: body,
-        proposed: proposed
-      })
+  defp publish(
+         document,
+         body \\ "Why now: The repository has no RYKER.md yet.",
+         proposed \\ nil,
+         sent \\ []
+       ),
+       do:
+         RepositoryFiles.publish(@binding, @repository, %{
+           document: document,
+           body: body,
+           proposed: proposed,
+           sent: sent
+         })
+
+  # How Ryker records a document it sends (`Ryker.RepositoryKnowledge.Custody.sending/1`).
+  defp sha256(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
 
   # What a proposal reads first: the archived flag, the default branch head,
   # RYKER.md there, and Ryker's open pull request (none).

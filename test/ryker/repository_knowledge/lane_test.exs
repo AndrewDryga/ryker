@@ -341,6 +341,58 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert DateTime.diff(entry.next_check_at, Repo.now!()) in 86_000..86_400
   end
 
+  # Review of the knowledge lane, 2026-09-28: a proposal can fail after it
+  # writes Ryker's branch and before it records what it proposed. Refresh
+  # knowledge pressed before the retry then read Ryker's own words there as
+  # a person's edit, and its pull request was never updated again.
+  test "a rewrite Ryker wrote on its pull request but never recorded is still Ryker's to replace" do
+    github!()
+    ships = Jason.encode!(Map.put(answer(), "purpose", answer()["purpose"] <> " It ships."))
+    fast = Jason.encode!(Map.put(answer(), "purpose", answer()["purpose"] <> " It is fast."))
+    coop = coop!([answer_json(), ships, fast])
+    written!(coop)
+    unrecorded_rewrite!(coop)
+
+    # Someone asks for a refresh before the proposal is tried again.
+    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
+    drain(settings(coop, retry_delay_seconds: 60))
+
+    # Ryker's own words are replaced, not taken for a person's edit.
+    entry = RepositoryKnowledge.entry("emisar")
+
+    assert {FakeGitHubRepository.state().open.document == entry.document, entry.error} ==
+             {true, nil}
+
+    assert entry.document =~ "It is fast."
+    assert FakeGitHubRepository.state().pull_requests == %{84 => :open}
+    assert {entry.phase, entry.publication} == {:idle, :updated}
+    assert repository().knowledge_content == entry.document
+  end
+
+  # What Ryker records before it writes widens what it calls its own by
+  # exactly what it wrote: a person's edit over those words is theirs.
+  test "a person's edit over a rewrite Ryker never recorded is never written over" do
+    github!()
+    ships = Jason.encode!(Map.put(answer(), "purpose", answer()["purpose"] <> " It ships."))
+    fast = Jason.encode!(Map.put(answer(), "purpose", answer()["purpose"] <> " It is fast."))
+    coop = coop!([answer_json(), ships, fast])
+    written!(coop)
+    unrecorded = unrecorded_rewrite!(coop)
+
+    edited = unrecorded.document <> "\nAsk #infra before a deploy.\n"
+    FakeGitHubRepository.edit_open(edited)
+    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
+    drain(settings(coop, retry_delay_seconds: 60))
+
+    assert length(FakeCoopAPI.state(coop).submissions) == 3
+    entry = RepositoryKnowledge.entry("emisar")
+
+    assert {FakeGitHubRepository.state().open.document == edited, entry.phase, entry.published_at} ==
+             {true, :idle, nil}
+
+    assert entry.error =~ "Someone edited RYKER.md on Ryker's pull request"
+  end
+
   test "a week after the last write, any code change is enough" do
     github!()
     coop = coop!([answer_json(), answer_json()])
@@ -385,6 +437,10 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert {entry.publication, entry.document_commit} == {:unchanged, @pushed}
     assert repository().knowledge_status == :accepted
     assert repository().knowledge_content == FakeGitHubRepository.state().document
+
+    # What Ryker sent is forgotten once a proposal is recorded, so daily
+    # rewrites that say the same never pile up.
+    assert entry.sent_sha256s == []
   end
 
   # The four repositories set up before this change hold the old file-list
@@ -807,6 +863,24 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     drain(settings(coop))
     entry = RepositoryKnowledge.entry("emisar")
     assert {entry.document_by, entry.pull_request_number} == {:model, 84}
+    entry
+  end
+
+  # A rewrite after a README change reaches the branch of the open pull
+  # request, and GitHub fails before the proposal is recorded: the file is
+  # there, Work still reads the one before, and the next try is a minute away.
+  defp unrecorded_rewrite!(coop) do
+    failing = {:error, {:github_onboarding, :pull_request}}
+    FakeGitHubRepository.update(&%{&1 | errors: %{after_write: failing}})
+    FakeGitHubRepository.push(@head, @pushed, ["README.md"])
+    due!()
+    drain(settings(coop, retry_delay_seconds: 60))
+    FakeGitHubRepository.update(&%{&1 | errors: %{}})
+
+    entry = RepositoryKnowledge.entry("emisar")
+    assert {entry.phase, entry.published_at} == {:publish, nil}
+    assert FakeGitHubRepository.state().open.document == entry.document
+    refute repository().knowledge_content == entry.document
     entry
   end
 

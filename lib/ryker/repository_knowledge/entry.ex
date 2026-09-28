@@ -13,9 +13,12 @@ defmodule Ryker.RepositoryKnowledge.Entry do
   (`document_by`: a model, or the outline). `published_at` and
   `publication` say how it reached GitHub: a pull request `opened`, an open
   one `updated`, or nothing, because the default branch already said the
-  same (`unchanged`). `pull_request_url` is Ryker's latest knowledge pull
-  request, and `pull_request_state` where it stood when last read. `error`
-  says in plain words why the last step failed.
+  same (`unchanged`). `sent_sha256s` holds the sha256 of each document
+  Ryker was about to write on its pull request's branch since it last
+  recorded a proposal, so its own words are never taken for a person's edit.
+  `pull_request_url` is Ryker's latest knowledge pull request, and
+  `pull_request_state` where it stood when last read. `error` says in plain
+  words why the last step failed.
   """
 
   use Ecto.Schema
@@ -44,6 +47,7 @@ defmodule Ryker.RepositoryKnowledge.Entry do
     field(:dropped_count, :integer)
     field(:published_at, :utc_datetime_usec)
     field(:publication, Ecto.Enum, values: [:opened, :updated, :unchanged])
+    field(:sent_sha256s, {:array, :string}, default: [])
     field(:pull_request_url, :string)
     field(:pull_request_number, :integer)
     field(:pull_request_state, Ecto.Enum, values: [:open, :merged, :closed])
