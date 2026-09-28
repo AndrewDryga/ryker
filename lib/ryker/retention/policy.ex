@@ -108,6 +108,12 @@ defmodule Ryker.Retention.Policy do
       why: "connected repositories, display metadata and base branch"
     },
     %{
+      table: "removed_repository_names",
+      class: :kept,
+      why:
+        "the GitHub name of each removed repository, so the requests, usage and knowledge that keep its ref still read owner/repo"
+    },
+    %{
       table: "environment_settings",
       class: :kept,
       why:
