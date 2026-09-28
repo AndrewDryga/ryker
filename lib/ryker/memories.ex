@@ -335,7 +335,7 @@ defmodule Ryker.Memories do
   @doc "Fetches one pending review only when every entry is safe for this App Home actor."
   defdelegate fetch_home_review(review_ref, workspace_ref, actor_ref), to: Reviews
 
-  @doc "Resolves one review with a keep, merge, edit, forget, or dismiss decision."
+  @doc "Resolves one review with a keep, merge, edit or forget decision."
   defdelegate resolve_review(review_ref, action, actor_ref, workspace_ref, replacement \\ nil),
     to: Reviews
 

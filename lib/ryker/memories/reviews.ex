@@ -3,8 +3,8 @@ defmodule Ryker.Memories.Reviews do
   The stale and exact-duplicate review queue over memory entries and guidance.
 
   Reviews are idempotent candidates keyed by a digest of their sources; an
-  operator keeps, merges, edits, forgets, or dismisses them, and any entry
-  change that leaves a pending review with nothing to decide dismisses it.
+  operator keeps, merges, edits or forgets them, and any entry change that
+  leaves a pending review with nothing to decide dismisses it.
   Every writer here and in `Ryker.Memories` holds the review
   maintenance advisory lock first, so a review can never name an entry that
   a concurrent confirmation, forget, or revocation is replacing.
@@ -556,8 +556,7 @@ defmodule Ryker.Memories.Reviews do
        else: {:error, :memory_review_stale}
   end
 
-  defp apply_review_action(_review, entries, action, _replacement, _actor_ref)
-       when action in [:keep, :dismiss] do
+  defp apply_review_action(_review, entries, :keep, _replacement, _actor_ref) do
     now = Repo.now!()
     Enum.each(entries, &review_source!(&1, now))
     :ok
@@ -630,9 +629,7 @@ defmodule Ryker.Memories.Reviews do
     end)
   end
 
-  defp dismiss_superseded_reviews(_review, _entries, action, _actor_ref)
-       when action in [:keep, :dismiss],
-       do: :ok
+  defp dismiss_superseded_reviews(_review, _entries, :keep, _actor_ref), do: :ok
 
   defp dismiss_superseded_reviews(review, entries, _action, actor_ref) do
     refs = MapSet.new(entries, &review_entry_ref/1)
@@ -962,7 +959,7 @@ defmodule Ryker.Memories.Reviews do
 
   defp review_list_options(_options), do: {:error, {:invalid_memory_review, :options}}
 
-  defp review_action(action) when action in [:keep, :merge, :edit, :forget, :dismiss], do: :ok
+  defp review_action(action) when action in [:keep, :merge, :edit, :forget], do: :ok
   defp review_action(_action), do: {:error, {:invalid_memory_review, :action}}
 
   defp review_replacement(:edit, %{"subject" => subject, "value" => value} = replacement)
@@ -981,7 +978,6 @@ defmodule Ryker.Memories.Reviews do
     do: {:error, {:invalid_memory_review, :replacement}}
 
   defp review_status(action) when action in [:keep], do: :kept
-  defp review_status(:dismiss), do: :dismissed
   defp review_status(action) when action in [:merge, :edit, :forget], do: :applied
 
   defp text?(value, maximum) do

@@ -372,6 +372,16 @@ defmodule Ryker.Memories.MemoriesTest do
              "slack:T123"
            ) == {:error, {:invalid_memory_review, :action}}
 
+    # A person keeps, merges, edits or forgets a review. Only Ryker dismisses
+    # one, when an entry change leaves it nothing to decide; no page or Slack
+    # control ever offered a person Dismiss.
+    assert Memories.resolve_review(
+             "memory-review:missing",
+             :dismiss,
+             "slack:user:U123",
+             "slack:T123"
+           ) == {:error, {:invalid_memory_review, :action}}
+
     assert Memories.resolve_review(
              "memory-review:missing",
              :edit,
