@@ -81,6 +81,7 @@ defmodule Ryker.Evals.KnowledgeJudge do
       commit: run["commit"],
       top_level: facts.top_level,
       key_files: facts.key_files,
+      more: facts.more,
       current_document: Jason.decode!(run["prompt"])["context"]["current_document"]
     }
     |> Prompt.build()
