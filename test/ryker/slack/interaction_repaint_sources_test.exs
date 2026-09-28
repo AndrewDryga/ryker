@@ -220,6 +220,32 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
     assert Repo.get!(Turn, turn.id).delivery_document == candidate
   end
 
+  # The publisher adds the delivery's mention authority to a reply that names
+  # someone, and until 2026-09-28 a repaint did not: once a person answered a
+  # reply's question, every name in it turned back into its raw typed link.
+  test "a repainted reply still names whom it named" do
+    workspace = "T" <> (Ecto.UUID.generate() |> String.replace("-", "") |> String.upcase())
+    fixture = fixture!(:simple, workspace)
+    conversation = fixture.claim.episode.destination_conversation_ref
+    [_slack, _workspace, channel] = String.split(conversation, ":")
+
+    delivery = %{
+      "message" => "The rollout notes are in [this channel](slack-channel:#{conversation})."
+    }
+
+    fixture.turn
+    |> Ecto.Changeset.change(
+      delivery_document: delivery,
+      delivery_fingerprint: CanonicalJSON.digest(delivery)
+    )
+    |> Repo.update!()
+
+    assert :ok = repaint(fixture.audit)
+    assert_received {:updated, _, _, document, _}
+    assert {:ok, rendered} = Renderer.render(document)
+    assert rendered["text"] == "The rollout notes are in <##{channel}>."
+  end
+
   test "unsupported retained reply shapes still fail without publishing" do
     fixture = fixture!(:simple)
 
@@ -246,14 +272,14 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
     assert document["message"] =~ "source context"
   end
 
-  defp fixture!(shape) do
+  defp fixture!(shape, workspace \\ nil) do
     raw =
       "testdata/learning/retained-haproxy-lifecycle.json"
       |> File.read!()
       |> Jason.decode!()
       |> Map.fetch!("inputs")
       |> hd()
-      |> LearningFixtures.isolate_retained_input()
+      |> LearningFixtures.isolate_retained_input(workspace)
 
     source = LearningFixtures.retained_input!(raw, %{policy: "fixture", policy_digest: digest()})
 

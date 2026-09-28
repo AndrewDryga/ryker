@@ -36,26 +36,52 @@ defmodule Ryker.Slack.Renderer do
   @maximum_message_characters 20_000
   @maximum_blocks 50
 
-  @spec render(map()) :: {:ok, map()} | {:error, term()}
-  def render(%{"emisar_approval_status" => status} = document) when map_size(document) == 1,
-    do: EmisarReview.render(status)
+  # Slack asks that a message's text stay within 4,000 characters: the blocks
+  # carry the whole message, and the text is what a notification shows.
+  # chat.postMessage takes a longer one, but chat.update refuses it with
+  # msg_too_long, so a long reply could be posted and never repainted.
+  @maximum_text_characters 4_000
 
-  def render(%{"incident_room" => room} = document) when map_size(document) == 1,
+  @spec render(map()) :: {:ok, map()} | {:error, term()}
+  def render(document) do
+    with {:ok, %{"text" => text} = rendered} when is_binary(text) <- render_document(document),
+         do: {:ok, %{rendered | "text" => notification_text(text)}}
+  end
+
+  # Every `&` and `<` left in rendered text starts an escape or a Slack
+  # token, so the cut drops a trailing one that it would split.
+  defp notification_text(text) do
+    if String.length(text) <= @maximum_text_characters do
+      text
+    else
+      text
+      |> String.slice(0, @maximum_text_characters - 1)
+      |> String.replace(~r/(?:<[^>]*|&[^;\s]*)\z/u, "")
+      |> String.trim_trailing()
+      |> Kernel.<>("…")
+    end
+  end
+
+  defp render_document(%{"emisar_approval_status" => status} = document)
+       when map_size(document) == 1,
+       do: EmisarReview.render(status)
+
+  defp render_document(%{"incident_room" => room} = document) when map_size(document) == 1,
     do: WorkCards.incident_room(room)
 
-  def render(%{"task_card" => task} = document) when map_size(document) == 1,
+  defp render_document(%{"task_card" => task} = document) when map_size(document) == 1,
     do: WorkCards.task_card(task)
 
-  def render(%{"channel_setup" => setup} = document) when map_size(document) == 1,
+  defp render_document(%{"channel_setup" => setup} = document) when map_size(document) == 1,
     do: ChannelSetup.render(setup)
 
-  def render(%{"channel_welcome" => welcome} = document) when map_size(document) == 1,
+  defp render_document(%{"channel_welcome" => welcome} = document) when map_size(document) == 1,
     do: ChannelCards.welcome(welcome)
 
-  def render(%{"channel_settings" => view} = document) when map_size(document) == 1,
+  defp render_document(%{"channel_settings" => view} = document) when map_size(document) == 1,
     do: ChannelCards.settings(view)
 
-  def render(%{"saved_entity" => entity} = document) when map_size(document) == 1 do
+  defp render_document(%{"saved_entity" => entity} = document) when map_size(document) == 1 do
     case SavedEntityCard.validate(entity) do
       :ok ->
         {:ok,
@@ -66,23 +92,24 @@ defmodule Ryker.Slack.Renderer do
     end
   end
 
-  def render(%{"message" => message} = document) when map_size(document) == 1,
-    do: render(%{"message" => message, "records" => []})
+  defp render_document(%{"message" => message} = document) when map_size(document) == 1,
+    do: render_document(%{"message" => message, "records" => []})
 
   # A message without cards that names someone: the publisher added the
   # delivery's mention authority to it.
-  def render(%{"message" => message, "slack_mentions" => authority} = document)
-      when map_size(document) == 2,
-      do: render(%{"message" => message, "records" => [], "slack_mentions" => authority})
+  defp render_document(%{"message" => message, "slack_mentions" => authority} = document)
+       when map_size(document) == 2,
+       do:
+         render_document(%{"message" => message, "records" => [], "slack_mentions" => authority})
 
-  def render(
-        %{
-          "message" => message,
-          "records" => records,
-          "slack_mentions" => authority
-        } = document
-      )
-      when map_size(document) == 3 do
+  defp render_document(
+         %{
+           "message" => message,
+           "records" => records,
+           "slack_mentions" => authority
+         } = document
+       )
+       when map_size(document) == 3 do
     with :ok <- message(message),
          :ok <- Records.validate(records),
          {:ok, text} <- Mentions.render(message, authority),
@@ -102,8 +129,8 @@ defmodule Ryker.Slack.Renderer do
     end
   end
 
-  def render(%{"message" => message, "records" => records} = document)
-      when map_size(document) == 2 do
+  defp render_document(%{"message" => message, "records" => records} = document)
+       when map_size(document) == 2 do
     with :ok <- message(message),
          :ok <- Records.validate(records),
          {:ok, record_blocks} <- Records.render(records),
@@ -117,7 +144,7 @@ defmodule Ryker.Slack.Renderer do
     end
   end
 
-  def render(_document), do: {:error, {:invalid_slack_render, :document}}
+  defp render_document(_document), do: {:error, {:invalid_slack_render, :document}}
 
   defp block_count(text, record_blocks) do
     if length(message_blocks(text)) + length(record_blocks) <= @maximum_blocks,

@@ -201,6 +201,33 @@ defmodule Ryker.Slack.ClientTest do
            ] = FakeRequester.requests(requester)
   end
 
+  # chat.postMessage takes a message whose text runs past 4,000 characters, but
+  # chat.update refuses it with msg_too_long. On 2026-09-28 a 4,246-character
+  # reply that asked Andrew a question was posted. When he typed his answer,
+  # Slack refused the repaint eight times, and the question stayed open in
+  # the thread.
+  test "a reply longer than Slack's text bound can still be edited" do
+    {:ok, requester} =
+      FakeRequester.start([slack(%{"channel" => "C123", "ts" => "1787832001.000200"})])
+
+    message = String.duplicate("word ", 799) <> "ab&cd " <> String.duplicate("tail ", 100)
+
+    assert Client.update_message(
+             client(requester),
+             "C123",
+             "1787832001.000200",
+             %{"message" => message},
+             "delivery:slack:long"
+           ) == :ok
+
+    assert [{:post, "/chat.update", document, []}] = FakeRequester.requests(requester)
+    assert String.length(document["text"]) <= 4_000
+    assert [%{"type" => "markdown", "text" => whole}] = document["blocks"]
+    assert whole == String.replace(message, "&", "&amp;")
+    # The cut does not leave half an escape for the notification to show.
+    assert document["text"] == String.duplicate("word ", 799) <> "ab…"
+  end
+
   test "sets and clears the native assistant thread status with the verified Slack shape" do
     {:ok, requester} = FakeRequester.start([slack(%{}), slack(%{})])
     client = client(requester)
