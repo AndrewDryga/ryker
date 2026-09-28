@@ -403,6 +403,27 @@ defmodule Ryker.RoutingExamplesTest do
       assert_erased(asked)
     end
 
+    # An alerting app updates its own message as the alert moves on. That is
+    # not a person taking back their words, and erasing on it would lose the
+    # examples of how routing handled the alert, which most routing is.
+    test "an app updating its own message erases nothing" do
+      keep_examples!()
+      alerting = %{kind: :app, ref: "AALERTS"}
+      first = route!("Ev-examples-alert", "FIRING: disk full on db-1", @ignore, actor: alerting)
+      second = route!("Ev-examples-alert-2", "looking into it", @ignore, message: 2)
+      assert {:ok, %{copied: 2}} = RoutingExamples.capture(@options)
+      third = route!("Ev-examples-alert-3", "anything new?", @ignore, message: 3)
+
+      edit_message!("Ev-examples-alert-resolved", 1, "RESOLVED: disk full on db-1",
+        actor: alerting
+      )
+
+      assert kept(first)
+      assert kept(second)
+      assert {:ok, %{copied: 1, forgotten: 0}} = RoutingExamples.capture(@options)
+      assert kept(third)
+    end
+
     test "deleting a Slack channel erases the examples from it" do
       keep_examples!()
       first = route!("Ev-examples-channel", "the staging account is acme-staging", @ignore)
@@ -663,13 +684,13 @@ defmodule Ryker.RoutingExamplesTest do
 
   # One Slack message in the channel, routed by the real executor to the
   # harvested answer. `message` numbers messages in time order; `thread` is
-  # the thread it replies in.
+  # the thread it replies in, and `actor` who sent it.
   defp route!(event_ref, text, answer, options \\ []) do
     number = Keyword.get(options, :message, 1)
 
     assert {:ok, input} =
              SlackInput.new(%{
-               actor: %{kind: :user, ref: "U123"},
+               actor: Keyword.get(options, :actor, %{kind: :user, ref: "U123"}),
                channel_ref: Keyword.get(options, :channel, @channel),
                content: %{"text" => text},
                event_kind: :message,
@@ -720,12 +741,12 @@ defmodule Ryker.RoutingExamplesTest do
     assert {:ok, %{status: :recorded}} = Inbox.record(input)
   end
 
-  # The person edits message `number` to say `text`; `attachments` are what
-  # Slack added to it, such as a link's preview.
+  # The person, or the `actor` given, edits message `number` to say `text`;
+  # `attachments` are what Slack added to it, such as a link's preview.
   defp edit_message!(event_ref, number, text, options \\ []) do
     assert {:ok, input} =
              SlackInput.new(%{
-               actor: %{kind: :user, ref: "U123"},
+               actor: Keyword.get(options, :actor, %{kind: :user, ref: "U123"}),
                channel_ref: @channel,
                content: %{
                  "text" => text,

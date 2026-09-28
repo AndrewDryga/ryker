@@ -734,7 +734,8 @@ publication follow-ups. A case already kept is found by the message identities i
 redacted. Work that is still running, or finished but not yet captured, keeps its case
 withdrawn, so capture never builds it. A typo fixed while the work runs therefore drops that work's
 case. An edit that leaves the text as it was, as Slack reports a link's preview arriving, takes
-nothing back.
+nothing back, and neither does an app or a bot updating its own message, as an alert does when it
+resolves.
 
 Large ingress, prompt, candidate, validation, delivery, and artifact bodies are redacted on the
 operational horizon only after all of the episode's Coop sessions are proven discarded. The episode

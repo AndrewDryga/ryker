@@ -179,6 +179,19 @@ defmodule Ryker.Memories.CasesTest do
     assert {:ok, %CaseRecord{status: :active, problem: @outage}} = Cases.capture(finished.id)
   end
 
+  # An alerting app updates its own message as the incident moves on. That is
+  # not a person taking back their words, and withdrawing on it would lose the
+  # case of nearly every alert.
+  test "an app updating its own message withdraws nothing" do
+    alerting = %{kind: :app, ref: "AALERTS"}
+    episode = started!("case:alert-updated", @outage, actor: alerting)
+
+    revise!(episode, :edit, %{"text" => "RESOLVED: #{@outage}"}, actor: alerting)
+    finished = finish!(episode)
+
+    assert {:ok, %CaseRecord{status: :active, problem: @outage}} = Cases.capture(finished.id)
+  end
+
   test "repeated capture keeps one case per intended revision" do
     # Close, reopen, cleanup and restart events all reach capture. Appending a
     # row for each would grow a record that feeds on its own output.
@@ -201,12 +214,12 @@ defmodule Ryker.Memories.CasesTest do
     assert {:ok, %CaseRecord{status: :deleted}} = Cases.capture(record.episode_id)
   end
 
-  # The person edits or deletes the message the work started from, and Ryker
-  # receives it as it receives every message.
-  defp revise!(%Episode{} = episode, kind, content) do
+  # The person, or the `actor` given, edits or deletes the message the work
+  # started from, and Ryker receives it as it receives every message.
+  defp revise!(%Episode{} = episode, kind, content, options \\ []) do
     {:ok, revision} =
       SlackInput.new(%{
-        actor: %{kind: :user, ref: "UALICE"},
+        actor: Keyword.get(options, :actor, %{kind: :user, ref: "UALICE"}),
         channel_ref: "CDEVOPS",
         content: content,
         event_kind: kind,
@@ -294,10 +307,10 @@ defmodule Ryker.Memories.CasesTest do
 
   defp finished!(key, text), do: key |> started!(text) |> finish!()
 
-  # Work a person's message started, received as Ryker receives every
-  # message and still running.
-  defp started!(key, text) do
-    input = slack_input!(text)
+  # Work a message started, a person's unless another `actor` sent it,
+  # received as Ryker receives every message and still running.
+  defp started!(key, text, options \\ []) do
+    input = slack_input!(text, options)
     {:ok, %{status: :recorded}} = Inbox.record(input)
     id = Ecto.UUID.generate()
 
@@ -334,12 +347,12 @@ defmodule Ryker.Memories.CasesTest do
     settled.episode
   end
 
-  defp slack_input!(text) do
+  defp slack_input!(text, options \\ []) do
     unique = System.unique_integer([:positive])
 
     {:ok, input} =
       SlackInput.new(%{
-        actor: %{kind: :user, ref: "UALICE"},
+        actor: Keyword.get(options, :actor, %{kind: :user, ref: "UALICE"}),
         channel_ref: "CDEVOPS",
         content: %{"text" => text},
         event_kind: :message,

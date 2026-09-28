@@ -528,6 +528,48 @@ defmodule Ryker.Publication.FollowupsTest do
     end
   end
 
+  # A bot updating its own review comment, as a checks bot does with each run,
+  # is not a person taking back their words.
+  test "a bot updating its own review comment keeps the case of the task it reviews" do
+    %{episode: episode} =
+      PublicationFixture.published!("review-case-bot",
+        github_repository: "octo/feedback-equivalence",
+        pull_request_number: 74
+      )
+
+    base = feedback_input("review-case-bot")
+    comment = %{base | actor: %{kind: :bot, ref: "checks-bot"}, event_kind: :message}
+    assert {:ok, %{event: event, status: :recorded}} = Followups.observe_github_feedback(comment)
+    assert {:ok, claim} = Followups.claim_delivery("publication-followup:review-case-bot", 60)
+    assert claim.event.id == event.id
+    assert {:ok, %{wakeup_state: :admitted}} = Followups.admit_wakeup(event.ref, claim.lease_ref)
+
+    updated = %{
+      comment
+      | event_kind: :edit,
+        event_ref: comment.event_ref <> ":run-2",
+        revision: 2
+    }
+
+    assert {:ok, %{status: :recorded}} = Followups.observe_github_feedback(updated)
+
+    current = Repo.get!(Episodes.Episode, episode.id)
+
+    assert {:ok, %{episode: %{state: :complete}}} =
+             Episodes.apply(%Command.AcceptResult{
+               decision_reason: "The checks pass.",
+               delivery: :none,
+               delivery_ref: nil,
+               episode_key: current.key,
+               expected_turn_ref: current.owner_ref,
+               next_turn_ref: nil,
+               occurred_at: DateTime.add(@now, 600, :second),
+               result_ref: "result:review-case:bot"
+             })
+
+    assert {:ok, %CaseRecord{status: :active}} = Cases.capture(episode.id)
+  end
+
   test "authorized GitHub bot edits retain their actor and edit semantics on continuation" do
     %{episode: episode} =
       PublicationFixture.published!("bot-review-edit",
