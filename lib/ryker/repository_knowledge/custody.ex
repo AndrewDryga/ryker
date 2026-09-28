@@ -347,9 +347,11 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc """
-  Ends a write whose starts are spent, when a model already wrote this
-  repository's RYKER.md: the document stays as it is, the next check comes
-  tomorrow, and the entry says why.
+  Ends a write that will not finish: its starts are spent and the RYKER.md
+  there is kept (a model wrote Ryker's last one, or the default branch holds
+  one a model or a person wrote), or GitHub or the repository refused it for
+  a reason another try would meet again. Whatever document the entry holds
+  stays as it is, the next check comes tomorrow, and the entry says why.
   """
   def give_up_write(claim, reason) do
     Repo.transaction(fn ->
