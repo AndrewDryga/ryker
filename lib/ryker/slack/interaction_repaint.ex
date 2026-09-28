@@ -18,6 +18,7 @@ defmodule Ryker.Slack.InteractionRepaint do
     IncidentRoom,
     IncidentRoomCard,
     InteractionAudit,
+    Mentions,
     ReplyRecords,
     TaskCard,
     TaskCardProjection
@@ -224,12 +225,17 @@ defmodule Ryker.Slack.InteractionRepaint do
     ]
   end
 
-  defp rebuild_turn_document(%Turn{delivery_document: %{"message" => message}} = turn)
-       when map_size(turn.delivery_document) == 1 and is_binary(message) do
-    {:ok, %{"message" => message}, turn.delivery_ref}
+  defp rebuild_turn_document(%Turn{} = turn) do
+    with {:ok, document} <- reply_document(turn),
+         {:ok, document} <- with_mentions(document, turn),
+         do: {:ok, document, turn.delivery_ref}
   end
 
-  defp rebuild_turn_document(%Turn{} = turn) do
+  defp reply_document(%Turn{delivery_document: %{"message" => message}} = turn)
+       when map_size(turn.delivery_document) == 1 and is_binary(message),
+       do: {:ok, %{"message" => message}}
+
+  defp reply_document(%Turn{} = turn) do
     case turn.delivery_document do
       %{
         "decision_reason" => nil,
@@ -244,11 +250,22 @@ defmodule Ryker.Slack.InteractionRepaint do
            %{
              "message" => confirmation_message(records, message),
              "records" => ReplyRecords.documents("slack", turn.episode_id, records)
-           }, turn.delivery_ref}
+           }}
         end
 
       _invalid ->
         {:error, :slack_interaction_repaint_document_invalid}
+    end
+  end
+
+  # The publisher sends a reply that names someone with its delivery's
+  # mention authority, and the repaint names them the same way.
+  defp with_mentions(%{"message" => message} = document, turn) do
+    if Mentions.typed?(message) do
+      with {:ok, authority} <- Mentions.authority_for_delivery(turn.delivery_ref),
+           do: {:ok, Map.put(document, "slack_mentions", authority)}
+    else
+      {:ok, document}
     end
   end
 
