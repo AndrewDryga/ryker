@@ -7,10 +7,13 @@ defmodule Ryker.Work.CustodyTest do
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Publication.Custody, as: PublicationCustody
+  alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Work.{Cancellation, Custody, Session, Submission, Turn, TurnChangeset}
+  alias Ryker.Work.{Cancellation, Custody, Result, Session, Submission, Turn, TurnChangeset}
   alias Ryker.Work.Custody.Sessions
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -1540,6 +1543,80 @@ defmodule Ryker.Work.CustodyTest do
            ) == {:error, :work_state_tools_binding_conflict}
   end
 
+  # The Work and delivery lanes sleep until this moment (`PollingWorker.idle_delay/2`):
+  # an answer too late or missing leaves a due turn waiting out the safety-net interval.
+  # The 2026-09-27 crash was in this family, a due-time aggregate that came back without
+  # a zone and crashed every Work and delivery lane on each poll while a row was due.
+  # Nothing ran this query against rows before.
+  test "each Work phase sleeps until its earliest retry, lapsing lease or review lease" do
+    since = Repo.now!()
+    at = &DateTime.add(since, &1, :second)
+    assert Custody.next_due_at(since, :work) == nil
+
+    # A retry's backoff. Deferring released the lease, so only the retry counts.
+    create_episode!("due-retry")
+    assert {:ok, retry} = Custody.claim_next("worker:due-retry", 60, :work)
+
+    assert {:ok, %Turn{lease_ref: nil}} =
+             Custody.defer(
+               retry.episode.id,
+               retry.turn.turn_ref,
+               retry.lease_ref,
+               1,
+               "coop_unavailable",
+               "Coop did not answer."
+             )
+
+    due!(retry.turn.id, next_attempt_at: at.(50))
+    assert Custody.next_due_at(since, :work) == at.(50)
+
+    # A claim nobody renews is taken again when its lease runs out.
+    create_episode!("due-lease")
+    assert {:ok, leased} = Custody.claim_next("worker:due-lease", 60, :work)
+    due!(leased.turn.id, lease_expires_at: at.(40))
+    assert Custody.next_due_at(since, :work) == at.(40)
+
+    # Stopping a turn is Work too.
+    stopping = create_episode!("due-stop")
+    assert {:ok, stop} = Custody.claim_next("worker:due-stop", 60, :work)
+
+    assert {:ok, %{turn: %Turn{status: :cancel_pending}}} =
+             Custody.request_transfer(
+               stop.episode.id,
+               stopping.episode_key,
+               stopping.turn_ref,
+               "turn:due-stop:replacement",
+               "transfer:#{Ecto.UUID.generate()}"
+             )
+
+    due!(stop.turn.id, next_attempt_at: at.(30))
+    assert Custody.next_due_at(since, :work) == at.(30)
+
+    # An accepted answer waits on a clock of its own, delivery's.
+    delivery = delivery_pending!("due-delivery")
+    assert {:ok, delivering} = Custody.claim_next("worker:due-delivery", 60, :delivery)
+    assert delivering.turn.id == delivery.turn.id
+    due!(delivering.turn.id, lease_expires_at: at.(60))
+    assert Custody.next_due_at(since, :delivery) == at.(60)
+    assert Custody.next_due_at(since, :work) == at.(30)
+
+    # A review holds Work on its session until its lease runs out.
+    %{publication: publication} = PublicationFixture.review_requested!("due-review")
+    assert {:ok, %{publication: review}} = PublicationCustody.claim_next("publication:due", 60)
+    assert review.id == publication.id
+
+    {1, nil} =
+      Repo.update_all(from(value in Publication, where: value.id == ^publication.id),
+        set: [lease_expires_at: at.(20)]
+      )
+
+    assert Custody.next_due_at(since, :work) == at.(20)
+    assert Custody.next_due_at(since, :delivery) == at.(60)
+
+    # A moment already reached wakes nothing more: the lane takes it this poll.
+    assert Custody.next_due_at(at.(40), :work) == at.(50)
+  end
+
   test "a blocked turn is only portable when the fleet could restore it somewhere" do
     # The wiring, not the rule: the recovery surfaces ask Custody, and Custody
     # has to find this turn's own session and the operator's selected workspace
@@ -1714,6 +1791,84 @@ defmodule Ryker.Work.CustodyTest do
              )
 
     submission
+  end
+
+  defp due!(turn_id, fields),
+    do: {1, nil} = Repo.update_all(from(turn in Turn, where: turn.id == ^turn_id), set: fields)
+
+  # A turn whose answer was accepted, waiting for its delivery.
+  defp delivery_pending!(suffix) do
+    create_episode!(suffix)
+    assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)
+
+    assert {:ok, _turn} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission!(%{"episode_id" => claim.episode.id})
+             )
+
+    assert {:ok, session} =
+             Custody.bind_session(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "coop-session:#{suffix}"
+             )
+
+    assert {:ok, turn} =
+             Custody.bind_turn(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               session.generation,
+               claim.turn.submit_generation,
+               "coop-turn:#{suffix}"
+             )
+
+    candidate = ~s({"delivery":"reply","message":"Ready."})
+    candidate_sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+
+    assert {:ok, _turn} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               candidate,
+               candidate_sha256,
+               1
+             )
+
+    assert {:ok, result} = Result.new(:reply, %{"message" => "Ready."})
+
+    assert {:ok, _turn} =
+             Custody.prepare_validation(
+               claim.episode.id,
+               turn.turn_ref,
+               claim.lease_ref,
+               candidate_sha256,
+               1,
+               :accept,
+               result
+             )
+
+    assert {:ok, accepted} =
+             Custody.accept_result(
+               claim.episode.id,
+               claim.episode.key,
+               turn.turn_ref,
+               claim.lease_ref,
+               candidate_sha256,
+               1,
+               "validation:#{suffix}"
+             )
+
+    accepted
   end
 
   defp expire_lease!(turn_id) do

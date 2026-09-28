@@ -1,7 +1,9 @@
 defmodule Ryker.Delivery.PlatformActionCustodyTest do
   use Ryker.DataCase, async: true
 
-  alias Ryker.Delivery.{PlatformActionCustody, Request}
+  import Ecto.Query
+
+  alias Ryker.Delivery.{PlatformAction, PlatformActionCustody, Request}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Work.{Custody, DeliveryReceipt, Validator}
@@ -418,6 +420,57 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
     assert {:accept, _accepted} = Validator.validate(answer, validation_context(records), @now)
   end
 
+  # The action delivery lane sleeps until this moment (`PollingWorker.idle_delay/2`): an
+  # answer too late or missing leaves a due reaction or update waiting out the
+  # safety-net interval. The 2026-09-27 crash was in this family, a due-time aggregate
+  # that came back without a zone and crashed every Work and delivery lane on each poll
+  # while a row was due. Nothing ran this query against rows before.
+  test "the action lane sleeps until an action's retry or unrenewed lease" do
+    claim = claim!()
+    since = Repo.now!()
+    at = &DateTime.add(since, &1, :second)
+
+    assert {:ok, %{action: reaction}} =
+             PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes())
+
+    assert {:ok, %{action: update}} =
+             PlatformActionCustody.enqueue_in_turn(
+               claim,
+               update_attributes("Checking the deploy.")
+             )
+
+    # Queued, they wait on nothing timed.
+    assert PlatformActionCustody.next_due_at(since) == nil
+
+    assert {:ok, %{action: %{id: reaction_id}, lease_ref: reaction_lease}} =
+             PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+    assert reaction_id == reaction.id
+
+    assert {:ok, %PlatformAction{lease_ref: nil}} =
+             PlatformActionCustody.defer(
+               reaction.action_ref,
+               reaction_lease,
+               1,
+               "delivery_uncertain",
+               "Slack's answer was lost."
+             )
+
+    assert {:ok, %{action: %{id: update_id}}} =
+             PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+    assert update_id == update.id
+    due!(reaction.id, next_attempt_at: at.(30))
+    due!(update.id, lease_expires_at: at.(20))
+    assert PlatformActionCustody.next_due_at(since) == at.(20)
+
+    due!(update.id, lease_expires_at: at.(45))
+    assert PlatformActionCustody.next_due_at(since) == at.(30)
+
+    # A moment already reached wakes nothing more: the lane takes it this poll.
+    assert PlatformActionCustody.next_due_at(at.(30)) == at.(45)
+  end
+
   test "shadow work cannot create a platform side effect" do
     claim = claim!()
 
@@ -442,6 +495,11 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
 
     assert PlatformActionCustody.enqueue_in_turn(claim, reaction_attributes()) ==
              {:error, :platform_action_not_authorized}
+  end
+
+  defp due!(action_id, fields) do
+    {1, nil} =
+      Repo.update_all(from(action in PlatformAction, where: action.id == ^action_id), set: fields)
   end
 
   defp claim! do

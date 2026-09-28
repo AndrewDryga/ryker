@@ -308,6 +308,28 @@ defmodule Ryker.Waits.EventWaitsTest do
     end
   end
 
+  # The event-wait lane sleeps until this moment (`PollingWorker.idle_delay/2`): an
+  # answer too late or missing leaves a due wait waiting out the safety-net interval.
+  # The 2026-09-27 crash was in this family, a due-time aggregate that came back without
+  # a zone and crashed every Work and delivery lane on each poll while a row was due.
+  # Nothing ran this query against rows before.
+  test "the event-wait lane sleeps until a wait's polling fallback, then its hard deadline" do
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+    fixture = active_source_wait!("due-source", now)
+    poll_after = fixture.subscription.poll_after
+    deadline = fixture.deadline
+    assert DateTime.compare(poll_after, deadline) == :lt
+
+    assert EventWaits.next_due_at(now) == poll_after
+    assert EventWaits.next_due_at(poll_after) == deadline
+
+    # A wait with no subscription still times out at its episode's deadline.
+    Repo.delete!(fixture.subscription)
+    assert Repo.get!(Episode, fixture.waiting.episode.id).owner_deadline_at == deadline
+    assert EventWaits.next_due_at(now) == deadline
+    assert EventWaits.next_due_at(deadline) == nil
+  end
+
   test "reconciliation retains a timer's original due time after a restart" do
     %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
     fixture = active_timer_wait!("after", now)

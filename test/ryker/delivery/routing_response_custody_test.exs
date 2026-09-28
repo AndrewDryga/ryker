@@ -1,6 +1,8 @@
 defmodule Ryker.Delivery.RoutingResponseCustodyTest do
   use Ryker.DataCase, async: true
 
+  import Ecto.Query
+
   # Six async suites once shared T123:C456: sandbox transactions held the
   # conversation lock until test exit and cascaded into 15-second timeouts.
   # Keep this fixture's workspace distinct; production locks remain unchanged.
@@ -334,6 +336,55 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
     refute retry.lease_ref == first.lease_ref
   end
 
+  # The routing delivery lane sleeps until this moment (`PollingWorker.idle_delay/2`):
+  # an answer too late or missing leaves a due reaction or quick reply waiting out the
+  # safety-net interval. The 2026-09-27 crash was in this family, a due-time aggregate
+  # that came back without a zone and crashed every Work and delivery lane on each poll
+  # while a row was due. Nothing ran this query against rows before.
+  test "the routing lane sleeps until a response's retry or unrenewed lease" do
+    since = Repo.now!()
+    at = &DateTime.add(since, &1, :second)
+    retried = record_input!("Ev-due-retry", :live, "1787832001.000301")
+    leased = record_input!("Ev-due-lease", :live, "1787832001.000302")
+
+    assert {:ok, _applied} =
+             Admission.commit(context!(retried), reaction!("eyes"), "decision:due-retry")
+
+    assert {:ok, _applied} =
+             Admission.commit(
+               context!(leased),
+               quick_reply!(["On it.", "Checking the deploy."]),
+               "decision:due-lease"
+             )
+
+    # Queued, and the second message waiting its turn: nothing waits on the clock.
+    assert RoutingResponseCustody.next_due_at(since) == nil
+
+    assert {:ok, first} = RoutingResponseCustody.claim_next("delivery:routing:due-retry", 60)
+    assert first.response.input_id == retried.id
+
+    assert {:ok, %RoutingResponse{lease_ref: nil}} =
+             RoutingResponseCustody.defer(
+               first.response.delivery_ref,
+               first.lease_ref,
+               1,
+               "delivery_uncertain",
+               "Slack's answer was lost."
+             )
+
+    assert {:ok, second} = RoutingResponseCustody.claim_next("delivery:routing:due-lease", 60)
+    assert second.response.input_id == leased.id
+    due!(first.response.id, next_attempt_at: at.(30))
+    due!(second.response.id, lease_expires_at: at.(20))
+    assert RoutingResponseCustody.next_due_at(since) == at.(20)
+
+    due!(second.response.id, lease_expires_at: at.(45))
+    assert RoutingResponseCustody.next_due_at(since) == at.(30)
+
+    # A moment already reached wakes nothing more: the lane takes it this poll.
+    assert RoutingResponseCustody.next_due_at(at.(30)) == at.(45)
+  end
+
   test "the current reaction owner can renew its opaque lease without spending an attempt" do
     entry = record_input!("Ev-reaction-renew")
 
@@ -389,7 +440,14 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
     assert error.postgres.constraint == "delivery_routing_response_document_valid"
   end
 
-  defp record_input!(event_ref, execution_mode \\ :live) do
+  defp due!(response_id, fields) do
+    {1, nil} =
+      Repo.update_all(from(response in RoutingResponse, where: response.id == ^response_id),
+        set: fields
+      )
+  end
+
+  defp record_input!(event_ref, execution_mode \\ :live, message_ref \\ "1787832001.000200") do
     assert {:ok, input} =
              Input.new(%{
                actor: %{kind: :user, ref: "U123"},
@@ -397,7 +455,7 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
                content: %{"text" => "Please acknowledge this input."},
                event_kind: :message,
                event_ref: event_ref,
-               message_ref: "1787832001.000200",
+               message_ref: message_ref,
                occurred_at: @now,
                revision: 1,
                thread_ref: "1787832000.000100",
