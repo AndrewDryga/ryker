@@ -92,6 +92,43 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert [_attachment] = get_resp_header(empty, "content-disposition")
   end
 
+  # "Drop this learning batch?" ends "You can't undo this." yet was asked with
+  # the primary button: the danger tone came from a list of action names kept
+  # apart from the questions, and "drop" was never added to it. Each question
+  # now says its own tone.
+  test "a question that removes, deletes, drops or forgets something is asked in the danger tone" do
+    options = options()
+    batch = "5b0c6f1e-6a55-4f47-9c7e-7b1d2c3a4e5f"
+
+    expected = [
+      {"/actions/learning/#{batch}/drop", :danger},
+      {"/actions/memory/memory%3Aone/forget", :danger},
+      {"/actions/knowledge/knowledge-one/forget", :danger},
+      {"/actions/memory-review/memory-review%3Aone/merge", :danger},
+      {"/actions/memory-review/memory-review%3Aone/forget", :danger},
+      {"/actions/behavior/behavior%3Aone/deleted", :danger},
+      {"/actions/schedule/schedule%3Aone/deleted", :danger},
+      {"/actions/retention/workspace%3Aunmerged/discard", :danger},
+      {"/actions/memory-review/memory-review%3Aone/keep", :primary},
+      {"/actions/memory-review/memory-review%3Aone/dismiss", :primary},
+      {"/actions/behavior/behavior%3Aone/disabled", :primary},
+      {"/actions/schedule/schedule%3Aone/paused", :primary},
+      {"/actions/schedule/schedule%3Aone/run-now", :primary},
+      {"/actions/episode/episode%3Aone/resolve", :primary},
+      {"/actions/episode/episode%3Aone/review", :primary},
+      {"/actions/work/episode%3Ablocked/retry", :primary},
+      {"/actions/admission/ingress-input%3Aone/rearm", :primary}
+    ]
+
+    asked =
+      for {path, _tone} <- expected do
+        assert {:ok, %{tone: tone}} = Router.question(path, options), path
+        {path, tone}
+      end
+
+    assert asked == expected
+  end
+
   test "removed admission pages are not redirects or compatibility aliases" do
     id = Ecto.UUID.generate()
     options = options()
