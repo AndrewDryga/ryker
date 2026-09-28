@@ -67,6 +67,13 @@ defmodule Ryker.Publication.Publication do
     field(:published_delivery_receipt, Ryker.CanonicalJSON.Type)
     field(:published_delivery_receipt_fingerprint, :string)
 
+    # What Ryker did about a refused review without a person
+    # (`Ryker.Publication.FixLoop`): the fix turns it started, the reviews it
+    # asked again unchanged, and the review generation the latest fix answers.
+    field(:fix_rounds, :integer, default: 0)
+    field(:recheck_rounds, :integer, default: 0)
+    field(:fix_review_generation, :integer)
+
     field(:attempt_count, :integer, default: 0)
     field(:lease_ref, :string)
     field(:lease_owner, :string)

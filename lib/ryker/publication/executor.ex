@@ -54,9 +54,14 @@ defmodule Ryker.Publication.Executor do
              frozen.review_generation,
              dossier
            ) do
-      {:ok, %{phase: :reviewed, publication: stored}}
+      {:ok, %{phase: review_phase(stored), publication: stored}}
     end
   end
+
+  # A refusal that only says something moved during the check is asked again
+  # (`Ryker.Publication.FixLoop`), so custody hands back a fresh pending review.
+  defp review_phase(%{status: :review_pending}), do: :rechecking
+  defp review_phase(_stored), do: :reviewed
 
   defp deliver(claim, settings) do
     with {:ok, request} <- settings.custody.delivery_request(claim.publication),

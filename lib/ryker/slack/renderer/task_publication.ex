@@ -16,6 +16,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
   def validate(
         %{
+          "automatic_fix" => automatic_fix,
           "branch" => branch,
           "controls" => controls,
           "discarded_reason" => discarded_reason,
@@ -27,8 +28,9 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
           "unverified" => unverified
         } = publication
       )
-      when map_size(publication) == 9 and discarded_reason in @discarded_reasons do
+      when map_size(publication) == 10 and discarded_reason in @discarded_reasons do
     with :ok <- bounded_text(status, 120),
+         :ok <- optional_bounded_text(automatic_fix, 300),
          :ok <- optional_bounded_text(branch, 512),
          :ok <- publication_controls(controls),
          :ok <- optional_publication_reference(publication_ref),
@@ -52,6 +54,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   def blocks(_task_ref, _repository, nil), do: []
 
   def blocks(task_ref, repository, %{
+        "automatic_fix" => automatic_fix,
         "branch" => branch,
         "controls" => controls,
         "discarded_reason" => discarded_reason,
@@ -67,10 +70,14 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
         do: " · #{link(url, "Open draft PR ##{number}")}",
         else: ""
 
+    # The host's own line for a fix round Ryker is running on the refusal
+    # (`Ryker.Publication.FixLoop`) says what the blocked status would not.
     message =
-      if status == "discarded",
-        do: discarded_message(discarded_reason),
-        else: publication_status_message(status, controls, unverified)
+      cond do
+        is_binary(automatic_fix) -> escape(automatic_fix)
+        status == "discarded" -> discarded_message(discarded_reason)
+        true -> publication_status_message(status, controls, unverified)
+      end
 
     summary = section("#{message}#{detail}#{publication_branch_line(status, branch)}")
 

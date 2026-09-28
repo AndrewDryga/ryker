@@ -4,7 +4,10 @@ defmodule Ryker.Publication.Review do
   alias Ryker.CanonicalJSON
 
   @required ~w(candidate_head candidate_retained candidate_tree creation_base gate job_digest not_publishable_reasons operation_id parent_head parent_tree patch_truncated policy_findings publishable rebase session_id session_revision source_head source_tree)
-  @optional ~w(gate_error pull_request)
+  @optional ~w(gate_error gate_failure pull_request)
+  # Coop bounds a failed gate's output to what the job asked for, at most this.
+  @maximum_gate_output_bytes 65_536
+  @maximum_gate_command_bytes 1_024
   @git_identity ~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
@@ -27,6 +30,12 @@ defmodule Ryker.Publication.Review do
   @refusal_codes ["policy_findings" | Enum.map(@refusals, &elem(&1, 0))]
   @unrecognized_refusal "the review refused the change for a reason I don't recognize"
 
+  # What Ryker does about a refusal without a person (`Ryker.Publication.FixLoop`).
+  # The task's own work can fix these, most actionable first.
+  @fixable ~w(rebase_conflict gate_failed gate_modified_candidate)
+  # These say only that something moved while the change was being checked.
+  @momentary ~w(parent_moved source_moved fork_owner_active)
+
   # Coop's policy scan (internal/sessionsvc/review_scan.go) words each finding
   # as one of these sentences around the path it names. The last is a file that
   # runs on a host, in Coop's own description of how.
@@ -45,7 +54,7 @@ defmodule Ryker.Publication.Review do
   @spec prepare(map(), map()) :: {:ok, map()} | {:error, term()}
   def prepare(document, expected) when is_map(document) and is_map(expected) do
     # Publication retains identity, not the bounded display preview or source projection.
-    document = Map.drop(document, ["patch", "source"])
+    document = document |> Map.drop(["patch", "source"]) |> gate_failure_report()
 
     with :ok <- fields(document),
          :ok <- reference(document["operation_id"], :operation_id),
@@ -150,15 +159,7 @@ defmodule Ryker.Publication.Review do
   """
   @spec refusal(term()) :: [String.t()]
   def refusal(document) when is_map(document) do
-    codes =
-      [gate_refusal(document["gate"]), rebase_refusal(document["rebase"])]
-      |> Enum.reject(&is_nil/1)
-      |> Kernel.++(refusal_codes(document["not_publishable_reasons"]))
-      |> Enum.uniq()
-
-    # A gate never runs on a change that no longer applies: that is the
-    # conflict, not a second cause to fix.
-    codes = if "rebase_conflict" in codes, do: codes -- ["gate_not_run"], else: codes
+    codes = codes(document)
     unrecognized? = Enum.any?(codes, &(&1 not in @refusal_codes))
 
     for({code, clause} <- @refusals, code in codes, do: clause) ++
@@ -167,6 +168,126 @@ defmodule Ryker.Publication.Review do
   end
 
   def refusal(_document), do: []
+
+  @doc """
+  What Ryker does about a refused review without a person, or nil for a
+  publishable one.
+
+  `:fix` sends the change back to its task's work: the repository's checks
+  failed, the change conflicts with the latest base branch, or running the
+  checks changed its files. `:recheck` asks the review again unchanged: the
+  base branch or the working copy moved, or the working copy was still in use,
+  while the change was being checked, which says nothing about the change.
+  `:person` is everything else. A policy finding such as a possible credential
+  is a person's call whatever else the review found; a change with no
+  differences from its base has nothing to fix; missing or unstartable checks
+  are a setting or a machine, and the agent writing the check that judges its
+  own change would be no check at all; and a reason this host cannot read is
+  never guessed at (Andrew's request, 2026-09-28).
+  """
+  @spec remedy(term()) :: :fix | :recheck | :person | nil
+  def remedy(%{"publishable" => true}), do: nil
+
+  def remedy(document) when is_map(document) do
+    codes =
+      if match?([_ | _], document["policy_findings"]),
+        do: Enum.uniq(codes(document) ++ ["policy_findings"]),
+        else: codes(document)
+
+    cond do
+      not is_list(document["policy_findings"]) -> :person
+      codes == [] or codes -- (@fixable ++ @momentary) != [] -> :person
+      Enum.any?(codes, &(&1 in @fixable)) -> :fix
+      true -> :recheck
+    end
+  end
+
+  def remedy(_document), do: :person
+
+  @doc """
+  The refusal codes the task's work is asked to fix, most actionable first:
+  what a fix round's message and the task card name.
+  """
+  @spec fixable(term()) :: [String.t()]
+  def fixable(document) when is_map(document) do
+    codes = codes(document)
+    Enum.filter(@fixable, &(&1 in codes))
+  end
+
+  def fixable(_document), do: []
+
+  defp codes(document) do
+    codes =
+      [gate_refusal(document["gate"]), rebase_refusal(document["rebase"])]
+      |> Enum.reject(&is_nil/1)
+      |> Kernel.++(refusal_codes(document["not_publishable_reasons"]))
+      |> Enum.uniq()
+
+    # A gate never runs on a change that no longer applies: that is the
+    # conflict, not a second cause to fix.
+    if "rebase_conflict" in codes, do: codes -- ["gate_not_run"], else: codes
+  end
+
+  # Coop's proposed report of a failed gate (2026-09-28, not final): the
+  # command, its exit code and the redacted end of its output, sent only to a
+  # job that asked for it (`Ryker.CoopFleet.ReviewGateOutput`). It is evidence
+  # for the fix round, never part of the verdict, so a report of any other
+  # shape is dropped instead of refusing the review it came with, and what is
+  # kept is bounded and holds no byte the store refuses.
+  defp gate_failure_report(%{"gate" => "failed", "gate_failure" => report} = document) do
+    case gate_failure_shape(report) do
+      {:ok, report} -> Map.put(document, "gate_failure", report)
+      :error -> Map.delete(document, "gate_failure")
+    end
+  end
+
+  defp gate_failure_report(document), do: Map.delete(document, "gate_failure")
+
+  defp gate_failure_shape(
+         %{
+           "command" => command,
+           "exit_code" => exit_code,
+           "output_tail" => output,
+           "output_truncated" => truncated
+         } = report
+       )
+       when map_size(report) == 4 and is_binary(command) and is_integer(exit_code) and
+              is_binary(output) and is_boolean(truncated) do
+    command = without_nul(command)
+    output = without_nul(output)
+
+    if readable_report?(command, exit_code, output) do
+      kept = output_tail(output, @maximum_gate_output_bytes)
+
+      {:ok,
+       %{
+         "command" => String.byte_slice(command, 0, @maximum_gate_command_bytes),
+         "exit_code" => exit_code,
+         "output_tail" => kept,
+         "output_truncated" => truncated or kept != output
+       }}
+    else
+      :error
+    end
+  end
+
+  defp gate_failure_shape(_report), do: :error
+
+  defp readable_report?(command, exit_code, output) do
+    exit_code in -2_147_483_648..2_147_483_647 and String.valid?(command) and
+      String.trim(command) != "" and String.valid?(output)
+  end
+
+  @doc """
+  The last `maximum` bytes of a gate's output, cut at a character boundary.
+  """
+  @spec output_tail(String.t(), non_neg_integer()) :: String.t()
+  def output_tail(output, maximum) when byte_size(output) <= maximum, do: output
+
+  def output_tail(output, maximum),
+    do: String.byte_slice(output, byte_size(output) - maximum, maximum)
+
+  defp without_nul(text), do: String.replace(text, <<0>>, "")
 
   @doc """
   Each policy finding as the file it names and what is wrong with it, in the

@@ -925,6 +925,50 @@ defmodule Ryker.Records.TaskOffersTest do
              "Draft pull-request work is blocked; no cause was recorded."
   end
 
+  # Andrew's request, 2026-09-28: while Ryker's own fix round runs on a refused
+  # change, the Slack card said "Draft pull-request work is blocked" under an
+  # Action needed banner, sending the channel to intervene in work already
+  # under way. It follows the fix instead, and once the rounds are spent it
+  # says so in one plain line.
+  test "the Slack task card follows the automatic fix and says when it stopped" do
+    fixture = confirmed_card!("fixing")
+
+    publication =
+      fixture
+      |> publication!("fixing")
+      |> update_publication!(%{
+        fix_review_generation: 1,
+        fix_rounds: 1,
+        review_document: PublicationFixture.harvested_refusal(),
+        review_fingerprint: digest("review:fixing"),
+        review_delivery_receipt: %{"message_ref" => "fixing-message"},
+        review_delivery_receipt_fingerprint: digest("fixing:receipt"),
+        reviewed_at: @now,
+        status: :blocked
+      })
+
+    assert {:ok, projection} = TaskCardProjection.build(fixture.card)
+    task = projection.document["task_card"]
+    assert task["status"] == "queued"
+    assert task["action_needed"] == nil
+    assert task["publication"]["controls"] == ["discard"]
+    assert {:ok, rendered} = Renderer.render(projection.document)
+    card = Jason.encode!(rendered)
+    assert card =~ "Fixing: the repository's checks failed · attempt 1 of 3"
+    refute card =~ "Draft pull-request work is blocked"
+    refute card =~ "PR creation is blocked"
+
+    update_publication!(publication, %{fix_rounds: 3, fix_review_generation: nil})
+    assert {:ok, stopped} = TaskCardProjection.build(fixture.card)
+    task = stopped.document["task_card"]
+    assert task["status"] == "action_required"
+
+    assert task["action_needed"] ==
+             "I tried to fix it 3 times; the repository's checks still fail."
+
+    assert task["publication"]["controls"] == ["update", "discard"]
+  end
+
   test "task cards expose event verification and stop-in-progress without losing their thread" do
     event_wait = confirmed_card!("event-record")
     assert {:ok, claim} = Custody.claim_next("task-card:event-record", 60, :work)

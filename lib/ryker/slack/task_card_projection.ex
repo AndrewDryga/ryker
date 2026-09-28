@@ -10,7 +10,7 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
-  alias Ryker.Publication.{Followup, Publication, Review}
+  alias Ryker.Publication.{FixLoop, Followup, Publication, Review}
   alias Ryker.Records
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.Record
@@ -78,18 +78,20 @@ defmodule Ryker.Slack.TaskCardProjection do
     } = snapshot
 
     progress = Enum.map(snapshot.progress_records, &progress_detail/1)
+    fix = snapshot.automatic_fix
+    attention = if fix_line(fix, :fixing), do: nil, else: publication
 
     projection = %{
       "action_needed" =>
-        held_work(snapshot.workspace_hold, publication) ||
-          action_needed(episode, turn, records, publication) ||
+        held_work(snapshot.workspace_hold, publication) || fix_line(fix, :stopped) ||
+          action_needed(episode, turn, records, attention) ||
           unstarted_review(episode, publication, publication_offer),
       "confirmed_at" => DateTime.to_iso8601(record.confirmed_at),
       "confirmed_by" => record.confirmed_by_actor_ref,
       "controls" =>
         controls(record, episode, turn, session, publication, snapshot.workspace_hold),
       "episode_state" => Atom.to_string(episode.state),
-      "publication" => publication(publication, publication_offer),
+      "publication" => publication(publication, publication_offer, fix),
       "request" => compact(record.payload["prompt"], 600),
       "repository" => record.payload["repository"],
       "repository_url" => repository_url(publication),
@@ -106,7 +108,7 @@ defmodule Ryker.Slack.TaskCardProjection do
           workspace_hold: snapshot.workspace_hold
         }),
       "question_url" => question_url(episode),
-      "status" => status(episode, turn, publication, publication_offer),
+      "status" => status(episode, turn, attention, publication_offer),
       "summary" => summary(record, progress),
       "task_ref" => task_ref,
       "title" => record.payload["title"],
@@ -131,6 +133,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     turn = current_turn(episode)
 
     %{
+      automatic_fix: automatic_fix(publication, episode),
       turn: turn,
       session: latest_session(episode.id),
       publication: publication,
@@ -245,7 +248,11 @@ defmodule Ryker.Slack.TaskCardProjection do
     }
 
   defp public_errors(projection, snapshot) do
-    case public_error(snapshot.publication, snapshot.turn, snapshot.workspace_hold) do
+    fix = snapshot.automatic_fix
+    attention = if fix_line(fix, :fixing), do: nil, else: snapshot.publication
+
+    case fix_line(fix, :stopped) ||
+           public_error(attention, snapshot.turn, snapshot.workspace_hold) do
       nil ->
         projection
 
@@ -574,12 +581,14 @@ defmodule Ryker.Slack.TaskCardProjection do
     end
   end
 
-  defp publication(nil, _offer), do: nil
+  defp publication(nil, _offer, _fix), do: nil
 
-  defp publication(%Publication{} = publication, _offer) do
+  defp publication(%Publication{} = publication, _offer, fix) do
     %{
+      "automatic_fix" => fix_line(fix, :fixing),
       "branch" => publication.branch_ref,
-      "controls" => publication_controls(publication),
+      "controls" =>
+        if(fix_line(fix, :fixing), do: ["discard"], else: publication_controls(publication)),
       "discarded_reason" => discarded_reason(publication),
       "publication_ref" => publication.ref,
       "pull_request_number" => publication.pull_request_number,
@@ -589,6 +598,18 @@ defmodule Ryker.Slack.TaskCardProjection do
       "unverified" => unverified(publication)
     }
   end
+
+  # Andrew, 2026-09-28: a change the trusted review refused for something the
+  # task's own work can fix goes back to that work without a person, three
+  # rounds at most (`Ryker.Publication.FixLoop`). While a round runs the card
+  # says so beside Discard, and the refusal neither sets the task's status nor
+  # asks for action: the work is doing what a person used to be asked to
+  # request. Once the rounds are spent it says so plainly, as the action
+  # needed, with Review latest state and Discard where they always were.
+  defp automatic_fix(publication, episode), do: FixLoop.progress(publication, episode)
+
+  defp fix_line({state, line}, state), do: line
+  defp fix_line(_fix, _state), do: nil
 
   # Why Ryker ended a publication itself; nil for one a person discarded, which
   # the operator audit already names. The card said "PR preparation stopped"
