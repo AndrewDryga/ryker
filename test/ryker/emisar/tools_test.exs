@@ -147,6 +147,32 @@ defmodule Ryker.Emisar.ToolsTest do
              {:error, :unavailable}
   end
 
+  # A 429, 404 or 413 comes back before Emisar runs anything. Reported as a
+  # lost mutation, it told the model the action may have run and must not be
+  # repeated, and get_operation would have found nothing to look up.
+  test "a mutation turned away before Emisar ran it is not reported as lost" do
+    pin = pin!(key!("emk-"), "https://limited.example/api/mcp/rpc")
+    {:ok, catalog} = Tools.catalog(pin)
+
+    assert {:error, {:rejected, reason}} =
+             Tools.call(pin, tool(catalog, "run_action"), run_arguments())
+
+    assert reason =~ "HTTP 429"
+    assert_received {:emisar_mcp, %{body: %{"method" => "tools/call"}}}
+    refute_received {:emisar_mcp, %{body: %{"method" => "tools/call"}}}
+  end
+
+  # Nothing Emisar says should carry the key, but nothing that does may reach
+  # the model: not a refusal, and not the tools and instructions it lists.
+  test "a refusal or a catalog that carries the environment's key is withheld" do
+    run_action = Enum.find(@tools_list["tools"], &(&1["name"] == "run_action"))
+
+    assert Tools.call(pin!(key!("echo-")), run_action, run_arguments()) ==
+             {:error, :answer_withheld}
+
+    assert Tools.catalog(pin!(key!("leaky-"))) == {:error, :unavailable}
+  end
+
   test "each mutation is its own operation" do
     pin = pin!(key!("emk-"))
     {:ok, catalog} = Tools.catalog(pin)

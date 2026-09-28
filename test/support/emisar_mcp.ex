@@ -15,14 +15,19 @@ defmodule Ryker.TestSupport.EmisarMCP do
 
   A token starting "refused-" is refused; one starting "audit-" is an
   audit-export key, which cannot run agent tools; one starting "viewer-" is an
-  agent key whose account policy lets it read but not dispatch.
+  agent key whose account policy lets it read but not dispatch. Two stand for
+  answers Emisar should never give, so Ryker's guard against them can be
+  tested: an "echo-" key's calls are refused with the key in the message, and
+  a "leaky-" key's instructions quote it.
 
   It is also the network in tests: `request/5` is the configured Emisar
   requester (config/test.exs), so no test reaches Emisar. It tells the calling
   process what it was sent. A host named unreachable.example refuses every
   connection, so nothing reaches it; one named silent.example lists its tools
   but never answers a call, which times out after the call was sent; one named
-  hanging.example holds every request for a second before it answers.
+  hanging.example holds every request for a second before it answers; one
+  named limited.example turns every call away with HTTP 429 before Emisar
+  sees it.
   """
 
   alias Ryker.Delivery.JSONClient
@@ -46,9 +51,16 @@ defmodule Ryker.TestSupport.EmisarMCP do
 
       if host == "hanging.example", do: Process.sleep(1_000)
 
-      if host == "silent.example" and body["method"] == "tools/call",
-        do: {:error, {:delivery_transport_unavailable, %Mint.TransportError{reason: :timeout}}},
-        else: answer(body, token)
+      cond do
+        host == "silent.example" and body["method"] == "tools/call" ->
+          {:error, {:delivery_transport_unavailable, %Mint.TransportError{reason: :timeout}}}
+
+        host == "limited.example" and body["method"] == "tools/call" ->
+          {:ok, %{body: "Too Many Requests", headers: [], status: 429}}
+
+        true ->
+          answer(body, token)
+      end
     else
       true ->
         {:error, {:delivery_transport_unavailable, %Mint.TransportError{reason: :econnrefused}}}
@@ -62,13 +74,21 @@ defmodule Ryker.TestSupport.EmisarMCP do
   def answer(%{"id" => id}, "refused-" <> _token),
     do: respond(401, %{"error" => %{"code" => -32_001, "message" => "unauthorized"}}, id)
 
-  def answer(%{"method" => "initialize", "id" => id, "params" => params}, _token) do
+  def answer(%{"method" => "tools/call", "id" => id}, "echo-" <> _rest = token),
+    do:
+      respond(
+        200,
+        %{"error" => %{"code" => -32_602, "message" => "params refused for #{token}"}},
+        id
+      )
+
+  def answer(%{"method" => "initialize", "id" => id, "params" => params}, token) do
     respond(
       200,
       %{
         "result" => %{
           "capabilities" => %{"tools" => %{"listChanged" => false}},
-          "instructions" => File.read!(@instructions),
+          "instructions" => instructions(token),
           "protocolVersion" => params["protocolVersion"],
           "serverInfo" => %{"name" => "emisar", "version" => "0.1.0"}
         }
@@ -169,6 +189,9 @@ defmodule Ryker.TestSupport.EmisarMCP do
   end
 
   defp json(path), do: path |> File.read!() |> Jason.decode!()
+
+  defp instructions("leaky-" <> _rest = token), do: File.read!(@instructions) <> " Key: " <> token
+  defp instructions(_token), do: File.read!(@instructions)
 
   defp respond(status, body, id),
     do:
