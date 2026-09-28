@@ -188,6 +188,27 @@ defmodule Ryker.CoopFleet.JobAuthority do
     end
   end
 
+  @doc """
+  The session as its create preparation left it, for the caller that ran the
+  preparation: the same execution identity, and the job `ensure_pinned/3`
+  may just have pinned anew for its companions. A receipt is checked against
+  the job its caller holds (`exact_receipt/2`), so the caller that prepared
+  the create adopts the new job first; the woken task's first created session
+  was closed as "session_authority" because it had not (2026-09-28).
+  """
+  @spec prepared(Session.t()) :: {:ok, Session.t()} | {:error, term()}
+  def prepared(%Session{id: id} = expected) when is_binary(id) do
+    case Repo.get(Session, id) do
+      %Session{} = saved ->
+        if Map.take(saved, @identity) == Map.take(expected, @identity),
+          do: validate(saved),
+          else: {:error, {:coop_fleet_authority_mismatch, :worker_job}}
+
+      nil ->
+        {:error, {:coop_fleet_authority_mismatch, :worker_job}}
+    end
+  end
+
   # Create preparation pins after callers take their claim snapshot. Reload only the
   # same execution identity; an already-pinned caller may never adopt another job.
   def exact_receipt(%Session{id: id} = expected, remote) when is_binary(id) and is_map(remote) do

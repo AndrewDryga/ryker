@@ -76,7 +76,8 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
     view = %{
       category: category,
       counts: counts,
-      days: days(matching),
+      # By day is all feedback, whatever the search or Negative and Positive.
+      days: days(from(signal in Signal, as: :signal)),
       q: q,
       tone: tone,
       total: counts |> Map.values() |> Enum.sum()

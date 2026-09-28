@@ -83,11 +83,24 @@ defmodule Ryker.ControlPlane.FeedbackPage do
       assigns
       |> assign(:now, now)
       |> assign(:today, DateTime.to_date(now))
-      |> assign(:columns, columns(assigns.view.days))
       |> assign(:path, @path)
 
     ~H"""
     <div class="memory-view memory-feedback">
+      <%!-- Andrew, 2026-09-28: the chart goes "above filters and make filters
+      not apply to it", and the table under it went: the chart replaced it. --%>
+      <section
+        :if={is_nil(@view.category) and @view.days != []}
+        class="feedback-by-day"
+        aria-labelledby="feedback-by-day"
+      >
+        <Kit.section_head
+          id="feedback-by-day"
+          title="By day"
+          lede="All feedback on each of the latest days with any, and which way it went."
+        />
+        <FeedbackChart.chart days={@view.days} />
+      </section>
       <Kit.counts label="Feedback" items={counts(@view)} />
       <Kit.toolbar :if={@view.total > 0 or @view.q != "" or @view.tone}>
         <.filter_toolbar
@@ -110,15 +123,13 @@ defmodule Ryker.ControlPlane.FeedbackPage do
       <%= if @view.category do %>
         <.category_list view={@view} today={@today} />
       <% else %>
-        <.overview view={@view} columns={@columns} today={@today} now={@now} />
+        <.overview view={@view} now={@now} />
       <% end %>
     </div>
     """
   end
 
   attr(:view, :map, required: true)
-  attr(:columns, :list, required: true)
-  attr(:today, :any, required: true)
   attr(:now, :any, required: true)
 
   defp overview(assigns) do
@@ -161,20 +172,6 @@ defmodule Ryker.ControlPlane.FeedbackPage do
         secondary
         items={fix_categories(@view.improvement)}
       />
-    </section>
-    <section :if={@view.days != []} aria-labelledby="feedback-by-day">
-      <Kit.section_head
-        id="feedback-by-day"
-        title="By day"
-        lede="How much came in on each of the latest days with any, and which way it went."
-      />
-      <FeedbackChart.chart days={@view.days} />
-      <Kit.table rows={@view.days} label="Feedback by day">
-        <:col :let={day} label="Day">{Kit.day_label(day.day, @today)}</:col>
-        <:col :let={day} :for={category <- @columns} label={label(category)} numeric>
-          {Map.get(day.counts, category, 0)}
-        </:col>
-      </Kit.table>
     </section>
     <section
       :for={group <- @view.groups}
@@ -444,12 +441,6 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   defp count_tone(:frustrated), do: :bad
   defp count_tone(:asked_again), do: :warn
   defp count_tone(_category), do: nil
-
-  # The table's columns: the kinds any shown day has, frustrated first.
-  defp columns(days) do
-    present = days |> Enum.flat_map(&Map.keys(&1.counts)) |> MapSet.new()
-    Enum.filter(FeedbackProjection.categories(), &MapSet.member?(present, &1))
-  end
 
   # A search stays on the category's page, or on Negative or Positive.
   defp hidden(%{category: nil, tone: nil}), do: []

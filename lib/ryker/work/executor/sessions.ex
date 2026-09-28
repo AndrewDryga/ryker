@@ -195,13 +195,26 @@ defmodule Ryker.Work.Executor.Sessions do
       )
     end
 
-    result =
-      with :ok <- Remote.with_lease_heartbeat(settings, prepare) do
-        Remote.mutation_call(settings, :create_session, key, fn ->
-          Remote.create_remote_session(settings, claim, key, task)
-        end)
-      end
+    # Preparing may pin the session's companions anew; this executor, which
+    # prepared it, adopts that job before the worker's receipt is read against
+    # it (`JobAuthority.prepared/1`).
+    with :ok <- Remote.with_lease_heartbeat(settings, prepare),
+         {:ok, session} <- JobAuthority.prepared(claim.session) do
+      create_prepared(%{claim | session: session}, key, task, settings)
+    else
+      error -> created(error, claim, key, settings)
+    end
+  end
 
+  defp create_prepared(claim, key, task, settings) do
+    settings
+    |> Remote.mutation_call(:create_session, key, fn ->
+      Remote.create_remote_session(settings, claim, key, task)
+    end)
+    |> created(claim, key, settings)
+  end
+
+  defp created(result, claim, key, settings) do
     case result do
       {:ok, %{"session" => remote_session}} when is_map(remote_session) ->
         case bind_session(claim, remote_session) do
