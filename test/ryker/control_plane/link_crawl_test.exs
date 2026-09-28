@@ -69,9 +69,25 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
     # editor each row's name opens are crawled too.
     {:ok, settings} = Ryker.Settings.initialize("control-plane:local")
 
-    {:ok, _settings} =
+    {:ok, settings} =
       Ryker.Settings.put_environment(
         %{ref: "production", display_name: "Production", repositories: [], is_default: true},
+        settings.installation.revision,
+        "control-plane:local"
+      )
+
+    {:ok, _settings} =
+      Ryker.Settings.put_emisar_connection(
+        %{
+          ref: "production",
+          display_name: "Production approvals",
+          rpc_url: "https://emisar.example/api/mcp/rpc",
+          account_ref: "account-production",
+          account_label: "Production",
+          enabled_for_new_work: true,
+          monitoring_enabled: true,
+          verified_at: ~U[2026-09-19 12:00:00.000000Z]
+        },
         settings.installation.revision,
         "control-plane:local"
       )
@@ -255,10 +271,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
           true -> {:ok, links(document)}
         end
 
-      {:error, {:live_redirect, %{to: to}}} ->
-        {:ok, [to]}
-
-      {:error, {:redirect, %{to: to}}} ->
+      {:error, {kind, %{to: to}}} when kind in [:live_redirect, :redirect] ->
         {:ok, [to]}
 
       other ->

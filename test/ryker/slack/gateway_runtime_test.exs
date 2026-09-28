@@ -224,6 +224,7 @@ defmodule Ryker.Slack.GatewayRuntimeTest do
     gateway = start_gateway(settings(), receive_timeout_ms: 10, reconnect_ms: 10)
     assert_receive {:socket_connected, ^gateway}
     assert_receive {:socket_closed, ^gateway}, 1_000
+    assert %{reconnect_failures: 0} = :sys.get_state(gateway)
     assert_receive {:socket_connected, ^gateway}, 1_000
 
     send(gateway, :socket_stream_error)
@@ -351,7 +352,27 @@ defmodule Ryker.Slack.GatewayRuntimeTest do
     assert Gateway.connected?(:slack_gateway_retry_test)
   end
 
-  test "duplicate failed reconnects are coalesced and termination closes only live sockets" do
+  test "immediate Slack disconnects keep increasing reconnect backoff" do
+    gateway = start_gateway(settings(), reconnect_ms: 5_000)
+    assert_receive {:socket_connected, ^gateway}
+
+    for expected_failures <- 1..2 do
+      send(gateway, {
+        :socket_frame,
+        {:text, Jason.encode!(%{"type" => "disconnect", "reason" => "too_many_websockets"})}
+      })
+
+      assert_receive {:socket_closed, ^gateway}
+      assert %{connection: nil, reconnect_failures: ^expected_failures} = :sys.get_state(gateway)
+
+      # Overtake the long retry so the next short-lived connection exercises
+      # the same path without waiting for the timer.
+      send(gateway, :connect)
+      assert_receive {:socket_connected, ^gateway}
+    end
+  end
+
+  test "direct reconnect overtakes a pending retry and termination closes only live sockets" do
     connect_results =
       start_supervised!({Agent, fn -> [{:error, :offline}, {:error, :still_offline}] end})
 

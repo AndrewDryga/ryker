@@ -12,6 +12,8 @@ defmodule Ryker.Delivery.JSONClient do
   @fields [:base_url, :finch, :receive_timeout, :token_provider]
   @maximum_body_bytes 2 * 1_024 * 1_024
   @maximum_request_bytes 512 * 1_024
+  # Emisar's 60-second recovery wait needs room for transport overhead.
+  @maximum_receive_timeout_ms 75_000
 
   @enforce_keys @fields
   defstruct @fields
@@ -107,7 +109,7 @@ defmodule Ryker.Delivery.JSONClient do
       {base_url?(client.base_url), :base_url},
       {is_atom(client.finch), :finch},
       {is_integer(client.receive_timeout) and client.receive_timeout >= 100 and
-         client.receive_timeout <= 60_000, :receive_timeout},
+         client.receive_timeout <= @maximum_receive_timeout_ms, :receive_timeout},
       {is_function(client.token_provider, 0), :token_provider}
     ]
 

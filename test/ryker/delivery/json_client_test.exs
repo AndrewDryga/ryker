@@ -143,6 +143,7 @@ defmodule Ryker.Delivery.JSONClientTest do
       %{valid | base_url: "https://user@example.test"},
       %{valid | finch: "not-an-atom"},
       %{valid | receive_timeout: 10},
+      %{valid | receive_timeout: 75_001},
       %{valid | token_provider: :not_a_function}
     ]
 
@@ -151,6 +152,7 @@ defmodule Ryker.Delivery.JSONClientTest do
     end)
 
     assert {:ok, client} = JSONClient.new(valid)
+    assert {:ok, _long_poll_client} = JSONClient.new(%{valid | receive_timeout: 75_000})
 
     assert {:error, {:invalid_delivery_json_request, :path}} =
              JSONClient.request(client, :get, "https://attacker.test", nil, [])

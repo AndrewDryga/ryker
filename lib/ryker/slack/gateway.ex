@@ -77,6 +77,7 @@ defmodule Ryker.Slack.Gateway do
     {:ok,
      Map.merge(options, %{
        connection: nil,
+       connected_at_ms: nil,
        idle_ref: nil,
        reconnect_timer: nil,
        reconnect_failures: 0
@@ -105,7 +106,7 @@ defmodule Ryker.Slack.Gateway do
         {:noreply,
          state
          |> Map.put(:connection, connection)
-         |> Map.put(:reconnect_failures, 0)
+         |> Map.put(:connected_at_ms, System.monotonic_time(:millisecond))
          |> arm_idle()}
 
       {:error, reason} ->
@@ -879,9 +880,20 @@ defmodule Ryker.Slack.Gateway do
       state.transport.close(state.connection)
     end
 
+    # A socket that disappears before one receive window has passed was not a
+    # recovery. Slack can accept a connection and immediately reject it with
+    # too_many_websockets; resetting on connect would retry forever at 1s.
+    failures =
+      if System.monotonic_time(:millisecond) - state.connected_at_ms >=
+           state.receive_timeout_ms,
+         do: 0,
+         else: state.reconnect_failures + 1
+
     state
     |> Map.put(:connection, nil)
+    |> Map.put(:connected_at_ms, nil)
     |> Map.put(:idle_ref, nil)
+    |> Map.put(:reconnect_failures, failures)
     |> schedule_reconnect()
   end
 
