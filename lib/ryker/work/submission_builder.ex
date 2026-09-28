@@ -330,31 +330,19 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp submission_context(episode, session, snapshot, records, previous, metadata),
     do: fit_full_context(episode, session, snapshot, records, previous, metadata)
 
-  defp fit_full_context(
-         episode,
-         session,
-         snapshot,
-         records,
-         previous,
-         metadata
-       ) do
-    %{active: active, historical: historical, total_count: total_count} = snapshot
-
-    selected =
-      (active ++ historical)
-      |> Enum.uniq_by(& &1.id)
-      |> Enum.sort_by(& &1.sequence)
-
+  # What is remembered for a turn is chosen once: recall counts what it gives,
+  # and a briefing too big for its budget used to be rebuilt whole for every
+  # message it dropped, so one turn counted each fact as recalled once per
+  # rebuild (27 times in the regression test, 2026-09-28). Fitting now trims
+  # only the messages.
+  defp fit_full_context(episode, session, snapshot, records, previous, metadata) do
+    %{active: active, historical: historical} = snapshot
     origins = Origins.for_episode(episode.id) |> Map.new(&{&1.input_ref, &1})
     notes = routing_notes(episode)
 
     context =
       %{
         "destination" => destination(episode),
-        "inputs" => %{
-          "items" => Enum.map(selected, &input_document(&1, episode, origins, notes)),
-          "omitted_count" => total_count - length(selected)
-        },
         "origins" => origin_summary(episode, origins),
         "signals" => signal_summary(episode),
         "conversation_context" => admission_backdrop(episode),
@@ -373,35 +361,44 @@ defmodule Ryker.Work.SubmissionBuilder do
         "related_outcomes" => Outcomes.recall(episode, session.repository_ref)
       }
       |> maybe_put_repository_knowledge(session.repository_ref)
+      |> put_prior_outcome(previous, episode, session.repository_ref)
+      |> Map.merge(metadata)
 
-    context =
-      if previous do
-        case historical_delivery(previous, episode, session.repository_ref) do
-          nil -> context
-          delivery -> Map.put(context, "prior_outcome", delivery)
-        end
-      else
-        context
-      end
+    fit_inputs(context, snapshot, &input_document(&1, episode, origins, notes))
+  end
 
-    {context, eligible} = context |> Map.merge(metadata) |> fit_optional_observations()
-    context_bytes = context |> CanonicalJSON.encode!() |> byte_size()
+  defp put_prior_outcome(context, nil, _episode, _repository), do: context
 
-    artifact_count = context |> model_artifact_refs() |> length()
+  defp put_prior_outcome(context, previous, episode, repository) do
+    case historical_delivery(previous, episode, repository) do
+      nil -> context
+      delivery -> Map.put(context, "prior_outcome", delivery)
+    end
+  end
+
+  defp fit_inputs(context, snapshot, document) do
+    %{active: active, historical: historical, total_count: total_count} = snapshot
+
+    selected =
+      (active ++ historical)
+      |> Enum.uniq_by(& &1.id)
+      |> Enum.sort_by(& &1.sequence)
+
+    inputs = %{
+      "items" => Enum.map(selected, document),
+      "omitted_count" => total_count - length(selected)
+    }
+
+    {fitted, eligible} = context |> Map.put("inputs", inputs) |> fit_optional_observations()
+    context_bytes = fitted |> CanonicalJSON.encode!() |> byte_size()
+    artifact_count = fitted |> model_artifact_refs() |> length()
 
     cond do
       context_bytes <= @maximum_context_bytes and artifact_count <= 5 ->
-        {:ok, context, eligible}
+        {:ok, fitted, eligible}
 
       historical != [] ->
-        fit_full_context(
-          episode,
-          session,
-          %{snapshot | historical: tl(historical)},
-          records,
-          previous,
-          metadata
-        )
+        fit_inputs(context, %{snapshot | historical: tl(historical)}, document)
 
       artifact_count > 5 ->
         {:error, {:work_active_artifact_overflow, artifact_count, 5}}
