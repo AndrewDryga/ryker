@@ -64,11 +64,15 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
           nil,
           nil,
           git: git,
-          git_timeout_ms: 500
+          # Every git command gets this deadline, the real ones too. At 500 ms
+          # a real command ran past it under a loaded gate (2026-09-28) and the
+          # fetch never started, so the test failed without testing anything.
+          git_timeout_ms: 3_000
         )
       end)
 
-    assert Task.yield(preparation, 10_000) == {:ok, {:error, :coop_worker_source_unavailable}}
+    assert Task.yield(preparation, 30_000) == {:ok, {:error, :coop_worker_source_unavailable}}
+    assert File.exists?(pid_file), "the fetch never started: a real git command ran out of time"
     refute pid_file |> File.read!() |> String.trim() |> alive?()
 
     # A transfer that stalls without hanging git outright is git's to give up:
