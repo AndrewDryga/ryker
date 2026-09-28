@@ -117,6 +117,14 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   attr(:group, :string, default: nil)
 
   defp row(assigns) do
+    item = assigns.item
+
+    assigns =
+      assign(assigns,
+        accept: item.status in [:open, :dismissed] and acceptable?(item),
+        dismiss: item.status in [:open, :accepted]
+      )
+
     ~H"""
     <Kit.entity_row
       id={"improvement-" <> @item.id}
@@ -126,7 +134,6 @@ defmodule Ryker.ControlPlane.ImprovementPage do
       href={@item.request.href}
       navigate
       state={state(@item)}
-      state_by_name
       text={text(@item)}
       meta={meta(@item)}
       at={Kit.clock(@item.at)}
@@ -139,17 +146,13 @@ defmodule Ryker.ControlPlane.ImprovementPage do
           {"Eval case", unless(Improvement.replayable?(@item), do: unsupported(@item))}
         ]} />
       </:details>
-      <:actions>
+      <:actions :if={@accept or @dismiss}>
         <.action_button
-          :if={@item.status in [:open, :dismissed] and acceptable?(@item)}
+          :if={@accept}
           path={action_path(@item.id, "accept")}
           label="Accept as eval case"
         />
-        <.action_button
-          :if={@item.status in [:open, :accepted]}
-          path={action_path(@item.id, "dismiss")}
-          label="Dismiss"
-        />
+        <.action_button :if={@dismiss} path={action_path(@item.id, "dismiss")} label="Dismiss" />
       </:actions>
     </Kit.entity_row>
     """

@@ -655,6 +655,45 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert LazyHTML.query(html, "#{untitled} > p") |> LazyHTML.text() == "Kept for 30 days"
   end
 
+  # The Kit said a row with its own buttons shows its state beside its name, so
+  # a state never reads as one of the buttons, but only the rows that asked for
+  # it did: Repositories, Schedules, a settings list, Emisar accounts and
+  # webhook credentials still put "Ready" against Remove. The row places its
+  # state from whether it has buttons now.
+  test "a row with its own buttons shows its state beside its name, and one without at the far edge" do
+    html =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Kit.entity_list label="Repositories">
+            <Kit.entity_row id="with-buttons" name="acme/api" state={{:on, "Ready"}} at="09:30">
+              <:actions><button type="button" class="ui-button quiet">Remove</button></:actions>
+            </Kit.entity_row>
+            <Kit.entity_row id="without-buttons" name="acme/web" state={{:warn, "Needs attention"}} />
+            <Kit.entity_row id="buttons-not-shown" name="acme/docs" state={{:off, "Not added"}}>
+              <:actions :if={false}><button type="button">Remove</button></:actions>
+            </Kit.entity_row>
+          </Kit.entity_list>
+          """
+        end,
+        %{}
+      )
+      |> LazyHTML.from_fragment()
+
+    text = &(html |> LazyHTML.query(&1) |> LazyHTML.text())
+
+    assert text.("#with-buttons h3.entity-name .state-word[data-tone=on]") == "Ready"
+    assert Enum.empty?(LazyHTML.query(html, "#with-buttons .entity-side .state-word"))
+    # Its time stays at the far edge.
+    assert text.("#with-buttons .entity-side time") == "09:30"
+
+    assert text.("#without-buttons .entity-side .state-word[data-tone=warn]") ==
+             "Needs attention"
+
+    assert Enum.empty?(LazyHTML.query(html, "#without-buttons h3.entity-name .state-word"))
+    assert text.("#buttons-not-shown .entity-side .state-word") == "Not added"
+  end
+
   test "a string-rendered list page uses the same Kit row markup as the component" do
     # The Channels list is prepared as a string by Pages; it must produce the
     # rows the Kit component produces, so one stylesheet rule covers both.

@@ -8,9 +8,9 @@ defmodule Ryker.ControlPlane.Kit do
   One list language for all of them: rows sit on the page with faint
   separators, an icon tile for what kind of thing each one is, a name, then
   what it does, then one line of facts; its state, its time and its own
-  controls sit at the far edge. A list whose rows carry their own buttons
-  shows each state beside its name instead, so a state never reads as one
-  of the buttons. A list ordered by time opens each day with a heading.
+  controls sit at the far edge. A row that carries its own buttons shows
+  its state beside its name instead, so a state never reads as one of the
+  buttons. A list ordered by time opens each day with a heading.
   State is a dot and a word, and tone lives only there and in the tile; what
   a state means is a hint on the word, not a sentence under the row. A long
   page of several parts, such as a channel's page or an integration's, gives
@@ -63,13 +63,6 @@ defmodule Ryker.ControlPlane.Kit do
 
   attr(:state, :any, default: nil, doc: "{tone, word} or {tone, word, hint}, see state/1")
 
-  attr(:state_by_name, :boolean,
-    default: false,
-    doc:
-      "The state sits beside the name, not at the far edge: for a list whose rows carry " <>
-        "their own buttons, so a state never reads as one of them"
-  )
-
   attr(:tag, :string,
     default: nil,
     doc: "One word that sets the item apart from its neighbours, such as Recommended"
@@ -114,15 +107,15 @@ defmodule Ryker.ControlPlane.Kit do
 
   Andrew, 2026-09-27, of a learned topic's row: its "Not used" sat against
   its Forget button, and the sentence saying why sat under the row. The
-  sentence is the state's hint now, and a list of rows with buttons keeps
-  its states beside their names (`state_by_name`).
+  sentence is the state's hint now, and a row with buttons of its own shows
+  its state beside its name, never at the far edge against them.
   """
   def entity_row(assigns) do
     assigns =
       assigns
       |> assign(:meta, Enum.reject(assigns.meta, &(&1 in [nil, "", []])))
-      |> assign(:side_state, if(assigns.state_by_name, do: nil, else: assigns.state))
-      |> assign(:name_state, if(assigns.state_by_name, do: assigns.state))
+      |> assign(:side_state, if(assigns.actions == [], do: assigns.state))
+      |> assign(:name_state, if(assigns.actions != [], do: assigns.state))
 
     ~H"""
     <article

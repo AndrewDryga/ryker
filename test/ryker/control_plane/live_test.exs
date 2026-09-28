@@ -308,10 +308,12 @@ defmodule Ryker.ControlPlane.LiveTest do
         ] do
       {:ok, _view, html} = live(conn, "/rules" <> query)
 
+      # Every row's menu opens the conversation it came from, so each state
+      # sits beside its name.
       assert html
              |> LazyHTML.from_document()
              |> LazyHTML.query(
-               "main .behavior-page > .entity-list article .entity-side .state-word"
+               "main .behavior-page > .entity-list article h3.entity-name .state-word"
              )
              |> Enum.map(&LazyHTML.text/1)
              |> Enum.sort() == Enum.sort(states),

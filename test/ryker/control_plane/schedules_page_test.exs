@@ -88,7 +88,8 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       assert LazyHTML.query(row, ".entity-name a[href='/schedules/schedule%3Aone']")
              |> LazyHTML.text() == "Morning incident summary"
 
-      assert LazyHTML.query(row, ".entity-side .state-word[data-tone=on]") |> LazyHTML.text() ==
+      # Its buttons are at the far edge, so its state sits beside its name.
+      assert LazyHTML.query(row, "h3.entity-name .state-word[data-tone=on]") |> LazyHTML.text() ==
                "On"
 
       # The first line of the task; the rest is on the schedule's own page.
@@ -113,7 +114,18 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
             {:deleted, "off", "Deleted"}
           ] do
         row = list_row(%{@item | status: status})
-        state = LazyHTML.query(row, ".entity-side .state-word")
+
+        # A schedule that can still change carries its buttons, and its state
+        # sits beside its name; one that cannot keeps it at the far edge.
+        state =
+          LazyHTML.query(
+            row,
+            if(status in [:active, :paused, :completed],
+              do: "h3.entity-name .state-word",
+              else: ".entity-side .state-word"
+            )
+          )
+
         assert LazyHTML.text(state) == word
         assert LazyHTML.attribute(state, "data-tone") == [tone]
         assert words(LazyHTML.query(row, ".entity-meta")) =~ "next run" == (status == :active)
