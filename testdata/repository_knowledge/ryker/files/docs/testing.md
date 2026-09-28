@@ -24,27 +24,16 @@ Before committing, run:
 make dev-check
 ```
 
-It checks formatting, compilation warnings, Credo, migrations, and the ExUnit suite except slow
-capacity tests in a freshly created test database, plus the control-plane JavaScript tests and
-ShellCheck. Nothing in it calls a model. It is the gate for every commit and every deploy;
-`make check` also runs the slow capacity tests.
+It checks formatting, compilation warnings, Credo, migrations, and the whole ExUnit suite in a
+freshly created test database, plus the control-plane JavaScript tests and ShellCheck. Nothing in
+it calls a model. It is the gate for every commit and every deploy.
 
 `make coverage` runs the suite with coverage instrumentation and writes the report under `cover/`.
 It is not part of any gate.
 
-`make eval-replay` runs the deterministic side of the checked-in scenario bundles with fake
+`make eval-host-replay` runs the deterministic side of the checked-in scenario bundles with fake
 Coop and inert delivery. It does not call a model or an external platform. The same files run
 inside `make dev-check`; the standalone target isolates them in their own database.
-
-It also replays the repository-knowledge answers the lane accepted, in
-`testdata/repository_knowledge/`. Each case holds one run's exact prompt, answer and proposed
-RYKER.md from `repository_knowledge_runs`, the tree at its commit (`git ls-tree -r -t`) and the
-files its commands cite, as the lane read them; the host must write the same RYKER.md byte for
-byte. `Ryker.Evals.KnowledgeJudge` scores each answer: every path exists, every command is
-written in the file it cites, nothing is pinned to a commit, and it says what the repository is
-for, what is in it, where to start and how to build it. The knowledge prompt has no live eval
-yet: that needs a Coop session with the repository checked out, and eval jobs have an empty
-workspace.
 
 For customer-facing Slack, incident, memory, or response-contract changes, run:
 
@@ -61,40 +50,32 @@ The full deterministic gate is:
 make check
 ```
 
-It adds the isolated host replay, the watchdog, deploy and live-acceptance script self-tests, the
-accelerated thirty-day retention simulation, and the evaluation-trend script's self-test. CI runs it on every
+It adds the isolated host replay, the watchdog and live-acceptance wrapper tests, the accelerated
+thirty-day retention simulation, and the evaluation-trend script's self-test. CI runs it on every
 push. Run it locally before a tagged release or when a change touches retention custody or the
 release scripts, not before every deploy.
 
 ## Model evaluation
 
-The evaluation runner is a Mix task. It, the `Ryker.Evals` modules and the local Unix-socket Coop
-client they drive live in `evals/`, which compiles only in development and test; the release
-check refuses an archive that carries any of them. The scenario corpus, with each scenario's exact
-tool catalog, can be compiled without credentials:
+The evaluation runner is a Mix task. The scenario corpus, with each scenario's exact tool catalog,
+can be compiled without credentials:
 
 ```bash
 MIX_ENV=test scripts/elixir-mix.sh ryker.eval world-pack
 ```
 
-Use a dedicated evaluation worker enrolled with a separate, persistent evaluation controller,
-never the production controller. `connect` starts the owner-private socket; the per-observation
-gateway and disposable database are not the worker's enrollment controller:
-
-```bash
-coop sessions connect --controller https://eval-controller.example \
-  --token-file /absolute/eval-worker-token --state /absolute/evaluation-coop
-```
-
-Provision the controller and enroll the worker separately before running evals. The harness does
-not start that controller. The worker needs its own provider login and enough capacity for the
-concurrent shards. Select model targets explicitly; the harness computes immutable job digests:
+Evaluation authority is supplied explicitly through the evaluation environment and is refused
+if it matches a reviewed production policy binding; the no-tools policy is the one the tool-free
+quality judge runs under:
 
 ```bash
 export RYKER_EVAL_SOCKET=/absolute/evaluation-coop/control.sock
-export RYKER_EVAL_JUDGE_TARGET='<provider:model/effort@account>'
-export RYKER_EVAL_WORLD_TARGET='<provider:model/effort@account>'
-export RYKER_EVAL_BASELINE_TARGET='<provider:model/effort@account>'
+export RYKER_EVAL_NO_TOOLS_POLICY=ryker-eval-no-tools-v1
+export RYKER_EVAL_NO_TOOLS_POLICY_DIGEST=SHA256
+export RYKER_EVAL_WORLD_POLICY=ryker-eval-world-v1
+export RYKER_EVAL_WORLD_POLICY_DIGEST=SHA256
+export RYKER_EVAL_WORLD_BASELINE_POLICY=ryker-eval-world-baseline-v1
+export RYKER_EVAL_WORLD_BASELINE_POLICY_DIGEST=SHA256
 ```
 
 The world evaluation exercises the real episode kernel, Work executor, lease-scoped state tools,
@@ -126,13 +107,11 @@ fails fails the run without a merge and leaves them there. Each shard holds a po
 PostgreSQL connections, so the server the campaign databases live on must allow ten per shard
 on top of whatever else is connected to it.
 
-The evaluation environment must name `RYKER_EVAL_SOCKET`, `RYKER_EVAL_JUDGE_TARGET` and
-`RYKER_EVAL_WORLD_TARGET`; the paired gate also requires `RYKER_EVAL_BASELINE_TARGET`.
-Every job has an empty read-only repository, no companions and no project environment or MCP.
-Only subject turns receive the scenario controller tools; judges receive none. This does not
-disable provider-native tools or internet access. Captured source excerpts are checked immutable
-input artifacts, labelled with their provenance, not live repository checkouts.
-No production settings are inherited. The evaluation database must be empty. Each observation runs
+The evaluation environment must name a dedicated `RYKER_EVAL_SOCKET`,
+`RYKER_EVAL_NO_TOOLS_POLICY` and `RYKER_EVAL_WORLD_POLICY`, each policy with its digest. The full
+paired gate also requires `RYKER_EVAL_WORLD_BASELINE_POLICY`. These identities must be isolated from
+production policies and repositories; the resolver refuses any policy whose name or digest matches
+a reviewed production binding in the database it is pointed at. The evaluation database must contain no pre-existing episodes. Each observation runs
 against its own database, copied from the migrated campaign database its shard creates and always
 drops, so no observation sees another's custody and a failed one never stops the rest of the plan.
 An observation that passed drops its database; one that failed or faulted preserves it, and both
@@ -147,60 +126,33 @@ make eval-trend
 
 Passing deterministic and model gates does not deploy the runtime.
 
-### Eval cases from feedback
-
-Memory › Feedback › What to fix lists the requests people were unhappy with, each with Ryker's own
-diagnosis of what went wrong (`Ryker.Improvement`), and says what the last seven days brought: the
-requests found, by diagnosis, and how many were accepted or dismissed. Accepting one keeps it as an
-eval case. GitHub requests are analyzed too but cannot be accepted yet: a world scenario replays
-Slack and Chat messages, and the export does not write GitHub events.
-**Download eval cases** there, or `MIX_ENV=prod mix ryker.eval_cases --output DIR`, writes each
-accepted case as a world scenario directory: `scenario.json`, `tool-catalog.json` (the standard
-catalog, by reference), `routing.json` (each routing decision's exact prompt and answer) and
-`PROVENANCE.md` (what happened, the diagnosis, and what is still to fill in).
-
-The scenario holds the person's messages up to their first negative feedback as its events, with
-Slack people, the workspace and channels renamed, and the diagnosis's expectation as its quality
-rubric. Move a directory into `testdata/scenarios/`, fill in what its `PROVENANCE.md` lists (the
-world's repositories and tool answers, hard and trajectory checks, the actors' authority, and a
-recorded good answer with the `host-replay` tag if it should also run in `make eval-replay`), and
-run it alone:
-
-```bash
-scripts/elixir-world-eval.sh ~/.local/state/ryker/eval-history/feedback.json \
-  --case feedback-20260927-3f2a9c1b --repeat 1
-```
-
 ## Release qualification
 
 ```bash
 make release-check
 ```
 
-This runs the deterministic gate, then builds the immutable Elixir release archive and checks it
-structurally: the bytes match their trusted digest before anything is listed or extracted, every
-path is safe, the executable, every migration in the tree and every operator asset in
-`release-assets.txt` are present, no development dependency ships, and the migration entry point
-boots. Signing remains CI-only because keyless Sigstore uses GitHub's OIDC identity. Neither
-qualifies nor deploys the running installation; `scripts/deploy.sh` does that (see the project
-instructions, "Finish by deploying").
+This runs the deterministic gate, builds and inspects the immutable Elixir release, and exercises
+the candidate against disposable PostgreSQL. Signing remains CI-only because keyless Sigstore uses
+GitHub's OIDC identity.
 
 ## Live acceptance
 
 Offline checks cannot prove that the current Slack workspace, Coop worker, provider account,
-policies, and deployed release agree. The opt-in acceptance lane runs inside the deployed `ryker`
-container, against the installation's own durable settings and database, and posts only to an
-existing joined, non-Connect channel named `#test` or ending in `-test`:
+policies, and installed release agree. The opt-in acceptance lane runs from the immutable installed
+Elixir release and posts only to an existing joined, non-Connect channel named `#test` or ending in
+`-test`:
 
 ```bash
+set -a
+source ~/.local/state/ryker/emisar/runtime.env
+set +a
 make live-acceptance LIVE_CHANNEL=C0123TEST
 ```
 
-`scripts/elixir-live-acceptance.sh` runs
-`docker compose exec ryker /opt/ryker/bin/ryker eval 'Ryker.Acceptance.Live.run_from_env!()'`
-with the channel and `RYKER_LIVE_TIMEOUT_SECONDS` (default 600) as the container's environment.
-Nothing is copied out of `.ryker/compose.env`, no second Ryker runs, and the lane requires the
-running release to report the version it was built as.
+`runtime.env` is the deployment's runtime environment file (see
+[`operations.md`](operations.md#normal-deployment)); the installed release reads its platform
+credentials and `DATABASE_URL` from it, exactly as the service does.
 
 The lane injects uniquely identified synthetic configured-operator inputs because a bot token
 cannot impersonate a human. It does not start a second Slack socket or product runtime. The proof
