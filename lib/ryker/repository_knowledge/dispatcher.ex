@@ -32,6 +32,13 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   @file_name "RYKER.md"
   @no_policy_hold_seconds 300
   @worker_hold_seconds 60
+  @permanent [
+    {:github_onboarding, :archived},
+    {:github_onboarding, :permission},
+    {:github_onboarding, :not_found},
+    :repository_empty,
+    :repository_too_large
+  ]
 
   # How a run ended, as the atom its release records. Never turn a code read
   # back from the database into an atom it names.
@@ -491,18 +498,16 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
 
   # -- Shared ------------------------------------------------------------------------
 
-  # A reason GitHub gives for good (archived, a permission, a repository or
-  # branch gone, too large) ends the step with a sentence and waits for the
-  # next check; anything else is asked again shortly.
+  # A reason another try would meet again (archived, a permission, the
+  # repository or its default branch gone, no commit yet, too many files)
+  # ends the step with a sentence and waits for the next check. Anything
+  # else, a 5xx, a rate limit, a reply Ryker did not expect or none at all,
+  # is tried again shortly.
   defp failed(claim, reason, settings, record) do
-    if permanent?(reason),
+    if reason in @permanent,
       do: record.(claim, reason),
       else: Custody.yield(claim, settings.retry_delay_seconds)
   end
-
-  defp permanent?({:github_onboarding, _kind}), do: true
-  defp permanent?(reason) when reason in [:repository_empty, :repository_too_large], do: true
-  defp permanent?(_reason), do: false
 
   # Work's copy of RYKER.md lives on the repository's settings row. A
   # repository removed meanwhile keeps nothing: the write names the revision
