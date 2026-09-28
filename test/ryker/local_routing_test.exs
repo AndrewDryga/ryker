@@ -22,15 +22,21 @@ defmodule Ryker.LocalRoutingTest do
   @moduletag isolation: "REPEATABLE READ"
 
   alias Ryker.Admission.{Attempt, Executor}
+  alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.LocalRouting, as: Harvested
   alias Ryker.Ingress.Inbox
+  alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.{Comparison, Schema, Worker}
+  alias Ryker.Memories.Forgetting
   alias Ryker.Settings
+  alias Ryker.Slack.ChannelConfigurations
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
 
   @actor "control-plane:local"
+  @workspace "TE5D7C8842D32"
+  @channel "C456"
   # The harvested messages arrived after the saved prices took effect, so the
   # provider's cost is estimated from them.
   @now ~U[2026-09-26 18:01:04.000000Z]
@@ -344,6 +350,191 @@ defmodule Ryker.LocalRoutingTest do
     refute_received {:local_request, _method, _path, _body}
   end
 
+  describe "a person forgetting wins" do
+    # A comparison holds no words of its own: the lane reads the exact prompt
+    # the provider was sent when it asks. Nothing checked whether the person
+    # had since taken the message back, so a comparison waiting on a local
+    # model that was down sent a deleted message's words to it days after
+    # the deletion (found in review, 2026-09-28). The prompt of a later
+    # message quotes the earlier ones of its channel, so that one goes too.
+    test "a deleted message's comparison is never sent to the local model" do
+      endpoint = local_model!([{:answer, Harvested.hi_again_quick_reply()}])
+      initialize!()
+      shadow!(endpoint)
+      route!(Harvested.hi_quick_reply(), "Ev-local-deleted")
+      route!(Harvested.hi_quick_reply(), "Ev-local-deleted-2", at: 1)
+      other = route!(Harvested.hi_quick_reply(), "Ev-local-deleted-3", at: 2, channel: "C999")
+
+      delete!("Ev-local-deleted")
+
+      assert waiting() == [other.id], "a deleted message's comparison still waits to be sent"
+      drain(endpoint)
+
+      assert local_prompts() == [prompt(other)],
+             "the local model was sent a deleted message's prompt"
+
+      assert [%Comparison{input_id: id, status: :compared}] = Repo.all(Comparison)
+      assert id == other.id
+    end
+
+    # The lane holds a comparison it took before the deletion committed, so
+    # withdrawing the waiting ones is not enough: it checks again just before
+    # it sends.
+    test "a message deleted after the lane took its comparison is still never sent" do
+      endpoint = local_model!([{:answer, Harvested.hi_again_quick_reply()}])
+      initialize!()
+      shadow!(endpoint)
+      route!(Harvested.hi_quick_reply(), "Ev-local-deleted-late")
+      delete_as_the_lane_reads!("Ev-local-deleted-late")
+
+      assert {:ran, _comparison} = LocalRouting.run_next(options(endpoint))
+
+      assert local_prompts() == [], "the local model was sent a deleted message's prompt"
+      assert Repo.all(Comparison) == []
+      assert LocalRouting.run_next(options(endpoint)) == :idle
+    end
+
+    test "forgetting what was learned from a message withdraws every comparison that quoted it" do
+      endpoint = local_model!([{:answer, Harvested.hi_again_quick_reply()}])
+      initialize!()
+      shadow!(endpoint)
+      first = route!(Harvested.hi_quick_reply(), "Ev-local-learned")
+      route!(Harvested.hi_quick_reply(), "Ev-local-learned-2", at: 1)
+      other = route!(Harvested.hi_quick_reply(), "Ev-local-learned-3", at: 2, channel: "C999")
+
+      assert {:ok, %{forgotten: [_topic]}} = Forgetting.forget_topic(topic!(first).id)
+
+      assert waiting() == [other.id], "a forgotten message's comparison still waits to be sent"
+      drain(endpoint)
+
+      assert local_prompts() == [prompt(other)],
+             "the local model was sent a forgotten message's prompt"
+    end
+
+    test "deleting a Slack channel withdraws the comparisons from it" do
+      endpoint = local_model!([{:answer, Harvested.hi_again_quick_reply()}])
+      initialize!()
+      shadow!(endpoint)
+      route!(Harvested.hi_quick_reply(), "Ev-local-channel")
+      other = route!(Harvested.hi_quick_reply(), "Ev-local-channel-2", at: 1, channel: "C999")
+
+      assert {:ok, _deleted} =
+               ChannelConfigurations.observe_membership(
+                 %{
+                   actor_ref: nil,
+                   channel_ref: @channel,
+                   event_ref: "event:delete-local-routing",
+                   kind: :deleted,
+                   occurred_at: Repo.now!(),
+                   workspace_ref: @workspace
+                 },
+                 %{default_environment: nil, environments: []}
+               )
+
+      assert waiting() == [other.id], "a deleted channel's comparison still waits to be sent"
+      drain(endpoint)
+
+      assert local_prompts() == [prompt(other)],
+             "the local model was sent a deleted channel's prompt"
+    end
+  end
+
+  # Asks the local model until nothing is due.
+  defp drain(endpoint) do
+    Enum.reduce_while(1..10, nil, fn _pass, _ ->
+      case LocalRouting.run_next(options(endpoint)) do
+        :idle -> {:halt, nil}
+        {:ran, _comparison} -> {:cont, nil}
+      end
+    end)
+  end
+
+  # The messages whose comparison still waits to be sent.
+  defp waiting,
+    do:
+      Repo.all(
+        from(comparison in Comparison,
+          where: comparison.status == :pending,
+          order_by: comparison.inserted_at,
+          select: comparison.input_id
+        )
+      )
+
+  # Every prompt the local model was sent so far.
+  defp local_prompts do
+    receive do
+      {:local_request, _method, _path, %{"messages" => [%{"content" => prompt}]}} ->
+        [prompt | local_prompts()]
+    after
+      0 -> []
+    end
+  end
+
+  defp prompt(entry),
+    do:
+      Repo.get_by!(Attempt, input_id: entry.id, generation: entry.execution_generation).submission[
+        "prompt"
+      ]
+
+  # The person deletes the message the first time the lane reads it back for
+  # a comparison it has already taken.
+  defp delete_as_the_lane_reads!(event_ref) do
+    handler = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ryker, :repo, :query],
+        &__MODULE__.delete_on_read/4,
+        {self(), event_ref}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+  end
+
+  def delete_on_read(_event, _measurements, %{query: query}, {lane, event_ref}) do
+    if self() == lane and not Process.get(:deleted_on_read?, false) and
+         String.starts_with?(query, "SELECT") and
+         String.contains?(query, ~s(FROM "ingress_inbox_entries")) do
+      Process.put(:deleted_on_read?, true)
+      delete!(event_ref)
+    end
+  end
+
+  # The person deletes their message in Slack.
+  defp delete!(event_ref) do
+    {:ok, input} =
+      SlackInput.new(%{
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: @channel,
+        content: %{"text" => ""},
+        event_kind: :delete,
+        event_ref: event_ref <> "-deleted",
+        message_ref: message_ref(event_ref),
+        occurred_at: DateTime.add(@now, 60, :second),
+        revision: 2,
+        thread_ref: nil,
+        workspace_ref: @workspace
+      })
+
+    {:ok, %{status: :recorded}} = Inbox.record(input)
+  end
+
+  defp topic!(entry) do
+    proposal = %{
+      "topic_key" => "greeting",
+      "title" => "Greeting",
+      "summary" => "Greeting, as the message said it.",
+      "topics" => ["greeting"],
+      "anchors" => [],
+      "target_ref" => nil,
+      "expected_version" => 0
+    }
+
+    {:ok, :ok} = Repo.transaction(fn -> KnowledgeFixtures.record_topic(entry, proposal, []) end)
+    Repo.one!(from(k in ConversationKnowledge, where: k.topic_key == "greeting"))
+  end
+
   defp initialize!, do: {:ok, _snapshot} = Settings.initialize(@actor)
 
   defp shadow!(endpoint) do
@@ -379,19 +570,20 @@ defmodule Ryker.LocalRoutingTest do
 
   # One Slack message routed by the provider, as a live install routes it:
   # the recorded answer is the provider's, with what that call measured.
-  defp route!(provider_answer, event_ref) do
+  # `at` puts it that many seconds after the first, in `channel`.
+  defp route!(provider_answer, event_ref, options \\ []) do
     {:ok, input} =
       SlackInput.new(%{
         actor: %{kind: :user, ref: "U123"},
-        channel_ref: "C456",
+        channel_ref: Keyword.get(options, :channel, @channel),
         content: %{"text" => Harvested.hi_text()},
         event_kind: :message,
         event_ref: event_ref,
-        message_ref: "1787832001.#{:erlang.phash2(event_ref, 999_999)}",
-        occurred_at: @now,
+        message_ref: message_ref(event_ref),
+        occurred_at: DateTime.add(@now, Keyword.get(options, :at, 0), :second),
         revision: 1,
         thread_ref: nil,
-        workspace_ref: "TE5D7C8842D32"
+        workspace_ref: @workspace
       })
 
     {:ok, %{entry: entry}} = Inbox.record(input)
@@ -424,6 +616,8 @@ defmodule Ryker.LocalRoutingTest do
     {:ok, decided} = Inbox.fetch(Inbox.ref(entry))
     decided
   end
+
+  defp message_ref(event_ref), do: "1787832001.#{:erlang.phash2(event_ref, 999_999)}"
 
   defp options(endpoint, overrides \\ []) do
     Keyword.merge(

@@ -24,7 +24,15 @@ defmodule Ryker.LocalRouting do
   when the local answer is invalid, unsure, or for work that needs it; it is
   not built.
 
-  Every comparison queued or settled is announced after its commit
+  A person forgetting wins. Deleting a message in Slack, forgetting what was
+  learned from one or a learned topic, or deleting a Slack channel withdraws
+  every comparison still waiting whose prompt quotes it, in the transaction
+  that forgets it (`Ryker.RoutingExamples`, which every forgetting calls).
+  The lane checks again just before it sends, by the test a routing example's
+  copy passes (`Ryker.RoutingExamples.quotes_forgotten?/1`), and withdraws
+  one that quotes anything forgotten since, unasked.
+
+  Every comparison queued, settled or withdrawn is announced after its commit
   (`subscribe_comparisons/0`).
   """
 
@@ -34,8 +42,10 @@ defmodule Ryker.LocalRouting do
   alias Ryker.Admission
   alias Ryker.Admission.Attempt
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Learning.Observations
   alias Ryker.LocalRouting.{Client, Comparison, Verdict}
   alias Ryker.Repo
+  alias Ryker.RoutingExamples
   alias Ryker.Settings.Work
   alias Ryker.UTCDateTime
 
@@ -185,6 +195,10 @@ defmodule Ryker.LocalRouting do
           {:error, {:refused, why}} -> settle(comparison, failed(why), options)
         end
 
+      :forgotten ->
+        withdraw([comparison])
+        comparison
+
       :gone ->
         settle(comparison, failed("the routing prompt or its context is no longer kept"), options)
     end
@@ -192,6 +206,8 @@ defmodule Ryker.LocalRouting do
 
   # What routing kept: the prompt and contract the provider answered, the
   # decision it accepted, and the frozen context that decision was checked in.
+  # Read just before it is sent, and never sent once a person forgot or
+  # deleted anything it quotes.
   defp material(comparison) do
     with %Entry{status: :decided, operational_pruned_at: nil} = entry <-
            Repo.get(Entry, comparison.input_id),
@@ -200,12 +216,16 @@ defmodule Ryker.LocalRouting do
            Repo.get_by(Attempt, input_id: entry.id, generation: comparison.generation),
          prompt when is_binary(prompt) <- submission["prompt"],
          schema when is_map(schema) <- submission["output_schema"],
-         {:ok, context} <- Admission.decided_context(entry) do
+         {:ok, context} <- Admission.decided_context(entry),
+         :kept <- kept(entry) do
       {:ok, %{context: context, prompt: prompt, provider: provider, schema: schema}}
     else
+      :forgotten -> :forgotten
       _gone -> :gone
     end
   end
+
+  defp kept(entry), do: if(RoutingExamples.quotes_forgotten?(entry), do: :forgotten, else: :kept)
 
   defp compared(comparison, material, answer) do
     verdict =
@@ -333,11 +353,77 @@ defmodule Ryker.LocalRouting do
     |> UTCDateTime.earliest()
   end
 
+  # -- Forgetting --------------------------------------------------------------
+
+  @doc """
+  Withdraws the comparisons still waiting whose prompt quotes what a person
+  just forgot or deleted, inside the transaction that forgets it
+  (`Ryker.RoutingExamples`): `identities` name the messages themselves
+  (`Ryker.Learning.Observations.source_identity/1`), and `keys` every message
+  and topic, as a routing prompt quotes them (`Ryker.RoutingExamples.quoted_keys/1`).
+  """
+  @spec forget_in_transaction([String.t()], [String.t()]) :: :ok
+  def forget_in_transaction(identities, keys) when is_list(identities) and is_list(keys) do
+    keys = MapSet.new(keys)
+
+    withdraw_waiting(fn entry, quoted ->
+      Observations.source_identity(entry) in identities or
+        Enum.any?(quoted.keys, &MapSet.member?(keys, &1))
+    end)
+  end
+
+  @doc """
+  Withdraws the comparisons still waiting from a conversation that was
+  deleted, or whose prompt quotes it, inside the transaction that removes what
+  Ryker kept of it.
+  """
+  @spec forget_conversation_in_transaction(String.t()) :: :ok
+  def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref),
+    do: withdraw_waiting(fn _entry, quoted -> conversation_ref in quoted.conversations end)
+
+  # What a waiting comparison's prompt quotes is read from the context its
+  # message froze, as a routing example reads it.
+  defp withdraw_waiting(quotes?) do
+    from(comparison in Comparison,
+      join: entry in Entry,
+      on: entry.id == comparison.input_id,
+      where: comparison.status == :pending,
+      select:
+        {comparison,
+         struct(entry, [
+           :id,
+           :source_kind,
+           :source_ref,
+           :native_input_id,
+           :source_item_ref,
+           :destination_conversation_ref,
+           :admission_context
+         ])}
+    )
+    |> Repo.all()
+    |> Enum.filter(fn {_comparison, entry} ->
+      quotes?.(entry, RoutingExamples.quoted_keys(entry))
+    end)
+    |> Enum.map(&elem(&1, 0))
+    |> withdraw()
+  end
+
+  # A withdrawn comparison is gone, never asked and never counted.
+  defp withdraw([]), do: :ok
+
+  defp withdraw(comparisons) do
+    Repo.delete_all(
+      from(comparison in Comparison, where: comparison.id in ^Enum.map(comparisons, & &1.id))
+    )
+
+    comparisons |> Enum.map(& &1.input_id) |> Enum.uniq() |> Enum.each(&broadcast/1)
+  end
+
   # -- PubSub ------------------------------------------------------------------
 
   @doc """
   Delivers `{:local_routing_updated, input_id}` after a comparison for that
-  message is queued or settled, and has committed.
+  message is queued, settled or withdrawn, and has committed.
   """
   @spec subscribe_comparisons() :: :ok | {:error, term()}
   def subscribe_comparisons, do: Ryker.PubSub.subscribe(@topic)

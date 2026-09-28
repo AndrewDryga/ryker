@@ -20,8 +20,10 @@ defmodule Ryker.RoutingExamples do
   A person forgetting wins. Forgetting a fact or a learned topic, deleting a
   message in Slack, or deleting a Slack channel erases every example whose
   prompt quoted that message, topic or conversation, in the same transaction,
-  and what improvement candidates hold about it (`Ryker.Improvement`).
-  An erased example keeps only its identity, so it is never copied again.
+  what improvement candidates hold about it (`Ryker.Improvement`), and the
+  local routing comparisons still waiting to send such a prompt
+  (`Ryker.LocalRouting`). An erased example keeps only its identity, so it is
+  never copied again.
   One whose message was forgotten before its turn to be copied is checked at
   the copy, which then records only that identity. Each copy and each
   forgetting holds one lock (shared by copies, exclusive to forgetting), so
@@ -47,6 +49,7 @@ defmodule Ryker.RoutingExamples do
   alias Ryker.InspectionRedactor
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning.{ConversationObservation, Observations}
+  alias Ryker.LocalRouting
   alias Ryker.Repo
   alias Ryker.RoutingExamples.Example
   alias Ryker.Settings.Retention
@@ -281,7 +284,8 @@ defmodule Ryker.RoutingExamples do
   # What a routing prompt for `entry` quotes, as its example records it: the
   # message and topic keys, and the conversations they come from. The
   # improvement candidates that quote the same prompt record the same keys
-  # (`Ryker.Improvement`).
+  # (`Ryker.Improvement`), and forgetting finds the local routing comparisons
+  # waiting to send it by them (`Ryker.LocalRouting`).
   @spec quoted_keys(Entry.t()) :: %{keys: [String.t()], conversations: [String.t()]}
   def quoted_keys(%Entry{} = entry), do: entry |> quoted() |> Map.take([:keys, :conversations])
 
@@ -338,7 +342,8 @@ defmodule Ryker.RoutingExamples do
   # Whether a person already forgot or deleted anything a routing prompt for
   # `entry` quotes, by the same test a copy passes before it keeps one. The
   # analysis of a request people were unhappy with reads a routing attempt's
-  # own prompt only when this says no (`Ryker.Improvement.Evidence`).
+  # own prompt only when this says no (`Ryker.Improvement.Evidence`), and the
+  # local routing model is sent one only then (`Ryker.LocalRouting`).
   @spec quotes_forgotten?(Entry.t()) :: boolean()
   def quotes_forgotten?(%Entry{} = entry) do
     quoted = quoted(entry)
@@ -608,6 +613,7 @@ defmodule Ryker.RoutingExamples do
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
     :ok = lock(:exclusive)
     :ok = Improvement.forget_conversation_in_transaction(conversation_ref)
+    :ok = LocalRouting.forget_conversation_in_transaction(conversation_ref)
 
     erase(
       from(example in Example,
@@ -621,6 +627,7 @@ defmodule Ryker.RoutingExamples do
   defp erase_in_transaction(identities, keys) do
     :ok = lock(:exclusive)
     :ok = Improvement.forget_in_transaction(keys)
+    :ok = LocalRouting.forget_in_transaction(identities, keys)
 
     erase(
       from(example in Example,
