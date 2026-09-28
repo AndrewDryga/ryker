@@ -205,7 +205,8 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review
+               review,
+               nil
              )
 
     assert reviewed.status == :review_ready
@@ -367,7 +368,8 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review
+               review,
+               nil
              )
 
     assert {:ok, delivery_claim} =
@@ -462,7 +464,8 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review
+               review,
+               nil
              )
 
     assert {:ok, delivery_claim} =
@@ -537,7 +540,8 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review
+               review,
+               nil
              )
 
     assert {:ok, delivery_claim} =
@@ -645,21 +649,24 @@ defmodule Ryker.Publication.CustodyTest do
              publication.ref,
              review_claim.lease_ref,
              refrozen.review_generation + 1,
-             review
+             review,
+             nil
            ) == {:error, :publication_review_generation_stale}
 
     assert PublicationCustody.store_review(
              publication.ref,
              review_claim.lease_ref,
              refrozen.review_generation,
-             %{review | "job_digest" => String.duplicate("b", 64)}
+             %{review | "job_digest" => String.duplicate("b", 64)},
+             nil
            ) == {:error, :publication_review_job_mismatch}
 
     assert PublicationCustody.store_review(
              publication.ref,
              review_claim.lease_ref,
              refrozen.review_generation,
-             %{review | "candidate_retained" => false}
+             %{review | "candidate_retained" => false},
+             nil
            ) == {:error, {:invalid_publication_review, :publishable}}
 
     assert {:ok, ready} =
@@ -667,7 +674,8 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                refrozen.review_generation,
-               review
+               review,
+               nil
              )
 
     assert ready.status == :review_ready
@@ -985,7 +993,7 @@ defmodule Ryker.Publication.CustodyTest do
     assert PublicationCustody.advance_review_generation("publication", "lease", 0) ==
              {:error, {:invalid_publication, :review_generation}}
 
-    assert PublicationCustody.store_review("publication", "lease", 0, %{}) ==
+    assert PublicationCustody.store_review("publication", "lease", 0, %{}, nil) ==
              {:error, {:invalid_publication, :review_generation}}
 
     assert PublicationCustody.renew("publication", "lease", 0) ==
@@ -1285,7 +1293,8 @@ defmodule Ryker.Publication.CustodyTest do
                reviewed.ref,
                claim.lease_ref,
                frozen.review_generation,
-               review
+               review,
+               nil
              )
 
     assert ready.status == :review_ready
@@ -1656,7 +1665,8 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review
+               review,
+               nil
              )
 
     assert {:ok, delivery_claim} =
@@ -1717,7 +1727,8 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review
+               review,
+               nil
              )
 
     assert {:ok, delivery_claim} =
@@ -1825,7 +1836,8 @@ defmodule Ryker.Publication.CustodyTest do
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               review
+               review,
+               nil
              )
 
     assert {:ok, delivery_claim} =

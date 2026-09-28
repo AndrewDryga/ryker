@@ -52,6 +52,7 @@ defmodule Ryker.Publication.Changeset do
     :review_requested_by_actor_ref,
     :review_delivery_receipt,
     :review_delivery_receipt_fingerprint,
+    :review_gate_output,
     :reviewed_at,
     :session_id,
     :status,

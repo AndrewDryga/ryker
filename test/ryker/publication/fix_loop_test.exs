@@ -14,12 +14,13 @@ defmodule Ryker.Publication.FixLoopTest do
 
   import Ecto.Query
 
+  alias Ryker.Artifacts
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication.{GateOutput, Publication}
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Slack.{Renderer, TaskCardProjection}
@@ -35,6 +36,13 @@ defmodule Ryker.Publication.FixLoopTest do
   }
 
   @now ~U[2026-09-28 12:00:00.000000Z]
+
+  # Coop's paged read of a review gate's output, as an adapter will serve it:
+  # one page per cursor, the last with no next cursor.
+  defmodule PagedGate do
+    def read_review_gate_output(pages, _session_id, _operation_id, cursor),
+      do: {:ok, Map.fetch!(pages, cursor)}
+  end
 
   # Andrew's request, 2026-09-28: a refusal the task's own work can fix goes
   # back to that work as a new turn in the same session, with the host's own
@@ -73,7 +81,8 @@ defmodule Ryker.Publication.FixLoopTest do
 
     assert content["review"]["attempt"] == 1
     assert content["review"]["attempts"] == 3
-    refute Map.has_key?(content["review"], "gate_failure")
+    # No reader serves the gate's output yet, so the agent runs the gate itself.
+    refute Map.has_key?(content["review"], "gate_output")
 
     # A new turn of the same worker session carries the refusal as its input.
     assert {:ok, fix} = Custody.claim_next("work:checks-fail:fix", 60, :work)
@@ -99,41 +108,65 @@ defmodule Ryker.Publication.FixLoopTest do
     assert rearmed.fix_rounds == 1
   end
 
-  # Andrew's request, 2026-09-28: "agent needs to get errors from CI". When the
-  # job asked Coop for the failed gate's report, the fix turn gets the failing
-  # command, its exit code and the end of its output, bounded to what one input
-  # carries, instead of spending its first minutes rerunning the gate to learn
-  # what the review already saw.
-  test "the failed gate's own output reaches the fix turn, bounded" do
+  # Andrew, 2026-09-28: "Ryker should get full access to errors, warnings and
+  # all other output to work, like any llm model would, it's a sandbox!!" The
+  # fix turn gets the failed gate's whole output as a file, read page by page
+  # from Coop, with its end inline, instead of spending its first minutes
+  # running the gate again to learn what the review already saw.
+  test "the failed gate's complete output reaches the fix turn as a file, with its end inline" do
     %{claim: claim} = task_episode!("gate-output")
     %{claim: work} = completed_turn!(claim, "gate-output", "one")
     publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
-    failure = "FAILED test/parser_test.exs:12 expected :ok, got :retry"
-    output = String.duplicate("compiling\n", 3_000) <> failure
+    failure = "FAILED test/parser_test.exs:12 expected :ok, got :retry\n"
 
-    review =
-      refused(work, %{
-        "gate_failure" => %{
-          "command" => "./run gate review",
-          "exit_code" => 1,
-          "output_tail" => output,
-          "output_truncated" => false
-        }
-      })
+    pages = %{
+      nil => %{"output" => String.duplicate("compiling\n", 3_000), "next_cursor" => "page-2"},
+      "page-2" => %{"output" => "warning: variable \"x\" is unused\n", "next_cursor" => "3"},
+      "3" => %{"output" => failure, "next_cursor" => nil}
+    }
 
-    review!(publication, "gate-output", "one", review)
+    output = Enum.map_join([nil, "page-2", "3"], &pages[&1]["output"])
+    review!(publication, "gate-output", "one", refused(work), {PagedGate, pages})
     deliver_review!(publication, "gate-output", "one")
 
     content = last_input_content!(claim.episode.key)
 
     assert content["correction_request"] =~
-             "The failing command, its exit code and the end of its output are in review.gate_failure."
+             "The gate's complete output is the attached gate-output.txt, and its end is in review.gate_output_end. Fix what fails, run the repository's gate again and commit."
 
-    report = content["review"]["gate_failure"]
-    assert {report["command"], report["exit_code"]} == {"./run gate review", 1}
-    assert byte_size(report["output_tail"]) == 16_384
-    assert String.ends_with?(report["output_tail"], failure)
-    assert report["output_truncated"]
+    file = content["review"]["gate_output"]
+
+    assert {file["name"], file["media_type"], file["bytes"]} ==
+             {"gate-output.txt", "text/plain", byte_size(output)}
+
+    assert byte_size(content["review"]["gate_output_end"]) == 16_384
+    assert String.ends_with?(content["review"]["gate_output_end"], failure)
+    assert {:ok, [%{"data" => ^output}]} = Artifacts.coop_inputs([file["artifact_ref"]])
+
+    # The file travels with the fix turn itself.
+    assert {:ok, fix} = Custody.claim_next("work:gate-output:fix", 60, :work)
+    assert {:ok, submission} = SubmissionBuilder.build(fix)
+    assert submission["input_artifact_refs"] == [file["artifact_ref"]]
+  end
+
+  # Coop will say plainly when it could not capture or keep a gate's output.
+  # The agent hears that, and runs the gate itself, rather than a silence it
+  # would read as a gate that printed nothing.
+  test "Coop's word that it could not keep the gate's output reaches the fix turn" do
+    %{claim: claim} = task_episode!("gate-output-lost")
+    %{claim: work} = completed_turn!(claim, "gate-output-lost", "one")
+    publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+    pages = %{nil => %{"lost" => "the job's log was removed before the review read it"}}
+
+    review!(publication, "gate-output-lost", "one", refused(work), {PagedGate, pages})
+    deliver_review!(publication, "gate-output-lost", "one")
+
+    content = last_input_content!(claim.episode.key)
+
+    assert content["correction_request"] =~
+             "Coop could not keep the gate's output (the job's log was removed before the review read it). Run the repository's gate yourself to see what fails, fix it and commit."
+
+    refute Map.has_key?(content["review"], "gate_output")
   end
 
   # Andrew's request, 2026-09-28: at most three automatic fix rounds per
@@ -552,7 +585,9 @@ defmodule Ryker.Publication.FixLoopTest do
     command
   end
 
-  defp review!(publication, suffix, label, review) do
+  # The review phase, as `Publication.Executor` runs it: with a reader, the
+  # failed gate's output is read and kept beside the review.
+  defp review!(publication, suffix, label, review, reader \\ nil) do
     assert {:ok, review_claim} =
              PublicationCustody.claim_next("publication:#{suffix}:#{label}:review", 60)
 
@@ -561,12 +596,18 @@ defmodule Ryker.Publication.FixLoopTest do
     assert {:ok, frozen} =
              PublicationCustody.freeze_review_revision(publication.ref, review_claim.lease_ref, 7)
 
+    review = Map.put(review, "operation_id", "op-review-#{suffix}-#{label}")
+
+    gate_output =
+      with {api, client} <- reader, do: GateOutput.capture(api, client, frozen, review)
+
     assert {:ok, stored} =
              PublicationCustody.store_review(
                publication.ref,
                review_claim.lease_ref,
                frozen.review_generation,
-               Map.put(review, "operation_id", "op-review-#{suffix}-#{label}")
+               review,
+               gate_output
              )
 
     stored

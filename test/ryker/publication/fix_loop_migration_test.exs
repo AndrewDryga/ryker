@@ -4,7 +4,8 @@ defmodule Ryker.Publication.FixLoopMigrationTest do
   its own, a bounded number of times per publication
   (`Ryker.Publication.FixLoop`). The counts are added to the publications an
   installation already has: each keeps what it had and starts with no round
-  spent, and no count can go below zero or name a review that never happened.
+  spent, no count can go below zero or name a review that never happened, and
+  what was kept of a gate's output belongs to a review.
   """
   # The migrator runs inside this test's sandbox transaction.
   use Ryker.DataCase, async: false
@@ -21,6 +22,7 @@ defmodule Ryker.Publication.FixLoopMigrationTest do
 
   test "every publication keeps what it had and starts with no automatic round spent" do
     %{publication: published} = PublicationFixture.published!("fix-loop-migration")
+    %{publication: requested} = PublicationFixture.review_requested!("fix-loop-unreviewed")
 
     assert :ok = Ecto.Migrator.down(Repo, @version, migration(), @options)
     assert :ok = Ecto.Migrator.up(Repo, @version, migration(), @options)
@@ -32,6 +34,22 @@ defmodule Ryker.Publication.FixLoopMigrationTest do
 
     assert {migrated.fix_rounds, migrated.recheck_rounds, migrated.fix_review_generation} ==
              {0, 0, nil}
+
+    assert migrated.review_gate_output == nil
+    lost = %{"reason" => "the job's log was removed", "status" => "lost"}
+
+    assert %Publication{review_gate_output: ^lost} =
+             migrated |> Ecto.Changeset.change(review_gate_output: lost) |> Repo.update!()
+
+    # What was kept of a gate's output belongs to a review; none, none kept.
+    assert_raise Ecto.ConstraintError, ~r/episode_publication_fix_loop_valid/, fn ->
+      Repo.transaction(fn ->
+        Publication
+        |> Repo.get!(requested.id)
+        |> Ecto.Changeset.change(review_gate_output: lost)
+        |> Repo.update!()
+      end)
+    end
 
     assert %Publication{fix_rounds: 3, fix_review_generation: generation} =
              migrated

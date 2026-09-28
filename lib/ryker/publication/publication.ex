@@ -50,6 +50,9 @@ defmodule Ryker.Publication.Publication do
     field(:reviewed_at, :utc_datetime_usec)
     field(:review_delivery_receipt, Ryker.CanonicalJSON.Type)
     field(:review_delivery_receipt_fingerprint, :string)
+    # What the host kept of this review's failed gate output for a fix round
+    # (`Ryker.Publication.GateOutput`).
+    field(:review_gate_output, Ryker.CanonicalJSON.Type)
 
     field(:approval_ref, :string)
     field(:approved_by_actor_ref, :string)

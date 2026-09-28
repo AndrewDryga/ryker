@@ -31,16 +31,16 @@ defmodule Ryker.Publication.FixLoop do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, ConversationLock, Episode}
   alias Ryker.Ingress.Input
-  alias Ryker.Publication.{Publication, Review}
+  alias Ryker.Publication.{GateOutput, Publication, Review}
   alias Ryker.Repo
   alias Ryker.Work.Session
 
   @rounds 3
   # A working copy still in use is usually free again within a minute.
   @recheck_seconds 30
-  # What a fix round shows the agent of a failed gate's output: its end, where
-  # a test run prints what failed.
-  @output_tail_bytes 16_384
+  # The end of a failed gate's output, where a test run prints what failed, is
+  # shown inline; the whole of it is the file the fix turn is handed.
+  @inline_output_bytes 16_384
   @source "publication-review"
 
   @spec rounds() :: pos_integer()
@@ -79,6 +79,21 @@ defmodule Ryker.Publication.FixLoop do
   end
 
   def round_due?(_publication), do: false
+
+  @doc """
+  Whether a review's failed gate output is worth reading: a round could start
+  on it, for a task whose rounds are not spent.
+  """
+  @spec gate_output_wanted?(Publication.t(), Session.t(), map()) :: boolean()
+  def gate_output_wanted?(
+        %Publication{fix_rounds: rounds},
+        %Session{workspace_task: %{}},
+        %{"gate" => "failed"} = review
+      )
+      when rounds < @rounds,
+      do: Review.remedy(review) == :fix
+
+  def gate_output_wanted?(_publication, _session, _review), do: false
 
   @doc "The round's own fields, set with the delivery that starts it."
   @spec round_attributes(Publication.t()) :: map()
@@ -202,11 +217,12 @@ defmodule Ryker.Publication.FixLoop do
   end
 
   # The message the task's work receives: the review's causes in the host's own
-  # words, what to do about each, and the failed gate's own report when Coop
-  # sent one. The model reads this as input, never as authority.
+  # words, what to do about each, and the failed gate's complete output when it
+  # was read, as a file with its end inline. The model reads this as input,
+  # never as authority.
   defp content(publication) do
     review = publication.review_document
-    report = gate_report(review["gate_failure"])
+    output = readable_output(publication.review_gate_output)
 
     details =
       %{
@@ -216,18 +232,35 @@ defmodule Ryker.Publication.FixLoop do
         "causes" => Review.refusal(review),
         "committed_change" => review["candidate_head"]
       }
+      |> with_gate_output(output)
 
     %{
-      "correction_request" => request(review, report, publication.fix_rounds),
+      "correction_request" => request(review, output, publication.fix_rounds),
       "kind" => "publication_review_refusal",
-      "review" => if(report, do: Map.put(details, "gate_failure", report), else: details)
+      "review" => details
     }
   end
 
-  defp request(review, report, attempt) do
+  # The kept file and its end while the file is still there, Coop's reason when
+  # it could not keep the output, and nil when nothing was read.
+  defp readable_output(%{"status" => "read"} = output) do
+    case GateOutput.ending(output, @inline_output_bytes) do
+      nil -> nil
+      ending -> Map.put(output, "end", ending)
+    end
+  end
+
+  defp readable_output(output), do: output
+
+  defp with_gate_output(details, %{"status" => "read", "artifact" => file, "end" => ending}),
+    do: Map.merge(details, %{"gate_output" => file, "gate_output_end" => ending})
+
+  defp with_gate_output(details, _output), do: details
+
+  defp request(review, output, attempt) do
     [
       "Ryker's trusted review refused the committed change: #{sentence_list(Review.refusal(review))}."
-      | Enum.map(Review.fixable(review), &instruction(&1, review, report))
+      | Enum.map(Review.fixable(review), &instruction(&1, review, output))
     ]
     |> Kernel.++([
       "Then finish. This is automatic fix attempt #{attempt} of #{@rounds}. Stay inside the task's scope and do not push, open a pull request, merge or deploy: Ryker reviews your new commit when you finish. If you cannot fix it, say exactly what blocks it."
@@ -235,31 +268,29 @@ defmodule Ryker.Publication.FixLoop do
     |> Enum.join(" ")
   end
 
-  defp instruction("gate_failed", _review, nil),
+  defp instruction("gate_failed", _review, %{"status" => "read", "artifact" => file} = output),
+    do:
+      "The gate's complete output is the attached #{file["name"]}#{kept(file, output)}, and its end is in review.gate_output_end. Fix what fails, run the repository's gate again and commit."
+
+  defp instruction("gate_failed", _review, %{"status" => "lost", "reason" => reason}),
+    do:
+      "Coop could not keep the gate's output (#{reason}). Run the repository's gate yourself to see what fails, fix it and commit."
+
+  defp instruction("gate_failed", _review, _output),
     do: "Run the repository's gate yourself to see what fails, fix it and commit."
 
-  defp instruction("gate_failed", _review, _report),
-    do:
-      "The failing command, its exit code and the end of its output are in review.gate_failure. Run the repository's gate, fix what fails and commit."
-
-  defp instruction("rebase_conflict", review, _report),
+  defp instruction("rebase_conflict", review, _output),
     do:
       "Bring the change up to date with the latest base branch (commit #{review["parent_head"]}), resolve the conflicts, run the repository's gate and commit."
 
-  defp instruction("gate_modified_candidate", _review, _report),
+  defp instruction("gate_modified_candidate", _review, _output),
     do: "Run the repository's gate and commit the files it changes, with anything else they need."
 
-  defp gate_report(%{"output_tail" => output} = report) do
-    kept = Review.output_tail(output, @output_tail_bytes)
+  # A longer output keeps its end in the file; the agent is told what it lacks.
+  defp kept(%{"bytes" => kept}, %{"bytes" => total}) when total > kept,
+    do: " (its last #{kept} of #{total} bytes)"
 
-    %{
-      report
-      | "output_tail" => kept,
-        "output_truncated" => report["output_truncated"] or kept != output
-    }
-  end
-
-  defp gate_report(_report), do: nil
+  defp kept(_file, _output), do: ""
 
   defp cause("rebase_conflict"), do: "the change conflicts with the latest base branch"
   defp cause("gate_failed"), do: "the repository's checks failed"
