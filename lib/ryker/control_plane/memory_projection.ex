@@ -1,9 +1,8 @@
 defmodule Ryker.ControlPlane.MemoryProjection do
   @moduledoc """
-  The Facts page's read model: the operational memory people confirmed, the
-  pending reviews of it, and the bounded behaviour and schedule lists this
-  snapshot has always carried. Expiry is applied at read time; every retained
-  text is redacted the way the rest of the control plane redacts it.
+  The Facts page's read model: the operational memory people confirmed and the
+  pending reviews of it. Expiry is applied at read time; every retained text is
+  redacted the way the rest of the control plane redacts it.
 
   The confirmed actions read the same snapshot to find the fact or review
   they act on, so its unsearched form is the whole bounded set.
@@ -11,12 +10,10 @@ defmodule Ryker.ControlPlane.MemoryProjection do
 
   import Ecto.Query
 
-  alias Ryker.Behaviors.Behavior
   alias Ryker.InspectionRedactor
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
 
   @doc "The query keys the Facts page reads."
   def query_keys, do: ["q"]
@@ -36,32 +33,6 @@ defmodule Ryker.ControlPlane.MemoryProjection do
     %{
       q: search,
       memory_total: Repo.aggregate(active, :count),
-      behaviors:
-        Repo.all(
-          from(behavior in Behavior,
-            where:
-              behavior.status in [:active, :disabled] and
-                (is_nil(behavior.expires_at) or
-                   behavior.expires_at > fragment("clock_timestamp()")),
-            order_by: [desc: behavior.updated_at, desc: behavior.id],
-            limit: 500,
-            select: %{
-              kind: behavior.kind,
-              ref: behavior.ref,
-              status: behavior.status,
-              subject:
-                fragment(
-                  "COALESCE(?::jsonb->>'title', ?::jsonb->>'subject', ?::jsonb->>'key', ?::jsonb->>'task', ?)",
-                  behavior.payload,
-                  behavior.payload,
-                  behavior.payload,
-                  behavior.payload,
-                  behavior.identity_key
-                )
-            }
-          )
-        )
-        |> Enum.map(&redact_fields(&1, [:subject], secrets)),
       # A memory is a person's own words, confirmed as a fact; they are redacted
       # here exactly as the channel page and the behavior library redact them.
       memories:
@@ -84,24 +55,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
           )
         )
         |> Enum.map(&redact_fields(&1, [:applicability, :subject, :value], secrets)),
-      reviews: Memories.pending_reviews(100),
-      schedules:
-        Repo.all(
-          from(schedule in Schedule,
-            where:
-              schedule.status in [:active, :paused] and
-                (is_nil(schedule.expires_at) or
-                   schedule.expires_at > fragment("clock_timestamp()")),
-            order_by: [asc: schedule.next_occurrence_at, asc: schedule.id],
-            limit: 100,
-            select: %{
-              next_occurrence_at: schedule.next_occurrence_at,
-              ref: schedule.ref,
-              status: schedule.status,
-              title: schedule.title
-            }
-          )
-        )
+      reviews: Memories.pending_reviews(100)
     }
   end
 

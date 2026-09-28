@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.FactsPage do
   import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1]
 
   alias Phoenix.HTML.Safe
-  alias Ryker.{Behaviors, Memories, Records, Schedules}
+  alias Ryker.{Behaviors, Memories, Records}
   alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection}
   alias Ryker.InspectionRedactor
   alias Ryker.Slack.Names
@@ -22,14 +22,13 @@ defmodule Ryker.ControlPlane.FactsPage do
   @doc """
   The topics an open Facts page listens to, as the context functions that
   subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the facts and their
-  reviews and use, the guidance and schedules listed beside them, and the
-  offers to remember something that a request made.
+  reviews and use, the saved guidance a review can name, and the offers to
+  remember something that a request made.
   """
   def subscriptions do
     [
       {Memories, :subscribe_memories, []},
       {Behaviors, :subscribe_behaviors, []},
-      {Schedules, :subscribe_schedules, []},
       {Records, :subscribe_records, []}
     ]
   end
