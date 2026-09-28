@@ -27,9 +27,7 @@
 .memory-card header { position:static; padding:0; margin:0; border:0; background:transparent; backdrop-filter:none; display:flex; gap:20px; justify-content:space-between; align-items:baseline; }
 .memory-card h2 { font-size:19px; margin:0; }
 .memory-card time { flex-shrink:0; font-size:13px; color:var(--muted); }
-.memory-card .memory-source, .memory-card footer { display:flex; flex-wrap:wrap; gap:16px; font-size:13px; }
-.memory-card .memory-source { margin:6px 0 16px; color:var(--muted); }
-.memory-card footer { padding:12px 0 0; margin:16px 0 0; max-width:none; }
+.memory-card footer { display:flex; flex-wrap:wrap; gap:16px; font-size:13px; padding:12px 0 0; margin:16px 0 0; max-width:none; }
 .memory-card .memory-facts h3 { font-size:13px; margin:14px 0 4px; }
 .memory-card .memory-facts ul { margin:0; padding-left:20px; }
 .memory-card .memory-facts li p { margin:4px 0; }
@@ -91,7 +89,6 @@
 .app-brand:focus-visible { outline:2px solid var(--ryker-focus-inner); outline-offset:-4px; box-shadow:none; }
 .app-nav { display:block; margin:24px 0 0; }
 .primary-nav { margin-top:20px; }
-.nav-caption { color:var(--ryker-text-secondary); font-size:12px; font-weight:600; letter-spacing:.04em; margin:0 12px 8px; }
 .app-nav > a, .app-nav summary { display:flex; align-items:center; gap:10px; min-height:44px; padding:8px 12px; margin-bottom:2px; border-left:2px solid transparent; border-radius:6px; color:var(--ryker-text-secondary); font-size:14px; }
 .app-nav a:hover, .app-nav summary:hover { background:var(--ryker-hover-bg); color:var(--ryker-text); }
 .app-nav a[aria-current=page] { background:var(--ryker-selected-bg); border-left-color:var(--ryker-selected-accent); color:var(--ryker-selected-text); font-weight:600; }
@@ -182,7 +179,6 @@
 .rail-heading h2 { margin:0; font-size:14px; color:var(--ryker-text-secondary); font-weight:600; letter-spacing:-.15px; }
 .rail-heading a { color:var(--ryker-text-secondary); font-size:14px; }
 .rail-heading .ui-icon { height:14px; width:14px; }
-.ui-label { font-size:14px; letter-spacing:.12em; color:var(--ryker-text-secondary); background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); padding:2px 5px; border-radius:3px; }
 /* The page surface every secondary page renders on: the Ryker roles as the palette the body rules read, one 32px gutter, one 1440px column. */
 .ryker-app .page-surface { --text:var(--ryker-text); --muted:var(--ryker-text-secondary); --line:var(--ryker-stroke); --accent:var(--ryker-accent-strong); --panel:var(--ryker-surface-raised); --panel-raised:var(--ryker-surface-sunken); --cyan:var(--ryker-accent-strong); --bg:var(--ryker-surface); padding:32px; color:var(--text); }
 .page-surface .secondary-page { max-width:1440px; margin:auto; }
@@ -231,7 +227,7 @@
 @media (max-width:580px) { .page-surface dl { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .page-surface th, .page-surface td { padding:10px; } }
 /* Configuration is a readable field guide, not an unexplained key/value dump. */
 @media (max-width:1280px) { .ui-tabs { gap:16px; } }
-@media (max-width:800px) { .app-sidebar { position:static; width:100%; padding:16px 20px; border-right:0; border-bottom:1px solid var(--stroke); } .app-brand { margin:-16px -20px 0; padding:8px 20px; } .app-brand img { width:32px; aspect-ratio:780/680; } .app-nav { display:flex; overflow:auto; gap:8px; margin-top:12px; } .secondary-nav, .app-nav .nav-caption { display:none; } .app-nav > a { white-space:nowrap; margin:0; font-size:14px; padding:8px; } .app-nav .ui-icon { width:15px; } .app-workspace { margin-left:0; }  .ryker-app .page-surface, .ryker-app .native-page > .instructions-page { padding:24px 20px; } }
+@media (max-width:800px) { .app-sidebar { position:static; width:100%; padding:16px 20px; border-right:0; border-bottom:1px solid var(--stroke); } .app-brand { margin:-16px -20px 0; padding:8px 20px; } .app-brand img { width:32px; aspect-ratio:780/680; } .app-nav { display:flex; overflow:auto; gap:8px; margin-top:12px; } .secondary-nav { display:none; } .app-nav > a { white-space:nowrap; margin:0; font-size:14px; padding:8px; } .app-nav .ui-icon { width:15px; } .app-workspace { margin-left:0; }  .ryker-app .page-surface, .ryker-app .native-page > .instructions-page { padding:24px 20px; } }
 @media (max-width:580px) { .ui-tabs { gap:19px; } .ui-tabs a { font-size:14px; } }
 @media (prefers-reduced-motion:no-preference) { .app-nav a, .ui-button { transition:background-color .12s ease; } .ui-disclosure > summary .ui-icon { transition:transform .12s ease; } }
 .slack-mention { color:var(--ryker-text-secondary); background:var(--ryker-surface-raised); border-radius:3px; padding:0 2px; }
@@ -272,7 +268,6 @@
 .story-stop details { margin-top:15px; font-size:14px; }
 .document-provenance { margin-top:25px; color:var(--ryker-text-secondary); font-size:14px; overflow-wrap:anywhere; }
 .document-provenance summary { cursor:pointer; }
-.execution-timeline { max-height:none; overflow:visible; padding:12px 0; scrollbar-color:var(--ryker-text-secondary) transparent; scrollbar-width:thin; }
 .timeline-bound { font-size:14px; color:var(--ryker-text-secondary); padding:12px 0; }
 .inspector-intro { display:flex; justify-content:space-between; align-items:start; gap:30px; margin:20px 0 27px; }
 .inspector-intro h2 { font-size:24px; font-weight:500; color:var(--ryker-text-secondary); letter-spacing:-.6px; margin:0 0 10px; }
@@ -545,9 +540,7 @@
 .ui-message { min-width:0; margin:0; padding:0; overflow:hidden; border:1px solid var(--ryker-stroke); border-radius:7px; background:var(--ryker-surface-raised); overflow-wrap:anywhere; }
 .ui-message + .ui-message { margin-top:16px; }
 .ui-message-header { position:static; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:4px 16px; margin:0; padding:16px 20px 0; border:0; background:transparent; backdrop-filter:none; }
-.ui-message-identity { display:grid; min-width:0; gap:4px; }
 .ui-message-title { min-width:0; margin:0; color:var(--ink); font-size:17px; line-height:24px; font-weight:600; letter-spacing:-.1px; overflow-wrap:anywhere; }
-.ui-message-sender { display:flex; min-width:0; flex-wrap:wrap; align-items:baseline; gap:4px 8px; }
 .ui-message-header strong { color:var(--ryker-text-secondary); font-size:13px; line-height:20px; font-weight:400; }
 .ui-message-context { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
 .ui-message-meta { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px 8px; min-width:0; padding-top:2px; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; font-variant-numeric:tabular-nums; }
@@ -574,8 +567,6 @@
 .memory-card > .case-card-heading { display:grid; align-items:start; }
 .case-event-summary { margin:8px 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
 .case-entry-body > a { font-size:14px; color:var(--ryker-text-secondary); }
-.specific-request { margin-top:12px; color:var(--ryker-text-secondary); font-size:14px; }
-.specific-request > summary { cursor:pointer; padding:8px 0; }
 .event-state { padding:2px 6px; border-radius:3px; background:var(--ryker-surface-raised); }
 .event-state.tone-bad { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
 .event-state.tone-warn { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
@@ -624,7 +615,6 @@
 .ryker-app .ui-facts dd { min-width:0; margin:0; color:var(--ryker-text); font-size:14px; line-height:20px; font-variant-numeric:normal; overflow-wrap:anywhere; }
 .case-card-heading + .ui-facts { margin-top:0; }
 .case-card-heading + .ui-facts > div:first-child { border-top:0; padding-top:0; }
-.request-model { display:flex; align-items:flex-start; justify-content:flex-end; min-width:0; text-align:right; }
 .episode-request > .case-card-heading:not(:last-child) { margin-bottom:0; }
 .request-rationale { margin:16px 0 0; font-size:16px; line-height:24px; color:var(--ink); }
 .routing-candidate-outcomes { margin-top:12px; }
@@ -636,11 +626,6 @@
 .case-entry .artifact-instructions .document-heading { display:none; }
 .routing-evidence { margin-top:16px; }
 .routing-evidence > .ui-disclosure-source { border-left-color:var(--ryker-accent); }
-.selection-evidence-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:0 24px; margin:0 0 12px; }
-.selection-evidence-facts > div { display:grid; grid-template-columns:minmax(120px,auto) minmax(0,1fr); gap:12px; padding:8px 0; border-top:1px solid var(--ryker-stroke); }
-.selection-evidence-facts dt { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
-.selection-evidence-facts dd { min-width:0; margin:0; color:var(--ryker-text); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
-.selection-evidence-technical { margin-top:4px; }
 .timeline-artifact { padding:12px 16px; min-width:0; overflow-wrap:anywhere; }
 .timeline-artifact + .timeline-artifact { border-top:1px solid var(--stroke); }
 .timeline-artifact h4 { font-size:15px; margin:0 0 8px; }
@@ -757,16 +742,11 @@
 .candidate-heading h4 { margin:0; color:var(--ink); font-size:16px; line-height:22px; font-weight:600; }
 .candidate-heading time { color:var(--secondary); font-size:12px; font-variant-numeric:tabular-nums; }
 .candidate-readable { padding:0; }
-.candidate-rationale, .candidate-excerpt, .candidate-warning { margin:10px 0 0; line-height:1.5; }
+.candidate-rationale, .candidate-warning { margin:10px 0 0; line-height:1.5; }
 .candidate-rationale strong { color:var(--secondary); font-size:12px; }
 .candidate-rationale { color:var(--secondary); }
 .candidate-rationale strong { margin-right:4px; }
-.candidate-excerpt { color:var(--ink); }
-.candidate-excerpt span { color:var(--secondary); font-size:12px; }
 .candidate-warning { color:var(--ryker-text-secondary); }
-.candidate-history { margin-top:10px; border-top:1px solid var(--ryker-stroke); padding-top:4px; }
-.candidate-history-omission { margin:6px 0; color:var(--secondary); font-size:12px; }
-.candidate-preview { margin-top:12px; }
 .context-candidate-malformed > .context-absent { margin:0; padding:0 14px 12px; }
 .prompt-group { margin:0; }
 .prompt-group + .prompt-group { margin-top:24px; }
@@ -798,10 +778,6 @@
 .readable-model-context .request-context-readable pre,
 .prompt-source-body pre { font-size:13px; max-height:480px; max-width:100%; box-sizing:border-box; white-space:pre-wrap; overflow-wrap:anywhere; overflow:auto; }
 .readable-model-context .context-omission { color:var(--ryker-text-secondary); background:var(--ryker-surface-raised); }
-.request-timing { display:flex; flex-wrap:wrap; gap:8px 24px; margin:12px 0 0; padding:12px 0 0; border-top:1px solid var(--ryker-stroke); }
-.request-timing > div { display:flex; align-items:baseline; gap:8px; }
-.request-timing dt { font-size:12px; color:var(--secondary); }
-.request-timing dd { margin:0; font-size:13px; font-weight:400; font-variant-numeric:tabular-nums; color:var(--ink); }
 .case-outcome { padding:16px 0 0 84px; font-size:14px; color:var(--secondary); }
 .case-outcome .story-wait { padding:8px 0; }
 .case-outcome .story-wait strong { font-size:17px; }
@@ -842,9 +818,7 @@
   .episode-metrics .metric-group-conversation { padding:16px 0 0; border-left:0; }
   .episode-metrics .metric-group-cost { padding:16px 0 0; border-left:0; border-top:1px solid var(--stroke); }
   .episode-metrics dd { font-size:24px; }
-  .candidate-facts { grid-template-columns:1fr; }
   .ryker-app .ui-facts > div { grid-template-columns:1fr; gap:4px; }
-  .request-timing { gap:12px; }
   .case-card-heading-stack-meta { grid-template-columns:minmax(0,1fr); gap:4px; }
   .case-card-heading-stack-meta .case-card-heading-meta { justify-content:flex-start; padding-top:0; text-align:left; }
   .ui-disclosure > summary { grid-template-columns:16px minmax(0,1fr); gap:4px 8px; }
@@ -980,11 +954,6 @@
 
 .provider-group { margin-top:8px; }
 
-/* Settings: one focused editor per product decision. */
-@media (max-width:700px) {
-  .settings-rows td > .cell-value { min-width:0; overflow-wrap:anywhere; }
-}
-
 /* The retained submission is the page's subject, not something to fold away:
    it reads as a plain section heading with no disclosure affordance. */
 .document-heading-fixed { cursor:default; list-style:none; }
@@ -1015,13 +984,10 @@
 
 /* Configuration pages */
 /* The eight remaining Configuration pages (approved 2026-09-09, slice 3) compose the shared shell — help, one toolbar, quiet count, content, related history — down one left edge with 24px between sections. Each body has one wrapper, so the framed-section rule that still boxes a record view (incident room, schedule, confirmation) never reaches these pages. Comparison tables are unframed: a 13px/18px header row, 15px cells, row lines only. */
-.memory-page, .findings-view, .configuration-evidence { max-width:1160px; min-width:0; }
+.configuration-evidence { max-width:1160px; min-width:0; }
 /* Section headings inside a page body: smaller than the 28px title, 24px above, no panel. */
-.memory-page > section > h2, .configuration-evidence > section > h2 { font-size:20px; line-height:1.3; letter-spacing:-.3px; margin:0 0 8px; color:var(--ink); }
-.memory-page section, .configuration-evidence section { margin:24px 0 0; }
-.configuration-evidence section > p.section-description { margin:0 0 12px; max-width:76ch; color:var(--secondary); line-height:1.5; }
-/* Settings: the effective configuration is grouped by subsystem under one heading; each row keeps its value beside its explanation. */
-.configuration-evidence > p.muted { margin:16px 0 0; font-size:14px; color:var(--secondary); }
+.configuration-evidence > section > h2 { font-size:20px; line-height:1.3; letter-spacing:-.3px; margin:0 0 8px; color:var(--ink); }
+.configuration-evidence section { margin:24px 0 0; }
 /* The Settings page is native LiveView rather than a page-surface body, so it carries the shell's gutters itself: 32px on desktop, narrower as the sidebar collapses. */
 
 /* Conversation history */
@@ -1166,7 +1132,6 @@
 
 .ui-button.quiet { border-color:transparent; background:transparent; color:var(--ryker-text-secondary); }
 .ui-button.quiet:hover { border-color:var(--ryker-stroke); background:var(--ryker-hover-bg); color:var(--ryker-text); }
-.ui-button.danger-text { color:var(--ryker-error); }
 
 
 .settings-field :where(input,select,textarea)[aria-invalid=true] { border-color:var(--ryker-error); }
@@ -1280,22 +1245,10 @@
 .context-candidate .candidate-heading { align-items:baseline; gap:4px 16px; padding:0; border:0; }
 .context-candidate .candidate-heading h4 { font-size:14px; line-height:20px; }
 .context-candidate .candidate-heading time { flex:none; line-height:20px; }
-.context-candidate .candidate-rationale, .context-candidate .candidate-excerpt, .context-candidate .candidate-warning { margin:4px 0 0; font-size:13px; line-height:20px; }
+.context-candidate .candidate-rationale, .context-candidate .candidate-warning { margin:4px 0 0; font-size:13px; line-height:20px; }
 .context-candidate .candidate-rationale strong { margin-right:6px; color:var(--ryker-text-secondary); font-size:13px; font-weight:400; }
-.context-candidate .candidate-excerpt { color:var(--ryker-text-secondary); }
 .context-candidate .candidate-warning { color:var(--ryker-warning); }
-.context-candidate .candidate-history { margin:4px 0 0; padding:0; border:0; }
-.context-candidate .candidate-history > summary { position:relative; min-height:32px; grid-template-columns:12px max-content auto; justify-content:start; gap:6px; color:var(--ryker-text-secondary); font-size:12px; font-weight:400; }
-.context-candidate .candidate-history > summary::after { content:""; position:absolute; inset:-6px 0; }
-.context-candidate .candidate-history > summary:hover { background:transparent; color:var(--ink); }
-.context-candidate .candidate-history > summary .ui-icon { width:12px; height:12px; }
-.context-candidate .candidate-history > summary .ui-disclosure-meta { grid-column:auto; gap:0; margin-left:0; font-size:12px; }
-.context-candidate .candidate-history > summary .ui-disclosure-meta::before { content:"·"; margin-right:4px; }
-.context-candidate .candidate-history > .ui-disclosure-body { padding:4px 0 0 18px; }
-.context-candidate .context-note, .context-candidate .candidate-history-omission { margin:0 0 8px; color:var(--ryker-text-secondary); font-size:12px; line-height:18px; }
-.context-candidate .candidate-preview { margin:0; }
-.context-candidate .candidate-preview + .candidate-preview { margin-top:8px; }
-.candidate-preview .ui-message-context { color:var(--ink); font-size:12px; font-weight:600; }
+.context-candidate .context-note { margin:0 0 8px; color:var(--ryker-text-secondary); font-size:12px; line-height:18px; }
 
 /* Lazy bodies show that they are loading with motion, never with a disclaimer */
 .artifact-loading { display:flex; align-items:center; gap:8px; margin:0; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
@@ -1331,8 +1284,6 @@
 .request-decision { gap:8px; margin:12px 0 0; }
 .request-decision > div { gap:6px; padding:3px 10px; border:1px solid var(--ryker-stroke); border-radius:999px; background:var(--ryker-surface); }
 .request-decision dd { font-size:13px; font-weight:400; }
-.request-timing { margin-top:14px; padding-top:10px; }
-.request-timing dd { font-family:var(--ryker-font-mono); font-size:12px; }
 .case-card-heading + .ui-facts { margin-top:12px; }
 .ryker-app .case-entry-body .ui-facts > div:first-child { border-top:0; }
 
@@ -1374,7 +1325,7 @@
 /* In the timeline the message is the card's content and its title is the card title */
 .message-container .case-entry-body { padding:14px 18px 12px; border:1px solid var(--ryker-stroke); background:var(--ryker-surface-raised); }
 /* Inside a briefing source the title only says which message this is */
-.context-messages .ui-message-title, .candidate-preview .ui-message-title { margin:0 0 8px; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; letter-spacing:.08em; text-transform:uppercase; }
+.context-messages .ui-message-title { margin:0 0 8px; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; letter-spacing:.08em; text-transform:uppercase; }
 .context-messages-history .ui-message > .ui-message-header { padding:7px 12px 0; }
 .context-messages-history .ui-message-header strong { font-size:13px; }
 .context-messages-history .ui-message-body { margin:0; padding:8px 12px; font-size:14px; line-height:21px; }
@@ -1787,7 +1738,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 :is(.repositories-page, .working-copies-page) .entity-facts dt, .channel-page .channel-facts dt { padding:0; border:0; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
 :is(.repositories-page, .working-copies-page) .entity-facts dd, .channel-page .channel-facts dd { margin:0; padding:0; border:0; font-size:14px; line-height:20px; color:var(--ryker-text); overflow-wrap:anywhere; }
 :is(.repositories-page, .working-copies-page) .entity-facts code, .channel-page .channel-facts code { font-family:var(--ryker-font-mono); font-size:12px; color:var(--ryker-text-secondary); }
-.repositories-page .entity-fact-line { display:block; }
 .working-copies-page .entity-text a { color:var(--ryker-text); text-decoration:underline; text-decoration-color:color-mix(in srgb, var(--ryker-text) 30%, transparent); text-underline-offset:3px; }
 /* The channel page: its state sits under the header's sentence; sections are Kit heads. */
 .channel-lead .channel-state { margin:-12px 0 0; }
@@ -2508,9 +2458,6 @@ html:has(.kit-modal) { overflow:hidden; }
 .usage-page > .kit-toolbar + .kit-counts { margin-top:16px; }
 .usage-charts { display:grid; grid-template-columns:minmax(0, 2fr) minmax(260px, 1fr); gap:0 40px; }
 .usage-charts > section { min-width:0; }
-.ryker-app .usage-note { max-width:720px; margin:8px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.usage-rates { max-width:720px; margin:32px 0 0; }
-.ryker-app .usage-rates .ui-disclosure-body > p { margin:8px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 @media (max-width:1200px) {
   .usage-charts { grid-template-columns:minmax(0, 1fr); }
   .usage-donut { justify-content:flex-start; gap:32px; }
@@ -2602,7 +2549,6 @@ html:has(.kit-modal) { overflow:hidden; }
 .ryker-app .usage-pricing-table th, .ryker-app .usage-pricing-table td { padding:12px 8px; overflow-wrap:anywhere; }
 .ryker-app .usage-pricing-table th:first-child { width:37%; }
 .ryker-app .usage-pricing-table th:not(:first-child), .ryker-app .usage-pricing-table td:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
-.usage-scope-description { margin:0 0 20px; font-size:14px; color:var(--secondary); }
 @media(max-width:1200px) { .usage-charts { grid-template-columns:1fr; gap:16px; } .usage-donut { justify-content:flex-start; gap:32px; } .usage-donut dl { max-width:400px; } }
 @media(max-width:700px) { .usage-headlines { grid-template-columns:1fr 1fr; gap:24px; padding:20px; } .usage-stat > strong { font-size:28px; } .usage-token-groups { grid-template-columns:1fr; padding:20px; gap:20px; } .usage-token-group + .usage-token-group:not(.usage-cache) { border-left:0; border-top:1px solid var(--stroke); padding:38px 0 0; } .usage-token-group + .usage-token-group .usage-group-label { top:16px; left:0; } .usage-cache { padding-top:0; } .usage-charts > section { padding:18px 16px; } .usage-page .usage-filters { gap:12px; } .usage-donut { gap:16px; } }
 .ryker-app details.measurement-notes { margin:20px 0; padding:16px 20px; background:var(--ryker-surface-raised); border:1px solid var(--stroke); border-radius:6px; }
