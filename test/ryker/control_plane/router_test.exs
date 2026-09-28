@@ -110,7 +110,6 @@ defmodule Ryker.ControlPlane.RouterTest do
       {"/actions/schedule/schedule%3Aone/deleted", :danger},
       {"/actions/retention/workspace%3Aunmerged/discard", :danger},
       {"/actions/memory-review/memory-review%3Aone/keep", :primary},
-      {"/actions/memory-review/memory-review%3Aone/dismiss", :primary},
       {"/actions/behavior/behavior%3Aone/disabled", :primary},
       {"/actions/schedule/schedule%3Aone/paused", :primary},
       {"/actions/schedule/schedule%3Aone/run-now", :primary},
@@ -1194,6 +1193,11 @@ defmodule Ryker.ControlPlane.RouterTest do
                      %{"subject" => "primary_codebase", "value" => "ryker-elixir"}}
 
     assert get_resp_header(accepted, "location") == ["/memory#review"]
+
+    # No page offers to dismiss a review, so there is no dismissal to confirm.
+    dismiss = "/actions/memory-review/memory-review%3Aone/dismiss"
+    assert request(:get, dismiss).status == 404
+    assert Router.question(dismiss, options()) == {:error, :not_found}
   end
 
   # A kind with no return path of its own fell back to /memory, the page that
