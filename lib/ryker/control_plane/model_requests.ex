@@ -1139,13 +1139,16 @@ defmodule Ryker.ControlPlane.ModelRequests do
            if(turn.accepted_at && attempt == turn.candidate_attempt,
              do: (options[:title_updates] || %{})[turn.id]
            ),
+         # An archived response is read in its own check's card, on the page of
+         # checks that holds it. The latest answer with no archive of its own
+         # is read where the timeline shows it: its model call's result card.
          href:
-           response_request_path(
-             turn,
-             options,
-             if(current?, do: %{}, else: %{responses_page: page})
-           ) <>
-             "#turn-#{turn.id}-response-#{attempt}-body"
+           if(current?,
+             do: response_request_path(turn, options, %{}) <> "#request-#{turn.id}-result",
+             else:
+               response_request_path(turn, options, %{responses_page: page}) <>
+                 "#turn-#{turn.id}-response-#{attempt}-body"
+           )
        }}
     end
   end
