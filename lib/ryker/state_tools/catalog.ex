@@ -68,7 +68,7 @@ defmodule Ryker.StateTools.Catalog do
       %{
         "observation" => text(4_000),
         "relation" => enum(~w(supports contradicts context)),
-        "source_ref" => reference(256),
+        "source_ref" => source(500),
         "subject" => text(120),
         "supersedes" => array(reference(256), 0, 10)
       },
@@ -511,6 +511,15 @@ defmodule Ryker.StateTools.Catalog do
       "pattern" => "^[A-Za-z0-9_.:-]+$",
       "type" => "string"
     }
+
+  # Where an observation came from, as the model has it: a URL, a file path, a
+  # pack (`gcp-monitoring@0.3.9`), an Emisar run or a Slack message ref. The
+  # ref pattern above refused every URL, and four well-formed citations (an
+  # Emisar run, a pack catalog, a file on GitHub, a pinned pack) were lost on
+  # 2026-09-27/28, each read on the Timeline as "Failed". Up to the 500
+  # characters the evidence record keeps as its source's name.
+  defp source(maximum),
+    do: %{"maxLength" => maximum, "minLength" => 1, "pattern" => "^\\S+$", "type" => "string"}
 
   defp text(maximum), do: %{"maxLength" => maximum, "minLength" => 1, "type" => "string"}
   defp timestamp, do: %{"format" => "date-time", "type" => "string"}
