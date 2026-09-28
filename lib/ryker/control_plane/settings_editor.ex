@@ -557,7 +557,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       assign(assigns,
         rows: rows,
         noun: noun,
-        notices: notices(section, view),
+        notices: Enum.reject(notices(section, view), & &1[:blocks_add]),
+        add_blocked: add_blocked(section, view),
         total: Kit.list_total(length(rows), {noun, plural(noun)}, false)
       )
 
@@ -577,7 +578,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           title={elem(@section.empty, 1)}
           text={elem(@section.empty, 2)}
         >
-          <.add_link noun={@noun} paths={@paths} primary={true} />
+          <.add_link noun={@noun} paths={@paths} primary={true} blocked={@add_blocked} />
         </Kit.empty>
       </Kit.section_card>
     </div>
@@ -592,7 +593,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       assign(assigns,
         collection?: collection?,
         rows: if(collection?, do: rows(section, view), else: []),
-        notices: notices(section, view),
+        # What stops a new row is said on its disabled Add, not in a box.
+        notices: Enum.reject(notices(section, view), & &1[:blocks_add]),
+        add_blocked: add_blocked(section, view),
         noun: noun(section),
         autosave: autosave?(section),
         saved_key: Map.get(assigns, :saved_key)
@@ -615,7 +618,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         lede={@section.description}
       >
         <:actions :if={@collection?}>
-          <.add_link noun={@noun} paths={@paths} />
+          <.add_link noun={@noun} paths={@paths} blocked={@add_blocked} />
         </:actions>
       </Kit.section_head>
       <p :for={notice <- @notices} class="settings-notice">
@@ -684,7 +687,25 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   attr(:paths, :map, required: true, doc: "Where the list and its rows' forms are")
   attr(:primary, :boolean, default: false, doc: "The one action of an empty list")
 
+  attr(:blocked, :string,
+    default: nil,
+    doc: "Why a new row cannot be added yet, as its hover hint"
+  )
+
   # Add opens the form for a new row on its own page.
+  # Andrew, 2026-09-28: a box saying what must come first sat above the list;
+  # the Add it blocks now says why on hover, and cannot be pressed.
+  defp add_link(%{blocked: reason} = assigns) when is_binary(reason) do
+    ~H"""
+    <span
+      class="ui-button secondary settings-editor-add is-disabled"
+      aria-disabled="true"
+      tabindex="0"
+      title={@blocked}
+    ><Components.icon name={:plus} />Add {@noun}</span>
+    """
+  end
+
   defp add_link(assigns) do
     ~H"""
     <.link
@@ -1469,7 +1490,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp notices(%{key: :webhooks}, view) do
     [
       view.webhook_secret_names == [] &&
-        %{text: "Create a signing credential above before adding a webhook source."},
+        %{
+          text: "Create a signing credential above before adding a webhook source.",
+          blocks_add: true
+        },
       view.snapshot.environments == [] &&
         %{
           text: "Work from a webhook runs in an environment, and there is none yet.",
@@ -1482,6 +1506,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   end
 
   defp notices(_section, _view), do: []
+
+  defp add_blocked(section, view) do
+    Enum.find_value(notices(section, view), &(&1[:blocks_add] && &1.text))
+  end
 
   # Why Ryker cannot post these events to Slack yet, in the words and with the
   # next step every page gives for Slack's state.

@@ -165,6 +165,13 @@
 .ryker-app .page-header { position:static; top:auto; z-index:auto; display:block; background:none; border:0; backdrop-filter:none; padding:0; margin:0 0 24px; }
 .page-heading { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px 24px; }
 .ryker-app .page-heading h1 { margin:0; font-size:28px; line-height:1.2; font-weight:600; letter-spacing:-.6px; color:var(--ink); overflow-wrap:anywhere; }
+/* The title and the record's state read as one line: the state is seen with the name. */
+.page-title-line { display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; min-width:0; }
+.page-title-line > .state-word { padding:3px 10px 3px 9px; border-radius:999px; background:var(--ryker-surface-emphasis); font-size:13px; line-height:18px; }
+/* A title that opens the record where it lives outside Ryker. */
+.ryker-app .page-title-link { color:inherit; text-decoration:none; }
+.ryker-app .page-title-link:hover { text-decoration:underline; text-underline-offset:4px; text-decoration-thickness:2px; }
+.page-title-external { width:18px; height:18px; margin-left:8px; vertical-align:2px; color:var(--ryker-text-secondary); }
 .page-action { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
 .ryker-app .page-description { margin:8px 0 0; max-width:76ch; font-size:16px; line-height:1.5; color:var(--secondary); }
 .filter-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 24px; }
@@ -924,14 +931,6 @@
 .context-tools > div { grid-template-columns:minmax(120px,216px) minmax(0,1fr); }
 @media (max-width:580px) { .context-rows > div { grid-template-columns:minmax(0,1fr); gap:2px; } }
 
-/* Configuration pages */
-/* The eight remaining Configuration pages (approved 2026-09-09, slice 3) compose the shared shell — help, one toolbar, quiet count, content, related history — down one left edge with 24px between sections. Each body has one wrapper, so the framed-section rule that still boxes a record view (incident room, schedule, confirmation) never reaches these pages. Comparison tables are unframed: a 13px/18px header row, 15px cells, row lines only. */
-.configuration-evidence { max-width:1160px; min-width:0; }
-/* Section headings inside a page body: smaller than the 28px title, 24px above, no panel. */
-.configuration-evidence > section > h2 { font-size:20px; line-height:1.3; letter-spacing:-.3px; margin:0 0 8px; color:var(--ink); }
-.configuration-evidence section { margin:24px 0 0; }
-/* The Settings page is native LiveView rather than a page-surface body, so it carries the shell's gutters itself: 32px on desktop, narrower as the sidebar collapses. */
-
 /* Conversation history */
 /* The top edge of a transcript: load earlier, loading or retry; nothing, and no space, once the first message is loaded. */
 .lab-history-edge { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:8px 12px; min-height:40px; padding:8px 28px 4px; color:var(--ryker-text-secondary); font-size:14px; outline:none; }
@@ -1021,7 +1020,8 @@
 }
 .ryker-app .filter-add { border-style:solid; font-size:14px; line-height:20px; }
 
-.ryker-app .ui-button:disabled {
+.ryker-app .ui-button:is(:disabled, .is-disabled),
+.ryker-app .ui-button.is-disabled:is(:hover, :focus-visible) {
   opacity:1;
   cursor:not-allowed;
   color:var(--ryker-disabled-text);
@@ -1649,9 +1649,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .instructions-conflict { margin-top:12px; padding:12px 14px; border-radius:8px; background:var(--ryker-warning-soft); }
 .ryker-app .instructions-conflict p { margin:0 0 8px; font-size:14px; line-height:20px; color:var(--ryker-text); }
 .ryker-app .instructions-conflict .instructions-current { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--ryker-text-secondary); }
-.inherited-instructions { max-width:720px; margin:0 0 12px; }
-.ryker-app .inherited-head { display:flex; align-items:baseline; gap:12px; margin:0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.ryker-app .inherited-text, .ryker-app .inherited-empty { margin:4px 0 0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); white-space:pre-wrap; overflow-wrap:anywhere; }
+.ryker-app .instructions-global { max-width:720px; margin:12px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 @media (max-width:800px) {
   /* Row controls wrap under the text at the left edge, so the menu opens rightwards. */
   .behavior-menu-items { right:auto; left:4px; }
@@ -1690,8 +1688,16 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 :is(.repositories-page, .working-copies-page) .entity-facts code, .channel-page .channel-facts code { font-family:var(--ryker-font-mono); font-size:12px; color:var(--ryker-text-secondary); }
 .working-copies-page .entity-text a { color:var(--ryker-text); text-decoration:underline; text-decoration-color:color-mix(in srgb, var(--ryker-text) 30%, transparent); text-underline-offset:3px; }
 /* The channel page: its state sits under the header's sentence; sections are Kit heads. */
-.channel-lead .channel-state { margin:-12px 0 0; }
 .channel-lead .channel-facts { margin:4px 0 0; }
+/* The settings card's lists share one label column, so the environment group lines up with the rows around it. */
+.channel-page .channel-lead .channel-facts { grid-template-columns:180px minmax(0,1fr); }
+.channel-page .channel-lead .channel-facts + .channel-facts { margin-top:6px; }
+/* The environment and what it decides for the channel: one framed group whose labels stay on the shared column. */
+.channel-page .channel-environment-group { margin:10px -15px; padding:12px 14px; border:1px solid var(--ryker-stroke); border-radius:10px; background:var(--ryker-surface-sunken); }
+.channel-page .channel-lead .channel-environment-group + .channel-facts { margin-top:0; }
+.channel-repositories { display:grid; gap:4px; margin:0; padding:0; list-style:none; }
+.channel-repositories li { display:flex; flex-wrap:wrap; gap:0 10px; align-items:baseline; }
+.channel-page .channel-repositories a { margin-right:0; }
 .channel-page .channel-fact-note { color:var(--ryker-text-secondary); }
 .channel-page .channel-facts dd a { margin-right:8px; }
 .channel-page .channel-note { max-width:720px; margin:6px 0 0; font-size:13px; line-height:18px; color:var(--ryker-warning); }
@@ -1952,9 +1958,9 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-conflict { padding:14px 16px; border:1px solid color-mix(in srgb, var(--ryker-warning) 45%, transparent); border-radius:8px; background:color-mix(in srgb, var(--ryker-warning) 6%, transparent); }
 .settings-conflict h3 { margin:0 0 6px; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
 .settings-row-details, .settings-disclosure { max-width:720px; margin:8px 0 0; }
-.settings-row-details > summary, .settings-disclosure > summary, .system-evidence > summary { width:fit-content; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); cursor:pointer; }
-.settings-disclosure > summary, .system-evidence > summary { font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text); }
-.settings-disclosure[open] > summary, .system-evidence[open] > summary { margin-bottom:12px; }
+.settings-row-details > summary, .settings-disclosure > summary { width:fit-content; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); cursor:pointer; }
+.settings-disclosure > summary { font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text); }
+.settings-disclosure[open] > summary { margin-bottom:12px; }
 .settings-disclosure > p { margin:0 0 8px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .settings-page .settings-disclosure + .settings-lede { margin-top:12px; }
 .settings-row-details dl, .settings-conflict dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 16px; margin:8px 0 12px; font-size:13px; line-height:18px; }
@@ -1980,12 +1986,10 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-problem { display:grid; gap:12px; max-width:720px; }
 .settings-problem > p { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text); }
 .settings-problem pre { margin:8px 0; padding:10px 12px; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface-sunken); font:12px/18px var(--ryker-font-mono); white-space:pre-wrap; overflow-wrap:anywhere; }
-.configuration-evidence .system-evidence { max-width:1040px; }
-.configuration-values > .settings-lede + .settings-lede { margin-top:6px; }
-.configuration-group { margin:24px 0 0; }
-.configuration-group > h3, .configuration-grants > h3 { margin:0 0 4px; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
-.configuration-grants { margin:32px 0 0; }
-.configuration-setting .entity-name { font-size:14px; line-height:20px; }
+/* Running now: each worker under its name, its problem, when it has one, last. */
+.running-worker { margin:20px 0 0; }
+.running-worker > h3 { margin:0 0 6px; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
+.running-worker > .settings-problem { margin-top:8px; }
 .webhook-preview-result { max-width:1040px; margin:20px 0 0; }
 .webhook-preview-result h3 { margin:0 0 8px; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
 .webhook-preview-event { display:grid; gap:8px; margin:0 0 16px; }

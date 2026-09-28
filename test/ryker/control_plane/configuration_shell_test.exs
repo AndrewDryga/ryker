@@ -36,7 +36,12 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
       assert Enum.count(headings) == 1, path
       assert LazyHTML.text(headings) == title
 
-      assert Enum.count(LazyHTML.query(document, "main header.page-header > .page-heading > h1")) ==
+      assert Enum.count(
+               LazyHTML.query(
+                 document,
+                 "main header.page-header > .page-heading > .page-title-line > h1"
+               )
+             ) ==
                1
 
       description =
@@ -131,7 +136,10 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
       )
       |> LazyHTML.from_fragment()
 
-    assert LazyHTML.query(with_action, "header.page-header > .page-heading > h1")
+    assert LazyHTML.query(
+             with_action,
+             "header.page-header > .page-heading > .page-title-line > h1"
+           )
            |> LazyHTML.text() == "Settings"
 
     assert LazyHTML.query(with_action, ".page-heading > .page-action") |> LazyHTML.text() =~

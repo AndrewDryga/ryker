@@ -160,7 +160,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
 
     assert FakeSlackAPI.state(agent).left == ["C456"]
     assert has_element?(view, ".form-feedback-success", "Ryker left the channel.")
-    assert has_element?(view, ".channel-state", "Disconnected")
+    assert has_element?(view, "header.page-header .state-word", "Disconnected")
     refute has_element?(view, "#leave-channel")
     refute has_element?(view, "#confirm-leave-channel")
   end

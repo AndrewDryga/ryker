@@ -170,16 +170,8 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           }
         end,
         configuration: fn -> [%{key: "runtime", value: "configured"}] end,
-        operator_configuration: fn ->
-          %{
-            grants: [
-              %{kind: "MCP tool", name: "search_slack", source: "/etc/ryker.yaml"}
-            ],
-            rows: [
-              %{key: "runtime.mode", source: "/etc/ryker.yaml", value: "product"}
-            ],
-            source: "/etc/ryker.yaml"
-          }
+        running_system: fn ->
+          %{version: "0.1.0-test", workers: [], supported: true, now: ~U[2026-08-28 12:00:00Z]}
         end,
         channels: fn _params ->
           [

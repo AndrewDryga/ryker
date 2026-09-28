@@ -78,13 +78,9 @@ defmodule Ryker.ControlPlane.ChannelPage do
       assigns
       |> defaults()
       |> assign_new(:notice, fn -> nil end)
-      |> assign(:state, state(assigns.view))
 
     ~H"""
     <div class="channel-page channel-lead">
-      <p :if={@state} class="channel-state">
-        <Kit.state tone={elem(@state, 0)} word={elem(@state, 1)} />
-      </p>
       <.taking_part view={@view} now={@now} notice={@notice} />
       <Kit.section_card
         :if={!@editor}
@@ -138,8 +134,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   @doc "What the channel's Instructions card says under its title."
   @spec instructions_lede() :: String.t()
   def instructions_lede,
-    do:
-      "What Ryker should do differently in this channel. It follows the global instructions everywhere."
+    do: "What Ryker should do differently in this channel."
 
   defp defaults(assigns) do
     assigns
@@ -157,9 +152,37 @@ defmodule Ryker.ControlPlane.ChannelPage do
   def title(%{scope: %{workspace_ref: workspace, channel_ref: channel}} = view),
     do: ChannelsPage.channel_name(workspace, channel, view.channel.incident_room)
 
+  @doc """
+  The channel's state beside its title (Andrew, 2026-09-28: under the
+  description it was "hard to see"), as {tone, word}, or nil.
+  """
+  @spec header_state(map()) :: {atom(), String.t()} | nil
+  def header_state(view), do: state(view)
+
+  @doc "Slack's page for the channel, which the title opens."
+  @spec slack_url(map()) :: String.t()
+  def slack_url(view), do: slack_link(view.scope)
+
   @doc "The one-sentence description the route hands to the shared page header."
   @spec description(map()) :: String.t()
-  def description(view) do
+  def description(view), do: kind_sentence(view) <> membership_sentence(view.channel.membership)
+
+  # When Ryker joined or left, or the channel went, which used to be a row of
+  # the settings card with its own Open in Slack link; the title opens Slack.
+  defp membership_sentence(%{status: :joined, joined_at: %DateTime{} = at}),
+    do: " Ryker joined on #{day(at)}."
+
+  defp membership_sentence(%{status: :left, left_at: %DateTime{} = at}),
+    do: " Ryker left on #{day(at)}."
+
+  defp membership_sentence(%{status: :deleted, deleted_at: %DateTime{} = at}),
+    do: " The channel was deleted on #{day(at)}."
+
+  defp membership_sentence(_membership), do: ""
+
+  defp day(at), do: Calendar.strftime(at, "%-d %b %Y")
+
+  defp kind_sentence(view) do
     workspace = workspace_words(view.scope.workspace_ref)
     membership = view.channel.membership || %{}
 
@@ -211,7 +234,6 @@ defmodule Ryker.ControlPlane.ChannelPage do
     assigns =
       assign(assigns,
         configuration: assigns.view.channel.configuration,
-        membership: assigns.view.channel.membership,
         room: assigns.view.channel.incident_room,
         environment: assigns.view.channel.environment
       )
@@ -220,7 +242,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
     <Kit.section_card
       id="taking-part"
       class="channel-section"
-      title="How Ryker takes part"
+      title="Channel settings"
       lede={taking_part_lede(@configuration, @environment)}
     >
       <dl class="channel-facts">
@@ -268,6 +290,10 @@ defmodule Ryker.ControlPlane.ChannelPage do
             {alerts(@configuration, @view.participation)}
           <% end %>
         </.fact>
+      </dl>
+      <%!-- The environment and what it decides for this channel read as one group
+      (Andrew, 2026-09-28): the code its work uses, and the Emisar account. --%>
+      <dl class="channel-facts channel-environment-group">
         <.fact :if={@environment.source != :incident_room} label="Environment">
           <.choice
             :if={@configuration}
@@ -302,12 +328,15 @@ defmodule Ryker.ControlPlane.ChannelPage do
               <strong>{writable.name}</strong><span class="channel-fact-note">
                 · from the incident room
               </span>
-            <% {_source, [only]} -> %>
-              <strong>{only.name}</strong>
             <% {_source, repositories} -> %>
-              <strong>{Enum.map_join(repositories, ", ", & &1.name)}</strong><span class="channel-fact-note">
-                · a task changes the one it needs
-              </span>
+              <ul class="channel-repositories">
+                <li :for={repository <- repositories}>
+                  <a href={"/repositories/" <> encode(repository.ref)}>{repository.name}</a>
+                  <span :if={access_words(repository)} class="channel-fact-note">
+                    {access_words(repository)}
+                  </span>
+                </li>
+              </ul>
           <% end %>
         </.fact>
         <.fact :if={@environment.source != :incident_room} label="Emisar">
@@ -317,6 +346,8 @@ defmodule Ryker.ControlPlane.ChannelPage do
             None, so Ryker cannot act on running systems here
           <% end %>
         </.fact>
+      </dl>
+      <dl class="channel-facts">
         <.fact :if={@room} label="Incident room">
           <a href={"/incident-rooms/" <> encode(@room.ref)}>{@room.title}</a>
           <span class="channel-fact-note">· {room_status(@room.status)}</span>
@@ -327,20 +358,20 @@ defmodule Ryker.ControlPlane.ChannelPage do
         <.fact :if={invited?(@configuration)} label="Invites to incident rooms">
           <.invited configuration={@configuration} workspace={@view.scope.workspace_ref} />
         </.fact>
-        <.fact label="In Slack">
-          {membership(@membership, @now)}<span aria-hidden="true"> · </span><a
-            href={slack_link(@view.scope)}
-            target="_blank"
-            rel="noopener noreferrer"
-          >Open in Slack</a>
-        </.fact>
-        <.fact label="Channel settings">
+        <.fact label="Last changed">
           <.saved configuration={@configuration} workspace={@view.scope.workspace_ref} />
         </.fact>
       </dl>
     </Kit.section_card>
     """
   end
+
+  # Which repository work here may change, in words; the environment's default
+  # is the one a task starts in.
+  defp access_words(%{access: :read_write, default: true}), do: "Read and write · default"
+  defp access_words(%{access: :read_write}), do: "Read and write"
+  defp access_words(%{access: :read_only}), do: "Read only"
+  defp access_words(_repository), do: nil
 
   # What the section lets a person do here. An instruction never stands
   # without its control: the QA re-test (2026-09-26) found "Choose the
@@ -484,21 +515,6 @@ defmodule Ryker.ControlPlane.ChannelPage do
     <Kit.people people={@people} more={@groups} />
     """
   end
-
-  defp membership(nil, _now), do: "Not recorded"
-
-  defp membership(%{status: :joined, joined_at: at}, now),
-    do: moment("Ryker joined ", at, now)
-
-  defp membership(%{status: :left, left_at: at}, now), do: moment("Ryker left ", at, now)
-
-  defp membership(%{status: :deleted, deleted_at: at}, now),
-    do: moment("The channel was deleted ", at, now)
-
-  defp moment(prefix, nil, _now), do: String.trim(prefix)
-
-  defp moment(prefix, at, now),
-    do: ShortTime.time(%{__changed__: nil, at: at, now: now, prefix: prefix})
 
   # Slack's own page for the channel, in the app when it is installed. The
   # page shows no Slack IDs (Andrew, 2026-09-28): whether a channel is private
@@ -658,7 +674,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
       id="knows"
       class="channel-section"
       title="What Ryker knows"
-      lede="Topics Ryker learned here and what it remembers about recent conversations."
+      lede="Topics Ryker learned in this channel and what it remembers about its recent conversations."
     >
       <.learning_health learning={@view.learning} continuity={@view.continuity} />
       <Kit.empty

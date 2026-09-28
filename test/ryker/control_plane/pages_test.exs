@@ -72,13 +72,10 @@ defmodule Ryker.ControlPlane.PagesTest do
       refute rendered =~ "<script", path
     end
 
-    # The running system's evidence is part of Settings › Advanced now.
-    evidence =
-      options().projection.operator_configuration.()
-      |> Map.put(:integrations, [])
-      |> RunningSystem.html()
+    # What is running is part of Settings › Advanced.
+    evidence = options().projection.running_system.() |> RunningSystem.html()
 
-    assert evidence =~ "Tasks that change code"
+    assert evidence =~ "Running now"
     refute evidence =~ "<script"
 
     usage = page("/usage", %{"window" => "24h"})

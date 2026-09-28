@@ -145,7 +145,11 @@ defmodule Ryker.ControlPlane.Pages do
         ),
         Safe.to_iodata(ChannelPage.render(%{__changed__: nil, view: snapshot, now: nil}))
       ])
-      |> Map.put(:back, {"All channels", "/channels"})
+      |> Map.merge(%{
+        back: {"All channels", "/channels"},
+        state: ChannelPage.header_state(snapshot),
+        title_href: ChannelPage.slack_url(snapshot)
+      })
     else
       {:error, :path_ref} -> not_found("Channel")
       :not_found -> not_found("Channel")

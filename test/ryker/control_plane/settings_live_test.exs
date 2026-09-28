@@ -63,7 +63,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert {:ok, %{installation: %{revision: 1}}} = Settings.fetch()
   end
 
-  test "each settings page is titled with its sidebar name and the running system stays folded",
+  test "each settings page is titled with its sidebar name and what is running folds nothing away",
        context do
     for {prepare, path, title} <- [
           {fn -> :ok end, "/setup", "Set up Ryker"},
@@ -87,7 +87,10 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
       assert LazyHTML.text(headings) == title
       assert LazyHTML.query(document, "title") |> LazyHTML.text() == "#{title} · Ryker"
 
-      assert LazyHTML.query(document, "main header.page-header > .page-heading > h1")
+      assert LazyHTML.query(
+               document,
+               "main header.page-header > .page-heading > .page-title-line > h1"
+             )
              |> Enum.count() == 1
 
       matching_headings =
@@ -99,15 +102,13 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     end
 
     document = open("/settings/advanced") |> elem(2) |> LazyHTML.from_document()
-    evidence = LazyHTML.query(document, "main details.system-evidence")
-    assert Enum.count(evidence) == 1
-    assert LazyHTML.attribute(evidence, "open") == []
-    assert Enum.count(LazyHTML.query(document, "main .configuration-evidence")) == 1
+    # What is running is one plain card: no collapsibles, nothing to change.
+    assert Enum.count(LazyHTML.query(document, "main #running-now")) == 1
 
     assert Enum.empty?(
              LazyHTML.query(
                document,
-               "main .configuration-evidence form, main .configuration-evidence button"
+               "main #running-now details, main #running-now form, main #running-now button"
              )
            )
 
@@ -1684,11 +1685,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     initialize!()
     {:ok, view, _html} = open("/settings/prices/new")
 
-    assert has_element?(
-             view,
-             "#settings-pricing-reasoning_usd_per_million-help",
-             "Leave empty when output already counts reasoning, as Codex and Claude report it."
-           )
+    # The rates stay one even row; when to leave Reasoning empty is in the help panel.
+    refute has_element?(view, "#settings-pricing-reasoning_usd_per_million-help")
 
     view
     |> form("#settings-pricing-form", %{
@@ -2025,7 +2023,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              [
                "Where work runs",
                "Tasks that change code",
-               "What is running"
+               "Running now"
              ]
 
     assert has_element?(view, "label[for=settings-work-workspace_ref]", "Worker install")
