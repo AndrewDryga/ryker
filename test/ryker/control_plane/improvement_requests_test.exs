@@ -59,11 +59,19 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
     assert text =~ "Routing read the staging question as production."
     assert text =~ "Full submitted request"
 
-    # The evidence reads as what happened, never as unlabelled fields.
+    # The evidence reads as what happened, never as unlabelled fields, and
+    # none of routing's rows for parts a self-analysis is never sent.
+    assert text =~ "The evidence"
     assert text =~ "What was said"
     assert text =~ "Is the staging database healthy?"
     refute text =~ "Other fields"
     refute text =~ "$.context"
+    assert text =~ "Changed by the person; the words it had first are not kept."
+    assert text =~ "Not sent: it quoted words that were later changed, deleted or forgotten"
+    refute text =~ "Prompt forgotten"
+    refute text =~ "Custom instructions"
+    refute text =~ "Continuation candidates"
+    refute text =~ "Thread summary"
   end
 
   test "an attempt Ryker could not use says so in words, never as a code" do
@@ -126,8 +134,19 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
     prompt =
       %{
         request: %{"kind" => "work", "ended" => "answered"},
-        conversation: [%{"from" => "person", "text" => "Is the staging database healthy?"}],
-        routing: [],
+        conversation: [
+          %{"from" => "person", "text" => nil, "note" => "edited by the person"},
+          %{"from" => "person", "text" => "Is the staging database healthy?"}
+        ],
+        routing: [
+          %{
+            "decision" => "start_episode",
+            "prompt" => nil,
+            "answer" => nil,
+            "model" => nil,
+            "kept" => "forgotten"
+          }
+        ],
         work: [],
         feedback: [%{"kind" => "reaction_added", "value" => "-1"}],
         omitted: []
