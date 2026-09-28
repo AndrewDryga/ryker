@@ -24,6 +24,7 @@ defmodule Ryker.ControlPlane.FeedbackPage do
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Emoji, FeedbackProjection, ImprovementPage, Kit, ShortTime}
+  alias Ryker.Improvement
   alias Ryker.Improvement.Candidate
 
   @path "/memory/feedback"
@@ -405,7 +406,7 @@ defmodule Ryker.ControlPlane.FeedbackPage do
         count > 0 do
       %{
         value: count,
-        label: String.downcase(ImprovementPage.category_plural(category, count)),
+        label: String.downcase(Improvement.category_plural(category, count)),
         tone: if(category == :host_bug, do: :bad),
         href: ImprovementPage.view_path(:open, category)
       }
