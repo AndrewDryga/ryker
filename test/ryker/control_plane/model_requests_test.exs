@@ -210,12 +210,20 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       assert Enum.empty?(LazyHTML.query(first, ".candidate-evidence a"))
       assert LazyHTML.text(first) =~ "Response body not retained for this attempt"
 
-      expected = if linked, do: ["turn-#{turn.id}-response-2-body"], else: []
+      # The latest answer is read on its model call's result card.
+      expected = if linked, do: ["request-#{turn.id}-result"], else: []
 
-      assert second
-             |> LazyHTML.query(".candidate-evidence a")
-             |> LazyHTML.attribute("href")
-             |> Enum.map(&URI.parse(&1).fragment) == expected
+      fragments =
+        second
+        |> LazyHTML.query(".candidate-evidence a")
+        |> LazyHTML.attribute("href")
+        |> Enum.map(&URI.parse(&1).fragment)
+
+      assert fragments == expected
+
+      for fragment <- fragments do
+        assert document |> LazyHTML.query_by_id(fragment) |> Enum.count() == 1
+      end
     end
   end
 

@@ -108,17 +108,17 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     assert Map.keys(validation(older, turn).responses) |> Enum.sort() == Enum.to_list(1..10)
     {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
-    html =
+    document =
       render_component(&EpisodePage.render/1,
         snapshot: snapshot,
         timeline: older,
         params: params
       )
+      |> LazyHTML.from_document()
 
-    assert html =~ uri.fragment
+    assert document |> LazyHTML.query_by_id(uri.fragment) |> Enum.count() == 1
 
-    assert html
-           |> LazyHTML.from_document()
+    assert document
            |> LazyHTML.query(".candidate-response")
            |> LazyHTML.attribute("id") ==
              Enum.map(1..10, &"turn-#{turn.id}-response-#{&1}")
@@ -203,42 +203,29 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     refute html =~ "candidate-response"
   end
 
+  # Until 2026-09-28 this link pointed at #turn-<id>-response-<n>-body, an id
+  # only the removed request inspector drew, so following it went nowhere; the
+  # test passed because the link's own href contains that text. It now opens
+  # the page the link names and follows the fragment to what shows the answer.
   test "a historical latest response links to its actual retained body without inventing an archive" do
-    {episode, turn, _bodies} = recorded_turn!(2)
+    {episode, turn, bodies} = recorded_turn!(2)
     # Historical custody has the latest exact body but no per-attempt archive.
     Repo.delete_all(from(r in CandidateResponse, where: r.turn_id == ^turn.id))
-    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
-    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
-
-    html =
-      render_component(&EpisodePage.render/1,
-        snapshot: snapshot,
-        timeline: timeline,
-        requests: nil,
-        params: %{}
-      )
-
-    document = LazyHTML.from_document(html)
-    first = LazyHTML.query(document, "#event-turn-#{turn.id}-validation-1")
-    latest = LazyHTML.query(document, "#event-turn-#{turn.id}-validation-2")
+    document = timeline_document(episode)
+    first = LazyHTML.query_by_id(document, "event-turn-#{turn.id}-validation-1")
+    latest = LazyHTML.query_by_id(document, "event-turn-#{turn.id}-validation-2")
 
     assert LazyHTML.text(first) =~ "Response body not retained"
     refute LazyHTML.text(latest) =~ "Response body not retained"
-    [href] = LazyHTML.query(latest, "p a") |> LazyHTML.attribute("href")
+    [href] = latest |> LazyHTML.query(".candidate-evidence a") |> LazyHTML.attribute("href")
     uri = URI.parse(href)
+    assert uri.path == "/timeline/#{URI.encode_www_form(episode.key)}"
     params = URI.decode_query(uri.query)
     assert params == %{"attempt" => turn.id}
-    assert uri.fragment == "turn-#{turn.id}-response-2-body"
-    {:ok, selected} = ModelRequests.timeline(episode.key, params)
 
-    selected_html =
-      render_component(&EpisodePage.render/1,
-        snapshot: snapshot,
-        timeline: selected,
-        params: params
-      )
-
-    assert selected_html =~ uri.fragment
+    target = episode |> timeline_document(params) |> LazyHTML.query_by_id(uri.fragment)
+    assert Enum.count(target) == 1
+    assert LazyHTML.text(target) =~ Jason.decode!(List.last(bodies))["message"]
     assert Repo.aggregate(CandidateResponse, :count) == 0
   end
 
@@ -432,19 +419,20 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     ]
   end
 
-  defp timeline_html(episode) do
-    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+  defp timeline_html(episode, params \\ %{}) do
+    {:ok, timeline} = ModelRequests.timeline(episode.key, params)
     {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
 
     render_component(&EpisodePage.render/1,
       snapshot: snapshot,
       timeline: timeline,
       requests: nil,
-      params: %{}
+      params: params
     )
   end
 
-  defp timeline_document(episode), do: episode |> timeline_html() |> LazyHTML.from_document()
+  defp timeline_document(episode, params \\ %{}),
+    do: episode |> timeline_html(params) |> LazyHTML.from_document()
 
   # The model call's result on the timeline: the answer, its checks and their responses.
   defp result(episode, turn) do
