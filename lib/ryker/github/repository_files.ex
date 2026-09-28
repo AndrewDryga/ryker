@@ -16,6 +16,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   @behaviour Ryker.RepositoryKnowledge.Remote
 
   alias Ryker.Delivery.JSONClient
+  alias Ryker.GitHub.Client.Transport
   alias Ryker.GitHub.InstallationTokens
   alias Ryker.RepositoryKnowledge.Document
 
@@ -28,6 +29,8 @@ defmodule Ryker.GitHub.RepositoryFiles do
   @path "RYKER.md"
   @maximum_tree_entries 10_000
   @maximum_source_bytes 128_000
+  # Statuses GitHub turns a request away with (`refused/1`).
+  @refused [401, 403, 429]
   # GitHub lists at most this many files of a comparison.
   @maximum_compared_files 300
 
@@ -60,7 +63,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
       {:ok, %{status: 409}} ->
         {:error, :repository_empty}
 
-      {:ok, %{status: status} = response} when status in [401, 403] ->
+      {:ok, %{status: status} = response} when status in @refused ->
         refused(response)
 
       {:ok, _other} ->
@@ -77,7 +80,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
       case request(client, :get, "/repos/#{repository.github_repository}") do
         {:ok, %{status: 200, body: %{} = body}} -> {:ok, %{archived: body["archived"] == true}}
         {:ok, %{status: 404}} -> {:error, {:github_onboarding, :not_found}}
-        {:ok, %{status: status} = response} when status in [401, 403] -> refused(response)
+        {:ok, %{status: status} = response} when status in @refused -> refused(response)
         {:ok, _other} -> {:error, {:github_onboarding, :response}}
         {:error, _reason} = error -> error
       end
@@ -99,7 +102,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
       else: {:ok, entries}
   end
 
-  defp tree_entries({:ok, %{status: status} = response}) when status in [401, 403],
+  defp tree_entries({:ok, %{status: status} = response}) when status in @refused,
     do: refused(response)
 
   defp tree_entries({:ok, %{status: 404}}), do: {:error, {:github_onboarding, :not_found}}
@@ -140,7 +143,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   # The written commit is gone, after a force push.
   defp compared({:ok, %{status: status}}) when status in [404, 422], do: {:ok, :unknown}
 
-  defp compared({:ok, %{status: status} = response}) when status in [401, 403],
+  defp compared({:ok, %{status: status} = response}) when status in @refused,
     do: refused(response)
 
   defp compared({:ok, _other}), do: {:error, {:github_onboarding, :response}}
@@ -167,7 +170,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
         {:ok, %{status: 200, body: %{"merged" => true}}} -> {:ok, :merged}
         {:ok, %{status: 200, body: %{"state" => "closed"}}} -> {:ok, :closed}
         {:ok, %{status: 404}} -> {:ok, :closed}
-        {:ok, %{status: status} = response} when status in [401, 403] -> refused(response)
+        {:ok, %{status: status} = response} when status in @refused -> refused(response)
         {:ok, _other} -> {:error, {:github_onboarding, :response}}
         {:error, _reason} = error -> error
       end
@@ -233,7 +236,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
     with :ok <- write_file(client, slug, current, document, "Update Ryker repository knowledge") do
       case request(client, :patch, "/repos/#{slug}/pulls/#{number}", %{"body" => body}) do
         {:ok, %{status: 200}} -> :ok
-        {:ok, %{status: status} = response} when status in [401, 403] -> refused(response)
+        {:ok, %{status: status} = response} when status in @refused -> refused(response)
         {:ok, _other} -> {:error, {:github_onboarding, :pull_request}}
         {:error, _reason} = error -> error
       end
@@ -271,7 +274,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
         })
         |> branch_written()
 
-      {:ok, %{status: status} = response} when status in [401, 403] ->
+      {:ok, %{status: status} = response} when status in @refused ->
         refused(response)
 
       {:ok, _other} ->
@@ -284,7 +287,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
 
   defp branch_written({:ok, %{status: status}}) when status in [200, 201], do: :ok
 
-  defp branch_written({:ok, %{status: status} = response}) when status in [401, 403],
+  defp branch_written({:ok, %{status: status} = response}) when status in @refused,
     do: refused(response)
 
   defp branch_written({:ok, _other}), do: {:error, {:github_onboarding, :branch}}
@@ -303,7 +306,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
 
     case request(client, :put, "/repos/#{slug}/contents/#{@path}", body) do
       {:ok, %{status: status}} when status in [200, 201] -> :ok
-      {:ok, %{status: status} = response} when status in [401, 403] -> refused(response)
+      {:ok, %{status: status} = response} when status in @refused -> refused(response)
       {:ok, _other} -> {:error, {:github_onboarding, :write}}
       {:error, _reason} = error -> error
     end
@@ -333,7 +336,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
           do: create_pull(client, repository, owner, title, body, false),
           else: reconcile_pull(client, slug, owner)
 
-      {:ok, %{status: status} = response} when status in [401, 403] ->
+      {:ok, %{status: status} = response} when status in @refused ->
         refused(response)
 
       {:ok, _other} ->
@@ -369,7 +372,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
     case request(client, :get, "/repos/#{slug}/pulls?#{query}") do
       {:ok, %{status: 200, body: [pull | _]}} -> {:ok, pull}
       {:ok, %{status: 200, body: []}} -> {:ok, :not_found}
-      {:ok, %{status: status} = response} when status in [401, 403] -> refused(response)
+      {:ok, %{status: status} = response} when status in @refused -> refused(response)
       {:ok, _other} -> {:error, {:github_onboarding, :pull_request}}
       {:error, _reason} = error -> error
     end
@@ -387,16 +390,23 @@ defmodule Ryker.GitHub.RepositoryFiles do
     end
   end
 
-  # GitHub refuses every write to an archived repository with 403 "Repository
-  # was archived so is read-only", which read as a missing App permission
-  # (AndrewDryga/andrewdryga.github.com, 2026-09-27).
-  defp refused(%{body: %{"message" => message}}) when is_binary(message) do
-    if message =~ ~r/archived/i,
-      do: {:error, {:github_onboarding, :archived}},
-      else: {:error, {:github_onboarding, :permission}}
+  # GitHub turned the request away. Its rate limits answer 403 as well as
+  # 429, and are a wait. It refuses every write to an archived repository
+  # with 403 "Repository was archived so is read-only", which read as a
+  # missing App permission (AndrewDryga/andrewdryga.github.com, 2026-09-27).
+  # Any other refusal is a permission the App lacks.
+  defp refused(response) do
+    cond do
+      Transport.rate_limited?(response) -> {:error, {:github_onboarding, :rate_limited}}
+      archived?(response) -> {:error, {:github_onboarding, :archived}}
+      true -> {:error, {:github_onboarding, :permission}}
+    end
   end
 
-  defp refused(_response), do: {:error, {:github_onboarding, :permission}}
+  defp archived?(%{body: %{"message" => message}}) when is_binary(message),
+    do: message =~ ~r/archived/i
+
+  defp archived?(_response), do: false
 
   # -- Files -----------------------------------------------------------------------
 
@@ -419,7 +429,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
       when is_binary(content) ->
         decode_file(content, body["sha"])
 
-      {:ok, %{status: status} = response} when status in [401, 403] ->
+      {:ok, %{status: status} = response} when status in @refused ->
         refused(response)
 
       {:ok, _unavailable} ->
